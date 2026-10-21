@@ -59,7 +59,8 @@ class GrokHooks(unittest.TestCase):
             "StopCancelled": [{"hooks": [state]}],
             "StopFailure": [{"hooks": [state]}],
             "Notification": [{"hooks": [state]}],
-            "PostToolUse": [{"matcher": "ask_user_question", "hooks": [state]}]}}
+            "PostToolUse": [{"matcher": "ask_user_question", "hooks": [state]}],
+            "PreToolUse": [{"matcher": "ask_user_question", "hooks": [gate]}]}}
 
     def setUp(self):
         self.home = Home()

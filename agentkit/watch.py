@@ -4293,7 +4293,7 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
         return
     tail = pane_tail(pane)
     if (auth_expired_on(harness, tail, name) or stuck_on(harness, tail, name)
-            or stall_mark(harness, pane, name, log)
+            or stall_mark(harness, pane, name, lambda _: None)
             or (load_state()["stalls"].get(name) or {}).get("told")):
         return
     began = _stamp(live.get("turn_began"))
@@ -4329,7 +4329,8 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
         return
     current = pane_text(session)
     # A prompt hook can precede the composer redraw: the turn must be over too.
-    if (not at_prompt(session, pane=current) or seat_read(name).get("interrupted")
+    found = observed(name, harness, current, live, time.time()) if current.strip() else {}
+    if (not _free(harness, found) or found.get("interrupted")
             or progress_output(harness, pane_tail(current)) != said):
         return          # it moved, or the seat is the user's again: neither is this rule's
     if type_into(session, keys, log):
