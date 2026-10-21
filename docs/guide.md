@@ -526,7 +526,7 @@ above, each of those measures adding what Artificial Analysis's intelligence ind
 credited upward; a board row naming no effort stands at the model's highest effort with an index, or at every effort
 where it has none (`placed`). A price is read only off a board's row at the row's own effort. Each row carries the
 config name that runs it and the roles it runs it in (`roles`), those numbers and which board model and effort each
-came from.
+board's measures came from, the first naming an effort, else the first.
 
 Every row is scored per role (`scored`), on quality and cost alone: speed is ak's own to fix, and the subscriptions
 follow the choice. Each measure is the points the row is behind the best value on its whole board, models no harness

@@ -211,7 +211,8 @@ def rows(cfg, boards, harnesses):
     runs it and the roles it runs it in, the numbers each board says of it there, each measure
     placed on its own (`placed`; a price only off a board's row at the effort itself), the
     points a measure read off a higher effort adds (`drops`) and which board model and effort
-    each board's first measure came from."""
+    each board's measures came from: the first naming an effort, else the first, as one measure
+    a board tests at an effort alone holds the row to it (menu.models_at)."""
     indexes = {board: indexed(held.get("rows") or []) for board, held in boards.items()}
     names = {}        # (harness, model, effort) -> the config name some role runs it at
     roles = {}        # (harness, model, effort) -> the roles the config runs it in
@@ -258,8 +259,9 @@ def rows(cfg, boards, harnesses):
                         row["values"][column] = source["values"][column]
                         if drop:
                             row["drops"][column] = drop
-                        row["matched"].setdefault(board, {"model": source["model"],
-                                                          "effort": source["effort"]})
+                        if row["matched"].get(board, {}).get("effort") is None:
+                            row["matched"][board] = {"model": source["model"],
+                                                     "effort": source["effort"]}
                 table.append(row)
     return table
 

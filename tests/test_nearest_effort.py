@@ -77,9 +77,11 @@ class NearestEffort(Sandbox):
     def test_a_board_s_rows_at_one_effort_say_it_together_however_the_model_is_found(self):
         # Arena's agent boards write `Acme 5 (max)` and its text boards `acme-5-max`: at max
         # both speak, the row named at it winning a column they share, and so does a row naming
-        # no effort while Artificial Analysis has no index, which alone speaks at high; the
-        # effort word comes off the name before the model is matched, so a version, a `-free`
-        # tier, a qualifier in brackets and `benchmark` find the row too
+        # no effort while Artificial Analysis has no index, which alone speaks at high; the row
+        # at max is matched at max whichever measure comes first, so only the row at high stands
+        # at every effort (menu.models_at); the effort word comes off the name before the model
+        # is matched, so a version, a `-free` tier, a qualifier in brackets and `benchmark` find
+        # the row too
         self.stack.enter_context(patch.object(config, "catalog", return_value=[
             {"id": "acme-5", "efforts": ["high", "max"]}, {"id": "acme-5-free", "efforts": ["max"]},
             {"id": "acme-pro-1.0", "efforts": ["max"]}, {"id": "acme-6", "efforts": ["max"]},
@@ -89,19 +91,22 @@ class NearestEffort(Sandbox):
             "acme": {"harness": "acme", "model": "acme-5", "effort": "high", "provider": provider},
             "alias": {"harness": "acme", "model": "private-alias", "effort": "max",
                       "provider": provider, "benchmark": "Acme 5"}}
-        arena = {"rows": [board_row("Acme 5", "max", **{"arena.agent_steerability": 0.3,
+        arena = {"rows": [board_row("acme-5", **{"arena.agent_bash_reliability": 0.5,
+                                                 "arena.webdev": 1400.0}),
+                          board_row("Acme 5", "max", **{"arena.agent_steerability": 0.3,
                                                         "arena.webdev": 1600.0}),
                           board_row("acme-5-max", **{"arena.text_factuality.coding": 1500.0}),
-                          board_row("acme-5", **{"arena.webdev": 1400.0}),
                           board_row("acme-pro-max", **{"arena.webdev": 1300.0}),
                           board_row("Acme 6 (Default Fallback)-max", **{"arena.webdev": 1200.0})]}
         table = {matrix.row_label(row): row
                  for row in matrix.rows(self.cfg, {ARENA: arena}, ["acme"])}
-        at_max = {"arena.agent_steerability": 0.3, "arena.webdev": 1600.0,
-                  "arena.text_factuality.coding": 1500.0}
+        at_max = {"arena.agent_bash_reliability": 0.5, "arena.webdev": 1600.0,
+                  "arena.agent_steerability": 0.3, "arena.text_factuality.coding": 1500.0}
         self.assertEqual(table["acme-5 @ max"]["values"], at_max)
         self.assertEqual(table["acme-5 @ max"]["matched"], {ARENA: {"model": "Acme 5", "effort": "max"}})
-        self.assertEqual(table["acme @ high"]["values"], {"arena.webdev": 1400.0})
+        self.assertEqual((table["acme @ high"]["values"], table["acme @ high"]["matched"]),
+                         ({"arena.agent_bash_reliability": 0.5, "arena.webdev": 1400.0},
+                          {ARENA: {"model": "acme-5", "effort": None}}))
         self.assertEqual((table["acme-5-free @ max"]["values"], table["alias @ max"]["values"]),
                          (at_max, at_max))
         self.assertEqual(table["acme-pro-1.0 @ max"]["matched"],
