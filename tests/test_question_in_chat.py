@@ -66,6 +66,7 @@ class QuestionInChat(unittest.TestCase):
         self.assertIn(SECOND, answer["reason"])
         self.assertNotIn(FIRST, answer["reason"])
         self.assertIsNotNone(self.stop(FIRST + "\nWhich account should acme use?"))
+        self.write("stop", {**self.read("stop"), "blocks": 0})
         self.assertIsNone(self.stop("**" + FIRST + "**\n\n" + SECOND.replace(" · ", "\n")))
 
     def test_the_same_choices_in_a_markdown_list_are_visible(self):
@@ -89,6 +90,7 @@ class QuestionInChat(unittest.TestCase):
     def test_background_work_does_not_bury_a_question_at_the_stop(self):
         for key in ("background_tasks", "backgroundTasks"):
             with self.subTest(key=key):
+                self.write("stop", {**self.read("stop"), "blocks": 0})
                 self.kept(FIRST)
                 payload = {key: [{"type": "subagent"}]}
                 answer = self.stop("The worker will finish later.", **payload)
