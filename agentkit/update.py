@@ -45,6 +45,7 @@ STEP_CAP = 30 * 60          # an upgrade that is not done in half an hour is not
 SMOKE_CAP = 2 * 60 * 60     # the gate makes real model calls and waits out two retry backoffs
 E2E_CAP = 90 * 60           # a fresh account, three harness installs and one real merged run
 FETCH_CAP = 60              # the tick's look at origin; one not back by then is offline
+LOCK_STALE = 10 * 60        # git holds a lock while it writes one file: one older, a killed git's
 START_WAIT = 2              # the detached start-up check's deadline for origin
 UPDATE_TAIL = 10            # how many of a failed start-up update's last lines the menu shows
 LIVE_REPORT_CAP = 4 * 1024  # a typed hand-back stays readable even with long diagnostics
@@ -503,6 +504,31 @@ def left_as_is():
             else "dirty" if code or changes else "")
 
 
+def after_killed_git():
+    """Clear what a git killed in ~/agentkit left -- the host's memory killer takes git first --
+    and whether that finished a fast-forward it had cut off, whose install.sh is then owed.
+
+    Its locks go once `LOCK_STALE`: a HEAD.lock left so failed each fast-forward after it,
+    every one having moved the files but not HEAD.  A checkout whose files and index are, and
+    are only, a commit origin's main has past HEAD is such a move, and HEAD goes to that commit.
+    """
+    git = agentkit_dir() / ".git"
+    for lock in (*git.glob("*.lock"), *git.glob("logs/**/*.lock"), *git.glob("refs/**/*.lock")):
+        try:
+            if time.time() - lock.stat().st_mtime > LOCK_STALE:
+                lock.unlink()
+        except OSError:
+            pass                # its git ended meanwhile
+    if (left_as_is() != "dirty" or _git("diff", "--quiet")[0]
+            or _git("ls-files", "--others", "--exclude-standard")[1]):
+        return False
+    tree, head = _git("write-tree")[1], _git("rev-parse", "HEAD")[1]
+    moved = dict(line.split() for line in
+                 _git("log", "--format=%T %H", "HEAD..origin/main")[1].splitlines()).get(tree)
+    return bool(moved) and not _git("update-ref", "-m", "ak: the fast-forward a killed git cut off",
+                                    "HEAD", moved, head)[0]
+
+
 def startup():
     """The menu's detached check and update; JSON steps and a result on its pipe, no terminal.
 
@@ -548,20 +574,22 @@ def update_agentkit(progress=None, pull=True):
         # the pending mark of another still running, which then fails with nothing to retry it
         fcntl.flock(lock, fcntl.LOCK_EX)
         directory = agentkit_dir()
-        why = left_as_is()
-        if why:
-            say(f"update: agentkit: left as it is: {directory} is {why}")
-            return 1
         if upgrading():
             # asked under this lock, which `upgrade` waits for before it begins, so its gates
             # test one commit from start to end; the next tick after it moves this one (go_live)
             say("update: agentkit: moves once the harness upgrade running now ends")
             return 0
+        pending = config.STATE / "agentkit-install-pending"
+        if after_killed_git():
+            pending.touch()
+        why = left_as_is()
+        if why:
+            say(f"update: agentkit: left as it is: {directory} is {why}")
+            return 1
         install = [str(directory / "install.sh")]
         merge = ["git", "-C", str(directory), "merge", "--ff-only"]   # to a commit known later
         steps = ([["git", "-C", str(directory), "fetch", "--quiet", "origin", "main"], merge]
                  if pull is True else [merge] if pull else []) + [install]
-        pending = config.STATE / "agentkit-install-pending"
         for done, cmd in enumerate(steps):
             if progress:
                 progress(done, len(steps))
