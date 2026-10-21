@@ -43,6 +43,12 @@ class Runner(unittest.TestCase):
             self.home.run("sleep", "60", timeout=1)
 
     @unittest.skipUnless(Path("/proc/self/environ").exists(), "no /proc to find strays in")
+    def test_a_hang_fails_while_a_detached_process_still_holds_its_output(self):
+        with self.assertRaisesRegex(AssertionError, "still running after 1 s"):
+            self.home.run("sh", "-c", "setsid sleep 60 & sleep 60", timeout=1)
+        self.assertTrue(self.home._strays())
+
+    @unittest.skipUnless(Path("/proc/self/environ").exists(), "no /proc to find strays in")
     def test_a_process_the_program_detached_ends_with_the_home(self):
         done = self.home.run("sh", "-c", "setsid sleep 60 </dev/null >/dev/null 2>&1 & echo $!")
         pid = int(done.out)
@@ -53,8 +59,12 @@ class Runner(unittest.TestCase):
 
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
     def test_tmux_is_real_and_only_this_homes_own(self):
-        refused = self.home.run("tmux", "-S", "/tmp/elsewhere", "list-sessions")
-        self.assertEqual(refused.code, 2, refused.err)
+        for flags in (["-S", "/tmp/elsewhere"], ["-2S/tmp/elsewhere"], ["-2uS", "/tmp/elsewhere"],
+                      ["-2f", "/dev/null", "-S", "/tmp/elsewhere"]):
+            refused = self.home.run("tmux", *flags, "list-sessions")
+            self.assertEqual(refused.code, 2, (flags, refused.err))
+        kept = self.home.run("tmux", "-f/dev/null", "-L", "Sx", "-uLS", "list-sessions")
+        self.assertNotEqual(kept.code, 2, kept.err)
         started = self.home.run("tmux", "-L", SOCKET, "new-session", "-d", "-s", "acme",
                                 "sleep 600", env={"TMUX": "/tmp/elsewhere,1,0"})
         self.assertEqual(started.code, 0, started.err)

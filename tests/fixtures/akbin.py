@@ -50,15 +50,19 @@ Done = namedtuple("Done", "code out err")
 LOG = "#!/bin/sh\n{python} -c 'import json, sys; print(json.dumps(sys.argv[1:]))' \"$@\" >>{log}\n"
 REFUSE = LOG + 'echo "{name}: not scripted in this test" >&2\nexit 1\n'
 # A socket path could name any server on the machine, and TMUX or TMUX_PANE the caller's own.
+# Its flags are read as tmux's getopt reads them: bundled, a value attached or in the next word.
 TMUX = LOG + """skip=
 for a do
   if [ -n "$skip" ]; then skip=; continue; fi
-  case $a in
-    -S*) echo "tmux: a test's tmux takes no socket path" >&2; exit 2 ;;
-    -[cfLT]) skip=1 ;;
-    -*) ;;
-    *) break ;;
-  esac
+  case $a in --|-|[!-]*) break ;; esac
+  flags=${{a#-}}
+  while [ -n "$flags" ]; do
+    flag=${{flags%"${{flags#?}}"}}; flags=${{flags#?}}
+    case $flag in
+      S) echo "tmux: a test's tmux takes no socket path" >&2; exit 2 ;;
+      [cfLT]) [ -z "$flags" ] && skip=1; break ;;
+    esac
+  done
 done
 unset TMUX TMUX_PANE
 export TMUX_TMPDIR={tmpdir}
@@ -240,9 +244,13 @@ def _wait_gone(pid, bound=30):
 
 
 def _end(proc):
-    """Kill a process's whole session and collect it."""
+    """Kill a process's whole session and collect it, without waiting on its pipes: a process
+    it detached may hold them open long after."""
     try:
         os.killpg(proc.pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
-    proc.communicate()
+    proc.wait()
+    for pipe in (proc.stdin, proc.stdout, proc.stderr):
+        if pipe:
+            pipe.close()
