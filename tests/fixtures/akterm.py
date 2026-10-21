@@ -13,7 +13,6 @@ terminal a person started it from.
         menu.keys("q")
 """
 
-import os
 import shlex
 import tempfile
 import time
@@ -37,9 +36,7 @@ class Terminal:
         self.home = home
         conf = home.root / "terminal.conf"
         conf.write_text(CONF)
-        handle, status = tempfile.mkstemp(".status", "terminal-", home.root)   # one per terminal
-        os.close(handle)
-        self.status = Path(status)
+        self.status = Path(tempfile.mkdtemp("-terminal", dir=home.root)) / "status"   # its own
         command = shlex.join(["sh", "-c", KEEP, str(self.status),
                               *(f"{key}={value}" for key, value in (env or {}).items()),
                               AK, *args])
@@ -81,7 +78,7 @@ class Terminal:
         """The program's exit status once it has ended."""
         deadline = time.monotonic() + bound
         while True:
-            status = self.status.read_text()
+            status = self.status.read_text() if self.status.exists() else ""
             if status.endswith("\n"):
                 return int(status)
             if time.monotonic() > deadline:
