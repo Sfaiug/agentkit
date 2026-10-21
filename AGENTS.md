@@ -21,7 +21,7 @@ This section changes only with the owner's yes. Every other line has one home, a
 
 - Python 3.11 standard library and bash. Python takes no dependency, ever.
 - One test file per behaviour: `python3 tests/test_<name>.py`, run straight, no runner.
-- The `tests:` gate (`tests/landing.py`) runs `bash tests/smoke.sh` beside `tests/every_file.py` (remaining `tests/test_*.py`; see its docstring). `AK_SHARD=k/N` selects both parts' k-th share (1-based); unset or `1/1` runs all. It refuses Python 3.11 cannot parse, f-strings aside, so `python3.11 -m py_compile` what you touch holding one like `f"{data["key"]}"`. Dependent checks stay together; each piece has a tmux safety guard and sandbox. `AGENTKIT_ACCEPTANCE_REQUIRED=1` makes skips fail; supported network namespaces allow only loopback.
+- The `tests:` gate (`tests/landing.py`) runs `bash tests/smoke.sh` beside `tests/every_file.py` (remaining `tests/test_*.py`; see its docstring). `AK_SHARD=k/N` selects both parts' k-th share (1-based); unset or `1/1` runs all. It refuses Python 3.11 cannot parse, f-strings aside, so `python3.11 -m py_compile` what you touch holding one like `f"{data["key"]}"`. `AGENTKIT_ACCEPTANCE_REQUIRED=1` makes skips fail; supported network namespaces allow only loopback.
 - Match the file's style.
 - `docs/guide.md` follows code changes. `README.md` holds only what ak is, installation and starting.
 - `orchestrator.md` is the rulebook agentkit sessions launch with, not one for here.
