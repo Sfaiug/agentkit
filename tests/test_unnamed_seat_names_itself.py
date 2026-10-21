@@ -15,6 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
+from fixtures.seats import cursor_row
 from agentkit import config, menu, notify, orch, watch
 
 SEAT, SAID = "acme-api", "The parser is in place."
@@ -52,6 +53,8 @@ class UnnamedSeatNamesItself(Sandbox):
             self.pane = self.pane.replace(empty, row.format(args[-1]))
         elif args[0] == "send-keys":
             self.pane = (REPO / f"tests/fixtures/{self.harness}-working-pane.txt").read_text()
+        if args[-1] == "#{cursor_y}":
+            return 0, cursor_row(self.pane)
         return 0, self.pane if args[0] == "capture-pane" else ""
 
     def hook(self, blocks=0, **payload):

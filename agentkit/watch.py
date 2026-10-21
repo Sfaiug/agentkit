@@ -736,6 +736,9 @@ def screen(harness):
              "faint": tuple(colour for colour in block.get("faint") or ()
                             if isinstance(colour, str)),
              "tray": _pattern(block.get("tray"), path),
+             # it keeps the terminal cursor in its composer's box while keys go there
+             # (`off_composer`)
+             "cursor": block.get("cursor") is True,
              # the keys that hand its composer to $VISUAL, ak's editor (`seat_editor`)
              "editor": tuple(key for key in block.get("editor") or ()
                              if isinstance(key, str) and key),
@@ -3202,9 +3205,38 @@ def pane_unread(session):
     return False
 
 
+def off_composer(session):
+    """Is that seat's terminal cursor outside its composer's box, of a harness keeping it there
+    while keys go there (`[screen] cursor`): one opening a dialog moves it into the dialog, and
+    a key sent then goes into the dialog's search, Enter picking one of its rows.  The box is
+    the bottom run of rows its `composer` pattern names, read off the same pane as the cursor;
+    a dialog drawn inside that box itself, in a pane too short for it to clear the box, is not
+    told apart.  A cursor or pane that cannot be read is outside."""
+    try:
+        harness = seat_model(config.load(), session["name"])[0]
+        chrome = screen(harness) if harness else {}
+    except (config.Error, OSError):
+        return False
+    if not chrome.get("cursor") or not chrome["composer"]:
+        return False
+    server, pane = orch.seat_socket(session), _pane(session)
+    rc, at = orch.tmux_out("display-message", "-p", "-t", pane, "#{cursor_y}", socket=server)
+    code, shown = orch.tmux_out("capture-pane", "-p", "-t", pane, socket=server, rows=True)
+    box = [chrome["composer"].fullmatch(row.strip()) is not None for row in shown.splitlines()]
+    if rc != 0 or code != 0 or not at.isdigit() or True not in box:
+        return True
+    top = bottom = max(row for row, inside in enumerate(box) if inside)
+    while top and box[top - 1]:
+        top -= 1
+    return not top <= int(at) <= bottom
+
+
 def _send_enter(session, log):
-    """One Enter completing a line already begun; False where the send failed."""
+    """One Enter completing a line already begun; False where the send failed or the seat's
+    cursor is off its composer (`off_composer`)."""
     name = session["name"]
+    if off_composer(session):
+        return False
     rc, out = orch.tmux_out("send-keys", "-t", _pane(session), "Enter",
                             socket=orch.seat_socket(session))
     if rc != 0:
@@ -3218,10 +3250,11 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak", put=None)
 
     `typed` is told the moment the text is in, before the Enter that can still fail.
     `source="owner"` marks an owner's reply relayed unchanged, including from Discord.
-    None means unread input deferred this line before any receipt or key was written.
+    None means unread input, or a cursor off the composer (`off_composer`), deferred this line
+    before any receipt or key was written.
     `put`, where given, puts the text in in place of its keys, and says whether it did.
     """
-    if pane_unread(session):
+    if pane_unread(session) or off_composer(session):
         return None
     name = session["name"]
     record = config.session_records().get(name, {})
@@ -3728,10 +3761,13 @@ def seat_editor(session, cfg=None):
 
 def _edit(session, where, mode, line=""):
     """Ask ak's editor for `line` or `back` with that line (`aside_editor`) and press the keys
-    that open it: its answer, or None where it gives none within SENT_WAIT.  The editor reads
+    that open it: its answer, or None where it gives none within SENT_WAIT, or where no key
+    goes out as the pane's cursor is off its composer (`off_composer`).  The editor reads
     the composer itself, which a screen can draw late or cropped.  The ask is taken back after,
     for the owner's own edit never to find -- one that keys went out for and that went
     unanswered turned to `none`, which an edit they open late leaves as it is."""
+    if off_composer(dict(session, pane=where["id"])):
+        return None
     server, pane, ask = orch.seat_socket(session), where["id"], aside_editor.request(mode, line)
     after = ("set-option", "-pu", "-t", pane, aside_editor.ASK)
     try:
