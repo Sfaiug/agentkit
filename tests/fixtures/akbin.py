@@ -182,6 +182,11 @@ class Home:
             os.utime(path, (stamp, stamp))
         return path
 
+    def tree(self):
+        """Every file and directory under HOME, with each file's bytes: what a command left."""
+        return {str(path.relative_to(self.path)): path.read_bytes() if path.is_file() else None
+                for path in sorted(self.path.rglob("*"))}
+
     def ak(self, *args, **kwargs):
         """Run the program once; see `run`."""
         return self.run(AK, *args, **kwargs)

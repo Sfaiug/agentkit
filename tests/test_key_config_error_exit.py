@@ -82,7 +82,7 @@ class ConfigErrorExit(unittest.TestCase):
         """Run each command against a config holding `data`, and `check` its stderr once it has
         exited 2 and left HOME as it was."""
         self.config.write_bytes(data)
-        before = sorted(self.home.path.rglob("*"))
+        before = self.home.tree()
         for command in COMMANDS:
             with self.subTest(command=" ".join(command)):
                 done = self.home.ak(*command)
@@ -90,8 +90,7 @@ class ConfigErrorExit(unittest.TestCase):
                 self.assertNotIn("Traceback", done.err)
                 if command[0] != "doctor":
                     self.assertEqual(done.out, "")
-                self.assertEqual(self.config.read_bytes(), data)
-                self.assertEqual(sorted(self.home.path.rglob("*")), before)
+                self.assertEqual(self.home.tree(), before)
                 check(f"ak {command[0]}: {self.config}: ", done.err)
 
     def test_each_rule_broken_is_named_in_one_line_after_the_file(self):

@@ -22,12 +22,6 @@ MENU = ("ak attach: usage: ak [--client] [--overlay] [--dry-run]   "
         "(the menu; `ak attach` is the same)  (got '--')\n")
 
 
-def tree(root):
-    """Every file and directory under `root`, with each file's bytes."""
-    return {str(path.relative_to(root)): path.read_bytes() if path.is_file() else None
-            for path in sorted(root.rglob("*"))}
-
-
 class HelpBeforeTheDoubleDash(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -85,11 +79,11 @@ class HelpBeforeConfig(unittest.TestCase):
                 self.assertEqual(done.out, self.good["run", "-h"])
 
     def test_help_writes_nothing_under_home(self):
-        before = tree(self.home.path)
+        before = self.home.tree()
         for args in HELPS + BAD_ARGS:
             with self.subTest(args=args):
                 self.assertEqual(self.home.ak(*args).code, 0)
-        self.assertEqual(tree(self.home.path), before)
+        self.assertEqual(self.home.tree(), before)
 
     def test_the_command_itself_refuses_that_config_and_names_it(self):
         done = self.home.ak("usage")

@@ -20,12 +20,6 @@ MENU = ("ak attach: usage: ak [--client] [--overlay] [--dry-run]   "
         "(the menu; `ak attach` is the same)  (got '{}')\n")
 
 
-def tree(root):
-    """Every file and directory under `root`, with each file's bytes."""
-    return {str(path.relative_to(root)): path.read_bytes() if path.is_file() else None
-            for path in sorted(root.rglob("*"))}
-
-
 class UnknownVerb(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -49,11 +43,11 @@ class UnknownVerb(unittest.TestCase):
                                            f"expected one of {VERBS}\n")
 
     def test_a_refused_word_starts_nothing_and_writes_nothing(self):
-        before = tree(self.home.path)
+        before = self.home.tree()
         for word in GUESSES:
             with self.subTest(word):
                 self.assertEqual(self.home.ak(word).code, 2)
-        self.assertEqual(tree(self.home.path), before)
+        self.assertEqual(self.home.tree(), before)
         self.assertFalse((self.home.path / ".agentkit/runs").exists())
         self.assertNotEqual(self.home.tmux("list-sessions").code, 0, "ak's tmux server started")
         self.assertEqual(self.home.calls("gh"), [])
