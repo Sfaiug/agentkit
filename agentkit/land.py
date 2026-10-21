@@ -604,10 +604,12 @@ def _landing_checks(directory, state, scratch, tip):
     _, body, _ = task.parse_task(directory / "task.md")
     # A review PR owes the target's suite, never an earlier head's suite too.
     cmds = [] if state.get("review_pr") else task.done_when(body, directory / "task.md")
+    once = task.group_commands(gitcall.with_suite(cmds, scratch, ref=tip))[1]
+    # Added after grouping: a shell line with an odd quote would hide a `# once` marker.
     own = gitcall.declared(scratch, "tests")
-    if own and own.split() != (gitcall.declared_at(scratch, tip, "tests") or "").split():
-        cmds = [*cmds, f"{own}  # once"]
-    return tuple(task.group_commands(gitcall.with_suite(cmds, scratch, ref=tip))[1])
+    if own and own != gitcall.declared_suite(scratch, ref=tip):
+        once.append(own)
+    return tuple(once)
 
 
 def _check_tests(directory, state, scratch, tree, suite, piece, tests, log):

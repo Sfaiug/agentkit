@@ -13,7 +13,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_lander import ONCE, SUITE, LanderFixture
-from agentkit import land
+from agentkit import land, record, run
 
 
 class ChangedSuiteLine(LanderFixture, unittest.TestCase):
@@ -36,6 +36,21 @@ class ChangedSuiteLine(LanderFixture, unittest.TestCase):
         self.assertIn("land", self.wait(first))
         self.assertIn(SUITE, self.ran())
         self.assertIn(tighter, self.ran())
+
+    def test_a_rewritten_line_with_an_odd_quote_still_runs(self):
+        broken = "false # don't skip this"
+        first = self.member(**{"AGENTS.md": f"---\ntests: {broken}\n---\n"})
+        self.advance()
+        land.check_line(self.turn)
+        self.assertIn(broken, self.wait(first)["fix"]["line"])
+
+    def test_a_line_changed_inside_quotes_is_rewritten(self):
+        self.advance(**{"AGENTS.md": "---\ntests: test 'a b' = 'a b'\n---\n"})
+        rewritten = "test 'a  b' = 'a b'"
+        first = self.member(**{"AGENTS.md": f"---\ntests: {rewritten}\n---\n"})
+        run.git(self.repo, "checkout", "ak/fix-api")
+        checks = land._landing_checks(first, record.read_state(first), self.repo, "main")
+        self.assertIn(rewritten, checks)
 
     def test_a_line_left_alone_runs_once(self):
         first = self.member(**{"AGENTS.md": f"---\ntests:   {SUITE}\n---\n"})
