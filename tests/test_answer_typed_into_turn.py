@@ -36,6 +36,9 @@ class Harness:
     def conversation(self, record, cwd):
         return "c1"
 
+    def transcript(self, record, cwd, conversation):
+        return "c1.jsonl"
+
     def user_messages(self, record, cwd, conversation, *, seat=None):
         return [{"at": at, "text": "words"} for at in self.said]
 
