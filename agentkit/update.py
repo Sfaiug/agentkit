@@ -510,24 +510,25 @@ def after_killed_git(target):
 
     A HEAD.lock left so failed each fast-forward after it, every one having moved the files but
     not HEAD.  Only a checkout whose files and index are, and are only, a commit on the way from
-    HEAD to `target` is such a move: anything else is somebody's work, a git maybe still at it,
-    so only then do locks older than `LOCK_STALE` go and HEAD go to that commit.
+    HEAD to `target` is such a move: anything else is somebody's work, a git maybe still at it.
+    Then the locks on what this and the fast-forward after it write go once `LOCK_STALE`, those
+    a killed git left on HEAD, its log, main and the index, and HEAD goes to that commit.
     """
     if (not target or left_as_is() != "dirty" or _git("diff", "--quiet")[0]
             or _git("ls-files", "--others", "--exclude-standard")[1]):
         return False
-    tree, head = _git("write-tree")[1], _git("rev-parse", "HEAD")[1]
-    moved = dict(line.split() for line in _git("log", "--ancestry-path", "--format=%T %H",
-                                               f"HEAD..{target}")[1].splitlines()).get(tree)
+    head = _git("rev-parse", "HEAD")[1]
+    moved = next((commit for commit in _git("rev-list", "--ancestry-path", f"HEAD..{target}")[1]
+                  .split() if not _git("diff-index", "--cached", "--quiet", commit)[0]), "")
     if not moved:
         return False
-    git = agentkit_dir() / ".git"
-    for lock in (*git.glob("*.lock"), *git.glob("logs/**/*.lock"), *git.glob("refs/**/*.lock")):
+    for name in ("HEAD.lock", "logs/HEAD.lock", "refs/heads/main.lock", "index.lock"):
+        lock = agentkit_dir() / ".git" / name
         try:
             if time.time() - lock.stat().st_mtime > LOCK_STALE:
                 lock.unlink()
         except OSError:
-            pass                # its git ended meanwhile
+            pass                # none, or its git ended meanwhile
     return not _git("update-ref", "-m", "ak: the fast-forward a killed git cut off",
                     "HEAD", moved, head)[0]
 

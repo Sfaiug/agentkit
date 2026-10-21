@@ -41,10 +41,15 @@ class KilledGitMove(unittest.TestCase):
 
     def test_the_cut_move_is_finished_and_installed(self):
         self.cut(DAY)
+        index, other = self.clone / ".git/index.lock", self.clone / ".git/refs/heads/other.lock"
+        for lock in index, other:   # one more a killed git left, one a git may still hold
+            lock.write_text("")
+            os.utime(lock, (time.time() - DAY,) * 2)
         said, _ = self.tick()
         self.assertEqual(said, [f"agentkit is live at {self.new[:12]}"])
         self.assertEqual((self.head(), git(self.clone, "status", "--porcelain")), (self.new, ""))
-        self.assertEqual((self.installs(), self.lock.exists()), (1, False))
+        self.assertEqual((self.installs(), self.lock.exists(), index.exists(), other.exists()),
+                         (1, False, False, True))
 
     def test_a_git_still_at_work_or_changes_of_its_own_keep_it_as_it_is(self):
         self.cut(0)
