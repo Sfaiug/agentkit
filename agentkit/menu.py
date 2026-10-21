@@ -4129,9 +4129,9 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
 
 def sign_in(cfg, keyboard, provider, account):
     """`provider`'s login for `account` (None: its only one) made afresh on the terminal, its
-    `↻ log in again` (subscription_acts): its harness's `login again`, and the menu back
-    as soon as that ends, one that failed once what it said has been read.  One that finished
-    is asked its end at once (`logins.renewed`), so the menu comes back with its meter grey."""
+    `↻ log in again` (`subscription_acts`): its harness's `login again` (`logins.harness`), and the
+    menu back as soon as that ends, one that failed once what it said has been read.  One that
+    finished is asked its end at once (`logins.renewed`), so the menu comes back with its meter grey."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     harness = logins.harness(cfg, provider)
     if harness and not _adapter_verbs(keyboard, harness, ("login again",), provider, account,
