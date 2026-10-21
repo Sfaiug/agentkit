@@ -1088,6 +1088,8 @@ stop();
         self.assertEqual(self.models(), [
             ["mimo/mimo-v2.6-pro", "MiMo V2.6 Pro", "none high"],
             ["mimo/mimo-v2.6-flash", "MiMo V2.6 Flash", "none high"],
+            ["opencode/deepseek-v4.1-flash-free", "DeepSeek V4.1 Flash Free", "low high max"],
+            ["opencode/glm-5.3-flash-free", "GLM-5.3-Flash Free", "low high max"],
         ])
 
     def test_mimo_takes_thinking_off_or_on(self):
