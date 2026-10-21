@@ -374,18 +374,23 @@ def conversation_stores():
     return [{"root": sessions(), "pattern": "[0-9]*/[0-9]*/[0-9]*/*/"}]
 
 
-def end_conversation(path):
+def end_conversation(path, ends):
     """The session's row in session-index.db, then the views cached of it, then its folder:
-    a pass cut short finds the folder again, and nothing of it is left once that goes."""
+    a pass cut short finds the folder again, and nothing of it is left once that goes.  Asked
+    once Muse's writers wait on the index, as a session resumed meanwhile has written."""
     folder = Path(path)
     root = folder.parents[3]
+    views = sorted(root.glob(f".msp-view-*/{folder.name}"))
     index = (root.parent / "session-index.db").as_uri() + "?mode=rw"
     try:
         with contextlib.closing(sqlite3.connect(index, uri=True, timeout=30)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            if not ends(*views):
+                return
             db.execute("DELETE FROM sessions WHERE session_dir = ?", (str(folder),))
     except sqlite3.Error as exc:
         raise OSError(f"Muse's session index: {exc}") from exc
-    for view in root.glob(f".msp-view-*/{folder.name}"):
+    for view in views:
         shutil.rmtree(view)
     shutil.rmtree(folder)
 

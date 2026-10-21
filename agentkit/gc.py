@@ -415,6 +415,14 @@ def conversation_stale(path, now, paths):
     return f"untouched for {int((now - at) // 86400)} days"
 
 
+def conversation_ends(path, *parts):
+    """Whether that conversation may go now: still stale, and each part of it its harness keeps
+    elsewhere (Muse's cached views) ours, reached through no link and held by nobody."""
+    paths = tmp_processes()[0]
+    return (conversation_stale(path, time.time(), paths) is not None
+            and all(retention.safe(part) and not retention.busy(part, paths) for part in parts))
+
+
 def last_write(path):
     """When a conversation's file, or the newest file in its folder, last changed; an empty
     folder's own time, None for anything else, or for what cannot all be read, which stays.
@@ -1005,11 +1013,11 @@ def gc(report, automatic=False):
                         retention.remove(path)
                         done = True
                     elif item["kind"] == "conversation":
-                        if (item["harness"] in balked
-                                or not conversation_stale(path, time.time(), tmp_processes()[0])):
+                        if item["harness"] in balked:
                             continue
                         try:
-                            end_conversation(item["harness"], path)
+                            end_conversation(item["harness"], path,
+                                             lambda *parts: conversation_ends(path, *parts))
                         except (OSError, subprocess.SubprocessError):
                             balked.add(item["harness"])    # one failure, not one per conversation
                             raise
