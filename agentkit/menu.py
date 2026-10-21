@@ -4879,7 +4879,7 @@ def took(seconds):
 def past_said(cfg, session):
     """(sentence, stats) a past session's row opens with: its plan's first done line, then its
     tasks, how long it took, from its start to its last done, else to its stop, and the models it
-    used (past_models), each by its full name (`config.model_name`)."""
+    used (past_models)."""
     name, start, stop = session["name"], session.get("created"), session["closed"]
     seat = notify.conversation_of(name)
     last = seat and seat[3] and (history.last_done(f"{seat[0].name}:{seat[3]}") or [None])[0]
@@ -4889,24 +4889,24 @@ def past_said(cfg, session):
              f"{total} task{'s' * (total != 1)}") if total else ""
     end = last if last and start and start < last <= stop else stop
     return plan.first_done(name) or "", " · ".join(part for part in (
-        tasks, start and "took " + took(end - start), ", ".join(
-            config.model_name(cfg, model) for model in past_models(cfg, session))) if part)
+        tasks, start and "took " + took(end - start), ", ".join(past_models(cfg, session))) if part)
 
 
 def past_models(cfg, session):
-    """The models a past session used: its orchestrator, then, once each and by name, every other
-    its runs between its start and its stop ran on -- orchestrating, building, a builder its turn
-    went from (`executor_history`), reviewing -- under the name each run recorded, a reviewer by
-    the name the config runs it under, else its own."""
+    """The models a past session used, each once by its full name (`config.model_name`): its
+    orchestrator, then every other its runs between its start and its stop ran on --
+    orchestrating, building, a builder its turn went from (`executor_history`), a reviewer that
+    finished a review, by any name the config runs its model under, else its own id."""
     runs, reviews = history.seat_runs(plan.names(session["name"]), session.get("created") or 0,
                                       session["closed"]) or ((), ())
     used = {model for _run_id, *models in runs for model in models}
     used |= {entry.get(key) for run_id, *_ in runs for entry in (record.read_state(
         config.RUNS / str(run_id)) or {}).get("executor_history") or () for key in ("from", "to")}
-    used |= {next(iter(_runs(cfg, harness, model, effort) or _runs(cfg, harness, model)), model)
-             for harness, model, effort in reviews}
-    first = (selection_of(cfg, session["name"]) or {}).get("orchestrator")
-    return [first] * bool(first) + sorted(model for model in used - {first} if model)
+    used |= {next(iter(_runs(cfg, harness, model)), model) for harness, model in reviews}
+    orchestrator = (selection_of(cfg, session["name"]) or {}).get("orchestrator")
+    first = orchestrator and config.model_name(cfg, orchestrator)
+    names = {config.model_name(cfg, model) for model in used if model} - {first}
+    return [first] * bool(first) + sorted(names, key=str.casefold)
 
 
 def past_body(past, at=None, models=None, room=None, said=None):

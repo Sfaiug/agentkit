@@ -1,10 +1,10 @@
 """A past session's row names the models it used: its orchestrator, then every other its runs
-ran on, once each and by name.
+ran on, once each by its full name.
 
 The owner (20 Oct 2026) named the stats a past session opens with: "number of tasks, how long it
 took ... and which models where used".  A run's history row holds the pair it ended with, so a
-builder its turn went from is read off its record, and a reviewer off its reviews, by the name the
-config runs it under, else its own.  Offline: a temporary HOME and its history database.
+builder its turn went from is read off its record, and a reviewer off the reviews it finished, by
+the name the config runs its model under, else its own id.  Offline: a temporary HOME and its history database.
 """
 
 from contextlib import redirect_stdout
@@ -22,7 +22,8 @@ class PastModels(Sandbox):
         config.save_session(self.cfg, "acme-docs", "spark", ["opus"], {"cwd": "/", "created": 1000})
         # the name it was born with leads to it, as a rename leaves it
         config.session_path("acme-old").write_text('{"renamed": "acme-docs"}')
-        for run, session, models, at in (("1", "acme-old", ("spark", "opus", None), 2000),
+        # mimo was picked to review run 1, which stopped before any review began
+        for run, session, models, at in (("1", "acme-old", ("spark", "opus", "mimo"), 2000),
                                           ("2", "acme-docs", ("spark", "spark", "astra"), 3000),
                                           ("3", "acme-docs", ("grok", "grok", "grok"), 50000)):
             history._write(lambda connection, row=(run, session, *models, at): connection.execute(
@@ -40,19 +41,28 @@ class PastModels(Sandbox):
 
     def test_its_orchestrator_then_every_model_its_runs_used_once_each_by_name(self):
         # grok's run began after the stop, and is not this session's
-        self.assertEqual(menu.past_models(self.cfg, self.session),
-                         ["spark", "astra", "fable", "gemini", "opus"])
+        self.assertEqual(menu.past_models(self.cfg, self.session), [
+            "muse-spark-1.3-contributor", "Fable 5.1", "Gemini 3.8 Flash", "GPT-6-Astra",
+            "Opus 5.5"])
 
-    def test_a_reviewer_no_longer_configured_keeps_its_own_name(self):
+    def test_a_reviewer_no_longer_configured_keeps_its_own_id(self):
         config.remove_model(self.cfg, "gemini")
-        self.assertEqual(menu.past_models(self.cfg, self.session),
-                         ["spark", "astra", "fable", "gemini-3.8-flash", "opus"])
+        self.assertEqual(menu.past_models(self.cfg, self.session), [
+            "muse-spark-1.3-contributor", "Fable 5.1", "gemini-3.8-flash", "GPT-6-Astra",
+            "Opus 5.5"])
+
+    def test_a_model_under_two_names_is_named_once(self):
+        self.cfg["models"]["astra-session"] = {**self.cfg["models"]["astra"], "effort": "low"}
+        history._write(lambda connection: connection.execute(
+            "INSERT INTO runs (run_id, session, orchestrator, executor, reviewer, started_at)"
+            " VALUES ('4', 'acme-docs', 'spark', 'astra-session', NULL, 4000)"))
+        self.assertEqual(menu.past_models(self.cfg, self.session).count("GPT-6-Astra"), 1)
 
     def test_they_close_the_stats_line_by_their_full_names(self):
         with patch.object(menu.notify, "conversation_of", return_value=None):
             self.assertEqual(menu.past_said(self.cfg, self.session)[1],
-                             "took 11 hours · muse-spark-1.3-contributor, GPT-6-Astra, Fable 5.1,"
-                             " Gemini 3.8 Flash, Opus 5.5")
+                             "took 11 hours · muse-spark-1.3-contributor, Fable 5.1,"
+                             " Gemini 3.8 Flash, GPT-6-Astra, Opus 5.5")
 
     def test_its_row_names_its_orchestrator_in_full_and_whole_where_there_is_room(self):
         out = io.StringIO()

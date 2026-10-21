@@ -487,16 +487,16 @@ def owner(since, until):
 
 def seat_runs(names, since, until):
     """`(runs, reviews)` of a seat's runs, by any of its `names`, begun between `since` and
-    `until`: each `(run_id, orchestrator, executor, reviewer)` as it ended, and each finished
-    review of them, `(harness, model, effort)`.  None where the database cannot answer."""
+    `until`: each `(run_id, orchestrator, executor)` as it ended, and each finished review of
+    them, `(harness, model)`.  None where the database cannot answer."""
     seat = f"session IN ({', '.join('?' * len(names))}) AND started_at BETWEEN ? AND ?"
     try:
         with _LOCK:
             connection = _connect(readonly=True)
             try:
-                return (connection.execute("SELECT run_id, orchestrator, executor, reviewer FROM "
+                return (connection.execute("SELECT run_id, orchestrator, executor FROM "
                                            f"runs WHERE {seat}", (*names, since, until)).fetchall(),
-                        connection.execute("SELECT harness, model, effort FROM reviews JOIN runs "
+                        connection.execute("SELECT harness, model FROM reviews JOIN runs "
                                            f"USING (run_id) WHERE {seat}",
                                            (*names, since, until)).fetchall())
             finally:
