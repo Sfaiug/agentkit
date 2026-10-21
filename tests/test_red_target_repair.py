@@ -95,7 +95,7 @@ class RedTargetRepair(unittest.TestCase):
                     record.save_state(directory, state)
                     (directory / "round-1").mkdir(exist_ok=True)
                     lp = run.Loop(config.load(), directory, state, opts, self.logs.append,
-                                  self.wt, body, checks, body, [])
+                                  self.wt, body, checks, body)
                     lp.rnd = 1
                     ok, text = run.verify_work(lp)
                 self.assertTrue(ok, text)

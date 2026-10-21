@@ -43,7 +43,7 @@ class OwnAccountReview(unittest.TestCase):
         state = {"run_id": run_dir.name, "round_summaries": [], "rounds": 1, "base": "origin/main",
                  "executor": None, "reviewer": "astra", "review_pr": URL, "head_sha": HEAD,
                  "author": author, "own_pr": False, "verdict": "FAIL"}
-        lp = run.Loop({}, run_dir, state, {}, lambda *_: None, run_dir, "", [], "", [])
+        lp = run.Loop({}, run_dir, state, {}, lambda *_: None, run_dir, "", [], "")
         lp.findings = "api.py:2 wrong answer"
         with patch.object(config, "RUNS", run_dir), patch.object(gitcall, "gh", side_effect=gh), \
                 patch.object(run, "pr_view", return_value={"headRefOid": HEAD, "state": "OPEN"}):

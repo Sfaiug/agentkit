@@ -277,7 +277,7 @@ class SuiteInRound(unittest.TestCase):
                                      "where": "round", "round": 1}}
             run_record.save_state(run_dir, state)
             lp = run.Loop(self.cfg, run_dir, state, {}, lambda m: None, wt,
-                          "body", ["true", once], "context", [])
+                          "body", ["true", once], "context")
             return wt, run_dir, lp
 
         # Legacy round evidence must not skip the landing suite.
@@ -384,7 +384,7 @@ class SuiteInRound(unittest.TestCase):
         run_record.save_state(run_dir, state)
         logs = []
         lp = run.Loop(self.cfg, run_dir, state, {}, logs.append, wt,
-                      "body", ["true", once], "context", [])
+                      "body", ["true", once], "context")
         before = counter.read_text()
         with patch.object(suite_gate, "run_done_when", wraps=suite_gate.run_done_when) as watched:
             self.assertTrue(run.land(lp, "origin/main",

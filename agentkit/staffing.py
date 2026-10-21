@@ -460,9 +460,6 @@ def hand_executor(lp, why, detail, dry):
     previous = lp.reviewer
     if reviewer != previous:
         lp.reviewer, lp.review_sid = reviewer, None
-    lp.spares = [n for n in ready_order(lp.cfg, providers, reviewers, role="reviewer",
-                                        repo=lp.state.get("repo"))
-                 if n != reviewer and config.model(lp.cfg, n)["provider"] not in dry]
     lp.save()
     if why == "refused":
         message = detail.removeprefix("refused: ")

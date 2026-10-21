@@ -179,7 +179,7 @@ class HistoryTests(unittest.TestCase):
         history.finish_run("merged", final_state="pass", verdict="PASS", finished_at=100)
         self.assertEqual((history.get("merged")["landing_breaks"],
                           history.get("merged")["broke_after_merge"]), (1, "health"))
-        lp = run.Loop({}, run_dir, state, {}, lambda _: None, run_dir, "", [], "", [])
+        lp = run.Loop({}, run_dir, state, {}, lambda _: None, run_dir, "", [], "")
         lp.step("merge")
         state["finished_at"] = state["step_at"] + 200
         run.history_finish(state)

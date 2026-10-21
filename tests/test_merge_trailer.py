@@ -135,7 +135,7 @@ class MergeTrailer(unittest.TestCase):
         record.save_state(self.directory, state)
         cmds = ["true"] + ([f"{once or suite}  # once"] if once or suite else [])
         return run.Loop(self.cfg, self.directory, state, {}, lambda line: None,
-                        self.repo, "", cmds, "", [])
+                        self.repo, "", cmds, "")
 
     def land(self, lp, url=URL, own=False):
         if lp.state["merge_method"] == "rebase":
