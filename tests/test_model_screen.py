@@ -20,8 +20,8 @@ import tempfile
 import tomllib
 import unittest
 
-from test_config_matrix import (DOWN, ENTER, ESC, INHERITED, LEFT, REPO, RIGHT, UP, Screen,
-                                highlighted, row)
+from test_config_matrix import (DOWN, ENTER, ESC, FULL, INHERITED, LEFT, REPO, RIGHT, UP,
+                                Screen, highlighted, row)
 from agentkit import terminal
 
 CATALOG = [("claude-opus-5", ["low", "medium", "high", "xhigh", "max"]),
@@ -102,11 +102,12 @@ def value(lines, label):
 
 
 def open_model(screen, keys, name):
-    """`keys` in the matrix to reach `name`'s row, ← onto its label and Enter: its own screen."""
+    """`keys` in the matrix to reach `name`'s row, ← onto its label and Enter: its own screen,
+    titled by the model's full name."""
     screen.frame()
     lines = screen.press(keys + LEFT, lambda lines: lines[-1] == KEYS["label"])
-    screen.case.assertIn(name, highlighted(lines))
-    return screen.press(ENTER, lambda lines: title(lines) == f"agentkit · config · {name}")
+    screen.case.assertIn(FULL[name], highlighted(lines))
+    return screen.press(ENTER, lambda lines: title(lines) == f"agentkit · config · {FULL[name]}")
 
 
 def choices(screen, after):
@@ -139,7 +140,7 @@ class ModelScreen(unittest.TestCase):
         screen.press(RIGHT)                               # and nothing after its last
         self.assertEqual(screen.path.read_bytes(), before)
         lines = screen.press(ESC, lambda lines: title(lines) == "agentkit · config")
-        self.assertIn("opus", highlighted(lines))
+        self.assertEqual(highlighted(lines), row(lines, "haiku")[1])   # opus's, a Haiku now
         self.assertEqual(lines[-1], KEYS["label"])
         screen.leave()
         self.assertEqual(screen.saved()["models"]["opus"]["model"], "claude-haiku-4-5")
@@ -168,7 +169,8 @@ class ModelScreen(unittest.TestCase):
         self.assertEqual(screen.path.read_bytes(), before)
         # fable's id is none the catalog lists: its effort steps Claude's own, as on the matrix
         screen.press(ESC, lambda lines: title(lines) == "agentkit · config")
-        screen.press(UP + ENTER, lambda lines: title(lines) == "agentkit · config · fable")
+        screen.press(UP + ENTER,
+                     lambda lines: title(lines) == f"agentkit · config · {FULL['fable']}")
         screen.press(DOWN + RIGHT, lambda lines: value(lines, "effort") == "‹ max ›")
         self.assertEqual(screen.saved()["models"]["fable"]["effort"], "max")
         screen.press(ESC, lambda lines: title(lines) == "agentkit · config")
@@ -185,7 +187,7 @@ class ModelScreen(unittest.TestCase):
         self.assertEqual(highlighted(lines), "› Remove")
         screen.press(ESC, lambda lines: title(lines) == "agentkit · config")
         lines = screen.press(UP + ENTER,
-                             lambda lines: title(lines) == "agentkit · config · fable")
+                             lambda lines: title(lines) == f"agentkit · config · {FULL['fable']}")
         self.assertNotIn("Reviews its own company's work", "\n".join(lines))
         screen.press(ESC, lambda lines: title(lines) == "agentkit · config")
         screen.leave()
@@ -198,8 +200,8 @@ class ModelScreen(unittest.TestCase):
         before = screen.path.read_bytes()
         mark = len(screen.text())
         asked = screen.press(ENTER, lambda lines: lines[-1].strip() == "esc back")
-        at = asked.index("  Remove opus from the config?")
-        self.assertEqual(asked[at - 1:at + 2], ["", "  Remove opus from the config?",
+        at = asked.index("  Remove Opus 5.5 from the config?")
+        self.assertEqual(asked[at - 1:at + 2], ["", "  Remove Opus 5.5 from the config?",
                                                 "  Nothing new starts on it; + add a model "
                                                 "brings it back."])
         self.assertFalse(any(line.startswith("›") for line in asked), asked)
@@ -211,8 +213,8 @@ class ModelScreen(unittest.TestCase):
         self.assertEqual(screen.path.read_bytes(), before)
         screen.press(ENTER, lambda lines: lines[-1].strip() == "esc back")
         lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == "agentkit · config")
-        self.assertNotIn(" opus ", "\n".join(lines))
-        self.assertIn("haiku", highlighted(lines))        # the row under it
+        self.assertNotIn(f" {FULL['opus']} ", "\n".join(lines))
+        self.assertIn(FULL["haiku"], highlighted(lines))        # the row under it
         saved = screen.saved()
         self.assertNotIn("opus", saved["models"])
         # [defaults] is the last creation's, and only a creation writes it
@@ -227,7 +229,7 @@ class ModelScreen(unittest.TestCase):
         lines = screen.press(DOWN * 4 + ENTER,
                              lambda lines: "the config needs one model" in lines[-3])
         self.assertEqual(highlighted(lines), "› Remove")
-        self.assertNotIn("Remove opus", screen.text()[mark:])     # nothing asked
+        self.assertNotIn("Remove Opus 5.5", screen.text()[mark:])     # nothing asked
         self.assertEqual(screen.path.read_bytes(), before)
         screen.press(ESC, lambda lines: title(lines) == "agentkit · config")
         screen.leave()
@@ -259,8 +261,8 @@ class ModelScreen(unittest.TestCase):
         screen = Screen(self, child=CHILD, rows=24, cols=40)
         lines = screen.frame()
         number, line = row(lines, "haiku")
-        lines = screen.click(line.index("haiku") + 1, number,
-                             lambda lines: title(lines) == "agentkit · config · haiku")
+        lines = screen.click(3, number,       # on its name
+                             lambda lines: title(lines) == f"agentkit · config · {FULL['haiku']}")
         for line in lines:
             self.assertLessEqual(terminal.cells(line), 40, line)
         self.assertEqual(lines[2:7], ["› model id     ‹ claude-haiku-4-5 ›",

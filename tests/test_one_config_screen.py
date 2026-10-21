@@ -89,9 +89,22 @@ def highlighted(lines):
     return next(line for line in lines if line.startswith("›"))
 
 
+SHIPPED = tomllib.loads((REPO / "config.default.toml").read_text())
+
+
+def full(name):
+    """The full name every screen shows the shipped model `name` by (config.model_name)."""
+    return config.model_name(SHIPPED, name)
+
+
 def model(lines, name):
-    """The `c` row of the model called `name`."""
-    return next(line for line in lines if line[2:].split(" ")[0] == name)
+    """The `c` or `n` row of the model configured as `name`, found by its full name."""
+    return next(line for line in lines if line[2:].startswith(full(name) + " "))
+
+
+def roles(lines):
+    """Each shipped model's marks on `n`, by its configured name."""
+    return {name: marks(model(lines, name)) for name in ("astra", "fable", "opus")}
 
 
 def title(name):
@@ -235,7 +248,7 @@ class OneConfigScreen(unittest.TestCase):
         menu = Menu(self)
         lines = menu.screen()
         self.assertIn("fix-api", highlighted(lines))
-        self.assertIn("opus", highlighted(lines).split())
+        self.assertIn(full("opus"), highlighted(lines))
         defaults = menu.defaults()
         lines = menu.press(b"c", title("config"))
         self.assertEqual(lines[3].split(), ["orch", "builds", "reviews", "effort"])
@@ -257,9 +270,9 @@ class OneConfigScreen(unittest.TestCase):
         self.assertEqual(menu.defaults(), defaults)       # a seat's marks are its own
         # its row says what `c` says
         lines = menu.press(ESC, lambda lines: any("esc leave" in line for line in lines)
-                           and "fable" in highlighted(lines).split())
+                           and full("fable") in highlighted(lines))
         self.assertIn("fix-api", highlighted(lines))
-        self.assertNotIn("opus", highlighted(lines).split())
+        self.assertNotIn(full("opus"), highlighted(lines))
         # and so does the next run it starts: its executor and its reviewer
         menu.leave()
         menu.saw("<picks fable astra>")
@@ -351,7 +364,7 @@ class OneConfigScreen(unittest.TestCase):
         self.assertEqual(menu.defaults(), elsewhere)      # kept, whatever `c` read before
         menu.press(ESC)
         lines = menu.models()                 # a heading's new seat: the last creation's crew
-        rows = {line.lstrip("› ").split()[0]: marks(line) for line in lines if marks(line)}
+        rows = roles(lines)
         self.assertEqual((rows["astra"], rows["fable"], rows["opus"]), ("●□□", "○■□", "○□■"))
         menu.press(ESC, born)                 # Esc on the selectors is back on the row
         menu.press(ESC)
@@ -362,11 +375,11 @@ class OneConfigScreen(unittest.TestCase):
         menu.screen()
         menu.press(b"k", lambda lines: "ACME" in highlighted(lines))
         lines = menu.models()
-        self.assertIn("opus", highlighted(lines))     # the shipped defaults, the first time
+        self.assertIn(full("opus"), highlighted(lines))     # the shipped defaults, the first time
         self.assertEqual(marks(highlighted(lines)), "●■■")
-        menu.press(DOWN + SPACE, lambda lines: "astra" in highlighted(lines)
+        menu.press(DOWN + SPACE, lambda lines: full("astra") in highlighted(lines)
                    and marks(highlighted(lines)) == "●■■")
-        menu.press(UP * 2 + RIGHT + SPACE, lambda lines: "fable" in highlighted(lines)
+        menu.press(UP * 2 + RIGHT + SPACE, lambda lines: full("fable") in highlighted(lines)
                    and marks(highlighted(lines)) == "○■□")
         mark = len(menu.text())
         os.write(menu.master, ENTER)
@@ -379,15 +392,15 @@ class OneConfigScreen(unittest.TestCase):
         menu.screen(after=mark)
         menu.press(b"k", lambda lines: "ACME" in highlighted(lines))
         lines = menu.models()
-        self.assertIn("astra", highlighted(lines))
-        rows = {line.lstrip("› ").split()[0]: marks(line) for line in lines if marks(line)}
+        self.assertIn(full("astra"), highlighted(lines))
+        rows = roles(lines)
         self.assertEqual((rows["astra"], rows["fable"], rows["opus"]), ("●■■", "○■□", "○■■"))
         # from a seat too: the last creation's, never that seat's executors and one reviewer
         menu.press(ESC, born)
         menu.press(ESC)
         menu.press(b"j", lambda lines: "fix-api" in highlighted(lines))
         lines = menu.models()
-        rows = {line.lstrip("› ").split()[0]: marks(line) for line in lines if marks(line)}
+        rows = roles(lines)
         self.assertEqual((rows["astra"], rows["fable"], rows["opus"]), ("●■■", "○■□", "○■■"))
         menu.press(ESC, born)                 # Esc on the selectors is back on the row
         menu.press(ESC)

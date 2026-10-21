@@ -347,7 +347,8 @@ class MemoryCap(unittest.TestCase):
         meminfo = self.root / "meminfo"
         meminfo.write_text("MemTotal:       16777216 kB\n")
         prelude = ("set -euo pipefail\n"
-                   f"HOME={shlex.quote(str(home))}\nROLE=server\nSANDBOX=0\n"
+                   f"HOME={shlex.quote(str(home))}\nREPO={shlex.quote(str(REPO))}\n"
+                   "ROLE=server\nSANDBOX=0\n"
                    "have() { command -v \"$1\" >/dev/null 2>&1; }\n"
                    "note() { echo \"note: $*\" >&2; }\n")
         result = subprocess.run(
@@ -367,8 +368,8 @@ class MemoryCap(unittest.TestCase):
         self.assertGreater(
             int(seats.split("IOWeight=")[1].splitlines()[0]),
             int(runs.split("IOWeight=")[1].splitlines()[0]))
-        # Memory says the same: the seats keep half the slice's 60% from reclaim, as a share
-        # of this machine, so under pressure inside the slice the runs give memory back first.
+        # Memory says the same: the seats keep 30% of this machine from reclaim, as a share,
+        # so under pressure inside the slice the runs give memory back first.
         self.assertIn("MemoryLow=30%\n", seats)
         self.assertNotIn("MemoryLow", runs)
         # An earlier install's own file, from before the protection, gets it on the next one;

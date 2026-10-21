@@ -5,7 +5,7 @@ What it recommends is read off the matrix as last computed (`matrix.stored`,
 `matrix.recommended`); `r` there makes the recommended executor and reviewer the seat's marks where an entry in the config as it
 stands runs that model (`matrix.runs`; tests/test_c_recommends_effort.py: at the row's effort),
 saved to its record at once, and says why when it cannot; the orchestrator is only said, since
-moving the seat is its mark's.  With nothing computed no model is recommended and `r` is no key.
+moving the seat is its orchestrator mark's.  With nothing computed no model is recommended and `r` is no key.
 
 Offline: a throwaway HOME with a stored matrix written by hand, the keys fed in, the usage faked.
 """

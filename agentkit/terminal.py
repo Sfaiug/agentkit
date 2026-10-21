@@ -20,7 +20,7 @@ from . import guard, motion
 # glyph, ASCII glyph, Mocha RGB, eight-colour tone, emphasis. Words remain the contract
 # with the classifier; every presentation (including tmux formats) comes from this table,
 # and its RGB is the palette on a dark background, the one ak takes when it cannot tell.
-# The four words a session reads, and the two presentation-only kinds the screens ask for
+# The five words a session reads, and the two presentation-only kinds the screens ask for
 # by name: `dim` for a note beside a row, `FAIL` for a verdict, which is no session state.
 STATE_STYLES = {
     "needs you": ("!", "!", "f9e2af", "33", "1"),
@@ -28,6 +28,9 @@ STATE_STYLES = {
     "done": ("✓", "v", "a6e3a1", "32", ""),
     # nothing running, asked or owed: quiet, as the eye should pass over it
     "idle": ("○", "o", "6c7086", "37", "2"),
+    # its subscriptions are spent: red, as nothing moves until usage comes back or the owner
+    # moves it, and the hollow circle says it comes back by itself
+    "out of usage": ("◌", "o", "f38ba8", "31", ""),
     "FAIL": ("✗", "x", "f38ba8", "31", ""),
     "dim": ("·", ".", "6c7086", "37", "2"),
     # No session word: a run parked on something that lifts by itself says what it waits for
@@ -37,14 +40,14 @@ STATE_STYLES = {
 # The same words on a light background (`sense`): Catppuccin Latte, its yellow and green
 # darkened until every one reads on white; the accent and the highlight's `›` are `working`'s.
 LIGHT = {"needs you": "9c6314", "working": "1e66f5", "done": "338022", "idle": "6c6f85",
-         "FAIL": "d20f39", "dim": "6c6f85", "waiting": "6c6f85"}
+         "out of usage": "d20f39", "FAIL": "d20f39", "dim": "6c6f85", "waiting": "6c6f85"}
 GREY = 0.15        # saturation under which a colour is a grey rather than a hue
 # The background the pointer lights a key-line item or a cell on: a step off the terminal's own,
 # Mocha's surface0 on a dark one and Latte's on a light one.
 POINTED = {False: "313244", True: "ccd0da"}
 # The kinds a screen asks `styled` for by what they mean, and the word whose colour each is.
 KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "needs you",
-         "good": "done"}
+         "good": "done", "spent": "out of usage"}
 _RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
 _LIGHT = False     # its background is light (`sense`)
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
@@ -52,6 +55,7 @@ _PAD = 0           # ... and those this process leaves (`inset`)
 LEVELS = (0, 95, 135, 175, 215, 255)   # each channel's steps in xterm's 6x6x6 colour cube
 _SGR = re.compile(r"\x1b\[([0-9;]*)m")
 _ANSWER = re.compile(rb"\x1b\]11;([^\x07\x1b]*)(?:\x07|\x1b\\)")   # its answer to OSC 11
+_ATTRIBUTES = re.compile(rb"\x1b\[\?[0-9;]*c")   # ... and to DA1, which follows it
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
@@ -366,14 +370,15 @@ def state_tone(word):
 
 
 # One state table for the whole CLI, and the whole vocabulary: a session is working, needs
-# you, done or idle, and nothing else exists; a run and a project read one of the first three.
-# `menu.py`, `ak run status` and `ak orch list` read this; no screen invents its own.
-# `watch.session_state` is what decides which of the four a session is.
+# you, done, idle or out of usage, and nothing else exists; a run and a project read one of
+# the first three.  `menu.py`, `ak run status` and `ak orch list` read this; no screen invents
+# its own.  `watch.session_state` is what decides which of the five a session is.
 STATES = {
     "working": ("●", "accent"),
     "needs you": ("!", "attention"),
     "done": ("✓", "good"),
     "idle": ("○", "dim"),
+    "out of usage": ("◌", "spent"),
 }
 
 
@@ -383,7 +388,7 @@ def state_glyph(word):
         return glyph(word)
     mark, _ = STATES[word]
     if not utf8():
-        return {"●": "*", "✓": "v", "!": "!", "○": "o"}.get(mark, mark)
+        return {"●": "*", "✓": "v", "!": "!", "○": "o", "◌": "o"}.get(mark, mark)
     return mark
 
 
@@ -887,8 +892,11 @@ def sense():
     True colour where COLORTERM does not say so: inside tmux, when its client has the `RGB`
     (or `Tc`) feature -- tmux and ssh both drop COLORTERM on the way in.  And whether the
     background is light, from the terminal's answer to OSC 11 within a tenth of a second; no
-    answer by then is a dark one.  The answer is read here and never as a key: anything typed
-    while it was awaited is kept for `read_key`, and one that comes later is `_sequence`'s.
+    answer by then is a dark one.  Its attributes are asked for after it (DA1), which every
+    terminal answers, and answers in turn: once they are in, an OSC 11 answer not in before them
+    is none, so a terminal that never answers it -- tmux, in a popup -- costs no tenth.  The
+    answers are read here and never as keys: anything typed while they were awaited is kept for
+    `read_key`, and one that comes later is `_sequence`'s.
     """
     global _RGB, _LIGHT, _KEYED
     features = ""
@@ -902,9 +910,9 @@ def sense():
             pass
     _RGB = bool({"RGB", "Tc"} & set(features.strip().split(",")))
     fd = sys.stdin.fileno()
-    os.write(sys.stdout.fileno(), b"\033]11;?\033\\")
+    os.write(sys.stdout.fileno(), b"\033]11;?\033\\\033[c")
     heard, until = b"", time.monotonic() + 0.1
-    while not _ANSWER.search(heard):
+    while not _ATTRIBUTES.search(heard):
         left = until - time.monotonic()
         if left <= 0 or not select.select([fd], [], [], left)[0]:
             break
@@ -913,7 +921,8 @@ def sense():
             break
         heard += byte
     found = _ANSWER.search(heard)
-    _KEYED = (heard[:found.start()] + heard[found.end():] if found else heard) + _KEYED
+    rest = heard[:found.start()] + heard[found.end():] if found else heard
+    _KEYED = _ATTRIBUTES.sub(b"", rest, count=1) + _KEYED
     colour = re.match(rb"rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)",
                       found.group(1)) if found else None
     red, green, blue = ([int(part, 16) / (16 ** len(part) - 1) for part in colour.groups()]
@@ -1063,6 +1072,8 @@ def _sequence(fd):
         if kind == b"O" or 0x40 <= byte[0] <= 0x7e:
             break
     params, final = body[:-1], body[-1:]
+    if params.startswith(b"?") and final == b"c":
+        return Key("answer")       # its attributes (DA1), come after `sense` stopped waiting
     if params.startswith(b"<") and final in (b"M", b"m"):
         try:
             button, col, row = (int(part) for part in params[1:].split(b";"))

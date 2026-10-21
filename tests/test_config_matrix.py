@@ -179,10 +179,19 @@ class Screen:
         self.case.assertEqual(self.proc.wait(15), 0, self.text()[-3000:])
 
 
+# Each model by the full name its row shows (config.model_name), the shipped catalog's labels.
+FULL = {"fable": "Fable 5.1", "opus": "Opus 5.5", "haiku": "Haiku 4.5", "astra": "GPT-6-Astra",
+        "spark": "muse-spark-1.3-contributor", "grok": "Grok 4.7", "gemini": "Gemini 3.8 Flash",
+        "mimo": "MiMo V2.6 Pro"}
+
+
 def row(lines, name):
-    """(the terminal row, the line) of `name`'s model row."""
-    return next((number, line) for number, line in enumerate(lines, 1)
-                if line[2:].split(" ")[0] == name)
+    """(the terminal row, the line) of `name`'s model row, drawn by its full name -- cut, `…`
+    last, where the screen is narrow."""
+    def drawn(line):
+        label = line[2:].split("  ")[0]
+        return label == FULL[name] or label.endswith("…") and FULL[name].startswith(label[:-1])
+    return next((number, line) for number, line in enumerate(lines, 1) if drawn(line))
 
 
 def effort(lines, name):
@@ -215,9 +224,9 @@ class Matrix(unittest.TestCase):
         body = "\n".join(lines)
         for heading in ("Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"):
             self.assertIn(f"\n{heading}\n", body)
-        self.assertEqual(row(lines, "fable")[1].split(), ["›", "fable", "○", "□", "□", "▰▰▰▰▱",
+        self.assertEqual(row(lines, "fable")[1].split(), ["›", "Fable", "5.1", "○", "□", "□", "▰▰▰▰▱",
                                                           "xhigh"])
-        self.assertEqual(row(lines, "opus")[1].split(), ["opus", "●", "■", "■", "▰▰▰▰▱",
+        self.assertEqual(row(lines, "opus")[1].split(), ["Opus", "5.5", "●", "■", "■", "▰▰▰▰▱",
                                                          "xhigh"])
         self.assertEqual(row(lines, "haiku")[0], row(lines, "opus")[0] + 1)   # under Claude
         tail = [line.strip() for line in lines]
@@ -241,7 +250,7 @@ class Matrix(unittest.TestCase):
         lines = screen.frame()
         self.assertTrue(lines[0].startswith("agentkit · config "), lines[0])
         self.assertEqual(lines[headings(lines) - 1].split(), ["For", "‹", "new", "seats", "›"])
-        self.assertEqual(row(lines, "opus")[1].split()[1:4], ["●", "■", "■"])
+        self.assertEqual(row(lines, "opus")[1].split()[2:5], ["●", "■", "■"])
         self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ mark   esc back")
         lines = screen.press(RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
         self.assertEqual(screen.path.read_bytes(), before)
@@ -257,7 +266,7 @@ class Matrix(unittest.TestCase):
         lines = screen.press(RIGHT + ENTER, lambda lines: "■" in row(lines, "fable")[1])
         self.assertEqual(screen.record()["workers"], ["opus", "astra", "fable"])
         lines = screen.press(DOWN + b" ", lambda lines: "□" in row(lines, "opus")[1])
-        self.assertIn("opus", highlighted(lines))
+        self.assertIn("Opus 5.5", highlighted(lines))
         self.assertEqual(screen.record()["workers"], ["astra", "fable"])
         screen.leave()
         self.assertEqual(screen.record()["orchestrator"], "opus")
@@ -297,7 +306,7 @@ class Matrix(unittest.TestCase):
         before = screen.path.read_bytes()
         # → through opus's role marks reaches its effort, and past it there is nothing
         lines = screen.press(DOWN + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
-        self.assertIn("opus", highlighted(lines))
+        self.assertIn("Opus 5.5", highlighted(lines))
         lines = screen.press(RIGHT)
         self.assertEqual(lines[-1], EFFORT_KEYS)
         self.assertEqual(screen.path.read_bytes(), before)    # no arrow steps an effort
@@ -336,7 +345,7 @@ class Matrix(unittest.TestCase):
         number, line = row(lines, "opus")                 # low, medium, high: its third
         lines = screen.click(line.index("▰") + 3, number,
                              lambda lines: effort(lines, "opus") == "high")
-        self.assertIn("opus", highlighted(lines))
+        self.assertIn("Opus 5.5", highlighted(lines))
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "high")
         screen.leave()
 
@@ -353,7 +362,7 @@ class Matrix(unittest.TestCase):
         before = screen.path.read_bytes()
         lines = screen.press(TAB)                         # on opus's effort
         self.assertEqual(lines[-1], EFFORT_KEYS)
-        self.assertIn("opus", highlighted(lines))
+        self.assertIn("Opus 5.5", highlighted(lines))
         self.assertEqual(screen.path.read_bytes(), before)
         screen.press(ENTER, lambda lines: effort(lines, "opus") == "max")  # still the effort
         screen.leave()
@@ -364,7 +373,7 @@ class Matrix(unittest.TestCase):
         number, line = row(lines, "astra")
         lines = screen.click(line.index("■") + 1, number,
                              lambda lines: "□" in row(lines, "astra")[1])
-        self.assertIn("astra", highlighted(lines))
+        self.assertIn("GPT-6-Astra", highlighted(lines))
         self.assertEqual(screen.record()["workers"], ["opus"])
         number, line = row(lines, "spark")
         lines = screen.click(line.index("○") + 1, number,  # moves the seat, as the key does
@@ -414,7 +423,7 @@ class Matrix(unittest.TestCase):
         lines = screen.press(DOWN + RIGHT + RIGHT + ENTER,
                              lambda lines: "at least one model reviews" in "\n".join(lines))
         self.assertLessEqual(len(lines), 23)
-        self.assertIn("opus", highlighted(lines))
+        self.assertTrue(highlighted(lines).startswith("› Opus"), lines)     # cut, on a phone
         lines = screen.press(DOWN * 11,
                              lambda lines: highlighted(lines).startswith("› Weekly audit"))
         self.assertLessEqual(len(lines), 23)
@@ -432,7 +441,7 @@ class Matrix(unittest.TestCase):
             screen = Screen(self, workers=["opus"], rows=rows, cols=40)
             lines = screen.frame()
             self.assertLessEqual(len(lines), rows, lines)
-            self.assertTrue(highlighted(lines).startswith("› fable"), lines)
+            self.assertTrue(highlighted(lines).startswith("› Fable"), lines)
             self.assertTrue(lines[-1].endswith("esc back"), lines)
             screen.leave()
         self.assertIn("Claude", lines)                    # the provider over the highlight

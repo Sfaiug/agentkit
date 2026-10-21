@@ -201,7 +201,7 @@ class Tallies(Sandbox):
         self.assertEqual(pages, (0, 1))
         # Seat rows carry number, name, orchestrator, state and one last column, and a
         # working seat's is never `N running`.
-        for row in ("3  herdr", "fable",
+        for row in ("3  herdr", "Fable 5.1",
                     "2  atoll-proxy", "session closed: press 2 to reopen",
                     "1  atoll-fix", "4  scribe"):
             self.assertIn(row, screen)

@@ -640,8 +640,9 @@ def finish_own_lines(cfg, log):
     """Finish a fixed ak line left in its composer, even after its retries were spent.
 
     The screen decides, without a mark: only that line alone gets its locked Enter.  A seat's
-    `continue_turns` mark is the one exception: its line was typed past an open question, so
-    its Enter is too, and once it lands the mark comes off, as that pass's own send takes it.
+    `continue_turns` mark is the one exception: its line, a handover's too, was typed past an
+    open question, so its Enter is too, and once it lands the mark comes off, as that pass's
+    own send takes it; its composer holding that line defers `continue_turns` until then.
     Delivery remains at least once, as it does for every line ak types.
     """
     for session in orch.sessions():
@@ -655,7 +656,7 @@ def finish_own_lines(cfg, log):
         key = resume.get("key") if isinstance(resume, dict) else None
         mark = seat_read(name).get("midturn")
         marked = (mark.get("line") or MIDTURN_LINE) if isinstance(mark, dict) else None
-        for line in (ACCOUNT_LINE, MIDTURN_LINE, ASKED_LINE, CONTINUE_LINE, key):
+        for line in (marked, ACCOUNT_LINE, MIDTURN_LINE, ASKED_LINE, CONTINUE_LINE, key):
             def alone(held):
                 return composer_holds(held, session, line, cfg, exact=True) == "line"
 
@@ -2297,12 +2298,13 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
                   run_numbers=None, index=None, silent=None, live=None, harness=None,
                   previous=None, auth_out=None, gh_out=None, token_out=None, card=False,
                   stalls=None):
-    """`working`, `needs you`, `done` or `idle` -- why, and since when.  The one decision.
+    """`working`, `needs you`, `done`, `idle` or `out of usage` -- why, and since when.  The one
+    decision.
 
-    Every screen reads this and says one of those four words: the menu row, the project
+    Every screen reads this and says one of those five words: the menu row, the project
     heading, the top line, `ak orch list`, `ak orch why`, the seat's own status bar and its
     window title.  It works until it is done or it is blocked on him, or he closed it and
-    it sits idle; nothing else exists.  It decides from recorded notices, runs and the
+    it sits idle, or its usage ran out; nothing else exists.  It decides from recorded notices, runs and the
     screen, never from when the seat's turn began, and a new fact gets a field of its own
     (`stopped_at` means closed).
 
@@ -2323,7 +2325,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
       attention -- recent, unacknowledged, not handed back or superseded -- or a run
       is stalled, or a merge wait only its age turned away;
     * its subscription ran out and ak resumes it when the usage comes back, so the seat is
-      working, its reason saying until when (`resumes_at`);
+      out of usage until then (`resumes_at`), or working while a move to another account
+      that failed is retried;
     * its turn stopped on an error the tick types it back past, as its look saw it (`stall`),
       so the seat is working, `retrying: <error>`, until the tick gives up (`stalls`);
     * a run of its own merged and its project has yet to prove itself live (`awaiting_live`),
@@ -2712,11 +2715,13 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                       or f"run {name} parked: {reason}")
         return {"word": "needs you", "since": first.get("finished_at"), "reason": reason}
     # 3b. ... or its subscription ran out and ak resumes it when the usage comes back, or on
-    # another account sooner: it moves on without him, so it is working until then, the
-    # reason saying until when -- and nothing on him outranked it above.
+    # another account sooner: nothing moves until then unless he moves it, so it is out of
+    # usage until when it comes back (`resumes_at`) -- and nothing on him outranked it above.
+    # A move to another account that failed is retried: working.
     if waiting:
-        return {"word": "working", "reason": waiting["reason"], "since": waiting["since"],
-                "resumes_at": waiting["until"]}
+        until = waiting.get("until")
+        return {"word": "out of usage" if until else "working", "reason": waiting["reason"],
+                "since": waiting["since"], "resumes_at": until}
     # 3c. ... or its turn stopped on an error the tick types it back past (`health`, or
     # `seat_account` for a bare 429): it moves on without the owner until the tick gives
     # up and tells them (`told`), so it is working.  A legacy seat the tick never types into.
@@ -3235,9 +3240,11 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     told the moment the text is in the composer; `pending` sends only its locked Enter.
     `ready` is asked under the guard right before each Enter, after the gap, and the first
     Enter waits up to SENT_WAIT for it: the owner can type in it, and an Enter it refuses is
-    never sent. None means unread input deferred the line before its text went in. The tty
-    check gates new text, never the Enter completing it: withholding that Enter would leave
-    a draft the caller cannot recover, or let a retry append the same text to itself.
+    never sent. None means the owner's input deferred the line before its text went in:
+    keys its terminal has not read yet, or text in its composer, which a line typed after it
+    would join and send. Those checks gate new text, never the Enter completing it:
+    withholding that Enter would leave a draft the caller cannot recover, or let a retry
+    append the same text to itself.
     """
     try:
         seat = dict(session, name=config.resolve_session(session["name"]))
@@ -3252,6 +3259,9 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     # a line left pending was read in its composer, whatever chrome is drawn around it
     confirm = pending
     if harness is not None and not confirm:
+        pane = pane_text(seat)
+        if composer_draft(harness, pane):
+            return None     # the owner's text: a line typed after it joins it, and sends both
         try:
             pattern = screen(harness).get("composer")
         except config.Error:
@@ -3263,7 +3273,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             # the smoke suite's inbox seat holds a `sleep`, and a delivered send is
             # all there is.
             confirm = any(pattern.search(strip_sgr(line))
-                          for line in pane_tail(pane_text(seat)).splitlines())
+                          for line in pane_tail(pane).splitlines())
     with guard() as held:
         kept_asked_first(seat, harness, held=held is not None)
         if veto(held if held is not None else name):

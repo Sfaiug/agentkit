@@ -154,14 +154,16 @@ class OwnPrFixer(OwnPr):
         # fixes later
         self.assertEqual(self.reviewers, ["astra", "grok", "grok"])
 
-    def test_what_the_fixer_said_reaches_the_next_reviewer(self):
+    def test_what_the_fixer_said_is_recorded_and_never_reaches_the_next_reviewer(self):
         self.fix_summary = "## Summary\nWHY-MARKER: the flag is read by nobody; nothing to fix."
         state = self.review(["FAIL", "PASS"])
         self.assertTrue(state["merged"])
-        self.assertIn("## What the fixer said\n## Summary\nWHY-MARKER", self.prompts[1])
+        self.assertNotIn("WHY-MARKER", self.prompts[1])
+        self.assertIn("## What the fixer said\n## Summary\nWHY-MARKER",
+                      state["round_summaries"][-1]["summary"])
         self.assertNotIn("fix_summary", state)
 
-    def test_what_the_fixer_said_reaches_a_reviewer_resumed_after_a_cut(self):
+    def test_what_the_fixer_said_never_reaches_a_reviewer_resumed_after_a_cut(self):
         self.fix_summary = "## Summary\nWHY-MARKER: the flag is read by nobody; nothing to fix."
         reviewer, cut = self.reviewer, []
 
@@ -179,7 +181,9 @@ class OwnPrFixer(OwnPr):
         record.save_state(self.run_dir, saved)
         state = self.review(["FAIL", "PASS"])
         self.assertTrue(state["merged"])
-        self.assertIn("## What the fixer said\n## Summary\nWHY-MARKER", self.prompts[1])
+        self.assertNotIn("WHY-MARKER", self.prompts[1])
+        self.assertIn("## What the fixer said\n## Summary\nWHY-MARKER",
+                      state["round_summaries"][-1]["summary"])
 
     def test_a_push_while_the_cut_off_fix_was_made_ends_the_run_fail(self):
         fix = self.fix

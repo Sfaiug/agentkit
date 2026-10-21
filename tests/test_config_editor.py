@@ -209,11 +209,14 @@ class Editor(unittest.TestCase):
         _, screen = self.drive(session="fix-api")
         self.assertTrue(screen.startswith("agentkit · config "), screen)
         self.assertIn(menu.for_text("fix-api"), screen)
-        self.assertRegex(screen, r"\n  opus +●")
+        self.assertRegex(screen, r"\n  Opus 5\.5 +●")
         for bit in ("orch  builds  reviews  effort", "Claude", "●", "■", "□",
                     "▰▰▰▰▱", "add a model", "Discord", "Version abc1234 · 2026-09-29",
                     "esc back"):
             self.assertIn(bit, screen)
+        opus = config.model_name(config.load(), "opus")      # by its full name, orchestrating
+        self.assertTrue(any(line.startswith(f"  {opus} ") and "●" in line
+                            for line in screen.splitlines()), screen)
         self.assertNotIn("Update", screen)
         self.assertNotIn("harnesses", screen)
 
