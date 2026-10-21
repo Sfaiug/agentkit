@@ -75,6 +75,14 @@ class ProseOnlyShrinks(unittest.TestCase):
                 self.assertIn(f"{path} grows from 0 to 1 words", self.check(base, {path: words(1)}))
         self.assertEqual(self.check(base, {"api.py": words(500), "data.json": words(500)}), "")
 
+    def test_no_name_or_link_slips_past(self):
+        base = self.commit({"api.py": "acme\n"})
+        self.assertIn(" guide.md grows from 0 to 3 words", self.check(base, {" guide.md": words(3)}))
+        (self.repo / "guide.md").symlink_to("api.py")
+        base = self.commit({})
+        (self.repo / "guide.md").unlink()
+        self.assertIn("guide.md grows from 1 to 3 words", self.check(base, {"guide.md": words(3)}))
+
     def test_a_root_readme_grows_to_300_words(self):
         base = self.commit({"api.py": "acme\n"})
         self.assertEqual(self.check(base, {"README.md": words(roundloop.README_WORDS)}), "")

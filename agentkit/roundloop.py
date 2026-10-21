@@ -349,8 +349,9 @@ def prose_grown(lp):
     its own exemption.  A rename is a new file, so no file grows by moving.
     """
     content = (gitcall.declared_at(lp.wt, lp.base_sha, "content") or "").split()
-    changed = gitcall.git(lp.wt, "diff", "--name-only", "--no-renames", "--diff-filter=AM", "-z",
-                          f"{lp.base_sha}...HEAD")
+    # a link turned file (T) grows too, and names keep every byte, leading spaces included
+    changed = gitcall.git_bytes(lp.wt, "diff", "--name-only", "--no-renames", "--diff-filter=AMT", "-z",
+                                f"{lp.base_sha}...HEAD")
     for path in filter(None, changed.split("\0")):
         if (not path.lower().endswith(PROSE) or path == "AGENTS.md"
                 or any(path.startswith(prefix) for prefix in content)):
