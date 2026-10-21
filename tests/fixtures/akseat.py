@@ -127,14 +127,19 @@ class Seat:
 
     def _settle(self, bound=30):
         """A pane draws a moment after it is told to; wait until it shows the screen, with
-        whatever its composer holds."""
+        whatever its composer holds, as far as the pane's size lets it: a draft's rows wrap at
+        its width and scroll the screen's first rows away."""
+        width, height = _size(self.screen)
         deadline = time.monotonic() + bound
         while time.monotonic() < deadline:
             composing = Composer()
-            composing.read(self.typed(), more=False)
-            want = drawn(self.screen, composing.draft, self.composer)
+            composing.read(self.typed())
+            frame = drawn(self.screen, composing.draft, self.composer).split("\x1b[2J", 1)[1]
+            rows = [cut for row in ESCAPE.sub("", frame).split("\r\n")
+                    for cut in _wrap(row, width)]
+            want = _rows("\n".join(rows[-height:]))
             shown = self.capture()
-            if _rows(shown) == _rows(want.split("\x1b[2J", 1)[1].replace("\r\n", "\n")):
+            if _rows(shown) == want:
                 return
             time.sleep(0.05)
         raise AssertionError(f"seat {self.name} never showed its screen; it shows:\n{shown}")
@@ -147,9 +152,23 @@ def _rows(text):
     return rows
 
 
+def _wrap(row, width):
+    """A row as a terminal `width` cells wide shows it."""
+    cuts, cells = [""], 0
+    for char in row:
+        size = _cells(char)
+        if cells + size > width:
+            cuts, cells = [*cuts, ""], 0
+        cuts[-1], cells = cuts[-1] + char, cells + size
+    return cuts
+
+
+def _cells(text):
+    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in text)
+
+
 def _size(screen):
     """The pane a screen was captured from: as wide as its widest line, as tall as its lines."""
     rows = ESCAPE.sub("", screen).rstrip("\n").split("\n")
-    cells = max(sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in row)
-                for row in rows)
+    cells = max(_cells(row) for row in rows)
     return max(cells, 20), max(len(rows), 5)

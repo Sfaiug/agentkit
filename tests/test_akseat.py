@@ -47,14 +47,16 @@ class Seats(unittest.TestCase):
         self.home.tmux("paste-buffer", "-p", "-b", "clip", "-t", seat.pane)
         self.home.tmux("send-keys", "-t", seat.pane, "Enter")
         self.assertEqual(seat.wait_lines(1), ["first\nsecond"])
-        for chunk in ("\x1b[20", "0~draft\x1b[201~"):   # a paste mark split across reads
+        # a paste mark split across reads, its rest late, and a draft taller than the pane
+        for chunk in ("\x1b[20", "0~draft\rtaller\rthan\rthe\rpane\x1b[201~"):
             self.home.tmux("send-keys", "-t", seat.pane, "-l", chunk)
             while not seat.typed().endswith(chunk):
                 time.sleep(0.05)
+            time.sleep(0.2)
         seat.show("next\n\n❯ \n── footer\n")
-        self.assertIn("❯ draft", seat.capture())
+        self.assertEqual(seat.capture().split(), ["taller", "than", "the", "pane", "──", "footer"])
         self.home.tmux("send-keys", "-t", seat.pane, "Enter")
-        self.assertEqual(seat.wait_lines(2), ["first\nsecond", "draft"])
+        self.assertEqual(seat.wait_lines(2), ["first\nsecond", "draft\ntaller\nthan\nthe\npane"])
 
     def test_a_seat_tmux_lost_is_only_its_record(self):
         seat = Seat(self.home, "acme", alive=False)

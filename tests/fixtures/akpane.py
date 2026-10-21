@@ -20,7 +20,9 @@ import sys
 import tty
 
 KEY = re.compile(r"\x1b(?:\[[0-9;?]*[ -/]*[@-~]|.)|.", re.S)   # an escape sequence or a character
-CUT = re.compile(r"\x1b(?:\[[0-9;?]*[ -/]*)?\Z")   # one the read ended inside
+# A sequence the input ends inside, finished by what comes next however late.  A lone Esc at
+# the end is the Esc key: a terminal writes each key's sequence whole, and ak may type `[` next.
+CUT = re.compile(r"\x1b\[[0-9;?]*[ -/]*\Z")
 
 
 class Composer:
@@ -30,11 +32,10 @@ class Composer:
     def __init__(self):
         self.draft, self.pasting, self.held = "", False, ""
 
-    def read(self, text, more=True):
-        """The lines `text` enters; while `more` can come, a sequence it ends inside waits for
-        the rest."""
+    def read(self, text):
+        """The lines `text` enters."""
         text, entered = self.held + text, []
-        cut = CUT.search(text) if more else None
+        cut = CUT.search(text)
         text, self.held = (text[:cut.start()], text[cut.start():]) if cut else (text, "")
         for key in KEY.findall(text):
             if key in ("\x1b[200~", "\x1b[201~"):
@@ -79,12 +80,11 @@ def main(screen_path, typed_path, composer="❯"):
         if got:
             with typed_path.open("ab") as typed:
                 typed.write(got)
-        held = composing.held
-        entered = composing.read(decoder.decode(got or b""), more=bool(got))
+        entered = composing.read(decoder.decode(got or b""))
         if entered:
             with lines_path.open("a") as lines:
                 lines.writelines(json.dumps(line) + "\n" for line in entered)
-        if now != stamp or got or held:
+        if now != stamp or got:
             stamp = now
             os.write(1, drawn(screen_path.read_text(), composing.draft, composer).encode())
 
