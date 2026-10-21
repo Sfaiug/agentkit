@@ -1267,8 +1267,8 @@ def account(cfg, provider, model=None):
     The one `_gate_flags` put first: another account with room before the usual login,
     the usual one only when none of them has any, then the most budget, then the order
     the config lists them in; for a `model`, one running low on the meters gating it
-    (`model_low`) after every one that is not.  (None, None) for a provider that lists no
-    accounts, which is asked nothing: it is one login, exactly as it always was.
+    (`model_low`), or unread, after every one that is not.  (None, None) for a provider that
+    lists no accounts, which is asked nothing: it is one login, exactly as it always was.
     """
     names = config.accounts(cfg, provider)
     if not names:
@@ -1276,8 +1276,10 @@ def account(cfg, provider, model=None):
     prov = collect(cfg).get(provider) or {}
     if prov.get("account") in names:
         readings = prov["accounts"]
+        # One whose meters ak cannot read may be logged out: it is no safer than one running low.
         best = prov["account"] if model is None else min(readings, key=lambda a: _worker_rank(
-            a, readings[a], model_low(cfg, model, {provider: readings[a]})))
+            a, readings[a], readings[a]["budget_reason"] is not None
+            or model_low(cfg, model, {provider: readings[a]})))
         return best, not prov.get("exhausted")
     spare = next((a for a in names if a != config.DEFAULT_ACCOUNT), names[0])
     return spare, not prov.get("exhausted")

@@ -17,8 +17,11 @@ class StartsOffLow(unittest.TestCase):
 
     def picks(self, first, second, gone=2, scoped=0):
         """(a worker turn's account, the order a seat opens or moves in), each subscription's 5h
-        window `first` or `second`% used `gone` hours in, the second's Fable week `scoped`%."""
+        window `first` or `second`% used `gone` hours in, the second's Fable week `scoped`%;
+        a `second` of None is a reading that failed."""
         def reading(used, scoped=0):
+            if used is None:
+                return {"provider": "anthropic", "meters": [], "error": "unknown: usage exited 1"}
             meters = ({"name": "session", "used": used, "window_secs": usage.SESSION_SECS,
                        "resets_at": self.now + usage.SESSION_SECS - gone * 3600},
                       {"name": "weekly_scoped", "used": scoped, "window_secs": 604800,
@@ -39,6 +42,8 @@ class StartsOffLow(unittest.TestCase):
         self.assertEqual(self.picks(10, 97), ("default", ["default", "second"]))
         # Fable's own week running low on the spare is not Opus's
         self.assertEqual(self.picks(10, 10, scoped=97), ("second", ["default", "second"]))
+        # one ak cannot read may be logged out: a worker takes the one running low first
+        self.assertEqual(self.picks(97, None)[0], "default")
 
 
 if __name__ == "__main__":
