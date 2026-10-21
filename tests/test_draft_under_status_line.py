@@ -2,7 +2,7 @@
 
 A Claude seat can draw the user's own `statusLine` between its composer's bottom rule and
 the bypass footer, in whatever format he chose.  Text typed in the composer is still his
-unsent draft -- `draft`, and `needs you` with `unsent: <text>` -- and the same screen with
+unsent draft -- `draft`, its text carried as `unsent` -- and the same screen with
 an empty composer is still `at_prompt`.  Offline: the claude captures with invented status
 lines spliced in above their footer; never a real seat, pane or ~/.claude.
 """
@@ -60,7 +60,7 @@ class DraftUnderStatusLine(Sandbox):
         found = watch.session_state(SEAT, NOW, session={"name": SEAT, "attached": False},
                                     cfg=self.cfg, records=[], live=live, harness="claude",
                                     auth_out={}, gh_out={}, token_out={}, previous={})
-        self.assertEqual((found["word"], found["reason"]), ("idle", f"unsent: {TEXT}"))
+        self.assertEqual((found["word"], found["reason"], found["unsent"]), ("idle", "", TEXT))
 
     def test_a_picker_cursor_over_a_status_line_is_no_draft(self):
         # Under a cursor sits another option or the status line: never the composer's rule,

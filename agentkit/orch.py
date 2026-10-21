@@ -25,6 +25,7 @@ import atexit
 import difflib
 import fcntl
 import fnmatch
+import io
 import json
 import math
 import os
@@ -42,7 +43,7 @@ import threading
 import time
 import uuid
 from collections import Counter
-from contextlib import ExitStack, closing, contextmanager
+from contextlib import ExitStack, closing, contextmanager, redirect_stderr, redirect_stdout
 from datetime import datetime
 from pathlib import Path
 
@@ -226,8 +227,9 @@ def account_order(cfg, model, readings, first=None):
 
     `first` -- a seat's home; for a new seat the provider's `seat_account`, else the usual
     login -- first while it has room for this model, the rest by room: a seat lives where
-    its owner follows it, and only spills over when that one is spent.  An account on
-    credits (`usage.on_credits`) has room only after every one with a window left.
+    its owner follows it, and only spills over when that one runs low.  An account on
+    credits (`usage.on_credits`) has room only after every one with a window left, and one
+    running low (`usage.model_low`) only after every one that is not.
     """
     provider = config.model(cfg, model)["provider"]
 
@@ -235,12 +237,13 @@ def account_order(cfg, model, readings, first=None):
         providers = {provider: readings[account]}
         amount, unknown = usage.model_budget(cfg, model, providers)
         return (usage.model_exhausted(cfg, model, providers)[0],
-                usage.on_credits(cfg, model, providers), unknown is not None, -amount)
+                usage.on_credits(cfg, model, providers),
+                usage.model_low(cfg, model, providers), unknown is not None, -amount)
     accounts = config.accounts(cfg, provider) or list(readings)
     ordered = sorted((a for a in accounts if a in readings), key=rank)
     if first is None:
         first = (cfg["providers"].get(provider) or {}).get("seat_account", config.DEFAULT_ACCOUNT)
-    if first in ordered and not any(rank(first)[:2]):
+    if first in ordered and not any(rank(first)[:3]):
         ordered = [first, *(a for a in ordered if a != first)]
     return ordered
 
@@ -1082,8 +1085,10 @@ def tmux_env(client=False):
     return dict(os.environ) if client else {k: v for k, v in os.environ.items() if k != "TMUX"}
 
 
-def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shim=False):
-    """(exit code, output) of one tmux command; 127 when there is no tmux to ask.
+def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shim=False,
+             rows=False):
+    """(exit code, output) of one tmux command; 127 when there is no tmux to ask.  The output is
+    stripped, unless `rows` keeps a capture's leading blank rows, where each row's place counts.
 
     `unit` names the transient scope a command that starts a server runs in, so that the
     server -- and every pane it ever opens -- lives in agentkit's slice.  Where the scope
@@ -1115,8 +1120,10 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shi
         # the command's name, never its words: send-keys carries what the owner typed
         return 124, f"tmux did not answer {next(iter(args), '')} within {timeout:g} s"
     if proc.returncode != 0 and argv != plain:
-        return tmux_out(*args, socket=socket, client=client, timeout=timeout, path_shim=path_shim)
-    return proc.returncode, (proc.stdout + proc.stderr).strip()
+        return tmux_out(*args, socket=socket, client=client, timeout=timeout, path_shim=path_shim,
+                        rows=rows)
+    out = proc.stdout + proc.stderr
+    return proc.returncode, out.rstrip() if rows else out.strip()
 
 
 def tmux_literal(word):
@@ -2479,6 +2486,9 @@ def launch(name, model, cwd, cmd, conversation, session=None):
             raise
         finally:
             last.unlink(missing_ok=True)
+        # The moment from which an answer is this harness's (watch.follow_model): the one it
+        # replaces was sent SIGHUP and its terminal closed when the respawn returned.
+        config.update_session(current, launched=time.time())
     plugin.retire(before)   # its harness is gone now, replaced by this one
     if plugin.title_command(name):
         # A held rename survives a relaunch on the same conversation: our own last
@@ -3528,10 +3538,11 @@ def session_owned_files(name):
 def cmd_stop(argv):
     """Stop a seat and everything it runs; stop it again and it is gone.
 
-    The first stop ends the seat and keeps it: every run it launched is stopped the way `ak
-    run stop` stops one, each run's checkout and local branch go with it, the tabs the seat or
-    its runs opened close, and the tmux session goes -- under the seat's own typing lock, so a
-    line being typed into it finishes first.
+    The first stop ends the seat and keeps it: the tmux session goes -- under the seat's own
+    typing lock, so a line being typed into it finishes first -- and then every run it launched
+    is stopped the way `ak run stop` stops one, each run's checkout and local branch go with it,
+    and the tabs the seat or its runs opened close.  The seat goes first so every menu has it
+    stopped while its runs go, each up to STALL_KILL_WAIT inside kill_tree.
     Its record and state files stay, the stop mark in the seat file, so its row keeps its
     number a week, reading `idle` (`listing`, `ghost`, `watch.session_state`): the number
     reopens the conversation where it stopped, and a
@@ -3554,20 +3565,12 @@ def cmd_stop(argv):
     # Stopping the session this runs in -- the overlay's `x`, or `ak orch stop` from the seat
     # itself -- hangs this very process up halfway through, and the menu redraws the moment
     # the attach drops: so the mark is written before the kill, with SIGHUP ignored across
-    # both; only the print at the end may still die on the dead pane, after everything it
-    # reports is already true.
+    # it and all that follows, which says nothing: a print to the dead pane would end it.
     old = signal.signal(signal.SIGHUP, signal.SIG_IGN)
-    removed = False
+    removed = gone_with = False
     warn = lambda line: print(line, file=sys.stderr)
     try:
         from . import stop
-        # Unfinished runs stop before the lock: each one costs up to STALL_KILL_WAIT
-        # inside kill_tree, and nothing it touches is the seat's state. The peek is
-        # best effort -- the lock below decides authoritatively -- so a name nobody
-        # answers to stops nothing before it is refused.
-        if find(name) is not None or name in records():
-            stop.stop_owned_runs(name)
-            notify.forget_card(name)   # before the lock too: a slow Discord holds up no tick
         # A stop and automatic boot recovery must agree on whether this seat exists.
         with watch.state_lock():
             session = find(name)
@@ -3580,7 +3583,6 @@ def cmd_stop(argv):
                 forget_seat(name, record, warn)
                 removed = True
             else:
-                stop.release_session(name)
                 # Under the seat's typing lock, the one a rename takes: a line under way
                 # finishes into this seat before it closes, and one waiting finds it closed.
                 with notify.session_lock(name):
@@ -3597,17 +3599,28 @@ def cmd_stop(argv):
                                            socket=seat_socket(session))
                         if rc != 0:
                             raise config.Error(f"could not stop the session {name}: {out}")
+                        gone_with = config.current_session() == name
                         from . import statusbar   # here, not at the top: its module imports this one
                         statusbar.retell(session)   # no other bar names or counts it any more
-        if not removed:
-            watch.forget(name)   # its stall record and open question go with the owner's stop
-            if not record:
-                # tmux alone held it: no record to keep, no number to reopen it
-                forget_seat(name, {}, warn)
-                removed = True
+        with ExitStack() as quiet:
+            if gone_with:
+                quiet.enter_context(redirect_stdout(io.StringIO()))
+                quiet.enter_context(redirect_stderr(io.StringIO()))
+            # outside the lock: nothing a run's stop touches is the seat's state, and a slow
+            # Discord holds up no tick
+            if removed:
+                stop.stop_owned_runs(name)
+            else:
+                watch.forget(name)   # its stall record and open question go with the owner's stop
+                stop.release_session(name)
+                if not record:
+                    # tmux alone held it: no record to keep, no number to reopen it
+                    forget_seat(name, {}, warn)
+                    removed = True
+            notify.forget_card(name)
+            print(f"removed {name}" if removed else f"stopped {name}; its number reopens it")
     finally:
         signal.signal(signal.SIGHUP, old)
-    print(f"removed {name}" if removed else f"stopped {name}; its number reopens it")
     return 0
 
 
@@ -4140,22 +4153,27 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
         moved = True          # its model is gone: no provider to stay home on
     chosen = {"orchestrator": model, "account": account,
               **({"home_account": account} if moved else {})}
-    try:
-        with watch.announcing(name):   # what every redress reads the record under
+    # Under what every redress and look reads the record under, till the new harness is up: a
+    # look before it would follow the old model's last answer back (watch.follow_model).
+    with watch.announcing(name):
+        try:
             config.update_session(name, **chosen)
-    except OSError as exc:
-        return f"session: {_one_line(exc)}"
-    waited = watch.seat_read(name).get("usage_wait")   # a turn its usage cut off goes on
-    try:
-        launch(name, model, cwd, cmd, conversation, session)
-    except (config.Error, OSError) as exc:
+        except OSError as exc:
+            return f"session: {_one_line(exc)}"
+        waited = watch.seat_read(name).get("usage_wait")   # a turn its usage cut off goes on
+        try:
+            launch(name, model, cwd, cmd, conversation, session)
+            failed = None
+        except (config.Error, OSError) as exc:
+            failed = exc
+    if failed:
         try:
             config.update_session(name, **{key: record.get(key) for key in chosen})
             if session:
                 watch.announce_state(session, cfg=cfg)   # a redress meanwhile drew the new model
         except (config.Error, OSError, ValueError):
             pass    # the note below already says the restart failed
-        return _one_line(exc)
+        return _one_line(failed)
     if kept:
         if watch._turn_in_flight(new_harness, live)[0] or (waited or {}).get("continue"):
             watch.seat_write(name, midturn={"boot": watch.boot_id(), "at": time.time(),

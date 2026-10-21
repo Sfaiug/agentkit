@@ -276,20 +276,15 @@ class Matrix(unittest.TestCase):
         screen = Screen(self)
         lines = screen.frame()
         self.assertEqual("\n".join(lines).count("●"), 1)
-        # another model's mark asks first: Esc keeps the seat, Move moves it
-        lines = screen.press(ENTER, lambda lines: "Move fix-api to Fable 5.1?" in "\n".join(lines))
-        self.assertIn(menu.MOVE_ASK[1].format("Fable 5.1")[:40], " ".join(lines))
-        lines = screen.press(ESC, lambda lines: "Move fix-api" not in "\n".join(lines))
-        self.assertEqual(screen.record()["orchestrator"], "opus")
-        lines = screen.press(ENTER + DOWN + ENTER, lambda lines: "●" in row(lines, "fable")[1])
+        # another model's mark moves the seat at once, asking nothing
+        lines = screen.press(ENTER, lambda lines: "●" in row(lines, "fable")[1])
         self.assertEqual("\n".join(lines).count("●"), 1)
         self.assertEqual(screen.record()["orchestrator"], "fable")
         before = screen.session.read_bytes()
         lines = screen.press(b" ")                        # the one there is cannot be unmarked
         self.assertIn("●", row(lines, "fable")[1])
         self.assertEqual(screen.session.read_bytes(), before)
-        lines = screen.press(DOWN * 3 + ENTER + DOWN + ENTER,
-                             lambda lines: "●" in row(lines, "astra")[1])
+        lines = screen.press(DOWN * 3 + ENTER, lambda lines: "●" in row(lines, "astra")[1])
         self.assertEqual("\n".join(lines).count("●"), 1)
         self.assertEqual(screen.record()["orchestrator"], "astra")
         screen.leave()
@@ -361,7 +356,7 @@ class Matrix(unittest.TestCase):
         lines = screen.press(TAB)                         # on fable's orchestrator mark
         self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ mark   esc back")
         self.assertEqual(screen.path.read_bytes(), before)
-        screen.press(ENTER + DOWN + ENTER,                 # still that mark: its card, Move
+        screen.press(ENTER,                               # still that mark: it moves the seat
                      lambda lines: "●" in row(lines, "fable")[1])
         screen.press(DOWN + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
         before = screen.path.read_bytes()
@@ -381,9 +376,8 @@ class Matrix(unittest.TestCase):
         self.assertIn("GPT-6-Astra", highlighted(lines))
         self.assertEqual(screen.record()["workers"], ["opus"])
         number, line = row(lines, "spark")
-        screen.click(line.index("○") + 1, number,          # asks first, as the key does
-                     lambda lines: "Move fix-api to muse-spark-1.3-contributor?" in "\n".join(lines))
-        lines = screen.press(DOWN + ENTER, lambda lines: "●" in row(lines, "spark")[1])
+        lines = screen.click(line.index("○") + 1, number,  # moves the seat, as the key does
+                             lambda lines: "●" in row(lines, "spark")[1])
         self.assertEqual(screen.record()["orchestrator"], "spark")
         number, line = row(lines, "opus")                 # a click on an effort's word steps it
         lines = screen.click(line.index("xhigh") + 1, number,

@@ -58,7 +58,7 @@ class TasksMove(Sandbox):
                 for group in re.finditer("[■□]{3}", lines[row - 1])]
 
     def test_squares_in_a_draft_are_never_a_task(self):
-        state = {"word": "working", "reason": "", "unsent": "unsent: explain ■□□ please",
+        state = {"word": "working", "reason": "", "unsent": "explain ■□□ please",
                  "since": None}
         for width in (100, 40):    # the draft beside the row, or on a line of its own
             with self.subTest(width=width), \
