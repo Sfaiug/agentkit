@@ -1110,7 +1110,7 @@ def preset_review_model(cfg, opts, workers=None, *, reviewers=None):
         config.model(cfg, opts["--review"])
     except Exception:  # noqa: BLE001 - the child reproduces any real failure itself
         return None
-    refuse_unready(cfg, providers, opts["--review"])
+    refuse_unready(cfg, providers, opts["--review"], "reviewer")
     if exec_for_rule:
         review_providers(cfg, exec_for_rule, opts["--review"])
     return opts["--review"]
@@ -2482,7 +2482,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         preset_rev = None   # a saved reviewer keeps its identity; a stale one does not
     if opts["--review"]:
         config.model(cfg, opts["--review"])
-        refuse_unready(cfg, providers, opts["--review"])
+        refuse_unready(cfg, providers, opts["--review"], "reviewer")
         if is_own:
             review_providers(cfg, orchestrator, opts["--review"])
         reviewer = opts["--review"]

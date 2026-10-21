@@ -1489,6 +1489,16 @@ def unswitched_files(harness, env):
     return found
 
 
+def workspace_rules(harness):
+    """The instruction files and folders this harness loads from the checkout it works in, with
+    no switch to stop it: `[instructions] workspace` in adapters/<h>.toml, named relative to the
+    checkout.  Such a harness never reviews: it would judge a branch by the rules the branch
+    itself wrote (`staffing.barred_reviewer`)."""
+    block = manifest(harness).get("instructions")
+    names = block.get("workspace") if isinstance(block, dict) else None
+    return [name for name in names or [] if isinstance(name, str) and name]
+
+
 def seat_state_path(name):
     """Where the seat's last classified live state and its `since` are kept."""
     return seat_file("seat", name)

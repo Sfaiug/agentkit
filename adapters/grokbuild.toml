@@ -2,18 +2,19 @@
 # The captures behind the screen rules are tests/fixtures/grok*-pane.txt; the trust dialog's
 # words are the executable's own strings (1.0.40), because no fresh folder on this host was
 # still untrusted enough to paint it.  Every other string here was seen on the wire.
-# A worker turn or seat still loads the checkout's AGENTS.md and a top-level CLAUDE.md: grok 1.0.40 has no switch for them.
 version = 1
 
 [check]
 model = "grok-4.7-build-fast"
 effort = "low"
 
-# grok 1.0.40 has no switch for its own AGENTS.md either
+# grok 1.0.40 has no switch for its own AGENTS.md
 [instructions]
 # read under $GROK_HOME: ~/.grok-<name> on an account (grokbuild.sh sets it on the seat's
 # line; a worker turn's box knows the account's name)
 unswitched = ["${GROK_HOME:-~/.grok}/AGENTS.md", "~/.grok-$AGENTKIT_ACCOUNT/AGENTS.md"]
+# nor for the checkout's AGENTS.md and top-level CLAUDE.md, so it never reviews
+workspace = ["AGENTS.md", "CLAUDE.md"]
 
 [launch]
 # `interactive` hands $AGENTKIT_FIRST_PROMPT to the TUI as its first prompt, fresh or resumed

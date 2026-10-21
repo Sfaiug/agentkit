@@ -93,6 +93,8 @@ def ready_order(cfg, providers, workers=None, log=None, **kwargs):
     if getattr(providers, "harnesses", None):
         skip = {name: usage.unready(cfg, name, providers) for name in config.offered(cfg)}
         skip = {name: why for name, why in skip.items() if why}
+    if kwargs.get("role") == "reviewer":
+        skip.update((name, why) for name in config.offered(cfg) if (why := barred_reviewer(cfg, name)))
     if log and skip:
         listed = (config.reviewers(cfg) if kwargs.get("role") == "reviewer"
                   else config.workers(cfg)) if workers is None else workers
@@ -102,8 +104,18 @@ def ready_order(cfg, providers, workers=None, log=None, **kwargs):
     return usage.pick_order(cfg, providers, workers, skip=skip, **kwargs)
 
 
-def refuse_unready(cfg, providers, name):
-    """A model named outright whose harness cannot run here is refused, in one sentence.
+def barred_reviewer(cfg, name):
+    """Why this model never reviews, or None.  A reviewer judges a branch by the base's rules,
+    which ak puts in its prompt; a harness that loads the checkout's own instruction files
+    (`config.workspace_rules`) would read what the branch wrote instead.  An executor is never
+    barred: the branch's instructions are its own."""
+    files = config.workspace_rules(config.model(cfg, name)["harness"])
+    return f"its harness loads the branch's own {', '.join(files)}" if files else None
+
+
+def refuse_unready(cfg, providers, name, role="executor"):
+    """A model named outright whose harness cannot run here, or that may not take the role, is
+    refused, in one sentence.
 
     Not on an answer an install or revert of that harness overlapped: its command was missing
     then, so the swap is waited out and the harness asked again, as a failed turn's is.
@@ -119,6 +131,8 @@ def refuse_unready(cfg, providers, name):
         why = usage.harness_unready(harness, provider=entry["provider"])
     if why:
         raise config.Error(f"{name} cannot run here: {why}")
+    if role == "reviewer" and (why := barred_reviewer(cfg, name)):
+        raise config.Error(f"{name} cannot review: {why}")
 
 
 def refuse_outside_group(cfg, name, group, role):
@@ -157,7 +171,7 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
         if reviewers is None and allowed is not None and want_review not in allowed:
             where = f"session {session['name']!r}" if session else "this run"
             raise config.Error(f"{want_review!r} is not a worker of {where}")
-        refuse_unready(cfg, providers, want_review)
+        refuse_unready(cfg, providers, want_review, "reviewer")
         reviewer = want_review
         if want_exec is None:
             # A named reviewer takes the best executor for it: tier first, then
@@ -184,7 +198,8 @@ def pair_refusal(cfg, providers, workers, want_exec=None, want_review=None, revi
     Budgets are left out: a spent meter refills, and a run waiting on one is parked for a
     reason.  Nothing refills a harness that is not installed or not logged in, so a launch
     left with no runnable executor or reviewer is refused instead of parking on a review
-    nobody can give.  One runnable worker is enough to launch: it reviews its own work,
+    nobody can give, and so is one whose every reviewer is barred from reviewing
+    (`barred_reviewer`).  One runnable worker is enough to launch: it reviews its own work,
     marked self-reviewed.  Legacy explicit names remain unbound; only automatic candidates
     fall back to the configured worker selection.
     """
@@ -196,7 +211,8 @@ def pair_refusal(cfg, providers, workers, want_exec=None, want_review=None, revi
     review_list = listed if review_list is None else review_list
     skipped = {name: usage.unready(cfg, name, providers) for name in [*listed, *review_list]}
     ready = [name for name in listed if not skipped[name]]
-    reviews = [name for name in review_list if not skipped[name]]
+    barred = {name: why for name in review_list if (why := barred_reviewer(cfg, name))}
+    reviews = [name for name in review_list if not skipped[name] and name not in barred]
     if want_exec:
         ready = [name for name in ready if name == want_exec] if bound_exec else [want_exec]
     if want_review:
@@ -204,6 +220,11 @@ def pair_refusal(cfg, providers, workers, want_exec=None, want_review=None, revi
                    if bound_review else [want_review])
     if any(reviewer_order(cfg, name, reviews) for name in ready):
         return None
+    wanted = [want_review] if want_review else review_list
+    if wanted and all(name in barred for name in wanted):
+        return (f"none of the reviewers {', '.join(wanted)} may review: "
+                + "; ".join(f"{name}: {barred[name]}" for name in wanted)
+                + "; mark a reviewer on another harness")
     why = "; ".join(f"{name}: {reason}" for name, reason in skipped.items() if reason)
     missing = []
     if not ready:
