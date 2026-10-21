@@ -94,10 +94,16 @@ class RunCommandLine(unittest.TestCase):
 
     def test_a_run_id_that_is_a_path_reaches_nothing_outside_the_runs(self):
         with Home() as home:
-            home.write(".agentkit/acme/state.json", {"state": "pass", "verdict": "PASS"})
+            # a record every verb would act on, were it inside the runs
+            home.write(".agentkit/acme/run.json", {"state": "pass", "verdict": "PASS",
+                                                   "repo": str(home.path),
+                                                   "worktree": str(home.path)})
+            (home.path / ".agentkit" / "runs").mkdir()
             for verb in LOOKUPS:
                 with self.subTest(verb):
-                    self.refused((verb, "../acme"), "…", home=home)
+                    said = (f"no such run: ../acme (looked in {home.path}/.agentkit/runs)"
+                            if verb == "status" else f"usage: ak run {verb} …")
+                    self.refused((verb, "../acme"), said, home=home)
 
     def test_run_help_lists_each_verb_of_ak_run_in_its_usage_block(self):
         done = self.home.ak("run", "--help")
