@@ -73,7 +73,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
-from agentkit import config, harness, notify
+from agentkit import config, harness, notify, questions
 from agentkit.handback import handback_reason
 from agentkit.stop import question_refused, recorded_ending, ways_out
 from agentkit.watch import owner_question, seat_read, start_look, turn_ended
@@ -172,11 +172,10 @@ def transcript(payload):
 
 def last_message(payload):
     """Codex hands over the message; Claude names its transcript. Both key spellings occur."""
-    said = payload.get("last_assistant_message")
-    if not (isinstance(said, str) and said.strip()):
-        said = payload.get("lastAssistantMessage")
-    if isinstance(said, str) and said.strip():
-        return said
+    for key in ("last_assistant_message", "lastAssistantMessage"):
+        if key in payload:
+            said = payload[key]
+            return said if isinstance(said, str) else None
     for entry in transcript(payload):
         said = spoken(entry)
         if said:
@@ -321,9 +320,12 @@ def held(launched, payload):
     turn = moment(record.get("turn"))
     if turn is None:
         return ""    # no turn was written down; nothing here can say what happened during it
+    seat = resolve(launched)
+    delivery = questions.reminder(seat, last_message(payload))
+    if delivery:
+        return delivery
     if background(payload):
         return ""
-    seat = resolve(launched)
     if last_message(payload) is None:
         return ""    # nothing it said can be read; nothing here can judge the turn
     # a question to the owner that nothing has answered yet ends a turn whenever it was asked:

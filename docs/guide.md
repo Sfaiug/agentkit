@@ -56,6 +56,11 @@ unless the harness's question prompt is still unanswered (input in the owner's w
 back, a background command and a `monitor` watch excepted, and a stop sent back reads `working`; the block on an open line adds that a background command is no wait and names `ak wait <PR url or run id>`. A harness
 with no blocking end-of-turn hook declares `[stop] enforce = "nudge"`, and the tick types `continue` instead (a question mark on its screen ends nothing there either; `ak notify needs` this turn does, and so does one still unanswered from before it, as on a hooked harness, since a hand-back or a wait's end opens turns while a question stands), never ahead of the line telling a waiting seat its wait is over, never after a turn you stopped with Esc, and at most twice for the same parked run until the seat has a newer notice.
 
+A hooked turn with recorded unanswered questions first writes their text and choices in its
+closing assistant message. An empty message or a tool result does not deliver them: the Stop
+hook requests the missing text before allowing the turn to end, including when other work
+continues in the background. Questions already answered are not repeated.
+
 A hooked orchestrator turn that would end on a last message ending in `?`, with no question
 asked through the question prompt or `ak notify needs`, is sent back once: a question left in
 prose reaches nobody but the terminal, so the seat asks it there or goes on without it. Once a

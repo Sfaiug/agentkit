@@ -21,7 +21,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, notify, orch, transitions, watch
+from agentkit import config, notify, orch, questions, transitions, watch
 
 NOW = 1_800_000_000
 SEAT = "fix-api"
@@ -94,7 +94,7 @@ class QuestionWaitsForTheStop(Sandbox):
 
     def stop(self, **payload):
         return self.hook("Stop", script="orchestrator-stop.sh", **{
-            "background_tasks": [], "last_assistant_message": "The schema is yours to pick.",
+            "background_tasks": [], "last_assistant_message": "\n\n".join(questions.pending(SEAT)) or "Finished.",
             **payload})
 
     def test_the_seat_reads_working_while_the_turn_that_asked_runs(self):
