@@ -395,8 +395,9 @@ class ThreeStates(Sandbox):
                 watch.announce_state(self.seat, cfg=self.cfg)
                 self.assertEqual(self.options[TITLE], f"atoll · {word}")
 
-    def test_k_one_function_decides_and_the_table_holds_four_words(self):
-        self.assertEqual(list(terminal.STATES), ["working", "needs you", "done", "idle"])
+    def test_k_one_function_decides_and_the_table_holds_five_words(self):
+        self.assertEqual(list(terminal.STATES),
+                         ["working", "needs you", "done", "idle", "out of usage"])
         for word, (mark, colour) in terminal.STATES.items():
             self.assertEqual(terminal.state_text(word), f"{mark} {word}")
             self.assertEqual(terminal.state_colour(word), colour)

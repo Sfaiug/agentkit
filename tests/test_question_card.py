@@ -23,7 +23,7 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 import test_close_and_info
 from test_close_and_info import ESC, Menu
-from agentkit import menu, run, stop, terminal, transitions
+from agentkit import config, menu, run, stop, terminal, transitions
 from agentkit import record
 
 Key = terminal.Key
@@ -119,7 +119,7 @@ class QuestionCard(unittest.TestCase):
                     if len(terminal.wrap(menu.stop_means(None), width - 2))
                     == len(terminal.wrap(menu.stop_means(3), width - 2)) + 1)
         with patch.object(test_close_and_info, "CHILD", test_close_and_info.CHILD.replace(
-                "orch.cmd_stop = cmd_stop\n", "orch.cmd_stop = cmd_stop\n" + SLOW)):
+                "sys.exit(menu.loop(", SLOW + "sys.exit(menu.loop(")):
             shown = Menu(self, {"alpha": "working"}, rows=24, cols=cols)
         shown.frame()
         mark, pressed = shown.mark(), time.monotonic()

@@ -25,7 +25,15 @@ from . import (config, gitcall, hand_in, handback, history, prompts, record as r
 
 
 # The front matter lines ak reads; any other name (a typo of `tests:` included) is read by nothing.
-FRONT_KEYS = ("tests", "health", "cleanup", "users", "features", "suite_image")
+# `content:` names, as space-separated path prefixes, the project's own product text (its pages,
+# its knowledge base): words that are the product, not notes about the code.
+FRONT_KEYS = ("tests", "health", "cleanup", "users", "features", "suite_image", "content")
+
+
+# The words an AGENTS.md body may grow to: what the project is, and the few facts no code can
+# hold.  A floor, not a target: past it a body only shrinks, so what a branch would add there
+# moves into the test, check or comment that holds it by itself, and no file ever needs a cleanup.
+BODY_WORDS = 300
 
 
 BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
@@ -41,7 +49,7 @@ class Loop:
     run picks up.
     """
 
-    def __init__(self, cfg, run_dir, state, opts, log, wt, body, cmds, context, spares):
+    def __init__(self, cfg, run_dir, state, opts, log, wt, body, cmds, context):
         self.cfg, self.run_dir, self.state, self.opts, self.log = cfg, run_dir, state, opts, log
         self.wt, self.body, self.cmds, self.context = wt, body, cmds, context
         path = run_dir / "task.md"
@@ -56,7 +64,6 @@ class Loop:
         self.target = state.get("target") or state["base"]
         self.executor, self.reviewer = state["executor"], state["reviewer"]
         self.exec_sid, self.review_sid = state.get("exec_session"), state.get("review_session")
-        self.spares = spares
         self.findings = prompts.saved_findings(run_dir, state)
         self.artifacts = set(state.get("artifacts", ()))
         self.rnd = len(state["round_summaries"])
@@ -271,7 +278,8 @@ def files_scope(lp):
 
 def rules_check(lp):
     """Refuse a branch's change to AGENTS.md that workers would not get as written: a link, a
-    Git filter, more than a harness reads of it, or a front matter line ak does not read.
+    Git filter, more than a harness reads of it, or a front matter line ak does not read; or
+    one that grows its body past `BODY_WORDS` and past what the base holds.
     A branch that leaves the file alone, or deletes it, passes."""
     if lp.scratch or not gitcall.git(lp.wt, "diff", "--name-only", "--no-renames",
                              f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
@@ -297,6 +305,12 @@ def rules_check(lp):
     if ceiling and len(held) > ceiling[0]:
         return (f"AGENTS.md is {len(held)} bytes, past the {ceiling[0]} bytes {ceiling[1]} "
                 "reads of it: tighten it.")
+    words = len(gitcall.agents_body(lp.wt, "HEAD").split())
+    before = len(gitcall.agents_body(lp.wt, lp.base_sha).split())
+    if words > max(BODY_WORDS, before):
+        return (f"AGENTS.md's body grows from {before} to {words} words; past {BODY_WORDS} it "
+                "only shrinks. Move what this adds into a test, a check or a comment at the code "
+                "it is about.")
     text = held.decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n")
     unread = unknown_front_lines(text.strip())
     if not unread:
@@ -1101,7 +1115,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
 
     `record` is off for landing re-review and the merge pipeline's fixer rounds: they are not task rounds
     and must not spend one, so no summary of them enters the rounds' own history.
-    The verdict is recorded either way, because delivery is decided
+    `summary` is the author's own account of its work: it is recorded, never handed to the
+    reviewer, whom it would prime.  The verdict is recorded either way, because delivery is decided
     on it.
     """
     passed_head = passed_review_head(lp.state)
@@ -1114,9 +1129,12 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     # what a later round replays, kept on the pending record so no dying attempt overwrites them
     delta_from = lp.state.get("delta_from")
     earlier = prompts.earlier_findings(lp)
+    # who could not finish this round's review, kept across parks as `since` is: none is
+    # asked again in this round, and a new round starts with nobody failed
+    failed = pending.get("failed", []) if pending.get("round") == lp.rnd else []
     lp.state.update(verdict=None, review=None,
                     review_pending={"round": lp.rnd, "summary": summary, "since": since,
-                                    "earlier": earlier,
+                                    "earlier": earlier, "failed": failed,
                                     **({"passed_head_sha": passed_head} if passed_head else {})})
     if not record:
         lp.state["review_pending"]["record"] = False
@@ -1203,7 +1221,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     def body_with(section):
         text = (f"{lp.body}\n\n{section}\n\n"
                 + (disputes.text + "\n" if disputes.disputes else "")
-                + f"## Executor summary\n{summary}\n\n{heading}\n"
+                + f"{heading}\n"
                 + (f"{deferred}\n" if deferred else "")
                 + (f"{flaky}\n" if flaky else "")
                 + f"```\n{dw_log}\n```")
@@ -1220,34 +1238,34 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     rd = lp.dir("reviewer").parent
     name = turns.open_review(rd)[0] or "reviewer"
     def fall_back(reason, out, allow_self=True, ending=turns.Exhausted):
-        """The path a dry, twice-silent or twice-transient reviewer takes: next spare, else Exhausted."""
-        # Recheck at the point of fallback, including spares from saved/legacy callers, and
-        # against the meters as they read now: a spare whose own provider has run dry is none.
+        """The path a dry, twice-silent or twice-transient reviewer takes: next one, else Exhausted.
+
+        The next one is read afresh from the run's marked reviewers and the meters as they
+        read now, so a reviewer passed over while its meter was spent is picked once it has
+        refilled; only those that already failed this round stay out of it."""
+        failed = lp.state["review_pending"].setdefault("failed", [])
+        if lp.reviewer not in failed:
+            failed.append(lp.reviewer)
         try:
             providers = staffing.collect_usage(lp.cfg)
         except config.Error as exc:
-            providers = {}      # meters nobody could read withhold no spare from a dead review
+            providers = {}      # meters nobody could read withhold no reviewer from a dead review
             lp.log(f"WARN could not read the meters before falling back: {exc}")
         order = staffing.ready_order(lp.cfg, providers, staffing.run_reviewers(lp.cfg, lp.state), lp.log,
                             role="reviewer", repo=lp.state.get("repo"))
         own = lp.state.get("own_orchestrator") if lp.state.get("own_pr") else None
         exec_for_rule = own or lp.executor
         writers = staffing.head_writers(lp.state)        # everyone who wrote part of the head
-        spares = staffing.reviewer_order(lp.cfg, writers,
-                                [n for n in order if n in lp.spares and n != lp.reviewer])
+        offered = staffing.reviewer_order(lp.cfg, writers, [n for n in order if n not in failed])
         if not allow_self:
             # A flake waits unless another model can review: only a reviewer that cannot
-            # come back settles for the executor's own model.  The filter is local, so a
-            # later fallback with a real reason still finds it.
-            offered = [n for n in spares
+            # come back settles for the executor's own model.
+            offered = [n for n in offered
                        if not any(staffing.same_model(lp.cfg, wrote, n) for wrote in writers)]
-        else:
-            offered = spares
         if not offered:
             raise ending(f"reviewer {lp.reviewer} {reason} and no eligible reviewer is left "
                             f"to review; waiting for review. See {out}*/stderr.log")
-        lp.reviewer, lp.review_sid = offered.pop(0), None
-        lp.spares = [n for n in spares if n != lp.reviewer]
+        lp.reviewer, lp.review_sid = offered[0], None
         lp.save()
         transitions.review_providers(lp.cfg, exec_for_rule, lp.reviewer)
         lp.log(f"WARN reviewer fell back to {lp.reviewer}")
@@ -1305,7 +1323,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             lp.save()           # the killed conversation is in run.json before the run parks
             raise
         except turns.CannotRun as broken:
-            # The spares road, as for a spent window; with no spare left, the run is blocked
+            # The fallback road, as for a spent window; with no reviewer left, the run is blocked
             # on the harness's own line rather than waiting for a meter it is not short of.
             try:
                 name = fall_back(broken.detail, out)
@@ -1313,13 +1331,13 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                 raise broken from None
             continue
         except turns.TransientHandover as handed:
-            # fall_back already moved the role inside the callback; the spare reviews
+            # fall_back already moved the role inside the callback; the next one reviews
             # in a fresh out dir on a fresh session.
             name = handed.new
             continue
         except turns.RanDry as dry:
             # A spent window is the other way a reviewer stops without judging the diff, so it
-            # takes the same road out: the spares, checked against the executor and config.
+            # takes the same road out: the next marked reviewer, read as the meters stand now.
             dry.remember(lp.state)
             code, text, lp.review_sid, dead, why = dry.code, dry.text, dry.session, True, dry.detail
             ending = dry.ending

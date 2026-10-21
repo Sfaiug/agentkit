@@ -200,12 +200,12 @@ class Projects(Sandbox):
                              title="Failed work", state="fail", verdict="FAIL",
                              finished_at=NOW - 2 * DAY)
         self.assertRegex(self.draw(100, 30), re.compile(
-            r"atoll-fix\s+fable\s+! needs you\s+session closed: press 1 to reopen$", re.M))
+            r"atoll-fix\s+Fable 5\.1\s+! needs you\s+session closed: press 1 to reopen$", re.M))
         state = run_record.read_state(failed)
         state["finished_at"] = NOW - 8 * DAY
         run_record.save_state(failed, state)
         self.assertRegex(self.draw(100, 30), re.compile(
-            r"atoll-fix\s+fable\s+○ idle\s+session closed: press 1 to reopen$", re.M))
+            r"atoll-fix\s+Fable 5\.1\s+○ idle\s+session closed: press 1 to reopen$", re.M))
         self.record("stopped", owner=seat["name"], repo=seat["repo"], title="Stopped work",
                     state="interrupted", finished_at=None, started_at=NOW - 2 * DAY,
                     interrupted_at=NOW - 2 * DAY, recovery_pending=True)

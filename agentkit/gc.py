@@ -619,7 +619,7 @@ def drop_tree(state, tree, report, keep_branch=None, with_run=False):
     going, a tree that is not the run's own, one reached through a link or under ~/code --
     is never followed by a removal by hand.
     """
-    allowed = (tree is not None and own_tree(state) == tree and worktrees.provably_final(state)
+    allowed = (tree is not None and own_tree(state) == tree and worktrees.tree_released(state, with_run)
                and clearable(tree)
                and (tree.parent == config.WORK and with_run if state.get("scratch")
                     else worktrees.checkout_removable(state)))
@@ -667,8 +667,10 @@ def gc_candidates(now=None):
         # runs however old they are; the seat is what they belong to. Pending
         # hand-backs and cards are not consulted: with the session gone there is
         # no seat left to tell, and the directory goes with them untold.
-        if (state and state.get("run_id") == directory.name and worktrees.provably_final(state)
-                and run_aged_out(directory, state, now)
+        interrupted = idle_interrupted(state, now)
+        if (state and state.get("run_id") == directory.name
+                and (interrupted or worktrees.provably_final(state)
+                     and run_aged_out(directory, state, now))
                 and not retention.writer_active(state) and not retention.busy(directory, paths)
                 and not record.writing(directory) and retention.safe(directory)):
             try:
@@ -680,7 +682,8 @@ def gc_candidates(now=None):
                 keep_for_seat = session_lives(owner)
             if not keep_for_seat:
                 yield {"action": "remove", "kind": "old-run", "path": str(directory),
-                       "run": str(directory), "whole": True, "final": True,
+                       "run": str(directory), "whole": True, "final": not interrupted,
+                       "interrupted_at": interrupted,
                        "state_identity": retention.fingerprint(directory / "run.json")}
                 continue
         # A failed, blocked, stopped or error checkout goes when the seat has been
@@ -1058,7 +1061,11 @@ def gc(report, automatic=False):
                                     owner = transitions.launched_session(state or {})
                                 except config.Error:
                                     continue
-                                if session_lives(owner) or not worktrees.provably_final(state or {}):
+                                # a run resumed since says so, or is interrupted at another time
+                                if session_lives(owner) or not (
+                                        worktrees.provably_final(state or {})
+                                        if item["final"] else item["interrupted_at"]
+                                        == idle_interrupted(state, time.time())):
                                     continue
                                 # The directory is going. Its checkout would otherwise
                                 # stay behind with nothing pointing at it. A dirty tree
@@ -1290,6 +1297,17 @@ def run_aged_out(directory, state, now):
         except OSError:
             return False
     return when <= now - RUN_DIR_AGE
+
+
+def idle_interrupted(state, now):
+    """The `interrupted_at` of a run interrupted longer than a run directory's age whose loop is
+    gone, by its record alone; None for any other.  The old-run rule takes it as it takes an
+    ended run of that age: nobody resumed it in a month."""
+    when = (state or {}).get("interrupted_at")
+    if (state and state.get("state") == "interrupted" and isinstance(when, (int, float))
+            and not isinstance(when, bool) and when <= now - RUN_DIR_AGE and worktrees.pid_gone(state)):
+        return when
+    return None
 
 
 def gone_jobs(now):

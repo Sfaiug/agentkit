@@ -72,20 +72,23 @@ def terminal_targets(session):
 
     A linked window shared with the source seat needs per-client output to suppress that
     seat's toast. Exited panes retain stale tty names, so their clients need direct output
-    too. Otherwise pane output passes through tmux to every client viewing it.
+    too. Otherwise pane output passes through tmux to every client viewing it. A control-mode
+    client (`tmux -C`) has no terminal to show a toast.
     """
     from . import orch
     rc, output = orch.tmux_out("list-clients", "-F",
-                               "#{client_tty}\t#{session_name}\t#{window_id}\t#{pane_tty}\t#{pane_dead}",
+                               "#{client_tty}\t#{session_name}\t#{window_id}\t#{pane_tty}\t#{pane_dead}"
+                               "\t#{client_control_mode}",
                                socket=orch.socket_name())
     if rc:
         return []
-    clients = [parts + [""] * (5 - len(parts)) for line in output.splitlines()
-               if 2 <= len(parts := line.split("\t")) <= 5]
-    excluded = {window for _, attached, window, _, dead in clients
+    clients = [parts + [""] * (6 - len(parts)) for line in output.splitlines()
+               if 2 <= len(parts := line.split("\t")) <= 6]
+    clients = [client for client in clients if client[5] != "1"]
+    excluded = {window for _, attached, window, _, dead, _ in clients
                 if attached == session or dead != "0"}
     targets, seen = [], set()
-    for tty, attached, window, pane, _ in clients:
+    for tty, attached, window, pane, *_ in clients:
         if not attached or attached == session:
             continue
         passthrough = bool(pane and window and window not in excluded)

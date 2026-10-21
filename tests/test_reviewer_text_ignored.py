@@ -44,7 +44,7 @@ class ReviewerTextIgnored(unittest.TestCase):
                  "base": "main", "base_sha": "abc123", "branch": "ak/fix-api",
                  "executor": "opus", "reviewer": "astra", "rounds": 3, "round_summaries": []}
         self.lp = run.Loop(config.load(), directory, state, {}, lambda _s: None, workspace,
-                           "# Fixture", ["true"], "", [])
+                           "# Fixture", ["true"], "")
         self.lp.rnd = 1
         self.calls = []
 

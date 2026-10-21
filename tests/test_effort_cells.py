@@ -23,7 +23,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_config_matrix import DOWN, ENTER, EFFORT_KEYS, RIGHT, UP, Screen, row
+from test_config_matrix import DOWN, ENTER, EFFORT_KEYS, FULL, RIGHT, UP, Screen, row
 from agentkit import config, menu, motion, terminal
 
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
@@ -38,9 +38,10 @@ def drawn(screen):
 
 
 def filled(screen, name):
-    """How many of `name`'s cells are drawn full in the foreground, with no colour of their own."""
+    """How many of `name`'s cells are drawn full in the foreground, with no colour of their own:
+    its row is the one its full name opens."""
     line = next(line for line in drawn(screen)
-                if terminal.ANSI.sub("", line)[2:].split(" ")[0] == name)
+                if terminal.ANSI.sub("", line)[2:].split("  ")[0] == FULL[name])
     return sum(1 for codes, cell in CELL.findall(line) if cell == "▰" and LIT not in codes)
 
 
@@ -93,13 +94,15 @@ class EffortCells(unittest.TestCase):
     def test_a_model_with_one_effort_is_its_word_alone(self):
         screen = Screen(self)
         lines = screen.frame()
-        self.assertEqual(row(lines, "haiku")[1].split(), ["haiku", "○", "□", "□", "xhigh"])
+        self.assertEqual(row(lines, "haiku")[1].split(), [*FULL["haiku"].split(), "○", "□", "□",
+                                                          "xhigh"])
         # its word still in the column the others' stand in
         self.assertEqual(row(lines, "haiku")[1].rindex(" "), row(lines, "fable")[1].rindex(" "))
         screen.press(DOWN * 2 + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
         cells = moved(screen, ENTER)                    # onto none, its only effort
         lines = screen.frame()
-        self.assertEqual(row(lines, "haiku")[1].split(), ["›", "haiku", "○", "□", "□", "none"])
+        self.assertEqual(row(lines, "haiku")[1].split(),
+                         ["›", *FULL["haiku"].split(), "○", "□", "□", "none"])
         self.assertEqual([cell for cell in cells if cell[0] == row(lines, "haiku")[0]], [])
         self.assertEqual(screen.saved()["models"]["haiku"]["effort"], "none")
         screen.leave()

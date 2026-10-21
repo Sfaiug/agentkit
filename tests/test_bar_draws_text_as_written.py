@@ -75,7 +75,7 @@ class AsWritten(Sandbox):
                 self.assertEqual(len(cells), statusbar.CELLS)
                 statusbar._write("fix-api", "fable", "working", bars, self.cfg)
                 line = self.screen(" 4 of 8")[0].rstrip()
-                self.assertTrue(line.endswith("fable   " + cells.rstrip()), line)
+                self.assertTrue(line.endswith("Fable 5.1   " + cells.rstrip()), line)
 
     def test_c_a_seat_s_window_title_keeps_its_name_as_it_is(self):
         # a seat made by hand on ak's server keeps whatever name it was given

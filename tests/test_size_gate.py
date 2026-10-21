@@ -94,7 +94,7 @@ class SizeGate(Sandbox):
             record.save_state(directory, state)
             history.start_run(run_id, repo=str(self.repo))
             return run.Loop(config.load(), directory, state, {}, lambda _s: None, self.repo,
-                            "# Fix the API", ["true"], "Do the task.", [])
+                            "# Fix the API", ["true"], "Do the task.")
 
         read = []
 
@@ -164,7 +164,7 @@ class SizeGate(Sandbox):
         record.save_state(directory, state)
         history.start_run(directory.name, repo=str(self.repo))
         lp = run.Loop(config.load(), directory, state, {}, lambda _s: None, self.repo,
-                      "# Fix the API", ["true"], "Do the task.", [])
+                      "# Fix the API", ["true"], "Do the task.")
 
         def interrupted(lp, summary, *_a, **_k):
             lp.state["review_pending"] = {"round": lp.rnd, "summary": summary}

@@ -71,7 +71,7 @@ class CatchCounts(unittest.TestCase):
                  "reviewer": "reviewer", "rounds": 3, "round_summaries": [], **fields}
         run.history_start(state)
         lp = run.Loop(self.cfg, directory, state, {}, lambda _: None, self.repo,
-                      "Review the API.", ["true"], "", [])
+                      "Review the API.", ["true"], "")
         lp.rnd = 1
         lp.validation = run.commit_identity(self.repo)
         return lp

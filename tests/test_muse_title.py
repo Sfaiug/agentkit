@@ -7,7 +7,7 @@ import shlex
 import sqlite3
 import subprocess
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, orch, watch
@@ -99,7 +99,7 @@ class MuseTitle(Sandbox):
         self.assertNotIn("/rename", result.stdout)
         with patch.object(orch, "start") as start:
             orch.launch("lagoon", "spark", self.root, command, None)
-        start.assert_called_once_with("lagoon", self.root, command, "spark")
+        start.assert_called_once_with("lagoon", self.root, command, "spark", ANY)
         self.tick()
         self.tick()
 

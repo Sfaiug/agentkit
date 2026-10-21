@@ -99,7 +99,7 @@ class RulesCapTold(unittest.TestCase):
         state = {"title": "fix api", "base": "main", "base_sha": self.git("rev-parse", "HEAD"), "rounds": 1,
                  "executor": "opus", "reviewer": "astra", "round_summaries": []}
         lp = run.Loop(self.cfg, directory, state, {}, self.logs.append,
-                      self.repo, TASK, list(cmds), TASK, [])
+                      self.repo, TASK, list(cmds), TASK)
         lp.rnd = 1
         lp.round_dir.mkdir()
         return lp
@@ -199,8 +199,15 @@ class RulesCapTold(unittest.TestCase):
         self.path.write_text("---\nusers: none\ntest: make check\npreview: make serve\n---\nAcme.\n")
         self.assert_round_fails_with(
             "AGENTS.md front matter has lines ak does not read: `test: make check`, "
-            "`preview: make serve` (it reads tests, health, cleanup, users, features, suite_image): "
-            "remove them, or fix the misspelled name.")
+            "`preview: make serve` (it reads tests, health, cleanup, users, features, suite_image, "
+            "content): remove them, or fix the misspelled name.")
+
+    def test_a_project_names_its_product_text_in_its_front_matter(self):
+        self.commit_rules("---\nusers: none\n---\nAcme.\n")
+        self.loop_ = self.loop()
+        self.path.write_text("---\nusers: none\ncontent: site/pages/ copy.md\n---\nAcme.\n")
+        ok, text = run.verify_work(self.loop_)
+        self.assertTrue(ok, text)
 
     def test_unread_lines_in_any_line_ending_or_after_a_blank_line_fail(self):
         for text in (b"---\rtest: make check\r---\rAcme.\r",

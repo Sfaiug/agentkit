@@ -226,10 +226,13 @@ def stop_note(state):
 
     The one dim line a stopped run keeps under its row: what ended it, in the
     run's own words.  A run the memory cap killed says its ceiling here too,
-    so a `fail` on `killed: memory cap 4 GB` never reads as work that was judged.
+    so a `fail` on `killed: memory cap 4 GB` never reads as work that was judged.  A run
+    stopped to wait on an older one names the run that took its task once the wait is over
+    (`leases.restart`), not the wait it no longer has.
     """
     if (state or {}).get("state") == "stopped":
-        why = " ".join((state.get("error") or "stopped by the user").split())
+        why = (f"started again as {state['lease_restarted']}" if state.get("lease_restarted")
+               else " ".join((state.get("error") or "stopped by the user").split()))
         return f"stopped · {why}"
     err = " ".join(((state or {}).get("error") or "").split())
     lowered = err.lower()
@@ -613,6 +616,14 @@ def cmd_status(argv):
     wanted = args[0] if args else None
     receipts = [(d, jobs.read_job(d)) for d in jobs.job_dirs()]
     receipts = [(d, job) for d, job in receipts if job and isinstance(job.get("tasks"), list)]
+    # A seat reads its own work after a compaction or a resume, not the whole host's;
+    # `ak orch project` lists everyone's, and any run still shows by its id.
+    seat = None if wanted else config.current_session()
+    if seat:
+        # a job names the seat it was launched from `seat`; it resolves as a run's does
+        owned = {d for d, _ in transitions.runs_by_seat(
+            (d, {"launched_session": job.get("seat")}) for d, job in receipts).get(seat, [])}
+        receipts = [(d, job) for d, job in receipts if d in owned]
     from . import menu
     # Whether a run was superseded asks every record, whichever run or job is shown, but
     # never the smoke suite's own, as on the menu.
@@ -658,8 +669,10 @@ def cmd_status(argv):
         # resolved: an unknown id errors without any host inspection.
         print(gate.host_status_line())
     found, hidden = [], 0
-    for directory in dirs:
-        state = run_record.read_state(directory)
+    records = [(directory, run_record.read_state(directory)) for directory in dirs]
+    if seat:
+        records = transitions.runs_by_seat((d, s) for d, s in records if s).get(seat, [])
+    for directory, state in records:
         # the smoke suite's own runs are the toolkit testing itself, as on the menu;
         # naming one by id still shows it
         if state and not wanted and menu.smoke_run(state):

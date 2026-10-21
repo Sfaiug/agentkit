@@ -504,7 +504,7 @@ class Limits(unittest.TestCase):
                  "reviewer": "astra", "worktree": str(self.work)}
         run_record.save_state(directory, state)
         lp = run.Loop(self.cfg, directory, state, {}, lambda m: None, self.work, body,
-                      ["true"], body, [])
+                      ["true"], body)
         for step in ("executor", "done-when", "reviewer", "merge"):
             before = time.time()
             lp.step(step)
@@ -973,7 +973,7 @@ class Limits(unittest.TestCase):
                     merge_method="merge" if how == "merge" else "squash")
                 logged, calls = [], []
                 lp = run.Loop(self.cfg, directory, state, {}, logged.append, self.work,
-                              "", [], "", [])
+                              "", [], "")
 
                 def timeout_after_state(cmd, **kwargs):
                     proc = real(cmd, **kwargs)
@@ -1222,7 +1222,7 @@ class Limits(unittest.TestCase):
                  "worktree": str(self.work), "pr": None}
         run_record.save_state(directory, state)
         lp = run.Loop(self.cfg, directory, state, {}, lambda message: None, self.work,
-                      "", [], "", [])
+                      "", [], "")
         refused = ("gh: prompts are disabled; run `gh auth login` to authenticate\n"
                    "`gh api user` asked for a credential it may not ask for: "
                    "check `gh auth status` and the remote's credentials by hand")

@@ -140,9 +140,9 @@ sys.exit(row["code"])
         self.assertFalse(state.get("merged"))
         self.assertFalse(state.get("pr"))
 
-    def loop_for(self, directory, state, spares=()):
+    def loop_for(self, directory, state):
         lp = run.Loop(self.cfg, directory, state, {}, lambda s: None, Path(state["worktree"]),
-                      "Fixture review", ["test -f deliverable"], "Fixture", list(spares))
+                      "Fixture review", ["test -f deliverable"], "Fixture")
         lp.rnd = 1
         return lp
 
@@ -356,7 +356,7 @@ sys.exit(row["code"])
             self.assert_undelivered(state)
             merge.assert_not_called()
 
-    def test_review_accepts_saved_same_provider_pair_and_falls_back_to_the_next_spare(self):
+    def test_review_accepts_saved_same_provider_pair_and_falls_back_to_the_next_reviewer(self):
         directory, state = self.legacy("fable")
         lp = self.loop_for(directory, state)
         count = len(self.calls())
@@ -364,7 +364,6 @@ sys.exit(row["code"])
         self.assertEqual([r["model"] for r in self.calls()[count:]], ["fable"])
         self.assertTrue(run.review_pass(state, self.cfg))
         lp.reviewer = "astra"
-        lp.spares = ["opus", "fable", "spark"]
         self.respond({"astra": [{"code": 1, "text": "You've hit your usage limit."}]})
         self.assertEqual(run.review(lp, "saved work", True, "passed"), "PASS")
         self.assertEqual([r["model"] for r in self.calls()[count + 1:]], ["astra", "fable"])

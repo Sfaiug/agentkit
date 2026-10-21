@@ -20,8 +20,9 @@ Enter leaves naming to the orchestrator once it knows the work. The name is the 
 status bar and the title of every message it sends until a rename of its conversation or
 `ak orch rename` changes it.
 
-A session is **working**, **needs you**, **done** or **idle**, and nothing else exists: it works
-until it is done or it is blocked on him, or it rests with nothing running, asked or owed.  `watch.session_state` decides which, once, from the
+A session is **working**, **needs you**, **done**, **idle** or **out of usage**, and nothing else
+exists: it works until it is done or it is blocked on him, or it rests with nothing running,
+asked or owed, or its usage is spent until it comes back.  `watch.session_state` decides which, once, from the
 facts -- an expired login, its own runs, a turn in flight, a seat
 nobody is in any more, what it last said with `ak notify` -- and every screen here reads that
 one answer: the row, the top line, `ak orch list`, `ak orch why`, the
@@ -132,7 +133,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-from . import command_help, config, gitcall, history, matrix, motion, notify, orch, staffing, terminal, transitions, update, usage, worker
+from . import command_help, config, gitcall, history, matrix, motion, notify, orch, plan, staffing, terminal, transitions, update, usage, worker
 from . import record
 
 KEYS = "n new   x stop   c config   esc leave"
@@ -145,9 +146,9 @@ UNFILED = "not assigned yet"   # the heading of the seats no project has yet, th
 PAST_KEYS = ("↑↓ move   ⏎ reopen   x remove   esc back", "j/k move   enter reopen   x remove   esc back")
 LEAST = 3                # rows a page keeps; the usage block folds before it holds fewer
 # The whole vocabulary, worst first: a rollup of seats says the one that wants him, and an idle
-# seat sorts last in its project.  `watch.session_state` is what decides which of the four a
+# seat sorts last in its project.  `watch.session_state` is what decides which of the five a
 # seat is.
-STATE_ORDER = ("needs you", "working", "done", "idle")
+STATE_ORDER = ("needs you", "out of usage", "working", "done", "idle")
 # Each company's own colour, for its name on the `c` screen and its usage bar and row's place: a
 # provider's `colour` key in config.toml wins, and a provider named in neither is the accent.
 COLOURS = {"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai": "#736CD3",
@@ -223,6 +224,8 @@ class Live:
         self.read_from = None            # the seats and runs it read them from, a pass's too
         self.said = []                   # what maintenance said that no notice has shown yet
         self.tidied = threading.Event()  # a notice can land before maintenance's effects do
+        self.reads = 0                   # how many reads have begun, the last one's number
+        self.closing = {}                # seats `stop` took off: the last read begun as it ended
 
     def close(self):
         """Give the pipe back, and wait on no thread: Esc leaves at once.
@@ -343,6 +346,8 @@ class Live:
             if not self.watching.is_set():
                 return
             leaves = self.leaves
+            self.reads += 1
+            began = self.reads
         found = orch.listing()
         records = run_records()           # one pass over run.json a read: filing, looking, drawing
         orch.file_projectless(found, [state for _, state in records])
@@ -352,7 +357,37 @@ class Live:
                 return
             self.read_from = found, records
             self.meet(look)
-            self.last[:] = found, groups
+            for name, ended in list(self.closing.items()):
+                if ended is not None and began > ended:
+                    del self.closing[name]    # read since its stop ended: as it now stands
+            self.last[:] = without(found, groups, self.closing)
+
+    def stop(self, name, dry_run=False):
+        """Take that seat's row off the screen now, and stop it behind it (`teardown`).
+
+        No read puts the row back while the stop goes, nor after it until one begun since it
+        ended lands: that one has the seat stopped, or as it was where the stop was refused.
+        The stop is a process of its own, so the menu leaving -- the popup over the seat going
+        with it -- ends nothing halfway, and a refusal is a job's notice, which this menu or
+        the next shows.
+        """
+        with self.reading:
+            self.closing[name] = None
+            self.last[:] = without(*self.last, self.closing)
+        try:
+            proc = subprocess.Popen(teardown(name, dry_run), cwd=config.REPO,
+                                    env=config.child_env(), stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    start_new_session=True)
+        except OSError as exc:
+            self.say(f"stop: {exc}")
+            return self._stopped(name)
+        threading.Thread(target=lambda: (proc.wait(), self._stopped(name)), daemon=True).start()
+
+    def _stopped(self, name):
+        with self.reading:
+            self.closing[name] = self.reads
+        self.ask()
 
     def meet(self, look=False):
         """Start a pass over what the last read read with `look`, or for a seat it listed that no
@@ -668,7 +703,8 @@ def seat_row_state(cfg, session, look=True, **facts):
     recorded = watch.seat_read(session["name"])
     if recorded.get("word") and not any(session.get(key) for key in orch.CLOSED):
         return {"word": recorded["word"], "reason": recorded.get("reason"),
-                "unsent": recorded.get("unsent"), "since": recorded.get("word_since")}
+                "unsent": recorded.get("unsent"), "since": recorded.get("word_since"),
+                "resumes_at": (recorded.get("usage_wait") or {}).get("until")}
     return seat_state(cfg, session, **facts)
 
 
@@ -852,9 +888,9 @@ class Task(tuple):
 
 def seat_tasks(name, records=None, now=None):
     """Each task in flight that seat launched, as (stage, state), furthest behind first: its
-    stage 0, 1 or 2 (`STAGES`), and `moving` while a model or ak works on it, `waiting` while it
-    waits -- for a slot, for usage, behind an older change, for a login, for its turn in the
-    line, for the live check.  A run that ended is no task in flight, whatever it delivered:
+    stage 0, 1 or 2 (`STAGES`), and `moving` while a model or ak works on it, `spent` while every
+    model it may go on with is out of usage, `waiting` while it waits -- for a slot, behind an
+    older change, for a login, for its turn in the line, for the live check.  A run that ended is no task in flight, whatever it delivered:
     the owner's word of 19 Oct 2026, as red squares of ended runs read as work still going."""
     from . import gate, watch   # here, not at the top: watch imports this module
     now = time.time() if now is None else now
@@ -868,7 +904,8 @@ def seat_tasks(name, records=None, now=None):
             paused = gate.gate_turn_note(state) or watch.loop_wait(state) > now
             found.append(Task(stage, "waiting" if paused else "moving", run))
         elif transitions.going(state, now=now):
-            found.append(Task(stage, "waiting", run))
+            spent = transitions.exhausted_wait(state) == "window"     # every pick out of usage
+            found.append(Task(stage, "spent" if spent else "waiting", run))
         elif watch.awaiting_live(state, now=now):
             found.append(Task(2, "waiting", run))
     return sorted(found, key=lambda task: (task[0], task[1] == "waiting"))
@@ -925,11 +962,12 @@ def task_cells(line, tasks):
 def squares(tasks, room=float("inf"), tmux=False, most=None):
     """`tasks` (`seat_tasks`) drawn in `room` cells, `most` of them at the most: three squares
     each, two cells apart, the stages it has reached filled -- in working's colour while it
-    moves, dim while it waits -- and the rest dim and empty; those not drawn
+    moves, out of usage's while it waits for usage, dim while it waits on anything else -- and
+    the rest dim and empty; those not drawn
     counted, `+3`.  No colour: the shapes alone; no UTF-8: `#--`.  `tmux` draws it as tmux
     text."""
     full, empty = "■□" if terminal.utf8() else "#-"
-    kinds = {"moving": "working", "waiting": "dim"}
+    kinds = {"moving": "working", "spent": "out of usage", "waiting": "dim"}
     # a group takes five cells with its gutter, the count of the rest as many as its digits
     fit = len(tasks[:most])
     while fit and 5 * fit - 2 + (len(f"  +{len(tasks) - fit}") if fit < len(tasks) else 0) > room:
@@ -940,14 +978,16 @@ def squares(tasks, room=float("inf"), tmux=False, most=None):
     return "  ".join(drawn + ([_paint(f"+{rest}", "dim", tmux)] if rest else []))
 
 
-def seat_crew(selection):
+def seat_crew(cfg, selection):
     """(who builds, who reviews) a seat's work, from its saved selection: its workers, else its
-    own orchestrator alone; its reviewers, else its workers.  No selection: nobody.  The menu
-    row and the seat's own bar both read this, as they read `seat_tasks`."""
+    own orchestrator alone; its reviewers, else its workers, each by its full name
+    (`config.model_name`).  No selection: nobody.  The menu row and the seat's own bar both
+    read this, as they read `seat_tasks`."""
     if not selection:
         return [], []
     workers = list(selection.get("workers") or [])
-    return workers or [selection["orchestrator"]], list(selection.get("reviewers", workers))
+    return ([config.model_name(cfg, model) for model in workers or [selection["orchestrator"]]],
+            [config.model_name(cfg, model) for model in selection.get("reviewers", workers)])
 
 
 def crew(info, tmux=False, room=None):
@@ -1085,15 +1125,19 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
                            run_numbers=run_numbers, index=index, silent=silent_map)
     selection = selection_of(cfg, name)
     orchestrator = selection["orchestrator"] if selection else "-"
+    shown = config.model_name(cfg, orchestrator)
     done, total = seat_progress(name)
     bar = (done, total) if total > 0 else None
     word = found["word"]
     reason = found["reason"] or ""
     sentence = reason
-    return {"number": str(number), "name": name, "session": session,
-            "crew": seat_crew(selection),
+    back = found.get("resumes_at") if word == "out of usage" else None
+    go_on = back and orch.going_on(cfg, orchestrator, staffing._cached_providers())
+    return {"number": str(number), "name": name, "session": session, "back": back,
+            "go_on": go_on, "go_on_name": go_on and config.model_name(cfg, go_on),
+            "crew": seat_crew(cfg, selection),
             "tasks": seat_tasks(name, records if mine is None else mine.get(name, []), now),
-            "count": word, "orchestrator": orchestrator, "worker": orchestrator,
+            "count": word, "orchestrator": shown, "worker": shown,
             "runs_on": ((cfg["models"].get(orchestrator) or {}).get("provider"),
                         selection.get("account") or config.DEFAULT_ACCOUNT) if selection else None,
             "sentence": sentence, "unsent": found.get("unsent"), "bar": bar,
@@ -1142,14 +1186,32 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     for checkout in orch.checkouts(stands=stands):     # a project with no seat shown has no heading
         if str(checkout) in groups and switches_command(checkout):
             groups[str(checkout)]["switches"] = switches(checkout) or []
-    for project in groups.values():
+    return tallied(list(groups.values()), infos, silent_map)    # each where its first seat is
+
+
+def tallied(ordered, infos, silent_map):
+    """`v5o_groups`' answer for those projects and rows: each project's seats that need the owner
+    and its word, and the top line's count of them all."""
+    for project in ordered:
         project["needing"] = sum(1 for info in project["seats"] if info["word"] == "needs you")
         project["has_needs"] = bool(project["needing"])
         project["word"] = rollup([info["word"] for info in project["seats"]])
-    ordered = list(groups.values())       # each where its first seat is
-    total_needing = sum(project["needing"] for project in ordered)
     # The top line counts the seats whose word is `needs you`, each once, and says so once.
-    return ordered, infos, total_needing, silent_map
+    return ordered, infos, sum(project["needing"] for project in ordered), silent_map
+
+
+def without(found, groups, gone):
+    """`found` and `groups` with the seats named in `gone` stopped, as the read after their stop
+    has them: each closed, its row gone, and its project's heading once it has no row left."""
+    if not gone or groups is None:
+        return found, groups
+    ordered, infos, _, silent_map = groups
+    found = [{**seat, "closed": seat.get("closed") or time.time()} if seat["name"] in gone
+             else seat for seat in found]
+    ordered = [{**project, "seats": seats} for project in ordered
+               if (seats := [info for info in project["seats"] if info["name"] not in gone])]
+    return found, tallied(ordered, [info for info in infos if info["name"] not in gone],
+                          silent_map)
 
 
 def by_project(infos, stands, unfiled=UNFILED):
@@ -1224,7 +1286,20 @@ def _styled_cell(plain_text, width, kind=None, right=False):
     return space + styled if right else styled + space
 
 
-def last_column(word, reason, done, total, room=8, narrow=False, tmux=False, unsent=""):
+def back_at(when, now=None):
+    """When a seat out of usage comes back, in the reader's own time: `19:20` today, `Fri 19:20`
+    within the week, `23 Oct` past it; "" for no moment."""
+    now = time.time() if now is None else now
+    if not isinstance(when, (int, float)) or isinstance(when, bool):
+        return ""
+    at, today = time.localtime(when), time.localtime(now)
+    if when - now > 6 * 86400:
+        return f"{at.tm_mday} {time.strftime('%b', at)}"
+    return time.strftime("%H:%M" if at[:3] == today[:3] else "%a %H:%M", at)
+
+
+def last_column(word, reason, done, total, room=8, narrow=False, tmux=False, unsent="",
+                back=None):
     """The one last column of a seat's row, and of its status bar's line one: for `working` what
     the owner left unsent (`unsent`, the state function's own field: a run's title in the reason
     can say anything); else its progress
@@ -1235,7 +1310,11 @@ def last_column(word, reason, done, total, room=8, narrow=False, tmux=False, uns
     row (`detail`).  The line keeps 8 cells at least, which a row too short for them draws
     under itself; where `room` is all there is -- a `narrow` screen's line, each width of a
     seat's bar -- it takes that room and never more.  `tmux` draws it for a seat's bar.  The
-    row and the bar read this one function, so the two can never disagree."""
+    row and the bar read this one function, so the two can never disagree.  A seat out of
+    usage says when it comes back, `back 19:20` (`back`), in its word's colour."""
+    if word == "out of usage":
+        when = back_at(back)
+        return _paint(f"back {when}", word, tmux) if when else ""
     if word == "working" and not tasks_bar(word, reason):
         return terminal.plain(reason or "")
     if word == "working" and unsent:
@@ -1256,13 +1335,13 @@ def _last_text(info, room, narrow=False):
     bar = info.get("bar")
     done, total = bar if bar and len(bar) == 2 else (0, 0)
     return last_column(info.get("word"), info.get("sentence"), done, total, room, narrow,
-                       unsent=info.get("unsent"))
+                       unsent=info.get("unsent"), back=info.get("back"))
 
 
 def detail(cfg, info, room, now=None):
     """The lines under a seat's row, in `room` cells: what a seat not working says -- the
-    question for `needs you`, what got done for `done`, an idle one's way back in -- wrapped
-    whole at words; for any other, who builds and who reviews (`crew`) and each task in flight
+    question for `needs you`, what got done for `done`, an idle one's way back in, until when
+    one out of usage has none -- wrapped whole at words; for any other, who builds and who reviews (`crew`) and each task in flight
     as its squares (`squares`), never a task's name.  On a terminal the highlighted row alone
     opens them; from a pipe every row saying something does, as there is no highlight to open
     them."""
@@ -1272,7 +1351,12 @@ def detail(cfg, info, room, now=None):
         return born_lines(info, room)
     word = info.get("word")
     said = "" if word == "working" else terminal.plain(info.get("sentence") or "")
-    if said or word in ("needs you", "done"):
+    if word == "out of usage":
+        provider = provider_name(cfg, info["runs_on"][0]) if info.get("runs_on") else "Its model"
+        when = back_at(info.get("back"))
+        said = (f"{provider} has no usage left until {when}." if when else said) + (
+            "" if info.get("go_on") else " No other model has any now.")
+    if said or word in ("needs you", "done", "out of usage"):
         return terminal.wrap(said, room) if said else []
     tasks = info.get("tasks") or []
     # the crew gives way to the least the squares say: one task's squares, or their count
@@ -1281,6 +1365,55 @@ def detail(cfg, info, room, now=None):
     left = room - terminal.cells(who) - 3
     line = who + ("   " + squares(tasks, left) if tasks and left >= least - 3 else "")
     return [line] if terminal.plain(line) else []
+
+
+WAIT, GO_ON = "wait", "go on"     # the choices under a seat out of usage, as the click reads them
+GAP = "   "                       # between them, on a line both fit
+
+
+def choice_lines(info, room):
+    """The choices under a seat out of usage's row (`detail`), with the keyboard or the pointer
+    on it: `✓ Wait for 19:20`, what happens unasked, and where a model has usage now,
+    `⇄ Go on now with gpt-6.1-sol`, which moves the seat and its conversation there.  Each drawn
+    line in `room` cells, as its (text, choice) parts: both on one line where they fit, else
+    each on lines of its own wrapped at words, so none runs past the edge of the screen and
+    away from where a click finds it (`choice_cells`).  [] for any other row."""
+    if info.get("word") != "out of usage" or not back_at(info.get("back")):
+        return []
+    said = [(choice_text(choice, info), choice) for choice in (WAIT, GO_ON)
+            if choice == WAIT or info.get("go_on")]
+    if terminal.cells(GAP.join(text for text, _ in said)) <= room:
+        return [said]
+    return [[(piece, choice)] for text, choice in said for piece in terminal.wrap(text, room)]
+
+
+def choices(info, room):
+    """The lines `choice_lines` draws, each choice in its colour."""
+    return [GAP.join(terminal.styled(text, {WAIT: "ok", GO_ON: "amber"}[choice])
+                     for text, choice in line) for line in choice_lines(info, room)]
+
+
+def choice_text(choice, info):
+    """One choice under a seat out of usage, whole (`choice_lines`)."""
+    mark = {WAIT: "✓", GO_ON: "⇄"}[choice] if terminal.utf8() else {WAIT: "v", GO_ON: ">"}[choice]
+    if choice == WAIT:
+        return f"{mark} Wait for {back_at(info.get('back'))}"
+    return f"{mark} Go on now with {info.get('go_on_name')}"
+
+
+def choice_cells(text, info, room):
+    """Where each choice of `choice_lines` in `room` is on its drawn line `text`, as a screen's
+    spots hold a cell: (first, last, choice); [] on any other line."""
+    for line in choice_lines(info, room):
+        drawn = GAP.join(part for part, _ in line)
+        if text.strip() == drawn:
+            first = terminal.cells(text[:text.index(drawn)]) + 1
+            found = []
+            for part, choice in line:
+                found.append((first, first + terminal.cells(part) - 1, choice))
+                first += terminal.cells(part + GAP)
+            return found
+    return []
 
 
 def v5o_column_widths(infos, term_width):
@@ -1296,7 +1429,7 @@ def v5o_column_widths(infos, term_width):
     name_w = min(max([born_cells(info["born"]) if "born" in info else terminal.cells(info["name"])
                       for info in infos] + [1]), 24)
     orch_w = min(max([terminal.cells(info.get("orchestrator") or info.get("worker") or "")
-                      for info in infos] + [0]), 14)
+                      for info in infos] + [0]), 24)
     count_w = max([terminal.cells(terminal.state_text(info["count"]))
                    for info in infos] + [1])
     # Keep up to eight cells of each label beside the state; otherwise it goes below the
@@ -1486,7 +1619,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     # What opens under a row (`detail`): from a pipe under every row saying something, as
     # nothing is highlighted there; with the keyboard under the highlighted row alone, below.
     said_room = max(1, widths["room"] - (2 + widths["num"] + 2))
-    said = {info["name"]: detail(cfg, info, said_room) for info in infos}
+    said = {info["name"]: detail(cfg, info, said_room) + (choices(info, said_room) if owned else [])
+            for info in infos}
     opened = {} if owned else {info["name"]: said[info["name"]] for info in infos
                                if info["word"] != "working" and info.get("sentence")}
 
@@ -1648,6 +1782,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             for column, task in task_cells(line, info.get("tasks") or []):
                 moves.append((("task", getattr(task, "run", None)), tuple(task),
                               (len(out), column), lit))
+        if seat is None and info and (cells := choice_cells(text, info, said_room)):
+            explains[len(out)] = cells     # the choices under a seat out of usage: a click answers
         if word and terminal.state_text(word) in text:
             first = terminal.cells(text[:text.index(terminal.state_text(word))]) + 1
             moves.append((("word", name), word, (len(out), first), lit))
@@ -1802,7 +1938,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                            if isinstance(name, (str, Path)) and name not in before), None))
         before.update(name for _, name in lines)
     drawn.update(order=order, cursor=cursor, pointing=pointing, words=words, rule=not compact,
-                 ask=top + at + 1 if at else None, spots=spots, turns=turns)
+                 ask=top + at + 1 if at else None, spots=spots, turns=turns,
+                 go_on={info["name"]: info["go_on"] for info in infos if info.get("go_on")})
     return page, (len(pages) if ordered else 1)
 
 
@@ -1862,12 +1999,26 @@ def stop_question(name):
     return f"stop {name} and everything it is running? [y/N] "
 
 
-def close_seat(name, dry_run):
-    """End that seat and everything it runs, asking nothing: `x` on a done seat, or `Stop`;
-    on a stopped seat, `x` on the past screen, take it off the list.
+def go_on_now(cfg, name, model, dry_run=False):
+    """`⇄ Go on now` under a seat out of usage: it moves to `model`, its conversation and the
+    turn its usage cut off with it, as its orchestrator mark moved on its models screen does
+    (`orch.switch_orchestrator`), never onto credits; a refusal is said."""
+    if dry_run:
+        print(f"would move {name} to {model}")
+        return
+    note = orch.switch_orchestrator(cfg, name, model, staffing._cached_providers(), credits=False)
+    if note:
+        pause(note)
+
+
+def close_seat(name, dry_run, refused=None):
+    """End that seat and everything it runs, asking nothing: `x` on a done seat, or `Stop`, in
+    a process of their own (`teardown`); on a stopped seat, `x` on the past screen, take it off
+    the list.
 
     Its runs stop first, as `stop_session` stops them, then `orch.cmd_stop` takes their
-    checkouts and the tmux session and keeps the seat -- or, stopped already, takes it.
+    checkouts and the tmux session and keeps the seat -- or, stopped already, takes it.  A
+    refusal goes to `refused`, a notice waiting for its Enter unless it says otherwise.
     """
     stop_session_runs(name, dry_run)
     if dry_run:
@@ -1876,7 +2027,15 @@ def close_seat(name, dry_run):
     try:
         orch.cmd_stop([name])
     except config.Error as exc:
-        pause(f"stop: {exc}")
+        (refused or pause)(f"stop: {exc}")
+
+
+def teardown(name, dry_run):
+    """The process `x` stops that seat in (`Live.stop`): `close_seat`, leaving a refusal as a
+    job's notice (`orch.job_notices`), since the popup it came from may be gone by then."""
+    return [sys.executable, "-c", "import sys; from agentkit import menu, orch; "
+            "menu.close_seat(sys.argv[1], sys.argv[2] == '1', refused=orch.leave_notice)",
+            name, "1" if dry_run else "0"]
 
 
 def stop_session(found, dry_run):
@@ -2023,9 +2182,11 @@ def born_groups(groups, born):
     as the seat will be once it is made (`orch.numbered`)."""
     ordered, infos, *rest = groups
     selected = born["selected"]
-    row = {"number": "", "name": BORN, "born": born, "orchestrator": selected["orchestrator"],
-           "worker": selected["orchestrator"], "count": "new", "word": "new",
-           "crew": seat_crew(selected), "tasks": [], "sentence": "", "repo": None}
+    cfg = born["cfg"]
+    shown = config.model_name(cfg, selected["orchestrator"])
+    row = {"number": "", "name": BORN, "born": born, "orchestrator": shown, "worker": shown,
+           "count": "new", "word": "new", "crew": seat_crew(cfg, selected), "tasks": [],
+           "sentence": "", "repo": None}
     ordered = [{**project, "seats": list(project["seats"])} for project in ordered]
     home = next((project for project in ordered if project["checkout"] is None), None)
     if home is None:
@@ -2745,9 +2906,10 @@ def discord_value():
     return " · ".join(filter(None, (who, f"webhook {hook}"))) if hook else "not connected"
 
 
-def model_label(name, width):
-    """The configured name on `c` and `n`, cut only to the space its row has."""
-    return terminal.cut(name, width)
+def model_label(cfg, name, width):
+    """The model's full name on `c` and `n` (`config.model_name`), cut only to the space its
+    row has."""
+    return terminal.cut(config.model_name(cfg, name), width)
 
 
 def model_heading(cfg, provider):
@@ -2887,9 +3049,10 @@ def models_at(rows, effort):
 def _entry(cfg, row, role):
     """A row as the lines above the table say it: its label under the configured model `r`
     takes it as in `role` (takes), its quality for the role and what its index run cost
-    (`opus @ xhigh 97 $4057`; the cost left out where Artificial Analysis has not run it)."""
-    cost = row["values"].get(matrix.COST)
-    return (f"{matrix.row_label({**row, 'name': takes(cfg, row, role)})} "
+    (`Opus 5.5 @ xhigh 97 $4057`, by its full name; the cost left out where Artificial Analysis
+    has not run it)."""
+    cost, name = row["values"].get(matrix.COST), takes(cfg, row, role)
+    return (f"{matrix.row_label({**row, 'name': name and config.model_name(cfg, name)})} "
             f"{row['scores'][role]['score']:.0f}" + ("" if cost is None else f" ${cost:.0f}"))
 
 
@@ -2904,7 +3067,7 @@ def models_body(cfg, table, levels, shown, at, picks):
     where they wrap to more lines than its page holds, shows each in turn, a page at a time
     where one is taller than the page (matrix_key).  Then, dim, what
     quality and cost are, a row read the same way, and under it every model of `table`
-    (models_table) once: its label, the config's name for it or its id, dim
+    (models_table) once: its label, its full name where the config runs it, else its id, dim
     where no board scores it, its harness (dim), its effort between the arrows that step it
     (`shown`; a word alone with one effort, `-` with none), its quality per role at that effort
     (its row there, models_at; `-` without a score, the recommended row's in `done`'s colour,
@@ -2951,7 +3114,8 @@ def models_body(cfg, table, levels, shown, at, picks):
         line = "  " + terminal.styled(part, "dim")
         lines.append(terminal.highlight(line, number == 0) if at == here else line)
     lines.append("")
-    labels = {key: next(iter(_runs(cfg, *key)), None) or key[1] for key in table}
+    labels = {key: next((config.model_name(cfg, name) for name in _runs(cfg, *key)), key[1])
+              for key in table}
     showing = {key: models_at(rows, shown[key]) for key, rows in table.items()}
     texts, kinds = {}, {}
     for key, row in showing.items():
@@ -3098,7 +3262,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
         # one effort is nothing to step to and no level to show
         levelled[name] = terminal.effort_cells(len(taken), taken.index(effort) + 1 if effort
                                                in taken else 0) if len(taken) > 1 else []
-    label = max(terminal.cells(name) for name in names)
+    label = max(terminal.cells(config.model_name(cfg, name)) for name in names)
     heads = CONFIG_HEADS if selected else CONFIG_HEADS[3:]
     widths = [terminal.cells(head) for head in heads[:-1]]
     word = max(terminal.cells(text) for text in efforts.values())
@@ -3122,7 +3286,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
             texts, builds = orch.role_texts(selected, name, marks) if selected else ((), False)
             texts += (efforts[name],)
             note = orch.spent_note(cfg, name, providers) if providers else ""
-            shown = model_label(name, label)
+            shown = model_label(cfg, name, label)
             on = [number for number, (each, *_) in enumerate(subs, 1) if each == provider]
             ink = colour(cfg, provider)
             kind = ink if lit in on else "dim" if note else None
@@ -3176,17 +3340,11 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
 
 
 def effort_levels(entry):
-    """The efforts a model's bars count, as config.efforts gives them off the catalog its harness
-    last listed -- what a step on it walks once that is in hand (config_effort), and what `add a
-    model` and a model's own screen fetched -- else off its manifest's table.  Read from
-    config's own cache: asking catalog() could start the listing, and a draw asks no harness and
-    waits on none.  None where they cannot be read."""
-    harness, model = entry.get("harness"), entry.get("model")
+    """The efforts a model's bars count: config.efforts off the catalog its harness last listed
+    (config.catalog_held), the one list a step on it walks (config_effort).  None where they
+    cannot be read."""
     try:
-        cached = config._CATALOGS.get(harness)
-        listed = cached[1] if cached else config.catalog_table(harness)
-        return next((list(item["efforts"]) for item in listed
-                     if item["id"] == model and item["efforts"]), None) or config.efforts(harness)
+        return config.efforts(entry.get("harness"), entry.get("model"), config.catalog_held)
     except config.Error:
         return []
 
@@ -3233,7 +3391,7 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None):
     never stands between the key and its frame.  What to say under the matrix, or ""."""
     entry, key = cfg["models"][name], config.ROLE_EFFORTS[role]
     try:
-        levels = config.efforts(entry.get("harness"), entry.get("model"), now=True)
+        levels = config.efforts(entry.get("harness"), entry.get("model"), config.catalog_now)
     except config.Error as exc:
         return f"config: {exc}"
     current = entry.get(key, entry.get("effort"))
@@ -3268,14 +3426,14 @@ def _nearest(effort, levels):
 
 def _offered(harness, *screen, provider=None):
     """Every model that harness's catalog lists for `provider`, asked while `screen` waits on
-    it (`waited`), each with the efforts it is offered at (config.efforts): the catalog's own,
-    or for one whose efforts it does not say -- a model newer than its adapter's table -- the
-    harness's `[effort] levels`, read without asking the catalog a second time.  A
-    `<provider>/<model>` id is that provider's, the way OpenCode names every provider's models,
-    and any other id is every provider's the harness runs."""
-    return [dict(model, efforts=model["efforts"] or config.efforts(harness))
-            for model in waited(lambda: config.catalog(harness), *screen,
-                                doing=f"reading the models {harness} offers")
+    it (`waited`), each with the efforts it is offered at (config.efforts), read off that
+    listing without asking the catalog a second time.  A `<provider>/<model>` id is that
+    provider's, the way OpenCode names every provider's models, and any other id is every
+    provider's the harness runs."""
+    listed = waited(lambda: config.catalog(harness), *screen,
+                    doing=f"reading the models {harness} offers")
+    return [dict(model, efforts=config.efforts(harness, model["id"], lambda _harness: listed))
+            for model in listed
             if provider is None or model["id"].partition("/")[0] in (provider, model["id"])]
 
 
@@ -3887,13 +4045,14 @@ def config_page(name, page):
         else:
             opened, at = None, here[1]
 
-            def draw(lines):
+            def draw(lines):          # the page of matrix_key's height that holds the lines
                 rows, note = page()
                 body = page_body([(("row", number), label, value)
                                   for number, (label, value, _) in enumerate(rows)])[0]
-                terminal.frame(title, [*body[:at + 1], *lines, *body[at + 1:],
-                                       *note_lines(note)], keys)
-                return 4 + at
+                body[at + 1:at + 1], said = lines, note_lines(note)
+                first, room = matrix_page(body, {at + 1: ("lines", [])}, "lines", top, said, keys)
+                terminal.frame(title, [*body[first:first + room], *said], keys)
+                return 4 + at - first
             said = rows[at][2](draw) or ""
 
 
@@ -4192,7 +4351,8 @@ def move_asked(cfg, session, selected, providers, here, column, top, title):
         shown = body[first:first + room]
         terminal.frame(title, [*over, *shown, *card], "esc back")
         return 3 + len(over) + len(shown)
-    return terminal.confirm(MOVE_ASK[0].format(session, here[1]), MOVE_ASK[1].format(here[1]),
+    model = config.model_name(cfg, here[1])
+    return terminal.confirm(MOVE_ASK[0].format(session, model), MOVE_ASK[1].format(model),
                             "Move", around)
 
 
@@ -4435,14 +4595,39 @@ def past_offered(found):
     return any(session.get("closed") for session in found)
 
 
-def past_body(past, at=None, models=None, room=None):
+def took(seconds):
+    """How long a past session took, never in minutes: `under an hour`, `1 day and 3 hours`."""
+    if seconds < 3600:
+        return "under an hour"
+    hours = round(seconds / 3600)
+    return " and ".join(f"{n} {unit}{'s' * (n != 1)}"
+                        for n, unit in zip(divmod(hours, 24), ("day", "hour")) if n)
+
+
+def past_said(session):
+    """(sentence, stats) a past session's row opens with: its plan's first done line, then its
+    tasks and how long it took, from its start to its last done, else to its stop."""
+    name, start, stop = session["name"], session.get("created"), session["closed"]
+    seat = notify.conversation_of(name)
+    last = seat and seat[3] and (history.last_done(f"{seat[0].name}:{seat[3]}") or [None])[0]
+    from . import watch   # here, not at the top: the menu draws without the tick
+    done, total = watch.plan_progress(name)
+    tasks = (f"{done} of {total} tasks" if done < total else
+             f"{total} task{'s' * (total != 1)}") if total else ""
+    end = last if last and start and start < last <= stop else stop
+    return plan.first_done(name) or "", " · ".join(part for part in (
+        tasks, start and "took " + took(end - start)) if part)
+
+
+def past_body(past, at=None, models=None, room=None, said=None):
     """The past screen's lines -- the main screen's rows, one a stopped seat under its project's
     heading in the order their numbers go: its number, name, orchestrator (`models`, by name),
     how long ago it was stopped in the state's column and, where its harness starts it fresh
     and the row has room, that -- and where each is, {line: (("row", name), [])}.  Every row, a
     blank line between projects, where `room` lines hold them or no `room` is given; else the
-    page of `room` lines `at` is on, each row under its project's heading (`project_pages`).
-    `at` is the highlighted seat's name, lit while the pointer is on the rows (`terminal.away`)."""
+    page of `room` lines `at` is on (every page of a row taller than one), each row under its
+    project's heading (`project_pages`).  `at` is the highlighted seat's name, lit while the
+    pointer is on the rows (`terminal.away`); a row in `said` opens it under itself."""
     infos = [{"number": str(number), "name": session["name"],
               "orchestrator": (models or {}).get(session["name"]) or "-",
               "count": f"stopped {orch.age(session['closed'])} ago",
@@ -4450,9 +4635,13 @@ def past_body(past, at=None, models=None, room=None):
              for number, session in past]
     width = terminal.width()
     widths = v5o_column_widths(infos, width)
+    room_under = max(1, widths["room"] - (2 + widths["num"] + 2))
+    opened = {name: terminal.wrap(sentence, room_under) + [
+        terminal.styled(line, "dim") for line in terminal.wrap(stats, room_under)]
+        for name, (sentence, stats) in (said or {}).items()}
 
     def drawn(info):
-        block = v5o_seat_blocks([info], width, widths)[0]
+        block = v5o_seat_blocks([info], width, widths, details=opened)[0]
         if info["restart"] and terminal.cells(info["restart"]) <= widths["free"]:
             block[0] += "  " + terminal.styled(info["restart"], "dim")
         lit = at == info["name"] and not terminal.away()
@@ -4464,7 +4653,12 @@ def past_body(past, at=None, models=None, room=None):
     flat = [line for number, (heading, rows) in enumerate(projects)
             for line in [("", None)] * bool(number) + [heading] + sum(rows, [])]
     pages = [flat] if room is None or len(flat) <= room else project_pages(projects, room)
-    page = next((page for page in pages if any(name == at for _, name in page)), pages[0])
+    # a row taller than a page is one body under its heading, which project_pages puts on a
+    # page of its own before it; ↑/↓ turn the body's pages before leaving it (matrix_key)
+    held = [number for number, page in enumerate(pages) if any(name == at for _, name in page)]
+    if held and held[0] and not any(name for _, name in pages[held[0] - 1]):
+        held.insert(0, held[0] - 1)
+    page = [line for number in held for line in pages[number]] or pages[0]
     return ([line for line, _ in page],
             {number: (("row", name), []) for number, (_, name) in enumerate(page) if name})
 
@@ -4473,14 +4667,15 @@ def past_body(past, at=None, models=None, room=None):
 def show_past(cfg, found, dry_run=False, keyboard=None):
     """`past sessions`, `p`: the seats you stopped, the main screen's rows under their projects
     (`past_body`), for the one you want back, the page the highlight is on where they fill more
-    than one.  ↑/↓, k/j and the wheel move the highlight; Enter or a
+    than one.  ↑/↓, k/j and the wheel move the highlight, and the row it is on opens what that
+    session did under itself (`past_said`) while the pointer is on the rows; Enter or a
     click reopens one where it stopped (`open_session`, what its number does on the main screen)
     and the menu is back; `x`, or a click on `x remove`, removes the highlighted one at once
     (`close_seat`, the second stop), the rest staying up, and only brings the highlight back
     while the pointer has it out (`terminal.unseen`); Esc goes back.  From a pipe a number reopens, `x` asks which to
     remove by the numbers on the screen, and an empty line goes back.  A dry run draws it once.
     """
-    here, clock = None, motion.Clock(page=True)
+    here, clock, said, top = None, motion.Clock(page=True), {}, 0
     while True:
         past = [(number, session) for number, session in enumerate(found, 1)
                 if session.get("closed")]
@@ -4513,10 +4708,14 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             continue
         keys = PAST_KEYS[0 if terminal.utf8() else 1]
         room = matrix_page([], {}, None, 0, [], keys)[1]      # the lines a page holds
-        body, places = past_body(past, here, models, room)
-        act, row, _column, _top = matrix_key("past sessions", body, places,
-                                             [("row", name) for name in names], ("row", here),
-                                             0, "", keys, clock=clock)
+        if here not in said:      # read once a row, as the pointer comes and goes on it
+            said[here] = past_said(next(session for _, session in past if session["name"] == here))
+        body, places = past_body(past, here, models, room,
+                                 {} if terminal.away() else {here: said[here]})
+        act, row, _column, top = matrix_key("past sessions", body, places,
+                                            [("row", name) for name in names], ("row", here),
+                                            top, "", keys, clock=clock)
+        top = top if row[1] == here else 0      # another row is another body, from its start
         here = row[1]
         if act is None:
             continue              # a resize or the pointer: drawn again
@@ -4765,10 +4964,17 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                     look, pointing = False, False
                     continue
                 clock.forget()            # whatever the key opens, the menu back replays nothing
-                cell = terminal.under(key, shown["spots"]).cell if key.name == "click" else None
+                spot = (terminal.under(key, shown["spots"]) if key.name == "click"
+                        else terminal.Spot())
+                cell = spot.cell
                 if isinstance(cell, tuple) and cell[0] == "usage":
                     pointing = False          # and opens no line
                     meter_acts(cfg, keyboard, cell[1], usage_rows(cfg)[cell[1] - 1][1])
+                    continue
+                if spot.what is not None and cell in (WAIT, GO_ON):
+                    pointing = False          # answered: its lines close
+                    if cell == GO_ON and shown.get("go_on", {}).get(spot.what):
+                        go_on_now(cfg, spot.what, shown["go_on"][spot.what], dry_run)
                     continue
                 typed, key = key, pressed(key, shown, found)
                 if isinstance(key, Path):
@@ -4833,8 +5039,9 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                             STOP_ASK.format(seat), means, "Stop", around, wait=lambda: moving(
                                 clock, going=None if counted[0] else runs.is_alive)):
                         continue
-                keyboard.give()
-                close_seat(seat, dry_run)
+                live.stop(seat, dry_run)      # its row gone at once, the stop behind it
+                if overlay:
+                    return 0                  # its own seat: the popup over it goes first
                 continue
             if key == "n" and drawn is not None and cfg:
                 try:
