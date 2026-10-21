@@ -177,7 +177,7 @@ class StopHook(unittest.TestCase):
         self.notified("done", self.turn + 1)        # an older install's: it reads as nothing
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
         self.notified("needs", self.turn + 1)
-        self.assertEqual(self.stop(), "")
+        self.assertEqual(self.stop(said="something"), "")
 
     def test_a_run_started_while_reading_the_plan_is_a_live_wait(self):
         (self.home / "sitecustomize.py").write_text(f'''import json, os, time
