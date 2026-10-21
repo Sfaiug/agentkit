@@ -264,7 +264,6 @@ class RoleGroups(unittest.TestCase):
             self.assertEqual(lp.state["reviewer"], "delta")
             self.assertEqual(staffing.hand_executor(lp, "refused", "transport", set()), "beta")
             self.assertEqual(lp.reviewer, "delta")
-            self.assertEqual(lp.spares, ["gamma"])
         lp.executor = "alpha"
         calls, fake = self.turn({"alpha": (1, "usage limit reached", "old", False)})
         with patch.object(run.worker, "call", side_effect=fake), \
@@ -274,7 +273,7 @@ class RoleGroups(unittest.TestCase):
         self.assertEqual(calls, ["alpha", "beta"])
         self.assertEqual(lp.reviewer, "delta")
 
-    def test_first_pick_and_resume_use_the_snapshot_for_review_and_spares(self):
+    def test_first_pick_and_resume_use_the_snapshot_for_review(self):
         self.groups(workers=("alpha", "beta"), reviewers=("gamma", "delta"))
         directory, _ = self.capture()
         task = directory / "task.md"
@@ -289,11 +288,9 @@ class RoleGroups(unittest.TestCase):
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             state = run.loop(self.cfg, directory, task, opts, self.logs.append)
             self.assertEqual((state["executor"], state["reviewer"]), ("alpha", "delta"))
-            self.assertEqual(rounds.call_args.args[0].spares, ["gamma"])
             collect.return_value = self.providers(a=100, c=0)
             state = run.loop(self.cfg, directory, task, opts, self.logs.append, prior=state)
             self.assertEqual((state["executor"], state["reviewer"]), ("beta", "delta"))
-            self.assertEqual(rounds.call_args.args[0].spares, ["gamma"])
 
     def test_tick_repicks_with_both_saved_groups_after_quota_or_transport_failure(self):
         for quota in (True, False):
@@ -415,13 +412,12 @@ class RoleGroups(unittest.TestCase):
                              prior=dict(lp.state))
         self.assertEqual((state["executor"], state["reviewer"]), ("beta", "beta"))
 
-    def test_reviewer_silence_transient_and_quota_fallback_ignore_foreign_spares(self):
+    def test_reviewer_silence_transient_and_quota_fallback_stay_with_the_marked_reviewers(self):
         self.groups()
         for failure in ("silence", "transient", "quota"):
             with self.subTest(failure=failure):
                 lp = self.loop("alpha", "gamma", ["alpha", "beta"])
                 lp.state["reviewers"] = ["gamma", "delta"]
-                lp.spares = ["beta", "delta"]
                 calls = []
 
                 def call(cfg, name, *args, **kwargs):
@@ -506,7 +502,6 @@ class RoleGroups(unittest.TestCase):
             self.wide["reviewers"] = ["alpha"]
             state = run.review_pr(self.cfg, directory, url, opts, self.logs.append)
             self.assertEqual(state["reviewer"], "delta")
-            self.assertEqual(review.call_args.args[0].spares, ["gamma"])
             with self.assertRaisesRegex(config.Error, "not a reviewer"):
                 run.review_pr(self.cfg, directory, url, {**opts, "--review": "alpha"},
                               self.logs.append)

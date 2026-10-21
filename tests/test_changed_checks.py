@@ -56,7 +56,7 @@ class ChangedChecks(unittest.TestCase):
                  "scratch": scratch}
         body = "# Fixture task\n\n## Done when\n```bash\n" + "\n".join(cmds) + "\n```"
         lp = run.Loop(self.cfg, directory, state, {}, lambda text: None, self.repo, body,
-                      list(cmds), body, [])
+                      list(cmds), body)
         lp.rnd = 1
         lp.validation = {} if scratch else run.commit_identity(self.repo)
         with patch.object(turns, "call_retrying",
