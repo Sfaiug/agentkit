@@ -1,6 +1,6 @@
 """The quality and cost note on the models screen, highlighted, keeps its mark and its width:
 the mark takes the note's first cell, not the first byte of its dim style, so the line reads
-`› quality is a model's share of the best …` and runs no further than the screen, on a phone
+`› quality is 100 less how many points …` and runs no further than the screen, on a phone
 as on a desk (tests/test_models_screen.py drives the screen).
 
 Offline: a throwaway HOME with a matrix scored from rows written by hand, the keys fed in,
@@ -28,7 +28,7 @@ class NoteHighlighted(Screen):
                     patch.object(terminal, "colour_depth", return_value=256):
                 text = self.screens([Key("char", "r"), Key("up"), Key("esc"), Key("esc")],
                                     width=width)
-                self.assertIn("› quality is a model's share of the best", text)
+                self.assertIn("› quality is 100 less how many points", text)
                 self.assertNotIn("[2;", text)
 
 

@@ -3030,8 +3030,8 @@ MODELS_TAKE = "r take recommended"
 KNOB = ("knob", "within")
 KNOB_TEXT = "as good as the best: within "
 MODELS_HEADS = ("model", "harness", "effort", *orch.ROLE_HEADS, "cost $")
-MODELS_NOTE = ("quality is a model's share of the best on the public boards, out of 100; cost is "
-               "what Artificial Analysis's index run cost it, in dollars")
+MODELS_NOTE = ("quality is 100 less how many points a model is behind the best on the public "
+               "boards; cost is what Artificial Analysis's index run cost it, in dollars")
 CHEAPEST = "the cheapest as good: "   # why the recommended row is the one: said before it
 SAID = ("best", "as good", "recommended")   # the lines that say why, rows the highlight rests on
 
