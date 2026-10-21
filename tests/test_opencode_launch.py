@@ -14,18 +14,19 @@ class OpenCodeLaunch(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp) / "home with spaces"
             installed = home / ".opencode/bin"
-            override = home / "chosen bin"
             rulebook = Path(temp) / "rules.md"
             rulebook.write_text("Follow the owner's task.\n")
             env = {"HOME": str(home), "PATH": "/usr/bin:/bin",
-                   "AGENTKIT_RULEBOOK": str(rulebook)}
-            for directory, label in ((installed, "installed"), (override, "override")):
+                   "AGENTKIT_RULEBOOK": str(rulebook), "LC_ALL": "C"}
+            for directory, label in ((installed, "installed"), (home / "chosen bin", "override"),
+                                     (home / "café", "non_ascii"),
+                                     (home / "tab\t'bin", "control_and_quote")):
                 with self.subTest(label=label):
                     directory.mkdir(parents=True)
                     binary = directory / "opencode"
                     binary.write_text(f'#!/bin/sh\nprintf "%s\\n" {label} "$@"\n')
                     binary.chmod(0o755)
-                    if directory == override:
+                    if directory != installed:
                         env["PATH"] = f"{directory}:{env['PATH']}"
                     command = subprocess.run(
                         [str(REPO / "adapters/opencode.sh"), "interactive", "acme/flash", "high"],

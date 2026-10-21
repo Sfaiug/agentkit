@@ -79,7 +79,9 @@ ak types no compact command into any seat: each harness compacts its own convers
 minimum its login's settings set), and two compactors on one seat would only clash. A `/compact` you type reads `working`
 until it ends.
 
-Any harness can hold the seat: `--model astra` opens Codex, `--model spark` opens Muse. A Claude seat owns its
+Any harness can hold the seat: `--model astra` opens Codex, `--model spark` opens Muse.
+An OpenCode seat launches the first `opencode` on PATH, falling back to `~/.opencode/bin`, even when its path contains spaces or non-ASCII characters.
+A Claude seat owns its
 conversation from launch by a uuid; its launched pane's `/clear` hook keeps reopening and titles on the new conversation,
 using its recorded login. The watch tick binds older running seats to their own client pane without restarting them; if that pane is removed, restarting uses the session's current pane. Other panes and in-session `/resume` never transfer seat ownership.
 A Codex seat trusts only agentkit's hooks; other hooks still need Codex's review. It proves its thread through a launch receipt. An OpenCode seat's plugin
