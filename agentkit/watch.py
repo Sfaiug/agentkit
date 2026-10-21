@@ -843,9 +843,8 @@ def stop_marks(harness, pane, found, previous, at):
 def stop_enforced(harness):
     """Does the end-of-turn rule have to be typed at this harness, for want of a hook?
 
-    Claude Code and Codex both run hooks/orchestrator-stop.sh on the end of a turn and decide
-    it there, which is where it belongs.  A harness with no blocking end-of-turn hook says
-    `[stop] enforce = "nudge"` and the tick applies the same test to its screen instead.
+    A harness with no blocking end-of-turn hook says `[stop] enforce = "nudge"`
+    and the tick applies the same test to its screen instead.
     """
     block = config.manifest(harness).get("stop")
     return bool(isinstance(block, dict) and block.get("enforce") == "nudge")
