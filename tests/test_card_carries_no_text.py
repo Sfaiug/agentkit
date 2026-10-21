@@ -1,5 +1,15 @@
 """A card is its emoji, two words and its seat, and nothing the seat asked or did.
 
+Owner rule, 15 Sep, 18 Sep, 7 Oct, 14 Oct, 20 Oct 2026: "The owner sees only what needs them or a
+finished job, and is paged only for an unanswered question (never while in that seat), a failure
+only they can fix (an expired login, a seat ak cannot reopen, a run nothing else can move), a login
+ending within 3 days (daily) or the whole finished job, once, for every harness and model; the page
+is its word and the seat (`Needs you · acme`), nothing the seat said. Internal probes and late news
+of finished jobs never page. Of every line on a screen ask "what would the owner do with it?"; if
+nothing, it goes. The system cleans up after itself. Reason: probe setup and repeated completion
+cards interrupted the owner with nothing new; idle prompts, unsent drafts and stuck runs paged
+them."
+
 The owner keeps a seat's questions and results out of Discord: a card says whose and which, the
 owner's mention last and the only one it may ping.  Offline: no webhook, no tmux.
 """
