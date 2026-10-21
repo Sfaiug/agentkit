@@ -139,20 +139,28 @@ class GcConversations(Sandbox):
         self.assertTrue((self.muse / ".msp-view-v1" / held.name / "HEAD.json").exists())
         self.assertEqual(self.indexed(), {held.name, linked.name})
 
-    def test_a_muse_session_written_while_gc_waits_on_the_index_stays(self):
+    def test_what_muse_writes_while_gc_waits_on_the_index_is_judged_with_the_session(self):
         old = self.session(1, 31 * DAY)
+        view = self.muse / ".msp-view-v2" / old.name
         connect = sqlite3.connect
 
-        class Resumed(sqlite3.Connection):
-            def execute(self, sql, *args):
-                if sql == "BEGIN IMMEDIATE":     # Muse writes while it holds the index
-                    (old / "session.jsonl").write_text("{}\n{}\n")
-                return super().execute(sql, *args)
+        def gc_while(write):
+            class Muse(sqlite3.Connection):
+                def execute(self, sql, *args):
+                    if sql == "BEGIN IMMEDIATE":     # Muse writes while it holds the index
+                        write()
+                    return super().execute(sql, *args)
 
-        with patch.object(sqlite3, "connect", lambda *a, **kw: connect(*a, **kw, factory=Resumed)):
-            gc.gc(lambda _: None)
+            with patch.object(sqlite3, "connect", lambda *a, **kw: connect(*a, **kw, factory=Muse)):
+                gc.gc(lambda _: None)
+
+        gc_while(lambda: (old / "session.jsonl").write_text("{}\n{}\n"))
         self.assertTrue(old.exists() and (self.muse / ".msp-view-v1" / old.name).exists())
         self.assertEqual(self.indexed(), {old.name})
+        os.utime(old / "session.jsonl", (time.time() - 31 * DAY, time.time() - 31 * DAY))
+        gc_while(lambda: view.mkdir(parents=True))
+        self.assertFalse(old.exists() or view.exists())
+        self.assertEqual(self.indexed(), set())
 
     def test_a_process_whose_handles_cannot_be_read_keeps_every_one(self):
         old = self.rollout(1, 31 * DAY)
