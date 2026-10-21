@@ -522,7 +522,7 @@ def answer_written(name, at=None, wait=0):
     hook cannot say so: a harness hands it the turns it begins itself -- a scheduled check-in,
     another session's message, a notice that one was refused -- as it hands the owner's, and
     only its conversation marks them nobody's words (`owner_said`, which also leaves ak's own
-    lines out).  `wait` gives a prompt's own message that long to arrive: Claude Code writes it
+    lines out).  `wait` gives a prompt's own message that long to arrive: a harness may write it
     only after its prompt hook returns.  Read only while something asked stands; a question
     still kept back waits for the look that asks it, which dates it.  None where the seat keeps
     no conversation to read, and only its hook can say."""
