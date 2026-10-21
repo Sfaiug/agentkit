@@ -64,13 +64,13 @@ class Pane(unittest.TestCase):
         return read()
 
     def test_a_paste_is_one_line_however_its_marks_are_split(self):
-        self.home.tmux("set-buffer", "-b", "clip", "first\nsecond")
+        self.home.tmux("set-buffer", "-b", "clip", "first\n\tsecond")
         self.home.tmux("paste-buffer", "-p", "-b", "clip", "-t", self.pane)
         self.keys("Enter")
         # split inside a mark, and right after its Esc
         self.keys("\x1b[20", "0~ship\x1b[201~\r", literal=True)
         self.keys("\x1b", "[200~it\x1b[201~\r", literal=True)
-        self.assertEqual(self.lines(3), ["first\nsecond", "ship", "it"])
+        self.assertEqual(self.lines(3), ["first\n\tsecond", "ship", "it"])
 
     def test_an_esc_ak_types_before_its_text_is_the_esc_key(self):
         self.keys("Escape")
