@@ -41,11 +41,10 @@ def muse_usage(key, tokens, family="provider"):
 
 class SeatTokens(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-seat-tokens-", dir=REPO)
-        self.addCleanup(tmp.cleanup)
-        self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.root = Path(self.stack.enter_context(
+            tempfile.TemporaryDirectory(prefix=".ak-test-seat-tokens-", dir=REPO)))
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "XDG_DATA_HOME": str(self.root / "data"), "NO_COLOR": "1"}))
         self.stack.enter_context(patch.object(config, "HOME", self.root / ".agentkit"))
@@ -136,6 +135,7 @@ class SeatTokens(unittest.TestCase):
         replacement.write_bytes(self.main.read_bytes())
         replacement.replace(self.main)
         config.session_path("larch").rename(config.session_path("renamed"))
+        self.rollout.rename(self.rollout.parent.parent / self.rollout.name)
         self.assertEqual(scoreboard.compute(NOW)["tokens"][0]["seat_tokens"], 457)
         self.assertEqual(scoreboard.compute(NOW)["ak"][0]["token_share"], 180 / 657)
         for path in config.STATE.glob("session-*.json"):

@@ -171,7 +171,7 @@ def seat_token_usage(entry, cursor):
     if type(total) is int and total >= 0 and moment(entry.get("timestamp")) is not None:
         previous = cursor.get("total", 0)
         cursor["total"] = max(previous, total)
-        return entry["timestamp"], f"{cursor['source']}:{total}", max(0, total - previous)
+        return entry["timestamp"], f"{Path(cursor['source']).name}:{total}", max(0, total - previous)
 
 
 def prompt(entry):
