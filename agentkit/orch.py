@@ -227,8 +227,9 @@ def account_order(cfg, model, readings, first=None):
 
     `first` -- a seat's home; for a new seat the provider's `seat_account`, else the usual
     login -- first while it has room for this model, the rest by room: a seat lives where
-    its owner follows it, and only spills over when that one is spent.  An account on
-    credits (`usage.on_credits`) has room only after every one with a window left.
+    its owner follows it, and only spills over when that one runs low.  An account on
+    credits (`usage.on_credits`) has room only after every one with a window left, and one
+    running low (`usage.model_low`) only after every one that is not.
     """
     provider = config.model(cfg, model)["provider"]
 
@@ -236,12 +237,13 @@ def account_order(cfg, model, readings, first=None):
         providers = {provider: readings[account]}
         amount, unknown = usage.model_budget(cfg, model, providers)
         return (usage.model_exhausted(cfg, model, providers)[0],
-                usage.on_credits(cfg, model, providers), unknown is not None, -amount)
+                usage.on_credits(cfg, model, providers),
+                usage.model_low(cfg, model, providers), unknown is not None, -amount)
     accounts = config.accounts(cfg, provider) or list(readings)
     ordered = sorted((a for a in accounts if a in readings), key=rank)
     if first is None:
         first = (cfg["providers"].get(provider) or {}).get("seat_account", config.DEFAULT_ACCOUNT)
-    if first in ordered and not any(rank(first)[:2]):
+    if first in ordered and not any(rank(first)[:3]):
         ordered = [first, *(a for a in ordered if a != first)]
     return ordered
 
@@ -1083,8 +1085,10 @@ def tmux_env(client=False):
     return dict(os.environ) if client else {k: v for k, v in os.environ.items() if k != "TMUX"}
 
 
-def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shim=False):
-    """(exit code, output) of one tmux command; 127 when there is no tmux to ask.
+def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shim=False,
+             rows=False):
+    """(exit code, output) of one tmux command; 127 when there is no tmux to ask.  The output is
+    stripped, unless `rows` keeps a capture's leading blank rows, where each row's place counts.
 
     `unit` names the transient scope a command that starts a server runs in, so that the
     server -- and every pane it ever opens -- lives in agentkit's slice.  Where the scope
@@ -1116,8 +1120,10 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shi
         # the command's name, never its words: send-keys carries what the owner typed
         return 124, f"tmux did not answer {next(iter(args), '')} within {timeout:g} s"
     if proc.returncode != 0 and argv != plain:
-        return tmux_out(*args, socket=socket, client=client, timeout=timeout, path_shim=path_shim)
-    return proc.returncode, (proc.stdout + proc.stderr).strip()
+        return tmux_out(*args, socket=socket, client=client, timeout=timeout, path_shim=path_shim,
+                        rows=rows)
+    out = proc.stdout + proc.stderr
+    return proc.returncode, out.rstrip() if rows else out.strip()
 
 
 def tmux_literal(word):
@@ -1972,7 +1978,9 @@ def tmux_conf():
     phone -- under sixty columns or twenty-five rows -- it takes the whole screen but the
     border, because a popup of 80% by 70% of forty by twelve holds a key line and nothing to
     press it on; anywhere larger it is the 80% by 70% it always was.  `display-popup` takes
-    no format for its size, so the choice is `if-shell -F`'s.
+    no format for its size, so the choice is `if-shell -F`'s.  The client's terminal features
+    ride in with it (`terminal.FEATURES_ENV`), read as the key is pressed, so the menu's first
+    frame waits on no tmux call to learn whether it takes true colour.
 
     The popup floats, on a tmux that has what it takes (FLOATS; an older one draws the plain
     popup, and says nothing): a rounded border in the dim colour with ` agentkit ` set into
@@ -1990,11 +1998,13 @@ def tmux_conf():
     if tmux_version() >= FLOATS:
         border = f"-b rounded -S {shlex.quote(DIM)} -T {shlex.quote(POPUP_TITLE)}"
         small, large = (
-            "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}'; " + tmux_text(
+            "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}' "
+                                        "f='#{client_termfeatures}'; " + tmux_text(
                 FLOAT % {"tmux": shlex.quote(guard.real("tmux")), "dim": shlex.quote(DIM),
                          "popup": popup, "command": shlex.quote(popup_command())}))
-            for popup in (f"{small} {border}",
-                          f"{large} {border} -e {terminal.PAD_ENV}={POPUP_PADDING}"))
+            for popup in (f'{small} {border} -e "{terminal.FEATURES_ENV}=$f"',
+                          f'{large} {border} -e "{terminal.FEATURES_ENV}=$f"'
+                          f" -e {terminal.PAD_ENV}={POPUP_PADDING}"))
     else:
         small, large = (f"{popup} {tmux_word(popup_command())}" for popup in (small, large))
     text = ("# written by `ak orch`; agentkit's own tmux config, never the user's ~/.tmux.conf\n"
@@ -2476,6 +2486,9 @@ def launch(name, model, cwd, cmd, conversation, session=None):
             raise
         finally:
             last.unlink(missing_ok=True)
+        # The moment from which an answer is this harness's (watch.follow_model): the one it
+        # replaces was sent SIGHUP and its terminal closed when the respawn returned.
+        config.update_session(current, launched=time.time())
     plugin.retire(before)   # its harness is gone now, replaced by this one
     if plugin.title_command(name):
         # A held rename survives a relaunch on the same conversation: our own last
@@ -4140,22 +4153,27 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
         moved = True          # its model is gone: no provider to stay home on
     chosen = {"orchestrator": model, "account": account,
               **({"home_account": account} if moved else {})}
-    try:
-        with watch.announcing(name):   # what every redress reads the record under
+    # Under what every redress and look reads the record under, till the new harness is up: a
+    # look before it would follow the old model's last answer back (watch.follow_model).
+    with watch.announcing(name):
+        try:
             config.update_session(name, **chosen)
-    except OSError as exc:
-        return f"session: {_one_line(exc)}"
-    waited = watch.seat_read(name).get("usage_wait")   # a turn its usage cut off goes on
-    try:
-        launch(name, model, cwd, cmd, conversation, session)
-    except (config.Error, OSError) as exc:
+        except OSError as exc:
+            return f"session: {_one_line(exc)}"
+        waited = watch.seat_read(name).get("usage_wait")   # a turn its usage cut off goes on
+        try:
+            launch(name, model, cwd, cmd, conversation, session)
+            failed = None
+        except (config.Error, OSError) as exc:
+            failed = exc
+    if failed:
         try:
             config.update_session(name, **{key: record.get(key) for key in chosen})
             if session:
                 watch.announce_state(session, cfg=cfg)   # a redress meanwhile drew the new model
         except (config.Error, OSError, ValueError):
             pass    # the note below already says the restart failed
-        return _one_line(exc)
+        return _one_line(failed)
     if kept:
         if watch._turn_in_flight(new_harness, live)[0] or (waited or {}).get("continue"):
             watch.seat_write(name, midturn={"boot": watch.boot_id(), "at": time.time(),

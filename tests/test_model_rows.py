@@ -3,9 +3,10 @@ numbers for each.
 
 A row is a model at an effort a board lists or the config runs it at in any role; a board naming
 no effort stands at the model's highest effort with an intelligence index; a row reads a board's
-row at a higher effort, never its price (tests/test_nearest_effort.py); a board's model is matched by its letters and digits, else by the board's name the id extends with
-a version, else, on a board where neither finds it, by `benchmark` on the config entry; the table
-scores each row per role (tests/test_model_scores.py) and names the rows no board has.
+row at a higher effort, never its price (tests/test_nearest_effort.py); a board's model is
+matched by its letters and digits, else by the board's name the id extends with a version, else,
+on a board where neither finds it, by `benchmark` on the config entry; the table scores each row
+per role (tests/test_role_formula.py) and names the rows no board has.
 
 Offline: the boards' answers are handed in as bytes (tests/test_model_matrix.py's), the harness
 manifests, catalogs and the installed harnesses are faked, and a throwaway HOME holds the cache
@@ -132,19 +133,20 @@ class ModelRows(Sandbox):
     def test_the_table_scores_the_rows_the_boards_make_and_names_the_rest(self):
         held = boards.collect(now=10000)
         with patch.object(matrix.time, "time", return_value=10000):
-            table = matrix.scored(matrix.rows(self.cfg, held, matrix.present()))
+            table = matrix.scored(matrix.rows(self.cfg, held, matrix.present()),
+                                  matrix.bests(held))
             lines = [terminal.plain(line) for line in matrix.render(table, held).splitlines()]
         text = "\n".join(lines)
         self.assertEqual(lines[0].split()[:3], ["model", "harness", "id"])
         self.assertTrue(all(terminal.cells(line) <= 100 for line in lines))
-        # the configured xhigh reads max's rows and keeps 56 of 58 of max's score, as the
-        # intelligence index does, unpriced at its own effort
-        self.assertRegex(lines[1], r"^- +claude +claude-opus-5-5 @ max +100 of 3 +100 of 3 +100 of 2 +21 +4\.05$")
-        self.assertRegex(lines[2], r"^opus +claude +claude-opus-5-5 @ xhigh +97 of 3 +97 of 3 +97 of 2 +- +-$")
+        # the configured xhigh reads max's rows 2 points further behind, as the intelligence
+        # index is, unpriced at its own effort; two of review's five measures score no review
+        self.assertRegex(lines[1], r"^- +claude +claude-opus-5-5 @ max +100 of 3 +100 of 4 +- +21 +4\.05$")
+        self.assertRegex(lines[2], r"^opus +claude +claude-opus-5-5 @ xhigh +98 of 3 +98 of 4 +- +- +-$")
         self.assertRegex(text, r"\nastra +codex +gpt-6-astra @ xhigh +- +- +- +- +-\n")
         # the run Artificial Analysis priced before the one it did not, whatever LiveBench charges
         self.assertIn("recommended: orchestrate claude-opus-5-5 @ max (100 of 3) · "
-                      "execute claude-opus-5-5 @ max (100 of 3)", text)
+                      "execute claude-opus-5-5 @ max (100 of 4)", text)
         self.assertRegex(text, r"no board row: .*claude-opus-4-7")
         self.assertIn("arena.ai: 4 rows as of", text)
         out = io.StringIO()
@@ -155,7 +157,7 @@ class ModelRows(Sandbox):
         self.assertNotIn("rows", data["boards"]["arena.ai"])
         rows = {matrix.row_label(row): row for row in data["rows"]}
         self.assertEqual(rows["claude-opus-5-5 @ max"]["scores"]["orchestrate"], {"score": 100.0, "measures": 3})
-        self.assertEqual(rows["claude-opus-5-5 @ max"]["scores"]["review"], {"score": 100.0, "measures": 2})
+        self.assertEqual(rows["claude-opus-5-5 @ max"]["scores"]["review"], None)
 
     def test_a_board_row_s_effort_is_kept_apart_from_a_bracket_of_its_name(self):
         # a bracket naming no effort stays on the board's name: `Acme Pro (0813)` is at none

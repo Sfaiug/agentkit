@@ -6,10 +6,14 @@ which only a new login brings it back; null where the harness writes no such day
 answers are kept in `state/logins.json` as {provider: {account: {email, ends, checked_at}}},
 for every screen and reminder that warns before a login ends.  The tick asks each one at
 most once an hour, answered or not, since a login's end moves only when somebody logs in
-again; but one whose meter is amber (`ending`) every time it runs, so a new login shows on
-the ak screen at the next tick.
+again; but one whose meter is amber (`ending`) every time it runs, so a new login made
+elsewhere shows on the ak screen at the next tick.  One made again on the ak screen is asked
+as it finishes (`renewed`), so its meter is grey as the screen comes back.  The tick and the
+ak screen ask and write one at a time (`_alone`): an ask that waited for the other's write
+came after it, so nothing either keeps is older than what it replaces, and nothing merges.
 """
 
+from contextlib import contextmanager
 from datetime import date
 import json
 import os
@@ -37,6 +41,15 @@ def read():
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+@contextmanager
+def _alone():
+    """`logins.json` read, asked and written by one writer at a time, its asks included: each
+    bounded by ASK_TIMEOUT, so the other waits seconds at most."""
+    config.ensure_dirs()
+    with config._record_lock(path()):
+        yield
 
 
 def _ask(harness, account):
@@ -93,20 +106,41 @@ def refresh(cfg, now=None):
     subscription the config no longer lists is dropped with its answer.
     """
     now = time.time() if now is None else now
-    old, kept = read(), {}
-    for provider in cfg["providers"]:
-        asker = harness(cfg, provider)
-        for account in config.accounts(cfg, provider) or [config.DEFAULT_ACCOUNT]:
-            last = (old.get(provider) or {}).get(account)
-            last = last if isinstance(last, dict) else {}
-            checked = last.get("checked_at")
-            fresh = (isinstance(checked, (int, float)) and 0 <= now - checked < ASK_EVERY
-                     and not ending(last, now))
-            kept.setdefault(provider, {})[account] = last if fresh else {
-                **last, **(asker and _ask(asker, account) or {}), "checked_at": now}
-    if kept != old:
-        config._write_json(path(), kept)
+    with _alone():
+        old, kept = read(), {}
+        for provider in cfg["providers"]:
+            asker = harness(cfg, provider)
+            for account in config.accounts(cfg, provider) or [config.DEFAULT_ACCOUNT]:
+                last = _kept(old, provider, account)
+                checked = last.get("checked_at")
+                fresh = (isinstance(checked, (int, float)) and 0 <= now - checked < ASK_EVERY
+                         and not ending(last, now))
+                kept.setdefault(provider, {})[account] = last if fresh else {
+                    **last, **(asker and _ask(asker, account) or {}), "checked_at": now}
+        if kept != old:
+            config._write_json(path(), kept)
     return kept
+
+
+def renewed(cfg, provider, account, now=None):
+    """Ask `provider`'s `account` login, just made again on the ak screen, when it ends, and keep
+    the answer with the rest; one that answers nothing changes nothing, being amber still, which
+    the tick asks every time it runs."""
+    asker = harness(cfg, provider)
+    with _alone():
+        answer = asker and _ask(asker, account)
+        if answer:
+            kept = read()
+            kept[provider] = {**(kept.get(provider) or {}), account: {
+                **_kept(kept, provider, account), **answer,
+                "checked_at": time.time() if now is None else now}}
+            config._write_json(path(), kept)
+
+
+def _kept(logins, provider, account):
+    """What `logins`, one of `read`'s, keeps for that account: {} for none or nothing usable."""
+    last = (logins.get(provider) or {}).get(account)
+    return last if isinstance(last, dict) else {}
 
 
 def remind(cfg, now=None):

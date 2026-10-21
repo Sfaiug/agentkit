@@ -485,6 +485,26 @@ def owner(since, until):
         return None
 
 
+def seat_runs(names, since, until):
+    """`(runs, reviews)` of a seat's runs, by any of its `names`, begun between `since` and
+    `until`: each `(run_id, orchestrator, executor)` as it ended, and each finished review of
+    them, `(harness, model)`.  None where the database cannot answer."""
+    seat = f"session IN ({', '.join('?' * len(names))}) AND started_at BETWEEN ? AND ?"
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                return (connection.execute("SELECT run_id, orchestrator, executor FROM "
+                                           f"runs WHERE {seat}", (*names, since, until)).fetchall(),
+                        connection.execute("SELECT harness, model FROM reviews JOIN runs "
+                                           f"USING (run_id) WHERE {seat}",
+                                           (*names, since, until)).fetchall())
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return None
+
+
 def last_done(conversation):
     """`(last, since, work)`: that conversation's last done, None before its first, since when
     dones are kept, and that done's `work`; None where the database cannot answer."""

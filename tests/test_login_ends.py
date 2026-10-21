@@ -2,7 +2,8 @@
 
 Claude's adapter reads the day its login stops serving (`refreshTokenExpiresAt`, which no
 renewal moves) and the account's email; the tick keeps every subscription's answer in
-`state/logins.json`, asking each at most hourly and at once when told to.  The real
+`state/logins.json`, asking each at most hourly and at once when told to, and one made again
+on the ak screen as it finishes, one writer at a time.  The real
 `adapters/claude.sh` on a temporary HOME, and a fake adapter for the rest: no real login.
 """
 
@@ -13,6 +14,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -194,6 +196,44 @@ class Refresh(unittest.TestCase):
         with self.assertRaises(KeyboardInterrupt):
             logins.refresh(self.cfg, now=1000)
         self.assertFalse(self.reader_outlived_the_ask())
+
+    def test_i_a_login_renewed_while_the_tick_asks_waits_for_it_and_stands(self):
+        soon = {"email": "owner@acme.test", "ends": 1000 + 86400}
+        self.answer("default", soon)
+        logins.refresh(self.cfg, now=1000)                  # amber: the next tick asks it
+        self.cfg["providers"]["anthropic"]["accounts"] = ["default"]   # and drops second
+        tick_asks, release, asked, ask = threading.Event(), threading.Event(), [], logins._ask
+
+        def asking(harness, account):
+            asked.append((threading.current_thread().name, account))
+            if threading.current_thread().name == "tick":
+                answer = ask(harness, account)          # from before the login
+                tick_asks.set()
+                release.wait(10)
+                return answer
+            return ask(harness, account)
+        with patch.object(logins, "_ask", side_effect=asking):
+            tick = threading.Thread(target=logins.refresh, args=(self.cfg, 1001), name="tick")
+            tick.start()
+            self.assertTrue(tick_asks.wait(10))
+            self.answer("default", {**soon, "ends": FAR})   # the ak screen's login finished
+            renew = threading.Thread(target=logins.renewed, name="renew",
+                                     args=(self.cfg, "anthropic", "default", 1002))
+            renew.start()
+            renew.join(0.5)               # time enough to ask, were it not waiting for the tick
+            release.set()
+            tick.join(10)
+            renew.join(10)
+        self.assertEqual(asked, [("tick", "default"), ("renew", "default")])
+        self.assertEqual(logins.read(), {"anthropic": {"default": {
+            "email": "owner@acme.test", "ends": FAR, "checked_at": 1002}}})
+
+    def test_j_a_renewed_login_that_answers_nothing_writes_nothing(self):
+        logins.refresh(self.cfg, now=1000)
+        before = logins.read()
+        (self.fake / "fail-default").touch()
+        logins.renewed(self.cfg, "anthropic", "default", now=1001)
+        self.assertEqual(logins.read(), before)
 
     def test_e_the_tick_keeps_them(self):
         from agentkit import watch

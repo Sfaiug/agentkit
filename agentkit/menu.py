@@ -134,6 +134,7 @@ from pathlib import Path
 
 from . import command_help, config, gitcall, history, matrix, motion, notify, orch, plan, staffing, terminal, transitions, update, usage, worker
 from . import record
+from . import warm
 
 KEYS = "n new   x stop   c config   esc leave"
 STOP_ASK = "Stop {} and everything it runs?"   # what `x` asks under a seat that is not done
@@ -181,6 +182,14 @@ def read(prompt, default=None):
     if not sys.stdout.isatty():
         print()    # the prompt was answered from a pipe: keep the transcript on separate lines
     return default if answer is None else answer.strip()
+
+
+def rows(cfg):
+    """The seats, their runs and their groups, as the main screen reads them (`Live.read`)."""
+    found = orch.listing()
+    records = run_records()           # one pass over run.json a read: filing, looking, drawing
+    orch.file_projectless(found, [state for _, state in records])
+    return found, records, v5o_groups(cfg, found, records, look=False)
 
 
 class Live:
@@ -346,10 +355,7 @@ class Live:
             leaves = self.leaves
             self.reads += 1
             began = self.reads
-        found = orch.listing()
-        records = run_records()           # one pass over run.json a read: filing, looking, drawing
-        orch.file_projectless(found, [state for _, state in records])
-        groups = v5o_groups(self.cfg, found, records, look=False)
+        found, records, groups = rows(self.cfg)
         with self.reading:
             if self.leaves != leaves:
                 return
@@ -402,9 +408,10 @@ class Live:
         self.asked.set()
 
     def watch(self, last):
-        """Read into `last` once, now, for the first draw, then again in a thread within STIR
-        of any record changing, or when asked (`ask`): the seats and their groups, for each
-        draw to draw.
+        """Read into `last` once, now, for the first draw -- in a menu the warm server forked, its
+        last read is the first draw's (`warm`), read again within STIR -- then again in a thread
+        within STIR of any record changing, or when asked (`ask`): the seats and their groups,
+        for each draw to draw.
 
         Whatever decides a seat -- its own hook, the tick, `ak orch`, another menu -- writes the
         word to that seat's record and to its bar in one go, and a run's step, round and ending
@@ -417,8 +424,14 @@ class Live:
         only when a seat is listed that it has not met (`read`), once, and writes nothing else,
         so no menu's read keeps waking another, or itself; each one landing asks for one draw.
         """
-        self.last, self.seen = last, self.recorded()
-        self.read(look=True)
+        self.last, primed = last, warm.primed()
+        if primed:
+            # the warm server's last read, read again at the watcher's first look: a read
+            # beside the first frame would hold it back, the two on one interpreter
+            last[:], self.seen, self.looking = primed, None, True
+        else:
+            self.seen = self.recorded()
+            self.read(look=True)
         if self.watcher is None:
             self.watcher = threading.Thread(target=self._watch, daemon=True)
             self.watcher.start()
@@ -882,6 +895,9 @@ class Task(tuple):
         task = super().__new__(cls, (stage, state))
         task.run = run
         return task
+
+    def __getnewargs__(self):
+        return (*self, self.run)      # pickled whole: the warm server's read (`warm`)
 
 
 def seat_tasks(name, records=None, now=None):
@@ -1426,8 +1442,9 @@ def v5o_column_widths(infos, term_width):
     num_w = min(max([terminal.cells(info["number"]) for info in infos] + [1]), 4)
     name_w = min(max([born_cells(info["born"]) if "born" in info else terminal.cells(info["name"])
                       for info in infos] + [1]), 24)
-    orch_w = min(max([terminal.cells(info.get("orchestrator") or info.get("worker") or "")
-                      for info in infos] + [0]), 24)
+    # a model's full name whole where the row has room, cut by the loop below where it has not
+    orch_w = max([terminal.cells(info.get("orchestrator") or info.get("worker") or "")
+                  for info in infos] + [0])
     count_w = max([terminal.cells(terminal.state_text(info["count"]))
                    for info in infos] + [1])
     # Keep up to eight cells of each label beside the state; otherwise it goes below the
@@ -2827,10 +2844,6 @@ MODEL_KEYS = {"step": ("↑↓ move   ←→ choose", "arrows move   left/right 
               "remove": ("↑↓ move   ⏎ remove", "arrows move   enter remove")}
 REMOVE_ASK = ("Remove {} from the config?",   # what `Remove` asks, and what it means
               "Nothing new starts on it; + add a model brings it back.")
-# What another model's orchestrator mark asks of a seat, and what moving means.
-MOVE_ASK = ("Move {} to {}?",
-            "Its conversation starts again on {}, handed its plan, its runs and the last "
-            "exchange; its runs keep going.")
 # Every effort word, weakest first -- the widest list a manifest names (adapters/muse.toml) --
 # so a new model id that does not take its model's effort takes the nearest one it does.
 EFFORT_RANK = ("none", "minimal", *config.EFFORTS)
@@ -2913,8 +2926,8 @@ def take_advice(cfg, name, selected, providers, found):
     at the entry's effort or at none leaves it following the effort, _follows), saved to the
     config (_saved) and then to the seat's record at once as a flipped mark is (marks_saved);
     a config that cannot be saved changes no mark and says why.  The orchestrator is only
-    said, since moving the seat is the owner's (the orchestrator mark asks first).  What to
-    say under the rows, or ""."""
+    said, since moving the seat is its orchestrator mark's.  What to say under the rows, or
+    ""."""
     taken = {role: found.get(role, (None, None, None))[1:] for role in TAKEN}
     if not any(model for model, _ in taken.values()):
         return "nothing to take: the recommended rows are not configured models"
@@ -2957,8 +2970,8 @@ MODELS_TAKE = "r take recommended"
 KNOB = ("knob", "within")
 KNOB_TEXT = "as good as the best: within "
 MODELS_HEADS = ("model", "harness", "effort", *orch.ROLE_HEADS, "cost $")
-MODELS_NOTE = ("quality is a model's share of the best on the public boards, out of 100; cost is "
-               "what Artificial Analysis's index run cost it, in dollars")
+MODELS_NOTE = ("quality is 100 less how many points a model is behind the best on the public "
+               "boards; cost is what Artificial Analysis's index run cost it, in dollars")
 CHEAPEST = "the cheapest as good: "   # why the recommended row is the one: said before it
 SAID = ("best", "as good", "recommended")   # the lines that say why, rows the highlight rests on
 
@@ -3292,8 +3305,8 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     # the values line up past the widest row that has one
     wide = max(terminal.cells(row) for row, value in zip(CONFIG_ROWS, values) if value)
     for row, value in zip(CONFIG_ROWS, values):
-        # the value wraps once at a word under itself, and is cut only past that
-        for number, part in enumerate(terminal.title_lines(value, room - 2 - wide - 2) or [""]):
+        # the value wraps at a word under itself, never cut
+        for number, part in enumerate(terminal.wrap(value, room - 2 - wide - 2) or [""]):
             line = terminal.table_row([row if number == 0 else "", part],
                                       [wide, room - 2 - wide - 2], indent="  ") if value else (
                 "  " + terminal.cut(row, room - 2))
@@ -3767,9 +3780,6 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             if here[1] not in cfg["models"]:
                 here = rows[rows.index(here) + 1]     # removed: the row under it is highlighted
         elif act in ("enter", "space") and column < 3:
-            if column == 0 and here[1] != selected.get("orchestrator") and not move_asked(
-                    cfg, session, selected, providers, here, column, top, title):
-                continue              # kept: the seat stays on its model
             note = session_mark(cfg, session, selected, here[1], column, providers)
             if note:
                 clock.touch(("mark", here[1], column))    # refused: the mark shakes
@@ -4075,13 +4085,13 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
 def sign_in(cfg, keyboard, provider, account):
     """`provider`'s login for `account` (None: its only one) made afresh on the terminal, for
     one whose meter is amber: its harness's `login again` (`logins.harness`), and the menu back
-    as soon as that ends, one that failed once what it said has been read.  The tick asks an
-    amber login again every time it runs, so its meter turns grey at the next tick once a new
-    one stands, and nothing here writes `logins.json`."""
+    as soon as that ends, one that failed once what it said has been read.  One that finished
+    is asked its end at once (`logins.renewed`), so the menu comes back with its meter grey."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     harness = logins.harness(cfg, provider)
-    if harness:
-        _adapter_verbs(keyboard, harness, ("login again",), provider, account, provider)
+    if harness and not _adapter_verbs(keyboard, harness, ("login again",), provider, account,
+                                      provider):
+        logins.renewed(cfg, provider, account or config.DEFAULT_ACCOUNT)
 
 
 def _add_subscription(cfg, keyboard, provider, listed, picked, verbs=("login",)):
@@ -4309,17 +4319,24 @@ def page_body(rows, at=None):
     {line: (row, [])}: of `rows`, (row, label, value) each, its label and then its value,
     lined up past the widest label as `c`'s own rows are, or with no label a choice of a list
     opened under the row above it, indented as `add a model`'s are.  A value is text, or
-    parts, (text, kind) each, a space apart, each cut to the room it has; `at` is the row lit."""
+    parts, (text, kind) each, a space apart, wrapped at a word under itself as `c`'s own
+    values are, never cut; `at` is the row lit."""
     room = terminal.layout_width()
     wide = max((terminal.cells(label) for _, label, _ in rows if label is not None), default=0)
     lines, places = [], {}
     for row, label, value in rows:
-        line = "    " if label is None else f"  {terminal.pad(label, wide)}  "
+        lead = "    " if label is None else f"  {terminal.pad(label, wide)}  "
+        left, wrapped, used = max(1, room - terminal.cells(lead)), [[]], 0
         for text, kind in [(value, None)] if isinstance(value, str) else value:
-            text = terminal.cut(text, max(0, room - terminal.cells(line)))
-            line += (terminal.styled(text, kind) if kind else text) + " "
-        places[len(lines)] = (row, [])
-        lines.append(terminal.highlight(line.rstrip()) if row == at else line.rstrip())
+            for piece in terminal.wrap(text, left):
+                if used and used + 1 + terminal.cells(piece) > left:
+                    wrapped, used = [*wrapped, []], 0
+                wrapped[-1].append(terminal.styled(piece, kind) if kind else piece)
+                used += bool(used) + terminal.cells(piece)
+        for number, parts in enumerate(wrapped):
+            line = ((lead if number == 0 else " " * terminal.cells(lead)) + " ".join(parts)).rstrip()
+            places[len(lines)] = (row, [])
+            lines.append(terminal.highlight(line, number == 0) if row == at else line)
     return lines, places
 
 
@@ -4374,12 +4391,14 @@ def config_page(name, page):
 
             def draw(lines):          # the page of matrix_key's height that holds the lines
                 rows, note = page()
-                body = page_body([(("row", number), label, value)
-                                  for number, (label, value, _) in enumerate(rows)])[0]
-                body[at + 1:at + 1], said = lines, note_lines(note)
-                first, room = matrix_page(body, {at + 1: ("lines", [])}, "lines", top, said, keys)
+                body, places = page_body([(("row", number), label, value)
+                                          for number, (label, value, _) in enumerate(rows)])
+                # under the row's last line, a value that wrapped included
+                end = 1 + max(line for line, (row, _) in places.items() if row == ("row", at))
+                body[end:end], said = lines, note_lines(note)
+                first, room = matrix_page(body, {end: ("lines", [])}, "lines", top, said, keys)
                 terminal.frame(title, [*body[first:first + room], *said], keys)
-                return 4 + at - first
+                return 3 + end - first
             said = rows[at][2](draw) or ""
 
 
@@ -4422,16 +4441,23 @@ def discord_secret(draw, name, hint):
 
 def audit_value(cfg):
     """`Weekly audit`'s value: on or off, and who orchestrates, executes and reviews it, under
-    the matrix's own column words, `on · orch opus · builds opus, astra · reviews astra`; a
-    setting the config cannot read is shown as the error that says why."""
+    the matrix's own column words, each model by its full name, `on · orch Opus 5.5 · builds
+    Opus 5.5, GPT-6-Astra · reviews GPT-6-Astra`; a setting the config cannot read is shown as
+    the error that says why."""
     try:
         setting = config.audit(cfg)
     except config.Error as exc:
         return str(exc)
     heads = orch.ROLE_HEADS
-    return " · ".join(("on" if setting["on"] else "off", f"{heads[0]} {setting['orchestrator']}",
-                       f"{heads[1]} " + (", ".join(setting["workers"]) or "nobody"),
-                       f"{heads[2]} " + ", ".join(setting["reviewers"])))
+    return " · ".join(("on" if setting["on"] else "off",
+                       f"{heads[0]} {config.model_name(cfg, setting['orchestrator'])}",
+                       f"{heads[1]} " + (audit_names(cfg, setting["workers"]) or "nobody"),
+                       f"{heads[2]} " + audit_names(cfg, setting["reviewers"])))
+
+
+def audit_names(cfg, names):
+    """The models `names` are, by their full names, as `Weekly audit` shows a role's."""
+    return ", ".join(config.model_name(cfg, name) for name in names)
 
 
 def audit_table(cfg):
@@ -4488,7 +4514,7 @@ def config_audit(cfg):
             held = audit_shown(cfg)[0][key]
             held = [held] if one else held
             return [([(on if one else full, "accent") if name in held
-                      else (off if one else empty, "dim"), (name, None)],
+                      else (off if one else empty, "dim"), (config.model_name(cfg, name), None)],
                      lambda name=name: audit_write(cfg, key, name if one else [
                          other for other in held if other != name] if name in held
                          else [*held, name]),
@@ -4501,9 +4527,10 @@ def config_audit(cfg):
         return [("On", [(on, "accent"), ("on", None)] if setting["on"]
                  else [(off, "dim"), ("off", None)],
                  lambda draw: audit_write(cfg, "on", not setting["on"])),
-                ("Orchestrator", setting["orchestrator"], models("orchestrator")),
-                ("Builds", ", ".join(setting["workers"]) or "nobody", models("workers")),
-                ("Reviews", ", ".join(setting["reviewers"]), models("reviewers"))], \
+                ("Orchestrator", config.model_name(cfg, setting["orchestrator"]),
+                 models("orchestrator")),
+                ("Builds", audit_names(cfg, setting["workers"]) or "nobody", models("workers")),
+                ("Reviews", audit_names(cfg, setting["reviewers"]), models("reviewers"))], \
             "\n".join(filter(None, (why, AUDIT_NOTE)))
     config_page("weekly audit", page)
 
@@ -4553,29 +4580,12 @@ def show_config(dry_run=False, keyboard=None, session=None):
     return config_matrix(cfg, keyboard, version, session, selected, providers, note)
 
 
-def move_asked(cfg, session, selected, providers, here, column, top, title):
-    """Whether `Move` was picked on the card the orchestrator mark of another model asks on,
-    drawn under the rows of the config screen as it stands, the page from `top` giving the card
-    its room and keeping `here` on (matrix_page); False, kept, on Esc.  A seat moved by a slip
-    loses its conversation to a handover, so the mark asks first, as `Remove` does."""
-    def around(card):     # the screen around the card, drawn again on a resize
-        over, _, body, places, _ = meters_led(config_meters(cfg), *config_body(
-            cfg, here, column, selected, providers), card, "esc back")
-        first, room = matrix_page(body, places, here, top, card, "esc back", over)
-        shown = body[first:first + room]
-        terminal.frame(title, [*over, *shown, *card], "esc back")
-        return 3 + len(over) + len(shown)
-    model = config.model_name(cfg, here[1])
-    return terminal.confirm(MOVE_ASK[0].format(session, model), MOVE_ASK[1].format(model),
-                            "Move", around)
-
-
 def session_mark(cfg, name, selected, model, column, providers):
     """Act on one of a session's marks, saving it to the session's record at once.
 
     `column` is 0 for the orchestrator and 1 for executes and 2 for reviews, as
     `orch.role_mark` numbers them. The orchestrator moves the seat to that model at once,
-    under the same name (the screen has asked first, `move_asked`), and a harness that is not installed or not logged in, or a meter
+    under the same name, asking nothing, and a harness that is not installed or not logged in, or a meter
     that is spent, is refused in one line with the seat as it was, and so is a record naming
     a model removed on this screen. Reviewers keep one model, executors may be empty, and a
     flip leaving no allowed pair is refused. A run launched afterwards reads the record as
@@ -4818,9 +4828,10 @@ def took(seconds):
                         for n, unit in zip(divmod(hours, 24), ("day", "hour")) if n)
 
 
-def past_said(session):
+def past_said(cfg, session):
     """(sentence, stats) a past session's row opens with: its plan's first done line, then its
-    tasks and how long it took, from its start to its last done, else to its stop."""
+    tasks, how long it took, from its start to its last done, else to its stop, and the models it
+    used (past_models)."""
     name, start, stop = session["name"], session.get("created"), session["closed"]
     seat = notify.conversation_of(name)
     last = seat and seat[3] and (history.last_done(f"{seat[0].name}:{seat[3]}") or [None])[0]
@@ -4830,12 +4841,29 @@ def past_said(session):
              f"{total} task{'s' * (total != 1)}") if total else ""
     end = last if last and start and start < last <= stop else stop
     return plan.first_done(name) or "", " · ".join(part for part in (
-        tasks, start and "took " + took(end - start)) if part)
+        tasks, start and "took " + took(end - start), ", ".join(past_models(cfg, session))) if part)
+
+
+def past_models(cfg, session):
+    """The models a past session used, each once by its full name (`config.model_name`): its
+    orchestrator, then every other its runs between its start and its stop ran on --
+    orchestrating, building, a builder its turn went from (`executor_history`), a reviewer that
+    finished a review, by any name the config runs its model under, else its own id."""
+    runs, reviews = history.seat_runs(plan.names(session["name"]), session.get("created") or 0,
+                                      session["closed"]) or ((), ())
+    used = {model for _run_id, *models in runs for model in models}
+    used |= {entry.get(key) for run_id, *_ in runs for entry in (record.read_state(
+        config.RUNS / str(run_id)) or {}).get("executor_history") or () for key in ("from", "to")}
+    used |= {next(iter(_runs(cfg, harness, model)), model) for harness, model in reviews}
+    orchestrator = (selection_of(cfg, session["name"]) or {}).get("orchestrator")
+    first = orchestrator and config.model_name(cfg, orchestrator)
+    names = {config.model_name(cfg, model) for model in used if model} - {first}
+    return [first] * bool(first) + sorted(names, key=str.casefold)
 
 
 def past_body(past, at=None, models=None, room=None, said=None):
     """The past screen's lines -- the main screen's rows, one a stopped seat under its project's
-    heading in the order their numbers go: its number, name, orchestrator (`models`, by name),
+    heading in the order their numbers go: its number, name, orchestrator (`models`, in full),
     how long ago it was stopped in the state's column and, where its harness starts it fresh
     and the row has room, that -- and where each is, {line: (("row", name), [])}.  Every row, a
     blank line between projects, where `room` lines hold them or no `room` is given; else the
@@ -4851,7 +4879,7 @@ def past_body(past, at=None, models=None, room=None, said=None):
     widths = v5o_column_widths(infos, width)
     room_under = max(1, widths["room"] - (2 + widths["num"] + 2))
     opened = {name: terminal.wrap(sentence, room_under) + [
-        terminal.styled(line, "dim") for line in terminal.wrap(stats, room_under)]
+        terminal.styled(line, "dim") for line in stats_lines(stats, room_under)]
         for name, (sentence, stats) in (said or {}).items()}
 
     def drawn(info):
@@ -4877,6 +4905,19 @@ def past_body(past, at=None, models=None, room=None, said=None):
             {number: (("row", name), []) for number, (_, name) in enumerate(page) if name})
 
 
+
+def stats_lines(stats, room):
+    """A past session's stats on lines of `room` cells, broken only after a `·` or a `,`: a
+    model's name stays on one line, unless it is too long for one by itself."""
+    lines = []
+    for part in re.findall(r".+?(?:, | · |$)", stats):
+        if lines and terminal.cells(lines[-1] + part.rstrip()) <= room:
+            lines[-1] += part
+        else:
+            lines.append(part)
+    return [cut for line in lines for cut in terminal.wrap(line, room)]
+
+
 @terminal.clicks_its_own
 def show_past(cfg, found, dry_run=False, keyboard=None):
     """`past sessions`, `p`: the seats you stopped, the main screen's rows under their projects
@@ -4897,7 +4938,8 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             return
         names = [session["name"] for _, session in past]
         here = here if here in names else names[0]
-        models = {name: (selection_of(cfg, name) or {}).get("orchestrator") for name in names}
+        models = {name: model and config.model_name(cfg, model) for name in names
+                  for model in [(selection_of(cfg, name) or {}).get("orchestrator")]}
         if not terminal.taken():
             keys = "x remove   esc back"
             terminal.frame("past sessions", past_body(past, models=models)[0], keys)
@@ -4923,7 +4965,8 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
         keys = PAST_KEYS[0 if terminal.utf8() else 1]
         room = matrix_page([], {}, None, 0, [], keys)[1]      # the lines a page holds
         if here not in said:      # read once a row, as the pointer comes and goes on it
-            said[here] = past_said(next(session for _, session in past if session["name"] == here))
+            said[here] = past_said(cfg, next(session for _, session in past
+                                             if session["name"] == here))
         body, places = past_body(past, here, models, room,
                                  {} if terminal.away() else {here: said[here]})
         act, row, _column, top = matrix_key("past sessions", body, places,

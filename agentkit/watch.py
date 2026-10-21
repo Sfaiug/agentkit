@@ -736,6 +736,9 @@ def screen(harness):
              "faint": tuple(colour for colour in block.get("faint") or ()
                             if isinstance(colour, str)),
              "tray": _pattern(block.get("tray"), path),
+             # it keeps the terminal cursor in its composer's box while keys go there
+             # (`off_composer`)
+             "cursor": block.get("cursor") is True,
              # the keys that hand its composer to $VISUAL, ak's editor (`seat_editor`)
              "editor": tuple(key for key in block.get("editor") or ()
                              if isinstance(key, str) and key),
@@ -1518,6 +1521,40 @@ def interrupted_at(harness, name):
         return plugin.interrupted(record, cwd, plugin.conversation(record, cwd))
     except OSError:
         return None
+
+
+def follow_model(cfg, name):
+    """Make the model that seat's harness says its latest answer ran on its orchestrator:
+    `/model` typed inside a seat moves its row, its bar and `c`'s mark as a move on `c` would,
+    nothing restarted (the owner's word of 20 Oct 2026).  Only an answer made since the harness
+    in the seat was launched counts (`launched` in its record, written once it is up), so a
+    move on `c` is not undone by the old model's last answer; a seat launched before launches
+    were written down counts every answer.  The model is the configured entry running it on
+    that harness, the seat's own first, at the effort the answer recorded where one does; a
+    model no entry runs, a seat on its harness's own model, or an answer that cannot be read
+    leaves the record as it is."""
+    try:
+        record = config.load_session(cfg, name, required=False)
+        entry = record and config.model(cfg, record["orchestrator"])
+    except config.Error:
+        return
+    if not entry or entry["model"] in ("", config.DEFAULT_MODEL):
+        return
+    plugin, cwd = orch.harness_plugin(entry["harness"]), record.get("cwd")
+    try:
+        ran = plugin.running(record, cwd, plugin.conversation(record, cwd))
+    except OSError:
+        return
+    launched = _stamp(record.get("launched"))
+    if not ran or launched is not None and not (ran[2] or 0) > launched:
+        return
+    kept, models = record["orchestrator"], cfg["models"]
+    runs = [each for each in (kept, *config.offered(cfg))
+            if (models[each]["harness"], models[each]["model"]) == (entry["harness"], ran[0])]
+    chosen = next((each for each in runs if models[each].get("effort") == ran[1]),
+                  runs[0] if runs else kept)
+    if chosen != kept:
+        config.update_session(name, orchestrator=chosen)
 
 
 def cancelled(harness, name, pane):
@@ -2427,6 +2464,7 @@ def announce_state(session, cfg=None, look=False, **facts):
     with announcing(name):
         if look:
             facts["harness"], facts["live"] = look_at(session, cfg=cfg)
+            follow_model(config.load() if cfg is None else cfg, name)
         previous = seat_read(name)
         if facts.get("live") is None:
             facts["live"] = previous
@@ -2446,7 +2484,7 @@ def announce_state(session, cfg=None, look=False, **facts):
     return answer
 
 
-def hook_look(launched, answered_at=None, said=""):
+def hook_look(launched, answered_at=None, said="", prompt=False):
     """Look at that one seat again and publish what it is: its own hook's word, at once.
 
     hooks/seat-state.sh starts this in the background on every event it hears -- a turn
@@ -2463,7 +2501,10 @@ def hook_look(launched, answered_at=None, said=""):
     through the same check before answering a question; waiting for its notice lock happens
     here, off the harness's path.  A prompt `said` that is a line ak typed into the seat is the
     seat's own news, never the owner's answer (`notify.ak_prompt`): the harness's hook reports
-    it as it reports the owner's words.
+    it as it reports the owner's words.  A `prompt`, unlike an answer through the harness's
+    question tool, is the owner's only where the seat's conversation says so
+    (`notify.answer_written`), which every other look also asks: the owner's message reaches it
+    after their prompt hook ran.
     """
     name = config.resolve_session(launched)
     number, session = next(((number, session) for number, session
@@ -2475,7 +2516,10 @@ def hook_look(launched, answered_at=None, said=""):
             socket=orch.seat_socket(session)) != (0, f"{here}\t{name}"):
         return None
     if answered_at is not None and not notify.ak_prompt(name, said, notify.last(name)):
-        notify.answered(name, answered_at)
+        if not prompt or notify.answer_written(name, answered_at, notify.PROMPT_WRITTEN) is None:
+            notify.answered(name, answered_at)
+    else:
+        notify.answer_written(name)
     return announce_state(session, cfg=config.load(), look=True, number=number)
 
 
@@ -3161,9 +3205,38 @@ def pane_unread(session):
     return False
 
 
+def off_composer(session):
+    """Is that seat's terminal cursor outside its composer's box, of a harness keeping it there
+    while keys go there (`[screen] cursor`): one opening a dialog moves it into the dialog, and
+    a key sent then goes into the dialog's search, Enter picking one of its rows.  The box is
+    the bottom run of rows its `composer` pattern names, read off the same pane as the cursor;
+    a dialog drawn inside that box itself, in a pane too short for it to clear the box, is not
+    told apart.  A cursor or pane that cannot be read is outside."""
+    try:
+        harness = seat_model(config.load(), session["name"])[0]
+        chrome = screen(harness) if harness else {}
+    except (config.Error, OSError):
+        return False
+    if not chrome.get("cursor") or not chrome["composer"]:
+        return False
+    server, pane = orch.seat_socket(session), _pane(session)
+    rc, at = orch.tmux_out("display-message", "-p", "-t", pane, "#{cursor_y}", socket=server)
+    code, shown = orch.tmux_out("capture-pane", "-p", "-t", pane, socket=server, rows=True)
+    box = [chrome["composer"].fullmatch(row.strip()) is not None for row in shown.splitlines()]
+    if rc != 0 or code != 0 or not at.isdigit() or True not in box:
+        return True
+    top = bottom = max(row for row, inside in enumerate(box) if inside)
+    while top and box[top - 1]:
+        top -= 1
+    return not top <= int(at) <= bottom
+
+
 def _send_enter(session, log):
-    """One Enter completing a line already begun; False where the send failed."""
+    """One Enter completing a line already begun; False where the send failed or the seat's
+    cursor is off its composer (`off_composer`)."""
     name = session["name"]
+    if off_composer(session):
+        return False
     rc, out = orch.tmux_out("send-keys", "-t", _pane(session), "Enter",
                             socket=orch.seat_socket(session))
     if rc != 0:
@@ -3177,10 +3250,11 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak", put=None)
 
     `typed` is told the moment the text is in, before the Enter that can still fail.
     `source="owner"` marks an owner's reply relayed unchanged, including from Discord.
-    None means unread input deferred this line before any receipt or key was written.
+    None means unread input, or a cursor off the composer (`off_composer`), deferred this line
+    before any receipt or key was written.
     `put`, where given, puts the text in in place of its keys, and says whether it did.
     """
-    if pane_unread(session):
+    if pane_unread(session) or off_composer(session):
         return None
     name = session["name"]
     record = config.session_records().get(name, {})
@@ -3687,10 +3761,13 @@ def seat_editor(session, cfg=None):
 
 def _edit(session, where, mode, line=""):
     """Ask ak's editor for `line` or `back` with that line (`aside_editor`) and press the keys
-    that open it: its answer, or None where it gives none within SENT_WAIT.  The editor reads
+    that open it: its answer, or None where it gives none within SENT_WAIT, or where no key
+    goes out as the pane's cursor is off its composer (`off_composer`).  The editor reads
     the composer itself, which a screen can draw late or cropped.  The ask is taken back after,
     for the owner's own edit never to find -- one that keys went out for and that went
     unanswered turned to `none`, which an edit they open late leaves as it is."""
+    if off_composer(dict(session, pane=where["id"])):
+        return None
     server, pane, ask = orch.seat_socket(session), where["id"], aside_editor.request(mode, line)
     after = ("set-option", "-pu", "-t", pane, aside_editor.ASK)
     try:
@@ -3737,14 +3814,16 @@ def _editor_kept(session):
     return found
 
 
-def _editor_read(session, where, cfg=None):
+def _editor_read(session, where, cfg=None, *, after_line=False):
     """That seat's screen as (harness, pane, live state) where it may be asked an editor step
-    now, or None: nothing typed into its pane (`where`, `seat_editor`) for DRAFT_STILL and none
-    unread, read with no question or picker up (`[[rule]] picker`) -- the step's keys open the
-    editor from a composer alone, and a picker drawn on over what it puts there takes its Enter."""
+    now, or None: nothing typed into its pane (`where`, `seat_editor`) for DRAFT_STILL -- but
+    for the step that follows its line's own Enter at once (`after_line`), as the terminal takes
+    ak's keys as it does the owner's -- and none unread, read with no question or picker up
+    (`[[rule]] picker`) -- the step's keys open the editor from a composer alone, and a picker
+    drawn on over what it puts there takes its Enter."""
     name = session["name"]
     try:
-        if time.time() - os.stat(where["tty"]).st_atime < DRAFT_STILL:
+        if not after_line and time.time() - os.stat(where["tty"]).st_atime < DRAFT_STILL:
             return None
         harness = seat_model(config.load() if cfg is None else cfg, name)[0]
         pane = pane_text(session) if harness else ""
@@ -3811,7 +3890,7 @@ def _line_through(session, where, held, mark, log, receipt, cfg=None, *, source=
         return False
     _send_enter(session, log)
     return (_wait_ready(lambda name: composer_holds(name, session, text, cfg) == "empty", held)
-            and _editor_read(session, where, cfg)
+            and _editor_read(session, where, cfg, after_line=True)
             and _edit(session, where, "back", text) == "sent" and not pane_unread(session))
 
 
@@ -5064,7 +5143,9 @@ def launch_resume(run_id, log=lambda _: None, verb="resume"):
 
 
 def tell_parked(run_id, step, seat, log):
-    """Tell the launching seat once, or send the one Discord card the rules allow.
+    """Tell the launching seat once, or send the one Discord card the rules allow; a run
+    launched from no seat is one nothing else can move, so its owner is paged, the card's
+    title naming how to resume it.
 
     True once the notice is delivered -- typed into a live seat, or accepted as a card.
     A refused card stays pending in `stalled_notified` and is retried on a later tick.
@@ -5088,7 +5169,8 @@ def tell_parked(run_id, step, seat, log):
             except (config.Error, OSError):
                 pass
     event_id = f"stalled:{run_id}:{step}"[:200]
-    if notify.shaped("needs", line, session=seat, event_id=event_id) == 0:
+    if (notify.shaped("needs", line, session=seat, event_id=event_id) if seat
+            else notify.page(event_id, f"ak run resume {run_id}", line)) == 0:
         return True
     log(f"WARN {run_id}: parking notice was not accepted; it stays pending for a later tick")
     return False
@@ -6585,8 +6667,10 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
             if not passed:
                 return "pending", None, None
         else:
-            return "failed", f"health: {command}", (
-                f"{pr_url}\n{health.get('output') or 'command exited nonzero without output'}")
+            # One typed line: a line break would reach the seat as Enter and send half of it.
+            output = health.get("output") or "command exited nonzero without output"
+            return "failed", f"health: {command}", "; ".join(
+                [pr_url, *(part for part in output.splitlines() if part.strip())])
     if dry_run:
         if not st.get("live_notified"):
             log(f"would tell its launching seat: {handback.live_sentence(st, run_dir)}")

@@ -462,16 +462,15 @@ def answered(session, at, typed=None):
     question lets go of the stall latch it held (`watch.forget`): opening the seat kept it.
     A question the seat kept back for its turn's end, that end on record, is the one he read
     at its stop and answers: it is asked here first, whoever held this lock when it ended.
-    `typed` dates a message no prompt hook heard (`answer_typed`): it answers only a question of
-    the seat's own said before it, judged here, where the seat cannot ask another meanwhile.
-    True once a question was answered.
+    `typed` dates a message of the owner's read from the seat's conversation (`answer_written`):
+    it answers only what was asked before it (`asked_at`), judged here, where the seat cannot
+    ask another meanwhile.  True once a question was answered.
     """
     from . import watch    # here, not at the top: watch imports this module
     with session_lock(session) as session:
         ask_kept(session, ended=True)
         previous = last(session)
-        if typed is not None and not (watch.owner_question(previous)
-                                      and typed > spoken_at(previous)):
+        if typed is not None and not typed > (asked_at(session) or math.inf):
             return
         if previous and previous.get("watcher") is True:
             return
@@ -501,20 +500,60 @@ def spoken_at(notice):
     return notice.get("said_at", notice["time"])
 
 
+def asked_at(session):
+    """When what the owner would answer in that seat was said: its own question standing, else
+    a needs you only the screen said, unanswered; None where neither stands."""
+    from . import watch
+    notice = last(session)
+    if notice:
+        return (spoken_at(notice) if watch.owner_question(notice)
+                and isinstance(notice.get("time"), (int, float)) else None)
+    card = _card_read(session)
+    return (card["since"] if card.get("word") == "needs you"
+            and (card.get("answered_at") or 0) <= card["since"] else None)
+
+
+PROMPT_WRITTEN = 2     # seconds a prompt's own message is given to reach the seat's conversation
+
+
+def answer_written(name, at=None, wait=0):
+    """A message of the owner's in that seat's conversation, written after what it asked them,
+    answers it now, by the path their prompt takes (`answered`), whoever asked it.  Their prompt
+    hook cannot say so: a harness hands it the turns it begins itself -- a scheduled check-in,
+    another session's message, a notice that one was refused -- as it hands the owner's, and
+    only its conversation marks them nobody's words (`owner_said`, which also leaves ak's own
+    lines out).  `wait` gives a prompt's own message that long to arrive: a harness may write it
+    only after its prompt hook returns.  Read only while something asked stands; a question kept
+    back whose turn's end is on record is asked first, as `answered` asks it, and one whose turn
+    still runs waits for the look that asks it, which dates it.  None where the seat's harness
+    cannot say whose its messages are, and only its hook can."""
+    from . import watch
+    if watch.seat_read(name).get("unasked"):
+        with session_lock(name) as locked:
+            ask_kept(locked, ended=True)
+    since, kept = asked_at(name), watch.seat_read(name).get("unasked")
+    if since is None:
+        return False
+    seat = conversation_of(name)
+    if seat is None or not seat[3] or not seat[0].reads_messages:
+        return None
+    deadline = time.monotonic() + wait
+    while since is not None and not kept:
+        typed = max(owner_said(name, seat), default=0)
+        if typed > since:
+            return answered(name, at or time.time(), typed=typed)
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.2)
+        since, kept = asked_at(name), watch.seat_read(name).get("unasked")
+    return False
+
+
 def answer_typed(log=print):
     """A message the owner typed while a seat's turn ran went into that turn, and no prompt hook
-    heard it: one written after its standing question was said answers it now, by the path their
-    prompt takes (`answered`), whoever asked it.  Read from the seat's own conversation
-    (`owner_said`, which leaves ak's own lines out), only while a question of its own stands;
-    one it still keeps back waits for the look that asks it, which dates it."""
-    from . import watch
+    heard it: it answers by the conversation (`answer_written`)."""
     for name in config.session_records():
-        notice = last(name)
-        if (not watch.owner_question(notice) or not isinstance(notice.get("time"), (int, float))
-                or watch.seat_read(name).get("unasked")):
-            continue
-        typed = max(owner_said(name), default=0)
-        if typed > spoken_at(notice) and answered(name, time.time(), typed=typed):
+        if answer_written(name):
             log(f"{name}: its question was answered in the turn it was asked in")
 
 
@@ -971,7 +1010,8 @@ def page(key, about, text):
     """Page the owner about no seat, once per `key` however often it is asked: the outbox
     keeps the event, so no later tick or restart queues it again. One the webhook did not
     take is tried again on a card's schedule and rules only when asked again, so a caller
-    asking while the page is still due never has it sent once it is not.
+    asking while the page is still due never has it sent once it is not: 0 once it is out
+    or never will be, 1 while it waits to be asked again.
     It reads as a seat's question does, `about` standing where the seat's name would."""
     payload = card_payload("needs", about)
     key = hashlib.sha256(json.dumps(["page", key, sink() is not None]).encode()).hexdigest()
@@ -985,7 +1025,8 @@ def page(key, about, text):
             _write_event(event)
         elif event["status"] not in ("delivered", "disabled") and _dropped(event, None):
             return 0
-        return _attempt(event)
+        _attempt(event)
+        return 0 if event["status"] in ("delivered", "disabled") else 1
 
 
 def _history(card):

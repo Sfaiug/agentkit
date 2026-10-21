@@ -190,6 +190,10 @@ class OwnerWords(unittest.TestCase):
         # chat_history can be compacted or absent without losing the owner's record.
         self.assertEqual(self.messages(), [{"at": 20, "text": "Keep  the API."},
             {"at": 30, "text": "Then ship."}, {"at": 40, "text": "My exact steering."}])
+        # and the interjection answers the question standing before it, by that record alone
+        notify.record("lagoon", "needs", "Which schema?", time=35)
+        notify.answer_typed(log=lambda _: None)
+        self.assertIsNone(notify.last("lagoon"))
 
     def test_harness_without_a_reader_and_unopened_conversations_return_none(self):
         for name in ("opencode", "muse", "acme"):
