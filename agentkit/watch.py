@@ -640,8 +640,9 @@ def finish_own_lines(cfg, log):
     """Finish a fixed ak line left in its composer, even after its retries were spent.
 
     The screen decides, without a mark: only that line alone gets its locked Enter.  A seat's
-    `continue_turns` mark is the one exception: its line was typed past an open question, so
-    its Enter is too, and once it lands the mark comes off, as that pass's own send takes it.
+    `continue_turns` mark is the one exception: its line, a handover's too, was typed past an
+    open question, so its Enter is too, and once it lands the mark comes off, as that pass's
+    own send takes it; its composer holding that line defers `continue_turns` until then.
     Delivery remains at least once, as it does for every line ak types.
     """
     for session in orch.sessions():
@@ -655,7 +656,7 @@ def finish_own_lines(cfg, log):
         key = resume.get("key") if isinstance(resume, dict) else None
         mark = seat_read(name).get("midturn")
         marked = (mark.get("line") or MIDTURN_LINE) if isinstance(mark, dict) else None
-        for line in (ACCOUNT_LINE, MIDTURN_LINE, ASKED_LINE, CONTINUE_LINE, key):
+        for line in (marked, ACCOUNT_LINE, MIDTURN_LINE, ASKED_LINE, CONTINUE_LINE, key):
             def alone(held):
                 return composer_holds(held, session, line, cfg, exact=True) == "line"
 
@@ -709,7 +710,8 @@ def _rule(entry, path):
     return {"id": str(entry.get("id") or entry["state"]), "state": entry["state"],
             "lines": max(1, int(entry.get("lines", 8))), "all": marks("all"),
             "any": marks("any"), "none": marks("none"), "row": _pattern(entry.get("row"), path),
-            "newest": _pattern(entry.get("newest"), path), "chrome": bool(entry.get("at_composer"))}
+            "newest": _pattern(entry.get("newest"), path), "chrome": bool(entry.get("at_composer")),
+            "picker": bool(entry.get("picker"))}
 
 
 def screen(harness):
@@ -2331,12 +2333,13 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
                   run_numbers=None, index=None, silent=None, live=None, harness=None,
                   previous=None, auth_out=None, gh_out=None, token_out=None, card=False,
                   stalls=None):
-    """`working`, `needs you`, `done` or `idle` -- why, and since when.  The one decision.
+    """`working`, `needs you`, `done`, `idle` or `out of usage` -- why, and since when.  The one
+    decision.
 
-    Every screen reads this and says one of those four words: the menu row, the project
+    Every screen reads this and says one of those five words: the menu row, the project
     heading, the top line, `ak orch list`, `ak orch why`, the seat's own status bar and its
     window title.  It works until it is done or it is blocked on him, or he closed it and
-    it sits idle; nothing else exists.  It decides from recorded notices, runs and the
+    it sits idle, or its usage ran out; nothing else exists.  It decides from recorded notices, runs and the
     screen, never from when the seat's turn began, and a new fact gets a field of its own
     (`stopped_at` means closed).
 
@@ -2357,7 +2360,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
       attention -- recent, unacknowledged, not handed back or superseded -- or a run
       is stalled, or a merge wait only its age turned away;
     * its subscription ran out and ak resumes it when the usage comes back, so the seat is
-      working, its reason saying until when (`resumes_at`);
+      out of usage until then (`resumes_at`), or working while a move to another account
+      that failed is retried;
     * its turn stopped on an error the tick types it back past, as its look saw it (`stall`),
       so the seat is working, `retrying: <error>`, until the tick gives up (`stalls`);
     * a run of its own merged and its project has yet to prove itself live (`awaiting_live`),
@@ -2747,11 +2751,13 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                       or f"run {name} parked: {reason}")
         return {"word": "needs you", "since": first.get("finished_at"), "reason": reason}
     # 3b. ... or its subscription ran out and ak resumes it when the usage comes back, or on
-    # another account sooner: it moves on without him, so it is working until then, the
-    # reason saying until when -- and nothing on him outranked it above.
+    # another account sooner: nothing moves until then unless he moves it, so it is out of
+    # usage until when it comes back (`resumes_at`) -- and nothing on him outranked it above.
+    # A move to another account that failed is retried: working.
     if waiting:
-        return {"word": "working", "reason": waiting["reason"], "since": waiting["since"],
-                "resumes_at": waiting["until"]}
+        until = waiting.get("until")
+        return {"word": "out of usage" if until else "working", "reason": waiting["reason"],
+                "since": waiting["since"], "resumes_at": until}
     # 3c. ... or its turn stopped on an error the tick types it back past (`health`, or
     # `seat_account` for a bare 429): it moves on without the owner until the tick gives
     # up and tells them (`told`), so it is working.  A legacy seat the tick never types into.
@@ -3201,12 +3207,13 @@ def _send_enter(session, log):
     return True
 
 
-def _send_line(session, text, log, typed=lambda: None, *, source="ak"):
+def _send_line(session, text, log, typed=lambda: None, *, source="ak", put=None):
     """Type one literal line; the caller waits KEY_GAP before sending its Enter.
 
     `typed` is told the moment the text is in, before the Enter that can still fail.
     `source="owner"` marks an owner's reply relayed unchanged, including from Discord.
     None means unread input deferred this line before any receipt or key was written.
+    `put`, where given, puts the text in in place of its keys, and says whether it did.
     """
     if pane_unread(session):
         return None
@@ -3223,8 +3230,9 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak"):
         # A restart between text and Enter must still know whose line is in the composer.
         fh.write(json.dumps(sent, ensure_ascii=False) + "\n")
         fh.flush()
-        rc, out = orch.tmux_out("send-keys", "-t", _pane(session), "-l", text,
-                                socket=orch.seat_socket(session))
+        rc, out = (orch.tmux_out("send-keys", "-t", _pane(session), "-l", text,
+                                 socket=orch.seat_socket(session)) if put is None
+                   else (0, "") if put() else (1, "its editor did not put the line in"))
         if rc != 0:
             fh.truncate(before)
             log(f"WARN could not type into the {name} seat: {out[-200:]}")
@@ -3270,9 +3278,11 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     told the moment the text is in the composer; `pending` sends only its locked Enter.
     `ready` is asked under the guard right before each Enter, after the gap, and the first
     Enter waits up to SENT_WAIT for it: the owner can type in it, and an Enter it refuses is
-    never sent. None means unread input deferred the line before its text went in. The tty
-    check gates new text, never the Enter completing it: withholding that Enter would leave
-    a draft the caller cannot recover, or let a retry append the same text to itself.
+    never sent. None means the owner's input deferred the line before its text went in:
+    keys its terminal has not read yet, or text in its composer, which a line typed after it
+    would join and send. Those checks gate new text, never the Enter completing it:
+    withholding that Enter would leave a draft the caller cannot recover, or let a retry
+    append the same text to itself.
     """
     try:
         seat = dict(session, name=config.resolve_session(session["name"]))
@@ -3287,6 +3297,9 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     # a line left pending was read in its composer, whatever chrome is drawn around it
     confirm = pending
     if harness is not None and not confirm:
+        pane = pane_text(seat)
+        if composer_draft(harness, pane):
+            return None     # the owner's text: a line typed after it joins it, and sends both
         try:
             pattern = screen(harness).get("composer")
         except config.Error:
@@ -3298,7 +3311,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             # the smoke suite's inbox seat holds a `sleep`, and a delivered send is
             # all there is.
             confirm = any(pattern.search(strip_sgr(line))
-                          for line in pane_tail(pane_text(seat)).splitlines())
+                          for line in pane_tail(pane).splitlines())
     with guard() as held:
         kept_asked_first(seat, harness, held=held is not None)
         if veto(held if held is not None else name):
@@ -3762,7 +3775,8 @@ def _editor_kept(session):
 def _editor_read(session, where, cfg=None):
     """That seat's screen as (harness, pane, live state) where it may be asked an editor step
     now, or None: nothing typed into its pane (`where`, `seat_editor`) for DRAFT_STILL and none
-    unread, read with no question up -- the step's keys open the editor from a composer alone."""
+    unread, read with no question or picker up (`[[rule]] picker`) -- the step's keys open the
+    editor from a composer alone, and a picker drawn on over what it puts there takes its Enter."""
     name = session["name"]
     try:
         if time.time() - os.stat(where["tty"]).st_atime < DRAFT_STILL:
@@ -3770,10 +3784,12 @@ def _editor_read(session, where, cfg=None):
         harness = seat_model(config.load() if cfg is None else cfg, name)[0]
         pane = pane_text(session) if harness else ""
         found = live_state(session, harness, pane=pane, cfg=cfg) if pane.strip() else {}
+        picker = found and any(rule["picker"] and rule["id"] == found.get("rule")
+                               for rule in screen(harness)["rules"])
     except (config.Error, OSError):
         return None
     return ((harness, pane, found) if found.get("authority") and not asking(name, harness, pane)
-            and not pane_unread(session) else None)
+            and not picker and not pane_unread(session) else None)
 
 
 def drafts_back(cfg):
@@ -3793,6 +3809,59 @@ def drafts_back(cfg):
                 read = where and _editor_read(bound, where, cfg)
                 if read and composer_draft(read[0], read[1]) == "":
                     _edit(bound, where, "back")
+
+
+def _past_text(session, cfg=None):
+    """That seat's pane whose editor ak's line goes in through (`seat_editor`), or None: its turn
+    over, its composer read holding text, or read empty with text that editor keeps, which it can
+    draw late -- on the read its editor may be asked a step on too (`_editor_read`).  The owner:
+    text they leave standing in a seat never keeps ak's line out of it (19 Oct 2026).  A composer
+    not read whole -- a picker drawn in its place, text too tall for its rows, or scrolled past
+    them -- says nothing it holds."""
+    def past(harness, pane, found):
+        return found and _composer_open(harness, found) and (
+            _composer_rows(harness, pane, exact=True)       # rows of text, none left empty
+            or composer_draft(harness, pane) == "" and _editor_kept(session))
+    try:
+        harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
+        pane = pane_text(session) if harness else ""
+        found = live_state(session, harness, pane=pane, cfg=cfg) if pane.strip() else {}
+    except (config.Error, OSError):
+        return None
+    where = past(harness, pane, found) and seat_editor(session, cfg)   # most seats ask no editor
+    read = where and _editor_read(session, where, cfg)
+    return where if read and past(*read) else None
+
+
+def _line_through(session, where, held, mark, log, receipt, cfg=None, *, source="ak"):
+    """Under the seat's send lock: the line in through ak's editor, which sets aside what else the
+    composer holds (`aside_editor`), its Enter once the composer shows the line alone, and the
+    text kept given back into the composer that Enter emptied, never into a question its turn
+    put up there, whose own field the editor's keys open too.  `receipt` has the mark, with the
+    pane, once the line is in; what is left undone is that mark's pass's (`_line_left`)."""
+    text = mark["line"]
+    if not (_send_line(session, text, log, lambda: receipt(dict(mark, pane=where["id"])),
+                       source=source, put=lambda: _edit(session, where, "line", text) == "line")
+            and _wait_ready(lambda name: composer_holds(name, session, text, cfg) == "line", held)):
+        return False
+    _send_enter(session, log)
+    return (_wait_ready(lambda name: composer_holds(name, session, text, cfg) == "empty", held)
+            and _editor_read(session, where, cfg)
+            and _edit(session, where, "back", text) == "sent" and not pane_unread(session))
+
+
+def _line_left(session, text, log, cfg, stale):
+    """A mark's pass on a line ak's editor put in, on the pane it went into (`_line_through`):
+    the line is that editor's to read, as the screen draws what it puts there late -- its Enter
+    where it is still alone in the composer, and delivered once it has left, the text kept given
+    back into the composer it left empty."""
+    with seat_held(session["name"]) as held:
+        where = not stale(held) and seat_editor(session, cfg)
+        word = where and _editor_read(session, where, cfg) and _edit(session, where, "back", text)
+        if word == "unsent":
+            kept_asked_first(dict(session, name=held))
+            _send_enter(session, log)
+        return word == "sent" and not pane_unread(session)
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
@@ -3820,6 +3889,9 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     in the gap before it is never sent.  The line is delivered only once its composer reads
     empty with no unread terminal input, the first pass's as a mark's: one the owner edited
     while its Enter was confirmed no longer reads whole there, and is still theirs to send.
+    Text left standing in a seat launched with ak's editor holds none of it back: the line goes
+    in through that editor, which sets the text aside and gives it back (`_past_text`), and a
+    mark naming the pane it went into is that editor's to read (`_line_left`).
     No line goes in as keys while ak's editor keeps text of any pane of the seat's, which its
     composer can draw late, nor where tmux cannot say whether it does (`_editor_kept`).  Every
     read and key of a pass goes to the pane the seat showed as it began (`pinned`): a composer
@@ -3830,6 +3902,8 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     """
     session = pinned(session)
     mark = {"line": text, "seat": session.get("created")}
+    if isinstance(typed, dict) and typed.get("pane") and typed == dict(mark, pane=typed["pane"]):
+        return _line_left(dict(session, pane=typed["pane"]), text, log, cfg, stale)
     if typed == mark:
         with seat_held(session["name"]) as held:
             if stale(held):
@@ -3841,6 +3915,14 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
                 kept_asked_first(dict(session, name=held))
                 _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
+    where = _past_text(session, cfg)
+    if where:
+        with seat_held(session["name"]) as held:
+            if stale(held) or _past_text(session, cfg) != where:
+                return False
+            kept_asked_first(dict(session, name=held))
+            return _line_through(dict(session, name=held), where, held, mark, log, receipt, cfg,
+                                 source=source)
     if not takes_line(session, cfg=cfg):
         return False
     composed = []

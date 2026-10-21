@@ -53,22 +53,26 @@ class Wash(Sandbox):
     def row(self, lines, name):
         return next(line for line in lines if f" {name} " in line)
 
+    def full(self, name):
+        """The name a seat's row and `c` show the model by (config.model_name)."""
+        return config.model_name(self.cfg, name)
+
     def test_at_rest_no_model_wears_a_colour_and_the_pointer_colours_its_subscriptions(self):
         rest = self.screen()
         for name, model in (("acme-plan", "opus"), ("acme-docs", "astra")):
             # its reset brightens the highlighted row again, so the end of it is the row's
-            self.assertIn(terminal.styled(model, "dim")[:-1], self.row(rest, name))
+            self.assertIn(terminal.styled(self.full(model), "dim")[:-1], self.row(rest, name))
         lit = self.screen((5, 3))                   # Claude, first on the grid
         self.assertIn(terminal.styled("Claude", CLAUDE), lit[2])
-        self.assertIn(terminal.styled("opus", CLAUDE)[:-1], self.row(lit, "acme-plan"))
-        self.assertIn(terminal.styled("astra", "dim")[:-1], self.row(lit, "acme-docs"))
+        self.assertIn(terminal.styled(self.full("opus"), CLAUDE)[:-1], self.row(lit, "acme-plan"))
+        self.assertIn(terminal.styled(self.full("astra"), "dim")[:-1], self.row(lit, "acme-docs"))
 
     def test_coming_onto_it_starts_the_wash_on_its_name_meter_and_models(self):
         clock = motion.Clock()
         self.screen(clock=clock)
         lines = self.screen((5, 3), clock)
         row = next(n for n, line in enumerate(lines, 1) if " acme-plan " in line)
-        column = terminal.plain(lines[row - 1], spaced=True).index("opus") + 1
+        column = terminal.plain(lines[row - 1], spaced=True).index(self.full("opus")) + 1
         self.assertIn((3, 3), clock.cells)                      # the C of Claude
         self.assertIn((row, column), clock.cells)               # the o of opus
         other = next(n for n, line in enumerate(lines, 1) if " acme-docs " in line)
@@ -109,7 +113,7 @@ class Wash(Sandbox):
         self.assertNotIn((3, 4), clock.cells)       # nothing written inside the wide letter
 
     def test_a_wide_name_or_a_model_named_as_its_number_lights_the_model_in_its_column(self):
-        self.cfg["models"]["1"] = dict(self.cfg["models"]["opus"])
+        self.cfg["models"]["1"] = dict(self.cfg["models"]["opus"], model="1")    # shown as "1"
         seat = self.seats[0]
         seat["name"] = "acme-界"
         config.save_session(self.cfg, seat["name"], "1", ["opus"],
@@ -120,7 +124,7 @@ class Wash(Sandbox):
 
     def test_a_row_shorter_than_a_wider_word_beside_it_lights_its_model(self):
         watch.seat_write("acme-docs", word="working", reason="", word_since=9100)
-        self.assertIn(terminal.styled("opus", CLAUDE)[:-1],
+        self.assertIn(terminal.styled(self.full("opus"), CLAUDE)[:-1],
                       self.row(self.screen((5, 3)), "acme-plan"))
 
     def c_keys(self, names):
@@ -147,23 +151,24 @@ class Wash(Sandbox):
     def test_on_c_the_meter_the_highlight_comes_onto_washes_in_and_its_models_with_it(self):
         drawn = self.c_keys(["up"])
         chatgpt = menu.COLOURS["openai"]     # ↑ from the first model: the last meter, ChatGPT's
-        lit = drawn[-1]
-        self.assertEqual(lit["astra"], "".join(terminal.styled(char, chatgpt) for char in "astra"))
+        lit, astra = drawn[-1], self.full("astra")
+        self.assertEqual(lit[astra], "".join(terminal.styled(char, chatgpt) for char in astra))
         self.assertIn("ChatGPT", lit)
-        self.assertNotIn("opus", lit)
+        self.assertNotIn(self.full("opus"), lit)
 
     def test_on_c_a_step_between_one_company_s_meters_keeps_its_models_lit(self):
         self.cfg["providers"]["anthropic"]["accounts"] = ["default", "second"]
         drawn = self.c_keys(["up"] * 7)   # every meter back from ChatGPT, Claude II then I last
-        lit = "".join(terminal.styled(char, CLAUDE) for char in "opus")
-        self.assertEqual(drawn[-1].get("opus", lit), lit)
+        opus = self.full("opus")
+        lit = "".join(terminal.styled(char, CLAUDE) for char in opus)
+        self.assertEqual(drawn[-1].get(opus, lit), lit)
 
     def test_a_free_slot_on_the_grid_s_last_line_lights_nothing(self):
         self.cfg["providers"]["anthropic"]["accounts"] = ["default", "second"]
         line, free = divmod(len(menu.usage_rows(self.cfg)), 3)     # three to a line at 120
         self.assertTrue(free, "the grid's last line has no free slot")
         lines = self.screen((3 + free * (menu.COLUMN + 2) + 1, 3 + line))
-        self.assertIn(terminal.styled("opus", "dim")[:-1], self.row(lines, "acme-plan"))
+        self.assertIn(terminal.styled(self.full("opus"), "dim")[:-1], self.row(lines, "acme-plan"))
 
 
 if __name__ == "__main__":

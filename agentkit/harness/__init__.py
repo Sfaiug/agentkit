@@ -463,6 +463,13 @@ class Harness:
         if hook:
             hook(record)
 
+    def retire(self, record):
+        """Drop that launch's receipt alone: the one a started launch replaced, or one whose
+        harness never started.  The seat goes on, so nothing else it kept goes."""
+        hook = self._hook("retire")
+        if hook:
+            hook(record)
+
     def opened(self, cwd, conversation):
         """Has the harness written that conversation down yet?
 

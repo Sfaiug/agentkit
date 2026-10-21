@@ -78,7 +78,7 @@ class StatusBar(Sandbox):
         found = watch.announce_state(self.seat, cfg=self.cfg)
         self.assertEqual(found["word"], "working")
         top = self.line(statusbar.TOP)
-        self.assertIn("herdr   fable", top)
+        self.assertIn("herdr   Fable 5.1", top)
         self.assertNotIn("orchestrates", top)
         self.assertIn("● working", top)
         self.assertIn(" 2 of 5", top)                     # the count, after the line
@@ -91,7 +91,7 @@ class StatusBar(Sandbox):
         self.assertEqual(found["word"], "needs you")
         self.assertIn("! needs you", self.line(statusbar.TOP))
         # its question is on the seat's own screen: line two is who builds and reviews
-        self.assertEqual(self.line(statusbar.WHY), "  opus ⚒◎")
+        self.assertEqual(self.line(statusbar.WHY), "  Opus 5.5 ⚒◎")
         self.assertEqual(self.options["set-titles-string"], "herdr · needs you")
 
     def test_bar_and_row_come_from_one_function(self):
@@ -115,7 +115,7 @@ class StatusBar(Sandbox):
                 self.assertNotIn(hint, half)
         statusbar.dress("herdr", "fable")
         self.assertEqual(self.line(statusbar.KEY), "Ctrl-b m  menu ")
-        self.assertEqual(self.line(statusbar.TOP), " herdr   fable")
+        self.assertEqual(self.line(statusbar.TOP), " herdr   Fable 5.1")
         self.assertEqual(self.line(statusbar.WHY), "")
         self.assertEqual(self.options["set-titles-string"], "herdr")
         # a model carrying `#` is doubled, so tmux reads text and not a format
@@ -161,7 +161,7 @@ class StatusBar(Sandbox):
                          "other")
         # the record moved and the pointer stayed; the bar says the new name at once
         self.assertEqual(config.resolve_session("herdr"), "parser")
-        self.assertIn("parser   fable", self.line(statusbar.TOP))
+        self.assertIn("parser   Fable 5.1", self.line(statusbar.TOP))
         self.assertNotIn("herdr", self.line(statusbar.TOP))
 
     def test_overlay_lists_the_four_entries(self):

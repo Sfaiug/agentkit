@@ -187,25 +187,26 @@ class Screens(Sandbox):
 
     def test_the_matrix_lights_the_row_and_the_cell_under_the_pointer(self):
         first = self.matrix()[0]
-        self.assertOneHighlight(first, "fable")
-        label = at(first, "astra")
-        beside = (label[0] + len("astra") + 1, label[1])         # on its row, between its cells
+        self.assertOneHighlight(first, "Fable 5.1")
+        label = at(first, "GPT-6-Astra")
+        beside = (label[0] + len("GPT-6-Astra") + 1, label[1])   # on its row, between its cells
         line = texts(first)[label[1] - 1]
         mark = (line.index("○", label[0]) + 1, label[1])          # its orchestrator mark
         # on its row the keys' highlight moves there, and off its cells none lights
         last = self.matrix(move(*beside) + ESC)[-1]
-        self.assertOneHighlight(last, "astra")
+        self.assertOneHighlight(last, "GPT-6-Astra")
         self.assertEqual(marked(last, "lit"), {})
         # its label is a cell, Enter's to open
-        self.assertEqual(marked(self.matrix(move(*label) + ESC)[-1], "lit"), {label[1]: "astra"})
+        self.assertEqual(marked(self.matrix(move(*label) + ESC)[-1], "lit"),
+                         {label[1]: "GPT-6-Astra"})
         # on a mark the cell lights, in place of the keys' reverse: one highlight, not two
         last = self.matrix(move(*mark) + ESC)[-1]
-        self.assertOneHighlight(last, "astra")
+        self.assertOneHighlight(last, "GPT-6-Astra")
         self.assertEqual(marked(last, "lit"), {mark[1]: "○"})
         self.assertEqual(marked(last, "reverse"), {})
         # a key takes it from there: the next cell is the keys', and nothing is lit
         last = self.matrix(move(*mark) + RIGHT + ESC)[-1]
-        self.assertOneHighlight(last, "astra")
+        self.assertOneHighlight(last, "GPT-6-Astra")
         self.assertEqual(marked(last, "lit"), {})
         self.assertEqual(marked(last, "reverse"), {mark[1]: "□"})
         # off every row the row and its cell lose it, a key-line item lighting alone and
@@ -218,13 +219,14 @@ class Screens(Sandbox):
         self.assertEqual((highlighted(screens[2]), marked(screens[2], "reverse")), ([], {}))
         self.assertEqual(marked(screens[3], "lit"), {})
         self.assertEqual((highlighted(screens[3]), marked(screens[3], "reverse")), ([], {}))
-        self.assertOneHighlight(screens[4], "astra")
+        self.assertOneHighlight(screens[4], "GPT-6-Astra")
         self.assertEqual(marked(screens[4], "reverse"), {mark[1]: "□"})
 
     def test_the_highlighted_model_opens_no_line_and_nothing_moves(self):
         self.stack.enter_context(patch.object(terminal, "height", return_value=40))  # one page
         first = self.matrix()[0]
-        names = menu.config_models(self.cfg)
+        # each model by its full name (config.model_name)
+        names = [config.model_name(self.cfg, name) for name in menu.config_models(self.cfg)]
         rows = {text: at(first, text) for text in (*names, *menu.CONFIG_ROWS)}
         for name in names:
             for keys in (move(*rows[name]) + ESC, move(*rows[name]) + RIGHT + ESC):
@@ -247,16 +249,18 @@ class Screens(Sandbox):
         self.stack.enter_context(patch.object(terminal, "height", return_value=19))
         first = self.matrix()[0]
         names = menu.config_models(self.cfg)
-        shown = [name for name in names if name in "\n".join(texts(first))]
+        full = {name: config.model_name(self.cfg, name) for name in names}
+        shown = [name for name in names if full[name] in "\n".join(texts(first))]
         self.assertLess(len(shown), len(names))
-        rows = {name: at(first, name) for name in shown}
+        rows = {full[name]: at(first, full[name]) for name in shown}
         for name in shown:
-            last = self.matrix(move(*rows[name]) + ESC)[-1]
-            self.assertEqual({text: at(last, text) for text in shown}, rows)
+            last = self.matrix(move(*rows[full[name]]) + ESC)[-1]
+            self.assertEqual({text: at(last, text) for text in rows}, rows)
 
     def test_on_a_short_screen_the_meters_stay_over_every_page(self):
         self.stack.enter_context(patch.object(terminal, "height", return_value=19))
-        first, names = self.matrix()[0], menu.config_models(self.cfg)
+        first = self.matrix()[0]
+        names = [config.model_name(self.cfg, name) for name in menu.config_models(self.cfg)]
         heads = next(row for row, text in enumerate(texts(first)) if text.split()[-1:] == ["effort"])
         last = self.matrix(DOWN * (len(names) - 1) + ESC)[-1]
         self.assertIn(names[-1], highlighted(last)[0])
@@ -291,7 +295,7 @@ class Screens(Sandbox):
     def test_an_effort_shimmering_under_the_pointer_keeps_its_light(self):
         screen = Screen(self)
         lines = screen.frame()
-        row = next(number for number, line in enumerate(lines, 1) if "fable" in line)
+        row = next(number for number, line in enumerate(lines, 1) if "Fable 5.1" in line)
         line = lines[row - 1]
         word = line.index("xhigh") + 1
         # a click on the word's last letter steps it up, to a word that ends before it
@@ -321,11 +325,11 @@ class Screens(Sandbox):
         first = self.matrix()[0]
         rows = len(texts(first))
         flood = b"".join(move(1 + n % 60, 1 + n % rows) for n in range(499))
-        label = at(first, "grok")
+        label = at(first, "Grok 4.7")
         with no_frame_passes():
             screens = self.matrix(flood + move(*label) + ESC)
         self.assertEqual(len(screens), 2)               # the first draw, and the one for them
-        self.assertOneHighlight(screens[-1], "grok")    # where the pointer ended
+        self.assertOneHighlight(screens[-1], "Grok 4.7")    # where the pointer ended
 
     def test_the_switches_screen_lights_a_feature_and_its_mark(self):
         checkout = self.root / "code" / "ACME"
@@ -350,8 +354,8 @@ class Screens(Sandbox):
 
         answer, screens = picking(ESC)
         self.assertIs(answer, orch.BACK)
-        self.assertOneHighlight(screens[0], "opus")
-        row = at(screens[0], "astra")[1]
+        self.assertOneHighlight(screens[0], "Opus 5.5")
+        row = at(screens[0], "GPT-6-Astra")[1]
         review = (at(screens[0], "review")[0] + 3, row)
         last = picking(move(*review) + ESC)[1][-1]
         self.assertEqual(len(highlighted(last)), 1)

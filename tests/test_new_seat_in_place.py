@@ -50,7 +50,7 @@ class Keys(unittest.TestCase):
         shown.frame()
         shown.send(b"n")
         lines = shown.frame(keys="esc back")
-        self.assertRegex(shown.highlighted(lines), r"^›\s+3  ▏[a-z]+\s+\S+\s+new$")
+        self.assertRegex(shown.highlighted(lines), r"^›\s+3  ▏[a-z]+\s+Opus 5\.5\s+new$")
         self.assertIn(menu.BORN_KEYS, lines[-1])
         shown.send(b"Fix Apix\x7f")               # a space is a dash, and Backspace takes one back
         shown.frame(lambda lines: "fix-api▏" in shown.highlighted(lines), keys="esc back")
@@ -131,7 +131,7 @@ class Row(unittest.TestCase):
         groups = ([{"name": "acme", "checkout": acme, "seats": [seat("fix-api", 1, acme)]},
                    {"name": "docs", "checkout": docs, "seats": [seat("blog", 2, docs)]}],
                   [], 0, {})
-        born = {"typed": "", "taken": set(), "selected": {
+        born = {"cfg": {}, "typed": "", "taken": set(), "selected": {
             "orchestrator": "opus", "workers": ["astra"], "reviewers": ["fable"]}}
         ordered, *_ = menu.born_groups(groups, born)
         self.assertEqual([(project["name"], [(info["number"], info["name"])

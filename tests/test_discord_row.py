@@ -131,6 +131,29 @@ class DiscordRow(unittest.TestCase):
         self.assertEqual((config.SECRETS / "discord_user_id").read_text(), USER + "\n")
         self.assertEqual(len(self.requests), 1)       # setting the secrets posts nothing
 
+    def test_a_field_opened_on_a_short_screen_stays_on_it(self):
+        frames, rows = [], []
+
+        def frame(title, body=(), keyline="esc back", **_kw):
+            frames.append(list(body))
+            return {}
+
+        def field(prompt, hint, around=None, **_kw):
+            rows.append(around("typed here"))
+            return None
+        with patch.object(terminal, "width", return_value=40), \
+                patch.object(terminal, "height", return_value=8), \
+                patch.object(terminal, "frame", side_effect=frame), \
+                patch.object(terminal, "field", side_effect=field), \
+                patch.object(terminal, "read_key",
+                             side_effect=[Key("down"), Key("enter"), Key("esc")]):
+            menu.config_discord()
+        keys = len(terminal.key_line(menu.ADD_KEYS["choose"][0] + "   esc back"))
+        for body in frames:
+            self.assertLessEqual(2 + len(body) + 1 + keys, 8, body)
+        opened = next(body for body in frames if "typed here" in body)
+        self.assertEqual(rows, [3 + opened.index("typed here")])   # the cursor on its line
+
     def test_no_webhook_is_not_connected_and_no_user_id_names_no_one(self):
         (config.SECRETS / "discord_user_id").unlink()
         self.assertEqual(self.row(), "webhook …a1B2c3")

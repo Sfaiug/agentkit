@@ -239,6 +239,11 @@ def forget(record):
         except (OSError, subprocess.CalledProcessError) as exc:
             print(f"orch: Codex remote cleanup for {home.name} failed ({exc}); "
                   "its enrollment stays until the next forget", file=sys.stderr)
+    retire(record)
+
+
+def retire(record):
+    """Drop that launch's receipt alone: the remote home is the seat's, and outlives a launch."""
     path = path_for(record)
     if path:
         path.unlink(missing_ok=True)
@@ -325,9 +330,6 @@ def prepare(name, cwd, owned):
     config.update_session(name, codex_launch=token, codex_history=history or None,
                           conversation=owned, id_source=SOURCE if owned else None,
                           resumable=bool(owned))
-    old_path = path_for(record)
-    if old_path:
-        old_path.unlink(missing_ok=True)
     return path
 
 
@@ -635,6 +637,13 @@ def trust_here():
         return
 
 
+def first_prompt(cmd):
+    """(options, prompt): a codex line split at the `--` before the seat's first message
+    (adapters/codex.sh), so every option added to the line goes ahead of it."""
+    at = cmd.index("--") if "--" in cmd else len(cmd)
+    return cmd[:at], cmd[at:]
+
+
 def main(argv, launch=None):
     if argv == ["capture"]:
         try:
@@ -674,7 +683,7 @@ def main(argv, launch=None):
         rulebook, argv = argv[1], argv[2:]
     if not argv or argv[0] != "--" or len(argv) < 2:
         raise config.Error("usage: codex-seat.py [--rulebook <file>] -- <codex command> | capture")
-    cmd = argv[1:]
+    cmd, prompt = first_prompt(argv[1:])
     trust_here()
     if os.environ.get(config.ACCOUNT_ENV):
         # A named CODEX_HOME must use its own file login, never the default Keychain
@@ -738,6 +747,7 @@ def main(argv, launch=None):
         else:
             print("orch: Codex cannot capture seat ownership on this version; "
                   "an unbound seat starts fresh next time", file=sys.stderr)
+    cmd += prompt
     if launch and receipt and os.environ.get(CAPTURE_ENV):
         return launch(cmd, receipt)
     os.execvp(cmd[0], cmd)
