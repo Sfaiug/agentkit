@@ -68,7 +68,7 @@ class AsWritten(Sandbox):
     def test_b_a_tasks_bar_keeps_every_cell(self):
         for lang in ("C.UTF-8", "C"):
             with self.subTest(lang=lang), patch.dict(os.environ, {"LANG": lang, "LC_ALL": lang}):
-                bars = [menu.last_column("working", "", 4, 8, cells, tmux=True)
+                bars = [menu.last_column("working", 4, 8, cells, tmux=True)
                         for cells in statusbar.BARS]
                 bar = bars[0]
                 cells = re.sub(r"#\[[^\]]*\]", "", bar)

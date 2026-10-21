@@ -41,7 +41,7 @@ class PlanBar(Sandbox):
         self.repo = str(config.CODE / "acme")
 
     def test_the_done_share_is_a_line_in_the_words_colour_then_its_count(self):
-        drawn, after = cells(menu.last_column("working", "", 3, 8, 30, tmux=True))
+        drawn, after = cells(menu.last_column("working", 3, 8, 30, tmux=True))
         self.assertEqual(after, " 3 of 8")
         self.assertEqual(len(drawn), 30 - len(" 3 of 8"))
         # 23 cells, three eighths of them done: eight and a half
@@ -84,14 +84,14 @@ class PlanBar(Sandbox):
             self.assertTrue(terminal.plain(line).endswith(" 4 of 8"))
 
     def test_without_colour_or_utf8_it_reads_in_plain_characters(self):
-        self.assertEqual(menu.last_column("working", "", 3, 7, 20), "━━━━━╸─────── 3 of 7")
+        self.assertEqual(menu.last_column("working", 3, 7, 20), "━━━━━╸─────── 3 of 7")
         with patch.dict(os.environ, {"LANG": "C", "LC_ALL": ""}):
-            self.assertEqual(menu.last_column("working", "", 3, 7, 20), "======------- 3 of 7")
+            self.assertEqual(menu.last_column("working", 3, 7, 20), "======------- 3 of 7")
         # a phone's line is all the room there is: the line takes that and never more
-        self.assertEqual(menu.last_column("working", "", 3, 7, 10, narrow=True), "━╸─ 3 of 7")
-        self.assertEqual(menu.last_column("working", "", 3, 7, 6, narrow=True), "3 of 7")
-        self.assertEqual(menu.last_column("working", "", 3, 7, 6), "━━━╸──── 3 of 7")
-        self.assertEqual(menu.last_column("working", "", 0, 0), "")     # no plan, no line
+        self.assertEqual(menu.last_column("working", 3, 7, 10, narrow=True), "━╸─ 3 of 7")
+        self.assertEqual(menu.last_column("working", 3, 7, 6, narrow=True), "3 of 7")
+        self.assertEqual(menu.last_column("working", 3, 7, 6), "━━━╸──── 3 of 7")
+        self.assertEqual(menu.last_column("working", 0, 0), "")     # no plan, no line
 
     def going(self, run_id, owner, ran=0, **extra):
         """A run that seat launched, its first `ran` rounds' directories made as the loop makes

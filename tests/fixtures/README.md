@@ -137,7 +137,8 @@ path left in them was replaced by an invented one.
 so `history.event_tokens` reads the harness's own `usage` objects. `grok-hook-*.json` are
 real hook payloads from a logging hook that was removed again (home directory normalised):
 the `UserPromptSubmit`/`Stop` shapes from a headless turn, the `idle_prompt` Notification
-from a TUI left sitting a minute. `grok-auth-valid.json` and `grok-auth-expired.json` are
+from a TUI left sitting a minute, the `ask_user_question` PreToolUse (`grok-hook-ask.json`) from a
+TUI asked to ask one (1.0.46, its workspace path invented). `grok-auth-valid.json` and `grok-auth-expired.json` are
 fake `~/.grok/auth.json` files in the real shape, timestamps fixed far out and far back.
 `grok-settings-none.json` is the settings cache shaped as the CLI writes it -- tier display
 and no meter entries -- and `grok-settings-meters.json` the same cache with the

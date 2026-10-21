@@ -64,6 +64,17 @@ class LinePastOwnersText(EditorSeat):
         self.assertTrue(self.typed_line())
         self.assertEqual((self.typed, self.sent, self.composer), ([], [LINE, DOCS], DRAFT))
 
+    def test_text_comes_back_at_once_though_the_line_s_enter_was_the_last_key_its_terminal_took(self):
+        press = self.press
+
+        def taken(key, pane=PANE):      # a terminal marks the keys it takes, ak's as the owner's
+            press(key, pane)
+            self.untouched(0)
+        with patch.object(self, "press", side_effect=taken):
+            self.tick()
+        self.assertEqual((self.keys, self.sent, self.composer, self.told()),
+                         (["C-g", "Enter", "C-g"], [LINE], DRAFT, True))
+
     def test_a_line_its_enter_left_unsent_goes_first_and_its_text_comes_back_after(self):
         with patch.object(watch, "_send_enter", return_value=False):
             self.tick()

@@ -82,7 +82,9 @@ is its progress line (see Rows are tables) from the session's plan,
 `~/.agentkit/state/plan-<session>.md` under its name or any name it was renamed
 from (the newest wins), else from its unfinished jobs' tasks, in its word's
 colour while it is not at rest, its work waiting in the line to land too
-(`working` includes landing: its squares say so), else empty. What the
+(`working` includes landing: its squares say so), else empty, then
+`✎ unsent` in the needs-you colour where the owner left text unsent, whose
+whole text opens first under the row. What the
 reason says -- the question the seat asked, `stopped with work open: <line>`,
 the plan's last done line, an idle seat's way back in, `session closed: press 2 to
 reopen` -- opens under the row (Rows are tables), never beside it. Never `N
@@ -176,7 +178,8 @@ its project's heading, numbered on after the live ones in the same order --
 number, name, orchestrator, `stopped 2h ago` in the state's column, and its
 harness's word where it cannot resume the conversation -- with the keys `↑↓ move   ⏎ reopen   x remove   esc back`.
 The highlighted row opens its plan's first done line under its name, then, dim,
-`6 tasks · took 4 hours`: hours and days, never minutes, to its last done. Enter or a
+`6 tasks · took 4 hours · Opus 5.5, GPT-6-Astra, Fable 5.1`: hours and days, never minutes, to its last
+done, then its orchestrator and every other model its runs used, by its full name. Enter or a
 click reopens the highlighted seat where it stopped, as its number does from
 the main screen, and the menu is back; `x` removes it at once, the rest
 staying up; Esc goes back. From a pipe a number reopens, `x` asks which to
@@ -238,9 +241,8 @@ explain: nothing lights on them and a click there does nothing of its own
 ## Questions
 
 Every yes-or-no question on a screen read with the keys -- `x` on a seat that
-is not done, in the menu and the popup, `Remove` on a model, a provider or a
-subscription on the `c` screens, and `Move` on another model's orchestrator mark of a
-seat there -- is one card, `terminal.confirm`, drawn where
+is not done, in the menu and the popup, and `Remove` on a model, a provider or a
+subscription on the `c` screens -- is one card, `terminal.confirm`, drawn where
 its screen asks it: a blank line, the question in the normal colour, one dim
 line saying what the answer means, the two choices, and a blank line. The safe
 choice is first and highlighted, `✓ Keep`; the one that ends something follows,
@@ -280,7 +282,7 @@ that model's own efforts (`config.efforts`), from the highest round to the
 lowest. The highlighted row
 is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
-drawn at once, the orchestrator only moves, and the last reviewer stays, saying
+drawn at once, asking nothing, the orchestrator only moves, and the last reviewer stays, saying
 so under the rows, its mark shaking (Motion). The highlighted model opens no line: what it
 runs on is the meter that lights it. `r recommended` opens the models screen
 (The models screen).

@@ -261,8 +261,8 @@ class OneConfigScreen(unittest.TestCase):
         menu.press(DOWN + ENTER + DOWN + ENTER,
                    lambda lines: marks(model(lines, "astra")) == "○□■")
         self.assertEqual(menu.record()["workers"], ["fable"])
-        # and fable takes the seat, once Move is picked on the card the mark asks on
-        lines = menu.press(UP * 2 + LEFT + ENTER + DOWN + ENTER,
+        # and fable takes the seat at once, asking nothing
+        lines = menu.press(UP * 2 + LEFT + ENTER,
                            lambda lines: marks(model(lines, "fable")) == "●■□")
         self.assertEqual(marks(model(lines, "opus")), "○□□")
         record = menu.record()

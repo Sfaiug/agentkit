@@ -21,6 +21,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
+from fixtures.seats import cursor_row
 from agentkit import config, host, job as jobs, menu, notify, orch, run, watch
 from agentkit import record
 
@@ -74,6 +75,8 @@ class NudgeTurnRule(Sandbox):
             return 1, f"can't find pane: {target}"
         if args[0] == "capture-pane":
             return 0, self.pane
+        if args[-1] == "#{cursor_y}":
+            return 0, cursor_row(self.pane)
         if args[0] == "send-keys" and "-l" in args:
             self.sent.append(args[-1])
             empty, row = TYPED[self.harness]    # the line sits in the composer until its Enter
