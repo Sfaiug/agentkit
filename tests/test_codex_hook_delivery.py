@@ -1,4 +1,4 @@
-"""Ordinary tools do not wait for AK's observer or import its screen machinery.
+"""Codex callbacks keep their ordering without loading screen machinery for ordinary tools.
 
 The launch flags are the ones the real harness consumes. The cold subprocess pins the
 hot path separately: a working seat has nothing new to record after an ordinary call.
@@ -33,16 +33,14 @@ class Delivery(unittest.TestCase):
             hooks.update(tomllib.loads(flag).get("hooks", {}))
         return hooks
 
-    def test_an_observer_never_holds_an_ordinary_tool(self):
+    def test_lifecycle_callbacks_stay_in_event_order(self):
         with tempfile.TemporaryDirectory() as tmp:
             hooks = self.launch(Path(tmp))
-        for event in ("PostToolUse",):
-            with self.subTest(event=event):
-                self.assertTrue(all(h.get("async") for g in hooks[event] for h in g["hooks"]))
-        # Decisions and prompt context still arrive before the harness proceeds.
-        for event in ("Stop", "PreToolUse", "UserPromptSubmit", "SessionStart",
-                      "PermissionRequest", "Interrupt"):
-            self.assertTrue(all(not h.get("async") for g in hooks[event] for h in g["hooks"]))
+        # PostToolUse can close a question. Delaying it past the next question would
+        # allow the old tool completion to clear that newer question's state.
+        for event, groups in hooks.items():
+            if event != "state":
+                self.assertTrue(all(not h.get("async") for g in groups for h in g["hooks"]))
 
     def test_only_an_interrupt_uses_the_harness_interrupt_deadline(self):
         with tempfile.TemporaryDirectory() as tmp:

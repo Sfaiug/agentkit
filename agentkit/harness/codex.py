@@ -36,9 +36,8 @@ SEAT_STATE = "hooks/seat-state.sh"
 # the one script on both harnesses.
 STOP_RULE = "hooks/orchestrator-stop.sh"
 # Codex's default command deadline; only Interrupt has its separate three-second cap.
-# Observers run in the background; decisions keep the harness waiting for their answer.
+# Callbacks stay ordered: a late tool completion must not clear a newer question.
 HOOK_TIMEOUT = 600
-BACKGROUND_HOOKS = ("PostToolUse",)
 # The question tool of Codex 0.160's newer models does not wait for the answer: the model hears
 # `accepted` at once and works on, and Codex drops the question unanswered, with no word to the
 # model or to ak, when anything is sent into the seat or the turn ends.  So a seat's PreToolUse
@@ -399,7 +398,7 @@ def capture(path, event):
         return
 
 
-def trust(hooks, matchers=None, background=()):
+def trust(hooks, matchers=None):
     """The `-c` that trusts exactly these command-line hooks, and nobody else's.
 
     Codex 0.160 runs a hook only once its hash is trusted and otherwise stops a new seat on
@@ -413,7 +412,7 @@ def trust(hooks, matchers=None, background=()):
         label = re.sub(r"(?<!^)(?=[A-Z])", "_", event).lower()
         for position, (command, timeout) in enumerate(handlers):
             identity = {"event_name": label, "hooks": [
-                {"async": event in background, "command": command, "timeout": timeout,
+                {"async": False, "command": command, "timeout": timeout,
                  "type": "command"}]}
             if (matchers or {}).get(event):
                 identity["matcher"] = matchers[event]
@@ -751,12 +750,11 @@ def main(argv, launch=None):
             matchers = {"PreToolUse": QUESTIONS}
             os.environ[CAPTURE_ENV] = receipt
             for event, handlers in hooks.items():
-                asynchronous = ',async=true' if event in BACKGROUND_HOOKS else ''
-                run = ",".join(f'{{type="command",command={json.dumps(command)},timeout={timeout}{asynchronous}}}'
+                run = ",".join(f'{{type="command",command={json.dumps(command)},timeout={timeout}}}'
                                for command, timeout in handlers)
                 matcher = f"matcher={json.dumps(matchers[event])}," if event in matchers else ""
                 cmd += ["-c", f'hooks.{event}=[{{{matcher}hooks=[{run}]}}]']
-            cmd += ["-c", trust(hooks, matchers, BACKGROUND_HOOKS)]
+            cmd += ["-c", trust(hooks, matchers)]
         else:
             print("orch: Codex cannot capture seat ownership on this version; "
                   "an unbound seat starts fresh next time", file=sys.stderr)

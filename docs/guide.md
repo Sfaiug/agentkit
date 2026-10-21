@@ -102,7 +102,7 @@ tmux, or seven days after you stopped its seat, is swept, unless a run of the se
 
 Codex seats have Remote Control enabled, but connecting the ChatGPT app is optional. Opening, resuming or changing a seat's subscription sends no pairing alert. Request a fresh code on the host with `python3 ~/agentkit/tools/codex-seat.py --pair <seat-name>`, then pair the app with that code. Each seat has its own connection and must be paired separately; terminal work continues without pairing. An old pairing card Discord has not taken yet is dropped when its seat next checks its connection; one already out stays as it went.
 
-Codex's completed-tool observer runs in the background and reads lifecycle facts without loading the screen watcher. Its other callbacks use Codex's normal command deadline; only interruption uses the harness's three-second cap. Prompt context, questions, approvals and Stop decisions remain synchronous. These launch settings apply when a seat next starts; the lightweight observer also serves already-open seats.
+Codex's completed-tool observer reads lifecycle facts without loading the screen watcher. Callbacks use Codex's normal command deadline; only interruption uses the harness's three-second cap. They remain synchronous so an older tool completion cannot clear a newer question. These launch settings apply when a seat next starts; the lightweight observer also serves already-open seats.
 
 
 Stopping a session (`x` on its highlighted row, after its one question under the row, `Keep` or `Stop`; `x` on a done session and `ak orch stop <name>` ask
