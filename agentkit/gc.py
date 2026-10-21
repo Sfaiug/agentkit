@@ -399,7 +399,7 @@ def stale_conversations(now):
     if paths is None:
         return
     for store in conversation_stores():
-        for path in sorted(Path(store["root"]).rglob(store["pattern"])):
+        for path in sorted(Path(store["root"]).glob(store["pattern"])):
             why = conversation_stale(path, now, paths)
             if why:
                 yield {"action": "remove", "kind": "conversation", "path": str(path),
@@ -407,10 +407,31 @@ def stale_conversations(now):
 
 
 def conversation_stale(path, now, paths):
-    if (not retention.safe(path) or not path.is_file() or retention.busy(path, paths)
-            or not retention.expired(path.lstat().st_mtime, now, RUN_DIR_AGE)):
+    if not retention.safe(path) or retention.busy(path, paths):
         return None
-    return f"untouched for {int((now - path.lstat().st_mtime) // 86400)} days"
+    at = last_write(path)
+    if at is None or not retention.expired(at, now, RUN_DIR_AGE):
+        return None
+    return f"untouched for {int((now - at) // 86400)} days"
+
+
+def last_write(path):
+    """When a conversation's file, or the newest file in its folder, last changed; an empty
+    folder's own time, None for anything else, or for what cannot all be read, which stays.
+    Only files count: a harness rescanning its sessions changes their folders' times, and a
+    deleted lock file is no write.  Links are not followed."""
+    unread = []
+    try:
+        if path.is_file():
+            return path.lstat().st_mtime
+        if not path.is_dir():
+            return None
+        times = [os.lstat(os.path.join(root, name)).st_mtime
+                 for root, _, files in os.walk(path, onerror=unread.append) for name in files]
+        at = max(times, default=path.lstat().st_mtime)
+    except OSError:
+        return None
+    return None if unread else at
 
 
 def leftovers():

@@ -7,7 +7,7 @@ A harness that needs Python puts it in `agentkit/harness/<name>.py` and implemen
 hooks it has something to say about -- `claude.py` the transcript it writes, `codex.py` the
 launch receipt its thread is proven by, `grokbuild.py` the session directory it opens,
 `muse.py` its launcher build, the snapshot an upgrade is put back from, its own usage probe
-and the session store its tokens and messages are in,
+the session store its tokens and messages are in and the sessions gc ends,
 `opencode.py` the receipt its seat plugin writes its session into and the endpoint that says
 how a model is paid,
 `antigravity.py` the database each of its conversations is.  A script its adapter runs on its
@@ -238,11 +238,11 @@ def config_entries():
 
 def conversation_stores():
     """Where each harness that never ends a conversation itself keeps them, as [{"harness": its
-    name, "root": the folder, "pattern": the glob of one conversation's file}], from every
-    plugin that keeps any.  `ak gc` ends one nobody wrote to for 30 days, as Claude Code ends
-    its own."""
-    return [{"harness": module.__name__.rpartition(".")[2], **module.conversation_store()}
-            for module in _plugins("conversation_store")]
+    name, "root": a folder, "pattern": the glob under it, at its depth, of one conversation's
+    file or folder}], from every plugin that keeps any, each in as many folders as it keeps.
+    `ak gc` ends one nobody wrote to for 30 days, as Claude Code ends its own."""
+    return [{"harness": module.__name__.rpartition(".")[2], **store}
+            for module in _plugins("conversation_stores") for store in module.conversation_stores()]
 
 
 def end_conversation(harness, path):
