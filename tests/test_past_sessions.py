@@ -23,7 +23,7 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from test_close_and_info import ENTER, Menu
 from fixtures.sandbox import Sandbox
-from agentkit import menu, orch, terminal
+from agentkit import config, history, menu, notify, orch, terminal
 
 CFG = {"fixture": True}            # handed through to the opening, and read by nothing here
 NOW = time.time()
@@ -106,6 +106,9 @@ class Lines(unittest.TestCase):
                                               lambda repo, **_kw: repo and Path(repo)))
         self.stack.enter_context(patch.object(menu, "selection_of", lambda cfg, name: {
             "orchestrator": "opus"} if name == "omega" else None))
+        self.stack.enter_context(patch.object(menu, "past_said", lambda session: {
+            "omega": ("Ship the docs site", "2 tasks · took 3 hours")}.get(
+                session["name"], ("", "took under an hour"))))
 
     def test_a_number_reopens_a_stopped_seat_and_x_asks_which_to_remove(self):
         # `x` asks by the numbers on the screen: 3 is zeta here, as it is on the main screen
@@ -155,7 +158,8 @@ class Lines(unittest.TestCase):
                              side_effect=[terminal.Key("down")] * 19 + [terminal.Key("esc")]):
             menu.show_past(CFG, seats, keyboard=None)
         self.assertEqual([lines[0] for lines in drawn], ["atoll"] * 20)
-        self.assertRegex(drawn[-1][-1], r"^›\s+20\s+fix-api-19\s+-\s+stopped 2h ago$")
+        self.assertRegex(drawn[-1][-2], r"^›\s+20\s+fix-api-19\s+-\s+stopped 2h ago$")
+        self.assertEqual(drawn[-1][-1], "took under an hour")
 
     def test_a_page_holding_two_projects_has_a_blank_line_between_them(self):
         seats = [dict(OMEGA if n < 8 else ZETA, name=f"fix-api-{n}") for n in range(20)]
@@ -170,12 +174,48 @@ class Lines(unittest.TestCase):
         self.assertEqual((drawn[0][0], drawn[0][at - 1]), ("atoll", ""))
         self.assertRegex(drawn[0][at - 2], r"fix-api-7\s")
 
+    def test_the_highlighted_row_alone_opens_what_its_session_did(self):
+        drawn = []
+        with patch.object(terminal, "taken", return_value=True), \
+                patch.object(terminal, "frame", lambda title, body, *_a, **_kw:
+                             drawn.append([terminal.plain(line) for line in body]) or {}), \
+                patch.object(terminal, "read_key", side_effect=[
+                    terminal.Key("down"), terminal.Key("esc")]):
+            menu.show_past(CFG, [ALPHA, OMEGA, ZETA], keyboard=None)
+        self.assertEqual(drawn[0][1:5], ["› 2 omega opus stopped 2h ago", "Ship the docs site",
+                                         "2 tasks · took 3 hours", ""])
+        # ↓ takes the highlight and the lines with it
+        self.assertEqual(drawn[1][1:3] + drawn[1][-2:], ["2 omega opus stopped 2h ago", "",
+                         "› 3 zeta - stopped 5m ago starts fresh", "took under an hour"])
+
     def test_a_dry_run_draws_the_screen_once(self):
         with patch.object(menu, "read", side_effect=AssertionError("read")):
             menu.show_past(CFG, [ALPHA, OMEGA], dry_run=True)
         self.assertEqual(self.out.getvalue().count("past sessions"), 1)
         self.assertIn("2  omega", self.out.getvalue())
 
+
+class Said(Sandbox):
+    def test_its_first_done_line_its_tasks_and_hours_to_its_last_done_else_its_stop(self):
+        config.plan_path("acme-docs").write_text("".join(
+            f"- [{mark}] {what} · check: `true` · acme · written 2026-10-01 10:00 on 0123456789ab"
+            f"{' · done 0123456789ab Ship (#1)' * (mark == 'x')}\n"
+            for mark, what in (("x", "Ship the docs site"), ("x", "Fix a typo"), (" ", "Search"))))
+        self.stack.enter_context(patch.object(notify, "conversation_of", return_value=(
+            type("Plugin", (), {"name": "claude"}), {}, "/", "acme-thread")))
+        session = {"name": "acme-docs", "created": 1000, "closed": 40000}
+        self.assertEqual(menu.past_said(session),
+                         ("Ship the docs site", "2 of 3 tasks · took 11 hours"))
+        history.done("claude:acme-thread", 1000 + 5 * 3600, None)     # the end, not its stop
+        self.assertEqual(menu.past_said(session)[1], "2 of 3 tasks · took 5 hours")
+        config.plan_path("acme-docs").unlink()
+        self.assertEqual(menu.past_said(session), ("", "took 5 hours"))
+
+    def test_how_long_is_hours_then_days_and_hours_and_never_minutes(self):
+        for seconds, said in ((0, "under an hour"), (40 * 60, "under an hour"), (3600, "1 hour"),
+                              (27 * 3600, "1 day and 3 hours"), (48 * 3600, "2 days"),
+                              (49 * 3600 + 20 * 60, "2 days and 1 hour")):
+            self.assertEqual(menu.took(seconds), said)
 
 class Layout(Sandbox):
     def test_a_highlighted_past_seat_marks_only_its_first_line(self):
@@ -232,6 +272,45 @@ class Layout(Sandbox):
                         rows = [terminal.plain(lines[n]) for n in places]
                         self.assertTrue(any("stopped 120d ago" in row for row in rows), rows)
                         self.assertTrue(all(terminal.cells(line) <= width for line in lines))
+
+    def test_a_row_opened_taller_than_a_page_keeps_its_every_line(self):
+        sentence = " ".join(["The docs site ships"] * 20)
+        with patch.object(terminal, "width", return_value=40), \
+                patch.object(orch, "age", return_value="1h"), \
+                patch.object(orch, "listed", dict), \
+                patch.object(orch, "checkout_of", lambda repo, **_kw: Path(repo)):
+            lines, places = menu.past_body(
+                [(1, {"name": "fix-api", "repo": "/tmp/acme", "closed": 1})], at="fix-api",
+                room=8, said={"fix-api": (sentence, "2 tasks · took 5 hours")})
+        self.assertGreater(len(lines), 8)
+        # under its project's heading, which a page of its own held
+        self.assertEqual(terminal.plain(lines[0]).strip(), "acme")
+        self.assertEqual(terminal.plain(lines[-1]).strip(), "2 tasks · took 5 hours")
+        self.assertEqual(list(places.values()), [(("row", "fix-api"), [])] * (len(lines) - 1))
+
+    def test_the_next_row_opens_from_its_start_not_where_the_last_was_turned_to(self):
+        drawn = []
+        seats = [dict(name=name, repo="/tmp/acme", created=1, closed=20000)
+                 for name in ("alpha", "beta")]
+        with ExitStack() as stack:
+            for obj, name, value in ((terminal, "width", 40), (terminal, "height", 14),
+                                     (terminal, "taken", True), (terminal, "away", False),
+                                     (terminal, "utf8", True), (orch, "age", "1h"),
+                                     (orch, "listed", {})):
+                stack.enter_context(patch.object(obj, name, return_value=value))
+            stack.enter_context(patch.object(orch, "checkout_of",
+                                             lambda repo, **_kw: Path(repo)))
+            stack.enter_context(patch.object(menu, "selection_of", return_value={}))
+            stack.enter_context(patch.object(menu, "past_said", lambda seat: (
+                (seat["name"] + " started this job. ") * 20, "2 tasks · took 5 hours")))
+            stack.enter_context(patch.object(terminal, "frame", lambda title, body, *_a, **_kw:
+                                             drawn.append([terminal.plain(line).strip()
+                                                           for line in body]) or {}))
+            stack.enter_context(patch.object(terminal, "read_key", side_effect=[
+                terminal.Key("down")] * 3 + [terminal.Key("esc")]))
+            menu.show_past(CFG, seats, keyboard=None)
+        self.assertEqual(drawn[2][-1], "2 tasks · took 5 hours")     # alpha turned to its end
+        self.assertEqual(drawn[3][:2], ["acme", "› 2 beta - stopped 1h ago"])
 
     def test_past_rows_match_the_main_screens_rows(self):
         session = {"name": "fix-api", "repo": None, "closed": 1}
