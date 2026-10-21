@@ -220,7 +220,8 @@ class Matrix(unittest.TestCase):
             self.assertEqual(meters.count(f"{name} — no reading yet"), 1, meters)
         self.assertEqual(lines[headings(lines) - 1], "")
         body = "\n".join(lines)
-        for heading in ("Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"):
+        for heading in ("Claude Code", "Codex", "Muse Code", "Grok Build", "Antigravity",
+                        "OpenCode"):           # each model under its harness
             self.assertIn(f"\n{heading}\n", body)
         self.assertEqual(row(lines, "fable")[1].split(), ["›", "Fable", "5.1", "○", "□", "□", "▰▰▰▰▱",
                                                           "xhigh"])
@@ -443,7 +444,7 @@ class Matrix(unittest.TestCase):
             self.assertTrue(highlighted(lines).startswith("› Fable"), lines)
             self.assertTrue(lines[-1].endswith("esc back"), lines)
             screen.leave()
-        self.assertIn("Claude", lines)                    # the provider over the highlight
+        self.assertIn("Claude Code", lines)               # the harness over the highlight
 
     def test_a_short_screen_s_page_holds_the_meter_the_highlight_is_on(self):
         # folded into the page, a meter is one cell of several on its line (terminal.under)

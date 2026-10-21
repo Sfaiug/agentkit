@@ -153,8 +153,8 @@ STATE_ORDER = ("needs you", "out of usage", "working", "done", "idle")
 # provider's `colour` key in config.toml wins, and a provider named in neither is the accent.
 COLOURS = {"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai": "#736CD3",
            "google": "#203B9B", "mimo": "#FB8046"}
-# Each company's own name, on its usage row and over its models on `c` and `n`; any other
-# provider is its own `name` key (provider_name), else its key capitalised.
+# Each company's own name, on its usage row (a model sits under its harness's, model_heading);
+# any other provider is its own `name` key (provider_name), else its key capitalised.
 NAMES = {"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Grok",
          "google": "Gemini", "mimo": "MiMo"}
 TICK = 10.0              # the longest the main screen waits for a key before drawing itself again
@@ -2894,9 +2894,9 @@ def model_label(cfg, name, width):
     return terminal.cut(config.model_name(cfg, name), width)
 
 
-def model_heading(cfg, provider):
-    """The same provider heading over the models on `c` and `n`."""
-    return terminal.styled(provider_name(cfg, provider), "accent")
+def model_heading(harness):
+    """The same heading over the models on `c` and `n`: their harness's name, in its colour."""
+    return terminal.styled(config.harness_name(harness), config.harness_colour(harness) or "accent")
 
 
 # the roles `r` takes, each with its group in a seat's record (its config role: matrix.CONFIG_ROLES)
@@ -3219,10 +3219,11 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                 lit=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
-    Every offered model once, under its provider's name, a line each: label, the three role
-    marks of `selected` -- a session's record, whose missing reviewers are its workers -- and
-    its effort: a cell for each level it offers, full up to its effort (terminal.effort_cells,
-    effort_levels), then its word; a model with one effort is its word alone.  With no
+    Every offered model once, under its harness's name (model_heading), a line each: label,
+    the three role marks of `selected` -- a session's record, whose missing reviewers are its
+    workers -- and its effort: a cell for each level it offers, full up to its effort
+    (terminal.effort_cells, effort_levels), then its word; a model with one effort is its word
+    alone.  With no
     session, only the effort, still column 3.  `moves`, a list, is handed each mark's line, key,
     glyph and how it moves once flipped or refused (motion.toggled), and each effort's line,
     key, word and how its cells move once a step changed it (_effort_moves), for the clock.
@@ -3265,9 +3266,10 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     lines = [terminal.styled((" " * left + "".join(
         "  " + terminal.pad(head, width) for head, width in zip(heads, widths))).rstrip(), "dim")]
     places = {}
-    for provider in dict.fromkeys(models[name]["provider"] for name in names):
-        lines.append(model_heading(cfg, provider))
-        for name in (name for name in names if models[name]["provider"] == provider):
+    for harness in dict.fromkeys(models[name].get("harness") for name in names):
+        lines.append(model_heading(harness))
+        for name in (name for name in names if models[name].get("harness") == harness):
+            provider = models[name]["provider"]
             texts, builds = orch.role_texts(selected, name, marks) if selected else ((), False)
             texts += (efforts[name],)
             note = orch.spent_note(cfg, name, providers) if providers else ""
