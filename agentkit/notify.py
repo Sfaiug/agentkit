@@ -1010,7 +1010,8 @@ def page(key, about, text):
     """Page the owner about no seat, once per `key` however often it is asked: the outbox
     keeps the event, so no later tick or restart queues it again. One the webhook did not
     take is tried again on a card's schedule and rules only when asked again, so a caller
-    asking while the page is still due never has it sent once it is not.
+    asking while the page is still due never has it sent once it is not: 0 once it is out
+    or never will be, 1 while it waits to be asked again.
     It reads as a seat's question does, `about` standing where the seat's name would."""
     payload = card_payload("needs", about)
     key = hashlib.sha256(json.dumps(["page", key, sink() is not None]).encode()).hexdigest()
@@ -1024,7 +1025,8 @@ def page(key, about, text):
             _write_event(event)
         elif event["status"] not in ("delivered", "disabled") and _dropped(event, None):
             return 0
-        return _attempt(event)
+        _attempt(event)
+        return 0 if event["status"] in ("delivered", "disabled") else 1
 
 
 def _history(card):
