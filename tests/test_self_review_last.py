@@ -62,7 +62,7 @@ class SelfReviewLast(unittest.TestCase):
     def pick(self, executor=None, reviewer=None):
         return run.pick_models(self.cfg, self.providers, executor, reviewer, self.logs.append)
 
-    def loop(self, executor="acme-one", reviewer="beta-one", spares=()):
+    def loop(self, executor="acme-one", reviewer="beta-one", reviewers=None):
         directory = self.root / "run"
         directory.mkdir(exist_ok=True)
         workspace = self.root / "work"
@@ -72,7 +72,9 @@ class SelfReviewLast(unittest.TestCase):
                  "scratch": True, "worktree": str(workspace), "base": None,
                  "rounds": 2, "round_summaries": [], "findings": ""}
         lp = run.Loop(self.cfg, directory, state, {}, self.logs.append, workspace,
-                      "Review the work.", [], "Fixture", list(spares))
+                      "Review the work.", [], "Fixture")
+        if reviewers:
+            lp.state["reviewers"] = reviewers
         lp.rnd = 1
         lp.round_dir.mkdir(exist_ok=True)
         return lp
@@ -190,12 +192,12 @@ class SelfReviewLast(unittest.TestCase):
         return calls
 
     def test_a_spare_falls_back_to_the_next_other_model_before_own(self):
-        lp = self.loop(reviewer="beta-one", spares=["acme-one", "acme-two"])
+        lp = self.loop(reviewer="beta-one", reviewers=["beta-one", "acme-one", "acme-two"])
         self.assertEqual(self.fallback(lp, "beta-one"), ["beta-one", "beta-one", "acme-two"])
         self.assertEqual(lp.reviewer, "acme-two")
 
     def test_a_spare_falls_back_to_the_executors_own_model(self):
-        lp = self.loop(reviewer="beta-one", spares=["acme-one"])
+        lp = self.loop(reviewer="beta-one", reviewers=["beta-one", "acme-one"])
         self.assertEqual(self.fallback(lp, "beta-one"), ["beta-one", "beta-one", "acme-one"])
         self.assertTrue(run.review_pass(lp.state, self.cfg))
         self.assertTrue(staffing.self_reviewed(lp.state))

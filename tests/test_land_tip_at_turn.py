@@ -81,7 +81,7 @@ def make_run(root, remote, name, cmds):
         "merge_note": None, "findings": "",
     }
     record.save_state(run_dir, state)
-    return run.Loop(cfg, run_dir, state, {}, log, wt, "body", cmds, "context", [])
+    return run.Loop(cfg, run_dir, state, {}, log, wt, "body", cmds, "context")
 
 
 class LandTipAtTurn(unittest.TestCase):
