@@ -1004,36 +1004,30 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
     using its repository's measured cost when available; this count is always derived.
     A suite the helper has room for (`helper.start`) takes a turn only for pieces it hands back.
     """
-    if getattr(_GATE_HELD, "hold", None) is not None or getattr(_GATE_HELD, "away", None):
+    if (getattr(_GATE_HELD, "hold", None) is not None or getattr(_GATE_HELD, "away", None)
+            or getattr(_GATE_HELD, "here", None)):
         yield
         return
-    away = None
+    away, here = None, None
     if command and cwd and names_shard(command):
-        away = helper.start(*suite_cost(command, cwd, run_dir)[1:], cwd, log or (lambda line: None))
-    if away is not None:
-        _GATE_HELD.away = away
+        away, here = helper.start(*suite_cost(command, cwd, run_dir)[1:], cwd,
+                                  log or (lambda line: None))
+        if here and log is not None:
+            log(f"suite runs here: {here}")
+    _GATE_HELD.away, _GATE_HELD.here = away, here
+    try:
         _GATE_HELD.home = lambda: _acquire_gate_turn(run_dir, log_path, log, command, cwd,
                                                      context=context)
-        try:
-            yield
-        finally:
-            current, _GATE_HELD.hold = getattr(_GATE_HELD, "hold", None), None
-            _GATE_HELD.away = _GATE_HELD.home = None
-            if current is not None:
-                current.release()
-            helper.finish(away)
-        return
-    hold = _acquire_gate_turn(run_dir, log_path, log, command, cwd, context=context)
-    if hold is None:
-        yield
-        return
-    _GATE_HELD.hold = hold
-    try:
+        if away is None:
+            _GATE_HELD.hold = _GATE_HELD.home()
         yield
     finally:
-        current, _GATE_HELD.hold = _GATE_HELD.hold, None
+        current, _GATE_HELD.hold = getattr(_GATE_HELD, "hold", None), None
+        _GATE_HELD.away = _GATE_HELD.home = _GATE_HELD.here = None
         if current is not None:
             current.release()
+        if away is not None:
+            helper.finish(away)
 
 
 def suite_env():
@@ -1286,6 +1280,9 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     if shard is not None:
         label, share = ((shard, shard) if only is None else
                         (f"{shard}, its failed tests alone", "1/1"))
+        if log is not None:
+            log(f"AK_SHARD={label} runs here: command is not sent to the suite helper "
+                "(pinned piece)")
         output.write(f"--- AK_SHARD={label} ---\n".encode())
         output.flush()
         ran, failed = (None, None) if only is None else ([], [])
@@ -1301,6 +1298,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             pieces[shard] = None if killed else code
         return code, text, killed
     if not names_shard(command):
+        if log is not None:
+            log("suite runs here: command is not sent to the suite helper (does not name AK_SHARD)")
         path = suite_cost(command, cwd, run_dir)[0] if measure else None
         measured = _SuiteMeasure(run_dir) if measure else None
         aborting = kwargs.pop("abort", None)
@@ -1330,6 +1329,9 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         timeout = kwargs.pop("on_timeout", None)
         silence = kwargs.pop("silence", None)
         silenced = set()    # the pieces whose first go silence stopped, each to go again
+        here = getattr(_GATE_HELD, "here", None) or (
+            "command is not sent to the suite helper (suite already holds a local turn)")
+        home_reasons = {}
 
         with ExitStack() as files:
             results = []
@@ -1388,6 +1390,12 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 if left <= 0:
                     cancel.set()
                     return worker.TIMEOUT, piece, True, []
+                if log is not None:
+                    reason = here if first else home_reasons.get(shard) or (
+                        "command is not sent to the suite helper (piece retry)")
+                    with writing:
+                        log(f"AK_SHARD={label} on {away.alias}" if away else
+                            f"AK_SHARD={label} runs here: {reason}")
                 stream, tests = Output(), []
                 own = {**env, "AK_SHARD": shard if only is None else "1/1"}
                 if own.get(worker.RUN_MARKER):
@@ -1425,6 +1433,10 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             again = [index for index, (code, _, killed, _) in enumerate(results)
                      if away and code and not killed and not cancel.is_set()]
             helped, away = away, None
+            if helped and log is not None:
+                home_reasons.update((f"{index + 1}/{count}",
+                                     f"helper {helped.alias} {helper.failure(code)}")
+                                    for index, (code, *_) in enumerate(results) if code)
             if helped and any(code == helper.SHORT for code, *_ in results):
                 least = helper.short(helped)
                 if log is not None:
@@ -1441,7 +1453,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 # What the helper lost, failed, ran out of memory for or stopped runs again
                 # here, on this host's own turns; a stopped piece alone, below.
                 for index in (index for index in again
-                              if results[index][0] not in (helper.LOST, helper.SHORT)):
+                              if results[index][0] not in (helper.LOST, helper.SHORT,
+                                  helper.BATTERY, helper.BUSY, helper.BROKEN)):
                     if log is not None:
                         # its go here takes its place in the suite's output: a copy keeps this one
                         handle, kept = tempfile.mkstemp(dir=run_dir or activity.parent,
