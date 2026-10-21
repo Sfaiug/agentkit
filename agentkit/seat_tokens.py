@@ -41,7 +41,8 @@ def read(since, until):
             for path in sources:
                 path = str(Path(path).resolve())
                 owners[path] = name
-                db.execute("INSERT OR IGNORE INTO seat_sources VALUES (?, ?, ?, '{}')",
+                db.execute("INSERT INTO seat_sources VALUES (?, ?, ?, '{}') ON CONFLICT(path) "
+                           "DO UPDATE SET repo = excluded.repo",
                            (path, plugin.name, Path(seat.get("repo") or "").name))
         # Keep reading known conversations after a clear, rename, harness change or seat removal.
         for source, adapter, repo, saved in db.execute("SELECT * FROM seat_sources").fetchall():

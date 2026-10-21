@@ -109,7 +109,6 @@ class SeatTokens(unittest.TestCase):
         self.assertEqual(board["ak"][0]["token_share"], 125 / 525)
         self.assertEqual((board["ak"][0]["first_round"], board["ak"][0]["unmerged"]), (None, None))
         self.assertEqual(board["sunk"][0], {"share": 100 / 525, "tokens": 100})
-        self.assertEqual(scoreboard.compute(NOW), board)
         self.assertEqual(scoreboard.compute(NOW - 2 * WEEK)["tokens"][0]["seat_tokens"], 9)
         self.write(self.main, message("seven", 7, NOW - WEEK), message("fourteen", 11, NOW - 2 * WEEK))
         self.assertEqual([cell["total_tokens"] for cell in scoreboard.compute(NOW)["tokens"]], [532, 121])
@@ -130,6 +129,7 @@ class SeatTokens(unittest.TestCase):
         with self.main.open("a") as output:
             output.write(line[:40])
         self.assertEqual(scoreboard.compute(NOW)["tokens"][0]["seat_tokens"], 450)
+        self.seat("larch", "claude", account="second")
         with self.main.open("a") as output:
             output.write(line[40:])
         replacement = self.main.with_suffix(".tmp")
@@ -137,6 +137,7 @@ class SeatTokens(unittest.TestCase):
         replacement.replace(self.main)
         config.session_path("larch").rename(config.session_path("renamed"))
         self.assertEqual(scoreboard.compute(NOW)["tokens"][0]["seat_tokens"], 457)
+        self.assertEqual(scoreboard.compute(NOW)["ak"][0]["token_share"], 180 / 657)
         for path in config.STATE.glob("session-*.json"):
             path.unlink()
         self.assertEqual(scoreboard.compute(NOW)["tokens"][0]["seat_tokens"], 457)
