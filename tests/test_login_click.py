@@ -1,6 +1,7 @@
 """A click on an amber meter hands the terminal to that login's `login again`, and the ak screen
-is back as soon as it ends; a click on a grey one signs nothing in.  `menu.loop` in-process,
-its keys scripted, with a fake Claude adapter whose `login again` makes a login 30 days out.
+is back as soon as it ends, the meter grey once the login it made stands; a click on a grey one
+signs nothing in.  `menu.loop` in-process, its keys scripted, with a fake Claude adapter whose
+`login again` makes a login 30 days out, or fails where $FAKE/fail exists.
 """
 
 from contextlib import redirect_stdout
@@ -20,6 +21,7 @@ WEEK = {"name": "weekly", "resets_at": 10000 + 3 * DAY, "window_secs": 604800, "
 ADAPTER = r"""#!/usr/bin/env bash
 case "$*" in
   "login again") echo "again ${AGENTKIT_ACCOUNT:-default}" >>"$FAKE/calls"
+                 [ ! -e "$FAKE/fail" ] || exit 1
                  cp "$FAKE/renewed" "$FAKE/standing" ;;
   login-end) cat "$FAKE/standing" ;;
   *) exit 2 ;;
@@ -60,7 +62,9 @@ class LoginClick(Sandbox):
                     for row, (_, places) in drawn["spots"].items()
                     for first, last, at in places if at == cell)
 
-    def test_a_click_on_the_amber_meter_signs_in_and_comes_back(self):
+    def signed_in(self):
+        """The last screen drawn, and the login kept, as the owner clicks the grey meter, then the
+        amber one, then Esc."""
         draws = []
         real = menu.draw
 
@@ -77,10 +81,18 @@ class LoginClick(Sandbox):
         calls = self.fake / "calls"
         self.assertEqual(calls.read_text() if calls.exists() else "", "again default\n")
         self.assertEqual(len(draws), 3)   # the screen came back by itself before Esc left it
-        logins.refresh(self.cfg)          # the tick's next read: asked again, being amber
-        kept = json.loads((config.STATE / "logins.json").read_text())["anthropic"]["default"]
+        return draws[-1], logins.read()["anthropic"]["default"]
+
+    def test_a_click_on_the_amber_meter_comes_back_with_it_grey(self):
+        shown, kept = self.signed_in()
+        self.assertEqual(shown["logins"], {})      # no meter amber, before any tick asked
         self.assertEqual(kept["ends"], 10000 + 30 * DAY)
-        self.assertFalse(any(menu.login_notes(menu.usage_rows(self.cfg))))
+
+    def test_a_login_that_failed_leaves_its_meter_amber(self):
+        (self.fake / "fail").touch()
+        shown, kept = self.signed_in()
+        self.assertEqual(list(shown["logins"]), [number(self.cfg, "Claude")])
+        self.assertEqual(kept["ends"], 10000 + 2 * DAY)
 
 
 if __name__ == "__main__":
