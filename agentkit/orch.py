@@ -2216,26 +2216,27 @@ def attach(name, log=print, wait=False, session=None):
     `session` is the seat as its caller has it listed, which spares asking tmux for it again.
     """
     name = config.resolve_session(name)
-    refuse_stopping(name)
-    session = find(name) if session is None else session
-    socket = seat_socket(session)
-    if not (sys.stdin.isatty() and sys.stdout.isatty()):
-        log(f"session {name} is running; attach it with "
-            f"`{shlex.join(tmux_argv(socket, 'attach', '-t', name))}`")
-        return 0
-    if inside(session):
-        # a client on this seat's own server: switch it, rather than nest one tmux in another
-        rc, out = tmux_out("switch-client", "-t", f"={name}", socket=socket, client=True)
-        if rc != 0:
-            raise config.Error(f"cannot switch to the session {name}: {out}")
-        seen_by_user(name, session)
-        return 0
-    note = fix_term()
-    if note:
-        log(note)
-    cmd = tmux_argv(socket, "attach-session", "-t", f"={name}")
-    env = tmux_env()      # $TMUX gone: from a client on another server this one nests on purpose
-    seen_by_user(name, session)   # before the exec below, which never comes back here
+    # held till the client goes on: a stop after it ends the seat under it, as it would any
+    with opening(name):
+        session = find(name) if session is None else session
+        socket = seat_socket(session)
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            log(f"session {name} is running; attach it with "
+                f"`{shlex.join(tmux_argv(socket, 'attach', '-t', name))}`")
+            return 0
+        if inside(session):
+            # a client on this seat's own server: switch it, rather than nest one tmux in another
+            rc, out = tmux_out("switch-client", "-t", f"={name}", socket=socket, client=True)
+            if rc != 0:
+                raise config.Error(f"cannot switch to the session {name}: {out}")
+            seen_by_user(name, session)
+            return 0
+        note = fix_term()
+        if note:
+            log(note)
+        cmd = tmux_argv(socket, "attach-session", "-t", f"={name}")
+        env = tmux_env()   # $TMUX gone: from a client on another server this one nests on purpose
+        seen_by_user(name, session)   # before the exec below, which never comes back here
     try:
         if wait:
             return subprocess.run(cmd, env=env).returncode
@@ -2266,7 +2267,6 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     or surrendering its conversation. Ordinary resumes keep the account already recorded.
     """
     name = config.resolve_session(name)
-    refuse_stopping(name)
     record = (config.session_records() if detached else records()).get(name) or {}
     session = find(name)
     if detached:
@@ -2433,7 +2433,7 @@ def launch(name, model, cwd, cmd, conversation, session=None):
     # the seat's lock, so a rename going on keeps its record; a launch whose harness never
     # starts puts the record back, since the harness that read the old one is still there.
     kept = ("rulebook_sha", "rulebook_told", "rulebook_read")
-    with notify.session_lock(name) as current:
+    with opening(name), notify.session_lock(name) as current:
         # read under the lock the prompts rewrite it under, and held until the harness is up:
         # till its pane is replaced the one it replaces can still prompt, and that prompt's
         # rewrite waits here, so the file read is the one recorded
@@ -3532,7 +3532,7 @@ STOPPING = "AK_STOPPING"
 def stop_lock(name):
     """That seat's `closing` lock, taken for its stop: the open file, held until it is closed or
     its process ends however that ends -- or None while another stop holds it.  A look at it
-    (`stop_held`) holds it shared for a moment, so a clash with one is tried again."""
+    (`stop_held`) or an opening (`opening`) holds it shared till it is done, and the stop waits."""
     config.ensure_dirs()
     lock = config.seat_file("closing", name).open("a")
     while True:
@@ -3543,6 +3543,7 @@ def stop_lock(name):
             if stop_held(name):
                 lock.close()
                 return None
+            time.sleep(0.05)
 
 
 def stop_held(name):
@@ -3557,11 +3558,18 @@ def stop_held(name):
     return False
 
 
-def refuse_stopping(name):
-    """Nothing opens a seat while its stop goes, whatever screen or command offered it: the
-    stop would end what it opened.  Every opening comes through `attach` or `resume`."""
-    if stop_held(name):
-        raise config.Error(f"{name} is still stopping")
+@contextmanager
+def opening(name):
+    """Hold that seat open against its stop from the look until it is open: nothing opens it while
+    a stop goes (`stop_lock`), and none starts meanwhile -- it would end what just opened.  Every
+    opening comes through here: a harness's `launch`, a client's `attach`."""
+    config.ensure_dirs()
+    with config.seat_file("closing", name).open("a") as held:
+        try:
+            fcntl.flock(held, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise config.Error(f"{name} is still stopping") from None
+        yield
 
 
 def cmd_stop(argv):

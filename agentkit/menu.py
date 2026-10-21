@@ -2116,7 +2116,7 @@ def open_session(cfg, session, dry_run):
             orch.resume(cfg, name, wait=True)
         else:
             orch.attach(name, wait=True, session=session)
-    except config.Error as exc:           # a stop under way among them (orch.refuse_stopping)
+    except config.Error as exc:           # a stop under way among them (orch.opening)
         pause(str(exc))
 
 
