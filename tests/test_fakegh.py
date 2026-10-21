@@ -30,6 +30,11 @@ class PullRequests(unittest.TestCase):
 
     def test_a_squash_merge_lands_one_commit_at_the_matched_head_and_deletes_the_branch(self):
         url = self.gh.open_pr(self.rig, "fix-api", title="Fix api", author="beta")
+        rest = json.loads(self.call("api", "repos/acme/widgets/pulls/1"))
+        self.assertEqual((rest["state"], rest["base"]["ref"], rest["head"]["sha"]),
+                         ("open", "main", self.sha))
+        self.assertEqual(json.loads(self.call("repo", "view", "--json", "viewerPermission")),
+                         {"viewerPermission": "ADMIN"})
         self.assertIn("Head branch was modified",
                       self.call("pr", "merge", url, "--squash", "--match-head-commit", "0" * 40,
                                 code=1))
@@ -44,7 +49,6 @@ class PullRequests(unittest.TestCase):
         self.assertEqual(json.loads(self.call("pr", "view", "1", "--json", "state,mergeCommit")),
                          {"state": "MERGED", "mergeCommit": {"oid": self.rig.head()}})
         self.assertIn("is merged", self.call("pr", "merge", url, "--merge", code=1))
-
 
 
 if __name__ == "__main__":

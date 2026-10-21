@@ -11,7 +11,9 @@ author (`--squash`, `--merge` or `--rebase`), refusing a head other than
 `--match-head-commit`, a draft or a conflict; `--delete-branch` deletes its branch.  `pr
 view`, `pr list` and `pr comment` answer from the same state, a body handed in by file kept
 as its text; `--json` takes gh's field names and `-q` a path such as `.data.login`, then
-`| tojson` if asked.  Anything else is refused, naming the call.
+`| tojson` if asked.  `repo view` names the viewer an admin, and `gh api` answers a PR's REST
+record and, for every branch, no rules and no classic protection.  Anything else is refused,
+naming the call.
 
 The state is `<root>/github.json`; every call is logged where `home.calls("gh")` reads it.
 
@@ -283,7 +285,30 @@ def _answer(state, argv, cwd):
                         and _one(opts, "--base", "-B") in (None, pr["baseRefName"])
                         and _one(opts, "--author", "-A") in (None, pr["author"]["login"])],
                        opts), ""
+    if verb == "repo view":
+        slug = pos[2] if len(pos) > 2 else _repo(opts, cwd)
+        return _fields({"nameWithOwner": slug, "viewerPermission": "ADMIN"}, opts), ""
+    if pos[:1] == ["api"] and len(pos) == 2:
+        return _jq(_api(state, pos[1].partition("?")[0], opts), _one(opts, "-q", "--jq")), ""
     raise Refused(f"fake gh: unexpected {shlex.join(argv)}")
+
+
+def _api(state, endpoint, opts):
+    """What `gh api` answers: no branch is protected, and a PR as REST describes it."""
+    query = " ".join(opts.get("-f", []))
+    if endpoint == "graphql" and "branchProtectionRule" in query:
+        return {"data": {"repository": {"ref": {"branchProtectionRule": None}}}}
+    match = re.fullmatch(r"repos/([^/]+/[^/]+)/(rules/branches/[^/]+|pulls/(\d+))", endpoint)
+    if match and match[3]:
+        pr = _find(state, match[1], match[3])
+        head_slug, branch = pr["head"].split(":", 1)
+        return {"number": pr["number"], "state": "open" if pr["state"] == "OPEN" else "closed",
+                "merged": pr["state"] == "MERGED", "base": {"ref": pr["baseRefName"]},
+                "head": {"sha": _head(pr), "ref": branch,
+                         "repo": {"clone_url": str(_bare(head_slug))}}}
+    if match:
+        return []
+    raise Refused(f"fake gh: unexpected api {endpoint} {query}")
 
 
 def _fields(data, opts):
