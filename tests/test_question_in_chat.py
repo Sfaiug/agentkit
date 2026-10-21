@@ -67,6 +67,12 @@ class QuestionInChat(unittest.TestCase):
         self.assertIsNotNone(self.stop(FIRST + "\nWhich account should acme use?"))
         self.assertIsNone(self.stop("**" + FIRST + "**\n\n" + SECOND.replace(" · ", "\n")))
 
+    def test_the_same_choices_in_a_markdown_list_are_visible(self):
+        self.kept(SECOND)
+        for choices in ("1. Test\n2. Production", "- Test\n- Production", "* Test\n* Production"):
+            with self.subTest(choices=choices):
+                self.assertIsNone(self.stop("Which account should acme use?\n\n" + choices))
+
     def test_a_later_turn_repeats_a_question_still_waiting_for_an_answer(self):
         self.write("notify", {"kind": "needs", "text": FIRST, "time": time.time() - 300})
         self.assertIn(FIRST, self.stop("The other run finished.")["reason"])

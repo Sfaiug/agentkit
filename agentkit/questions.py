@@ -5,6 +5,8 @@ The question records remain notify/watch's; delivery compares their words, never
 intent from prose or counts a tool result as the assistant speaking.
 """
 
+import re
+
 
 def pending(name):
     from . import notify, watch
@@ -15,8 +17,11 @@ def pending(name):
 
 
 def words(text):
-    # Markdown emphasis and the separator used between choices do not change the question.
-    return " ".join((text or "").translate(str.maketrans("", "", "*`·")).split())
+    # The model may draw the same choices as a Markdown list instead of the recorded inline
+    # list. Neither its numbering nor the generated "Options:" label is question content.
+    text = re.sub(r"\bOptions:\s*", "\n", (text or "").replace("·", "\n"))
+    text = re.sub(r"(?m)^\s*(?:[-*+]\s+|\d+[.)]\s+)", "", text)
+    return " ".join(text.translate(str.maketrans("", "", "*`")).split())
 
 
 def reminder(name, message):
