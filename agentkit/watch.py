@@ -6626,8 +6626,10 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
             if not passed:
                 return "pending", None, None
         else:
-            return "failed", f"health: {command}", (
-                f"{pr_url}\n{health.get('output') or 'command exited nonzero without output'}")
+            # One typed line: a line break would reach the seat as Enter and send half of it.
+            output = health.get("output") or "command exited nonzero without output"
+            return "failed", f"health: {command}", "; ".join(
+                [pr_url, *(part for part in output.splitlines() if part.strip())])
     if dry_run:
         if not st.get("live_notified"):
             log(f"would tell its launching seat: {handback.live_sentence(st, run_dir)}")
