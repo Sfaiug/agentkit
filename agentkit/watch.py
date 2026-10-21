@@ -2520,10 +2520,11 @@ def hook_look(launched, answered_at=None, said="", prompt=False):
     answer = announce_state(session, cfg=cfg, look=True, number=number)
     harness = seat_model(cfg, name)[0]
     if stop_enforced(harness):
+        from . import menu as menu_mod
         # A completion is already an event, not a suspected stall. The wrapper supplies
         # this look even where the harness has no native Stop callback.
         if stop_nudge(session, harness, pane_text(session), notify.last(name),
-                      menu.run_records(), False, lambda _: None):
+                      menu_mod.run_records(), False, lambda _: None):
             answer = announce_state(session, cfg=cfg, look=True, number=number)
     return answer
 
@@ -4205,8 +4206,8 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     of the three is told to get on with it.  A question mark on the screen asks nobody anything.
     An unnamed seat is told to name itself instead (`config.name_owed`).
 
-    An unanswered question of this seat's own never reaches here -- health() leaves those
-    alone -- so what is left to read is the plan and the runs and jobs.
+    An unanswered question of this seat's own keeps it stopped. Otherwise the decision
+    reads the plan and the runs and jobs.
 
     A run of its own parked and undecided holds the stop past a run going, an `ak wait` and a
     plan that owes nothing, as it holds the hook's.  A wait that is over is wait_over's to end, with
