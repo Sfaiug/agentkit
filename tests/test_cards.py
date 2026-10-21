@@ -191,7 +191,7 @@ class Cards(unittest.TestCase):
 
     def test_a_new_question_after_an_answer_keeps_its_own_beginning(self):
         for publication in ("command", "tick"):
-            for activity in (280, 350):
+            for activity in (230, 350):
                 with self.subTest(publication=publication, activity=activity):
                     config.card_path("seat").unlink(missing_ok=True)
                     config.notify_path("seat").unlink(missing_ok=True)
@@ -222,7 +222,7 @@ class Cards(unittest.TestCase):
 
                         with patch.object(orch, "tmux_out", side_effect=tmux), \
                                 patch.object(notify, "installed_at", return_value=275):
-                            # The older callback's hold clock is 260, before this question.
+                            # The older callback's clock is 200, before this question.
                             args, kwargs = queued[0]
                             self.assertEqual(publish(*args, **kwargs), 0)
                             clock[0] = 359
