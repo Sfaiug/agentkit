@@ -11,9 +11,7 @@ with the switches that keep Claude's background daemon, its own instruction file
 memory off.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, and a
-fake `claude` keeps what it was started with.  A seat's pane asks its own tmux server by the
-socket path tmux gives it; the Home refuses every socket path, so here its own goes through.
-This test fails against `/bin/false`.
+fake `claude` keeps what it was started with.  This test fails against `/bin/false`.
 """
 
 import json
@@ -32,13 +30,6 @@ PINS = {"permissions": {"defaultMode": "bypassPermissions"}, "crossSessionInboun
 # What the owner's login says, each against a pin.
 LOGIN = '{"permissions": {"defaultMode": "acceptEdits"}, "crossSessionInbound": "allow",\n' \
         ' "switchModelsOnFlag": false, "theme": "dark"}\n'
-OWN_SOCKET = """#!/bin/sh
-case $1:$2 in
-  -S:*..*) ;;
-  -S:{dir}/*) exec {real} "$@" ;;
-esac
-exec {held} "$@"
-"""
 STARTED = """#!{python}
 import json, os, sys, time
 with open({part}, "w") as out:
@@ -54,11 +45,6 @@ class AClaudeSeat(unittest.TestCase):
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        held = home.bin / "tmux-of-the-home"
-        (home.bin / "tmux").rename(held)
-        home.fake("tmux", OWN_SOCKET.format(dir=shlex.quote(str(home.tmux_dir)),
-                                            real=shlex.quote(REAL_TMUX),
-                                            held=shlex.quote(str(held))))
         saw = home.root / "claude-started.json"
         home.fake("claude", STARTED.format(python=sys.executable, saw=repr(str(saw)),
                                            part=repr(f"{saw}.part")))

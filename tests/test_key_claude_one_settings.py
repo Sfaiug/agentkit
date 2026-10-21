@@ -9,13 +9,11 @@ holds the owner's settings, and an edit made on one login was once reverted by t
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on a
 config whose Claude subscription lists named logins with seat credentials that hold, and a fake
-`claude` keeps the login folder it was started on and the settings it found there.  A seat's
-pane asks its own tmux server by the socket path tmux gives it; the Home refuses every socket
-path, so here its own goes through.  This test fails against `/bin/false`.
+`claude` keeps the login folder it was started on and the settings it found there.
+This test fails against `/bin/false`.
 """
 
 import json
-import shlex
 import sys
 from pathlib import Path
 import time
@@ -26,13 +24,6 @@ from fixtures import akconfig
 from fixtures.akbin import REAL_TMUX, Home
 
 USUAL = '{"theme": "dark", "autoCompactWindow": 1000000}\n'
-OWN_SOCKET = """#!/bin/sh
-case $1:$2 in
-  -S:*..*) ;;
-  -S:{dir}/*) exec {real} "$@" ;;
-esac
-exec {held} "$@"
-"""
 STARTED = """#!{python}
 import json, os, time
 folder = os.environ.get("CLAUDE_CONFIG_DIR")
@@ -54,11 +45,6 @@ class ClaudeLogins(unittest.TestCase):
     def setUp(self):
         self.home = home = Home()
         self.addCleanup(home.close)
-        held = home.bin / "tmux-of-the-home"
-        (home.bin / "tmux").rename(held)
-        home.fake("tmux", OWN_SOCKET.format(dir=shlex.quote(str(home.tmux_dir)),
-                                            real=shlex.quote(REAL_TMUX),
-                                            held=shlex.quote(str(held))))
         home.fake("claude", STARTED.format(python=sys.executable, saw=repr(str(home.root))))
         self.usual = home.write(".claude/settings.json", USUAL, ago=86400)
         self.before = (self.usual.read_bytes(), self.usual.stat().st_mtime_ns)

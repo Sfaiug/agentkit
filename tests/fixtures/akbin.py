@@ -49,12 +49,13 @@ Done = namedtuple("Done", "code out err")
 
 LOG = "#!/bin/sh\n{python} -c 'import json, sys; print(json.dumps(sys.argv[1:]))' \"$@\" >>{log}\n"
 REFUSE = LOG + 'echo "{name}: not scripted in this test" >&2\nexit 1\n'
-# A socket path could name any server on the machine, as could a socket name holding a slash
-# (`-L ../../tmux-1000/agentkit` walks out of TMUX_TMPDIR), and TMUX or TMUX_PANE the caller's
-# own.  Its flags are read as tmux's getopt reads them: bundled, a value attached or in the next
-# word.
-TMUX = LOG + """refuse() {{ echo "tmux: a test's tmux takes no socket path" >&2; exit 2; }}
-value() {{ case $1$2 in L*/*) refuse ;; esac; }}
+# A socket path outside this Home's socket directory could name any server on the machine, as
+# could a socket name holding a slash (`-L ../../tmux-1000/agentkit` walks out of TMUX_TMPDIR),
+# and TMUX or TMUX_PANE the caller's own; a seat's pane asks its own server by the path tmux
+# gives it.  Every flag is read as tmux's getopt reads them: bundled, a value attached or in the
+# next word.
+TMUX = LOG + """refuse() {{ echo "tmux: no socket outside the test's Home" >&2; exit 2; }}
+value() {{ case $1$2 in L*/*|S*..*) refuse ;; S{tmpdir}/*) ;; S*) refuse ;; esac; }}
 want=
 for a do
   if [ -n "$want" ]; then value "$want" "$a"; want=; continue; fi
@@ -63,8 +64,7 @@ for a do
   while [ -n "$flags" ]; do
     flag=${{flags%"${{flags#?}}"}}; flags=${{flags#?}}
     case $flag in
-      S) refuse ;;
-      [cfLT]) if [ -n "$flags" ]; then value "$flag" "$flags"; else want=$flag; fi; break ;;
+      [cfLST]) if [ -n "$flags" ]; then value "$flag" "$flags"; else want=$flag; fi; break ;;
     esac
   done
 done
