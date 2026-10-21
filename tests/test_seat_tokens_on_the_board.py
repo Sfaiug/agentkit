@@ -77,7 +77,9 @@ class SeatTokens(unittest.TestCase):
                                message("ancient", 9, NOW - 3 * WEEK),
                                message("old", 10, NOW - WEEK - 1), own, own)
         self.child = self.write(self.main.with_suffix("") / "subagents/agent-child.jsonl",
-                                message("child", 25), {"type": "result", "usage": {"input_tokens": 999}})
+                                message("child", 20), {"type": "result", "usage": {"input_tokens": 999}})
+        self.workflow = self.write(self.main.with_suffix("") / "subagents/workflows/wf_fixture/agent-wf.jsonl",
+                                   message("workflow", 5))
         store = self.root / ".codex/agentkit-seats/fixture/sessions/2026/10/21"
         self.rollout = self.write(store / "rollout-seat.jsonl", total(100, NOW - WEEK - 1), total(160))
         self.write(store / "rollout-child.jsonl", total(40), total(40))
@@ -86,12 +88,13 @@ class SeatTokens(unittest.TestCase):
             "launch": "1" * 32, "remote": "fixture", "event": {"transcript_path": str(self.rollout)}}))
         self.seat("cedar", "muse")
         store = self.root / "data/muse/sessions/2026/10/21"
-        def metadata(session, parent=None):
-            return {"stream": {"id": session}, "payload": {"kind": "metadata",
-                    "record": {"parent_session_id": parent}}}
-        self.muse = self.write(store / "cedar/session.jsonl", muse_usage("u1", 70))
-        self.write(store / "child/session.jsonl", metadata("child", "cedar"), muse_usage("u2", 30),
-                   muse_usage("tool", 999, "tool"))
+        def metadata(session):
+            return {"stream": {"kind": "session", "id": session}, "payload": {"kind": "metadata",
+                    "record": {"model_id": "fixture", "provider_id": "p"}}}
+        retained = {"retained_frame": "x", "frame_schema_version": 1, "children": []}
+        self.muse = self.write(store / "cedar/session.jsonl", retained, metadata("cedar"), muse_usage("u1", 70))
+        self.muse_child = self.write(store / "cedar/subagent/child/session.jsonl", retained, metadata("child"),
+                                     muse_usage("u2", 30), muse_usage("tool", 999, "tool"))
         self.write(store / "unrelated/session.jsonl", metadata("unrelated"), muse_usage("other", 999))
         for name, merged in (("merged", True), ("failed", False)):
             history.start_run(name, repo="acme", started_at=NOW - 10)
@@ -119,9 +122,9 @@ class SeatTokens(unittest.TestCase):
             scoreboard.compute(NOW)
             parsed.assert_not_called()
             self.write(self.main, message("new", 50), message("m1", 100))
-            self.write(self.child, message("new-child", 5))
+            self.write(self.workflow, message("new-workflow", 5))
             self.write(self.rollout, total(220))
-            self.write(self.muse, muse_usage("u3", 10))
+            self.write(self.muse_child, muse_usage("u3", 10))
             self.assertEqual(scoreboard.compute(NOW)["tokens"][0]["seat_tokens"], 450)
             self.assertEqual(parsed.call_count, 3)
         line = json.dumps(message("partial", 7)) + "\n"
@@ -146,10 +149,17 @@ class SeatTokens(unittest.TestCase):
         self.seat("ash", "echo")
         self.seat("elm", "claude")
         self.seat("new", "codex", conversation=None)
+        self.seat("fir", "codex")
+        store = self.root / ".codex/sessions"
+        self.write(store / "rollout-fir.jsonl",
+                   {"type": "session_meta", "payload": {"id": "fir", "source": "vscode"}}, total(100))
+        self.write(store / "rollout-child.jsonl", {"type": "session_meta", "payload": {
+            "id": "child", "source": {"subagent": {"thread_spawn": {"parent_thread_id": "fir", "depth": 1}}}}},
+            total(25))
         self.write(self.root / ".codex/sessions/rollout-other.jsonl",
                    {"type": "session_meta", "payload": {"id": "other", "source": {}}}, total(999))
         board = scoreboard.compute(NOW)
-        self.assertEqual(board["tokens"][0]["total_tokens"], 0)
+        self.assertEqual(board["tokens"][0]["total_tokens"], 125)
         self.assertEqual(board["tokens"][0]["not_counted"], ["ash (echo)", "elm (claude)"])
         text = " ".join(" ".join(scoreboard.render(board)).split())
         self.assertIn("not counted: ash (echo), elm (claude)", text)
