@@ -70,7 +70,7 @@ class AuditSetting(unittest.TestCase):
         self.write('orchestrator = "nova"\n')
         self.assertIn("unknown model 'nova'", menu.audit_value(config.load()))
 
-    def test_the_row_says_on_or_off_and_the_three_roles(self):
+    def test_the_row_says_on_or_off_and_the_three_roles_by_full_name(self):
         self.assertEqual(menu.audit_value(config.load()),
                          "on · orch Opus 5.5 · builds Opus 5.5, GPT-6-Astra · reviews Opus 5.5, GPT-6-Astra")
         self.write('on = false\nworkers = []\nreviewers = ["astra"]\n')
