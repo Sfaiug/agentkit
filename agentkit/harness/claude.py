@@ -66,6 +66,24 @@ def transcript(record, cwd, conversation):
     return str(path) if path.exists() else None
 
 
+def seat_token_sources(record):
+    if not record.get("conversation") or not record.get("cwd"):
+        return []
+    path = transcript_path(record, record["conversation"])
+    return [path, *path.with_suffix("").glob("subagents/*.jsonl")]
+
+
+def seat_token_usage(entry, cursor):
+    if entry.get("type") != "assistant":
+        return None
+    message = entry.get("message") or {}
+    usage = message.get("usage") or {}
+    counts = [usage[key] for key in ("input_tokens", "output_tokens",
+              "cache_creation_input_tokens", "cache_read_input_tokens") if key in usage]
+    if counts and all(type(value) is int and value >= 0 for value in counts):
+        return entry.get("timestamp"), message.get("id") or entry.get("uuid"), sum(counts)
+
+
 # Lines no one said here: bookkeeping, a compaction's summary, a subagent's, view-only ones.
 UNSAID = ("isMeta", "isCompactSummary", "isSidechain", "isVisibleInTranscriptOnly")
 

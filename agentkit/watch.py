@@ -45,7 +45,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, host, notify,
-               orch, staffing, statusbar, transitions, turns, update, usage, worker)
+               orch, seat_tokens, staffing, statusbar, transitions, turns, update, usage, worker)
 from . import record as run_record
 from .harness import LIMITED, SPENT, says
 from .lifecycle import LIVE, facts as hook_facts, state as hook_state
@@ -7329,6 +7329,7 @@ def local_passes(state, dry_run, log):
         ("the switch retirement pass did not run", lambda: retire.hand(log), False),
         # The first tick of a week writes the board with its largest loss, and the `audit`
         # seat, opened with `[audit]`'s models, is told it at its quiet prompt.
+        ("the seat token pass did not run", lambda: seat_tokens.read(0, 0), False),
         ("the weekly audit pass did not run", lambda: tell_audit(config.load(), log), False),
         # What the owner typed into a seat's turn after it asked answers its question before
         # the cards are read, so no card goes out for a question they answered.

@@ -395,6 +395,27 @@ def end_conversation(path, ends):
     shutil.rmtree(folder)
 
 
+def seat_token_sources(record):
+    from . import token_family
+    session = record.get("conversation")
+    if not session:
+        return []
+
+    def metadata(entry):
+        return entry["stream"]["id"], entry["payload"]["record"].get("parent_session_id")
+    return token_family(session_logs("*"), [session], metadata)
+
+
+def seat_token_usage(entry, cursor):
+    record = run_event(entry, "goal_usage_attribution").get("record") or {}
+    quantity = record.get("quantity") or {}
+    if record.get("usage_family") != "provider" or quantity.get("reported") is False:
+        return None
+    counts = [quantity[key] for key in ("input_tokens", "output_tokens") if key in quantity]
+    if counts and all(type(value) is int and value >= 0 for value in counts):
+        return entry["recorded_at"] / 1_000_000, entry.get("id"), sum(counts)
+
+
 def said(record, cwd, conversation):
     """Each run of the session starts with the prompt it was given and commits every answer it
     showed as an event of its own; its reasoning, tool batches and reminders are other events,
