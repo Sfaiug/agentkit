@@ -245,10 +245,10 @@ def conversation_stores():
             for module in _plugins("conversation_stores") for store in module.conversation_stores()]
 
 
-def end_conversation(harness, path):
+def end_conversation(harness, path, ends):
     """End the conversation that file keeps, the harness's own way, with whatever it indexed
-    of it."""
-    _module(harness).end_conversation(path)
+    of it, only if `ends(*its other parts)` holds once nothing of it can change before it goes."""
+    _module(harness).end_conversation(path, ends)
 
 
 @functools.cache

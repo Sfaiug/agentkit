@@ -515,11 +515,11 @@ def conversation_stores():
     return [{"root": Path.home() / ".codex" / "sessions", "pattern": "*/*/*/rollout-*.jsonl"}]
 
 
-def end_conversation(path):
+def end_conversation(path, ends):
     """`codex delete`, which takes a thread's rollout and what Codex indexed of it at once, run
     on the home `conversation_stores` scans, whatever home and database the caller selected."""
     match = ROLLOUT.fullmatch(Path(path).name)
-    if match:
+    if match and ends():
         env = {key: value for key, value in os.environ.items() if key != "CODEX_SQLITE_HOME"}
         env["CODEX_HOME"] = str(conversation_stores()[0]["root"].parent)
         subprocess.run([config.harness_binary("codex") or "codex", "delete", "--force", match[1]],
