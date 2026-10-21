@@ -396,14 +396,11 @@ def end_conversation(path, ends):
 
 
 def seat_token_sources(record):
-    from . import token_family
     session = record.get("conversation")
     if not session:
         return []
-
-    def metadata(entry):
-        return entry["stream"]["id"], entry["payload"]["record"].get("parent_session_id")
-    return [*session_logs(session), *token_family(session_logs("*"), [session], metadata)]
+    return [source for path in session_logs(session)
+            for source in (path, *(path.parent / "subagent").rglob("session.jsonl"))]
 
 
 def seat_token_usage(entry, cursor):

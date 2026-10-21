@@ -70,7 +70,7 @@ def seat_token_sources(record):
     if not record.get("conversation") or not record.get("cwd"):
         return []
     path = transcript_path(record, record["conversation"])
-    return [path, *path.with_suffix("").glob("subagents/*.jsonl")]
+    return [path, *path.with_suffix("").glob("subagents/**/*.jsonl")]
 
 
 def seat_token_usage(entry, cursor):

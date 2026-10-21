@@ -153,7 +153,9 @@ def seat_token_sources(record):
     elif record.get("conversation"):
         def metadata(entry):
             meta = entry["payload"]
-            parent = ((meta.get("source") or {}).get("subagent") or {}).get("thread_spawn") or {}
+            source = meta.get("source")
+            subagent = source.get("subagent") if isinstance(source, dict) else None
+            parent = (subagent or {}).get("thread_spawn") or {}
             return meta["id"], parent.get("parent_thread_id")
         root = Path.home() / ".codex"
         candidates = [path for folder in ("sessions", "archived_sessions")
