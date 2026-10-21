@@ -1085,8 +1085,10 @@ def tmux_env(client=False):
     return dict(os.environ) if client else {k: v for k, v in os.environ.items() if k != "TMUX"}
 
 
-def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shim=False):
-    """(exit code, output) of one tmux command; 127 when there is no tmux to ask.
+def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shim=False,
+             rows=False):
+    """(exit code, output) of one tmux command; 127 when there is no tmux to ask.  The output is
+    stripped, unless `rows` keeps a capture's leading blank rows, where each row's place counts.
 
     `unit` names the transient scope a command that starts a server runs in, so that the
     server -- and every pane it ever opens -- lives in agentkit's slice.  Where the scope
@@ -1118,8 +1120,10 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shi
         # the command's name, never its words: send-keys carries what the owner typed
         return 124, f"tmux did not answer {next(iter(args), '')} within {timeout:g} s"
     if proc.returncode != 0 and argv != plain:
-        return tmux_out(*args, socket=socket, client=client, timeout=timeout, path_shim=path_shim)
-    return proc.returncode, (proc.stdout + proc.stderr).strip()
+        return tmux_out(*args, socket=socket, client=client, timeout=timeout, path_shim=path_shim,
+                        rows=rows)
+    out = proc.stdout + proc.stderr
+    return proc.returncode, out.rstrip() if rows else out.strip()
 
 
 def tmux_literal(word):
