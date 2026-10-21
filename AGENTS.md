@@ -22,7 +22,7 @@ This section changes only with the owner's yes. Every other line has one home, a
 - Python 3.11 standard library and bash. No dependency is added, ever.
 - One test file per behaviour: `python3 tests/test_<name>.py`, run straight, no runner.
 - The `tests:` gate (`tests/landing.py`) runs `bash tests/smoke.sh` beside `tests/every_file.py` (remaining `tests/test_*.py`; see its docstring). `AK_SHARD=k/N` selects both parts' k-th share (1-based); unset or `1/1` runs all. It refuses Python that 3.11's grammar refuses, f-strings aside: a newer `python3` accepts f-strings 3.11 rejects (`f"{data["key"]}"`), so `python3.11 -m py_compile` what you touch that holds one. Dependent checks stay together; each piece has a tmux safety guard and sandbox. `AGENTKIT_ACCEPTANCE_REQUIRED=1` makes skips fail; supported network namespaces allow only loopback.
-- Match the file's style. Read `ARCHITECTURE.md` first; a change that adds, removes, renames or moves a module updates the map. Any task may lower a `max` in `tests/test_boundaries.py` in the area it touches, and no task raises one.
+- Match the file's style. Any task may lower a `max` in `tests/test_boundaries.py` in the area it touches, and no task raises one.
 - `docs/guide.md` follows code changes. `README.md` holds only what ak is, installation and starting.
 - `orchestrator.md` is the rulebook an agentkit session is launched with, not a file for here.
 
