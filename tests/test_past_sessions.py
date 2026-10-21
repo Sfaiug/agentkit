@@ -278,13 +278,39 @@ class Layout(Sandbox):
         with patch.object(terminal, "width", return_value=40), \
                 patch.object(orch, "age", return_value="1h"), \
                 patch.object(orch, "listed", dict), \
-                patch.object(orch, "checkout_of", return_value=None):
+                patch.object(orch, "checkout_of", lambda repo, **_kw: Path(repo)):
             lines, places = menu.past_body(
-                [(1, {"name": "fix-api", "repo": None, "closed": 1})], at="fix-api", room=8,
-                said={"fix-api": (sentence, "2 tasks · took 5 hours")})
+                [(1, {"name": "fix-api", "repo": "/tmp/acme", "closed": 1})], at="fix-api",
+                room=8, said={"fix-api": (sentence, "2 tasks · took 5 hours")})
         self.assertGreater(len(lines), 8)
+        # under its project's heading, which a page of its own held
+        self.assertEqual(terminal.plain(lines[0]).strip(), "acme")
         self.assertEqual(terminal.plain(lines[-1]).strip(), "2 tasks · took 5 hours")
-        self.assertEqual(list(places.values()), [(("row", "fix-api"), [])] * len(lines))
+        self.assertEqual(list(places.values()), [(("row", "fix-api"), [])] * (len(lines) - 1))
+
+    def test_the_next_row_opens_from_its_start_not_where_the_last_was_turned_to(self):
+        drawn = []
+        seats = [dict(name=name, repo="/tmp/acme", created=1, closed=20000)
+                 for name in ("alpha", "beta")]
+        with ExitStack() as stack:
+            for obj, name, value in ((terminal, "width", 40), (terminal, "height", 14),
+                                     (terminal, "taken", True), (terminal, "away", False),
+                                     (terminal, "utf8", True), (orch, "age", "1h"),
+                                     (orch, "listed", {})):
+                stack.enter_context(patch.object(obj, name, return_value=value))
+            stack.enter_context(patch.object(orch, "checkout_of",
+                                             lambda repo, **_kw: Path(repo)))
+            stack.enter_context(patch.object(menu, "selection_of", return_value={}))
+            stack.enter_context(patch.object(menu, "past_said", lambda seat: (
+                (seat["name"] + " started this job. ") * 20, "2 tasks · took 5 hours")))
+            stack.enter_context(patch.object(terminal, "frame", lambda title, body, *_a, **_kw:
+                                             drawn.append([terminal.plain(line).strip()
+                                                           for line in body]) or {}))
+            stack.enter_context(patch.object(terminal, "read_key", side_effect=[
+                terminal.Key("down")] * 3 + [terminal.Key("esc")]))
+            menu.show_past(CFG, seats, keyboard=None)
+        self.assertEqual(drawn[2][-1], "2 tasks · took 5 hours")     # alpha turned to its end
+        self.assertEqual(drawn[3][:2], ["acme", "› 2 beta - stopped 1h ago"])
 
     def test_past_rows_match_the_main_screens_rows(self):
         session = {"name": "fix-api", "repo": None, "closed": 1}

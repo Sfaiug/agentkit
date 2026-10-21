@@ -4924,9 +4924,12 @@ def past_body(past, at=None, models=None, room=None, said=None):
     flat = [line for number, (heading, rows) in enumerate(projects)
             for line in [("", None)] * bool(number) + [heading] + sum(rows, [])]
     pages = [flat] if room is None or len(flat) <= room else project_pages(projects, room)
-    # a row taller than a page is one body, whose pages ↑/↓ turn before leaving it (matrix_key)
-    page = [line for page in pages if any(name == at for _, name in page) for line in page]
-    page = page or pages[0]
+    # a row taller than a page is one body under its heading, which project_pages puts on a
+    # page of its own before it; ↑/↓ turn the body's pages before leaving it (matrix_key)
+    held = [number for number, page in enumerate(pages) if any(name == at for _, name in page)]
+    if held and held[0] and not any(name for _, name in pages[held[0] - 1]):
+        held.insert(0, held[0] - 1)
+    page = [line for number in held for line in pages[number]] or pages[0]
     return ([line for line, _ in page],
             {number: (("row", name), []) for number, (_, name) in enumerate(page) if name})
 
@@ -4983,6 +4986,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
         act, row, _column, top = matrix_key("past sessions", body, places,
                                             [("row", name) for name in names], ("row", here),
                                             top, "", keys, clock=clock)
+        top = top if row[1] == here else 0      # another row is another body, from its start
         here = row[1]
         if act is None:
             continue              # a resize or the pointer: drawn again
