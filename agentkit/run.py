@@ -2220,7 +2220,7 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
             fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"
             try:
                 # what the fixer says stays in its turn's directory, where the next round's
-                # reviewer reads it (`fixer_words`), resumed after a cut or not
+                # record reads it (`fixer_words`), resumed after a cut or not
                 execute(lp, "fixer", fix, name or turn)
             except Blocked as exc:
                 pr_review_blocked(lp, exc)
@@ -2386,13 +2386,16 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     cmds = [f"{tests}  # once" if is_own else tests] if tests else []
     title = f"Review PR #{number}: {info['title']}"
     if is_own:
+        # what the seat wrote of its own PR stays on GitHub: its reviewer judges the diff
+        # against the plan ak holds, never the author's account of its work
         wrote = (f"The {session_at_launch} seat's orchestrator {orchestrator} wrote this diff; "
-                 "review it as that model's work.")
+                 "review it as that model's work.\n\n")
     else:
-        wrote = "Nobody from agentkit executed anything here; the diff is the author's."
+        wrote = ("Nobody from agentkit executed anything here; the diff is the author's, and the "
+                 f"PR states its intent.\n\n## The PR says\n"
+                 f"{(info.get('body') or '(no description)').strip()}\n\n")
     body = (f"# {title}\n\n## Goal\nJudge {url} by {info['author']} against this repository: "
-            f"its AGENTS.md, README, tests and conventions, and the intent the PR states. {wrote}\n\n"
-            f"## The PR says\n{(info.get('body') or '(no description)').strip()}\n\n"
+            f"its AGENTS.md, README, tests and conventions. {wrote}"
             + planned + done_when_block(cmds))
     (run_dir / "task.md").write_text(f"---\nrepo: {repo}\nrounds: {n_rounds}\n---\n{body}")
     state = stamp_origin({**(run_record.read_state(run_dir) or {}), "run_id": run_dir.name,
@@ -2522,7 +2525,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     if is_own:
         summary = (f"PR #{number} by {info['author']}: {info['title']}. "
                    f"{orchestrator} wrote this; review its diff.")
-        said = fixer_words(lp.round_dir, turn)      # the fixer's own words on the head it left
+        said = fixer_words(lp.round_dir, turn)      # the fixer's own words, for the record alone
         if said:
             summary += f"\n\n## What the fixer said\n{said}"
     else:

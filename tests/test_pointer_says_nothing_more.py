@@ -23,7 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
-from agentkit import menu, terminal, watch
+from agentkit import config, menu, terminal, watch
 import test_close_and_info
 from test_hover import ESC, at, move, played, run, texts
 from fixtures.sandbox import Sandbox
@@ -143,7 +143,7 @@ class ConfigScreen(Sandbox):
 
     def test_a_model_its_marks_and_a_provider_say_nothing_on_the_key_line(self):
         first = self.matrix()[0]
-        label = at(first, "astra")
+        label = at(first, config.model_name(self.cfg, "astra"))      # its row, by its full name
         for place in (label, (at(first, "orch")[0] + 1, label[1]), at(first, "Claude", 1)):
             with self.subTest(place=place):
                 # the keys for what the pointer moved the highlight onto, and nothing else

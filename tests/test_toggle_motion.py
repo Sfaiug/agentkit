@@ -266,9 +266,10 @@ with closing(""", 1)
         hold.write_text("0")
         mark = len(screen.text())
         os.write(screen.master, ENTER)
-        lines = screen.frame(lambda lines: highlighted(lines).startswith("› claude-haiku"),
+        lines = screen.frame(lambda lines: highlighted(lines).startswith("› Haiku 4.5"),
                              after=mark)
-        number, line = row(lines, "claude-haiku")
+        # claude-haiku, by its full name as the shipped haiku's is: the highlighted one
+        number, line = next((n, line) for n, line in enumerate(lines, 1) if line.startswith("›"))
 
         def tones():
             return [sum(map(int, BACK.findall(frame)[0]))
@@ -286,7 +287,7 @@ with closing(""", 1)
         # The glow stays held until a key ends it; the key cannot wait for its timer.
         mark = len(screen.text())
         moved(screen, RIGHT)
-        lines = screen.frame(lambda lines: highlighted(lines).startswith("› claude-haiku"),
+        lines = screen.frame(lambda lines: highlighted(lines).startswith("› Haiku 4.5"),
                              after=mark)
         self.assertNotRegex(screen.text()[mark:].rpartition("<motion settled>")[2], PLACE)
         self.assertEqual(screen.saved()["models"]["claude-haiku"]["effort"], "none")
@@ -305,7 +306,7 @@ class NewSessionScreen(Screens):
 
     def test_a_mark_empties_when_cleared_and_fills_when_set(self):
         screen, lines = self.picker()
-        number, line = numbered(lines, "opus")
+        number, line = numbered(lines, new_session.full("opus"))
         cells = moved(screen, new_session.SPACE)
         landed(self, glyphs(cells, number), ["▣", "□"])
         cells = moved(screen, click(mark_column(line, 1), number))
@@ -319,7 +320,7 @@ class NewSessionScreen(Screens):
         screen, lines = self.picker()
         screen.send(RIGHT + new_session.SPACE)          # Opus's review off: Astra is the last one
         lines = screen.picker(lambda lines: new_session.marks(highlighted(lines)) == "●■□")
-        number, line = numbered(lines, "astra")
+        number, line = numbered(lines, new_session.full("astra"))
         cells = moved(screen, click(mark_column(line, 2), number))
         self.assertIn("at least one model reviews", "\n".join(screen.picker()))
         landed(self, shifts(cells, number, mark_column(line, 2)), [-1, 1, -1, 0])

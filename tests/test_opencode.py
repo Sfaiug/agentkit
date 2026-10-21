@@ -1022,7 +1022,7 @@ stop();
         launched = []
         # tmux has lost every seat -- a reboot -- and nothing here starts one for real
         stack.enter_context(patch.object(orch, "sessions", return_value=[]))
-        stack.enter_context(patch.object(orch, "start", side_effect=lambda name, cwd, cmd, model:
+        stack.enter_context(patch.object(orch, "start", side_effect=lambda name, cwd, cmd, model, *_a:
                                          launched.append((name, cmd))))
         cfg = config.load()
         cwd = self.root / "one directory"

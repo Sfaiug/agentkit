@@ -28,11 +28,16 @@ class Projects(Sandbox):
                                        "since": 9100, "began": 9100, "evidence": ""}))
         # Nothing here reads the checkout's git history: `config.REPO` is a directory with no
         # history at all: an unpacked tarball outside this one, holding the
-        # `config.default.toml` `config.load` falls back to and nothing else.  The screens are
-        # the same in a fresh clone, in a tarball and in a checkout with commits.
+        # `config.default.toml` `config.load` falls back to and the harnesses' manifests, whose
+        # catalogs name each model in full (`config.model_name`), and nothing else -- none of
+        # their scripts.  The screens are the same in a fresh clone, in a tarball and in a
+        # checkout with commits.
         no_history = tempfile.TemporaryDirectory(prefix=".v4z-no-history-")
         self.addCleanup(no_history.cleanup)
         shutil.copy(REPO / "config.default.toml", Path(no_history.name) / "config.default.toml")
+        shutil.copytree(REPO / "adapters", Path(no_history.name) / "adapters",
+                        ignore=lambda _dir, names: [name for name in names
+                                                    if not name.endswith(".toml")])
         self.stack.enter_context(patch.object(config, "REPO", Path(no_history.name)))
         self.stack.enter_context(patch.object(menu.time, "strftime", return_value="14:02"))
         for name in ("ATOLL", "agentkit", "newsletter-tool"):
@@ -94,7 +99,8 @@ class Projects(Sandbox):
 
     def test_a_the_snapshots_never_read_the_checkout_s_git_history(self):
         self.assertFalse((config.REPO / ".git").exists())
-        self.assertEqual([path.name for path in config.REPO.iterdir()], ["config.default.toml"])
+        self.assertEqual(sorted(path.name for path in config.REPO.iterdir()),
+                         ["adapters", "config.default.toml"])
         ran = []
 
         def command(argv, *args, **kwargs):
@@ -383,11 +389,11 @@ class Projects(Sandbox):
             return re.sub(r"#\[[^\]]*\]", "", text).strip()
 
         title = tmux("show-options", "-t", "state", "-v", "set-titles-string")
-        self.assertEqual(shown(statusbar.TOP), "state   fable")
+        self.assertEqual(shown(statusbar.TOP), "state   Fable 5.1")
         self.assertEqual(shown(statusbar.KEY), "Ctrl-b m  menu")
         self.assertEqual(title, "state")
         self.assertNotIn("#[", title)
-        self.assertIn('terminal-features ",*:RGB"', orch.tmux_conf().read_text())
+        self.assertIn('terminal-features ",*:RGB:hyperlinks"', orch.tmux_conf().read_text())
         with patch.dict(os.environ, {key: value for key, value in env.items() if key != "NO_COLOR"}, clear=True), \
                 patch.object(orch, "tmux_out", side_effect=lambda *args, **kw: (0, tmux(*args))):
             for word in terminal.STATES:

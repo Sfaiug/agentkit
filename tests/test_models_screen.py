@@ -4,8 +4,8 @@ recommendation (said why in tests/test_models_screen_says_why.py; each line a ro
 highlight rests on), and one knob,
 `as good as the best: within ‹ 5 ›`, whose ←/→ step `within` a point, never under 0, saved to
 config.toml at once, the recommended and as-good lines following.  One model a row, the
-scored ones first by their best quality: config name or id, harness, effort between arrows
-(←/→ step it through the model's own efforts, the numbers following, nothing saved; a row every
+scored ones first by their best quality: full name (config.model_name) or id, harness,
+effort between arrows (←/→ step it through the model's own efforts, the numbers following, nothing saved; a row every
 board names no effort for stands at every effort of its model), quality
 per role at that effort (the recommended row's in `done`'s colour, one as good in the accent,
 `-` without a score) and what Artificial Analysis's index run cost it.  On a phone the cost
@@ -22,6 +22,7 @@ from contextlib import redirect_stdout
 import io
 import json
 from pathlib import Path
+import re
 import sys
 import unittest
 from unittest.mock import patch
@@ -75,6 +76,9 @@ class Screen(Sandbox):
         rows[-1]["values"] = {}                       # no board has spark
         rows[-1]["scores"] = {role: None for role in matrix.ROLES}
         self.store(rows)
+        # each configured model as the screen names it, in full (config.model_name)
+        self.opus, self.astra, self.spark = (config.model_name(self.cfg, name)
+                                             for name in ("opus", "astra", "spark"))
 
     def store(self, rows):
         matrix.cache_path().parent.mkdir(parents=True, exist_ok=True)
@@ -99,10 +103,12 @@ class ModelsScreen(Screen):
         text = self.screens([Key("char", "r"), Key("esc"), Key("esc")])
         self.assertIn("agentkit · models · fix-api", text)
         self.assertIn("as good as the best: within ‹ 5 ›", text)
-        self.assertIn("best orch opus @ max 100 $8000 · builds opus @ max 100 $8000 · reviews opus @ max "
-                      "100 $8000 as good builds opus @ xhigh 97 $4000 · reviews opus @ xhigh 97 $4000 "
-                      "recommended the cheapest as good: orch opus @ xhigh 97 $4000 · builds astra @ "
-                      "xhigh 95 $500 · reviews astra @ xhigh 96 $500", text)
+        opus, astra = self.opus, self.astra
+        self.assertIn(f"best orch {opus} @ max 100 $8000 · builds {opus} @ max 100 $8000 · reviews "
+                      f"{opus} @ max 100 $8000 as good builds {opus} @ xhigh 97 $4000 · reviews "
+                      f"{opus} @ xhigh 97 $4000 recommended the cheapest as good: orch {opus} @ "
+                      f"xhigh 97 $4000 · builds {astra} @ xhigh 95 $500 · reviews {astra} @ xhigh "
+                      "96 $500", text)
         self.assertIn("quality is a model's share of the best on the public boards, out of 100; "
                       "cost is what Artificial Analysis's index run cost it, in dollars", text)
         self.assertIn("model harness effort orch builds reviews cost $", text)
@@ -110,26 +116,25 @@ class ModelsScreen(Screen):
         # it at, else its best; a model with one effort has no arrows; mimo's one row at none
         # shows on its first level; spark, which no board has, last at the effort the config
         # runs it at
-        self.assertRegex(text, r"› opus claude ‹ xhigh › 97 97 97 4000 "
-                              r"astra codex xhigh 85 95 96 500 "
-                              r"claude-sonnet-5-5 claude max 68 85 85 7000 "
-                              r"mimo-pro opencode ‹ none › - 51 51 100 "
-                              r"spark muse xhigh - - - -")
+        self.assertIn(f"› {opus} claude ‹ xhigh › 97 97 97 4000 "
+                      f"{astra} codex xhigh 85 95 96 500 "
+                      "claude-sonnet-5-5 claude max 68 85 85 7000 "
+                      "mimo-pro opencode ‹ none › - 51 51 100 "
+                      f"{self.spark} muse xhigh - - - -", text)
         self.assertIn("↑↓ move ←→ effort r take recommended esc back", text)
         # back on `c`, whose key opens the screen
-        self.assertRegex(text, r"esc back.*fable runs on [^·]+ ↑↓←→ move ⏎ mark r recommended "
-                               r"esc back")
+        self.assertRegex(text, r"esc back.* ↑↓←→ move ⏎ mark r recommended esc back")
         self.assertNotIn("r takes exec and review", text)
 
     def test_the_arrows_step_a_model_s_effort_and_the_numbers_follow_nothing_saved(self):
         text = self.screens([Key("char", "r"), Key("right"), Key("esc"), Key("esc")])
-        self.assertRegex(text, r"› opus claude ‹ max › 100 100 100 8000 ")
+        self.assertIn(f"› {self.opus} claude ‹ max › 100 100 100 8000 ", text)
         self.assertEqual(config.load()["models"]["opus"]["effort"], "xhigh")
         text = self.screens([Key("char", "r"), Key("left"), Key("left"), Key("esc"), Key("esc")])
-        self.assertRegex(text, r"› opus claude ‹ high › 86 86 86 2000 ")
+        self.assertIn(f"› {self.opus} claude ‹ high › 86 86 86 2000 ", text)
         # on a model with one effort the arrows do nothing and the key line offers none
         text = self.screens([Key("char", "r"), Key("down"), Key("right"), Key("esc"), Key("esc")])
-        self.assertRegex(text, r"› astra codex xhigh 85 95 96 500 ")
+        self.assertIn(f"› {self.astra} codex xhigh 85 95 96 500 ", text)
         # a row at none, the boards naming no effort, counts at every effort of its model
         text = self.screens([Key("char", "r"), *[Key("down")] * 3, Key("right"), Key("esc"),
                              Key("esc")])
@@ -141,7 +146,7 @@ class ModelsScreen(Screen):
         one["matched"] = {"artificialanalysis.ai": {"model": "Claude Opus 5.5", "effort": None}}
         self.store(matrix.scored([one]))
         text = self.screens([Key("char", "r"), Key("right"), Key("esc"), Key("esc")])
-        self.assertIn("› opus claude ‹ max › 100 100 100 4000 ", text)
+        self.assertIn(f"› {self.opus} claude ‹ max › 100 100 100 4000 ", text)
 
     def test_the_knob_steps_within_saved_at_once_and_the_recommendation_follows(self):
         # up past the note and the three lines that say why, each a row, to the knob
@@ -150,14 +155,16 @@ class ModelsScreen(Screen):
         self.assertIn("as good as the best: within ‹ 4 ›", text)
         self.assertEqual(config.load()["within"], 4)
         # within 4, astra's 96 is no longer as good as opus's 100: opus @ xhigh everywhere
-        self.assertIn("as good none recommended the cheapest as good: orch opus @ xhigh 97 $4000 · "
-                      "builds opus @ xhigh 97 $4000 · reviews opus @ xhigh 97 $4000", text)
+        said = f"{self.opus} @ xhigh 97 $4000"
+        self.assertIn(f"as good none recommended the cheapest as good: orch {said} · builds "
+                      f"{said} · reviews {said}", text)
         text = self.screens([Key("char", "r"), *[Key("up")] * 5, *[Key("left")] * 6, Key("esc"),
                              Key("esc")])
         self.assertIn("as good as the best: within ‹ 0 ›", text)
         self.assertEqual(config.load()["within"], 0)
-        self.assertIn("recommended the cheapest as good: orch opus @ max 100 $8000 · builds opus @ max "
-                      "100 $8000 · reviews opus @ max 100 $8000", text)
+        said = f"{self.opus} @ max 100 $8000"
+        self.assertIn(f"recommended the cheapest as good: orch {said} · builds {said} · reviews "
+                      f"{said}", text)
 
     def test_on_a_phone_the_cost_gives_way_and_every_line_fits(self):
         # 24 lines hold a page shorter than the lines above the table, wrapped at 40 cells: up
@@ -165,20 +172,23 @@ class ModelsScreen(Screen):
         with patch.object(terminal, "height", return_value=24):
             text = self.screens([Key("char", "r"), Key("right"), *[Key("up")] * 5, *[Key("down")] * 9,
                                  Key("esc"), Key("esc")], width=40)
-        self.assertIn("model harness effort orch builds reviews › opus claude ‹ max › 100 100 100",
-                      text)
+        self.assertIn(f"model harness effort orch builds reviews › {self.opus} claude ‹ max › 100 "
+                      "100 100", text)
         self.assertNotIn("cost $", text.split("models · fix-api")[1])
         # each line is read whole on the page it is highlighted on, with no arrows to offer
-        self.assertRegex(text, r"› best orch opus @ max 100 \$8000 · builds opus @ max 100 \$8000 · "
-                               r"reviews opus @ max 100 \$8000 .*? ↑↓ move r take recommended esc back")
-        self.assertRegex(text, r"› as good builds opus @ xhigh 97 \$4000 · reviews opus @ xhigh 97 "
-                               r"\$4000 .*? ↑↓ move r take recommended esc back")
-        self.assertRegex(text, r"› recommended the cheapest as good: orch opus @ xhigh 97 \$4000 · "
-                               r"builds astra @ xhigh 95 \$500 · reviews astra @ xhigh 96 \$500 .*? "
+        best, good = (re.escape(f"{self.opus} @ {at}")
+                      for at in ("max 100 $8000", "xhigh 97 $4000"))
+        astra = re.escape(self.astra)
+        self.assertRegex(text, rf"› best orch {best} · builds {best} · reviews {best} .*? "
                                r"↑↓ move r take recommended esc back")
+        self.assertRegex(text, rf"› as good builds {good} · reviews {good} .*? "
+                               r"↑↓ move r take recommended esc back")
+        self.assertRegex(text, rf"› recommended the cheapest as good: orch {good} · "
+                               rf"builds {astra} @ xhigh 95 \$500 · reviews {astra} @ xhigh 96 \$500 "
+                               r".*? ↑↓ move r take recommended esc back")
         self.assertIn("quality is a model's share of the best on the public boards, out of 100; "
                       "cost is what Artificial Analysis's index run cost it, in dollars", text)
-        self.assertIn("› spark muse xhigh - - -", text)
+        self.assertIn(f"› {self.spark} muse xhigh - - -", text)
 
     def test_a_line_taller_than_the_page_is_read_a_page_at_a_time(self):
         # seven more models as good to build and review: `as good` wraps past a page at 40

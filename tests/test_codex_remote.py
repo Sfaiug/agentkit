@@ -193,6 +193,18 @@ Path.write_text = paused_write
         self.assertEqual(codex.session_title(record), '')
         self.stop(proc, home)
 
+    def test_first_prompt_stays_after_every_option_the_wrapper_adds(self):
+        # a message that reads like an option is still the TUI's first prompt, never the server's
+        with patch.dict(os.environ, {'AGENTKIT_FIRST_PROMPT': '-c --yolo'}):
+            proc, home, _ = self.start()
+        server = json.loads((home / 'fake-server.json').read_text())['argv']
+        tui = json.loads((home / 'fake-tui.json').read_text())['argv']
+        self.assertEqual(tui[tui.index('--'):], ['--', '-c --yolo'])
+        self.assertIn('sqlite_home=' + json.dumps(str(home)), tui[:tui.index('--')])
+        self.assertTrue(any(a.startswith('hooks.state=') for a in tui[:tui.index('--')]))
+        self.assertNotIn('-c --yolo', server)
+        self.stop(proc, home)
+
     def test_stop_and_resume_keep_identity_and_owned_conversation(self):
         proc, home, receipt = self.start()
         before = json.loads((home / 'fake-server.json').read_text())['pid']
@@ -200,7 +212,6 @@ Path.write_text = paused_write
         proc, resumed, new_receipt = self.start('acme-thread')
         self.assertEqual(home, resumed)
         self.assertNotEqual(receipt, new_receipt)
-        self.assertFalse(receipt.exists())
         self.assertNotEqual(before, json.loads((home / 'fake-server.json').read_text())['pid'])
         argv = json.loads((home / 'fake-tui.json').read_text())['argv']
         self.assertEqual(argv[argv.index('resume') + 1], 'acme-thread')
@@ -301,9 +312,10 @@ Path.write_text = paused_write
             self.wait_for(lambda: (home / 'fake-monitor-closed').exists())
             identity = (home / 'installation_id').read_bytes()
             database = (home / 'state_5.sqlite').read_bytes()
-            # orch prepares the new receipt before respawn-pane kills the old pane.
+            # orch prepares the new receipt before respawn-pane kills the old pane, and drops
+            # the old one only once that respawn has started.
             new_receipt = codex.prepare('acme-seat', self.cwd, 'acme-thread')
-            self.assertFalse(receipt.exists())
+            self.assertTrue(receipt.exists())
             self.stop(proc, home)
             account = self.root / '.codex-acme'
             account.mkdir()

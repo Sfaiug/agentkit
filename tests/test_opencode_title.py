@@ -232,7 +232,7 @@ console.log(JSON.stringify({updates, gets}));
     def test_resumed_launch_names_existing_session_and_clears_confirmation(self):
         self.bind()
         opencode.launched("lagoon", self.root, self.sid)
-        self.assertFalse(self.receipt.exists())
+        self.assertTrue(self.receipt.exists())   # till the new launch starts: orch.launch drops it
         self.receipt = opencode.path_for(self.record())
         self.assertNotIn("session_title", self.record())
         self.plugin()

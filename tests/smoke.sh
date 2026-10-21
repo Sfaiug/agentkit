@@ -1230,14 +1230,10 @@ SH
   HOME="$d/home" PYTHONPATH="$REPO" python3 - <<'PY' || rc=1
 from agentkit import config
 cfg = config.load()
-astra = config.model(cfg, "astra")
 for name in cfg["models"]:     # every shipped entry names its model id, never the harness's pick
     entry = config.model(cfg, name)
     assert entry["model"] not in ("", config.DEFAULT_MODEL), f"config.default.toml: [models.{name}] model={entry['model']!r}"
-assert config.model_label(astra) == astra["model"], config.model_label(astra)
-assert config.model_label({"model": config.DEFAULT_MODEL}) == "(default)"
-assert config.model_label({"model": ""}) == "(default)"
-assert config.model_label({"model": "gpt-6-astra"}) == "gpt-6-astra"
+assert config.model_name(cfg, "astra") != "astra", "a shipped entry shows its model's full name"
 PY
   rm -rf -- "$d"
   return "$rc"
@@ -2395,8 +2391,10 @@ PYRUNSCOPE
     SCOPERC=$?
     if [ "$SCOPERC" = 0 ] && python3 "$REPO/tests/test_memory_cap.py" \
         MemoryCap.check_unbounded_allocator_ends_fail_and_the_seat_slice_shows_no_pressure \
+        >>"$WORK/run-scope.log" 2>&1 && python3 "$REPO/tests/test_job_cap.py" \
+        JobCap.check_a_runaway_dies_alone_and_its_seat_and_the_next_seat_go_on \
         >>"$WORK/run-scope.log" 2>&1; then
-      ok "6g a detached run loop is under its agentkit-run scope and its memory cap holds"
+      ok "6g a detached run loop is under its agentkit-run scope and its memory cap holds; a seat's runaway dies alone"
     else
       no "6g detached run scope"; sed 's/^/      /' "$WORK/run-scope.log"
     fi ;;
@@ -3710,6 +3708,9 @@ config.save_session(cfg, sys.argv[2], "astra", ["opus"])
 orch.start(sys.argv[1], "/tmp", ["sleep", "600"], "fable")
 orch.start(sys.argv[2], "/tmp", ["sleep", "600"], "astra")
 PY
+# each seat's model by its full name, as every screen and bar name it
+FABLE=$(HOME="$OVH" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_name(config.load(), sys.argv[1]))' fable)
+ASTRA=$(HOME="$OVH" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_name(config.load(), sys.argv[1]))' astra)
 # the status bar, set on the sessions themselves and on nothing else: two lines, its text in
 # options the bar's formats draw -- the name and the model that orchestrates it, dim, until the
 # first classification, the one key at the right of line two, the name as the title.
@@ -3718,9 +3719,9 @@ PY
 [ "$(ovtmux show-options -t "$OV1" -v status 2>/dev/null)" = 2 ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v status-style 2>/dev/null)" = default ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v @ak_top 2>/dev/null)" \
-  = " #[bold]$OV1#[nobold]   #[fg=#6c7086]fable#[default]" ] || OVERLAY=1
+  = " #[bold]$OV1#[nobold]   #[fg=#6c7086]$FABLE#[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV2" -v @ak_top 2>/dev/null)" \
-  = " #[bold]$OV2#[nobold]   #[fg=#6c7086]astra#[default]" ] || OVERLAY=1
+  = " #[bold]$OV2#[nobold]   #[fg=#6c7086]$ASTRA#[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v @ak_key 2>/dev/null)" \
   = "Ctrl-b m#[fg=#6c7086]  menu #[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v set-titles-string 2>/dev/null)" = "$OV1" ] || OVERLAY=1
@@ -3754,8 +3755,8 @@ grep -q 'n start a session   c models   x stop this session   esc leave' "$WORK/
   grep -q 'esc leave' "$WORK/overlay-popup.txt" || OVERLAY=1
 # two seats holding a sleep, with nothing asked or owed: at rest
 IDLE_GLYPH=$(LC_ALL=C.UTF-8 PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("idle"))')
-grep -q "1  $OV1  fable  $IDLE_GLYPH idle" "$WORK/overlay-popup.txt" || OVERLAY=1
-grep -q "2  $OV2  astra  $IDLE_GLYPH idle" "$WORK/overlay-popup.txt" || OVERLAY=1
+grep -qE "1  $OV1  $FABLE +$IDLE_GLYPH idle" "$WORK/overlay-popup.txt" || OVERLAY=1
+grep -qE "2  $OV2  $ASTRA +$IDLE_GLYPH idle" "$WORK/overlay-popup.txt" || OVERLAY=1
 grep -q 'p preview' "$WORK/overlay-popup.txt" && OVERLAY=1   # not offered over a running session
 # 2 switches this client to that seat, and the popup comes down behind it. switch-client, the
 # popup closing and the seat drawing its own bar are three redraws, in that order and none of
@@ -3767,12 +3768,12 @@ for _ in $(seq 1 30); do
   OVWHERE=$(ovtmux list-clients -F '#{session_name}' 2>/dev/null | grep -c "^$OV2\$")
   ovhost capture-pane -p -t ovhost >"$WORK/overlay-after.txt" 2>/dev/null
   [ "$OVWHERE" = 1 ] && ! grep -q 'n start a session' "$WORK/overlay-after.txt" &&
-    grep -q "$OV2   astra" "$WORK/overlay-after.txt" && break
+    grep -qF "$OV2   $ASTRA" "$WORK/overlay-after.txt" && break
   sleep 1
 done
 [ "$OVWHERE" = 1 ] || OVERLAY=1
 grep -q 'n start a session' "$WORK/overlay-after.txt" && OVERLAY=1        # the popup came down with it
-grep -q "$OV2   astra" "$WORK/overlay-after.txt" || OVERLAY=1   # its own bar
+grep -qF "$OV2   $ASTRA" "$WORK/overlay-after.txt" || OVERLAY=1   # its own bar
 ovhost kill-server 2>/dev/null
 ovtmux kill-server 2>/dev/null
 [ "$OVERLAY" = 0 ] && ok "20e Ctrl-b m: the popup drew both seats under the overlay's own keys, 2 switched the client to smoke-ov-2 and closed the popup behind it; each seat carried the status bar agentkit's own tmux.conf dressed it with" \
@@ -4010,7 +4011,8 @@ done
 tm kill-session -t =resume-seat 2>/dev/null
 printf '\n' | akn --dry-run >"$WORK/name-ghost.log" 2>&1 || NAME=1
 RESUME_GLYPH=$(PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("idle"))')
-grep -qE "^ +[0-9]+  resume-seat +opus +$RESUME_GLYPH idle" "$WORK/name-ghost.log" || NAME=1
+OPUS=$("${NENV[@]}" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_name(config.load(), sys.argv[1]))' opus)
+grep -qE "^ +[0-9]+  resume-seat +$OPUS +$RESUME_GLYPH idle" "$WORK/name-ghost.log" || NAME=1
 grep -q "session closed: press" "$WORK/name-ghost.log" || NAME=1
 akn orch resume-seat >"$WORK/name-reopen.log" 2>&1 || NAME=1
 grep -q "^orch: resuming resume-seat on opus in $NSEAT (conversation $CONV)\$" \
@@ -4196,7 +4198,7 @@ jq -e '.session == "smoke-shape" and .kind == "needs" and .text == "Which branch
   "$NSH/.agentkit/state/notify-smoke-shape.json" >/dev/null 2>&1 || SHAPE=1
 # the first frame is the records as they stand: the line that leaves goes in once the seat's
 # look has landed and drawn its row again, its question on the line under it
-ROW="^ *$NUM  smoke-shape +astra +! needs you"
+ROW="^ *$NUM  smoke-shape +$(HOME="$NSH" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_name(config.load(), sys.argv[1]))' astra) +! needs you"
 rm -f -- "$WORK/menu-shape.log"
 { for _ in $(seq 300); do grep -q 'Which branch?' "$WORK/menu-shape.log" 2>/dev/null && break
     sleep 0.1; done
@@ -5272,7 +5274,7 @@ assert any(line == "atoll" for line in lines), lines
 assert not any("seats" in line for line in lines), lines
 assert any(line.strip().startswith("1  ") for line in lines), lines
 row = next(line for line in lines if "atoll-fix" in line)
-assert "fable" in row and "working" in row and row.endswith(" 2 of 5"), row   # the line's count
+assert config.model_name(cfg, "fable") in row and "working" in row and row.endswith(" 2 of 5"), row   # the line's count
 assert not any("Teach the menu" in line for line in lines), lines
 assert not any("Smoke" in line or SMOKE in line for line in lines), lines
 printed = io.StringIO()

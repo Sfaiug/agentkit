@@ -192,7 +192,7 @@ class LiveStatus(unittest.TestCase):
         # a turn begins: the look takes three seconds of capture, and the hook waits on none
         self.assertLess(hook({"hook_event_name": "UserPromptSubmit", "prompt": "go"}), 2.0)
         options = published("working")
-        self.assertEqual(drawn(options[statusbar.TOP]), " ● working   herdr   opus")
+        self.assertEqual(drawn(options[statusbar.TOP]), " ● working   herdr   Opus 5.5")
         self.assertEqual(watch.seat_read("herdr")["word"], "working")
         # Claude's Stop is written down by hooks/orchestrator-stop.sh, beside this hook, in
         # whichever order the two finish, and that one looks at the seat once its word is down:
@@ -210,7 +210,7 @@ class LiveStatus(unittest.TestCase):
         stop({"hook_event_name": "Stop", "background_tasks": []})
         options = published("idle")
         self.assertEqual(drawn(options[statusbar.TOP]),
-                         " ○ idle   herdr   opus")
+                         " ○ idle   herdr   Opus 5.5")
         self.assertEqual(watch.seat_read("herdr")["word"], "idle")
 
     def test_a_hook_outside_the_seat_s_own_pane_moves_no_bar(self):
@@ -495,7 +495,7 @@ class LiveStatus(unittest.TestCase):
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
         self.assertEqual(watch.seat_read("herdr")["word"], "working")
         self.assertEqual(drawn(self.options[statusbar.TOP]),
-                         " ● working   herdr   sonnet")
+                         " ● working   herdr   Opus 5.5")
         self.assertEqual(self.options["set-titles-string"], "herdr · working")
         self.assertEqual(captures[1], captures[0] + 1)  # the background look came round
 
@@ -518,7 +518,7 @@ class LiveStatus(unittest.TestCase):
         hook("orchestrator-stop.sh", {"hook_event_name": "Stop", "background_tasks": []})
         self.assertEqual(watch.hook_facts("tern")["event"], "Stop")
         self.assertEqual(watch.hook_look("herdr")["word"], "idle")
-        self.assertIn("○ idle   tern   opus", drawn(self.options[statusbar.TOP]))
+        self.assertIn("○ idle   tern   Opus 5.5", drawn(self.options[statusbar.TOP]))
 
     def test_the_row_and_the_bar_say_the_same_after_a_flip(self):
         self.plan(4, 8)
@@ -534,7 +534,7 @@ class LiveStatus(unittest.TestCase):
                 self.assertIn(terminal.state_text(word), row)
                 # the bar is the row's own values, word and last column alike
                 self.assertEqual(top, statusbar.lines(
-                    "herdr", "opus", info["word"],
+                    "herdr", info["orchestrator"], info["word"],
                     menu.last_column(info["word"], info["sentence"], *info["bar"],
                                      statusbar.CELLS, tmux=True))[0])
                 self.assertEqual(self.options["set-titles-string"], f"herdr · {word}")
@@ -552,7 +552,7 @@ class LiveStatus(unittest.TestCase):
         statusbar.redress(dict(self.seat, repo=self.repo),
                           {"word": "working", "reason": "", "since": None}, cfg=self.cfg)
         self.assertEqual(drawn(self.options[statusbar.TOP]),
-                         f" ● working   herdr   opus   {drawn(tasks)}")
+                         f" ● working   herdr   Opus 5.5   {drawn(tasks)}")
         # before its first word a seat's bar is who is in it, as it always was
         self.assertEqual(drawn(statusbar.lines("herdr", "opus")[0]), " herdr   opus")
         with patch.dict(os.environ, {"LANG": "C"}):

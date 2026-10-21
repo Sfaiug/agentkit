@@ -23,8 +23,8 @@ class Phone(screen.Screen):
         with patch.object(terminal, "height", return_value=40):
             text = self.screens([Key("char", "r"), Key("down"), Key("esc"), Key("esc")], width=40)
         shown = text.split("models · fix-api")[1].split("agentkit · config")[0]
-        self.assertIn("model harness effort orch builds reviews › opus claude ‹ xhigh › 97 97 97 "
-                      "astra codex xhigh 85 95 96 claude-sonnet-5-5 claude max 68 85 85", shown)
+        self.assertIn(f"model harness effort orch builds reviews › {self.opus} claude ‹ xhigh › 97 97 "
+                      f"97 {self.astra} codex xhigh 85 95 96 claude-sonnet-5-5 claude max 68 85 85", shown)
         self.assertNotIn("…", shown)
         self.assertNotIn("cost $", shown)
 
@@ -37,7 +37,7 @@ class Phone(screen.Screen):
         with patch.object(terminal, "height", return_value=40):
             text = self.screens([Key("char", "r"), Key("esc"), Key("esc")], width=40)
         shown = text.split("models · fix-api")[1].split("agentkit · config")[0]
-        self.assertIn("model effort orch builds reviews › opus ‹ xhigh › 100 100 100 "
+        self.assertIn(f"model effort orch builds reviews › {self.opus} ‹ xhigh › 100 100 100 "
                       "opencode/nemotron-3.5-super-vl-free - - 51 52", shown)
         self.assertNotIn("…", shown)
         self.assertNotIn("harness", shown)

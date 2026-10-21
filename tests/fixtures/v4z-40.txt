@@ -9,14 +9,14 @@ agentkit                           14:02
 
 
 ATOLL
-  1  atoll-fix   fable  ● working
-  2  atoll-plan  fable  ! needs you
+  1  atoll-fix   Fable 5.1  ● working
+  2  atoll-plan  Fable 5.1  ! needs you
      waiting for you
 
 agentkit
-  3  menu        fable  ○ idle
+  3  menu        Fable 5.1  ○ idle
 
 newsletter-tool
-  4  rent        fable  ○ idle
+  4  rent        Fable 5.1  ○ idle
 
   n new   x stop   c config   esc leave
