@@ -654,8 +654,10 @@ def pickup_while_queued(run_dir, execv=None, current=None):
         return False
     logger(run_dir)(f"picked up agentkit {_PICKUP_START}..{now} while waiting for a slot")
     sys.stdout.flush()
+    # ak's own entry, not `sys.argv[0]`: a link that started the launch may since point elsewhere
+    ak = str(config.REPO / "bin" / "ak")
     try:
-        (execv or os.execv)(sys.executable, [sys.executable, *sys.argv])
+        (execv or os.execv)(sys.executable, [sys.executable, ak, *sys.argv[1:]])
     except OSError:
         return False
     return True
