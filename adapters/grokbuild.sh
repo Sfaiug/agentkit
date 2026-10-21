@@ -395,10 +395,11 @@ hooks)
   # always trusts: UserPromptSubmit, Stop and the StopCancelled/StopFailure that end a turn
   # instead of it feed hooks/seat-state.sh, Stop also feeds the end-of-turn gate in
   # hooks/orchestrator-stop.sh, and Notification feeds idle/permission/question facts to the
-  # same state script.  So does PostToolUse, the question's answer, matched to
-  # ask_user_question alone: no other tool call starts a hook.  The file is agentkit's own,
-  # so installing it touches no file of the user's; an older agentkit file is backed up once
-  # before it is replaced.
+  # same state script.  So does PostToolUse, the question's answer, and PreToolUse feeds the
+  # question to the gate, which refuses a finished seat's (`stop.question_refused`): both
+  # matched to ask_user_question alone, so no other tool call starts a hook.  The file is
+  # agentkit's own, so installing it touches no file of the user's; an older agentkit file is
+  # backed up once before it is replaced.
   # Grok also loads these commands from ~/.claude/settings.json through its claude-compat
   # layer, and only deduplicates identical (event, command) pairs across the two sources --
   # so both must keep naming this same checkout path, or the hooks fire twice.
@@ -419,7 +420,9 @@ wanted = {"hooks": {
     "StopFailure": [{"hooks": [{"type": "command", "command": seat}]}],
     "Notification": [{"hooks": [{"type": "command", "command": seat}]}],
     "PostToolUse": [{"matcher": "ask_user_question",
-                     "hooks": [{"type": "command", "command": seat}]}]}}
+                     "hooks": [{"type": "command", "command": seat}]}],
+    "PreToolUse": [{"matcher": "ask_user_question",
+                    "hooks": [{"type": "command", "command": stop}]}]}}
 target = os.path.join(d, "agentkit.json")
 try:
     with open(target) as fh:
