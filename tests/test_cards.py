@@ -191,7 +191,7 @@ class Cards(unittest.TestCase):
 
     def test_a_new_question_after_an_answer_keeps_its_own_beginning(self):
         for publication in ("command", "tick"):
-            for activity in (230, 350):
+            for activity in (280, 350):
                 with self.subTest(publication=publication, activity=activity):
                     config.card_path("seat").unlink(missing_ok=True)
                     config.notify_path("seat").unlink(missing_ok=True)

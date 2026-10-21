@@ -1075,9 +1075,9 @@ def _carded(session, completion):
 
 
 def needs_transition(session, card, answer, now, seat=None, wait=CARD_WAIT):
-    """One amber card once needs you has stood `wait` and the owner has been out of the seat,
-    and typed nothing into it, for a minute, which stays `Needs you` for as long as the seat
-    does.
+    """One amber card once needs you has stood `wait`, the owner has typed nothing into the seat
+    for as long and, for a question, been out of it a minute, which stays `Needs you` for as
+    long as the seat does.
 
     Never for an episode that is history, nor for a seat the owner closed himself -- `x`,
     `ak orch stop` or a pause script: its row says so and its number reopens it, and nobody
@@ -1123,8 +1123,8 @@ def needs_transition(session, card, answer, now, seat=None, wait=CARD_WAIT):
     if bool(card.get("present")) != present:
         card.update(present=present, left=now)
         _card_write(session, card)
-    if present or now - card["since"] < wait or now - max(
-            card.get("left", 0), _last_input(session, seat)) < CARD_WAIT:
+    if present or now - card.get("left", 0) < CARD_WAIT or now - max(
+            card["since"], _last_input(session, seat)) < wait:
         return 0
     from . import watch
     if _history(card) or watch.seat_closed_by_owner(session):
@@ -1166,8 +1166,9 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
     """The command and tick share a session lock, the decision and the episode file.
 
     `began` is an explicit command's own moment: the episode it lands in, unless its card
-    already went out, begins there, so `ak notify` is never history.  `wait` is how long a
-    question stands before its card: a notice's is asked on purpose and waits none.
+    already went out, begins there, so `ak notify` is never history.  `wait` is how long the
+    word and the owner's last key hold its card: a notice is asked on purpose and waits for
+    neither.
     """
     if os.environ.get("AK_RUN_ROLE") == "worker" or dry_run:
         return 0
@@ -1345,12 +1346,11 @@ def shaped(kind, text, paths=(), session=None, dry_run=False, event_id=None):
                 # the seat's newer word ends its `ak wait`; a question it kept back waits for
                 # its own turn's end, and is asked beside this one then (`ask_kept`)
                 watch.seat_write(name, wait=None)
-        # A command is the visible start of the episode. Decide from now's facts, with no
-        # minute for the question itself, so the recorder's own question is not left waiting
-        # for the three-minute watcher tick; the owner in the seat, or there within the
-        # minute, still holds it. A repeated watcher event re-records nothing, but the latch
-        # is still evaluated: the first attempt may have recorded without ever queueing the
-        # card.
+        # A command is the visible start of the episode. Decide from now's facts, waiting for
+        # no earlier key, so the recorder's own question is not left waiting for the
+        # three-minute watcher tick; the owner in the seat, or there within the minute, still
+        # holds it. A repeated watcher event re-records nothing, but the latch is still
+        # evaluated: the first attempt may have recorded without ever queueing the card.
         stamp = time.time()
         answer = watch.session_state(name, now=stamp)
         if answer["word"] == "needs you":

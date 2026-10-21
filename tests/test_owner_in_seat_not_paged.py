@@ -105,19 +105,22 @@ class OwnerInSeatNotPaged(Sandbox):
         self.tick(700 + notify.CARD_WAIT)
         self.assertEqual(self.posts, [f"🙋 Needs you · {SEAT}"])
 
-    def test_ak_notify_needs_pages_at_once_where_nobody_has_been_for_a_minute(self):
-        self.typed = [(SEAT, int(NOW) - notify.CARD_WAIT)]
+    def test_ak_notify_needs_waits_a_minute_from_the_look_that_finds_him_gone(self):
+        # a tick saw him in the seat; he left it just before it asked
+        self.clients = [(SEAT, int(NOW) - 600)]
+        self.tick(-30, since=NOW - 30)
+        self.clients = []
         self.ask()
+        self.tick(notify.CARD_WAIT - 1)
+        self.assertEqual(self.posts, [])
+        self.tick(notify.CARD_WAIT)
         self.assertEqual(self.posts, [f"🙋 Needs you · {SEAT}"])
 
-    def test_ak_notify_needs_waits_a_minute_from_his_last_key(self):
-        # he typed and left the seat just before it asked: no tick saw him
+    def test_ak_notify_needs_waits_for_no_key_typed_before_it(self):
+        # he typed and left before it asked: no tick saw him, and his keys were no answer
         self.clients = [(SEAT, int(NOW) - 10)]
         self.clients = []
         self.ask()
-        self.tick(notify.CARD_WAIT - 11)
-        self.assertEqual(self.posts, [])
-        self.tick(notify.CARD_WAIT)
         self.assertEqual(self.posts, [f"🙋 Needs you · {SEAT}"])
 
     def test_a_login_or_a_failure_is_sent_while_he_is_in_the_seat(self):
