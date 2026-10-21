@@ -4451,16 +4451,23 @@ def discord_secret(draw, name, hint):
 
 def audit_value(cfg):
     """`Weekly audit`'s value: on or off, and who orchestrates, executes and reviews it, under
-    the matrix's own column words, `on · orch opus · builds opus, astra · reviews astra`; a
-    setting the config cannot read is shown as the error that says why."""
+    the matrix's own column words, each model by its full name, `on · orch Opus 5.5 · builds
+    Opus 5.5, GPT-6-Astra · reviews GPT-6-Astra`; a setting the config cannot read is shown as
+    the error that says why."""
     try:
         setting = config.audit(cfg)
     except config.Error as exc:
         return str(exc)
     heads = orch.ROLE_HEADS
-    return " · ".join(("on" if setting["on"] else "off", f"{heads[0]} {setting['orchestrator']}",
-                       f"{heads[1]} " + (", ".join(setting["workers"]) or "nobody"),
-                       f"{heads[2]} " + ", ".join(setting["reviewers"])))
+    return " · ".join(("on" if setting["on"] else "off",
+                       f"{heads[0]} {config.model_name(cfg, setting['orchestrator'])}",
+                       f"{heads[1]} " + (audit_names(cfg, setting["workers"]) or "nobody"),
+                       f"{heads[2]} " + audit_names(cfg, setting["reviewers"])))
+
+
+def audit_names(cfg, names):
+    """The models `names` are, by their full names, as `Weekly audit` shows a role's."""
+    return ", ".join(config.model_name(cfg, name) for name in names)
 
 
 def audit_table(cfg):
@@ -4517,7 +4524,7 @@ def config_audit(cfg):
             held = audit_shown(cfg)[0][key]
             held = [held] if one else held
             return [([(on if one else full, "accent") if name in held
-                      else (off if one else empty, "dim"), (name, None)],
+                      else (off if one else empty, "dim"), (config.model_name(cfg, name), None)],
                      lambda name=name: audit_write(cfg, key, name if one else [
                          other for other in held if other != name] if name in held
                          else [*held, name]),
@@ -4530,9 +4537,10 @@ def config_audit(cfg):
         return [("On", [(on, "accent"), ("on", None)] if setting["on"]
                  else [(off, "dim"), ("off", None)],
                  lambda draw: audit_write(cfg, "on", not setting["on"])),
-                ("Orchestrator", setting["orchestrator"], models("orchestrator")),
-                ("Builds", ", ".join(setting["workers"]) or "nobody", models("workers")),
-                ("Reviews", ", ".join(setting["reviewers"]), models("reviewers"))], \
+                ("Orchestrator", config.model_name(cfg, setting["orchestrator"]),
+                 models("orchestrator")),
+                ("Builds", audit_names(cfg, setting["workers"]) or "nobody", models("workers")),
+                ("Reviews", audit_names(cfg, setting["reviewers"]), models("reviewers"))], \
             "\n".join(filter(None, (why, AUDIT_NOTE)))
     config_page("weekly audit", page)
 

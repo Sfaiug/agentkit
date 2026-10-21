@@ -72,10 +72,10 @@ class AuditSetting(unittest.TestCase):
 
     def test_the_row_says_on_or_off_and_the_three_roles(self):
         self.assertEqual(menu.audit_value(config.load()),
-                         "on · orch opus · builds opus, astra · reviews opus, astra")
+                         "on · orch Opus 5.5 · builds Opus 5.5, GPT-6-Astra · reviews Opus 5.5, GPT-6-Astra")
         self.write('on = false\nworkers = []\nreviewers = ["astra"]\n')
         self.assertEqual(menu.audit_value(config.load()),
-                         "off · orch opus · builds nobody · reviews astra")
+                         "off · orch Opus 5.5 · builds nobody · reviews GPT-6-Astra")
 
     def page(self, *keys):
         """The page against `keys`, then Esc until it is gone, on a phone's 40 columns; the
@@ -103,8 +103,8 @@ class AuditSetting(unittest.TestCase):
         frames = self.page("down", "down", "down", "enter", "enter", "down", "down", "enter")
         self.assertEqual(self.table(), {"on": False, "orchestrator": "fable",
                                         "reviewers": ["astra", "spark"]})
-        self.assertIn("    □ opus", frames[-2])       # the last key's frame, before the Esc
-        self.assertIn("›   ■ spark", frames[-2])
+        self.assertIn("    □ Opus 5.5", frames[-2])       # the last key's frame, before the Esc
+        self.assertIn("›   ■ muse-spark-1.3-contributor", frames[-2])
         self.assertEqual(oct(self.path.stat().st_mode & 0o777), "0o600")
         # both builders out: the orchestrator builds alone
         frames = self.page("down", "down", "enter", "enter", "down", "enter")
@@ -116,9 +116,9 @@ class AuditSetting(unittest.TestCase):
     def test_esc_closes_a_list_and_a_refused_change_writes_nothing(self):
         before = self.path.read_text()
         frames = self.page("down", "enter", "up")
-        self.assertIn("    ● opus", frames[-2])         # the list, opus marked and fable lit
-        self.assertIn("›   ○ fable", frames[-2])
-        self.assertNotIn("○ fable", "\n".join(frames[-1]))   # Esc closed it, on the page still
+        self.assertIn("    ● Opus 5.5", frames[-2])     # the list, opus marked and fable lit
+        self.assertIn("›   ○ Fable 5.1", frames[-2])
+        self.assertNotIn("○ Fable 5.1", "\n".join(frames[-1]))   # Esc closed it, on the page still
         self.assertEqual(self.path.read_text(), before)
         self.write('reviewers = ["astra"]\n')
         before = self.path.read_text()
@@ -134,7 +134,7 @@ class AuditSetting(unittest.TestCase):
         said = " ".join(" ".join(frames[-1]).split())
         self.assertIn("unknown model 'nova'", said)
         self.assertIn("On ○ off", said)                     # what reads is shown as it reads
-        self.assertIn("Orchestrator opus", said)
+        self.assertIn("Orchestrator Opus 5.5", said)
         self.page("down", "down", "enter", "down", "enter")   # astra out of the builders
         self.assertEqual(self.table(), {"on": False, "workers": ["opus"]})
         # an [audit] that is not a table has nothing to keep
@@ -150,7 +150,8 @@ class AuditSetting(unittest.TestCase):
         self.assertEqual(read.call_count, 0)
         text = terminal.ANSI.sub("", out.getvalue())
         self.assertIn("Weekly audit", text)
-        self.assertIn("on · orch opus · builds opus, astra · reviews opus, astra", text)
+        self.assertIn("on · orch Opus 5.5 · builds Opus 5.5, GPT-6-Astra · reviews Opus 5.5, GPT-6-Astra",
+                      " ".join(text.split()))
         rows = [line.split()[0] for line in text.splitlines() if line.startswith("  ")]
         self.assertLess(rows.index("Discord"), rows.index("Weekly"))
         self.assertLess(rows.index("Weekly"), rows.index("Version"))
