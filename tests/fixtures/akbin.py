@@ -77,10 +77,16 @@ LOG = "#!/bin/sh\n{python} -c 'import json, sys; print(json.dumps(sys.argv[1:]))
 REFUSE = LOG + 'echo "{name}: not scripted in this test" >&2\nexit 1\n'
 # A socket path could name any server on the machine, as could a socket name holding a slash
 # (`-L ../../tmux-1000/agentkit` walks out of TMUX_TMPDIR), and TMUX or TMUX_PANE the caller's
-# own.  Its flags are read as tmux's getopt reads them: bundled, a value attached or in the next
-# word.
-TMUX = LOG + """refuse() {{ echo "tmux: a test's tmux takes no socket path" >&2; exit 2; }}
-value() {{ case $1$2 in L*/*) refuse ;; esac; }}
+# own.  The one path let through is the Home's own server's, as tmux gives it to a seat's pane,
+# matched as a string: no spelling of a path is judged by where it leads.  Its flags are read as
+# tmux's getopt reads them: bundled, a value attached or in the next word.
+TMUX = LOG + """refuse() {{ echo "tmux: a test's tmux takes no socket path but its own" >&2; exit 2; }}
+value() {{
+  case $1 in
+    L) case $2 in */*) refuse ;; esac ;;
+    S) [ "$2" = {own} ] || refuse ;;
+  esac
+}}
 want=
 for a do
   if [ -n "$want" ]; then value "$want" "$a"; want=; continue; fi
@@ -89,8 +95,7 @@ for a do
   while [ -n "$flags" ]; do
     flag=${{flags%"${{flags#?}}"}}; flags=${{flags#?}}
     case $flag in
-      S) refuse ;;
-      [cfLT]) if [ -n "$flags" ]; then value "$flag" "$flags"; else want=$flag; fi; break ;;
+      [cfLST]) if [ -n "$flags" ]; then value "$flag" "$flags"; else want=$flag; fi; break ;;
     esac
   done
 done
@@ -124,6 +129,8 @@ class Home:
                                           log=shlex.quote(str(self.log(name)))))
         self.fake("tmux", TMUX.format(python=python, log=shlex.quote(str(self.log("tmux"))),
                                       tmpdir=shlex.quote(str(self.tmux_dir)),
+                                      own=shlex.quote(str(self.tmux_dir / f"tmux-{os.getuid()}"
+                                                          / SOCKET)),
                                       real=shlex.quote(REAL_TMUX)) if REAL_TMUX else
                   REFUSE.format(python=python, name="tmux",
                                 log=shlex.quote(str(self.log("tmux")))))
