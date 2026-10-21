@@ -3579,7 +3579,6 @@ def cmd_stop(argv):
                 forget_seat(name, record, warn)
                 removed = True
             else:
-                stop.release_session(name)
                 # Under the seat's typing lock, the one a rename takes: a line under way
                 # finishes into this seat before it closes, and one waiting finds it closed.
                 with notify.session_lock(name):
@@ -3603,15 +3602,17 @@ def cmd_stop(argv):
             if gone_with:
                 quiet.enter_context(redirect_stdout(io.StringIO()))
                 quiet.enter_context(redirect_stderr(io.StringIO()))
-            if not removed:
+            # outside the lock: nothing a run's stop touches is the seat's state, and a slow
+            # Discord holds up no tick
+            if removed:
+                stop.stop_owned_runs(name)
+            else:
+                stop.release_session(name)
                 watch.forget(name)   # its stall record and open question go with the owner's stop
                 if not record:
                     # tmux alone held it: no record to keep, no number to reopen it
                     forget_seat(name, {}, warn)
                     removed = True
-            # outside the lock: nothing a run's stop touches is the seat's state, and a slow
-            # Discord holds up no tick
-            stop.stop_owned_runs(name)
             notify.forget_card(name)
             print(f"removed {name}" if removed else f"stopped {name}; its number reopens it")
     finally:

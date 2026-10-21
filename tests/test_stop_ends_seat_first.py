@@ -1,6 +1,6 @@
 """A seat's stop ends the seat before its runs: the stop mark is written and its tmux session gone
-by the time its runs stop, each up to STALL_KILL_WAIT, so every menu has the seat stopped while
-they go.  A stop from inside the seat outlives its pane, and says nothing into the dead terminal,
+by the time its runs stop (`stop.release_session`), each up to STALL_KILL_WAIT, so every menu has
+the seat stopped while they go.  A stop from inside the seat outlives its pane, and says nothing into the dead terminal,
 where a print would end it halfway.  Offline: fake HOME, fake tmux, no real seat.
 """
 
@@ -38,7 +38,6 @@ class StopEndsSeatFirst(Sandbox):
                                               seat if name == SEAT else None))
         self.stack.enter_context(patch.object(orch, "records", side_effect=lambda **_kw:
                                               config.session_records()))
-        self.stack.enter_context(patch.object(stop, "release_session"))
         self.stack.enter_context(patch.object(browser, "close_owned"))
         self.card = self.stack.enter_context(patch.object(notify, "forget_card"))
         self.pane, self.killed = Pane(), []
