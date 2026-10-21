@@ -67,16 +67,23 @@ class SeatFollows(Sandbox):
         with patch.object(claude, "running", side_effect=PermissionError("denied")):
             self.assertEqual(self.looked(("fable", 90, None)), "opus")
 
-    def test_codex_reads_its_latest_turns_model_effort_and_time(self):
+    def test_codex_reads_the_model_effort_and_time_of_its_latest_answer(self):
         rollout = self.root / "rollout.jsonl"
         rollout.write_text("".join(json.dumps(line) + "\n" for line in (
             {"type": "turn_context", "timestamp": stamp(5),
              "payload": {"model": "gpt-6-astra", "effort": "high"}},
             {"type": "turn_context", "timestamp": stamp(9),
              "payload": {"model": "gpt-6.1-sol", "effort": "max"}},
-            {"type": "event_msg", "timestamp": stamp(12), "payload": {"type": "agent_message"}})))
+            {"type": "event_msg", "timestamp": stamp(12), "payload": {
+                "type": "item_completed",
+                "item": {"type": "AgentMessage", "content": [{"type": "Text", "text": "ok"}]}}},
+            # a later turn that failed before answering, on another model, shows nothing
+            {"type": "turn_context", "timestamp": stamp(20),
+             "payload": {"model": "gpt-6-astra", "effort": "xhigh"}},
+            {"type": "event_msg", "timestamp": stamp(21), "payload": {
+                "type": "task_complete", "error": {"message": "usage limit"}}})))
         with patch.object(codex, "transcript", return_value=str(rollout)):
-            self.assertEqual(codex.running({}, None, THREAD), ("gpt-6.1-sol", "max", LAUNCHED + 9))
+            self.assertEqual(codex.running({}, None, THREAD), ("gpt-6.1-sol", "max", LAUNCHED + 12))
 
 
 if __name__ == "__main__":

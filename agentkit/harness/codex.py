@@ -205,15 +205,24 @@ def error(record, cwd, conversation):
 
 
 def running(record, cwd, conversation):
-    """The model and effort of that thread's latest turn, which Codex records as it starts
-    (`turn_context`), so `/model` typed in the seat shows at its next turn."""
+    """The model and effort of the turn that holds that thread's latest answer, with that
+    answer's time: Codex records them as a turn starts (`turn_context`), so `/model` typed in
+    the seat shows at its next answer, and a turn that never answered shows nothing."""
     from . import last_entry, moment
+    answered = None
+
+    def pick(entry):
+        # read back from the end: the latest answer first, then the start of its turn
+        nonlocal answered
+        if answered is None and answer(entry):
+            answered = entry
+        return (answered is not None and entry.get("type") == "turn_context"
+                and isinstance(entry.get("payload"), dict)
+                and isinstance(entry["payload"].get("model"), str))
     path = transcript(record, cwd, conversation)
-    entry = path and last_entry(path, lambda entry: entry.get("type") == "turn_context"
-                                and isinstance(entry.get("payload"), dict)
-                                and isinstance(entry["payload"].get("model"), str))
+    entry = path and last_entry(path, pick)
     return ((entry["payload"]["model"], entry["payload"].get("effort"),
-             moment(entry.get("timestamp"))) if entry else None)
+             moment(answered.get("timestamp"))) if entry else None)
 
 
 def forget(record):
