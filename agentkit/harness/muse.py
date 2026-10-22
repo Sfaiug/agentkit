@@ -11,6 +11,7 @@ mid-turn ("naming is unavailable"), and rejects --name at launch. See the title 
 a cleared composer is no receipt, and a command.invoked record is no custom name.
 """
 
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -18,6 +19,7 @@ import os
 import re
 from pathlib import Path
 import shutil
+import sqlite3
 import stat
 import tempfile
 
@@ -355,11 +357,42 @@ def usage_policy(entry, effort):
             and isinstance(effort, str) and bool(effort))
 
 
+def sessions():
+    """~/.local/share/muse/sessions, or $XDG_DATA_HOME's: every session's folder, under
+    YYYY/MM/DD/<session>/, and the views Muse caches of them, under .msp-view-*/<session>/."""
+    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / "muse/sessions"
+
+
 def session_logs(session):
-    """Where Muse logs that session: its session.jsonl, under ~/.local/share/muse/sessions/
-    YYYY/MM/DD/<session>/."""
-    root = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / "muse/sessions"
-    return sorted(root.glob(f"*/*/*/{session}/session.jsonl"))
+    """Where Muse logs that session: its session.jsonl, in its folder."""
+    return sorted(sessions().glob(f"*/*/*/{session}/session.jsonl"))
+
+
+def conversation_stores():
+    """Each session's folder: Muse ends none (in 1.4.11 a `session_retention_days` of 1 left a
+    session five days old, and no command removes one)."""
+    return [{"root": sessions(), "pattern": "[0-9]*/[0-9]*/[0-9]*/*/"}]
+
+
+def end_conversation(path, ends):
+    """The session's row in session-index.db, then the views cached of it, then its folder:
+    a pass cut short finds the folder again, and nothing of it is left once that goes.  Asked
+    once Muse's writers wait on the index, as a session resumed meanwhile has written or cached."""
+    folder = Path(path)
+    root = folder.parents[3]
+    index = (root.parent / "session-index.db").as_uri() + "?mode=rw"
+    try:
+        with contextlib.closing(sqlite3.connect(index, uri=True, timeout=30)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            views = sorted(root.glob(f".msp-view-*/{folder.name}"))
+            if not ends(*views):
+                return
+            db.execute("DELETE FROM sessions WHERE session_dir = ?", (str(folder),))
+    except sqlite3.Error as exc:
+        raise OSError(f"Muse's session index: {exc}") from exc
+    for view in views:
+        shutil.rmtree(view)
+    shutil.rmtree(folder)
 
 
 def said(record, cwd, conversation):

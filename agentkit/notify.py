@@ -938,7 +938,7 @@ def installed_at():
     return max(stamps)
 
 
-def _last_input(session, seat=None):
+def _last_input(session, seat):
     """When he last typed into the seat or opened it, or 0 where its server cannot say.
 
     Ask the seat's own server for the session's activity: every key a client sends it and every
@@ -946,8 +946,6 @@ def _last_input(session, seat=None):
     the seat's output nor a line ak types (`send-keys`) moves it.
     """
     from . import orch
-    if seat is None:
-        seat = orch.find(session)
     rc, output = orch.tmux_out("display-message", "-p", "-t", f"={session}:",
                                "#{session_activity}", socket=orch.seat_socket(seat))
     try:
@@ -1076,9 +1074,10 @@ def _carded(session, completion):
                  if event.get("completion") == completion), None)
 
 
-def needs_transition(session, card, answer, now, seat=None):
-    """One amber card once needs you has stood a minute and the owner has typed nothing into
-    the seat for a minute, which stays `Needs you` for as long as the seat does.
+def needs_transition(session, card, answer, now, seat=None, wait=CARD_WAIT):
+    """One amber card once needs you has stood `wait`, the owner has typed nothing into the seat
+    for as long and, for a question, been out of it a minute, which stays `Needs you` for as
+    long as the seat does.
 
     Never for an episode that is history, nor for a seat the owner closed himself -- `x`,
     `ak orch stop` or a pause script: its row says so and its number reopens it, and nobody
@@ -1112,10 +1111,20 @@ def needs_transition(session, card, answer, now, seat=None):
         return 0
     if card.get("sent"):
         return 0
-    # Input in the seat holds back a card that is not out yet, for as long as he is there: a
-    # seat works on with its question standing, so a glance at it must not answer it, and the
-    # minute counts from his last key, though he left between two ticks.
-    if now - max(card["since"], _last_input(session, seat)) < CARD_WAIT:
+    # His keys hold back a card that is not out yet, and a client in the seat holds back a
+    # question's for as long as he is there: a seat works on with its question standing, so a
+    # glance at it must not answer it.  The minute counts from his last key, though he left
+    # between two ticks, and from the first look that found him gone, as tmux keeps no time
+    # he left.  A login or a failure is no question: he may be in the seat without seeing it.
+    if seat is None:
+        from . import orch
+        seat = orch.find(session) or {}
+    present = bool(answer.get("question") and seat.get("attached"))
+    if bool(card.get("present")) != present:
+        card.update(present=present, left=now)
+        _card_write(session, card)
+    if present or now - card.get("left", 0) < CARD_WAIT or now - max(
+            card["since"], _last_input(session, seat)) < wait:
         return 0
     from . import watch
     if _history(card) or watch.seat_closed_by_owner(session):
@@ -1153,11 +1162,13 @@ def done_transition(session, card, answer, now, completion):
 
 
 def transition(session, answer=None, now=None, dry_run=False, log=print, seat=None,
-               began=None):
+               began=None, wait=CARD_WAIT):
     """The command and tick share a session lock, the decision and the episode file.
 
     `began` is an explicit command's own moment: the episode it lands in, unless its card
-    already went out, begins there, so `ak notify` is never history.
+    already went out, begins there, so `ak notify` is never history.  `wait` is how long the
+    word and the owner's last key hold its card: a notice is asked on purpose and waits for
+    neither.
     """
     if os.environ.get("AK_RUN_ROLE") == "worker" or dry_run:
         return 0
@@ -1215,7 +1226,7 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                 card["began"] = began
                 _card_write(name, card)
             if word == "needs you":
-                return needs_transition(name, card, answer, at, seat)
+                return needs_transition(name, card, answer, at, seat, wait)
             if word == "done":
                 return done_transition(name, card, answer, at, completion)
         return 0
@@ -1335,12 +1346,11 @@ def shaped(kind, text, paths=(), session=None, dry_run=False, event_id=None):
                 # the seat's newer word ends its `ak wait`; a question it kept back waits for
                 # its own turn's end, and is asked beside this one then (`ask_kept`)
                 watch.seat_write(name, wait=None)
-        # A command is the visible start of the episode. Decide from now's facts, and
-        # evaluate a hold later, so the recorder's own question is not left waiting
-        # for the three-minute watcher tick; deciding at the later clock would date
-        # the word from then and the hold would never elapse. A repeated watcher
-        # event re-records nothing, but the latch is still evaluated: the first
-        # attempt may have recorded without ever queueing the card.
+        # A command is the visible start of the episode. Decide from now's facts, waiting for
+        # no earlier key, so the recorder's own question is not left waiting for the
+        # three-minute watcher tick; the owner in the seat, or there within the minute, still
+        # holds it. A repeated watcher event re-records nothing, but the latch is still
+        # evaluated: the first attempt may have recorded without ever queueing the card.
         stamp = time.time()
         answer = watch.session_state(name, now=stamp)
         if answer["word"] == "needs you":
@@ -1350,7 +1360,7 @@ def shaped(kind, text, paths=(), session=None, dry_run=False, event_id=None):
                 answer["since"] = stamp
         # `ak notify` itself begins its episode at the command, however long the word it
         # lands on has stood; a watcher's own notice is dated by the word.
-        return transition(name, answer=answer, now=stamp + (CARD_WAIT if kind == "needs" else 0),
+        return transition(name, answer=answer, now=stamp, wait=0,
                           began=stamp if event_id is None else None)
     except (OSError, ValueError, config.Error) as exc:
         print(f"notify: record could not be persisted ({type(exc).__name__}); retry required", file=sys.stderr)
