@@ -126,12 +126,13 @@ class LiveHandBackNamesFailures(unittest.TestCase):
                  ["See details"]),
                 ("FAIL\tacme\n", ["FAIL    acme"]),
                 ("界a\x1b[3GZ\n", ["界Z"]),
-                ("éx\x1b[2GZ\n", ["éZ"]),
+                ("e\u0301x\x1b[2GZ\n", ["e\u0301Z"]),
                 ("abcd\x1b[1;2HX\n", ["aXcd"]),
                 ("diagnostic\x1b[1000000000C\x1b[1Gdone\n", ["donenostic"])]:
             with self.subTest(said=said):
                 log.write_bytes(said.encode())
                 self.assertEqual(update._live_excerpt(log), shown)
+
 
 if __name__ == "__main__":
     unittest.main()
