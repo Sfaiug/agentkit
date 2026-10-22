@@ -105,6 +105,9 @@ class CodexTokens(unittest.TestCase):
         for number, counts in enumerate(TOTALS, 1):
             self.turn(number, counts)
         # Mixed harnesses in one role: only the proven duplication may be removed.
+        claude = self.turn(3, (123, 0), role="reviewer-claude")
+        (claude / "events.jsonl").write_text(json.dumps(
+            {"type": "result", "usage": {"input_tokens": 123}}) + "\n")
         old = sum(sum(counts) for counts in TOTALS) + 123
         with closing(sqlite3.connect(history.path())) as db, db:
             db.execute(history.SCHEMA)
@@ -127,6 +130,45 @@ class CodexTokens(unittest.TestCase):
             self.assertEqual(rows["fix-api"]["reviewer_tokens"], corrected)
         self.record(out)
         self.assertEqual(history.get("fix-api")["reviewer_tokens"], 2200000 + 9000 + 123)
+
+    def test_recount_includes_every_landing_fixer_and_its_retries(self):
+        names = ("final-fixer", "rerun-fixer", "merge-fixer", "rebase-fixer", "landing-7-fixer")
+        with closing(sqlite3.connect(history.path())) as db, db:
+            db.execute(history.SCHEMA)
+            for number, name in enumerate(name for base in names for name in (base, base + "-retry1")):
+                run = f"fix-api-{number}"
+                self.turn(1, (100, 0), run=run, role="executor", stamp=1)
+                self.turn(1, (150, 0), run=run, role=name, stamp=2)
+                db.execute("INSERT INTO runs (run_id, executor_tokens) VALUES (?,250)", (run,))
+        for number in range(2 * len(names)):
+            with self.subTest(run=number):
+                self.assertEqual(history.get(f"fix-api-{number}")["executor_tokens"], 150)
+
+    def test_recount_stops_at_recorded_usage_before_an_unrecorded_report(self):
+        with closing(sqlite3.connect(history.path())) as db, db:
+            db.execute(history.SCHEMA)
+            for run, recorded, totals in (("first-recorded", 100, (100, 150)),
+                                          ("two-recorded", 250, (100, 150, 200))):
+                for number, total in enumerate(totals, 1):
+                    self.turn(number, (total, 0), run=run)
+                db.execute("INSERT INTO runs (run_id, final_state, reviewer_tokens) "
+                           "VALUES (?, 'running', ?)", (run, recorded))
+        for run, number, recorded, final in (("first-recorded", 2, 100, 150),
+                                             ("two-recorded", 3, 150, 200)):
+            with self.subTest(run=run):
+                self.assertEqual(history.get(run)["reviewer_tokens"], recorded)
+                out = config.RUNS / run / f"round-{number}" / "reviewer"
+                self.record(out, run=run)
+                self.assertEqual(history.get(run)["reviewer_tokens"], final)
+
+    def test_recount_leaves_usage_it_cannot_reconcile_unchanged(self):
+        self.turn(1, (100, 0))
+        self.turn(2, (150, 0))
+        # More recorded spend than the kept logs account for: missing evidence is no refund.
+        with closing(sqlite3.connect(history.path())) as db, db:
+            db.execute(history.SCHEMA)
+            db.execute("INSERT INTO runs (run_id, reviewer_tokens) VALUES ('fix-api',1000)")
+        self.assertEqual(history.get("fix-api")["reviewer_tokens"], 1000)
 
 
 if __name__ == "__main__":

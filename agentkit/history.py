@@ -180,20 +180,32 @@ def _connect(*, readonly=False):
 
 
 def _recount_tokens(connection):
-    """Remove proven double counts once, preserving other harnesses and missing logs."""
+    """Repair a recorded prefix of kept turns, leaving unmatched totals alone."""
     from .harness.codex import token_counts
-    for (run_id,) in connection.execute("SELECT run_id FROM runs").fetchall():
-        duplicates = {"executor": 0, "reviewer": 0}
-        for path, total, spent in token_counts(config.RUNS / run_id):
-            name = path.parent.name
-            role = "reviewer" if name.startswith("reviewer") else "executor" \
-                if name.startswith(("executor", "fixer")) else None
-            if role:
-                duplicates[role] += total - spent
-        for role, amount in duplicates.items():
-            if amount:
+    rows = connection.execute("SELECT run_id, executor_tokens, reviewer_tokens FROM runs").fetchall()
+    for run_id, executor, reviewer in rows:
+        recorded = {"executor": executor, "reviewer": reviewer}
+        raw, corrected, matched = dict.fromkeys(recorded, 0), dict.fromkeys(recorded, 0), {}
+        run_dir = config.RUNS / run_id
+        codex = {path: (total, spent) for path, total, spent in token_counts(run_dir)}
+        for path in event_paths(run_dir):
+            total, spent = codex.get(path, (None, None))
+            if total is None:
+                total = spent = event_tokens(path)
+            if total is None:
+                continue
+            # All other worker turns, including landing fixers, count as executor work.
+            role = "reviewer" if path.parent.name.startswith("reviewer") else "executor"
+            raw[role] += total
+            corrected[role] += spent
+            # A log can flush before its finally block adds usage. Only a prefix matching
+            # the row's old total identifies which reports were already recorded.
+            if raw[role] == recorded[role]:
+                matched[role] = corrected[role]
+        for role, amount in matched.items():
+            if amount != recorded[role]:
                 connection.execute(
-                    f"UPDATE runs SET {role}_tokens=MAX(0,{role}_tokens-?) WHERE run_id=?",
+                    f"UPDATE runs SET {role}_tokens=? WHERE run_id=?",
                     (amount, run_id))
 
 
@@ -798,6 +810,20 @@ def recent_peak_rss_mb():
              if isinstance(peak := row.get("peak_rss_mb"), (int, float))
              and math.isfinite(peak) and peak > 0]
     return median(peaks) if peaks else None
+
+
+def event_paths(run_dir):
+    """Kept worker event files in reporting order."""
+    paths = []
+    for path in Path(run_dir).glob("round-*/*/events.jsonl"):
+        try:
+            # Rounds are numeric; file times order retries and handovers within a round.
+            order = (int(path.parent.parent.name.removeprefix("round-")),
+                     path.stat().st_mtime_ns, str(path))
+            paths.append((order, path))
+        except (OSError, ValueError):
+            continue
+    return [path for _, path in sorted(paths)]
 
 
 def event_tokens(path):

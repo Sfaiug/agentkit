@@ -55,19 +55,8 @@ def token_counts(run_dir):
     """Kept Codex turns as (events file, thread total, turn spend), in reporting order."""
     from .. import history
 
-    def order(path):
-        # Rounds are numeric; within one, file times order retries and handovers whose
-        # directory names do not sort in the order they ran.
-        return int(path.parent.parent.name.removeprefix("round-")), path.stat().st_mtime_ns, str(path)
-
-    paths = []
-    for path in Path(run_dir).glob("round-*/*/events.jsonl"):
-        try:
-            paths.append((order(path), path))
-        except (OSError, ValueError):
-            continue
     previous = {}
-    for _, path in sorted(paths):
+    for path in history.event_paths(run_dir):
         thread = None
         try:
             with path.open(errors="replace") as source:
