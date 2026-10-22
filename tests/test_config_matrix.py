@@ -232,8 +232,7 @@ class Matrix(unittest.TestCase):
         self.assertEqual(row(lines, "haiku")[0], row(lines, "opus")[0] + 1)   # under Claude
         tail = [line.strip() for line in lines]
         self.assertIn("+ add a model", tail)
-        self.assertIn("+ add a provider", tail)       # each subscription is its meter, above
-        self.assertIn("Subscriptions", tail)
+        self.assertIn("Subscriptions", tail)          # each subscription is its meter, above
         self.assertTrue(any(line.startswith("Discord") and line.endswith("not connected")
                             for line in tail), tail)
         # the build under the last row, nothing said of the highlighted model
@@ -395,10 +394,10 @@ class Matrix(unittest.TestCase):
     def test_enter_on_discord_runs_its_step_and_version_is_no_stop(self):
         screen = Screen(self)
         lines = screen.frame()
-        # past every model, `+ add a model`, `+ add a provider` and `Subscriptions`
+        # past every model, `+ add a model` and `Subscriptions`
         models = lines[headings(lines) + 1:next(n for n, line in enumerate(lines)
                                                 if "+ add a model" in line)]
-        down = sum(1 for line in models if line.startswith(("  ", "›"))) + 3
+        down = sum(1 for line in models if line.startswith(("  ", "›"))) + 2
         lines = screen.press(DOWN * down, lambda lines: highlighted(lines).startswith("› Discord"))
         self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   esc back")
         mark = len(screen.text())
@@ -432,7 +431,7 @@ class Matrix(unittest.TestCase):
         self.assertIn("Version abc1234 · 2026-09-29", [line.strip() for line in lines])      # and on the last
         self.assertNotIn("at least one model reviews", "\n".join(lines))   # until the next key
         # Wait for selection: the row is already visible on the first Up redraw.
-        lines = screen.press(UP * 4, lambda lines: highlighted(lines) == "› + add a model")
+        lines = screen.press(UP * 3, lambda lines: highlighted(lines) == "› + add a model")
         self.assertEqual(highlighted(lines), "› + add a model")
         self.assertLessEqual(len(lines), 23)
         screen.leave()

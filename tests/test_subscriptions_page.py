@@ -1,5 +1,5 @@
 """`c`'s `Subscriptions` is a page of rows: each subscription, its list under it offering what its
-meter does.
+meter does, then `+ add a subscription`.
 
 The owner (20 Oct 2026): "in the config instead of having add model and add provider, it should
 instead be just provider options and settings".  In-process, in a temporary HOME: the page's key
@@ -39,7 +39,7 @@ class SubscriptionsPage(Sandbox):
         with patch.object(menu, "matrix_key", side_effect=matrix_key):
             menu.config_subscriptions(self.cfg, None)
         self.assertEqual([re.split(r"\s{2,}", line[2:])[0] for line in drawn[0]],
-                         self.rows)
+                         [*self.rows, "+ add a subscription"])
 
         def under(lines, at, count):      # the list drawn under row `at`, as it reads
             return [line[2:].strip() for line in lines[at + 1:at + 1 + count]]
