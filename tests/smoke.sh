@@ -2138,7 +2138,7 @@ printf '\n' | HOME="$ORCHHOME" ak orch --dry-run --model astra smoke-orch-astra 
 # astra names its model, so Codex gets it as -m (check 6e)
 grep -qE "codex --yolo -m [^ ]+ -c 'model_reasoning_effort" "$WORK/orch-astra.log" || ORCH2=1
 printf '\n' | HOME="$ORCHHOME" ak orch --dry-run --model spark smoke-orch-spark >"$WORK/orch-spark.log" 2>&1 || ORCH2=1
-grep -q 'muse --yolo --provider meta --model muse-spark' "$WORK/orch-spark.log" || ORCH2=1
+grep -q 'muse --trust-workspace --disable-approval --disable-sandbox --provider meta --model muse-spark' "$WORK/orch-spark.log" || ORCH2=1
 grep -q 'idle-compact.py -- claude ' "$WORK/orch-fable.log" || ORCH2=1
 [ "$ORCH2" = 0 ] && ok "6b ak orch: astra prints a codex command with its model, spark a muse one, fable a claude one" \
                  || no "6b ak orch per-harness command: $(tail -1 "$WORK/orch-astra.log")"

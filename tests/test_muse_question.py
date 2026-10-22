@@ -54,7 +54,7 @@ class MuseQuestion(unittest.TestCase):
 class MuseLaunch(unittest.TestCase):
     """The seat's launch line carries the hook only where its muse's own schema has hooks."""
 
-    def launch(self, schema):
+    def launch(self, schema, *resume):
         with tempfile.TemporaryDirectory() as tmp:
             fake = Path(tmp)
             (fake / "muse").write_text(
@@ -65,12 +65,26 @@ class MuseLaunch(unittest.TestCase):
             (fake / "rules.md").write_text("rules\n")
             proc = subprocess.run(
                 ["bash", str(REPO / "adapters/muse.sh"), "interactive", "muse-spark-1.3",
-                 "minimal"], capture_output=True, text=True, timeout=30,
+                 "minimal", *resume], capture_output=True, text=True, timeout=30,
                 env={**os.environ, "PATH": f"{fake}:{os.environ['PATH']}",
+                     "HOME": str(fake),
                      "AGENTKIT_RULEBOOK": str(fake / "rules.md"), "AGENTKIT_ACCOUNT": "",
                      "AGENTKIT_SESSION": "fix-api"})
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return shlex.split(proc.stdout)
+
+    def test_native_questions_are_available_on_open_and_resume(self):
+        # Muse 1.4.11's --yolo now withholds request_user_input, too. Keep its
+        # workspace access by naming those controls without disabling questions.
+        for resume in ((), ("acme-session",)):
+            with self.subTest(resume=resume):
+                cmd = self.launch('{"enum": ["notification"]}', *resume)
+                for flag in ("--trust-workspace", "--disable-approval", "--disable-sandbox"):
+                    self.assertIn(flag, cmd)
+                self.assertNotIn("--yolo", cmd)
+                self.assertNotIn("--disable-request-user-input", cmd)
+                if resume:
+                    self.assertEqual(cmd[cmd.index("resume") + 1], resume[0])
 
     def test_a_muse_with_hooks_runs_the_seat_hook_on_its_events(self):
         cmd = self.launch('{"enum": ["userPromptSubmit", "stop", "notification"]}')
