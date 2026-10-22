@@ -47,7 +47,7 @@ class IntentRow(Sandbox):
         self.harness, self.seats = Harness(), {"fix-api": {"cwd": "/acme"}}
         for target, name, value in ((orch, "seat_plugin", lambda record, **_kw: self.harness),
                                     (config, "session_records", lambda: self.seats),
-                                    (menu, "run_records", lambda: []),
+                                    (menu, "run_records", lambda **_kw: []),
                                     (scoreboard, "_git", lambda *args, **kw: None),
                                     (terminal, "content_width", lambda: 400)):
             patcher = patch.object(target, name, value)
