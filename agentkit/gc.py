@@ -817,8 +817,9 @@ def git_busy_paths():
         proc for proc in retention.process_dirs() if proc.stat().st_uid == os.getuid())
     if hidden:
         return None
+    # Entry-point arguments identify the program, not the repository it works on.
     paths = {path for pid, row in processes.items() if pid != os.getpid()
-             for path in (row["cwd"], *row["paths"])}
+             for path in (row["cwd"], *row.get("open_paths", set(row["paths"]) - set(row["args"])))}
     for state in states:
         line = (state.get("waiting_on") or {}).get("line")
         lander = land.passes(config.RUNS / line) if line else {}

@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -144,14 +145,16 @@ class NoBackgroundGit(Sandbox):
         self.assertFalse(self.mark(other).exists())
         self.assertEqual(self.global_config.read_bytes(), self.original)
 
-    def test_a_live_run_in_a_linked_worktree_defers_only_its_repository(self):
+    def test_a_linked_project_run_leaves_the_idle_install_collectible(self):
         tree = self.worktree()
-        other = self.repository(config.CODE / "widgets")
+        other = self.repository(self.root / "agentkit")
         directory = config.RUNS / "fix-api"
         directory.mkdir()
         record.save_state(directory, {"repo": str(tree), "worktree": str(tree),
                                       "state": "running", "pid": PID})
         self.running()
+        self.processes[PID].update(cwd=str(config.CODE), args=[sys.executable, str(other / "bin/ak"), "run"],
+                                  paths=[str(config.CODE), sys.executable, str(other / "bin/ak")])
         self.assertNotIn(f"git gc: {self.repo}\n", self.tick())
         self.assertFalse(self.mark().exists())
         self.assertTrue(self.mark(other).exists())
@@ -188,7 +191,9 @@ class NoBackgroundGit(Sandbox):
     def test_a_seat_using_absolute_paths_from_code_holds_its_repository(self):
         self.running()
         self.processes[PID].update(cwd=str(config.CODE),
-                                  paths=[str(self.repo / ".git" / "index")])
+                                  args=["editor", str(self.repo / ".git" / "index")],
+                                  paths=[str(self.repo / ".git" / "index")],
+                                  open_paths=[str(self.repo / ".git" / "index")])
         with patch.object(orch, "sessions", return_value=[{"name": "builder", "path": str(config.CODE)}]):
             self.tick()
         self.assertFalse(self.mark().exists())
