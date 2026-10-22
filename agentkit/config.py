@@ -893,6 +893,7 @@ SEAT_FILES = {
     "held": "md",        # the rulebook its conversation last said it read
     "launch": "sh",      # the command its pane runs, until that pane starts (`orch.seat_command`)
     "refused": "txt",    # its screen when it read at its prompt yet took no line (`watch.untyped`)
+    "handover": "md",    # what moves to another harness handed it of its conversation (`orch.handover`)
     # written by nothing since seats stopped messaging one another: named so a stop and the daily collector still
     # take the queues a host holds from before, as they take every other file of a gone seat
     "tell": "json",
@@ -1617,6 +1618,14 @@ def seat_rulebook(session, repo=None):
         body = (f"{body.rstrip()}\n\n# The project's AGENTS.md\n\nThe rules of {Path(repo).name}, "
                 "the project this session is filed under, as on its default branch: its workers "
                 f"get the same.\n\n{project}\n")
+    handed = seat_file("handover", session)
+    if handed.is_file():
+        # where, not what: a harness may take its rulebook as one argument, which Linux caps
+        # at 128 KiB, and a conversation has no such bound
+        body = (f"{body.rstrip()}\n\n# Where this seat's work stands\n\nThis seat moved to you "
+                "from another model under the same name. Its runs go on and report to you (`ak "
+                "run status`), and its plan is `ak plan`. What was said in its conversation so "
+                f"far, oldest first, is in {handed}: read its end before anything else.\n")
     if record.get("unnamed"):
         body = f"{body.rstrip()}\n\n{NAME_LINE}\n"
     return body

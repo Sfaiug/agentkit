@@ -108,6 +108,13 @@ class SeatMove(Sandbox):
     def record(self):
         return config.session_records()[SEAT]
 
+    def spoken(self):
+        """Its conversation said a word: Claude Code writes no transcript before one."""
+        path = claude.transcript_path(self.record(), OWN)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"type": "user", "message": {"role": "user",
+                                                                "content": "Fix the api"}}) + "\n")
+
     def test_a_claude_seat_moved_to_another_claude_model_resumes_its_conversation(self):
         self.assertEqual(self.move("fable"), "")
         self.assertEqual(self.respawned, [["acme-tui", "fable", OWN]])   # resumed, not opened
@@ -116,21 +123,22 @@ class SeatMove(Sandbox):
         self.assertIsNone(watch.seat_read(SEAT).get("midturn"))         # no handover typed
 
     def test_moved_to_another_harness_it_opens_fresh_with_the_handover(self):
+        self.spoken()
         self.assertEqual(self.move("astra"), "")
         [cmd] = self.respawned
         self.assertEqual(cmd[-2:], ["acme-tui", "astra"])     # after its launch receipt's env
         self.assertEqual(self.record()["orchestrator"], "astra")
-        self.assertIn("You took over this seat from opus",
-                      watch.seat_read(SEAT)["midturn"]["line"])
+        self.assertIn("This seat ran on opus", config.rulebook_path(SEAT).read_text())
+        self.assertIsNone(watch.seat_read(SEAT).get("midturn"))        # nothing typed
 
     def test_a_conversation_its_harness_cannot_resume_opens_fresh_with_the_handover(self):
         config.update_session(SEAT, id_source=None)     # nothing the launcher handed out
+        self.spoken()
         self.assertEqual(self.move("fable"), "")
         [cmd] = self.respawned
         self.assertEqual((cmd[:2], cmd[-1]), (["acme-tui", "fable"], "new"))
         self.assertNotEqual(cmd[2], OWN)
-        self.assertIn("You took over this seat from opus",
-                      watch.seat_read(SEAT)["midturn"]["line"])
+        self.assertIn("This seat ran on opus", config.rulebook_path(SEAT).read_text())
 
     def test_a_seat_moved_mid_turn_is_told_to_go_on(self):
         watch.seat_write(SEAT, state="at_prompt")     # its last reading, a prompt behind
