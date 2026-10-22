@@ -35,6 +35,9 @@ SEAT_STATE = "hooks/seat-state.sh"
 # Claude's -- a `decision` of `block` with the `reason` beside it -- so the end-of-turn rule is
 # the one script on both harnesses.
 STOP_RULE = "hooks/orchestrator-stop.sh"
+# Codex's default command deadline; only Interrupt has its separate three-second cap.
+# Callbacks stay ordered: a late tool completion must not clear a newer question.
+HOOK_TIMEOUT = 600
 # The question tool of Codex 0.160's newer models does not wait for the answer: the model hears
 # `accepted` at once and works on, and Codex drops the question unanswered, with no word to the
 # model or to ak, when anything is sent into the seat or the turn ends.  So a seat's PreToolUse
@@ -409,7 +412,8 @@ def trust(hooks, matchers=None):
         label = re.sub(r"(?<!^)(?=[A-Z])", "_", event).lower()
         for position, (command, timeout) in enumerate(handlers):
             identity = {"event_name": label, "hooks": [
-                {"async": False, "command": command, "timeout": timeout, "type": "command"}]}
+                {"async": False, "command": command, "timeout": timeout,
+                 "type": "command"}]}
             if (matchers or {}).get(event):
                 identity["matcher"] = matchers[event]
             digest = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":"),
@@ -471,8 +475,8 @@ def answered(event):
     name = config.current_session()
     if not name:
         return False
-    from .. import watch
-    return watch.hook_state("codex", watch.hook_facts(name))[0] == "asking"
+    from .. import lifecycle
+    return lifecycle.state("codex", lifecycle.facts(name))[0] == "asking"
 
 
 def question_line(item):
@@ -723,7 +727,7 @@ def main(argv, launch=None):
             # CLI overrides form their own hook layer; existing configured hooks still run.
             # The help flag is a capability check only: never bypass trust for other hooks.
             hooks = {"SessionStart": [(shlex.join(
-                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "capture"]), 5)]}
+                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "capture"]), HOOK_TIMEOUT)]}
             # The same launch carries the seat-state hooks: the events 0.153.x emits that say
             # what this seat is doing.  They go here rather than into ~/.codex/config.toml
             # because that file is the user's.  What each event means is
@@ -731,20 +735,18 @@ def main(argv, launch=None):
             # end-of-turn rule rides the Stop layer beside it, and is the one that decides.
             # The script also rides SessionStart, where a compaction (0.160's `compact` source)
             # leaves the seat holding its launch's rulebook again (`orch.rulebook_compacted`).
-            # 3s, not the receipt hook's 5: Interrupt is capped there and 0.153.4 prints a
-            # clamping warning into the seat on every launch that asks for more
-            seat = (shlex.join(["bash", str(config.REPO / SEAT_STATE)]), 3)
+            seat = (shlex.join(["bash", str(config.REPO / SEAT_STATE)]), HOOK_TIMEOUT)
             hooks.update((event, [seat]) for event in SEAT_EVENTS)
+            hooks["Interrupt"] = [(seat[0], 3)]
             hooks["SessionStart"].append(seat)
-            hooks["Stop"].append((shlex.join(["bash", str(config.REPO / STOP_RULE)]), 3))
-            # The seat's question goes to its owner through ak (`ask`); 10s, as recording it
-            # can take the notice's lock behind a card being posted.  A Plan-mode question
+            hooks["Stop"].append((shlex.join(["bash", str(config.REPO / STOP_RULE)]), HOOK_TIMEOUT))
+            # The seat's question goes to its owner through ak (`ask`). A Plan-mode question
             # going up is written down by it, once it lets the call through, and a call's end
             # only while the seat's record holds a question (`answered`).
             hooks["PreToolUse"] = [(shlex.join(
-                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "ask"]), 10)]
+                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "ask"]), HOOK_TIMEOUT)]
             hooks["PostToolUse"] = [(shlex.join(
-                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "answered"]), 3)]
+                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "answered"]), HOOK_TIMEOUT)]
             matchers = {"PreToolUse": QUESTIONS}
             os.environ[CAPTURE_ENV] = receipt
             for event, handlers in hooks.items():

@@ -22,7 +22,7 @@ import urllib.parse
 import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from agentkit import config, notify
+from agentkit import config
 from agentkit.harness.codex import (first_prompt, main, pairing_home, remote_home,
                                     seat_conversations)
 
@@ -234,6 +234,7 @@ def pairing_key(environment):
 
 def close_pairing(environment, status):
     # an old pairing card stops retrying; one already out stays as it went
+    from agentkit import notify
     with notify.outbox_lock():
         event = notify._read_event(pairing_key(environment))
         if event and not event.get("closed"):

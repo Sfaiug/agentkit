@@ -48,6 +48,7 @@ from . import (aside_editor, browser, command_help, config, gc, gitcall, handbac
                orch, staffing, statusbar, transitions, turns, update, usage, worker)
 from . import record as run_record
 from .harness import LIMITED, SPENT, says
+from .lifecycle import LIVE, facts as hook_facts, state as hook_state
 
 INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is typed into
 # what a seat reopened after its process died mid-turn is told, in a run's mid-turn words
@@ -842,9 +843,8 @@ def stop_marks(harness, pane, found, previous, at):
 def stop_enforced(harness):
     """Does the end-of-turn rule have to be typed at this harness, for want of a hook?
 
-    Claude Code and Codex both run hooks/orchestrator-stop.sh on the end of a turn and decide
-    it there, which is where it belongs.  A harness with no blocking end-of-turn hook says
-    `[stop] enforce = "nudge"` and the tick applies the same test to its screen instead.
+    A harness with no blocking end-of-turn hook says `[stop] enforce = "nudge"`
+    and the tick applies the same test to its screen instead.
     """
     block = config.manifest(harness).get("stop")
     return bool(isinstance(block, dict) and block.get("enforce") == "nudge")
@@ -1104,7 +1104,6 @@ def worker_token_note(now=None):
     return None
 
 
-LIVE = ("asking", "working", "at_prompt", "draft")   # the states a live seat can be caught in
 TURN_SECS = 3 * 3600   # age of a seat fact worth checking; never a worker turn cap
 # Screen captures for the seat rules are taken with attributes (`capture-pane -p -e`),
 # so dim text can be told from typed text. A faint (SGR 2) span is a suggestion or
@@ -1703,41 +1702,6 @@ def stuck_on(harness, tail, name=None):
 # facts alone, so the menu, the overlay, `ak orch list`, the status bar and a watch tick all say
 # the same word with the same `since`.  Observation is never acknowledgement: nothing here opens
 # a seat, answers a notice or types into one.
-
-
-def hook_facts(name):
-    """The last lifecycle event that seat's own harness reported, or {}."""
-    try:
-        data = json.loads(config.hook_facts_path(name).read_text(encoding="utf-8"))
-    except (OSError, ValueError, config.Error):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def hook_state(harness, fact):
-    """(state, event, evidence, when) the manifest maps that fact to, or (None, "", "", None).
-
-    The hook records the event and its payload; which state it means is the manifest's to say,
-    so no harness's vocabulary is spelled out here.
-    """
-    if not isinstance(fact, dict):
-        return None, "", "", None
-    event, kind, when = fact.get("event"), fact.get("kind") or "", fact.get("at")
-    if (not isinstance(event, str) or not isinstance(when, (int, float))
-            or isinstance(when, bool) or not math.isfinite(when)):
-        return None, "", "", None
-    hooks = config.manifest(harness).get("hooks")
-    for entry in (hooks or {}).get("event") or ():
-        if not isinstance(entry, dict) or entry.get("name") != event:
-            continue
-        kinds = entry.get("kinds")
-        if isinstance(kinds, list) and kind not in kinds:
-            continue
-        if entry.get("state") in LIVE:
-            text = str(fact.get("text") or "").strip()
-            return (entry["state"], f"{event}/{kind}" if kind else event,
-                    " ".join((text or event).split())[:160], float(when))
-    return None, "", "", None
 
 
 def _screen_rows(tail):
