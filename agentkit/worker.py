@@ -22,6 +22,8 @@ FIX_OR_DISPUTE = ('[worker judgement] You may dispute a finding instead of chang
                   '`ak hand-in dispute path:line "why it is wrong" --run COMMAND` or `--quote LINES`.\n'
                   "[checked by ak: tests/test_dispute_hand_in.py] ak refuses disputes outside the "
                   "handed blocking findings, commands that do not exit 0 and absent quotes.\n"
+                  "[checked by ak: tests/test_fixer_done_waits_for_its_proofs.py] ak refuses done "
+                  "while an undisputed earlier proof still fails; proofs unable to run or finish are notes.\n"
                   "[worker judgement] Fix every undisputed finding in {work}, and list the sites "
                   "you changed in your summary.")
 ONE_PASS = ("[worker judgement] Report every finding you can establish in this one pass, grouped by "
