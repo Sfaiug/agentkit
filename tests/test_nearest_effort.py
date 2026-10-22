@@ -78,8 +78,8 @@ class NearestEffort(Sandbox):
         # Arena's agent boards write `Acme 5 (max)` and its text boards `acme-5-max`: at max
         # both speak, the row named at it winning a column they share, and so does a row naming
         # no effort while Artificial Analysis has no index, which alone speaks at high; the row
-        # at max is matched at max whichever measure comes first, so only the row at high stands
-        # at every effort (menu.models_at); the effort word comes off the name before the model
+        # at max is matched at max whichever measure comes first, and only the row at high at
+        # none; the effort word comes off the name before the model
         # is matched, so a version, a `-free` tier, a qualifier in brackets and `benchmark` find
         # the row too
         self.stack.enter_context(patch.object(config, "catalog", return_value=[

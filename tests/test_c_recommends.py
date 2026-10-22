@@ -31,6 +31,13 @@ class Keyboard:
         return True
 
 
+class Landed(menu.Fetch):
+    """The models screen's reading of the boards, landed before it draws."""
+    def __init__(self, work):
+        super().__init__(work)
+        self.join()
+
+
 def row(harness, model, effort, name=None, **valued):
     """A stored row worth `valued[role]` in each such role (fixtures.scores); a configured one
     runs in every role it is valued for."""
@@ -48,6 +55,10 @@ class Recommends(Sandbox):
         self.stack.enter_context(patch.object(usage, "collect", return_value=usage.Readings({})))
         self.stack.enter_context(patch.object(terminal, "layout_width", return_value=100))
         self.stack.enter_context(patch.dict("os.environ", {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}))
+        # the models screen reads the boards as it opens: here the stored rows
+        self.stack.enter_context(patch.object(matrix, "refresh", side_effect=lambda cfg, **_kw: (
+            {}, matrix.stored().get("rows") or [])))
+        self.stack.enter_context(patch.object(menu, "Fetch", Landed))
 
     def store(self, rows):
         scores.store(rows)
@@ -126,9 +137,10 @@ class Recommends(Sandbox):
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["opus"]))
 
-    def test_with_nothing_computed_no_model_is_recommended_and_r_is_no_key(self):
-        text = self.screen([Key("char", "r"), Key("esc")])
-        self.assertNotIn("recommended", text)
+    def test_with_nothing_computed_no_model_is_recommended_and_the_screen_says_so(self):
+        text = self.screen([Key("char", "r"), Key("esc"), Key("esc")])
+        self.assertIn("orch no board row yet builds no board row yet reviews no board row yet", text)
+        self.assertIn("0 of 0 marked · no board read yet", text)
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["astra"]))
         # without a seat nothing is recommended
