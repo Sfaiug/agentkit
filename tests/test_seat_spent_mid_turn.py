@@ -57,12 +57,19 @@ class SpentMidTurn(SpentSeat):
         self.meters(20, 20)
         self.pane = REFUSED.replace("❯\u00a0\n", "❯\u00a0half a thought about the parser\n")
         self.assertIn("parser", self.pane)
-        with patch.object(watch, "carry_draft") as carried:
+        with patch.object(watch, "carry_draft", wraps=watch.carry_draft) as carried:
             self.tick()
         self.assertEqual(watch.seat_read(NAME)["state"], "draft")
         carried.assert_called_once()
         self.assertEqual(self.account(), "second")
         self.assertEqual(len(self.commands), 1)
+
+    def test_unsent_text_that_cannot_be_kept_keeps_the_seat_where_it_is(self):
+        self.meters(100, 20)
+        self.pane = REFUSED.replace("❯\u00a0\n", "❯\u00a0half a thought about the parser\n")
+        with patch.object(watch, "carry_draft", return_value=False):
+            self.tick()
+        self.assertEqual(self.commands, [])     # a respawn would kill its only copy
 
     def test_a_resumed_seat_is_never_told_its_subscription_ran_out(self):
         # the same account after its reset is no other subscription: the line says what is true

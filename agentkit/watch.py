@@ -4509,9 +4509,12 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         if target is not None:
             try:
                 if owned:
-                    if live.get("state") == "draft":
-                        carry_draft(session, harness, pane, cfg)   # into the composer it opens
-                    _resume_on(cfg, name, log, target, continuing)
+                    # the owner's text lifted and the harness respawned in one hold, as a switch does
+                    with notify.session_lock(name):
+                        if (live.get("state") == "draft"
+                                and not carry_draft(session, harness, pane, harness, cfg)):
+                            return True     # the text could not be kept: a respawn would lose it
+                        _resume_on(cfg, name, log, target, continuing)
                 elif continuing and not type_into(session, keystroke(harness, cue), log,
                                                   asked=True):
                     return True
