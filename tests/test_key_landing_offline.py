@@ -43,8 +43,9 @@ rows = open("/proc/net/dev").read().splitlines()[2:]
 interfaces = [row.split(":")[0].strip() for row in rows]
 print("suite network:", os.readlink("/proc/self/ns/net"))
 print("suite interfaces:", " ".join(interfaces))
-own = socket.create_server(("127.0.0.1", 0))
-attempt("own loopback", own.getsockname())
+# Closed before the host probe, as its port may be the host listener's number.
+with socket.create_server(("127.0.0.1", 0)) as own:
+    attempt("own loopback", own.getsockname())
 attempt("host loopback", ("127.0.0.1", HOST_PORT))
 if interfaces == ["lo"]:
     attempt("outside", ("192.0.2.1", 80))
