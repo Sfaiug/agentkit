@@ -23,7 +23,8 @@ def landing(lp, deliver=None, *, checked=lambda: None, consume=None):
         else:
             lp.state["state"] = "waiting"
             lp.write()
-        if lp.state.get("state") != "waiting":
+        if (lp.state.get("state") != "waiting"
+                or not (lp.state.get("waiting_on") or {}).get("line")):
             return False
         turn = config.RUNS / lp.state["waiting_on"]["line"]
         # Limit checker fakes to the pass: delivery may wait while a job builds its dependant.
