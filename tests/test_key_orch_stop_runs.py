@@ -1,14 +1,12 @@
 """A stopped seat ends first, then every run it launched that is still going stops with it.
 
-Stopping a seat is the deliberate stop that takes everything connected to it: a run it launched
-would otherwise go on building and hand its result back to a seat the owner closed.  `ak orch
-stop NAME` ends the seat, then stops each of its going runs, and each reads stopped by the user,
-as `ak run stop` leaves one; the seat's finished runs and every other seat's runs are left as
-they were.  Run from outside the seats it prints `stopped <run>` for each, then the seat's own
-line; run from that seat it says nothing, as the terminal it would print to went with the seat.
-From another seat the stop is refused and the seat's runs go on.  Black-box: the program `AK_BIN` names runs from
-outside through tests/fixtures/akbin.py, before seats of tests/fixtures/akseat.py and run records
-naming the seat that launched each; this test fails against `/bin/false`.
+Stopping a seat takes everything connected to it: a run it launched would otherwise go on and
+hand its result to a seat the owner closed.  `ak orch stop NAME` ends the seat, then stops each
+of its going runs as `ak run stop` does, leaving its finished runs and other seats' alone.  From
+outside the seats it prints `stopped <run>` for each, then the seat's line; from that seat it
+says nothing, its terminal gone with it; from another it is refused.  Black-box: `AK_BIN` runs
+through tests/fixtures/akbin.py, before seats of tests/fixtures/akseat.py and run records naming
+the seat that launched each; this test fails against `/bin/false`.
 """
 
 import json
@@ -45,9 +43,9 @@ class StopOwnedRuns(unittest.TestCase):
     def test_from_outside_the_seats_each_going_run_and_the_seat_say_they_stopped(self):
         done = self.home.ak("orch", "stop", "fix-api", env={"AGENTKIT_SESSION": ""})
         self.assertEqual(done.code, 0, done.err)
-        lines = done.out.splitlines()
-        self.assertEqual(lines[-1:], ["stopped fix-api; its number reopens it"])
-        self.assertEqual(sorted(lines[:-1]), ["stopped api-docs", "stopped api-retry"])
+        *runs, seat = done.out.splitlines()
+        self.assertEqual((sorted(runs), seat), (["stopped api-docs", "stopped api-retry"],
+                                                "stopped fix-api; its number reopens it"))
         self.assert_stopped_with_its_runs()
 
     def test_the_seat_itself_stops_without_a_word_into_its_gone_terminal(self):
