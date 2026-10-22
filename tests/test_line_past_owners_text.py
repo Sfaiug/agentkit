@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.editor_seat import PANE, EditorSeat
-from fixtures.seats import LINE, REPO
+from fixtures.seats import LINE, NOW, REPO
 from agentkit import aside_editor, watch
 
 DRAFT = "and add these posts"
@@ -75,10 +75,11 @@ class LinePastOwnersText(EditorSeat):
         self.assertEqual((self.keys, self.sent, self.composer, self.told()),
                          (["C-g", "Enter", "C-g"], [LINE], DRAFT, True))
 
-    def test_text_comes_back_on_a_later_pass_once_a_slow_screen_draws_the_emptied_composer(self):
+    def slow_enter(self):
+        """A tick whose line's Enter, its terminal marked, the screen draws only later."""
         press = self.press
 
-        def slow(key, pane=PANE):       # the line's Enter, its terminal marked, drawn only later
+        def slow(key, pane=PANE):
             press(key, pane)
             self.untouched(0)
             if key == "Enter":
@@ -89,9 +90,21 @@ class LinePastOwnersText(EditorSeat):
         self.assertEqual((self.sent, self.composer, self.buffers, self.told()),
                          ([LINE], "", kept(aside_editor.ASIDE), False))
         self.show("")                   # the screen catches up
+
+    def test_text_comes_back_on_a_later_pass_once_a_slow_screen_draws_the_emptied_composer(self):
+        self.slow_enter()
         self.tick()                     # the text back, then the mark's pass reads it sent
         self.assertEqual((self.keys, self.composer, self.buffers, self.told()),
                          (["C-g", "Enter", "C-g", "C-g"], DRAFT, kept(aside_editor.GIVEN), True))
+
+    def test_a_key_of_the_owner_s_since_the_line_s_enter_holds_its_text_back(self):
+        self.slow_enter()
+        self.untouched(-1)              # a second after ak's
+        self.tick()
+        self.assertEqual((self.keys, self.composer, self.told()), (["C-g", "Enter"], "", False))
+        with patch.object(watch.time, "time", return_value=NOW + 1 + watch.DRAFT_STILL):
+            self.tick()
+        self.assertEqual((self.composer, self.told()), (DRAFT, True))
 
     def test_a_line_its_enter_left_unsent_goes_first_and_its_text_comes_back_after(self):
         with patch.object(watch, "_send_enter", return_value=False):

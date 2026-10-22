@@ -3803,6 +3803,7 @@ def _edit(session, where, mode, line=""):
                      orch.tmux_literal(aside_editor.request("none")))
     finally:
         orch.tmux_out(*after, socket=server)
+        _keyed(session, pane)
     return None
 
 
@@ -3844,20 +3845,21 @@ def _editor_kept(session):
 
 def _editor_read(session, where, cfg=None):
     """That seat's screen as (harness, pane, live state) where it may be asked an editor step
-    now, or None: a composer read empty, or nothing typed into its pane (`where`, `seat_editor`)
-    for DRAFT_STILL -- the owner types into text they see, and a terminal takes ak's keys, its
-    line's Enter among them, as it does theirs -- and none unread, read with no question or
+    now, or None: none of the owner's keys typed into its pane (`where`, `seat_editor`) for
+    DRAFT_STILL -- its terminal takes ak's as it does theirs, so one it took no later than the
+    second ak's last went in (`_keyed`) is ak's -- and none unread, read with no question or
     picker up (`[[rule]] picker`) -- the step's keys open the editor from a composer alone, and a
     picker drawn on over what it puts there takes its Enter -- nor a draft that editor would lose
     part of (`editor_refuses`), which a step opening it on loses whatever it asks."""
     name = session["name"]
     try:
+        touched = os.stat(where["tty"]).st_atime
+        if (time.time() - touched < DRAFT_STILL
+                and touched >= (seat_read(name).get("keyed") or {}).get(where["id"], 0) + 1):
+            return None
         harness = seat_model(config.load() if cfg is None else cfg, name)[0]
         pane = pane_text(session) if harness else ""
         found = live_state(session, harness, pane=pane, cfg=cfg) if pane.strip() else {}
-        if (found and composer_draft(harness, pane) != ""
-                and time.time() - os.stat(where["tty"]).st_atime < DRAFT_STILL):
-            return None
         picker = found and any(rule["picker"] and rule["id"] == found.get("rule")
                                for rule in screen(harness)["rules"])
         refuses = harness and screen(harness)["editor_refuses"]
@@ -3866,6 +3868,12 @@ def _editor_read(session, where, cfg=None):
     lost = refuses and refuses.search("".join(_composer_rows(harness, pane, exact=True) or ()))
     return ((harness, pane, found) if found.get("authority") and not asking(name, harness, pane)
             and not picker and not lost and not pane_unread(session) else None)
+
+
+def _keyed(session, pane):
+    """ak's own keys just taken by that pane of the seat's, for `_editor_read` to tell from the
+    owner's."""
+    seat_write(session["name"], keyed={pane: time.time()})
 
 
 def drafts_back(cfg):
@@ -3921,8 +3929,9 @@ def _line_through(session, where, held, mark, log, receipt, cfg=None, *, source=
             and _wait_ready(lambda name: composer_holds(name, session, text, cfg) == "line", held)):
         return False
     _send_enter(session, log)
-    return (_wait_ready(lambda name: composer_holds(name, session, text, cfg) == "empty", held)
-            and _editor_read(session, where, cfg)
+    emptied = _wait_ready(lambda name: composer_holds(name, session, text, cfg) == "empty", held)
+    _keyed(session, where["id"])        # once its terminal took that Enter, or ever will
+    return (emptied and _editor_read(session, where, cfg)
             and _edit(session, where, "back", text) == "sent" and not pane_unread(session))
 
 
@@ -3937,6 +3946,7 @@ def _line_left(session, text, log, cfg, stale):
         if word == "unsent":
             kept_asked_first(dict(session, name=held))
             _send_enter(session, log)
+            _keyed(session, where["id"])
         return word == "sent" and not pane_unread(session)
 
 
