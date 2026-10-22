@@ -3773,20 +3773,26 @@ def _edit(session, where, mode, line=""):
     unanswered turned to `none`, which an edit they open late leaves as it is.  The keys go in
     one write, as a harness opening a new session can drop a first key alone, but one typed into
     a menu only once that menu shows it (`editor_shows`): typed where it never opened, it would
-    be the owner's."""
+    be the owner's.  The ask goes out with the last of them, the one that opens the editor, as
+    the editor takes none asked longer ago than `aside_editor.FRESH`, the menus' waits included."""
     if off_composer(dict(session, pane=where["id"])):
         return None
-    server, pane, ask = orch.seat_socket(session), where["id"], aside_editor.request(mode, line)
+    server, pane, ask = orch.seat_socket(session), where["id"], ""
     keys, shows = where["keys"], where["shows"]
     stages = [(None, keys[:len(keys) - len(shows)]),
               *((shown, (key,)) for shown, key in zip(shows, keys[len(keys) - len(shows):]))]
+
+    def asked():
+        nonlocal ask
+        ask = aside_editor.request(mode, line)
+        return orch.tmux_out("set-option", "-p", "-t", pane, aside_editor.ASK,
+                             orch.tmux_literal(ask), socket=server)[0] == 0
+
     after = ("set-option", "-pu", "-t", pane, aside_editor.ASK)
     try:
-        if (orch.tmux_out("set-option", "-p", "-t", pane, aside_editor.ASK,
-                          orch.tmux_literal(ask), socket=server)[0] == 0
-                and all((shown is None or _shows(session, shown))
-                        and orch.tmux_out("send-keys", "-t", pane, *chord, socket=server)[0] == 0
-                        for shown, chord in stages)):
+        if all((shown is None or _shows(session, shown)) and (at < len(stages) - 1 or asked())
+               and orch.tmux_out("send-keys", "-t", pane, *chord, socket=server)[0] == 0
+               for at, (shown, chord) in enumerate(stages)):
             for _ in range(int(SENT_WAIT / SENT_POLL)):
                 rc, said = orch.tmux_out("show-options", "-pqv", "-t", pane, aside_editor.ASK,
                                          socket=server)
@@ -3842,7 +3848,8 @@ def _editor_read(session, where, cfg=None, *, after_line=False):
     for the step that follows its line's own Enter at once (`after_line`), as the terminal takes
     ak's keys as it does the owner's -- and none unread, read with no question or picker up
     (`[[rule]] picker`) -- the step's keys open the editor from a composer alone, and a picker
-    drawn on over what it puts there takes its Enter."""
+    drawn on over what it puts there takes its Enter -- nor a draft that editor would lose part
+    of (`editor_refuses`), which a step opening it on loses whatever it asks."""
     name = session["name"]
     try:
         if not after_line and time.time() - os.stat(where["tty"]).st_atime < DRAFT_STILL:
@@ -3852,10 +3859,12 @@ def _editor_read(session, where, cfg=None, *, after_line=False):
         found = live_state(session, harness, pane=pane, cfg=cfg) if pane.strip() else {}
         picker = found and any(rule["picker"] and rule["id"] == found.get("rule")
                                for rule in screen(harness)["rules"])
+        refuses = harness and screen(harness)["editor_refuses"]
     except (config.Error, OSError):
         return None
+    lost = refuses and refuses.search("".join(_composer_rows(harness, pane, exact=True) or ()))
     return ((harness, pane, found) if found.get("authority") and not asking(name, harness, pane)
-            and not picker and not pane_unread(session) else None)
+            and not picker and not lost and not pane_unread(session) else None)
 
 
 def drafts_back(cfg):
@@ -3880,18 +3889,14 @@ def drafts_back(cfg):
 def _past_text(session, cfg=None):
     """That seat's pane whose editor ak's line goes in through (`seat_editor`), or None: its turn
     over, its composer read holding text, or read empty with text that editor keeps, which it can
-    draw late -- on the read its editor may be asked a step on too (`_editor_read`) -- none a draft
-    that editor would lose part of (`editor_refuses`).  The owner: text they leave standing in a
-    seat never keeps ak's line out of it (19 Oct 2026).  A composer not read whole -- a picker
-    drawn in its place, text too tall for its rows, or scrolled past them -- says nothing it
-    holds."""
+    draw late -- on the read its editor may be asked a step on too (`_editor_read`).  The owner:
+    text they leave standing in a seat never keeps ak's line out of it (19 Oct 2026).  A composer
+    not read whole -- a picker drawn in its place, text too tall for its rows, or scrolled past
+    them -- says nothing it holds."""
     def past(harness, pane, found):
-        if not (found and _composer_open(harness, found)):
-            return False
-        rows, refuses = _composer_rows(harness, pane, exact=True), screen(harness)["editor_refuses"]
-        if rows:                                            # rows of text, none left empty
-            return not (refuses and refuses.search("".join(rows)))
-        return composer_draft(harness, pane) == "" and _editor_kept(session)
+        return found and _composer_open(harness, found) and (
+            _composer_rows(harness, pane, exact=True)       # rows of text, none left empty
+            or composer_draft(harness, pane) == "" and _editor_kept(session))
     try:
         harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
         pane = pane_text(session) if harness else ""

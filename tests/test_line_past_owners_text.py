@@ -169,7 +169,10 @@ class LinePastOwnersText(EditorSeat):
         self.assertEqual((self.keys, self.typed), ([], []))
 
     def test_a_draft_holding_a_paste_its_editor_would_lose_stays(self):
-        # Muse's editor sends a paste's placeholder alone, the paste gone; Grok's refuses it
+        # Muse's editor sends a paste's placeholder alone, the paste gone; Grok's refuses it --
+        # pasted too once a line went in through that editor, before its mark's pass
+        self.buffers.update(kept(aside_editor.ASIDE))
+        mark = {"line": LINE, "seat": self.seat["created"], "pane": PANE}
         for harness, paste in (("muse", "[Pasted Content 1190 chars]"),
                                ("grokbuild", "[Pasted: 40 lines]")):
             loses = dict(watch.screen("claude"),
@@ -177,6 +180,8 @@ class LinePastOwnersText(EditorSeat):
             with self.subTest(harness), patch.object(watch, "screen", return_value=loses):
                 self.show(f"{DRAFT} {paste}")
                 self.assertFalse(self.typed_line())
+                self.assertFalse(watch.type_at_prompt(self.seat, LINE, lambda _: None,
+                                                      cfg=self.cfg, typed=mark))
         self.assertEqual((self.keys, self.typed), ([], []))
 
     def test_a_picker_the_owner_opens_over_their_text_as_the_step_reads_it_takes_no_step(self):

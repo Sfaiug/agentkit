@@ -36,9 +36,13 @@ class EveryHarness(unittest.TestCase):
         self.path = Path(tmp.name) / "composer.md"
         self.ask, self.buffers, self.keys, self.shown = None, {}, [], ""
         self.where, self.composer, self.opens, self.opening = None, DRAFT, True, False
+        self.now, self.slow, self.drawn = 1e6, 0, 0
         for target, name, fake in ((aside_editor, "_tmux", self.editor_tmux),
                                    (orch, "tmux_out", self.tmux),
-                                   (watch.time, "sleep", lambda _seconds: None)):
+                                   (watch.time, "time", lambda: self.now),
+                                   (watch.time, "sleep", self.sleep),
+                                   # an ask it finds stale opens the owner's own editor
+                                   (aside_editor.os, "execvp", lambda *args: self.fail(args))):
             patcher = patch.object(target, name, side_effect=fake)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -48,6 +52,9 @@ class EveryHarness(unittest.TestCase):
         self.where = {"id": PANE, "tty": "", "keys": chrome["editor"],
                       "shows": chrome["editor_shows"]}
 
+    def sleep(self, seconds):
+        self.now += seconds
+
     def tmux(self, *args, socket=None):
         """The seat's server as ak asks it: the ask on its pane, its screen, and its harness
         taking its keys."""
@@ -56,9 +63,10 @@ class EveryHarness(unittest.TestCase):
         elif args[0] == "show-options":
             return 0, f"{self.ask}\n" if self.ask else ""
         elif args[0] == "capture-pane":
-            return 0, self.shown
+            return 0, self.shown if self.now >= self.drawn else ""
         elif args[0] == "send-keys":
             sent, keys = args[args.index("-t") + 2:], self.where["keys"]
+            self.drawn = self.now + self.slow   # what it draws for them, `slow` seconds on
             # a harness opening a new session drops the first key of a chord when it comes alone
             if self.opening and sent == keys[:1]:
                 return 0, ""
@@ -72,7 +80,9 @@ class EveryHarness(unittest.TestCase):
         return 0, ""
 
     def edit(self):
-        """The harness's editor keys: its composer handed to $VISUAL, and what that leaves taken."""
+        """The harness's editor keys: its composer handed to $VISUAL, `slow` seconds on, and what
+        that leaves taken."""
+        self.sleep(self.slow)
         self.path.write_text(self.composer)
         with patch.dict(os.environ, {"TMUX_PANE": PANE}):
             aside_editor.edit([str(self.path)])
@@ -128,6 +138,13 @@ class EveryHarness(unittest.TestCase):
         # the rest would have gone into the owner's composer; no ask is left for their own edit
         self.assertEqual((self.keys, self.composer, self.ask, self.buffers),
                          (["C-p"], DRAFT, None, {}))
+
+    def test_a_palette_slow_to_open_still_hands_the_composer_to_ak_s_editor(self):
+        # each menu and the editor take most of a wait: ak's editor takes only an ask as fresh
+        self.seat("grokbuild")
+        self.slow = watch.SENT_WAIT - 1
+        self.assertGreater(self.slow * len(self.where["keys"]), aside_editor.FRESH)
+        self.aside_and_back()
 
 
 if __name__ == "__main__":
