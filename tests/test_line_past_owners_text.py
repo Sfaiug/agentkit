@@ -199,6 +199,13 @@ class LinePastOwnersText(EditorSeat):
                 self.assertFalse(watch.type_at_prompt(self.seat, LINE, lambda _: None,
                                                       cfg=self.cfg, typed=mark))
         self.assertEqual((self.keys, self.typed), ([], []))
+        # Muse's empty composer, its faint placeholder read as no row of text, holds none
+        self.show("")
+        self.pane = (FIXTURES / "muse-placeholder-pane.txt").read_text()
+        with patch.object(watch, "seat_model", return_value=("muse", "acme")):
+            self.assertTrue(watch.type_at_prompt(self.seat, LINE, lambda _: None, cfg=self.cfg,
+                                                 typed=mark))
+        self.assertEqual(self.composer, DRAFT)
 
     def test_a_picker_the_owner_opens_over_their_text_as_the_step_reads_it_takes_no_step(self):
         # Enter under it picks a row, a key moves its highlight, and it reads as typed text or as
