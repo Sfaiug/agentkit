@@ -367,7 +367,7 @@ class Switch(Sandbox):
                 redirect_stdout(io.StringIO()) as out:
             menu.show_config(dry_run=True, session="fix-api")
         screen = out.getvalue()
-        self.assertIn("agentkit · config · fix-api", screen)
+        self.assertIn("For  fix-api", terminal.ANSI.sub("", screen))
         self.assertIn("orch", screen)
         self.assertIn("builds", screen)
         self.assertIn("reviews", screen)
