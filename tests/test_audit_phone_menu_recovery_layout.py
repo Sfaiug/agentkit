@@ -308,7 +308,7 @@ class Pages(Sandbox):
                 patch.object(menu.orch, "job_notices", return_value=[]), \
                 menu_input(side_effect=["j", "k", "j", "j", "j", "12", "3", "x", "11", "y", ""]), \
                 patch.object(menu, "open_session", side_effect=lambda cfg, s, dry: opened.append(s["name"])), \
-                patch.object(menu.orch, "cmd_stop", side_effect=lambda argv: stopped.append(argv[0])), \
+                patch.object(menu.Live, "stop", side_effect=lambda name, dry: stopped.append(name)), \
                 patch.object(terminal, "width", return_value=40), \
                 patch.object(terminal, "height", return_value=12), \
                 redirect_stdout(io.StringIO()) as out:
