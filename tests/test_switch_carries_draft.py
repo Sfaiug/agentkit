@@ -74,7 +74,10 @@ class SwitchCarriesDraft(EditorSeat):
         with patch.object(watch, "asking", return_value=True):
             self.assertTrue(self.switched())
         self.show(DRAFT)
-        self.assertTrue(self.switched(to="opencode"))
+        screen = watch.screen               # a harness whose manifest names no editor keys
+        with patch.object(watch, "screen", side_effect=lambda name: {**screen(name), "editor": ()}
+                          if name == "opencode" else screen(name)):
+            self.assertTrue(self.switched(to="opencode"))
         self.assertEqual((self.keys, self.buffers), ([], {}))
 
 
