@@ -19,7 +19,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import REPO, Home
+from fixtures.akbin import AK, Home
 from fixtures.gitrig import Rig
 
 TITLE = "Scoreboard (reported tokens; size now and 7 days ago)"
@@ -100,7 +100,8 @@ class WorkOnAkItself(unittest.TestCase):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
         cls.home.env["AK_HOST_READINGS"] = ROOMY
-        own, acme = Rig(cls.home, REPO.name), Rig(cls.home, "acme")
+        # named as the checkout the program runs from, as bin/ak finds its own
+        own, acme = Rig(cls.home, Path(AK).resolve().parents[1].name), Rig(cls.home, "acme")
         akconfig.write(cls.home, ["opus", "astra"])
         fakes = fakeadapter.install(cls.home, claude="work", codex="pass")
         events = {harness: report_tokens(fake) for harness, fake in fakes.items()}
