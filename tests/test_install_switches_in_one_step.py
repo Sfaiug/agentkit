@@ -114,8 +114,7 @@ class InstallSwitchesInOneStep(unittest.TestCase):
         self.assertEqual(self.go_live(), [f"agentkit is live at {third[:12]}"])
         self.assertEqual(self.installs(), 2)
         # records git could not put right keep every version, the live one's among them
-        with patch.object(versions, "repair", return_value=False), \
-                patch.object(gc, "tmp_processes", lambda: (set(), {})):
+        with patch.object(versions, "repair", return_value=False):
             versions.tidy(self.clone)
         self.live(third)
         self.assertEqual(self.swapped_out(), [self.new])
