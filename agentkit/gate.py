@@ -56,9 +56,11 @@ def slot_lock():
 def slot_order(state):
     # A green member only needs delivery before the target moves.  A run started again after a
     # park (`leases.restart`) waits from where its first attempt queued, not behind the queue.
+    # Finished rounds precede fresh launches without joining the first element's gate bypass.
     wait = state.get("waiting_on") or {}
     return (not (state.get("first") or "land" in wait or "fix" in wait),
             not landing.green_delivery(wait),
+            not (state.get("round_summaries") or (state.get("own_pr") and state.get("own_pr_wait"))),
             transitions.first_queued(state),
             state.get("run_id") or "")
 
