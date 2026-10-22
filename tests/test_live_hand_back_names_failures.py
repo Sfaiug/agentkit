@@ -116,6 +116,16 @@ class LiveHandBackNamesFailures(unittest.TestCase):
         self.assertNotIn("Upgrading", line)
         self.assertIn("│ / ◇  Upgrade complete / PASS  7 acme check / ----", line)
 
+    def test_cursor_moves_erases_and_links_leave_only_what_the_terminal_shows(self):
+        for said, shown in [
+                ("FAIL  4 acme checl\x1b[1Dk\n", ["FAIL  4 acme check"]),
+                ("Upgrading\r\x1b[2KUpgrade complete\n", ["Upgrade complete"]),
+                ("Upgrading\x1b[999D\x1b[J\n", []),
+                ("See \x1b]8;;https://example.invalid\x1b\\details\x1b]8;;\x1b\\\n",
+                 ["See details"])]:
+            with self.subTest(said=said):
+                self.assertEqual(update._live_excerpt(said), shown)
+
 
 if __name__ == "__main__":
     unittest.main()
