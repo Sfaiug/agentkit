@@ -545,15 +545,13 @@ class RunStop(Sandbox):
 
         live = {"name": seat, "path": str(self.root), "created": 100, "attached": False,
                 "exited": False, "legacy": False}
-        seats = [{"name": seat}, {"name": "parser"}]
         out = io.StringIO()
-        with patch.object(menu, "read", side_effect=["1", "y"]), \
-                patch.object(stop, "cmd_stop", side_effect=stop_run), \
+        with patch.object(stop, "cmd_stop", side_effect=stop_run), \
                 patch.object(orch, "find", side_effect=lambda name: live if name == seat else None), \
                 patch.object(orch, "tmux_out", side_effect=tmux), \
                 patch("agentkit.browser.close_owned"), patch("agentkit.notify.forget_card"), \
                 redirect_stdout(out):
-            menu.stop_session([dict(entry) for entry in seats], dry_run=False)
+            menu.close_seat(seat, dry_run=False)      # what `x` runs (`teardown`)
         self.assertEqual(record.read_state(mine)["state"], "stopped")
         self.assertEqual(record.read_state(other)["state"], "running")
         self.assertEqual(record.read_state(done)["state"], "pass")
