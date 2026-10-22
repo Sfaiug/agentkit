@@ -2886,7 +2886,7 @@ def discord_value():
 
 def config_models(cfg):
     """The offered models in the order the `c` screen lists them: config.offered's, under their
-    providers."""
+    harnesses."""
     return config.offered(cfg)
 
 
@@ -3272,9 +3272,9 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
         lines.insert(0, "  " + terminal.styled("For  ", "dim")
                      + terminal.styled(terminal.cut(scope, max(1, room - 7)), "bold"))
     places = {}
-    for harness in dict.fromkeys(models[name].get("harness") for name in names):
+    for harness in dict.fromkeys(models[name]["harness"] for name in names):
         lines.append(model_heading(harness))
-        for name in (name for name in names if models[name].get("harness") == harness):
+        for name in (name for name in names if models[name]["harness"] == harness):
             provider = models[name]["provider"]
             texts, builds = orch.role_texts(selected, name, marks) if selected else ((), False)
             texts += (efforts[name],)

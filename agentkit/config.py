@@ -449,17 +449,17 @@ def offered(cfg):
     """Every model the config offers, each under its harness: each one can orchestrate, and
     each can work.
 
-    A `[models.*]` entry is offered once its provider has a `[providers.*]` table; one whose
-    provider has none stays in the file and out of every choice.  Every list of models reads
+    A `[models.*]` entry is offered once it names a harness and its provider has a
+    `[providers.*]` table; any other stays in the file and out of every choice.  Every list of models reads
     this order -- a harness where its first model is in the file, its models in file order
     under it -- so a model added last still sits with its harness's others on every screen.
     """
     names = [name for name, entry in cfg["models"].items()
-             if isinstance(entry, dict) and isinstance(entry.get("provider"), str)
-             and entry["provider"] in cfg["providers"]]
-    harnesses = dict.fromkeys(cfg["models"][name].get("harness") for name in names)
+             if isinstance(entry, dict) and isinstance(entry.get("harness"), str)
+             and isinstance(entry.get("provider"), str) and entry["provider"] in cfg["providers"]]
+    harnesses = dict.fromkeys(cfg["models"][name]["harness"] for name in names)
     return [name for harness in harnesses for name in names
-            if cfg["models"][name].get("harness") == harness]
+            if cfg["models"][name]["harness"] == harness]
 
 
 def remove_provider(cfg, name):
