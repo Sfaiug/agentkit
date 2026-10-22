@@ -487,13 +487,14 @@ The tick closes a tab idle for an hour or past twelve open, and one a run or sea
 ## The boards
 
 `ak models` (`agentkit/matrix.py`) reads the public boards whose numbers export (`agentkit/boards.py`), each at most
-once a day into `~/.agentkit/state/boards.json` (`FRESH_FOR`); `--refresh` asks again now, `--json` prints the scored rows, the
+once a day into `~/.agentkit/state/boards.json` (`FRESH_FOR`), and again, once, when a new build of ak reads a column the
+cached rows carry none of (`matrix.needed`: the reader changed); `--refresh` asks again now, `--json` prints the scored rows, the
 recommendation and each board's `asked_at`, `fetched_at` and `error`. Artificial
-Analysis is asked with the key in `~/.agentkit/secrets/artificialanalysis_key` (free at artificialanalysis.ai/login;
-without it the board says `no key` and the others are still asked): its free endpoint, page by page, one row per model
-and effort, every number it gives as `aa.<field>`, a table's fields under the table's name (`aa.evaluations.artificial_analysis_coding_index`,
-`aa.pricing.price_1m_input_tokens`; the intelligence, coding, agentic and capability indexes, prices, output speed;
-per-benchmark scores are Pro's). Arena is read off its leaderboard's Hugging Face dataset (CC-BY-4.0), page by page,
+Analysis is read off its site's pages (`AA_PAGES`: a retired model's page, which carries every model's record whole,
+and DeepsecBench's, which carries its score), no key: each model's record in the data a page hands its scripts, merged
+by its slug, one row per model and effort, every number as `aa.<field>`, a table's fields under the table's name
+(`aa.terminalBench40`, `aa.intelligenceIndexCostPerTask.cost.total`; every benchmark, index, price and cost, which
+its free endpoint leaves out). A page with no model's record is the board's error, its last rows kept. Arena is read off its leaderboard's Hugging Face dataset (CC-BY-4.0), page by page,
 each board in `ARENA_BOARDS` at its category as `arena.<board>`, `.<category>` past overall (`arena.webdev`,
 `arena.text_factuality.coding`): the dataset's counts per category say where a category's rows start, as Hugging Face
 serves them grouped, overall first and the others alphabetically, and rows that are not all there and all of it are no

@@ -9,8 +9,8 @@ on a board where neither finds it, by `benchmark` on the config entry; the table
 per role (tests/test_role_formula.py) and names the rows no board has.
 
 Offline: the boards' answers are handed in as bytes (tests/test_model_matrix.py's), the harness
-manifests, catalogs and the installed harnesses are faked, and a throwaway HOME holds the cache
-and key.
+manifests, catalogs and the installed harnesses are faked, and a throwaway HOME holds the
+cache.
 """
 
 from contextlib import redirect_stdout
@@ -38,11 +38,11 @@ CATALOGS = {"claude": [{"id": "claude-opus-5-5", "efforts": ["low", "medium", "h
 
 def prepare(case):
     """The boards answered by bytes, the harness manifests, catalogs and installed harnesses
-    faked, a key, and a configured Muse Wonder Full, on a Sandbox case."""
+    faked, and a configured Muse Wonder Full, on a Sandbox case."""
     case.boards = boards_test.Boards()
     boards_test.AA += [
-        {"name": "Muse Wonder Full (max)", "evaluations": {"artificial_analysis_coding_index": 57.1}},
-        {"name": "Muse Spark 1.3 (xhigh)", "evaluations": {"artificial_analysis_coding_index": 40.0}}]
+        {"name": "Muse Wonder Full (max)", "terminalBench40": 0.57},
+        {"name": "Muse Spark 1.3 (xhigh)", "terminalBench40": 0.4}]
     case.addCleanup(lambda: boards_test.AA.__delitem__(slice(-2, None)))
     case.stack.enter_context(patch.object(boards_test, "TABLE", boards_test.TABLE
                                           + "muse-spark-1.3-contributor,50.0,\n"))
@@ -54,7 +54,6 @@ def prepare(case):
                                           side_effect=lambda harness: harness in CATALOGS))
     case.stack.enter_context(patch.object(config, "catalog", side_effect=CATALOGS.__getitem__))
     case.stack.enter_context(patch.object(terminal, "width", return_value=100))
-    (config.SECRETS / boards.AA_KEY).write_text("k\n")
     case.cfg["models"]["wonder"] = {"harness": "muse", "model": "muse-wonder-full-1.0",
                                     "effort": "max", "provider": "meta"}
 
@@ -81,12 +80,12 @@ class ModelRows(Sandbox):
             "arena.ai": {"model": "Claude Opus 5.5", "effort": "max"},
             "livebench.ai": {"model": "claude-opus-5.5", "effort": None}})
         self.assertEqual(both["values"]["arena.agent_steerability"], 0.2)
-        self.assertEqual(both["values"]["aa.pricing.price_1m_input_tokens"], 4.0)
+        self.assertEqual(both["values"]["aa.price1mInputTokens"], 4.0)
         self.assertEqual(both["name"], None)
         # LiveBench names no effort: its numbers stand at max, the highest effort Artificial
         # Analysis has an index for, its cost of a task beside Artificial Analysis's of the run
         self.assertEqual((both["values"][boards.TASK_COST], both["values"][matrix.COST]),
-                         (round(113 / (29 * .963), 2), 20.69))
+                         (round(113 / (29 * .963), 2), 5.98))
         # the configured xhigh reads LiveBench's and Arena's max rows, adding the 2 points the
         # index loses from max to xhigh, and never their prices
         xhigh = rows["opus @ xhigh"]
@@ -122,7 +121,7 @@ class ModelRows(Sandbox):
         rows = self.table()
         self.assertEqual(rows["spark @ xhigh"]["matched"], {
             "artificialanalysis.ai": {"model": "Muse Spark 1.3", "effort": "xhigh"}, **lb})
-        self.assertEqual(rows["spark @ xhigh"]["values"]["aa.evaluations.artificial_analysis_coding_index"], 40.0)
+        self.assertEqual(rows["spark @ xhigh"]["values"]["aa.terminalBench40"], 0.4)
         # a shorter board name never stands for a longer id of another version
         index = {"claudesonnet5": [{"model": "Claude Sonnet 5", "effort": None, "values": {}}],
                  "claudesonnet55": [{"model": "Claude Sonnet 5.5", "effort": None, "values": {}}]}
@@ -139,14 +138,14 @@ class ModelRows(Sandbox):
         text = "\n".join(lines)
         self.assertEqual(lines[0].split()[:3], ["model", "harness", "id"])
         self.assertTrue(all(terminal.cells(line) <= 100 for line in lines))
-        # the configured xhigh reads max's rows 2 points further behind, as the intelligence
-        # index is, unpriced at its own effort; two of review's five measures score no review
-        self.assertRegex(lines[1], r"^- +claude +claude-opus-5-5 @ max +100 of 3 +100 of 4 +- +21 +4\.05$")
-        self.assertRegex(lines[2], r"^opus +claude +claude-opus-5-5 @ xhigh +98 of 3 +98 of 4 +- +- +-$")
+        # the configured xhigh reads every measure only the max rows have 2 points further
+        # behind, as the intelligence index is, and Artificial Analysis's own xhigh row, unpriced
+        self.assertRegex(lines[1], r"^- +claude +claude-opus-5-5 @ max +100 of 4 +100 of 5 +100 of 3 +5\.98 +4\.05$")
+        self.assertRegex(lines[2], r"^opus +claude +claude-opus-5-5 @ xhigh +98 of 4 +98 of 5 +98 of 3 +- +-$")
         self.assertRegex(text, r"\nastra +codex +gpt-6-astra @ xhigh +- +- +- +- +-\n")
         # the run Artificial Analysis priced before the one it did not, whatever LiveBench charges
-        self.assertIn("recommended: orchestrate claude-opus-5-5 @ max (100 of 3) · "
-                      "execute claude-opus-5-5 @ max (100 of 4)", text)
+        self.assertIn("recommended: orchestrate claude-opus-5-5 @ max (100 of 4) · "
+                      "execute claude-opus-5-5 @ max (100 of 5)", text)
         self.assertRegex(text, r"no board row: .*claude-opus-4-7")
         self.assertIn("arena.ai: 4 rows as of", text)
         out = io.StringIO()
@@ -156,8 +155,8 @@ class ModelRows(Sandbox):
         self.assertEqual(sorted(data), ["boards", "live", "recommended", "rows", "within"])
         self.assertNotIn("rows", data["boards"]["arena.ai"])
         rows = {matrix.row_label(row): row for row in data["rows"]}
-        self.assertEqual(rows["claude-opus-5-5 @ max"]["scores"]["orchestrate"], {"score": 100.0, "measures": 3})
-        self.assertEqual(rows["claude-opus-5-5 @ max"]["scores"]["review"], None)
+        self.assertEqual(rows["claude-opus-5-5 @ max"]["scores"]["orchestrate"], {"score": 100.0, "measures": 4})
+        self.assertEqual(rows["claude-opus-5-5 @ max"]["scores"]["review"], {"score": 100.0, "measures": 3})
 
     def test_a_board_row_s_effort_is_kept_apart_from_a_bracket_of_its_name(self):
         # a bracket naming no effort stays on the board's name: `Acme Pro (0813)` is at none
