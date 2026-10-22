@@ -86,14 +86,29 @@ class GcAntigravity(Sandbox):
     def test_a_home_whose_summaries_cannot_be_read_keeps_all_of_it(self):
         self.conversation("fix-api", 31 * DAY)
         broken = self.homes[1] / "conversation_summaries.db"
-        intact = broken.read_bytes()
-        broken.write_bytes(b"not a database" * 100)
-        said = []
-        gc.gc(said.append)
-        broken.write_bytes(intact)
-        self.assertTrue(all(self.kept("fix-api")), self.kept("fix-api"))
-        self.assertEqual(sum("conversation summaries" in line for line in said), 1)
+        intact, elsewhere = broken.read_bytes(), Path.home() / "acme-summaries.db"
 
+        def garbled():
+            broken.write_bytes(b"not a database" * 100)
+
+        def linked():
+            broken.rename(elsewhere)
+            broken.symlink_to(elsewhere)
+
+        def unsearchable():
+            self.homes[1].chmod(0)
+
+        for breaks in (garbled, linked, unsearchable):
+            with self.subTest(breaks.__name__):
+                breaks()
+                said = []
+                gc.gc(said.append)
+                self.homes[1].chmod(0o700)
+                broken.unlink()
+                elsewhere.unlink(missing_ok=True)
+                broken.write_bytes(intact)
+                self.assertTrue(all(self.kept("fix-api")), self.kept("fix-api"))
+                self.assertEqual(sum(line.startswith("gc: kept") for line in said), 1, said)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

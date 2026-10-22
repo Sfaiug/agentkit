@@ -8,7 +8,6 @@ were read off agy 1.2.13's own databases.
 """
 
 import contextlib
-import os
 from pathlib import Path
 import re
 import shutil
@@ -54,16 +53,21 @@ def end_conversation(path, ends):
              for name, suffix in (("annotations", ".pbtxt"), ("implicit", ".pb"),
                                   ("presence", ".lock"))]
     parts.append(default / "brain" / conversation.stem)
+    from .. import retention   # here: retention imports this package
     try:
         with contextlib.ExitStack() as held:
-            summaries = [home / "conversation_summaries.db" for home in homes]
-            summaries = [held.enter_context(contextlib.closing(sqlite3.connect(
-                found.as_uri() + "?mode=rw", uri=True, timeout=30)))
-                for found in summaries if os.path.lexists(found)]
-            for db in summaries:
+            summaries = []
+            for found in (home / "conversation_summaries.db" for home in homes):
+                if not there(found):
+                    continue
+                if not retention.safe(found):
+                    raise OSError(f"{found} is reached through a link or is not a file of ours")
+                db = held.enter_context(contextlib.closing(sqlite3.connect(
+                    found.as_uri() + "?mode=rw", uri=True, timeout=30)))
                 held.enter_context(db)
                 db.execute("BEGIN IMMEDIATE")
-            parts = [part for part in parts if os.path.lexists(part)]
+                summaries.append(db)
+            parts = [part for part in parts if there(part)]
             if not ends(*parts):
                 return
             for db in summaries:
@@ -77,6 +81,16 @@ def end_conversation(path, ends):
         else:
             part.unlink()
     conversation.unlink()
+
+
+def there(path):
+    """Whether something is at that path, link or not; what cannot be looked at raises, as a
+    home nobody may search may still keep a row or a file of the conversation."""
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return False
+    return True
 
 
 def field(message, number):
