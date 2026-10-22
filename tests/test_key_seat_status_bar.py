@@ -3,9 +3,9 @@
 Inside a seat the owner reads what it is from its bar.  Line one is the seat's word, `! needs
 you` or `● working`, then its name and the model that orchestrates it, and while it has a plan
 the line of how much is done with its count, `1 of 2`: never a percentage or a finish estimate
-(owner rules).  Line two is who builds and who reviews, with `Ctrl-b m  menu`, the one key, at
-its right end; a click on line one's right end is bound, where other seats needing the owner
-are named.  A read of the seat writes the bar, `ak orch why` and the tick alike.  Black-box:
+(owner rules).  Line two shows its question or required action, otherwise its crew, with
+`Ctrl-b m  menu` at its right end; a click on line one's right end is bound, where other seats
+needing the owner are named.  `ak orch why` and the tick both write the bar.  Black-box:
 the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, before a seat of
 tests/fixtures/akseat.py with a person's terminal of tests/fixtures/akterm.py attached by `ak
 orch NAME`, judged by what that terminal shows and by the bindings ak's tmux holds.
@@ -64,9 +64,9 @@ class AQuestionSeat(Bar):
     def test_line_one_is_its_word_its_name_and_its_model(self):
         self.assertRegex(self.bar()[0], r"^ *! needs you +acme +Opus 5\.5$")
 
-    def test_line_two_is_who_builds_and_reviews_with_the_menu_key_at_its_end(self):
+    def test_line_two_shows_the_required_action_with_the_menu_key_at_its_end(self):
         line = self.bar()[1]
-        self.assertRegex(line, r"^ *Opus 5\.5 ⚒◎ +" + KEY + "$")
+        self.assertRegex(line, r"^ *Enter to select · ↑/↓ to navigate · Esc to cancel +" + KEY + "$")
         # against the terminal's right edge, whatever margin a build leaves there
         self.assertGreaterEqual(len(line), 100 - 2, line)
 
