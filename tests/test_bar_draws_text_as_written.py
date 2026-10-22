@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import menu, orch, statusbar, watch
+from agentkit import config, menu, notify, orch, statusbar, watch
 
 SAID = "## heading, a ## b, ### c, 50% at %H, #{session_name} and #[bold] end #"
 
@@ -107,6 +107,28 @@ class AsWritten(Sandbox):
         self.assertTrue(line.endswith(said), line)
         self.assertNotIn("##", line)
         self.assertNotIn("z-", line)
+
+    def test_e_needs_you_shows_the_question_until_answered(self):
+        config.save_session(self.cfg, "fix-api", "fable", ["astra"])
+        self.ended("20260101-0900-going", owner="fix-api", state="running",
+                   finished_at=None, started_at=9000)
+        seat = {"name": "fix-api"}
+        for width, question in ((120, "Grant read access?"), (40, "Use #{session_name}?")):
+            with self.subTest(width=width):
+                self.view("resize-window", "-t", "=view:", "-x", str(width), "-y", "8")
+                notify.record("fix-api", "needs", question)
+                answer = watch.announce_state(seat, cfg=self.cfg)
+                self.assertEqual(answer["word"], "needs you")
+                top, bottom = self.screen(question)
+                self.assertIn("! needs you", top)
+                self.assertIn(question, bottom)
+                self.assertTrue(bottom.rstrip().endswith("Ctrl-b m  menu"), bottom)
+                notify.answered("fix-api", at=10001)
+                self.assertEqual(watch.announce_state(seat, cfg=self.cfg)["word"], "working")
+                top, bottom = self.screen("GPT-6-Astra")
+                self.assertIn("working", top)
+                self.assertIn("■□□", bottom)
+                self.assertNotIn(question, bottom)
 
 
 if __name__ == "__main__":
