@@ -181,6 +181,7 @@ def _connect(*, readonly=False):
 
 def _recount_tokens(connection):
     """Repair a recorded prefix of kept turns, leaving unmatched totals alone."""
+    from .harness import reported_tokens
     from .harness.codex import token_counts
     rows = connection.execute("SELECT run_id, executor_tokens, reviewer_tokens FROM runs").fetchall()
     for run_id, executor, reviewer in rows:
@@ -191,7 +192,7 @@ def _recount_tokens(connection):
         for path in event_paths(run_dir):
             total, spent = codex.get(path, (None, None))
             if total is None:
-                total = spent = event_tokens(path)
+                total = spent = reported_tokens(path.parent)
             if total is None:
                 continue
             # All other worker turns, including landing fixers, count as executor work.

@@ -13,7 +13,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, history, transitions
-from agentkit.harness import codex
+from agentkit.harness import codex, muse
 
 TOTALS = ((760051, 4370), (1557752, 7161), (2115892, 8723))
 CFG = {"models": {"acme": {"harness": "codex", "model": "acme", "effort": "high",
@@ -27,7 +27,8 @@ class CodexTokens(unittest.TestCase):
         self.home = Path(tmp.name)
         self.addCleanup(patch.stopall)
         patch.object(config, "HOME", self.home).start()
-        patch.dict(os.environ, {"HOME": str(self.home)}).start()
+        patch.dict(os.environ, {"HOME": str(self.home),
+                                "XDG_DATA_HOME": str(self.home / "data")}).start()
 
     def turn(self, number, counts, *, thread="acme-thread", run="fix-api", role="reviewer",
              stamp=None):
@@ -143,6 +144,33 @@ class CodexTokens(unittest.TestCase):
         for number in range(2 * len(names)):
             with self.subTest(run=number):
                 self.assertEqual(history.get(f"fix-api-{number}")["executor_tokens"], 150)
+
+    def test_recount_preserves_muse_session_usage_in_a_mixed_codex_role(self):
+        for number, counts in enumerate(TOTALS, 1):
+            self.turn(number, counts)
+        out = self.turn(4, (0, 0), role="reviewer-muse")
+        (out / "events.jsonl").write_text("\n".join(json.dumps(event) for event in (
+            {"stream": {"kind": "session", "id": "acme-session"},
+             "payload": {"kind": "command_accepted"}},
+            {"stream": {"kind": "session", "id": "acme-session"},
+             "payload": {"kind": "session_run_linked", "run_stream": {"id": "acme-run"}}})) + "\n")
+        store = self.home / "data/muse/sessions/2026/10/22/acme-session"
+        store.mkdir(parents=True)
+        (store / "session.jsonl").write_text(json.dumps({"payload": {"kind": "run", "event": {
+            "kind": "goal_usage_attribution", "record": {
+                "usage_family": "provider", "owner": {"run_id": "acme-run"},
+                "quantity": {"input_tokens": 120, "output_tokens": 3, "reported": True}}}}}) + "\n")
+        self.assertEqual(muse.tokens(out), 123)
+        self.assertIsNone(history.event_tokens(out / "events.jsonl"))
+        with closing(sqlite3.connect(history.path())) as db, db:
+            db.execute(history.SCHEMA)
+            db.execute("INSERT INTO runs (run_id, reviewer_tokens, final_state) "
+                       "VALUES ('fix-api', ?, 'pass')", (sum(map(sum, TOTALS)) + 123,))
+        self.assertEqual(history.get("fix-api")["reviewer_tokens"], 2115892 + 8723 + 123)
+        self.assertEqual(muse.tokens(out), 123)
+        next_turn = self.turn(5, (2200000, 9000))
+        self.record(next_turn)
+        self.assertEqual(history.get("fix-api")["reviewer_tokens"], 2200000 + 9000 + 123)
 
     def test_recount_stops_at_recorded_usage_before_an_unrecorded_report(self):
         with closing(sqlite3.connect(history.path())) as db, db:
