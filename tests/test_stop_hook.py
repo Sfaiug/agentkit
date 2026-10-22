@@ -459,7 +459,7 @@ class StopNudge(unittest.TestCase):
         self.stack.enter_context(patch.object(orch, "records", return_value={}))
         self.stack.enter_context(patch.object(watch, "seat_model",
                                               lambda *_: (self.harness, "meta")))
-        self.stack.enter_context(patch.object(menu, "run_records", lambda: list(self.records)))
+        self.stack.enter_context(patch.object(menu, "run_records", lambda **_kw: list(self.records)))
         self.stack.enter_context(patch.object(notify, "progress", return_value=None))
         self.pane = BANNER
         self.stack.enter_context(patch.object(watch, "pane_text", lambda _: self.pane))
