@@ -2203,6 +2203,20 @@ def kept_asked(name, kept):
         pass
 
 
+def answered_kept(name, replies, at):
+    """A native card reply answers only its questions, including before the turn ends."""
+    with seat_lock(name):
+        data = seat_read(name)
+        kept = questions_kept(data.get("unasked"))
+        keys = {notify.question_key(text) for text in replies}
+        remaining = [q for q in kept if not (q.get("at", at) < at
+                     and notify.question_key(q["text"]) in keys)]
+        if remaining != kept:
+            _seat_put(name, data, {"unasked": _kept(remaining)})
+            return True
+    return False
+
+
 def ask_kept_back(name, harness, found, held=False):
     """A fresh look found that seat's turn ended: the question it kept back is asked now.
 

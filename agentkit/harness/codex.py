@@ -38,10 +38,8 @@ STOP_RULE = "hooks/orchestrator-stop.sh"
 # Codex's default command deadline; only Interrupt has its separate three-second cap.
 # Callbacks stay ordered: a late tool completion must not clear a newer question.
 HOOK_TIMEOUT = 600
-# The question tool of Codex 0.160's newer models does not wait for the answer: the model hears
-# `accepted` at once and works on, and Codex drops the question unanswered, with no word to the
-# model or to ak, when anything is sent into the seat or the turn ends.  So a seat's PreToolUse
-# hook asks it through ak, as `ak notify needs` does, and refuses the call (`ask`).
+# Native async cards can disappear at a turn boundary. Record the questions before allowing
+# the cards through, and resolve only the reply items the owner actually submits.
 QUESTION_TOOL = "request_user_input_async"
 # A Plan-mode turn asks with `request_user_input`, which waits in a dialog of the seat's own: its
 # PreToolUse is the seat asking.  One group takes both tools, as Codex reads a matcher as a regex.
@@ -251,9 +249,36 @@ def said(record, cwd, conversation):
 
 def user_messages(record, cwd, conversation):
     from . import entries, user_message
+    calls = {}
     for entry in entries(transcript(record, cwd, conversation)):
+        payload = entry.get("payload")
+        if (entry.get("type") == "response_item" and isinstance(payload, dict)
+                and payload.get("type") == "function_call"
+                and str(payload.get("name", "")).split(".")[-1] == QUESTION_TOOL):
+            try:
+                asked = json.loads(payload["arguments"])["questions"]
+                if isinstance(asked, list) and all(isinstance(q, dict) for q in asked):
+                    calls[payload["call_id"]] = asked
+            except (KeyError, TypeError, ValueError):
+                pass
         kept = user_message(entry.get("timestamp"), prompt(entry))
         if kept:
+            if kept["text"].startswith("<send_user_message_question_reply>"):
+                # Codex 0.163's submitted card reply names its call and question index.
+                # A skipped/expired card emits no such owner message. Bad ids answer none.
+                kept["replies"] = []
+                try:
+                    replies = json.loads(kept["text"].split(">", 1)[1].rsplit("<", 1)[0])
+                except (IndexError, ValueError):
+                    replies = []
+                for reply in replies if isinstance(replies, list) else ():
+                    try:
+                        tool, call, index = json.loads(reply["questionItemId"])
+                        if (tool == QUESTION_TOOL and type(index) is int and index >= 0
+                                and isinstance(reply.get("answer"), str) and reply["answer"].strip()):
+                            kept["replies"].append(question_line(calls[call][index]))
+                    except (KeyError, IndexError, TypeError, ValueError):
+                        continue
             yield kept
 
 
@@ -496,13 +521,8 @@ def trust(hooks, matchers=None):
 
 
 def ask(event):
-    """The PreToolUse hook's answer to that event: a question of a seat whose plan is done
-    refused, as on every harness that lets a hook refuse one (`stop.question_refused`); else
-    the seat's question that waits for nobody asked through ak, and the call refused with what
-    became of it -- the question itself too, as Codex draws a refusal's reason in the seat
-    (`Blocked by hook`) and the question nowhere else.  None lets the call through: a Plan-mode
-    dialog, which `main` writes down as the seat asking, a call that asks nothing, or nobody's
-    seat there to ask for."""
+    """Keep each async question before letting Codex draw its native cards. A completed
+    plan still refuses unnecessary questions; recording failure asks the model to retry."""
     if not isinstance(event, dict) or not re.fullmatch(QUESTIONS, str(event.get("tool_name"))):
         return None
     if os.environ.get("AK_RUN_ROLE") == "worker" or not config.current_session():
@@ -517,23 +537,20 @@ def ask(event):
     if event["tool_name"] != QUESTION_TOOL:
         return None
     questions = (event.get("tool_input") or {}).get("questions")
-    text = " ".join(question_line(item) for item in questions
-                    if isinstance(item, dict)) if isinstance(questions, list) else ""
+    texts = [question_line(item) for item in questions
+             if isinstance(item, dict)] if isinstance(questions, list) else []
     try:
-        # as `ak notify needs` takes it; stdout is Codex's to read the refusal from, and
-        # nothing else
-        notify.asks_first(text)
+        for text in texts or [""]:
+            notify.asks_first(text)
         with contextlib.redirect_stdout(sys.stderr):
-            failed = notify.shaped("needs", text.strip())
+            failed = any(notify.shaped("needs", text.strip()) for text in texts)
     except config.Error as exc:
         # Codex adds its own period after the reason
         return {"decision": "block",
                 "reason": f"ak did not ask the owner this: {str(exc).rstrip('.')}. Ask again"}
     if failed:
         return {"decision": "block", "reason": "ak could not record this question. Ask again"}
-    return {"decision": "block", "reason": (
-        f"ak asks the owner this for you, and it stays open until they answer: {text.strip()} "
-        "Their answer comes as a message from them. Go on with whatever does not depend on it")}
+    return None
 
 
 def answered(event):

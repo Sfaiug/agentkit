@@ -469,7 +469,7 @@ def resolved(data):
                 for n in stamps) and stamps[0] <= stamps[1] < stamps[2])
 
 
-def answered(session, at, typed=None):
+def answered(session, at, typed=None, replies=None):
     """The owner submitted a prompt; only the seat's question already standing is answered.
 
     The hook owns this fact. Keep it on the notice so a later line of ak's own or a rename
@@ -486,12 +486,33 @@ def answered(session, at, typed=None):
     """
     from . import watch    # here, not at the top: watch imports this module
     with session_lock(session) as session:
+        partial = (watch.answered_kept(session, replies, typed or at)
+                   if replies is not None else False)
         ask_kept(session, ended=True)
         previous = last(session)
-        if typed is not None and not typed > (asked_at(session) or math.inf):
+        if replies is None and typed is not None and not typed > (asked_at(session) or math.inf):
             return
         if previous and previous.get("watcher") is True:
             return
+        if replies is not None and previous:
+            keys = {question_key(text) for text in replies}
+            dates = previous.get("question_times") or previous.get("asked_at") or {}
+            matched = [q for q in questions(previous) if question_key(q) in keys
+                       and dates.get(question_key(q), previous["time"]) < (typed or at)]
+            if not matched:
+                return partial
+            remaining = [q for q in questions(previous) if q not in matched]
+            if remaining:
+                waited({"asked_at": {k: v for k, v in (previous.get("asked_at") or {}).items()
+                                    if k in {question_key(q) for q in matched}}}, at)
+                previous.update(text=ALSO.join(remaining), questions=remaining,
+                                asked_at={k: v for k, v in (previous.get("asked_at") or {}).items()
+                                          if k not in {question_key(q) for q in matched}})
+                record(session, previous["kind"], previous["text"],
+                       **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
+                return True
+        if replies is not None and not previous:
+            return partial
         # the needs you he answered has its card retired now, before a retry can take this lock
         card = _card_read(session)
         if not previous:
@@ -499,7 +520,7 @@ def answered(session, at, typed=None):
                 if at > card["since"]:
                     _retire(card)
                 _card_write(session, {**card, "answered_at": at})
-            return
+            return partial
         previous["answered_at"] = at
         if not resolved(previous):
             return
@@ -546,25 +567,35 @@ def answer_written(name, at=None, wait=0):
     still runs waits for the look that asks it, which dates it.  None where the seat's harness
     cannot say whose its messages are, and only its hook can."""
     from . import watch
+    seat = None
+    native_answered = False
+    if last(name) or watch.seat_read(name).get("unasked"):
+        seat = conversation_of(name)
+        if seat and seat[3] and seat[0].reads_messages:
+            for message in owner_messages(name, seat):
+                if "replies" in message:
+                    native_answered = bool(answered(name, at or time.time(), typed=message["at"],
+                                                   replies=message["replies"])) or native_answered
     if watch.seat_read(name).get("unasked"):
         with session_lock(name) as locked:
             ask_kept(locked, ended=True)
     since, kept = asked_at(name), watch.seat_read(name).get("unasked")
     if since is None:
-        return False
-    seat = conversation_of(name)
+        return native_answered
+    seat = seat or conversation_of(name)
     if seat is None or not seat[3] or not seat[0].reads_messages:
         return None
     deadline = time.monotonic() + wait
     while since is not None and not kept:
-        typed = max(owner_said(name, seat), default=0)
+        typed = max((m["at"] for m in owner_messages(name, seat)
+                     if "replies" not in m), default=0)
         if typed > since:
             return answered(name, at or time.time(), typed=typed)
         if time.monotonic() >= deadline:
             break
         time.sleep(0.2)
         since, kept = asked_at(name), watch.seat_read(name).get("unasked")
-    return False
+    return native_answered
 
 
 def answer_typed(log=print):
@@ -1385,7 +1416,7 @@ def shaped(kind, text, paths=(), session=None, dry_run=False, event_id=None):
         return 1
 
 
-def _said(name, kind, text, event_id=None, at=None, said_at=None):
+def _said(name, kind, text, event_id=None, at=None, said_at=None, question_times=None):
     """Record what that session said, under its notice lock, which the caller holds; the
     notice it replaced, or None.  A watcher's repeated event re-records nothing, nor does its
     alert while the seat's own question stands unanswered.  A question -- `text` one, or the
@@ -1413,18 +1444,21 @@ def _said(name, kind, text, event_id=None, at=None, said_at=None):
             at = max(at, previous["time"])
         asked, seen = list(standing), {question_key(q) for q in standing}
         dated = dict(previous.get("asked_at") or {}) if standing else {}
+        said_dates = dict(previous.get("question_times") or dated) if standing else {}
         for question in [text] if isinstance(text, str) else text:
             words = question_key(question)
             if words not in seen:
                 seen.add(words)
                 asked.append(question)
             dated[words] = time.time() if at is None else at
+            said_dates[words] = (question_times or {}).get(words, dated[words])
         text = ALSO.join(asked)
         if len(asked) > 1:
             extra["questions"] = asked
         if not extra["watcher"]:
             fresh = len(asked) - len(standing)
             extra["asked_at"] = dated
+            extra["question_times"] = said_dates
         if said_at is not None:
             extra["said_at"] = max([said_at, *([spoken_at(previous)] if standing else [])])
     earlier = previous and previous.get("answered_at", previous.get("earlier_answer_at"))
@@ -1457,12 +1491,17 @@ def conversation_of(name):
 def owner_said(name, seat=None):
     """When the owner wrote each of their messages in that seat's conversation, oldest first:
     `user_messages` leaves ak's own lines out; none where it cannot be read."""
+    return [message["at"] for message in owner_messages(name, seat)]
+
+
+def owner_messages(name, seat=None):
+    """The owner's messages, including which questions a native reply answers."""
     seat = seat or conversation_of(name)
     if seat is None or not seat[3]:
         return []
     plugin, record, cwd, conversation = seat
     try:
-        return [message["at"] for message in plugin.user_messages(record, cwd, conversation, seat=name)]
+        return plugin.user_messages(record, cwd, conversation, seat=name)
     except (OSError, ValueError):
         return []
 
@@ -1527,7 +1566,8 @@ def ask_kept(name, ended=False):
     spoken = [question.get("at") for question in kept]
     _said(name, "needs", [question["text"] for question in kept],
           at=None if None in stamps else max(stamps),
-          said_at=None if None in spoken else max(spoken))
+          said_at=None if None in spoken else max(spoken),
+          question_times={question_key(q["text"]): q["at"] for q in kept if "at" in q})
     watch.kept_asked(name, kept)
     return True
 
