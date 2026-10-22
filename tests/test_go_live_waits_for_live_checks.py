@@ -272,7 +272,7 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         self.assertEqual(self.tick(), [f"agentkit is live at {plain[:12]}"])
         self.assertEqual(self.tick(), [])
         self.assertEqual(self.checks(), [])
-        self.assertEqual(len(git(self.clone, "worktree", "list").splitlines()), 1)
+        self.assertNotIn(str(config.STATE / update.LIVE), git(self.clone, "worktree", "list"))
 
     def test_a_check_that_ends_past_its_cap_is_red_whatever_it_said(self):
         new = self.merge("second", live=HOLD)
