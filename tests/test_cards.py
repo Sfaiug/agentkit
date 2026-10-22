@@ -222,7 +222,7 @@ class Cards(unittest.TestCase):
 
                         with patch.object(orch, "tmux_out", side_effect=tmux), \
                                 patch.object(notify, "installed_at", return_value=275):
-                            # The older callback's hold clock is 260, before this question.
+                            # The older callback's clock is 200, before this question.
                             args, kwargs = queued[0]
                             self.assertEqual(publish(*args, **kwargs), 0)
                             clock[0] = 359
