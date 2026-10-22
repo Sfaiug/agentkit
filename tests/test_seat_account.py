@@ -122,8 +122,9 @@ class SeatAccount(unittest.TestCase):
             watch.save_state(state)
 
     def refusal_tick(self):
+        # a spent window is acted on when first seen (test_seat_spent_mid_turn); a stall's wait
+        # later is what a bare rate limit needs
         self.tick()
-        self.assertEqual(self.commands, [])
         self.now += watch.STALL_WAIT
         self.tick()
 
@@ -156,7 +157,8 @@ class SeatAccount(unittest.TestCase):
                          self.root / ".claude/projects")
         watch.continue_turns(self.cfg, self.logs.append, accounts=True)
         watch.continue_turns(self.cfg, self.logs.append, accounts=True)
-        self.assertEqual(self.typed, [watch.ACCOUNT_LINE])
+        # it opened on the line, Claude Code taking a first prompt: nothing is typed
+        self.assertEqual((self.typed, cmd[-1]), ([], watch.ACCOUNT_LINE))
         self.tick()
         self.assertEqual(len(self.commands), 1)
 
@@ -651,9 +653,9 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.assertEqual(self.typed, ["continue"])
         self.assertFalse(usage.collect(self.cfg)["anthropic"]["accounts"]["default"]["exhausted"])
 
-    def test_refusal_that_disappears_before_stall_wait_spends_nothing(self):
+    def test_a_rate_limit_that_disappears_before_stall_wait_spends_nothing(self):
         self.meters(30, 20)
-        self.pane = "Usage limit reached"
+        self.pane = "API Error: 429 rate limit"     # a spent window is acted on at once
         self.tick()
         self.pane = "Reading the next file"
         self.now += watch.STALL_WAIT
@@ -701,7 +703,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.assertEqual(config.session_records()[later["name"]]["account"], "second")
         self.assertEqual(config.session_records()[NAME]["account"], "default")
 
-    def test_opening_to_look_preserves_recovery_but_a_draft_prevents_respawning(self):
+    def test_opening_to_look_preserves_recovery_and_a_draft_goes_on_with_the_seat(self):
         self.meters(100, 100)
         self.tick()
         watch.opened_now(NAME)
@@ -709,11 +711,12 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         watch.opened_now(NAME)
         self.meters(100, 0)
         self.pane = "❯ the owner is typing"
-        self.tick()
-        self.assertEqual(self.commands, [])
+        with patch.object(watch, "seat_editor", return_value={"id": "%1"}), \
+                patch.object(watch, "carry_draft") as carried:
+            self.tick()
+        carried.assert_called_once()        # into the composer the resumed harness opens
+        self.assertEqual(len(self.commands), 1)
         self.assertEqual(self.typed, [])
-        self.pane = "❯"
-        self.tick()
         self.assertEqual(config.session_records()[NAME]["account"], "second")
         self.assertFalse(watch.seat_read(NAME).get("midturn"))
 
@@ -775,6 +778,8 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.assertEqual(self.commands, [])
 
     def test_account_continue_waits_for_a_draft_and_never_claims_a_fresh_resume(self):
+        # a harness that takes no first prompt has its line typed
+        self.stack.enter_context(patch.object(orch, "takes_line", return_value=False))
         self.pane = "Usage limit reached"
         with patch.object(orch, "resume", return_value="fresh"):
             self.tick()

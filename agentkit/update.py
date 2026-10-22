@@ -36,7 +36,7 @@ import tempfile
 import time
 from datetime import datetime
 
-from . import command_help, config, host, orch, retention, versions, worker
+from . import command_help, config, gitcall, host, orch, retention, versions, worker
 from .harness import load as harness_plugin
 
 VERSION = re.compile(r"\d+\.\d+\.\d+[^\s()]*")
@@ -851,6 +851,7 @@ def live_tick(log, now, fetched):
                  else (check / "exit").stat().st_mtime)
         if now < ended + watch.RETRY_BACKOFF[min(len(mine), len(watch.RETRY_BACKOFF)) - 1]:
             return
+    gitcall.no_auto_gc(agentkit_dir())
     log(f"checking agentkit at {tip[:12]} with tests/live.sh before it goes live")
     check = config.STATE / LIVE / f"{tip}-{int(now)}"
     check.mkdir(parents=True)

@@ -601,7 +601,9 @@ class ThreeStates(Sandbox):
         self.assertEqual(watch.seat_read("atoll")["word"], "working")
 
     def reboot_fixture(self, facts):
-        """Seats with proven conversations, their hooks' last word, and a boot that changed."""
+        """Seats with proven conversations, their hooks' last word, and a boot that changed, on
+        a harness taking no first prompt: the tick types each line (`watch.relaunched`)."""
+        self.stack.enter_context(patch.object(orch, "takes_line", return_value=False))
         for name, (event, kind) in facts.items():
             config.save_session(self.cfg, name, "fable", ["opus"],
                                 {"repo": self.repo, "cwd": self.repo, "id_source": orch.LAUNCHER,

@@ -383,7 +383,7 @@ class OwnPrRounds(OwnPr):
             state = self.review([])
         self.assertEqual((state["state"], state["verdict"]), ("blocked", "BLOCKED"))
         self.assertIn("PR #7 adds 5000 lines", state["error"])
-        self.assertIn("split it", state["blocked"])
+        self.assertIn("Write it as a task", state["blocked"])
         self.assertEqual((self.prompts, self.merges), ([], []))
 
     def test_a_later_review_of_the_pr_in_a_new_run_reviews_what_the_fix_left(self):

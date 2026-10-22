@@ -177,7 +177,7 @@ class StopHook(unittest.TestCase):
         self.notified("done", self.turn + 1)        # an older install's: it reads as nothing
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
         self.notified("needs", self.turn + 1)
-        self.assertEqual(self.stop(), "")
+        self.assertEqual(self.stop(said="something"), "")
 
     def test_a_run_started_while_reading_the_plan_is_a_live_wait(self):
         (self.home / "sitecustomize.py").write_text(f'''import json, os, time
@@ -492,14 +492,8 @@ class StopNudge(unittest.TestCase):
         watch.health({}, self.data, dry, self.logs.append)
 
     def stopped(self, said, footer=""):
-        """The seat ends a turn on that, and the ticks that find it run.
-
-        Two of them, because the words a seat stopped on have to stand for STALL_WAIT before
-        anything is typed at them: the first look is what they stand from, and the second is
-        when they have.
-        """
+        """The seat ends a turn, and the first tick that finds it enforces the stop."""
         self.pane = self.showing(said, footer)
-        self.tick()
         self.tick()
 
     def job_json(self, *states, **fields):
@@ -636,18 +630,14 @@ class StopNudge(unittest.TestCase):
         self.stopped(RECOMMENDATION)            # ... and it stops on the same words again
         self.assertEqual(self.typed.call_count, 2)
 
-    def test_a_turn_that_ended_on_the_same_words_still_has_to_stand(self):
-        """Coming back to the prompt starts the words standing again, identical or not.
-
-        Otherwise the moment they are read as the old ones they are read as old enough, and
-        the keystroke lands on a turn that has only just ended.
-        """
+    def test_a_turn_ending_on_the_same_words_is_resumed_without_waiting(self):
+        """A new completed turn earns a nudge even if it repeats the last answer."""
         self.stopped(RECOMMENDATION)
         self.assertEqual(self.typed.call_count, 1)
         self.draw(self.working(RECOMMENDATION))     # a turn, seen only by a menu draw
         self.pane = self.showing(RECOMMENDATION)    # ... ending on the very same words
-        self.tick(seconds=1)
-        self.assertEqual(self.typed.call_count, 1)  # they have stood for a second
+        self.tick(seconds=0)
+        self.assertEqual(self.typed.call_count, 2)
         self.tick(seconds=watch.STALL_WAIT)
         self.assertEqual(self.typed.call_count, 2)
 
@@ -677,8 +667,8 @@ class StopNudge(unittest.TestCase):
                       self.working(RECOMMENDATION)):                # already working again
             with self.subTest(moved=moved):
                 self.setUp()
+                self.draw(self.working(RECOMMENDATION))
                 self.pane = self.showing(RECOMMENDATION)
-                self.tick()                  # the prompt this pass's decision stands from
                 reads = []
 
                 def capture(_, moved=moved):
@@ -689,12 +679,11 @@ class StopNudge(unittest.TestCase):
                     self.tick()
                 self.typed.assert_not_called()
 
-    def test_a_prompt_that_has_not_stood_is_left_alone(self):
+    def test_a_completed_turn_needs_no_stall_wait(self):
         self.pane = self.showing(RECOMMENDATION)
-        self.tick(seconds=1)
-        self.tick(seconds=watch.STALL_WAIT - 2)
-        self.typed.assert_not_called()
-        self.tick(seconds=2)
+        self.tick(seconds=0)
+        self.assertEqual(self.typed.call_count, 1)
+        self.tick(seconds=watch.STALL_WAIT)
         self.assertEqual(self.typed.call_count, 1)
 
     def test_a_harness_that_decides_in_its_own_hook_is_never_typed_into(self):
@@ -712,8 +701,7 @@ class StopNudge(unittest.TestCase):
         self.typed.assert_not_called()
 
     def test_a_dry_run_says_what_it_would_type_and_neither_types_nor_writes(self):
-        self.pane = self.showing(RECOMMENDATION)
-        self.tick()
+        self.draw(self.showing(RECOMMENDATION))
         before = watch.seat_read(SEAT)
         self.tick(dry=True)
         self.typed.assert_not_called()

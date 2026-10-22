@@ -75,6 +75,22 @@ class LinePastOwnersText(EditorSeat):
         self.assertEqual((self.keys, self.sent, self.composer, self.told()),
                          (["C-g", "Enter", "C-g"], [LINE], DRAFT, True))
 
+    def test_text_comes_back_on_a_later_pass_once_a_slow_screen_draws_the_emptied_composer(self):
+        press = self.press
+
+        def taken(key, pane=PANE):
+            press(key, pane)
+            self.untouched(0)
+            if key == "Enter":          # its screen still shows the line it sent
+                self.draw(LINE)
+                self.late = 99
+        with patch.object(self, "press", side_effect=taken):
+            self.tick()
+            self.assertEqual((self.sent, self.composer, self.told()), ([LINE], "", False))
+            self.show("")
+            self.tick()
+        self.assertEqual((self.composer, self.told()), (DRAFT, True))
+
     def test_a_line_its_enter_left_unsent_goes_first_and_its_text_comes_back_after(self):
         with patch.object(watch, "_send_enter", return_value=False):
             self.tick()

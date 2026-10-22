@@ -47,6 +47,11 @@ class SpentSeat(SeatAccount):
         """The tick's continue pass; what reached the pane."""
         return self.sent(lambda: watch.continue_turns(self.cfg, self.logs.append, accounts=True))
 
+    def went_on(self):
+        """(what the tick typed, the first prompt the moved seat opened on): Claude Code takes
+        one on its command line, so the line goes in as that and nothing is typed."""
+        return self.go_on(), self.commands[-1][-1]
+
     def transcript(self, *entries):
         slug = "".join(c if c.isalnum() else "-" for c in str(self.root))
         path = self.root / ".claude/projects" / slug / f"{CONVERSATION}.jsonl"
@@ -75,7 +80,7 @@ class SpentSeat(SeatAccount):
         record = config.session_records()[NAME]
         self.assertEqual(record["account"], "second")
         self.assertEqual(record["conversation"], CONVERSATION)
-        self.assertEqual(self.go_on(), [watch.ACCOUNT_LINE])
+        self.assertEqual(self.went_on(), ([], watch.ACCOUNT_LINE))
         self.assertTrue(watch.owner_question(notify.last(NAME)))   # still the owner's to answer
 
     def test_a_seat_kept_in_place_goes_on_after_its_reset_question_open(self):
@@ -132,7 +137,7 @@ class SpentSeat(SeatAccount):
         self.wrapped()
         self.tick()
         self.assertEqual(config.session_records()[NAME]["account"], "second")
-        self.assertEqual(self.go_on(), [watch.ACCOUNT_LINE])
+        self.assertEqual(self.went_on(), ([], watch.ACCOUNT_LINE))
 
     def test_a_wrapped_turn_on_another_account_goes_on_at_home(self):
         (self.root / ".claude-second").mkdir()
@@ -142,7 +147,7 @@ class SpentSeat(SeatAccount):
         self.wrapped()
         self.tick()
         self.assertEqual(config.session_records()[NAME]["account"], "default")
-        self.assertEqual(self.go_on(), [watch.ACCOUNT_LINE])
+        self.assertEqual(self.went_on(), ([], watch.ACCOUNT_LINE))
 
     def test_a_wrapped_turn_prompted_since_or_done_since_stays_idle(self):
         cases = {"prompted": lambda: self.wrapped(self.entry(30, "user", "Thanks, stop here.")),

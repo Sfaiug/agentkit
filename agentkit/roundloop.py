@@ -544,6 +544,7 @@ def verify_work(lp, cmds=None):
             leases.scan_safely(Path(lp.state["repo"]), lp.log)
             lp.save()
         gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
+    follow_target(lp)
     checks = (files_scope(lp), rules_check(lp))
     lp.validation = {} if lp.scratch else gitcall.commit_identity(lp.wt)
     clean = lp.scratch or lp.state.get("review_pr") or gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
@@ -748,6 +749,23 @@ def how_to_integrate(lp):
         return "merge"
     merges = gitcall.git(lp.wt, "rev-list", "--merges", f"{lp.base_sha}..HEAD", check=False)
     return "merge" if merges else "rebase"
+
+
+def follow_target(lp):
+    """Move the run's base to the newest target commit its branch took in, before any check reads
+    the work: a worker that rebased onto a newer tip, or merged it in, would otherwise hand
+    in the target's moves since the launch as its own lines, to the file and prose checks, the
+    first review's size and the reviewer's diff (a 73-line change counted 655).  A target git cannot
+    read, or a fork point not past the base, keeps it."""
+    if lp.scratch or not lp.upstream:
+        return
+    code, fork = gitcall.git_out(lp.wt, "merge-base", "HEAD", lp.upstream)
+    fork = fork.strip()
+    if code != 0 or not fork or fork == lp.base_sha:
+        return
+    if gitcall.git_out(lp.wt, "merge-base", "--is-ancestor", lp.base_sha, fork)[0] == 0:
+        lp.log(f"base: the branch took in {lp.upstream} up to {fork[:12]}")
+        set_base(lp, fork)
 
 
 def set_base(lp, tip):
@@ -1666,8 +1684,8 @@ def rounds(lp, execv=None):
 
 
 def first_review_ceiling(lp):
-    """A task's change gets its first review only up to `task.MAX_PR_LINES` added lines, as a
-    seat's own pull request does (`run.review_pr`): past it the run ends blocked with `split it`
+    """A task's change gets its first review only up to `task.MAX_PR_LINES` added lines:
+    past it the run ends blocked with `split it`
     before the reviewer reads a line, and the branch it keeps holds the work for the pieces.
     Only the change's first review, a resumed one too: once a review of it, in this run or in
     one launched `from:` its branch, handed in a verdict, a later one reviews whatever the fix

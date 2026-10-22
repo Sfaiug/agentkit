@@ -13,7 +13,8 @@
 // What it reports, translated to the one protocol hooks/seat-state.sh speaks for every
 // harness (adapters/opencode.toml maps the names to states):
 //   session.inbox.enqueued where the item is a user message -> UserPromptSubmit, with its text
-//   session.execution.{succeeded,failed,interrupted}        -> Stop, with the session id
+//   session.execution.{succeeded,failed}                   -> Stop, with the session id
+//   session.execution.interrupted                         -> Interrupt, with the session id
 //   permission.asked                                         -> PermissionRequest, with the
 //     action as the kind (a seat opened with --auto is never asked, but the fact is wired
 //     for one opened without it)
@@ -172,8 +173,7 @@ async function own(ctx, sessionID) {
   }
 }
 
-// The fact one OpenCode event becomes, or null when the event is not one of the three
-// the seat reports.
+// The fact one OpenCode event becomes, or null when the seat does not report it.
 export function seatFact(event) {
   if (event === null || typeof event !== "object") return null;
   const data = event.data;
@@ -189,7 +189,8 @@ export function seatFact(event) {
     || event.type === "session.execution.failed"
     || event.type === "session.execution.interrupted")
     && typeof data.sessionID === "string") {
-    return { hook_event_name: "Stop", session_id: data.sessionID };
+    return { hook_event_name: event.type === "session.execution.interrupted" ? "Interrupt" : "Stop",
+      session_id: data.sessionID };
   }
   if (event.type === "permission.asked" && typeof data.action === "string") {
     const resources = Array.isArray(data.resources)

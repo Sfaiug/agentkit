@@ -6,7 +6,7 @@ down by the run and left out); no model declares, renews or releases anything.  
 merge-tree --write-tree`, git's own conflict rule), each run's own diff brought onto the
 newer of their two bases first with main's side kept where the run clashes with it, so
 main's movement between the bases is nobody's diff and a run's conflict with main is not
-one with its neighbour.  A pair that cannot merge is written down on the younger run,
+one with its neighbour.  A pair with a conflict outside `*.md` is written down on the younger run,
 by the start of its first attempt (`transitions.first_started`: a restart keeps it), as waiting
 on the older (wait-die: the older never waits on the younger, so no cycle can form).  A younger run still before its review -- its executor turn, or ak's
 commit step, which runs this scan itself -- is stopped there with its branch kept, waiting
@@ -320,8 +320,11 @@ def scan(repo, log=lambda _: None, now=None):
     for at, younger in enumerate(runs):
         for older in runs[:at]:
             files = collide(repo, older, younger, trees)
+            # Markdown-only conflicts can be settled at landing without rebuilding.
+            if not files or all(path.endswith(".md") for path in files):
+                continue
             holder = run_record.read_state(config.RUNS / older["run"]) or {}
-            if not files or not holds(holder) or parked(holder):
+            if not holds(holder) or parked(holder):
                 continue        # one this scan parked, or that ended, holds no diff
             kept = before.get(younger["run"]) or {}
             since = kept.get("since") if kept.get("waits_on") == older["run"] else None
