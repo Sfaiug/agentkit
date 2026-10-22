@@ -960,9 +960,9 @@ class Parked(unittest.TestCase):
         self.assertEqual(after["resume_from"], "waiting")
 
     def test_parked_stop_ends_a_scheduled_retry(self):
-        # the owner's off-switch for the ladder: stopping an error run drops
-        # its stamp, and stopping a waiter drops its wait, so the tick that
-        # would have resumed them finds nothing to resume
+        # the owner's off-switch for the ladder: stopping the seat stops its error
+        # run, dropping its stamp, and its waiter, dropping its wait, so the tick
+        # that would have resumed them finds nothing to resume
         run_dir = self.receipt("20260923-0200-stop", error_retry_at=self.now + 300,
                                error_retries=1, launched_session="seat")
         waiter = self.receipt("20260923-0201-stopwait", state="waiting", verdict="FAIL",
@@ -971,8 +971,7 @@ class Parked(unittest.TestCase):
                               waiting_resume_at=self.now + 900,
                               launched_session="seat")
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(stop.cmd_stop([run_dir.name]), 0)
-            self.assertEqual(stop.cmd_stop([waiter.name]), 0)
+            stop.stop_owned_runs("seat")
         for d in (run_dir, waiter):
             after = record.read_state(d)
             self.assertEqual(after["state"], "stopped")

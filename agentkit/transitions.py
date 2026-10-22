@@ -648,8 +648,8 @@ def first_queued(state):
 
 def seat_runs(name):
     """Every run that seat launched which stopping it stops (`stop.stop_owned_runs`), each one
-    `ak run stop` takes: one not ended, an `error` still waiting on its owner, which the tick
-    would retry, and one stopped to wait on an older run's change (`leases.parked`)."""
+    `ak run stop` takes: one not ended, an `error` still waiting on its owner or on the tick's
+    retry, and one stopped to wait on an older run's change (`leases.parked`)."""
     from . import leases
     try:
         dirs = run_record.run_dirs()
@@ -662,7 +662,7 @@ def seat_runs(name):
             word = state and state.get("state")
             if (state and launched_session(state) == name
                     and (word not in run_record.ENDED or leases.parked(state)
-                         or word == "error" and unfinished(state))):
+                         or word == "error" and (unfinished(state) or going(state)))):
                 found.append(run_dir)
         except (OSError, ValueError, config.Error):
             continue
