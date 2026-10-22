@@ -203,8 +203,8 @@ class SizeGate(Sandbox):
         head = self.git("rev-parse", "HEAD")
         self.assertEqual(run.diff_lines(self.repo, self.base, head, added_only=True), 0)
         self.assertEqual(run.diff_lines(self.repo, self.base, head), 6)
-        self.assertIsNone(run.first_review_refusal("PR #7", taskfile.MAX_PR_LINES))
-        self.assertEqual(run.first_review_refusal("PR #7", taskfile.MAX_PR_LINES + 1),
+        self.assertIsNone(transitions.first_review_refusal("PR #7", taskfile.MAX_PR_LINES))
+        self.assertEqual(transitions.first_review_refusal("PR #7", taskfile.MAX_PR_LINES + 1),
                          "PR #7 adds 301 lines (generated files aside; deletions never count): "
                          "a first review takes at most 300; split it")
 
@@ -221,7 +221,7 @@ class SizeGate(Sandbox):
         head = self.git("rev-parse", "HEAD")
         self.assertEqual(run.diff_lines(self.repo, self.base, head, added_only=True), 501)
         self.assertEqual(transitions.reviewed_lines(self.repo, self.base, head)[0].total(), 501)
-        self.assertIn("split it", run.first_review_refusal("PR #7", 501))
+        self.assertIn("split it", transitions.first_review_refusal("PR #7", 501))
         # ... and once the marking has landed on its own, the fixtures are generated
         self.assertEqual(run.diff_lines(self.repo, self.git("rev-parse", "HEAD~1"), head,
                                         added_only=True), 0)
@@ -262,12 +262,12 @@ class SizeGate(Sandbox):
                            ("diff.blank.textconv", "true"), ("diff.submodule", "diff")):
             self.git("config", key, value)
         self.assertEqual(run.carried_lines(self.repo, base, head), 503)
-        self.assertIsNone(run.first_review_refusal("PR #7", added, 503))
-        self.assertEqual(run.first_review_refusal("PR #7", 1000, 699),
+        self.assertIsNone(transitions.first_review_refusal("PR #7", added, 503))
+        self.assertEqual(transitions.first_review_refusal("PR #7", 1000, 699),
                          "PR #7 adds 1000 lines, 699 of them moved unchanged from lines it deletes "
                          "(generated files aside; deletions never count): a first review takes at "
                          "most 300; split it")
-        self.assertIsNone(run.first_review_refusal("PR #7", 1000, 700))
+        self.assertIsNone(transitions.first_review_refusal("PR #7", 1000, 700))
 
     def test_a_module_replaced_by_fresh_code_moves_nothing(self):
         # the braces and blank lines the new code shares with the old are no moved block, and a

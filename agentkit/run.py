@@ -40,7 +40,7 @@ from .handback import (announce, announce_safely, clear_delivery, join_session_p
 from .staffing import (barred_refusal, best_pair, collect_usage, head_writers, next_executor,
     note_handover, pair_refusal, pick_models, ready_order, refuse_outside_group,
     refuse_unready, reviewer_order, run_workers, same_model, started_round)
-from .transitions import (carried_lines, change_budget, change_on, first_review_refusal, replacement_refusal,
+from .transitions import (carried_lines, change_budget, change_on, replacement_refusal,
     change_reviewed, delivery, diff_lines, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
     invalidate_saved_pass, judged_in_integration, landing_line, launched_session, needs_recovery, over_lineage, park_error, park_exhausted, PR_PARTS,
