@@ -20,8 +20,8 @@
 // session.renamed also restores ak's title below; deltas and config updates are ignored.
 //
 // And before the `question` tool opens its dialog, the gate hooks/orchestrator-stop.sh is asked
-// whether a finished seat's question is refused (`stop.question_refused`), as Claude Code asks
-// it: the reason it gives is thrown, which OpenCode 2.1.1 hands the model as the tool's error.
+// whether a finished seat's question is refused (`stop.question_refused`), as a PreToolUse hook
+// asks it: the reason it gives is thrown, which 2.1.1 hands the model as the tool's error.
 //
 // And the session the seat is talking in, for the seat to come back to: where a prompt goes in,
 // its id is written into this launch's receipt, the directory agentkit/harness/opencode.py
@@ -55,7 +55,7 @@ function send(payload) {
 }
 
 // Why the seat's question goes nowhere, or null where it may ask: the gate's PreToolUse answer,
-// in Claude Code's spelling.  A gate that cannot answer lets the question through.
+// in PreToolUse's spelling.  A gate that cannot answer lets the question through.
 export function refusal() {
   try {
     const run = spawnSync(GATE, [], {
@@ -205,7 +205,7 @@ export default {
   async setup(ctx) {
     console.log("[agentkit.seat] reporting seat-state facts to hooks/seat-state.sh");
     const controller = new AbortController();
-    // An OpenCode with no tool hook asks as it always did.
+    // A version with no tool hook asks as it always did.
     const gate = Promise.resolve()
       .then(() => ctx.tool.hook("execute.before", (call) => {
         if (call?.tool !== "question") return;
