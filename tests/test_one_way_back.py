@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, orch, run, stop, statusbar, terminal, transitions
+from agentkit import config, menu, orch, run, statusbar, terminal, transitions
 from agentkit import record
 from fixtures.sandbox import menu_input
 
@@ -83,46 +83,36 @@ class Back(unittest.TestCase):
         self.assertEqual(read.call_count, 1)
 
     def stop(self, *answers, dry_run=False):
-        """The `x` flow against two seats, answering `answers`."""
+        """The `x` flow against two seats, answering `answers`: the screen, the reads and the
+        seat it picked for the menu to stop."""
         out = io.StringIO()
-        # The seat's runs are listed through a mock too, and stop inside `orch.cmd_stop`, a mock
-        # here: the real ones read ~/.agentkit/runs and would `ak run stop` every run a real seat
-        # named `atoll-fix` launched.
+        # The seat's runs are listed through a mock too: the real listing reads ~/.agentkit/runs.
         with patch.object(menu, "read", side_effect=list(answers)) as read, \
                 patch.object(transitions, "seat_runs", return_value=[]), \
-                patch.object(orch, "cmd_stop", return_value=0) as stopped, \
                 redirect_stdout(out):
-            menu.stop_session([dict(seat) for seat in SEATS], dry_run)
-        return out.getvalue(), read, stopped
+            picked = menu.stop_session([dict(seat) for seat in SEATS], dry_run)
+        return out.getvalue(), read, picked
 
     def test_v5u_x_y_stops(self):
-        screen, read, stopped = self.stop("1", "y")
-        self.assertEqual(stopped.call_args[0][0], ["atoll-fix"])
+        screen, read, picked = self.stop("1", "y")
+        self.assertEqual(picked, "atoll-fix")
         prompts = [call.args[0] for call in read.call_args_list]
         self.assertIn("stop atoll-fix and everything it is running? [y/N] ", prompts)
         self.assertIn(menu.stop_means(None), " ".join(screen.split()))   # wrapped to the width
         self.assertIn("moves to past sessions, p", screen)
 
-    def test_v5u_x_y_stops_no_real_run(self):
-        # A run on this machine launched by a seat named `atoll-fix` is never `ak run stop`ped
-        # by the fixture's Stop: the seat's runs stop inside the seat's stop, a mock.
-        with patch.object(transitions, "seat_runs", return_value=[Path("fake-active-run")]), \
-                patch.object(stop, "cmd_stop") as run_stop:
-            self.stop("1", "y")
-        self.assertEqual(run_stop.call_count, 0)
-
     def test_v5u_x_n_goes_back(self):
-        _, _, stopped = self.stop("1", "n")
-        self.assertEqual(stopped.call_count, 0)
+        _, _, picked = self.stop("1", "n")
+        self.assertIsNone(picked)
 
     def test_v5u_x_empty_goes_back(self):
-        _, _, stopped = self.stop("2", "")
-        self.assertEqual(stopped.call_count, 0)
+        _, _, picked = self.stop("2", "")
+        self.assertIsNone(picked)
 
     def test_v5u_x_esc_goes_back_before_confirm(self):
-        screen, read, stopped = self.stop("\x1b")
+        screen, read, picked = self.stop("\x1b")
         self.assertEqual(read.call_count, 1)   # picked nothing: never asked to stop
-        self.assertEqual(stopped.call_count, 0)
+        self.assertIsNone(picked)
         self.assertNotIn("stop atoll-fix? [y/N] ", screen)
         self.assertNotIn("stop atoll-fix? [y/N] ",
                          [call.args[0] for call in read.call_args_list])
