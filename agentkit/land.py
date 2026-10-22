@@ -593,12 +593,23 @@ def _stack_member(repo, state, top, upstream, opened):
 
 
 def _landing_checks(directory, state, scratch, tip):
-    """The member's own landing checks on `scratch`: its `# once` commands and the suite."""
+    """The member's own landing checks on `scratch`: its `# once` commands and the suite.
+
+    The target's suite judges the change, and a `tests:` line the change rewrites must pass
+    too: once on the target it is the only suite every later change lands through, and one
+    that cannot run there would refuse them all (owner rule, 21 Oct 2026: "landing also runs a
+    branch's changed tests: line, besides main's, and refuses the branch if that new line
+    fails")."""
     from . import task
     _, body, _ = task.parse_task(directory / "task.md")
     # A review PR owes the target's suite, never an earlier head's suite too.
     cmds = [] if state.get("review_pr") else task.done_when(body, directory / "task.md")
-    return tuple(task.group_commands(gitcall.with_suite(cmds, scratch, ref=tip))[1])
+    once = task.group_commands(gitcall.with_suite(cmds, scratch, ref=tip))[1]
+    # Added after grouping: a shell line with an odd quote would hide a `# once` marker.
+    own = gitcall.declared(scratch, "tests")
+    if own and own not in (gitcall.declared_suite(scratch, ref=tip), *once):
+        once.append(own)
+    return tuple(once)
 
 
 def _check_tests(directory, state, scratch, tree, suite, piece, tests, log):
