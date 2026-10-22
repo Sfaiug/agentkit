@@ -49,10 +49,11 @@ class FromABranch(unittest.TestCase):
         folder = cls.fakes["claude"].dir
         held, released = folder / "held", folder / "release"
         cls.addClassCleanup(released.touch)
-        # The first run's round 2 fixer holds its turn while the relaunch spends a round.
+        # The first run's round 2 fixer holds its turn while the relaunch spends a round, then
+        # disputes the finding, as a done is refused while its proof still fails.
         hold = (f"touch {shlex.quote(str(held))}; while [ ! -f {shlex.quote(str(released))} ]"
                 f" && [ -d {shlex.quote(str(folder))} ]; do sleep 0.1; done")
-        cls.fakes["claude"].behave("work", {**fakeadapter.WORK, "sh": hold}, "work")
+        cls.fakes["claude"].behave("work", {**fakeadapter.DISPUTE, "sh": hold}, "work")
         launched = home.ak("run", str(taskfile.write(home, cls.rig.path, "Add retry file")),
                            "--no-merge", "--bg")
         assert launched.code == 0, launched.out + launched.err
