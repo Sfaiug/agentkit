@@ -95,10 +95,10 @@ There is one palette for a dark background, `terminal.STATE_STYLES` (Catppuccin 
 one for a light background, `terminal.LIGHT` (Catppuccin Latte). `terminal.sense` picks the
 palette and the colour depth once per start. Under `NO_COLOR` nothing is coloured.
 
-A company's colour comes from `menu.COLOURS`, or from a provider's `colour` in config.toml,
-and colours its name on `c`; a harness's, from its manifest, its name over its models. On the
-main screen a company's shows only while the pointer is on its meter, filling it and lighting
-each model on that subscription.
+A company's colour comes from `menu.COLOURS` or its provider's `colour` in config.toml and
+colours its name on `c`; a harness's, from its manifest, its name over its models. On the main
+screen a company's shows only under the pointer on its meter, filling it and lighting each
+model on it.
 
 ## Motion
 
