@@ -69,7 +69,7 @@ class OpensAtOnce(Sandbox):
 
         for target, name, fake in (
                 (orch, "listing", listing),
-                (menu, "run_records", list),
+                (menu, "run_records", lambda **_kw: []),
                 (menu, "seat_row_state", row_state),
                 (menu, "seat_progress", lambda name: (1, 3)),
                 (orch, "job_notices", lambda: []),
