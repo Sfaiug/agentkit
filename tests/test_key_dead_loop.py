@@ -21,13 +21,9 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import Home
+from fixtures.akbin import boxable, Home
 from fixtures.gitrig import Rig
 
-# The tick asks the public boards and the shared browser, and fetches the checkout it runs
-# from: a test reaches none of them.
-OFFLINE = {"https_proxy": "http://127.0.0.1:9", "http_proxy": "http://127.0.0.1:9",
-           "GIT_ALLOW_PROTOCOL": "file"}
 # No loop of this host's boot has it: a pid the system hands out again is still not this loop.
 NO_LOOP = {"boot": "acme-boot", "ticks": 0, "started_at": 0}
 
@@ -54,12 +50,12 @@ def gone_pid():
     return proc.pid
 
 
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class LoopKilledMidTurn(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        home.env.update(OFFLINE)
         rig = Rig(home, "widgets")
         akconfig.write(home, ["opus", "astra"])
         adapters = home.root / "adapters"
@@ -76,7 +72,7 @@ class LoopKilledMidTurn(unittest.TestCase):
         os.killpg(loop.pid, signal.SIGKILL)
         loop.wait()
         cls.before = record(cls.run_dir)
-        cls.tick = home.ak("watch")
+        cls.tick = home.tick()
         wait_for(lambda: (record(cls.run_dir) or {}).get("state") == "pass",
                  "finished the resumed run", lambda: (cls.run_dir / "log.txt").read_text())
         cls.state = record(cls.run_dir)
@@ -112,6 +108,7 @@ class LoopKilledMidTurn(unittest.TestCase):
         self.assertIn("retry.txt", tree.out.split())
 
 
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class DeathsCounted(unittest.TestCase):
     """One tick over two runs whose loops are gone: one resumed two minutes ago, one resumed
     twice within the last twenty minutes."""
@@ -120,12 +117,11 @@ class DeathsCounted(unittest.TestCase):
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        home.env.update(OFFLINE)
         akconfig.write(home, ["opus", "astra"])
         now = time.time()
         cls.held = cls.write("20261001-0300-fix-api", [now - 120])
         cls.parked = cls.write("20261001-0310-beta", [now - 1200, now - 900])
-        cls.ticks = [home.ak("watch"), home.ak("watch")]
+        cls.ticks = [home.tick(), home.tick()]
 
     @classmethod
     def write(cls, run_id, resumed):
