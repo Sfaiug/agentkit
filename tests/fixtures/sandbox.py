@@ -79,8 +79,8 @@ def menu_input(*, wait=None, **read_kw):
         yield read
 
 
-def x_from_a_pipe(seats, *answers, stop=None):
-    """The main screen's `x` read from a pipe over `seats`, answered with `answers`, then the
+def x_from_a_pipe(seats, *answers, cfg=None, stop=None):
+    """The main screen's `x` read from a pipe over `seats` under `cfg`, answered with `answers`, then the
     menu left: its reads and `Live.stop`, a mock doing `stop` in place of the stop's own process
     (`teardown`), which would see none of a test's patches."""
     with patch.object(orch, "listing", return_value=[dict(seat) for seat in seats]), \
@@ -89,7 +89,7 @@ def x_from_a_pipe(seats, *answers, stop=None):
             patch.object(menu.Live, "stop", side_effect=stop) as stopped, \
             menu_input(side_effect=["x", *answers, ""]) as read, \
             redirect_stdout(io.StringIO()):
-        menu.loop({})
+        menu.loop(cfg or {})
     return read, stopped
 
 
