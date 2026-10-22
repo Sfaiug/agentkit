@@ -1,8 +1,10 @@
-"""The answer key's GitHub opens, checks and merges pull requests on the rig's bare origin.
+"""The answer key's GitHub opens, checks and merges pull requests on the rig's bare origin, and a
+passing run opens its PR, squash-merges the reviewed commit and cleans up.
 
-A delivery test judges what ak opened and merged by reading tests/fixtures/fakegh.py's state
-and the origin, so both hold only if the fake answers each call as GitHub does and merges
-what GitHub would.
+What ak opened and merged is read off tests/fixtures/fakegh.py's state and the origin, so both
+hold only if the fake answers each call as GitHub does and merges what GitHub would.  The run's
+executor writes retry.txt and its reviewer passes it, through tests/fixtures/retry's adapters
+with no model behind them.
 """
 
 import json
@@ -11,9 +13,12 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import Home
+from fixtures import akconfig, taskfile
+from fixtures.akbin import AK, Home
 from fixtures.fakegh import LOGGED_OUT, GitHub
 from fixtures.gitrig import Rig
+
+ADAPTERS = Path(__file__).resolve().parent / "fixtures" / "retry"
 
 
 class PullRequests(unittest.TestCase):
@@ -49,6 +54,11 @@ class PullRequests(unittest.TestCase):
 
     def test_a_squash_merge_lands_one_commit_at_the_matched_head_and_deletes_the_branch(self):
         url = self.gh.open_pr(self.rig, "fix-api", title="Fix api", author="beta")
+        rest = json.loads(self.call("api", "repos/acme/widgets/pulls/1"))
+        self.assertEqual((rest["state"], rest["base"]["ref"], rest["head"]["sha"]),
+                         ("open", "main", self.sha))
+        self.assertEqual(json.loads(self.call("repo", "view", "--json", "viewerPermission")),
+                         {"viewerPermission": "ADMIN"})
         self.assertIn("Head branch was modified",
                       self.call("pr", "merge", url, "--squash", "--match-head-commit", "0" * 40,
                                 code=1))
@@ -119,6 +129,32 @@ class PullRequests(unittest.TestCase):
         self.assertIn("unexpected", self.call("release", "list", code=1))
         self.assertEqual(self.home.calls("gh"), [["api", "user"], ["api", "user"],
                                                  ["release", "list"]])
+
+class PassingRun(unittest.TestCase):
+    def test_the_reviewed_commit_is_squash_merged_and_its_branch_and_worktree_go(self):
+        home = Home()
+        self.addCleanup(home.close)
+        rig, gh = Rig(home, "widgets"), GitHub(home)
+        akconfig.write(home, ["opus", "astra"])
+        task = taskfile.write(home, rig.path, front={"rounds": 1})
+        done = home.ak("run", str(task), "--exec", "opus", "--review", "astra",
+                       env={"AGENTKIT_ADAPTER_DIR": str(ADAPTERS), "AK_BIN": AK}, timeout=600)
+        self.assertEqual(done.code, 0, done.out + done.err)
+
+        [pr] = gh.prs()
+        run = json.loads((taskfile.only_run(home) / "run.json").read_text())
+        self.assertEqual((pr["state"], pr["baseRefName"], pr["headRefName"]),
+                         ("MERGED", "main", run["branch"]))
+        merge = pr["merge"]
+        self.assertEqual((merge["method"], merge["match"], merge["head"], merge["deleted"]),
+                         ("squash", run["review"]["head_sha"], merge["match"], True))
+        self.assertEqual(rig.origin("rev-parse", f"{merge['head']}^{{tree}}"),
+                         rig.origin("rev-parse", "main^{tree}"))
+        self.assertEqual((rig.head(), rig.origin("show", "main:retry.txt")),
+                         (merge["commit"], "hello"))
+        self.assertEqual(rig.branches(), ["main"])
+        self.assertFalse(Path(run["worktree"]).exists())
+        self.assertNotIn(run["branch"], rig.branches(remote=False))
 
 
 if __name__ == "__main__":
