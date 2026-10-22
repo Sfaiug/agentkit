@@ -188,6 +188,32 @@ class ModelsScreen(Screen):
         self.assertIn(f"□ {self.opus} claude-opus-5-5", text)
         self.assertIn("↑↓←→ move space mark r take recommended esc back", text)
 
+    def test_space_marks_the_model_the_pointer_is_on_even_past_its_name(self):
+        # screen row 9 holds opus on the left and mimo-pro on the right, its name ending short of 75
+        self.screens(self.keys(Key("point", "", 75, 9), Key("char", " "), Key("esc"), Key("esc")))
+        self.assertEqual(matrix.assessed(config.load()),
+                         matrix.assessed(self.cfg) | {("opencode", "mimo-pro")})
+
+    def test_a_resize_to_two_columns_keeps_the_highlight_on_its_model(self):
+        def keys():   # one column at 40 cells, grok-4.6 last, on a line two columns do not have
+            yield from self.keys(*[Key("down")] * 9)
+            terminal.layout_width.return_value = 100
+            yield from (Key("resize"), Key("char", " "), Key("esc"), Key("esc"))
+        with patch.object(terminal, "read_key", side_effect=keys()), redirect_stdout(io.StringIO()), \
+                patch.object(terminal, "layout_width", return_value=40):
+            menu.show_config(False, Keyboard(), "fix-api")
+        self.assertEqual(matrix.assessed(config.load()),
+                         matrix.assessed(self.cfg) - {("grokbuild", "grok-4.6")})
+
+    def test_a_long_recommended_name_is_cut_to_a_phone(self):
+        long_id = "acme/" + "long-model-name-" * 4
+        self.cfg["models"]["opus"]["model"] = long_id
+        config.save(self.cfg)
+        scores.store([row("claude", long_id, "max", 100, 100, 100, cost=1)])
+        lines = self.lines(self.keys(Key("esc"), Key("esc")), width=40)   # none past the screen
+        self.assertTrue(any(line.startswith("orch long-model-name-") and "…" in line
+                            for line in lines), lines)
+
     def test_the_knob_steps_within_saved_at_once_and_the_recommendation_follows(self):
         lines = self.lines(self.keys(*[Key("down")] * 3, Key("left"), Key("esc"), Key("esc")))
         self.assertIn("as good within ‹ 4 › points of the best; the cheapest of those wins", lines)

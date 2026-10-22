@@ -3093,7 +3093,8 @@ def models_body(cfg, held, grid, at, column, picks, reading):
                 rest = wide - terminal.cells(text) - 2
                 texts.append(text + ("  " + terminal.styled(terminal.cut(said, rest), "dim")
                                      if said and rest > 0 else ""))
-                cells.append((start + 1, start + wide, side))
+                # to the next column or the screen's edge, so the pointer past a short name is on it
+                cells.append((start + 1, start + wide + 1 if two and not side else room, side))
                 models[("pair", number), side] = cell[1:]
         if cells:
             places[len(lines)] = (("pair", number), cells)
