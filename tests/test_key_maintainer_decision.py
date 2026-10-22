@@ -5,10 +5,10 @@ the tick follows that PR for the seat that launched the run: a request for chang
 without a merge are recorded on the run and typed into the seat at its prompt, for it to act on;
 a merge is recorded on the run and typed into no seat, which owes nothing for it; an approval is
 news for nobody.  Each is said once, however many ticks follow.  Black-box: the program `AK_BIN`
-names runs `ak run` and `ak watch` from outside through tests/fixtures/akbin.py, against the bare
-origins of gitrig.py and the GitHub of fakegh.py, where the viewer `acme` may only read
-`zeta/gadgets`, with scripted harnesses from fakeadapter.py and a seat of akseat.py; this test
-fails against `/bin/false`.
+names runs `ak run` and `ak watch` from outside through tests/fixtures/akbin.py, each tick in the
+box `home.tick()` builds, against the bare origins of gitrig.py and the GitHub of fakegh.py, where
+the viewer `acme` may only read `zeta/gadgets`, with scripted harnesses from fakeadapter.py and a
+seat of akseat.py; this test fails against `/bin/false`.
 """
 
 import json
@@ -18,24 +18,21 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
-# The tick asks the public boards over HTTP: a proxy nobody answers keeps it off the network.
-OFFLINE = {name: "http://127.0.0.1:9"
-           for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
 SLUG = "zeta/gadgets"
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class MaintainerDecides(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        home.env.update(OFFLINE)
         rig, cls.gh = Rig(home, "gadgets", owner="zeta"), GitHub(home)
         akconfig.write(home, ["opus", "astra"])
         fakeadapter.install(home, claude="work", codex="pass")
@@ -48,13 +45,13 @@ class MaintainerDecides(unittest.TestCase):
         cls.told = [cls.seat.lines()]
         cls.gh.edit(1, SLUG, reviewDecision="CHANGES_REQUESTED")
         cls.gh.edit(2, SLUG, reviewDecision="APPROVED")
-        cls.ticks = [home.ak("watch"), home.ak("watch")]
+        cls.ticks = [home.tick(), home.tick()]
         cls.told += [cls.seat.lines()]
         cls.records = [cls.record()]
         cls.gh.edit(1, SLUG, state="CLOSED")
         merged = home.run("gh", "pr", "merge", "2", "--repo", SLUG, "--squash")
         assert merged.code == 0, merged.err
-        cls.ticks += [home.ak("watch"), home.ak("watch")]
+        cls.ticks += [home.tick(), home.tick()]
         cls.told += [cls.seat.lines()]
         cls.records += [cls.record()]
 

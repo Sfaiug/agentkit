@@ -7,11 +7,10 @@ there, so the work lands without anyone asking.  A conflict FAIL at its round bu
 FAIL, since more rounds are the owner's to give, and a waiting run whose worktree is gone is
 interrupted, saying so.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, against the bare origin of gitrig.py and the GitHub of fakegh.py, with
-scripted harnesses from fakeadapter.py.
+scripted harnesses from fakeadapter.py; each tick runs in the box `home.tick()` builds.
 """
 
 import json
-import socket
 import sys
 from pathlib import Path
 import time
@@ -19,22 +18,12 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
-PROXIES = ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
 NOTE = "the rebase of origin/main conflicted in 1 file(s)"
-
-
-def offline(home):
-    """The tick asks the public boards over HTTP and fetches the checkout it runs from: every
-    proxy names a loopback port nobody listens on, and git speaks only to files."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
-    home.env.update(dict.fromkeys(PROXIES, f"http://127.0.0.1:{port}"), GIT_ALLOW_PROTOCOL="file")
 
 
 def record(run_dir):
@@ -48,12 +37,12 @@ def record(run_dir):
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class ConflictWaits(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        offline(home)
         cls.rig = rig = Rig(home, "widgets")
         cls.gh = GitHub(home)
         cls.gh.grant(rig.slug, "WRITE")
@@ -67,7 +56,7 @@ class ConflictWaits(unittest.TestCase):
         for move in (False, False, True):
             if move:
                 cls.moved = rig.commit({"README.md": "widgets\n"}, "readme")
-            cls.ticks.append(home.ak("watch"))
+            cls.ticks.append(home.tick())
             cls.seen.append({name: record(run_dir) for name, run_dir in cls.runs.items()})
         deadline = time.monotonic() + 120
         while (state := record(cls.runs["left"]))["state"] in ("queued", "running", "waiting"):
