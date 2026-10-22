@@ -8,8 +8,8 @@ hooks it has something to say about -- `claude.py` the transcript it writes, `co
 launch receipt its thread is proven by, `grokbuild.py` the session directory it opens,
 `muse.py` its launcher build, the snapshot an upgrade is put back from, its own usage probe
 the session store its tokens and messages are in and the sessions gc ends,
-`opencode.py` the receipt its seat plugin writes its session into and the endpoint that says
-how a model is paid,
+`opencode.py` the receipt its seat plugin writes its session into, the endpoint that says
+how a model is paid and the sessions gc ends,
 `antigravity.py` the database each of its conversations is.  A script its adapter runs on its
 own sits beside its module, named for it: `muse_usage.py` is Muse's billed usage probe.
 
@@ -284,10 +284,20 @@ def conversation_stores():
             for module in _plugins("conversation_stores") for store in module.conversation_stores()]
 
 
+def idle_conversations(before):
+    """Each conversation a harness keeps as rows of its own database and never ends itself, as
+    [{"harness": its name, "id": its id}]: a top-level one nobody updated since `before` (Unix
+    seconds), which takes its children along when it ends."""
+    return [{"harness": module.__name__.rpartition(".")[2], "id": conversation}
+            for module in _plugins("idle_conversations")
+            for conversation in module.idle_conversations(before)]
+
+
 def end_conversation(harness, path, ends):
-    """End the conversation that file keeps, the harness's own way, with whatever it indexed
-    of it, only if `ends(*its other parts)` holds once nothing of it can change before it goes."""
-    _module(harness).end_conversation(path, ends)
+    """End the conversation that file, or that id of `idle_conversations`, keeps, the harness's
+    own way, with whatever it indexed of it, only if `ends(*its other parts)` holds once
+    nothing of it can change before it goes.  True where an id's conversation went."""
+    return _module(harness).end_conversation(path, ends)
 
 
 @functools.cache
