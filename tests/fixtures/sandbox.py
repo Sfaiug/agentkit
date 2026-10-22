@@ -10,7 +10,8 @@ pins `LANG` and `LC_ALL` to `C.UTF-8`: under LANG=C the menu draws ASCII, and th
 runs in the caller's locale.
 """
 
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, redirect_stdout
+import io
 import json
 import os
 from pathlib import Path
@@ -76,6 +77,20 @@ def menu_input(*, wait=None, **read_kw):
             patch.object(menu, "wait_key", side_effect=wait if wait is not None else read_key), \
             patch.object(menu.Live, "probe", return_value=False):
         yield read
+
+
+def x_from_a_pipe(seats, *answers, stop=None):
+    """The main screen's `x` read from a pipe over `seats`, answered with `answers`, then the
+    menu left: its reads and `Live.stop`, a mock doing `stop` in place of the stop's own process
+    (`teardown`), which would see none of a test's patches."""
+    with patch.object(orch, "listing", return_value=[dict(seat) for seat in seats]), \
+            patch.object(orch, "job_notices", return_value=[]), \
+            patch.object(menu, "draw", return_value=(0, 1)), \
+            patch.object(menu.Live, "stop", side_effect=stop) as stopped, \
+            menu_input(side_effect=["x", *answers, ""]) as read, \
+            redirect_stdout(io.StringIO()):
+        menu.loop({})
+    return read, stopped
 
 
 class Sandbox(unittest.TestCase):

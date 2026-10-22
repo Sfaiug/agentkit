@@ -21,7 +21,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, run, statusbar, terminal, transitions
 from agentkit import record
-from fixtures.sandbox import menu_input
+from fixtures.sandbox import menu_input, x_from_a_pipe
 
 
 SEATS = [{"name": "atoll-fix"}, {"name": "parser"}]
@@ -83,39 +83,37 @@ class Back(unittest.TestCase):
         self.assertEqual(read.call_count, 1)
 
     def stop(self, *answers, dry_run=False):
-        """The `x` flow against two seats, answering `answers`: the screen, the reads and the
-        seat it picked for the menu to stop."""
+        """The `x` screen against two seats, answering `answers`: what it drew and its reads."""
         out = io.StringIO()
         # The seat's runs are listed through a mock too: the real listing reads ~/.agentkit/runs.
         with patch.object(menu, "read", side_effect=list(answers)) as read, \
                 patch.object(transitions, "seat_runs", return_value=[]), \
                 redirect_stdout(out):
-            picked = menu.stop_session([dict(seat) for seat in SEATS], dry_run)
-        return out.getvalue(), read, picked
+            menu.stop_session([dict(seat) for seat in SEATS], dry_run)
+        return out.getvalue(), read
 
     def test_v5u_x_y_stops(self):
-        screen, read, picked = self.stop("1", "y")
-        self.assertEqual(picked, "atoll-fix")
+        read, stopped = x_from_a_pipe(SEATS, "1", "y")
+        stopped.assert_called_once_with("atoll-fix", False)
         prompts = [call.args[0] for call in read.call_args_list]
         self.assertIn("stop atoll-fix and everything it is running? [y/N] ", prompts)
+        screen, _ = self.stop("1", "n")
         self.assertIn(menu.stop_means(None), " ".join(screen.split()))   # wrapped to the width
         self.assertIn("moves to past sessions, p", screen)
 
     def test_v5u_x_n_goes_back(self):
-        _, _, picked = self.stop("1", "n")
-        self.assertIsNone(picked)
+        _, stopped = x_from_a_pipe(SEATS, "1", "n")
+        stopped.assert_not_called()
 
     def test_v5u_x_empty_goes_back(self):
-        _, _, picked = self.stop("2", "")
-        self.assertIsNone(picked)
+        _, stopped = x_from_a_pipe(SEATS, "2", "")
+        stopped.assert_not_called()
 
     def test_v5u_x_esc_goes_back_before_confirm(self):
-        screen, read, picked = self.stop("\x1b")
-        self.assertEqual(read.call_count, 1)   # picked nothing: never asked to stop
-        self.assertIsNone(picked)
-        self.assertNotIn("stop atoll-fix? [y/N] ", screen)
-        self.assertNotIn("stop atoll-fix? [y/N] ",
-                         [call.args[0] for call in read.call_args_list])
+        read, stopped = x_from_a_pipe(SEATS, "\x1b")
+        prompts = [call.args[0] for call in read.call_args_list]
+        self.assertEqual(prompts, ["> ", "Stop [atoll-fix]: ", "> "])   # never asked to stop
+        stopped.assert_not_called()
 
     def test_v5u_status_bar_names_the_one_key(self):
         self.assertEqual(statusbar.HINT, "Ctrl-b m  menu")
@@ -132,7 +130,7 @@ class Back(unittest.TestCase):
     def test_v5u_frame_headers_and_key_lines(self):
         """`x`, `n` and `c`: framed, and the key line `esc back`."""
         screens = {}
-        screens["stop"], _, _ = self.stop("\x1b")
+        screens["stop"], _ = self.stop("\x1b")
         out = io.StringIO()
         with patch.object(orch, "taken_names", return_value=[]), \
                 patch.object(orch, "ask_name", return_value=None), \

@@ -12,7 +12,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from fixtures.sandbox import Sandbox
+from fixtures.sandbox import Sandbox, x_from_a_pipe
 from fixtures.tick import only_passes
 from agentkit import config, handback, menu, notify, orch, record, run, status, watch
 
@@ -210,7 +210,7 @@ class NoReplay(Sandbox):
                             {"cwd": str(self.root), "created": 100,
                              "conversation": "thread-seat", "id_source": orch.LAUNCHER})
         watch.seat_write(SEAT, stopped_at=None, closed_by_owner=None)
-        menu.close_seat(SEAT, False)      # what every stop from the menu runs (`teardown`)
+        x_from_a_pipe([{"name": SEAT}], "1", "y", stop=menu.close_seat)
         self.assertTrue(watch.seat_read(SEAT)["closed_by_owner"])
         watch.seat_write(SEAT, stopped_at=None, closed_by_owner=None)
         orch.mark_owner_closed(SEAT)
