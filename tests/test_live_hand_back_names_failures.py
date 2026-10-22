@@ -117,15 +117,21 @@ class LiveHandBackNamesFailures(unittest.TestCase):
         self.assertIn("│ / ◇  Upgrade complete / PASS  7 acme check / ----", line)
 
     def test_cursor_moves_erases_and_links_leave_only_what_the_terminal_shows(self):
+        log = self.root / "log"
         for said, shown in [
                 ("FAIL  4 acme checl\x1b[1Dk\n", ["FAIL  4 acme check"]),
                 ("Upgrading\r\x1b[2KUpgrade complete\n", ["Upgrade complete"]),
                 ("Upgrading\x1b[999D\x1b[J\n", []),
                 ("See \x1b]8;;https://example.invalid\x1b\\details\x1b]8;;\x1b\\\n",
-                 ["See details"])]:
+                 ["See details"]),
+                ("FAIL\tacme\n", ["FAIL    acme"]),
+                ("界a\x1b[3GZ\n", ["界Z"]),
+                ("éx\x1b[2GZ\n", ["éZ"]),
+                ("abcd\x1b[1;2HX\n", ["aXcd"]),
+                ("diagnostic\x1b[1000000000C\x1b[1Gdone\n", ["donenostic"])]:
             with self.subTest(said=said):
-                self.assertEqual(update._live_excerpt(said), shown)
-
+                log.write_bytes(said.encode())
+                self.assertEqual(update._live_excerpt(log), shown)
 
 if __name__ == "__main__":
     unittest.main()

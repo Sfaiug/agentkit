@@ -51,7 +51,7 @@ LIVE_REPORT_CAP = 4 * 1024  # a typed hand-back stays readable even with long di
 ASK_EVERY = 60 * 60         # how often the tick asks a harness's latest release, at most
 RETRY_AFTER = 24 * 60 * 60  # a gate can fail for what the release did not cause: try it daily
 CODE = re.compile(r"\x1b[\]P_^X][^\x07\x1b]*(?:\x07|\x1b\\)?"  # a string: a link, a title
-                  r"|\x1b\[([0-?]*)[ -/]*([@-~])|\x1b[ -/]*[0-~]?|[\x00-\x08\x0a-\x1f\x7f]")
+                  r"|\x1b\[([0-?]*)[ -/]*([@-~])|\x1b[ -/]*[0-~]?|[\x00-\x1f\x7f]")
 
 VERSION_KEY = "{version}"   # `[update] revert`: where the version to reinstall goes
 MOVING = "agentkit-update.lock"  # under config.TMP: held by each move of ~/agentkit
@@ -828,47 +828,63 @@ def live_tick(log, now, fetched):
 
 
 def _shown(line):
-    """That line as a terminal shows it: each character written at the cursor, which its
-    control codes move and whose cells they erase, every other code showing nothing."""
-    cells, at, end = [], 0, 0
+    """That line as a terminal shows it: each character in its columns at the cursor, which
+    the line's control codes move and whose cells they erase, every other code showing
+    nothing.  The cursor stays within the hand-back's cap, as a terminal's within its screen."""
+    cells, at, end = [], 0, 0   # one per column: a wide character's second is ""
+
+    def clear(start, stop):
+        """Blank those columns, and the other half of a wide character they split."""
+        start -= 0 < start < len(cells) and cells[start] == ""
+        stop += stop < len(cells) and cells[stop] == ""
+        cells[start:stop] = " " * len(cells[start:stop])
 
     def write(text):
         nonlocal at
-        text = terminal.plain(text, spaced=True)
-        cells[len(cells):at] = " " * (at - len(cells))
-        cells[at:at + len(text)] = text
-        at += len(text)
+        for c in terminal.plain(text, spaced=True):
+            width = terminal.cells(c)
+            if not width:   # a combining mark joins the character before it
+                if 0 < at <= len(cells):
+                    cells[at - 1 - (at > 1 and cells[at - 1] == "")] += c
+                continue
+            cells.extend(" " * (at + width - len(cells)))
+            clear(at, at + width)
+            cells[at:at + width] = [c] + [""] * (width - 1)
+            at += width
 
     for code in CODE.finditer(line):
         write(line[end:code.start()])
         end = code.end()
-        op, n = code.group(2), code.group(1) or ""
-        n = int(n) if n.isdigit() else 0
+        op = code.group(2)
+        n = [int(p) if p.isdigit() else 0 for p in (code.group(1) or "").split(";")]
         if code.group() == "\r":
             at = 0
+        elif code.group() == "\t":
+            at = min(at // 8 * 8 + 8, LIVE_REPORT_CAP)
         elif code.group() == "\b" or op == "D":
-            at = max(at - max(n, 1), 0)
+            at = max(at - max(n[0], 1), 0)
         elif op == "C":
-            at += max(n, 1)
-        elif op == "G":
-            at = max(n, 1) - 1
+            at = min(at + max(n[0], 1), LIVE_REPORT_CAP)
+        elif op in ("G", "H", "f"):   # on one line, only the column of a place counts
+            column = n[0] if op == "G" else (n + [0])[1]
+            at = min(max(column, 1), LIVE_REPORT_CAP) - 1
         elif op in ("J", "K"):   # on one line, erasing the display erases the line
-            if n == 0:
-                del cells[at:]
-            elif n == 1:
-                cells[:at + 1] = " " * len(cells[:at + 1])
-            else:
-                cells.clear()
+            clear(*{0: (at, len(cells)), 1: (0, at + 1)}.get(n[0], (0, len(cells))))
     write(line[end:])
     return "".join(cells).rstrip()
 
 
-def _live_excerpt(said):
-    """Failure blocks before the closing tail, each with a share of the message's cap.
+def _live_excerpt(log):
+    """A log's failure blocks before its closing tail, each with a share of the message's cap.
 
     Each line as the terminal showed it: the excerpt is typed into a seat, where a control
-    code is a key, and a spinner's frames are one line rewritten in place.
+    code is a key, and a spinner's frames are one line rewritten in place.  Its bytes are read
+    as they are, since reading text would turn a carriage return into a new line.
     """
+    try:
+        said = log.read_bytes().decode(errors="replace")
+    except OSError:
+        said = ""
     output = [_shown(line) for line in said.split("\n")]
     failures, following = [], False
     for n, line in enumerate(output):
@@ -910,13 +926,8 @@ def live_hand_back(commit, check, code, log, hand=True):
     """
     record = _handed(check)
     if record is None:
-        output = check / "output"
-        try:    # one that never finished has only what it was writing
-            said = (output if output.exists() else check / "output.tmp").read_text(
-                errors="replace")
-        except OSError:
-            said = ""
-        lines = _live_excerpt(said)
+        output = check / "output"   # one that never finished has only what it was writing
+        lines = _live_excerpt(output if output.exists() else check / "output.tmp")
         lines += [] if code is not None else ["[stopped before it finished]"]
         log(f"WARN agentkit stays as it is: tests/live.sh failed at {commit[:12]}:")
         for line in lines:
@@ -963,7 +974,7 @@ def harness_gate_result(plan, passed, gate, log_path):
             continue
         record["reds"] += 1
         if record["reds"] == 2:
-            lines = _live_excerpt(log_path.read_text(errors="replace"))
+            lines = _live_excerpt(log_path)
             record.update(line=f"The {harness['name']} harness upgrade failed its gate twice in "
                                f"a row ({gate}): {' / '.join(lines)}. Log: {log_path}. "
                                "Fix the harness upgrade gate.", typed=None, told=False)
