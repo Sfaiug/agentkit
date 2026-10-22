@@ -34,8 +34,9 @@ class DeadGitLocks(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name).resolve()
         self.repo, self.other, self.wt = self.root / "agentkit", self.root / "acme", self.root / "wt"
-        for repo in (self.repo, self.other):
-            subprocess.run(["git", "init", "-q", str(repo)], check=True, timeout=60)
+        # acme keeps its git directory apart, its `.git` a file naming it
+        for repo, apart in ((self.repo, ()), (self.other, ("--separate-git-dir", self.root / "acme.git"))):
+            subprocess.run(["git", "init", "-q", *apart, str(repo)], check=True, timeout=60)
             git(repo, "commit", "-q", "--allow-empty", "-m", "first")
         git(self.repo, "worktree", "add", "-q", "--detach", str(self.wt))
         self.now, self.table = 10 * DAY, {}
@@ -44,10 +45,10 @@ class DeadGitLocks(unittest.TestCase):
                      lambda: {"fix-api": {"repo": str(self.other)}}).start()
         patch.object(gc, "tmp_processes", lambda: (set(), self.table)).start()
         self.addCleanup(patch.stopall)
-        self.lock = self.plant(self.repo, "HEAD.lock", DAY)
+        self.lock = self.plant(self.repo / ".git", "HEAD.lock", DAY)
 
-    def plant(self, repo, name, age):
-        path = repo / ".git" / name
+    def plant(self, gitdir, name, age):
+        path = gitdir / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("")
         os.utime(path, (self.now - age,) * 2)
@@ -63,15 +64,16 @@ class DeadGitLocks(unittest.TestCase):
         return said
 
     def test_locks_no_living_git_holds_go_from_every_repository_and_young_ones_stay(self):
-        young = self.plant(self.repo, "index.lock", 10)
-        dead = [self.lock, self.plant(self.repo, "refs/heads/topic.lock", DAY),
-                self.plant(self.repo, f"worktrees/{self.wt.name}/index.lock", DAY),
-                self.plant(self.other, "refs/remotes/origin/main.lock", DAY)]
+        young = self.plant(self.repo / ".git", "index.lock", 10)
+        theirs = self.plant(self.repo / ".git", "hooks/Gemfile.lock", DAY)    # a hook's, not git's
+        dead = [self.lock, self.plant(self.repo / ".git", "refs/heads/topic.lock", DAY),
+                self.plant(self.repo / ".git", f"worktrees/{self.wt.name}/index.lock", DAY),
+                self.plant(self.root / "acme.git", "refs/remotes/origin/main.lock", DAY)]
         self.process(["/usr/bin/git", "status"], self.root / "elsewhere")
         self.process(["bash"], self.wt)             # a shell in a checkout is no git at work
         said = self.clear()
         self.assertEqual([lock.exists() for lock in dead], [False] * 4)
-        self.assertTrue(young.exists())
+        self.assertTrue(young.exists() and theirs.exists())
         self.assertEqual(len(said), 4)
         self.assertIn(f"removed {self.lock}, left 1d ago by a git that has ended", said)
 
@@ -83,6 +85,13 @@ class DeadGitLocks(unittest.TestCase):
                 self.table.clear()
                 self.process(args, cwd, *held)
                 self.assertEqual((self.clear(), self.lock.exists()), ([], True))
+
+    def test_a_file_held_through_a_linked_git_directory_keeps_its_lock(self):
+        # /proc names the file a process holds by its real path, never the link's
+        (self.repo / ".git").rename(self.root / "meta")
+        (self.repo / ".git").symlink_to(self.root / "meta", target_is_directory=True)
+        self.process(["python3"], self.root, self.root / "meta/HEAD.lock")
+        self.assertEqual((self.clear(), self.lock.exists()), ([], True))
 
     def test_no_whole_process_table_or_a_lock_replaced_since_keeps_it(self):
         with patch.object(gc, "tmp_processes", return_value=(None, None)):

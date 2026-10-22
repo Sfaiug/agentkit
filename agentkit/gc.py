@@ -972,17 +972,20 @@ def stop_ended_logins(log):
 
 
 def git_locks(common):
-    """Every lock file in that git directory, the loose objects' folders unread."""
-    for top, dirs, files in os.walk(common):
-        if top == str(common / "objects"):
-            dirs[:] = [name for name in dirs if len(name) != 2]
-        yield from (Path(top) / name for name in files if name.endswith(".lock"))
+    """The lock files git takes in that git directory and its worktrees' folders: beside HEAD,
+    under refs/ and logs/, and the commit graph's and packs'.  Nothing else there is git's own
+    (a hook's Gemfile.lock)."""
+    for gitdir in (common, *(common / "worktrees").glob("*/")):
+        yield from gitdir.glob("*.lock")
+        for folder in ("refs/**", "logs/**", "objects/info/**", "objects/pack"):
+            yield from gitdir.glob(f"{folder}/*.lock")
 
 
-def git_in_use(common, table):
-    """Does a process use that repository: a git in its checkout or a worktree of it, or any
-    process holding a file in its git directory?"""
-    homes = [common.parent]
+def git_in_use(common, checkouts, table):
+    """Does a process use that repository: a git in its checkouts or a worktree of them, or
+    any process holding a file in its git directory?"""
+    # a `.git` directory sits in its main checkout; one kept apart names none
+    homes = [*checkouts, *[common.parent] * (common.name == ".git")]
     for gitdir in (common / "worktrees").glob("*/gitdir"):
         try:
             homes.append(Path(gitdir.read_text().strip()).parent)
@@ -1006,9 +1009,13 @@ def clear_git_locks(log, now=None):
     process can be read, and only if it is still the file that was found.
     """
     now = time.time() if now is None else now
-    repos = {config.REPO, *(Path(record["repo"]) for record in config.session_records().values()
-                            if record.get("repo"))}
-    for common in sorted(repo / ".git" for repo in repos):
+    checkouts = {}
+    for repo in {config.REPO, *(record["repo"] for record in config.session_records().values()
+                                if record.get("repo"))}:
+        # resolved, as /proc names what processes hold: a `.git` file or link reads the same
+        if dirs := orch.git_dirs(repo):
+            checkouts.setdefault(dirs[0], set()).add(Path(repo).resolve())
+    for common in sorted(checkouts):
         found = {}
         for lock in git_locks(common):
             try:
@@ -1023,7 +1030,7 @@ def clear_git_locks(log, now=None):
         table = tmp_processes()[1]
         if table is None:
             return                  # no proof any is gone: the next tick asks again
-        if git_in_use(common, table):
+        if git_in_use(common, checkouts[common], table):
             continue
         for lock, was in found.items():
             try:
