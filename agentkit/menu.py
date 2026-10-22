@@ -2850,6 +2850,8 @@ MODEL_KEYS = {"step": ("↑↓ move   ←→ choose", "arrows move   left/right 
               "remove": ("↑↓ move   ⏎ remove", "arrows move   enter remove")}
 REMOVE_ASK = ("Remove {} from the config?",   # what `Remove` asks, and what it means
               "Nothing new starts on it; + add a model brings it back.")
+# Whom `c`'s marks are for when they are no seat's: [defaults], what the next `n` starts from.
+NEW_SEATS = "new seats"
 # Every effort word, weakest first -- the widest list a manifest names (adapters/muse.toml) --
 # so a new model id that does not take its model's effort takes the nearest one it does.
 EFFORT_RANK = ("none", "minimal", *config.EFFORTS)
@@ -3216,7 +3218,7 @@ def models_screen(cfg, session, selected, providers, held):
 
 
 def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=None, subs=(),
-                lit=None):
+                lit=None, scope=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
     Every offered model once, under its harness's name (model_heading), a line each: label,
@@ -3235,7 +3237,8 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
     the cell on it the keys act on, -1 its label.  `cells` are a model row's (first, last,
     column), for a click, counted from 1 as the terminal counts. On a phone the cells give
-    way, then the label.
+    way, then the label.  `scope`, whom the marks are for -- NEW_SEATS or a seat's name -- is
+    said over the headings.
     """
     room, utf = terminal.layout_width(), terminal.utf8()
     marks = "●○■□" if utf else "*.x."
@@ -3265,6 +3268,9 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     left = 2 + label                                        # the columns before the marks
     lines = [terminal.styled((" " * left + "".join(
         "  " + terminal.pad(head, width) for head, width in zip(heads, widths))).rstrip(), "dim")]
+    if scope is not None:     # cut to the width, never `For`
+        lines.insert(0, "  " + terminal.styled("For  ", "dim")
+                     + terminal.styled(terminal.cut(scope, max(1, room - 7)), "bold"))
     places = {}
     for harness in dict.fromkeys(models[name].get("harness") for name in names):
         lines.append(model_heading(harness))
@@ -3713,7 +3719,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     from . import watch   # here, not at the top: the menu draws without the tick
     standing = watch.token_standing() or ""     # a file's date, read once a visit
     columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
-    title = config_title(session, selected)
+    scope = config_for(session, selected)
     here, column, top, clock = None, columns[1], 0, motion.Clock(page=True)
     held = matrix.stored()                          # read once a visit: the tick keeps the file
     while True:
@@ -3738,14 +3744,14 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                   motion.washing([(column, text, rest)], colour(cfg, subs[number - 1][0])))
                  for number, took in spans.items() for line, column, text, rest in took]
         body, places = config_body(cfg, None if terminal.away() else here, column,
-                                   selected, providers, moves, subs, lit)
+                                   selected, providers, moves, subs, lit, scope)
         moves += [(line, here, None, motion.glowing(body[line]))     # a row just added glows
                   for line, (row, _) in places.items() if row == here]
         # agentkit's build, read under the page so every page shows it, and what was said under it
         told = "\n".join(filter(None, (f"Version {version or '?'}", note or standing)))
         over, meters, body, places, moves = meters_led((over, meters), body, places,
                                                        note_lines(told), keys, moves)
-        act, here, clicked, top = matrix_key(title, body, places, rows, here, top,
+        act, here, clicked, top = matrix_key("config", body, places, rows, here, top,
                                             told, keys, marks=3,
                                             clock=clock, moves=moves,
                                             over=over, over_places=meters)
@@ -4617,25 +4623,26 @@ def show_config(dry_run=False, keyboard=None, session=None):
     if selected is None and not note:     # a seat with no record has no models to give
         session, selected = None, copy.deepcopy(cfg["defaults"])
     try:                      # what a seat's flip is refused on, and spent; Esc while it is read
-        providers = waited(lambda: usage.collect(cfg), f"config · {session}",
+        providers = waited(lambda: usage.collect(cfg), "config",
                            keyboard=keyboard, doing=LEFT) if session and selected else {}
     except Back:
         return cfg
     # one git call a visit, not a draw; nothing about a harness and nothing over the network
     version = update.agentkit_version()
     if dry_run or keyboard is None or not keyboard.take():
-        terminal.frame(config_title(session, selected),
+        terminal.frame("config",
                        [*config_meters(cfg)[0],
-                        *config_body(cfg, selected=selected, providers=providers)[0],
+                        *config_body(cfg, selected=selected, providers=providers,
+                                     scope=config_for(session, selected))[0],
                         *note_lines(f"Version {version or '?'}")],
                        "esc back")
         return cfg
     return config_matrix(cfg, keyboard, version, session, selected, providers, note)
 
 
-def config_title(session, selected):
-    """`c`'s title: whose marks it shows, a seat's or new seats', or none's."""
-    return f"config · {session or 'new seats'}" if selected else "config"
+def config_for(session, selected):
+    """Whom `c`'s marks are for, said over its headings: a seat's, new seats', or none's."""
+    return (session or NEW_SEATS) if selected else None
 
 
 def defaults_mark(cfg, selected, model, column):

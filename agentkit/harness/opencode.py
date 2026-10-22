@@ -9,6 +9,9 @@ receipt's token is kept in the seat's record, so it follows a rename, and no oth
 one in the same directory -- reads or writes it.  Nothing here asks which session of a
 directory is the latest.
 
+OpenCode ends no session, and keeps each as rows of its database: gc ends a top-level one
+nobody updated for 30 days with OpenCode's own delete, which takes its children along.
+
 How MiMo is paid is learned from where OpenCode's own global config sends it: that outranks
 whatever mode agentkit's config was given, and anything short of a plain token-plan URL is payg.
 """
@@ -17,6 +20,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import urllib.parse
 import uuid
 from pathlib import Path
@@ -167,6 +171,38 @@ def mode(entry):
     return "subscription" if plan else "payg"
 
 
+def database():
+    """opencode.db, which keeps every session: $OPENCODE_DB, a name under OpenCode's data folder
+    or a path of its own, the way OpenCode resolves it."""
+    share = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
+    return share / "opencode" / os.environ.get("OPENCODE_DB", "opencode.db")
+
+
+def idle_conversations(before):
+    """The top-level sessions opencode.db last updated before then, read only."""
+    from . import rows
+    found = rows(database(), "SELECT id FROM session_v2 WHERE parent_id IS NULL"
+                 " AND time_updated < ?", before * 1000)     # OpenCode stamps milliseconds
+    return [session for session, in found or ()]
+
+
+def end_conversation(session, ends):
+    """`opencode session delete`, which takes the session with its children and messages.  In
+    2.1.1 it asks nothing and exits 1 for a session it cannot find; `--standalone` runs it on
+    a private server over the database `idle_conversations` read, never on the background
+    service on its one port, which may serve another.  The database is the one part of it ak
+    can judge.  OpenCode's only writer lock is SQLite's, which the command takes itself, so
+    `ends` is asked right before it starts: a session resumed in that instant, after 30 days
+    untouched, may still go, the gap `codex delete` leaves too; closing it would mean deleting
+    OpenCode's rows ourselves."""
+    if not SESSION.fullmatch(session) or not ends(database()):
+        return False
+    subprocess.run([config.harness_binary("opencode") or "opencode", "session", "delete",
+                    "--standalone", session], stdin=subprocess.DEVNULL, capture_output=True,
+                   timeout=60, env=config.child_env(), check=True)
+    return True
+
+
 def messages(conversation):
     """opencode.db keeps a session's messages as rows in order, a subagent's in its own session:
     a user row's `text`, an assistant row's text parts beside its reasoning and tool parts, each
@@ -174,8 +210,7 @@ def messages(conversation):
     from . import rows
     if not isinstance(conversation, str) or not SESSION.fullmatch(conversation):
         return None
-    share = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
-    found = rows(share / "opencode/opencode.db",
+    found = rows(database(),
                  "SELECT type, time_created, data FROM session_message WHERE session_id = ?"
                  " AND type IN ('user', 'assistant') ORDER BY seq", conversation)
     if found is None:
