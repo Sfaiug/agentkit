@@ -2457,6 +2457,8 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None):
     down -- a launcher-issued id by default -- and whatever else its plugin needs for that,
     Codex's per-invocation receipt among them, is carried into the command as environment.
     """
+    if git_dirs(cwd):
+        gitcall.no_auto_gc(cwd)
     plugin = seat_plugin({"orchestrator": model})
     from . import notify, watch
     # The rulebook this launch hands its harness, written down before the harness is up: its

@@ -123,6 +123,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         clear_delivery(state)
         state.setdefault("stalls", [])
         repo = Path(state["repo"]) if state.get("repo") else None
+        if repo:
+            gitcall.no_auto_gc(repo)
         wt = Path(state["worktree"])
         log(f"resuming at round {len(state['round_summaries']) + 1}/{state['rounds']}: {wt}"
             + (f" on {state['branch']}" if state.get("branch") else ""))
@@ -166,6 +168,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             wt = config.WORK / run_dir.name
             wt.mkdir(parents=True, exist_ok=True)
         else:
+            gitcall.no_auto_gc(repo)
             # cut from the base as origin has it now: a local branch, or a tracking ref nothing
             # has fetched lately, can stand merges behind, and a round spent there is spent on
             # code that no longer exists.  Offline, or for a base origin has no branch of, the

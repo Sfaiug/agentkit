@@ -902,9 +902,19 @@ def links(work):
 MAKING = "ak is making this checkout"
 
 
+def no_auto_gc(repo):
+    # Linked worktrees share this config: a turn's detached gc can lock all their HEADs,
+    # then leave those locks behind when the worker stops its leftover processes.
+    env = project_env(repo)
+    for key, value in (("gc.auto", "0"), ("maintenance.auto", "false")):
+        if git(repo, "config", "--local", "--get", key, check=False, env=env) != value:
+            git(repo, "config", "--local", "--replace-all", key, value, env=env)
+
+
 def add_worktree(repo, path, *args, mark=None):
     """(exit code, output) of `git worktree add` making `path`, locked as `MAKING` until git
     has made it and, given `mark`, that file is in the checkout's own git directory."""
+    no_auto_gc(repo)
     code, out = git_out(repo, "worktree", "add", "--lock", "--reason", MAKING, str(path), *args)
     if code == 0:
         if mark:
