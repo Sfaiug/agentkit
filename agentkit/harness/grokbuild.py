@@ -189,7 +189,10 @@ def conversation_stores():
     """Each login home's own sessions folder, a folder per session under its url-encoded cwd:
     Grok ends none unless its owner sets `storage.cleanup_ttl_days`.  An account's home links
     its sessions to ~/.grok's unless Grok made the folder first; a linked one is scanned there."""
-    homes = [Path.home() / ".grok", *sorted(Path.home().glob(".grok-*"))]
+    from .. import gc
+    # tmp_listdir, not glob: planning leaves HOME's atime alone.
+    homes = [Path.home() / name for name in (".grok", *(name for name in gc.tmp_listdir(Path.home())
+                                                        if name.startswith(".grok-")))]
     return [{"root": home / "sessions", "pattern": "*/*/"} for home in homes
             if not (home / "sessions").is_symlink()]
 
