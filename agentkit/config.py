@@ -1618,17 +1618,38 @@ def seat_rulebook(session, repo=None):
         body = (f"{body.rstrip()}\n\n# The project's AGENTS.md\n\nThe rules of {Path(repo).name}, "
                 "the project this session is filed under, as on its default branch: its workers "
                 f"get the same.\n\n{project}\n")
-    handed = handover_section(session)
+    named = f"\n\n{NAME_LINE}\n" if record.get("unnamed") else ""
+    rest = len(f"{body.rstrip()}\n\n{named}".encode())
+    handed = handover_section(session, RULEBOOK_BYTES - rest)
     if handed:
         body = f"{body.rstrip()}\n\n{handed}"
-    if record.get("unnamed"):
-        body = f"{body.rstrip()}\n\n{NAME_LINE}\n"
-    return body
+    return f"{body.rstrip()}{named}" if named else body
 
 
-def handover_section(session):
-    """The rulebook's last section on a seat a move to another harness handed its work: from
-    which model, where its runs and plan are, and what was said so far, oldest first."""
+RULEBOOK_BYTES = 120000   # a harness may take it as one argument, which Linux caps at 128 KiB
+
+
+def latest_said(turns, room):
+    """The latest of `turns` whose lines (`handover_section`) fit `room` bytes, the earliest
+    one cut to its end where it alone is longer, and how many earlier ones were left out."""
+    def size(turn):
+        return len(f"**{turn['who']}:** {turn['text']}\n\n".encode())
+    turns, left = list(turns), 0
+    while turns and sum(map(size, turns)) > room:
+        first, *rest = turns
+        keep = room - size(first) + len(first["text"].encode()) - len("…".encode())
+        if rest or keep <= 0:
+            turns, left = rest, left + 1
+        else:
+            cut = first["text"].encode()[-keep:].decode(errors="ignore")
+            turns = [{**first, "text": "…" + cut}]
+    return turns, left
+
+
+def handover_section(session, room):
+    """The rulebook's last section on a seat a move to another harness handed its work, in at
+    most `room` bytes: from which model, where its runs and plan are, and the latest of what was
+    said so far, oldest first."""
     try:
         handed = json.loads(seat_file("handover", session).read_text(encoding="utf-8"))
         model, turns = handed["from"], handed.get("turns") or []
@@ -1638,11 +1659,15 @@ def handover_section(session):
     head = (f"# Where this seat's work stands\n\nThis seat ran on {model} until {when}; you take "
             "its work over under the same name. Its runs go on and report to you (`ak run "
             "status`), and its plan is `ak plan`.")
-    left = handed.get("left") or 0
+
+    def told(left):
+        return (f"{head} What was said in its conversation, oldest first, its tools' calls and "
+                "results left out" + (f", and its {left} earliest messages too" if left else "")
+                + ":\n\n")
+    turns, left = latest_said(turns, room - len(told(10 ** 9).encode()))
+    left += handed.get("left") or 0
     said = "\n\n".join(f"**{turn.get('who')}:** {turn.get('text')}" for turn in turns)
-    return (f"{head} What was said in its conversation, oldest first, its tools' calls and "
-            "results left out" + (f", and its {left} earliest messages too" if left else "")
-            + f":\n\n{said}\n")
+    return f"{told(left)}{said}\n"
 
 
 def rulebook_digest(data):

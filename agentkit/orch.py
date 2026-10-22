@@ -4065,15 +4065,12 @@ def role_mark(cfg, selected, name, column, providers):
         role: [peer for peer in group if peer != name] if name in group else [*group, name]})
 
 
-HANDOVER_BYTES = 60000   # a harness may take its rulebook as one argument: Linux caps one at 128 KiB
-
-
 def handover(name, record, old_model, old_harness, owned):
     """What a seat moving to another harness hands its next model, for the rulebook's last
     section (`config.handover_section`): from which model, and the conversation so far -- what
     the moves before handed on, then the conversation it leaves as its harness reads it back
     (`said`), or a note of that conversation's raw transcript where its harness reads none
-    back -- the latest messages that fit HANDOVER_BYTES in UTF-8.  None for a seat whose
+    back -- the latest that could fit a rulebook (`config.latest_said`).  None for a seat whose
     conversation said nothing and that was handed nothing: a new seat moved before its first
     word.
     """
@@ -4092,17 +4089,9 @@ def handover(name, record, old_model, old_harness, owned):
                for turn in said)]
     if not turns:
         return None
-
-    def size(turn):    # as `config.handover_section` renders it
-        return len(f"**{turn['who']}:** {turn['text']}\n\n".encode())
-    left = before.get("left") or 0
-    while len(turns) > 1 and sum(map(size, turns)) > HANDOVER_BYTES:
-        turns.pop(0)
-        left += 1
-    if len(turns[0]["text"].encode()) > HANDOVER_BYTES:    # one message longer than all of it
-        cut = turns[0]["text"].encode()[-HANDOVER_BYTES:].decode(errors="ignore")
-        turns[0] = {**turns[0], "text": "…" + cut}
-    return {"from": old_model, "at": time.time(), "turns": turns, "left": left}
+    turns, left = config.latest_said(turns, config.RULEBOOK_BYTES)
+    return {"from": old_model, "at": time.time(), "turns": turns,
+            "left": (before.get("left") or 0) + left}
 
 
 def _switch_plan(cfg, name, model, providers, credits=True):

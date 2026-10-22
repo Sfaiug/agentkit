@@ -64,21 +64,22 @@ class HandsOver(SeatMove):
         self.assertLess(rulebook.index(ANSWERED["text"]), rulebook.index("**astra:** 410"))
 
     def test_the_latest_messages_are_what_fits(self):
-        self.said["claude"] = [ASKED, ANSWERED, {"who": "user", "text": "Ship it"}]
-        kept = f"**opus:** {ANSWERED['text']}\n\n**user:** Ship it\n\n"
-        with patch.object(orch, "HANDOVER_BYTES", len(kept)):
-            self.move("astra")
-        rulebook = self.rulebook()
-        self.assertNotIn(ASKED["text"], rulebook)
-        self.assertIn("its 1 earliest messages too", rulebook)
-        self.assertIn("**user:** Ship it", rulebook)
-
-    def test_what_it_hands_on_fits_the_one_argument_codex_takes_its_rulebook_in(self):
-        self.said["claude"] = [{"who": "user", "text": "界" * 60000}]
+        long = {"who": "model", "text": "Done. " * config.RULEBOOK_BYTES}
+        self.said["claude"] = [ASKED, long, {"who": "user", "text": "Ship it"}]
         self.move("astra")
         rulebook = self.rulebook()
-        self.assertIn("界" * 1000, rulebook)
-        self.assertLess(len(rulebook.encode()), 128 * 1024)
+        self.assertNotIn(ASKED["text"], rulebook)
+        self.assertIn("its 2 earliest messages too", rulebook)
+        self.assertIn("**user:** Ship it", rulebook)
+
+    def test_its_rulebook_with_the_handover_fits_the_one_argument_codex_takes_it_in(self):
+        (config.HOME / "rules.md").write_text("Keep the endpoint compatible.\n" * 2500)
+        self.said["claude"] = [{"who": "user", "text": "界" * 60000 + "Ship it"}]
+        self.move("astra")
+        rulebook = self.rulebook()
+        self.assertIn("Keep the endpoint compatible.", rulebook)
+        self.assertIn("界界Ship it", rulebook)                 # the end of what was said
+        self.assertLessEqual(len(rulebook.encode()), config.RULEBOOK_BYTES)
 
     def test_a_seat_moved_before_its_first_word_hands_on_nothing(self):
         with patch.object(Harness, "said", new=SAID):     # Claude has written no transcript yet
