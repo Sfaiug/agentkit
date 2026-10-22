@@ -514,10 +514,12 @@ def own_cgroup():
 
 
 def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=None,
-                  pressure_window=None, all_limits=False):
+                  cpu_dir=None, pressure_window=None, all_limits=False):
     """Host and caller-named cgroup readings; an injected snapshot avoids all reads.
 
     `slice_dir` may be a directory or a callable locating it after injection is checked.
+    `cpu_dir` selects a child for CPU readings only; memory and CPU used outside
+    the containing slice still read `slice_dir`, so sibling CPU is reclaimable.
     `pressure_window` samples live CPU stalls on the host, slice and caller's cgroup;
     `all_limits` includes hard memory caps and enclosing groups.
     """
@@ -547,15 +549,19 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
         load = None
     if callable(slice_dir):
         slice_dir = slice_dir()
+    if callable(cpu_dir):
+        cpu_dir = cpu_dir()
+    if cpu_dir is None:
+        cpu_dir = slice_dir
     limits = _unit_memory_limits(cgroup_file, cgroup_root, all_limits=all_limits)
     caps = _unit_memory_limits(cgroup_file, cgroup_root, hard=True)
     readings = {"free_mb": meminfo.get("MemAvailable"), "mem_total_mb": meminfo.get("MemTotal"),
                 "load": load, "cpus": cpu_count(), "unit_limits": limits,
                 "unit_memory_max_headroom_mb": min((cap - used for used, cap, _, _ in caps),
                                                    default=None),
-                "slice_cpu_pressure": _slice_pressure(slice_dir, "cpu"),
+                "slice_cpu_pressure": _slice_pressure(cpu_dir, "cpu"),
                 "slice_memory_pressure": _slice_pressure(slice_dir, "memory"),
-                "slice_cpu_stat": _slice_cpu_stat(slice_dir)}
+                "slice_cpu_stat": _slice_cpu_stat(cpu_dir)}
     if limits and isinstance(limits[0], (tuple, list)) and len(limits[0]) >= 4:
         used, high, raw, name = limits[0][:4]
         readings["unit_memory_current_mb"] = used
@@ -563,21 +569,30 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
         readings["unit_memory_raw_mb"] = raw
         readings["unit_memory_name"] = name
     try:
-        cpu_quota = _slice_cpu_quota(slice_dir)
+        cpu_quota = _slice_cpu_quota(cpu_dir)
+        parent_cpu_quota = _slice_cpu_quota(slice_dir) if cpu_dir != slice_dir else None
+        if parent_cpu_quota is not None:
+            cpu_quota = min(cpu_quota, parent_cpu_quota) if cpu_quota is not None else parent_cpu_quota
     except Exception:
         cpu_quota = None
     cpu_used = outside = None
-    if slice_dir is not None:
-        # The host's use beyond the slice -- ak's own menus, tick and live checks among it --
-        # read in the slice's sample window, so a burst between two readings is in both or none.
+    if cpu_dir is not None:
+        # Sample CPU outside the containing slice alongside both groups, so a burst
+        # between readings cannot count a sibling as outside work.
         whole = cgroup_path("", cgroup_root)
         try:
-            rates = _cpu_rates([slice_dir, whole])
+            rates = _cpu_rates(list(dict.fromkeys(
+                path for path in (cpu_dir, slice_dir, whole) if path is not None)))
         except Exception:
             rates = {}
-        cpu_used = rates.get(slice_dir)
-        if cpu_used is not None and whole in rates:
-            outside = max(0.0, rates[whole] - cpu_used)
+        cpu_used = rates.get(cpu_dir)
+        # Before its first launch a child has no cgroup and holds no CPU.
+        if (cpu_dir != slice_dir and slice_dir is not None and slice_dir.is_dir()
+                and not cpu_dir.exists()):
+            cpu_used = 0.0
+        shared_used = rates.get(slice_dir if slice_dir is not None else cpu_dir)
+        if shared_used is not None and whole in rates:
+            outside = max(0.0, rates[whole] - shared_used)
     try:
         mem = _slice_memory(slice_dir)
     except Exception:
@@ -591,8 +606,8 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
         readings["slice_memory_used_mb"] = readings["slice_memory_high_mb"] = None
     if pressure_window is not None:
         paths = {PROC / "pressure/cpu"}
-        if slice_dir is not None:
-            paths.add(slice_dir / "cpu.pressure")
+        if cpu_dir is not None:
+            paths.add(cpu_dir / "cpu.pressure")
         own = process_cgroup(cgroup_file=cgroup_file)
         if own is not None:
             paths.add(cgroup_path(own, cgroup_root) / "cpu.pressure")

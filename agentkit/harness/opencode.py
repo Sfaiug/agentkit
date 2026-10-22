@@ -167,20 +167,21 @@ def mode(entry):
     return "subscription" if plan else "payg"
 
 
-def said(record, cwd, conversation):
+def messages(conversation):
     """opencode.db keeps a session's messages as rows in order, a subagent's in its own session:
-    a user row's `text`, an assistant row's text parts beside its reasoning and tool parts."""
+    a user row's `text`, an assistant row's text parts beside its reasoning and tool parts, each
+    yielded as (who, when it was written in Unix seconds, its text).  None where there is none."""
     from . import rows
     if not isinstance(conversation, str) or not SESSION.fullmatch(conversation):
         return None
     share = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
     found = rows(share / "opencode/opencode.db",
-                 "SELECT type, data FROM session_message WHERE session_id = ?"
+                 "SELECT type, time_created, data FROM session_message WHERE session_id = ?"
                  " AND type IN ('user', 'assistant') ORDER BY seq", conversation)
     if found is None:
         return None
     said = []
-    for kind, data in found:
+    for kind, created, data in found:
         try:
             message = json.loads(data)
         except (TypeError, ValueError):
@@ -194,5 +195,20 @@ def said(record, cwd, conversation):
             text = "\n".join(part["text"] for part in parts if isinstance(part, dict)
                              and part.get("type") == "text" and isinstance(part.get("text"), str))
         if isinstance(text, str) and text:
-            said.append({"who": "user" if kind == "user" else "model", "text": text})
+            # OpenCode stamps its rows in milliseconds.
+            at = created / 1000 if isinstance(created, (int, float)) else None
+            said.append(("user" if kind == "user" else "model", at, text))
     return said
+
+
+def said(record, cwd, conversation):
+    found = messages(conversation)
+    return None if found is None else [{"who": who, "text": text} for who, _, text in found]
+
+
+def user_messages(record, cwd, conversation):
+    from . import user_message
+    for who, at, text in messages(conversation) or ():
+        kept = user_message(at, text) if who == "user" else None
+        if kept:
+            yield kept

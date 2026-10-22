@@ -245,7 +245,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
 
     def test_wording_skips_review_only_when_every_file_reads_back_as_text(self):
         for name, setup in (("a name git mangles", lambda: (
-                                self.repo / ".gitattributes").write_text("*.md diff\n")),
+                                self.repo / ".gitattributes").write_text("*.txt diff\n")),
                             ("a linked AGENTS.md", lambda: (
                                 (self.repo / "docs").mkdir(),
                                 run.git(self.repo, "mv", "AGENTS.md", "docs/rules.md"),
@@ -257,7 +257,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
                 directory, url = self.own_pr("README", 1)
                 if name == "a name git mangles":
                     (self.repo / "docs").mkdir()
-                    (self.repo / "docs/binary\r.md").write_bytes(b"words\0binary\n")
+                    (self.repo / "docs/binary\r.txt").write_bytes(b"words\0binary\n")
                 else:
                     (self.repo / "docs/rules.md").write_text("---\nusers: none\ntests: true\n---\n")
                 self.pushed(url, name)

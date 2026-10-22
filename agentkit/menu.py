@@ -994,22 +994,22 @@ def squares(tasks, room=float("inf"), tmux=False, most=None):
 
 
 def seat_crew(cfg, selection):
-    """(who builds, who reviews) a seat's work, from its saved selection: its workers, else its
-    own orchestrator alone; its reviewers, else its workers, each by its full name
-    (`config.model_name`).  No selection: nobody.  The menu row and the seat's own bar both
-    read this, as they read `seat_tasks`."""
+    """(who builds, who reviews) a seat's work, from its saved selection: its workers; its
+    reviewers, else its workers, each by its full name (`config.model_name`).  A seat whose
+    orchestrator builds alone names no builder, and nothing beside its orchestrator says so:
+    no ⚒ is the seat itself building (the owner's word of 21 Oct 2026).  No selection: nobody.
+    The menu row and the seat's own bar both read this, as they read `seat_tasks`."""
     if not selection:
         return [], []
     workers = list(selection.get("workers") or [])
-    return ([config.model_name(cfg, model) for model in workers or [selection["orchestrator"]]],
+    return ([config.model_name(cfg, model) for model in workers],
             [config.model_name(cfg, model) for model in selection.get("reviewers", workers)])
 
 
 def crew(info, tmux=False, room=None):
     """`astra ⚒   opus ⚒◎   spark ◎`: each model that builds or reviews a seat's work named once,
-    in the order it first comes, ⚒ after it where it builds and ◎ where it reviews -- its own
-    orchestrator where it builds alone -- all dim, as the row's orchestrator is (the owner's pick
-    of 18 Oct 2026); without UTF-8 `B` and `R`.  Cut to `room` cells where given; `tmux` draws
+    in the order it first comes, ⚒ after it where it builds and ◎ where it reviews, all dim, as
+    the row's orchestrator is (the owner's pick of 18 Oct 2026); without UTF-8 `B` and `R`.  Cut to `room` cells where given; `tmux` draws
     it as tmux text."""
     builds, reviews = info.get("crew") or ((), ())
     build, review = ("⚒", "◎") if terminal.utf8() else ("B", "R")
@@ -2979,7 +2979,7 @@ KNOB = ("knob", "within")
 KNOB_TEXT = "as good as the best: within "
 MODELS_HEADS = ("model", "harness", "effort", *orch.ROLE_HEADS, "cost $")
 MODELS_NOTE = ("quality is 100 less how many points a model is behind the best on the public "
-               "boards; cost is what Artificial Analysis's index run cost it, in dollars")
+               "boards; cost is what a task of Artificial Analysis's index run cost it, in dollars")
 CHEAPEST = "the cheapest as good: "   # why the recommended row is the one: said before it
 SAID = ("best", "as good", "recommended")   # the lines that say why, rows the highlight rests on
 
@@ -3032,12 +3032,12 @@ def models_at(rows, effort):
 
 def _entry(cfg, row, role):
     """A row as the lines above the table say it: its label under the configured model `r`
-    takes it as in `role` (takes), its quality for the role and what its index run cost
-    (`Opus 5.5 @ xhigh 97 $4057`, by its full name; the cost left out where Artificial Analysis
-    has not run it)."""
+    takes it as in `role` (takes), its quality for the role and what a task of its index run
+    cost (`Opus 5.5 @ xhigh 97 $5.98`, by its full name; the cost left out where Artificial
+    Analysis has not run it)."""
     cost, name = row["values"].get(matrix.COST), takes(cfg, row, role)
     return (f"{matrix.row_label({**row, 'name': name and config.model_name(cfg, name)})} "
-            f"{row['scores'][role]['score']:.0f}" + ("" if cost is None else f" ${cost:.0f}"))
+            f"{row['scores'][role]['score']:.0f}" + ("" if cost is None else f" ${cost:.2f}"))
 
 
 def models_body(cfg, table, levels, shown, at, picks):
@@ -3055,7 +3055,7 @@ def models_body(cfg, table, levels, shown, at, picks):
     where no board scores it, its harness (dim), its effort between the arrows that step it
     (`shown`; a word alone with one effort, `-` with none), its quality per role at that effort
     (its row there, models_at; `-` without a score, the recommended row's in `done`'s colour,
-    one as good in the accent) and what Artificial Analysis's index run cost it; on a narrow
+    one as good in the accent) and what a task of Artificial Analysis's index run cost; on a narrow
     screen the harness gives way, then the cost, and where the label would still be cut each
     model takes two lines, its label and harness over its effort and numbers, the harness
     giving way again where the label would still be cut beside it.  `at`
@@ -3116,7 +3116,7 @@ def models_body(cfg, table, levels, shown, at, picks):
             kinds[key].append("dim" if not found else "done" if place == ids.get(role, [None])[0]
                               else "accent" if place in ids.get(role, []) else None)
         cost = (row.get("values") or {}).get(matrix.COST)
-        texts[key].append("-" if cost is None else f"{cost:.0f}")
+        texts[key].append("-" if cost is None else f"{cost:.2f}")
         kinds[key].append("dim" if cost is None else None)
     widths = [max(terminal.cells(text) for text in (head, *(texts[key][n] for key in table)))
               for n, head in enumerate(MODELS_HEADS)]
@@ -3679,7 +3679,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     `selected` is `session`'s record, and its role marks are that seat's models: Enter, space or
     a click flips one (session_mark), the orchestrator moving the seat at once, the roles saved
     to the record for the runs it launches next, the mark filling or emptying over two frames
-    and one refused shaking (motion.toggled).  With no session there are no marks.
+    and one refused shaking (motion.toggled).  With no session they are new seats': a flip is
+    [defaults], what the next `n` starts from (defaults_mark), and no open seat changes.
     ↑/↓, k/j and the wheel move between rows and ←/→ between columns, the effort's too.  Enter
     or space on an effort steps it up, from its highest round to its lowest, as a click on its
     word does, and a click on one of its cells takes that level: each change is saved and drawn
@@ -3707,11 +3708,12 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     from . import watch   # here, not at the top: the menu draws without the tick
     standing = watch.token_standing() or ""     # a file's date, read once a visit
     columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
-    title = f"config · {session}" if selected else "config"
+    title = config_title(session, selected)
     here, column, top, clock = None, columns[1], 0, motion.Clock(page=True)
     held = matrix.stored()                          # read once a visit: the tick keeps the file
     while True:
-        found = advice(cfg, held) if selected else None   # against the config as it stands
+        # what `r` recommends is a seat's to take, against the config as it stands
+        found = advice(cfg, held) if selected and session else None
         # the meter the highlight or the pointer is on, lit as the main screen lights one
         lit = here[1] if here and here[0] == "usage" and not terminal.away() else None
         subs, spans = usage_rows(cfg), {}
@@ -3788,7 +3790,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             if here[1] not in cfg["models"]:
                 here = rows[rows.index(here) + 1]     # removed: the row under it is highlighted
         elif act in ("enter", "space") and column < 3:
-            note = session_mark(cfg, session, selected, here[1], column, providers)
+            note = (session_mark(cfg, session, selected, here[1], column, providers) if session
+                    else defaults_mark(cfg, selected, here[1], column))
             if note:
                 clock.touch(("mark", here[1], column))    # refused: the mark shakes
         elif act in ("enter", "space") or isinstance(act, int):     # the effort column
@@ -4548,9 +4551,9 @@ def show_config(dry_run=False, keyboard=None, session=None):
     screen, read from its own record -- and the efforts, under each subscription's meter, then
     `+ add a model`, `+ add a provider`, `Discord` and `Weekly audit`, agentkit's build under
     them, read with the menu's keyboard (config_matrix), so nothing is typed.
-    On a heading, with no seats, or for a seat with no record, the matrix is the efforts alone,
-    and so it is for a record that will not read, saying so under the rows: the screen that
-    changes the models still opens.
+    On a heading, with no seats, or for a seat with no record, the marks are new seats'
+    ([defaults]); a record that will not read has the efforts alone, saying so under the rows:
+    the screen that changes the models still opens.
 
     Providers, models, efforts and the two Discord secrets live here, the way they live in
     ~/.agentkit/config.toml and ~/.agentkit/secrets, so nobody opens either file; a seat's
@@ -4571,21 +4574,44 @@ def show_config(dry_run=False, keyboard=None, session=None):
                           if session else None), ""
     except config.Error as exc:
         selected, note = None, f"{session}'s roles are not shown: {exc}"
-    try:                      # what a flip is refused on, and spent; Esc while it is read
+    if selected is None and not note:     # a seat with no record has no models to give
+        session, selected = None, copy.deepcopy(cfg["defaults"])
+    try:                      # what a seat's flip is refused on, and spent; Esc while it is read
         providers = waited(lambda: usage.collect(cfg), f"config · {session}",
-                           keyboard=keyboard, doing=LEFT) if selected else {}
+                           keyboard=keyboard, doing=LEFT) if session and selected else {}
     except Back:
         return cfg
     # one git call a visit, not a draw; nothing about a harness and nothing over the network
     version = update.agentkit_version()
     if dry_run or keyboard is None or not keyboard.take():
-        terminal.frame(f"config · {session}" if selected else "config",
+        terminal.frame(config_title(session, selected),
                        [*config_meters(cfg)[0],
                         *config_body(cfg, selected=selected, providers=providers)[0],
                         *note_lines(f"Version {version or '?'}")],
                        "esc back")
         return cfg
     return config_matrix(cfg, keyboard, version, session, selected, providers, note)
+
+
+def config_title(session, selected):
+    """`c`'s title: whose marks it shows, a seat's or new seats', or none's."""
+    return f"config · {session or 'new seats'}" if selected else "config"
+
+
+def defaults_mark(cfg, selected, model, column):
+    """Act on one of new seats' marks, `selected` being [defaults]: saved at once
+    (config.remember_defaults) and into `cfg` and `selected`, no open seat changing.  What to
+    say under the rows, or ""."""
+    # a new seat's crew is read as it is made (orch.default_crew), so no meter refuses one now
+    changed, note = orch.role_mark(cfg, selected, model, column, {})
+    if note or changed == selected:
+        return note
+    note = config.remember_defaults(changed)
+    if note:
+        return f"config: {note}"
+    cfg["defaults"] = copy.deepcopy(changed)
+    selected.update(changed)
+    return ""
 
 
 def session_mark(cfg, name, selected, model, column, providers):

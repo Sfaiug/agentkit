@@ -35,6 +35,9 @@ SEAT_STATE = "hooks/seat-state.sh"
 # Claude's -- a `decision` of `block` with the `reason` beside it -- so the end-of-turn rule is
 # the one script on both harnesses.
 STOP_RULE = "hooks/orchestrator-stop.sh"
+# Codex's default command deadline; only Interrupt has its separate three-second cap.
+# Callbacks stay ordered: a late tool completion must not clear a newer question.
+HOOK_TIMEOUT = 600
 # The question tool of Codex 0.160's newer models does not wait for the answer: the model hears
 # `accepted` at once and works on, and Codex drops the question unanswered, with no word to the
 # model or to ak, when anything is sent into the seat or the turn ends.  So a seat's PreToolUse
@@ -137,6 +140,40 @@ def transcript(record, cwd, conversation):
     event = read(record).get("event") or {}
     path = event.get("transcript_path")
     return str(Path(path).resolve()) if isinstance(path, str) and path else None
+
+
+def seat_token_sources(record):
+    from . import token_family
+    receipt = read(record)
+    path = (receipt.get("event") or {}).get("transcript_path")
+    paths = [Path(path)] if path and Path(path).is_file() else []
+    # A remote seat's private store holds its threads and their subagents, on every login.
+    if receipt.get("remote"):
+        paths.extend(seat_conversations(receipt["remote"]).rglob("rollout-*.jsonl"))
+    elif record.get("conversation"):
+        def metadata(entry):
+            meta = entry["payload"]
+            source = meta.get("source")
+            subagent = source.get("subagent") if isinstance(source, dict) else None
+            parent = (subagent or {}).get("thread_spawn") or {}
+            return meta["id"], parent.get("parent_thread_id")
+        root = Path.home() / ".codex"
+        candidates = [path for folder in ("sessions", "archived_sessions")
+                      for path in (root / folder).rglob("rollout-*.jsonl")]
+        paths.extend(token_family(candidates, [record.get("conversation")], metadata))
+    return paths
+
+
+def seat_token_usage(entry, cursor):
+    from . import moment
+    payload = entry.get("payload") or {}
+    if entry.get("type") != "event_msg" or payload.get("type") != "token_count":
+        return None
+    total = ((payload.get("info") or {}).get("total_token_usage") or {}).get("total_tokens")
+    if type(total) is int and total >= 0 and moment(entry.get("timestamp")) is not None:
+        previous = cursor.get("total", 0)
+        cursor["total"] = max(previous, total)
+        return entry["timestamp"], f"{Path(cursor['source']).name}:{total}", max(0, total - previous)
 
 
 def prompt(entry):
@@ -409,7 +446,8 @@ def trust(hooks, matchers=None):
         label = re.sub(r"(?<!^)(?=[A-Z])", "_", event).lower()
         for position, (command, timeout) in enumerate(handlers):
             identity = {"event_name": label, "hooks": [
-                {"async": False, "command": command, "timeout": timeout, "type": "command"}]}
+                {"async": False, "command": command, "timeout": timeout,
+                 "type": "command"}]}
             if (matchers or {}).get(event):
                 identity["matcher"] = matchers[event]
             digest = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":"),
@@ -471,8 +509,8 @@ def answered(event):
     name = config.current_session()
     if not name:
         return False
-    from .. import watch
-    return watch.hook_state("codex", watch.hook_facts(name))[0] == "asking"
+    from .. import lifecycle
+    return lifecycle.state("codex", lifecycle.facts(name))[0] == "asking"
 
 
 def question_line(item):
@@ -509,19 +547,19 @@ def mcp_block(servers):
 ROLLOUT = re.compile(r"rollout-.+-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\.jsonl")
 
 
-def conversation_store():
-    """~/.codex/sessions, where Codex keeps every thread's rollout and never removes one.  An
-    account's home links its own here; a seat's thread lives apart, with the seat."""
-    return {"root": Path.home() / ".codex" / "sessions", "pattern": "rollout-*.jsonl"}
+def conversation_stores():
+    """~/.codex/sessions/YYYY/MM/DD, where Codex keeps every thread's rollout and never removes
+    one.  An account's home links its own here; a seat's thread lives apart, with the seat."""
+    return [{"root": Path.home() / ".codex" / "sessions", "pattern": "*/*/*/rollout-*.jsonl"}]
 
 
-def end_conversation(path):
+def end_conversation(path, ends):
     """`codex delete`, which takes a thread's rollout and what Codex indexed of it at once, run
-    on the home `conversation_store` scans, whatever home and database the caller selected."""
+    on the home `conversation_stores` scans, whatever home and database the caller selected."""
     match = ROLLOUT.fullmatch(Path(path).name)
-    if match:
+    if match and ends():
         env = {key: value for key, value in os.environ.items() if key != "CODEX_SQLITE_HOME"}
-        env["CODEX_HOME"] = str(conversation_store()["root"].parent)
+        env["CODEX_HOME"] = str(conversation_stores()[0]["root"].parent)
         subprocess.run([config.harness_binary("codex") or "codex", "delete", "--force", match[1]],
                        stdin=subprocess.DEVNULL, capture_output=True, timeout=60, env=env,
                        check=True)
@@ -723,7 +761,7 @@ def main(argv, launch=None):
             # CLI overrides form their own hook layer; existing configured hooks still run.
             # The help flag is a capability check only: never bypass trust for other hooks.
             hooks = {"SessionStart": [(shlex.join(
-                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "capture"]), 5)]}
+                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "capture"]), HOOK_TIMEOUT)]}
             # The same launch carries the seat-state hooks: the events 0.153.x emits that say
             # what this seat is doing.  They go here rather than into ~/.codex/config.toml
             # because that file is the user's.  What each event means is
@@ -731,20 +769,18 @@ def main(argv, launch=None):
             # end-of-turn rule rides the Stop layer beside it, and is the one that decides.
             # The script also rides SessionStart, where a compaction (0.160's `compact` source)
             # leaves the seat holding its launch's rulebook again (`orch.rulebook_compacted`).
-            # 3s, not the receipt hook's 5: Interrupt is capped there and 0.153.4 prints a
-            # clamping warning into the seat on every launch that asks for more
-            seat = (shlex.join(["bash", str(config.REPO / SEAT_STATE)]), 3)
+            seat = (shlex.join(["bash", str(config.REPO / SEAT_STATE)]), HOOK_TIMEOUT)
             hooks.update((event, [seat]) for event in SEAT_EVENTS)
+            hooks["Interrupt"] = [(seat[0], 3)]
             hooks["SessionStart"].append(seat)
-            hooks["Stop"].append((shlex.join(["bash", str(config.REPO / STOP_RULE)]), 3))
-            # The seat's question goes to its owner through ak (`ask`); 10s, as recording it
-            # can take the notice's lock behind a card being posted.  A Plan-mode question
+            hooks["Stop"].append((shlex.join(["bash", str(config.REPO / STOP_RULE)]), HOOK_TIMEOUT))
+            # The seat's question goes to its owner through ak (`ask`). A Plan-mode question
             # going up is written down by it, once it lets the call through, and a call's end
             # only while the seat's record holds a question (`answered`).
             hooks["PreToolUse"] = [(shlex.join(
-                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "ask"]), 10)]
+                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "ask"]), HOOK_TIMEOUT)]
             hooks["PostToolUse"] = [(shlex.join(
-                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "answered"]), 3)]
+                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "answered"]), HOOK_TIMEOUT)]
             matchers = {"PreToolUse": QUESTIONS}
             os.environ[CAPTURE_ENV] = receipt
             for event, handlers in hooks.items():

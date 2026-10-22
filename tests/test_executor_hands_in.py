@@ -46,6 +46,12 @@ if role != "reviewer":
 (out / "final.md").write_text(row["text"])
 (out / "session_id").write_text("fixture-" + role)
 if role != "reviewer":
+    if role == "fixer" and row["kind"] == "done":
+        turn = json.loads(pathlib.Path(os.environ["AK_HAND_IN"]).read_text().splitlines()[0])
+        for finding in turn["findings"]:
+            subprocess.run([sys.executable, os.environ["HAND_IN_BIN"], "hand-in", "dispute",
+                            f"{finding['path']}:{finding['line']}", "The fixture proof always fails.",
+                            "--run", "test -f deliverable"], check=True)
     args = [row["kind"]] + ([row["why"]] if row["kind"] != "done" else [])
     subprocess.run([sys.executable, os.environ["HAND_IN_BIN"], "hand-in", *args], check=True)
 '''
@@ -112,7 +118,11 @@ class ExecutorHandsIn(unittest.TestCase):
                     self.assertTrue(run.review_pass(state, self.cfg))
                     self.assertEqual(len(state["round_summaries"]), 2)
                 records = next(directory.glob("round-2/executor/hand-in.jsonl")).read_text()
-                self.assertEqual(json.loads(records.splitlines()[-1])["kind"], kind)
+                rows = [json.loads(line) for line in records.splitlines()]
+                self.assertEqual(rows[-1]["kind"], kind)
+                if kind == "done":
+                    self.assertEqual([row["kind"] for row in rows], ["turn", "dispute", "done"])
+                    self.assertEqual(rows[1]["evidence"]["returncode"], 0)
 
 
 class FixRunHandsIn(unittest.TestCase):

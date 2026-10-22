@@ -269,7 +269,7 @@ and scroll with it. It is a
 matrix read with the keys, so the file is never
 opened: every offered model once, under its provider's display name in the
 accent, a row of label, then `orch` (`●` on the highlighted
-session's, `○` dim elsewhere), `builds` and `reviews` (`■`/`□`) and `effort`: a
+session's, on a heading new seats', `config · new seats`, `[defaults]`; `○` dim elsewhere), `builds` and `reviews` (`■`/`□`) and `effort`: a
 cell for each level that model offers, full up to its effort and the rest open
 and dim, then its word (`▰▰▰▰▱  xhigh`; without UTF-8 `####-`), the words in one
 column after the most cells any model has (the owner's pick of 18 Oct 2026). A
@@ -332,17 +332,17 @@ record -- opens `agentkit · models · <seat>`: every model the installed harnes
 against the public boards, as `ak models` scores them, with nothing typed. Its first row is
 the one knob, `as good as the best: within ‹ 5 ›`: ←/→ step `within` a point, never
 under 0, saved to config.toml at once, and the lines under it follow. Then the formula,
-each row said with its quality and cost (`opus @ max 100 $8708`): `best`, dim, the row of the
+each row said with its quality and cost (`opus @ max 100 $5.98`): `best`, dim, the row of the
 highest quality per role; `as good`, dim, the rows within the knob of it, cheapest first; and
 `recommended`, the cheapest as good, said so (`recommended  the cheapest as good: orch opus @
-xhigh 97 $4057 · builds opus @ xhigh 96 $4057 · reviews gpt-sol @ max 95 $1082`), then, dim,
+xhigh 97 $2.95 · builds opus @ xhigh 96 $2.95 · reviews gpt-sol @ max 95 $0.72`), then, dim,
 what quality and cost are. Under them one model a row, the scored ones first by their best
 quality: its config
 name, or its id where the config does not run it (dim where no board scores it), its
 harness (dim), its effort between the arrows that step it (`‹ xhigh ›`; the word alone with
 one effort), its quality per role at that effort out of 100 -- the recommended row's in
-`done`'s colour, one as good in the accent, `-` without a score -- and what Artificial
-Analysis's index run cost it, in dollars. On a screen too narrow for the table the harness
+`done`'s colour, one as good in the accent, `-` without a score -- and what a task of
+Artificial Analysis's index run cost it, in dollars. On a screen too narrow for the table the harness
 column gives way, then the cost; where the label would still be cut, each model takes two
 lines, its label and harness on the first and its effort and three numbers on the second,
 the highlight on both, and the harness gives way again where the label would still be cut
@@ -397,7 +397,7 @@ and scroll them on a short screen, the role headings kept visible; ←/→ choos
 a click chooses, Enter starts from anywhere -- or, with every model spent and a role still
 empty, takes the highlight to it -- Esc goes back, and reviewers keep their last model, its mark
 shaking (Motion). Executors may be left empty: the orchestrator builds everything, its own
-`builds` mark filled and dim on both `n` and `c`. Enter on an empty name leaves a free one-word
+`builds` mark filled and dim on both `n` and `c`, and no ⚒ in its crew. Enter on an empty name leaves a free one-word
 name of a Star Wars: The Clone Wars character (`orch.character_name`: `ahsoka`, `rex`), unnamed until its orchestrator gives it the shortest name, at most
 three words, with `ak orch rename --auto <name>`; the end-of-turn rule sends its stops back until it has, a
 question to the owner aside. Once named, `--auto` changes nothing, prints
@@ -449,8 +449,8 @@ screen comes up or comes back, nor once the pointer is on no row. They are
 indented under the name and lit as the row is (`menu.detail`): the
 question for `needs you`, what got done for `done` and an idle seat's way back
 in, wrapped whole at words, so a question is read whole on ak's own screen before
-its seat is opened, whatever harness it runs; for any other, each model that builds or
-reviews named once, dim as the orchestrator column, with ⚒ after it where it builds and ◎ where
+its seat is opened, whatever harness it runs; for any other, each marked executor and
+reviewer named once (an orchestrator building alone is not: no ⚒ is the seat itself), dim as the orchestrator column, with ⚒ after it where it builds and ◎ where
 it reviews (glyphs without their word, the owner's pick of 18 Oct 2026), and each task in
 flight as three squares -- build, review, land -- the stages it reached filled, in
 working's colour while a model or ak works on it, dim while it waits, the rest

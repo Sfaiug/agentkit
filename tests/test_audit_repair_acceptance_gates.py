@@ -453,7 +453,7 @@ exec "$dir/muse-bin-$(cat "$dir/.muse-version")" "$@"
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(menu.loop({}), 0)
         screen = out.getvalue()
-        self.assertRegex(screen, r"(?m)^ *effort$")     # no seat is highlighted: the efforts alone
+        self.assertRegex(screen, r"(?m)^ *orch  builds  reviews  effort$")  # no seat is highlighted: new seats' marks
         self.assertIn("not a key: 'i'", screen)
         self.assertIn("not a key: 'r'", screen)
 
