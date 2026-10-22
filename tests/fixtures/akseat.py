@@ -146,7 +146,8 @@ def _cells(text):
 
 
 def _size(screen):
-    """The pane a screen was captured from: as wide as its widest line, as tall as its lines."""
-    rows = ESCAPE.sub("", screen).rstrip("\n").split("\n")
+    """The pane a screen was captured from: as wide as its widest line, as tall as its lines,
+    blank bottom rows included, each ended by a line break."""
+    rows = ESCAPE.sub("", screen).removesuffix("\n").split("\n")
     cells = max(_cells(row) for row in rows)
     return max(cells, 20), max(len(rows), 5)

@@ -29,9 +29,9 @@ class Seats(unittest.TestCase):
         self.assertEqual(self.home.tmux("show-options", "-v", "-t", "=acme:", "@ak_orch").out,
                          "1\n")
         self.assertIn("esc to interrupt", seat.capture())
-        seat.show("x" * 150 + "\n" + PROMPT)
+        seat.show("x" * 150 + "\n" + PROMPT + "\n" * 3)       # three blank rows at its bottom
         self.assertEqual(self.home.tmux("display-message", "-p", "-t", seat.pane,
-                                        "#{pane_width}").out, "150\n")
+                                        "#{pane_width} #{pane_height}").out, "150 8\n")
 
     def test_entered_lines_are_kept_and_a_draft_outlives_the_next_screen(self):
         seat = Seat(self.home, "acme", screen=PROMPT)
