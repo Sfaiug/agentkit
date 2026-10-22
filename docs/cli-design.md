@@ -52,7 +52,8 @@ Words are plain and explain themselves.
   `━━━━╸──── 3 of 8`.
 
 Nothing explains itself on hover. What a seat asks, or what it did, opens under its row while
-that row is highlighted, and nowhere else.
+that row is highlighted. A seat's bar keeps its question or required action below
+`needs you`.
 
 ## States
 
