@@ -6,18 +6,11 @@ AGENTKIT_ACCOUNT names (`default` where it names none) and fails for an account 
 answer; every other verb fails, as an adapter with nothing to say.  `asked()` is the
 AGENTKIT_ACCOUNT of each `login-end` call so far, oldest first, "" where it named none.
 
-`tick(home)` runs one `home.tick()`, which must exit 0.
+`tick(home)` runs one `home.tick()`, which must exit 0; `kept(home)` is what ak kept of each
+login, in state/logins.json, and `events(home)` each event its outbox holds.
 
 `midday(home)` puts the Home in a zone where it is midday now, so a test's ticks fall on one
 local day, and returns that zone for the test to read the times ak writes.
-
-    from fixtures.akbin import Home
-    from fixtures.loginend import Logins, tick
-    with Home() as home:
-        logins = Logins(home)
-        logins.answer("default", "owner@acme.test", 1792700000)
-        tick(home)
-        assert logins.asked() == [""]
 """
 
 from datetime import timedelta, timezone
@@ -60,6 +53,15 @@ def tick(home):
     done = home.tick()
     assert done.code == 0, done.err
     return done
+
+
+def kept(home):
+    return json.loads((home.path / ".agentkit/state/logins.json").read_text())
+
+
+def events(home):
+    return [json.loads(path.read_text()) for path in
+            (home.path / ".agentkit/state/notification-outbox").glob("*.json")]
 
 
 def midday(home):

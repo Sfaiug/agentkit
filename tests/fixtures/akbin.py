@@ -54,8 +54,7 @@ REFUSED = ("gh", "ssh", "curl", "systemctl", "systemd-run", "loginctl", "journal
 
 Done = namedtuple("Done", "code out err")
 
-# A tick's box: its own network, so nothing it asks reaches the host's loopback or beyond, and
-# its own /tmp, which its collection sweeps.  The box runs this file, `_last`.
+# A tick's box (`Home.tick`), where it runs this file's `_last`.
 _BOX = ("bwrap", "--dev-bind", "/", "/", "--unshare-net", "--unshare-pid", "--proc", "/proc",
         "--tmpfs", "/tmp")
 
@@ -246,24 +245,20 @@ class Home:
 
     def tick(self, env=None):
         """One `ak watch`, boxed: a tick asks the public boards and the shared browser on
-        loopback, so it gets a loopback of its own, and its collection sweeps /tmp, so it gets
-        one holding only this Home and the program.  A sink on the host's loopback
-        (tests/fixtures/sink.py) is the one thing it reaches there: a socket in the Home carries
-        it to the same port on the box's loopback."""
+        loopback, so it gets a loopback of its own, where only a sink on the host's is relayed
+        (tests/fixtures/sink.py), and its collection sweeps /tmp, so it gets one holding only
+        this Home and the program."""
         keep = {self.root, self.tmux_dir, REPO, Path(AK).resolve().parent}
         binds = [arg for path in sorted(map(str, keep), key=len)
                  if Path(path).is_relative_to("/tmp") for arg in ("--bind", path, path)]
         sink = urlsplit(self._env(env).get("AK_NOTIFY_SINK", ""))
         port = sink.port if sink.hostname == "127.0.0.1" else None
         way = self.tmux_dir / "sink.sock"     # a socket's path must fit in 104 bytes
-        listener = socket.socket(socket.AF_UNIX)
-        listener.bind(str(way))
-        listener.listen()
-        _relay(listener, lambda: socket.create_connection(("127.0.0.1", port)))
+        listener = socket.create_server(str(way), family=socket.AF_UNIX)
+        _relay(listener, socket.AF_INET, ("127.0.0.1", port))
         try:
             return self.run(*_BOX, *binds, "--", sys.executable, "-I", Path(__file__).resolve(),
-                            str(port or ""),
-                            str(way), AK, "watch", env=env)
+                            str(port or ""), str(way), AK, "watch", env=env)
         finally:
             listener.shutdown(socket.SHUT_RDWR)     # wakes its `accept`, as `close` would not
             listener.close()
@@ -317,8 +312,8 @@ def _end(proc):
             pipe.close()
 
 
-def _relay(listener, connect):
-    """Carry each connection `listener` takes to one `connect` makes, both ways, until it ends."""
+def _relay(listener, family, address):
+    """Carry each connection `listener` takes to `address`, both ways, until it ends."""
     def pipe(source, sink):
         try:
             while data := source.recv(65536):
@@ -330,8 +325,8 @@ def _relay(listener, connect):
     def serve():
         while True:
             try:
-                near = listener.accept()[0]
-                far = connect()
+                near, far = listener.accept()[0], socket.socket(family)
+                far.connect(address)
             except OSError:     # the tick is over
                 return
             for ends in ((near, far), (far, near)):
@@ -340,17 +335,11 @@ def _relay(listener, connect):
     threading.Thread(target=serve, daemon=True).start()
 
 
-def _unix(path):
-    connection = socket.socket(socket.AF_UNIX)
-    connection.connect(path)
-    return connection
-
-
 def _last(port, way, *program):
     """A tick's last breath in its box: the sink's port carried in from the socket at `way`, and
     what the program detached waited out before the box goes."""
     if port:
-        _relay(socket.create_server(("127.0.0.1", int(port))), lambda: _unix(way))
+        _relay(socket.create_server(("127.0.0.1", int(port))), socket.AF_UNIX, way)
     code = subprocess.call(program)
     deadline = time.monotonic() + 60
     while time.monotonic() < deadline:

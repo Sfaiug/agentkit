@@ -12,7 +12,6 @@ paging tests/fixtures/sink.py.
 """
 
 from datetime import datetime
-import json
 import sys
 from pathlib import Path
 import time
@@ -21,19 +20,10 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
 from fixtures.akbin import boxable, Home
-from fixtures.loginend import Logins, midday, tick
+from fixtures.loginend import Logins, events, kept, midday, tick
 from fixtures.sink import Sink
 
 DAY = 86400
-
-
-def state(home, name):
-    return json.loads((home.path / ".agentkit" / "state" / name).read_text())
-
-
-def events(home):
-    return [json.loads(path.read_text()) for path in
-            (home.path / ".agentkit/state/notification-outbox").glob("*.json")]
 
 
 @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
@@ -64,7 +54,7 @@ class LoginEnd(unittest.TestCase):
         self.assertIsNone(event["session"])
         self.assertEqual(event["text"], f"Test login owner@acme.test ends {self.at(ends)} "
                                         "(in 2 days). Log in again from ak.")
-        login = state(self.home, "logins.json")["test"]["default"]
+        login = kept(self.home)["test"]["default"]
         self.assertEqual(sorted(login), ["checked_at", "email", "ends"])
         self.assertEqual((login["email"], login["ends"]), ("owner@acme.test", ends))
         self.assertIsInstance(login["checked_at"], (int, float))
@@ -73,7 +63,7 @@ class LoginEnd(unittest.TestCase):
         ends = self.ending(int(time.time()) + 4 * DAY)
         tick(self.home)
         self.assertEqual(self.sink.requests, [])
-        self.assertEqual(state(self.home, "logins.json")["test"]["default"]["ends"], ends)
+        self.assertEqual(kept(self.home)["test"]["default"]["ends"], ends)
 
     def test_a_login_that_has_ended_is_paged_saying_when_it_ended(self):
         ends = self.ending(int(time.time()) - DAY)

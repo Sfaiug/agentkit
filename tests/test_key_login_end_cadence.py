@@ -11,7 +11,6 @@ ticks asking tests/fixtures/loginend.py's harness and paging tests/fixtures/sink
 """
 
 from datetime import datetime
-import json
 import sys
 from pathlib import Path
 import time
@@ -20,19 +19,10 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
 from fixtures.akbin import boxable, Home
-from fixtures.loginend import Logins, midday, tick
+from fixtures.loginend import Logins, events, kept, midday, tick
 from fixtures.sink import Sink
 
 DAY = 86400
-
-
-def logins_kept(home):
-    return json.loads((home.path / ".agentkit/state/logins.json").read_text())
-
-
-def events(home):
-    return [json.loads(path.read_text()) for path in
-            (home.path / ".agentkit/state/notification-outbox").glob("*.json")]
 
 
 @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
@@ -53,7 +43,7 @@ class Accounts(unittest.TestCase):
         tick(self.home)
         self.assertEqual(sorted(self.logins.asked()), ["", "second"])
         self.assertEqual(self.sink.pages(), ["🙋 Needs you · Test II login"])
-        self.assertEqual(logins_kept(self.home)["test"]["second"]["email"], "second@acme.test")
+        self.assertEqual(kept(self.home)["test"]["second"]["email"], "second@acme.test")
 
     def test_a_login_ending_soon_is_paged_once_by_subscription_never_by_account(self):
         self.home.write(".agentkit/secrets/discord_user_id", "42\n")
@@ -72,8 +62,8 @@ class Accounts(unittest.TestCase):
         event, = events(self.home)
         self.assertEqual(event["text"], f"Claude II login ends {at} (in 2 days). "
                                         "Log in again from ak.")
-        kept = logins_kept(self.home)["anthropic"]
-        self.assertEqual((kept["dock"]["ends"], kept["harbor"]["ends"]), (None, ends))
+        logins = kept(self.home)["anthropic"]
+        self.assertEqual((logins["dock"]["ends"], logins["harbor"]["ends"]), (None, ends))
 
 
 @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
@@ -87,9 +77,9 @@ class Cadence(unittest.TestCase):
             tick(home)
             tick(home)
             self.assertEqual(len(logins.asked()), 1)
-            kept = logins_kept(home)
-            kept["test"]["default"]["checked_at"] = time.time() - 3700
-            home.write(".agentkit/state/logins.json", kept)
+            record = kept(home)
+            record["test"]["default"]["checked_at"] = time.time() - 3700
+            home.write(".agentkit/state/logins.json", record)
             tick(home)
             self.assertEqual(len(logins.asked()), 2)
             self.assertEqual(sink.requests, [])
