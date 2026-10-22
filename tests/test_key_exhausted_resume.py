@@ -12,7 +12,6 @@ runs from outside through tests/fixtures/akbin.py, with harnesses from fakeadapt
 meters the test sets, on the bare origin of gitrig.py and the GitHub of fakegh.py.
 """
 
-from datetime import datetime, timezone
 import json
 import sys
 import time
@@ -89,19 +88,16 @@ class WindowRefills(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        home = staged(cls, ["opus"], claude="work", codex="pass")
-        task = taskfile.write(home, cls.rig.path)
-        # The moment comes from the harness's own words and ak reads it against the real
-        # clock, so the test waits it out: counted from the run's start, which reaches its
-        # turn in a second or two, so a moment already past cannot park the run for an hour.
-        cls.back = time.time() + 10
-        at = datetime.fromtimestamp(cls.back, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        cls.fakes["claude"].behave({"final": f"{SPENT} Try again at {at}.", "exit": 1}, "work")
-        cls.ran = home.ak("run", str(task), "--no-merge")
+        # The moment comes from the harness's own words, ten seconds after its turn, and ak
+        # reads it against the real clock, so the test waits it out once the run is back.
+        refused = {"final": SPENT + " Try again at {in 10}.", "exit": 1}
+        home = staged(cls, ["opus"], claude=[refused, "work"], codex="pass")
+        cls.ran = home.ak("run", str(taskfile.write(home, cls.rig.path)), "--no-merge")
+        back = time.time() + 11
         cls.run_dir = taskfile.only_run(home)
         cls.dry = record(cls.run_dir)
         cls.row = row(home, cls.dry["title"])
-        wait_for(lambda: time.time() > cls.back + 1, "reached the moment named", bound=60)
+        wait_for(lambda: time.time() > back, "reached the moment named", bound=60)
         cls.out = tick(home)
         wait_for(lambda: record(cls.run_dir).get("state") not in WAITING, "ended the resumed run")
         cls.state = record(cls.run_dir)
