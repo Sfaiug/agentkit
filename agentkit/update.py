@@ -759,6 +759,31 @@ def live_target():
     return next((commit for commit in newer if commit in passed), "")
 
 
+def owed_live(now):
+    """(commit, since) for the commit ~/agentkit has owed going live at the longest, or None
+    while it owes none: one whose tests/live.sh passed, the fast-forward's target, or HEAD while
+    its install.sh is owed, from that pass, else from its landing.  What `stuck.stalls` reads, so
+    a move that fails however it fails is not quiet.
+    """
+    if agentkit_dir().resolve() != config.REPO:
+        return None
+    passed = {}
+    for started, commit, check in live_checks():
+        try:
+            if not _alive(check, started, now) and _exit(check, started) == 0:
+                passed[commit] = min(passed.get(commit, now), (check / "exit").stat().st_mtime)
+        except OSError:
+            continue
+    # exit 1 is a commit HEAD lacks; anything else, one this checkout never fetched, is not owed
+    owed = {commit for commit in {*passed, live_target()}
+            if commit and _git("merge-base", "--is-ancestor", commit, "HEAD")[0] == 1}
+    if (config.STATE / "agentkit-install-pending").exists():
+        owed.add(_git("rev-parse", "HEAD")[1])
+    since = {commit: passed.get(commit) or float(_git("log", "-1", "--format=%ct", commit)[1] or now)
+             for commit in owed if commit}
+    return min(since.items(), key=lambda found: found[1], default=None)
+
+
 def live_tick(log, now, fetched):
     """The tick's half of tests/live.sh: it starts the checks and ends them at their cap.
 
@@ -793,8 +818,10 @@ def live_tick(log, now, fetched):
         if alive:
             running = True
         elif had[commit]:
-            shutil.rmtree(check, ignore_errors=True)
-            pruned = True
+            # a pass dates the install it leaves owed (owed_live), so it stays until that passes
+            if not (config.STATE / "agentkit-install-pending").exists():
+                shutil.rmtree(check, ignore_errors=True)
+                pruned = True
         else:
             done.append((started, commit, check, _exit(check, started)))   # read once it ended
     if pruned:
@@ -1030,7 +1057,10 @@ def keep_current(log, now=None):
     `background`, one at a time.  A failed gate has put the harness back and said so; that
     release is started again once `RETRY_AFTER` has passed since its last start, and a newer
     one at once. Its second red gate is handed back once until its gates pass, retrying
-    delivery on later ticks while no seat can receive it.
+    delivery on later ticks while no seat can receive it.  A checkout that is somebody's work
+    (`left_as_is`) holds it, unstarted, until an ask finds it main again: its gates test that
+    checkout, and refused a half-moved ~/agentkit, a red that reverted a harness for nothing it
+    did.
     """
     if agentkit_dir().resolve() != config.REPO:
         return
@@ -1072,9 +1102,14 @@ def keep_current(log, now=None):
         # behind: both name a release, and the installed one is the lower
         go = bool(installed) and _downgrade(newest, installed) and (
             entry.get("tried") != newest or now - entry.get("started", 0) >= RETRY_AFTER)
-        asked[name] = {**entry, "asked": now, **({"tried": newest, "started": now} if go else {})}
+        held = go and left_as_is()
+        asked[name] = {**entry, "asked": now,
+                       **({"tried": newest, "started": now} if go and not held else {})}
         record.write_text(json.dumps(asked))
-        if go:
+        if held:
+            log(f"{name} {_release(installed)} is behind {newest}: upgraded once "
+                f"{agentkit_dir()} is main as origin left it, not {held}: its gates test it")
+        elif go:
             log(f"{name} {_release(installed)} is behind {newest}: upgrading it in the background")
             start(name)
             return

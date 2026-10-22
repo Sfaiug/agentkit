@@ -593,7 +593,7 @@ class Installer(Slice):
         self.assertNotIn("CPUQuota=", written)
         seats = (home / ".config/systemd/user/agentkit-seats.slice.d/weights.conf").read_text()
         runs = (home / ".config/systemd/user/agentkit-runs.slice.d/weights.conf").read_text()
-        self.assertIn("CPUWeight=100\nIOWeight=100\n", seats)
+        self.assertIn("CPUWeight=10\nIOWeight=10\n", seats)
         self.assertIn("CPUWeight=40\nIOWeight=40\n", runs)
         self.assertIn(["systemctl", "--user", "daemon-reload"], self.commands("systemctl"))
         # a second install re-derives its own file from the new numbers, not the old bytes

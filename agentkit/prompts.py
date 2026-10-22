@@ -521,9 +521,9 @@ def earlier_sites(lp, head, since):
 
 
 def replay_findings(lp, rows, head):
-    """Each earlier `--run` finding proven again on `head`: (the row, its evidence now, not
-    fixed).  Only a passing proof is a fix: one failing, unrunnable or unfinished blocks
-    whatever the reviewer hands in, who never has to find it again."""
+    """Each earlier `--run` finding proven again on `head`: (the row, its evidence now, whether
+    it blocks).  A failing proof blocks whatever the reviewer hands in; one that cannot run or
+    finish is a note, as in the first round."""
     replayed = []
     if rows:
         lp.round_dir.mkdir(parents=True, exist_ok=True)   # the replay logs come before the turn
@@ -531,19 +531,17 @@ def replay_findings(lp, rows, head):
         command = row["evidence"]["run"]
         now = {"run": command, "commit": head,
                **proof_on(lp, command, lp.round_dir / f"replay-{index}.log", head)}
-        replayed.append((row, now, not (now["returncode"] == 0 and not now.get("killed"))))
+        replayed.append((row, now, hand_in.proof_failed(now)))
     return replayed
 
 
 def replay_word(now, failing):
     """How a replayed proof went, for the reviewer and the record."""
-    if not failing:
-        return "fixed (the proof passes now)"
-    if now.get("killed"):
-        return "did not finish; it blocks until its proof passes"
+    if now.get("killed") or now["returncode"] < 0:
+        return "did not finish; kept as a note"
     if now["returncode"] in (126, 127):
-        return f"could not run (exit {now['returncode']}); it blocks until its proof passes"
-    return f"still fails (exit {now['returncode']})"
+        return f"could not run (exit {now['returncode']}); kept as a note"
+    return f"still fails (exit {now['returncode']})" if failing else "fixed (the proof passes now)"
 
 
 def replay_section(replayed, left, since):
@@ -571,7 +569,7 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
     an earlier finding's site upholds it (a dispute the reviewer rejects) and is weighed as
     ever.  ak's own replay of the earlier findings (`replayed`) is weighed with the
     reviewer's, each where the fix left its line (`placed`): one still failing blocks
-    whether or not the reviewer handed it in again, and one fixed is a note."""
+    whether or not the reviewer handed it in again; one fixed or unable to run is a note."""
     if not any(row["kind"] in ("finding", "follow-up") for row in submitted.records) and not replayed:
         return submitted
     head = None if lp.scratch else head or gitcall.git(lp.wt, "rev-parse", "HEAD")
@@ -659,7 +657,9 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
             row = {**row, "line": line}
             if not failing:
                 extra.append({**row, "kind": "note", "evidence": now,
-                              "replayed": "fixed; its proof passes now"})
+                              "replayed": "fixed; its proof passes now"
+                              if now["returncode"] == 0 and not now.get("killed")
+                              else replay_word(now, failing)})
                 continue
             # the reviewer's own hand-in carrying this finding's very proof at its site, and
             # weighed to block, is this finding upheld, and ak adds no copy beside it;

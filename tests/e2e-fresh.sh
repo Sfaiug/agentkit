@@ -606,7 +606,7 @@ drive() {   # drive <name> <TERM> <command...>; the script is $WORK/<name>.exp
 # A selection cursor or the Codex banner's "permissions: YOLO mode" is not a ready composer.
 # Match the text without line anchors: tmux can position a row without emitting a newline.
 PROMPT='bypass permissions on|[▌›] Ask Codex to do (?:anything|something)|[\w.-]+ · \w+ · [^\n]+ · YOLO'
-MENU='n (start a session|new) '
+MENU='n new '
 NODIALOG='Do you trust|trust the files|No, exit|Choose the text style|Select a theme|Yes, I accept|WARNING: Claude Code running|Update available|Sign in with|sign in again|Trust this directory|Trust directory'
 
 # ==== d) the menu, through a pty, on both terminals ==========================

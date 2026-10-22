@@ -4,7 +4,8 @@ The tick asks each harness's `[update] latest` at most hourly; one this host has
 it is upgraded through `ak update`'s own gated path -- the upgrade, both gates, the revert --
 while sessions work, one upgrade at a time host-wide.  A failed gate puts it back and is said
 once in the tick's log, and that release is tried again a day after its last start, a newer
-one at once.
+one at once.  A checkout that is somebody's work holds it unstarted: a half-moved ~/agentkit
+failed a fresh-install gate, and the harness was put back for nothing it did.
 
 Offline throughout: `acme` is a fake harness whose manifest, binary and release source live
 under a temporary HOME, the checkout the tick runs from is a throwaway directory holding two
@@ -65,6 +66,11 @@ class HarnessAutoUpdate(unittest.TestCase):
             (root / name).write_text(text.format(root=root))
             (root / name).chmod(0o755)
         self.write(installed="1.0.0", released="2.0.0", smoke="0")
+        self.checkout = root / "agentkit"
+        for args in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "gates"]):
+            subprocess.run(["git", "-C", str(self.checkout), "-c", "user.name=fixture",
+                            "-c", "user.email=fixture@example.invalid", *args],
+                           check=True, capture_output=True, timeout=60)
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(root), "PATH": f"{root / 'bin'}:{os.environ['PATH']}",
             config.ADAPTER_DIR_ENV: str(root / "adapters")}))
@@ -164,6 +170,16 @@ class HarnessAutoUpdate(unittest.TestCase):
         self.start.assert_not_called()
         self.assertEqual(self.tick(T + 180),
                          ["acme 1.0.0 is behind 2.0.0: upgrading it in the background"])
+
+    def test_a_checkout_that_is_somebodys_work_holds_the_upgrade_unstarted(self):
+        (self.checkout / "notes").write_text("half moved\n")
+        self.assertEqual(self.tick(T), [f"acme 1.0.0 is behind 2.0.0: upgraded once {self.checkout} "
+                                        "is main as origin left it, not dirty: its gates test it"])
+        self.assertEqual((self.read("calls"), self.start.call_count), ([], 0))
+        (self.checkout / "notes").unlink()
+        self.assertEqual(self.tick(T + update.ASK_EVERY),
+                         ["acme 1.0.0 is behind 2.0.0: upgrading it in the background"])
+        self.assertEqual(self.read("installed"), ["2.0.0"])
 
     def test_a_tick_from_another_checkout_never_upgrades_a_harness(self):
         with patch.object(config, "REPO", REPO):

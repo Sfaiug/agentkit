@@ -39,12 +39,12 @@ def write(home, models, *, workers=None, orchestrator=None, providers=None, sett
         entry.setdefault("model", name)
         entry.setdefault("effort", "high")
         entry.setdefault("provider", PROVIDER.get(entry["harness"], "acme"))
-        tables[f"models.{name}"] = entry
+        tables[f"models.{json.dumps(name)}"] = entry
     named = {entry["provider"]: None for entry in tables.values()} | dict(providers or {})
     for provider, keys in named.items():
-        tables[f"providers.{provider}"] = (keys if keys is not None else
-                                           _SHIPPED["providers"].get(provider,
-                                                                     {"mode": "subscription"}))
+        tables[f"providers.{json.dumps(provider)}"] = (
+            keys if keys is not None else
+            _SHIPPED["providers"].get(provider, {"mode": "subscription"}))
     if not audit:
         tables["audit"] = {"on": False}
     defaults = {"orchestrator": orchestrator or next(iter(models)),

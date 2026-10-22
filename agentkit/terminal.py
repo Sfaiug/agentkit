@@ -243,6 +243,13 @@ def plain(text, spaced=False):
     return "".join(" " if c.isspace() else c for c in kept) if spaced else " ".join(kept.split())
 
 
+def keyed(text):
+    """`text` as keys type it into a terminal: no escape sequence, each control character that
+    spaces one space and every other gone, every printable character kept as it is."""
+    return "".join(c if unicodedata.category(c) != "Cc" else " " if c.isspace() else ""
+                   for c in ANSI.sub("", str(text)))
+
+
 def cells(text):
     text = ANSI.sub("", text) if "\033" in text else text
     return len(text) if text.isascii() else sum(map(_width, text))

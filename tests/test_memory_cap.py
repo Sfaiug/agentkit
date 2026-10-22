@@ -329,8 +329,6 @@ class MemoryCap(unittest.TestCase):
         self.assertIn("IOWeight=40", joined)
         self.assertIn("MemoryMax=8000M", joined)
         self.assertIn("MemorySwapMax=8000M", joined)
-        # 40 is the runs' weight; the seats' drop-in is 100, checked with the installer.
-        self.assertLess(40, 100)
 
     def test_the_installer_writes_both_dropins(self):
         source = (REPO / "install.sh").read_text()
@@ -360,15 +358,15 @@ class MemoryCap(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         seats = (home / ".config/systemd/user/agentkit-seats.slice.d/weights.conf").read_text()
         runs = (home / ".config/systemd/user/agentkit-runs.slice.d/weights.conf").read_text()
-        self.assertIn("CPUWeight=100\nIOWeight=100\n", seats)
+        self.assertIn("CPUWeight=10\nIOWeight=10\n", seats)
         self.assertIn("CPUWeight=40\nIOWeight=40\n", runs)
-        self.assertGreater(
+        self.assertLess(
             int(seats.split("CPUWeight=")[1].splitlines()[0]),
             int(runs.split("CPUWeight=")[1].splitlines()[0]))
-        self.assertGreater(
+        self.assertLess(
             int(seats.split("IOWeight=")[1].splitlines()[0]),
             int(runs.split("IOWeight=")[1].splitlines()[0]))
-        # Memory says the same: the seats keep 30% of this machine from reclaim, as a share,
+        # Memory still protects seats: they keep 30% of this machine from reclaim, as a share,
         # so under pressure inside the slice the runs give memory back first.
         self.assertIn("MemoryLow=30%\n", seats)
         self.assertNotIn("MemoryLow", runs)

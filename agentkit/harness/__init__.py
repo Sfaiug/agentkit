@@ -209,6 +209,26 @@ def moment(at):
     return at
 
 
+def token_family(paths, roots, metadata):
+    """Find descendants from small session headers, never scanning other sessions' messages."""
+    children, found, pending = {}, {}, list(roots)
+    for path in paths:
+        try:
+            with path.open("rb") as source:
+                session, parent = metadata(json.loads(source.readline()))
+            found[session] = path
+            children.setdefault(parent, []).append(session)
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+            continue
+    seen = set()
+    while pending:
+        session = pending.pop()
+        if session not in seen:
+            seen.add(session)
+            pending.extend(children.get(session, ()))
+    return [found[session] for session in seen if session in found]
+
+
 def user_message(at, text):
     """Keep the recorded text and time, never inventing either for a notice."""
     if not isinstance(text, str) or not text:
@@ -226,6 +246,25 @@ def prompt(entry):
         if said is not None:
             return said
     return None
+
+
+def reported_tokens(out):
+    """Kept turn usage, including a plugin's session store when events carry no counters."""
+    from .. import history
+    out = Path(out)
+    total = history.event_tokens(out / "events.jsonl")
+    if total is None:
+        for module in _plugins("tokens"):
+            total = module.tokens(out)
+            if total is not None:
+                break
+    return total
+
+
+def turn_token_counts(run_dir):
+    """Kept event files mapped to (reported usage, turn spend) by their harness."""
+    return {path: (total, spent) for module in _plugins("token_counts")
+            for path, total, spent in module.token_counts(run_dir)}
 
 
 def config_entries():
@@ -637,7 +676,17 @@ class Harness:
         hook = self._hook("register_mcp")
         return hook(servers) if hook else None
 
-    # --- what one headless turn spent ----------------------------------------
+    # --- what seats and headless turns spent ---------------------------------
+
+    def seat_token_sources(self, record):
+        """Usage logs for this seat and its children; None means no reader is available."""
+        hook = self._hook("seat_token_sources")
+        return hook(record) if hook else None
+
+    def seat_token_usage(self, entry, cursor):
+        """One log entry's (time, unique event id, tokens), or None; cursor survives readings."""
+        hook = self._hook("seat_token_usage")
+        return hook(entry, cursor) if hook else None
 
     def record_turn(self, out, state_dir, account):
         """Import this harness's reports after the box closes, without exposing ak's records."""

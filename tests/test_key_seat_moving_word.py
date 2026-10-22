@@ -3,7 +3,8 @@
 AGENTS.md's `working` covers a turn, its runs, a wait and a retry: a run waiting for its
 provider's window to refill, an error the tick retries on its stamp, a run in line to land
 however long the line takes, and the seat's own `ak wait`.  Each moves on by itself, so paging
-the owner for it would be noise.  The same facts with nothing to move them, an exhausted run
+the owner for it would be noise.  The seat's own subscription spent reads a word of its own, `out
+of usage`, with when it comes back.  The same facts with nothing to move them, an exhausted run
 nobody resumes, an error the tick may no longer retry, a move to another account that failed,
 are the owner's: `needs you`.  Runs and the seat's live state are records under ~/.agentkit
 as ak leaves them.  Black-box: the program `AK_BIN` names runs from outside through
@@ -117,6 +118,12 @@ class MovingWord(unittest.TestCase):
     def test_a_turn_ended_on_ak_wait_reads_working_on_what_it_waits_for(self):
         self.live("kappa", wait={"kind": "pr", "on": PR, "at": time.time() - 60})
         self.assertEqual(self.why("kappa"), ("working", f"waiting on {PR}"))
+
+    def test_a_spent_window_ak_resumes_reads_out_of_usage_and_says_until_when(self):
+        until = "anthropic out of usage until 2026-10-21 09:00"
+        self.live("omega", usage_wait={"reason": until, "until": time.time() + 3600,
+                                       "since": time.time() - 60, "continue": True})
+        self.assertEqual(self.why("omega"), ("out of usage", until))
 
     def test_a_move_to_another_account_that_failed_needs_you(self):
         failed = "anthropic account reopen failed: no login for beta"
