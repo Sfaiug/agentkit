@@ -6,7 +6,8 @@ line's last passes (`land.passes`), and half an hour at least, while its lander 
 stacks narrowed with whole suites, a suite that hangs, or a cause nobody has met yet.  So is the
 run first in line for a slot as long, against the waits there of the last firsts let in, while
 the queue is polled (`gate.first_in_line`): a gate that never opens, or a dead run the waiters
-behind it wait on.  The seat is told one stall at a time, each once (`told`); `state/stuck.json`
+behind it wait on.  So is ~/agentkit half an hour short of going live at a commit it owes
+(`update.owed_live`): a move a killed git left half done kept it so for ten hours.  The seat is told one stall at a time, each once (`told`); `state/stuck.json`
 keeps the line being told and how far its delivery got, as `state/audit.json` does the week's,
 which goes first (`watch.tell_audit`).
 """
@@ -73,6 +74,15 @@ def stalls(now):
                f"ak stalled: {what} has run one check pass for {orch.span(now - started)}, more "
                f"than {SLOWER} times its usual {orch.span(usual)}, with {len(members)} in line; "
                f"its log is {turn.with_suffix('.log')}. {ASKED}")
+    from . import update, watch
+    owed = update.owed_live(now)
+    if owed:
+        commit, since = owed
+        why = update.left_as_is()
+        yield (f"live:{commit}", "the stall of ak going live",
+               f"ak stalled: {update.agentkit_dir()} has not gone live at {commit[:12]} for "
+               f"{orch.span(now - since)}{f', and it is {why}' if why else ''}; the tick's log "
+               f"{watch.log_path()} says why. {ASKED}" if now - since > FLOOR else None)
     first = gate.first_in_line(now)
     if first:
         run_id, since, behind, took = first

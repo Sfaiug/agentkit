@@ -749,6 +749,31 @@ def live_target():
     return next((commit for commit in newer if commit in passed), "")
 
 
+def owed_live(now):
+    """(commit, since) for the commit ~/agentkit has owed going live at the longest, or None
+    while it owes none or a harness upgrade holds its moves: one whose tests/live.sh passed, the
+    fast-forward's target, or HEAD while its install.sh is owed, from that pass, else from its
+    landing.  What `stuck.stalls` reads, so a move that fails however it fails is not quiet.
+    """
+    if agentkit_dir().resolve() != config.REPO or upgrading():
+        return None
+    passed = {}
+    for started, commit, check in live_checks():
+        try:
+            if not _alive(check, started, now) and _exit(check, started) == 0:
+                passed[commit] = min(passed.get(commit, now), (check / "exit").stat().st_mtime)
+        except OSError:
+            continue
+    # exit 1 is a commit HEAD lacks; anything else, one this checkout never fetched, is not owed
+    owed = {commit for commit in {*passed, live_target()}
+            if commit and _git("merge-base", "--is-ancestor", commit, "HEAD")[0] == 1}
+    if (config.STATE / "agentkit-install-pending").exists():
+        owed.add(_git("rev-parse", "HEAD")[1])
+    since = {commit: passed.get(commit) or float(_git("log", "-1", "--format=%ct", commit)[1] or now)
+             for commit in owed if commit}
+    return min(since.items(), key=lambda found: found[1], default=None)
+
+
 def live_tick(log, now, fetched):
     """The tick's half of tests/live.sh: it starts the checks and ends them at their cap.
 
