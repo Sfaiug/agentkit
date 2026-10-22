@@ -2296,8 +2296,10 @@ def looped(path):
 
 
 class _RunRecords:
-    def __init__(self, root):
+    def __init__(self, root, *, cache=True):
         self.root, self.known, self.db = root, {}, None
+        if not cache:
+            return
         # The cache before RUN_RECORDS: nothing reads it, and a run still on that install that
         # writes it again loses it to the next process here.
         for old in ("run-records.jsonl", "run-records.lock", "run-records.tmp"):
@@ -2356,13 +2358,14 @@ class _RunRecords:
         return found
 
 
-def run_records():
+def run_records(*, cache=True):
     """Every run's record, loading the shared cache only once per process.
 
     Only a changed run.json is opened again, with its stat taken before the read so a racing
     write can cause another read, never hide one. SQLite commits only changed rows and keeps
     other processes' reads whole. Cache failures leave the run files authoritative. Returned
     records are shared read-only snapshots, replaced only when their run.json changes.
+    With cache=False, snapshots stay in memory without touching persistent caches.
 
     Unattended runs and tasks or repos resolving under ~/.agentkit/tmp/smoke-* are left out.
     Paths are resolved on every pass: a symlink can move without a run.json changing. Bad run
@@ -2370,11 +2373,11 @@ def run_records():
     """
     global _RUN_RECORDS
     with _RUN_RECORDS_LOCK:
-        root = config.RUNS, config.STATE, os.getpid()
+        root = config.RUNS, config.STATE, os.getpid(), cache
         if _RUN_RECORDS is None or _RUN_RECORDS.root != root:
             if _RUN_RECORDS is not None:
                 _RUN_RECORDS.close()
-            _RUN_RECORDS = _RunRecords(root)
+            _RUN_RECORDS = _RunRecords(root, cache=cache)
         return _RUN_RECORDS.read()
 
 
