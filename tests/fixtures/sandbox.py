@@ -79,20 +79,6 @@ def menu_input(*, wait=None, **read_kw):
         yield read
 
 
-def x_from_a_pipe(seats, *answers, cfg=None, stop=None):
-    """The main screen's `x` read from a pipe over `seats` under `cfg`, answered with `answers`, then the
-    menu left: its reads and `Live.stop`, a mock doing `stop` in place of the stop's own process
-    (`teardown`), which would see none of a test's patches."""
-    with patch.object(orch, "listing", return_value=[dict(seat) for seat in seats]), \
-            patch.object(orch, "job_notices", return_value=[]), \
-            patch.object(menu, "draw", return_value=(0, 1)), \
-            patch.object(menu.Live, "stop", side_effect=stop) as stopped, \
-            menu_input(side_effect=["x", *answers, ""]) as read, \
-            redirect_stdout(io.StringIO()):
-        menu.loop(cfg or {})
-    return read, stopped
-
-
 class Sandbox(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-sandbox-", dir=REPO)
@@ -131,6 +117,19 @@ class Sandbox(unittest.TestCase):
         system_tmp.mkdir(exist_ok=True)
         self.stack.enter_context(patch.object(gc, "TMP_BASE", system_tmp))
         self.stack.enter_context(patch.object(gc, "VAR_TMP_BASE", system_tmp))
+
+    def x_from_a_pipe(self, seats, *answers, stop=None):
+        """The main screen's `x` read from a pipe over `seats`, answered with `answers`, then the
+        menu left: its reads and `Live.stop`, a mock doing `stop` in place of the stop's own
+        process (`teardown`), which would see none of a test's patches."""
+        with patch.object(orch, "listing", return_value=[dict(seat) for seat in seats]), \
+                patch.object(orch, "job_notices", return_value=[]), \
+                patch.object(menu, "draw", return_value=(0, 1)), \
+                patch.object(menu.Live, "stop", side_effect=stop) as stopped, \
+                menu_input(side_effect=["x", *answers, ""]) as read, \
+                redirect_stdout(io.StringIO()):
+            menu.loop(self.cfg)
+        return read, stopped
 
     def ended(self, name, owner="gone-seat", **extra):
         directory = config.RUNS / name

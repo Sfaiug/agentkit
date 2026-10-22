@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.sandbox import Sandbox, x_from_a_pipe
+from fixtures.sandbox import Sandbox
 from agentkit import config, deliver, gate, handback, job as jobs, land, menu, orch, run, staffing, status, stop, transitions, turns, watch, worker, worktrees
 from agentkit import host, record
 from agentkit import task as taskfile
@@ -550,7 +550,7 @@ class RunStop(Sandbox):
                 patch.object(orch, "find", side_effect=lambda name: live if name == seat else None), \
                 patch.object(orch, "tmux_out", side_effect=tmux), \
                 patch("agentkit.browser.close_owned"), patch("agentkit.notify.forget_card"):
-            x_from_a_pipe(seats, "1", "y", cfg=self.cfg, stop=menu.close_seat)
+            self.x_from_a_pipe(seats, "1", "y", stop=menu.close_seat)
         self.assertEqual(record.read_state(mine)["state"], "stopped")
         self.assertEqual(record.read_state(other)["state"], "running")
         self.assertEqual(record.read_state(done)["state"], "pass")

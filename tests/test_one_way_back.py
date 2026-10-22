@@ -21,7 +21,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, run, statusbar, terminal, transitions
 from agentkit import record
-from fixtures.sandbox import menu_input, x_from_a_pipe
+from fixtures.sandbox import Sandbox, menu_input
 
 
 SEATS = [{"name": "atoll-fix"}, {"name": "parser"}]
@@ -92,28 +92,10 @@ class Back(unittest.TestCase):
             menu.stop_session([dict(seat) for seat in SEATS], dry_run)
         return out.getvalue(), read
 
-    def test_v5u_x_y_stops(self):
-        read, stopped = x_from_a_pipe(SEATS, "1", "y")
-        stopped.assert_called_once_with("atoll-fix", False)
-        prompts = [call.args[0] for call in read.call_args_list]
-        self.assertIn("stop atoll-fix and everything it is running? [y/N] ", prompts)
+    def test_v5u_x_says_what_stop_means(self):
         screen, _ = self.stop("1", "n")
         self.assertIn(menu.stop_means(None), " ".join(screen.split()))   # wrapped to the width
         self.assertIn("moves to past sessions, p", screen)
-
-    def test_v5u_x_n_goes_back(self):
-        _, stopped = x_from_a_pipe(SEATS, "1", "n")
-        stopped.assert_not_called()
-
-    def test_v5u_x_empty_goes_back(self):
-        _, stopped = x_from_a_pipe(SEATS, "2", "")
-        stopped.assert_not_called()
-
-    def test_v5u_x_esc_goes_back_before_confirm(self):
-        read, stopped = x_from_a_pipe(SEATS, "\x1b")
-        prompts = [call.args[0] for call in read.call_args_list]
-        self.assertEqual(prompts, ["> ", "Stop [atoll-fix]: ", "> "])   # never asked to stop
-        stopped.assert_not_called()
 
     def test_v5u_status_bar_names_the_one_key(self):
         self.assertEqual(statusbar.HINT, "Ctrl-b m  menu")
@@ -195,6 +177,30 @@ class Back(unittest.TestCase):
                 self.assertNotIn("Enter to go back", screen)
                 self.assertNotIn("Number [", screen)
                 self.assertNotIn("1) ", screen)
+
+
+class Piped(Sandbox):
+    """`x` from a pipe through the menu: its watcher reads and publishes in the sandbox's HOME."""
+
+    def test_v5u_x_y_stops(self):
+        read, stopped = self.x_from_a_pipe(SEATS, "1", "y")
+        stopped.assert_called_once_with("atoll-fix", False)
+        prompts = [call.args[0] for call in read.call_args_list]
+        self.assertIn("stop atoll-fix and everything it is running? [y/N] ", prompts)
+
+    def test_v5u_x_n_goes_back(self):
+        _, stopped = self.x_from_a_pipe(SEATS, "1", "n")
+        stopped.assert_not_called()
+
+    def test_v5u_x_empty_goes_back(self):
+        _, stopped = self.x_from_a_pipe(SEATS, "2", "")
+        stopped.assert_not_called()
+
+    def test_v5u_x_esc_goes_back_before_confirm(self):
+        read, stopped = self.x_from_a_pipe(SEATS, "\x1b")
+        prompts = [call.args[0] for call in read.call_args_list]
+        self.assertEqual(prompts, ["> ", "Stop [atoll-fix]: ", "> "])   # never asked to stop
+        stopped.assert_not_called()
 
 
 if __name__ == "__main__":
