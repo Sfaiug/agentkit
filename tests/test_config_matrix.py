@@ -242,17 +242,15 @@ class Matrix(unittest.TestCase):
         self.assertIn("\x1b[?1049l", screen.text())       # the terminal given back
         self.assertNotIn("<harness version>", screen.text())
 
-    def test_without_a_session_the_matrix_is_the_efforts_alone(self):
+    def test_without_a_session_the_marks_are_new_seats(self):
         screen = Screen(self, session=None)
         before = screen.path.read_bytes()
         lines = screen.frame()
-        self.assertTrue(lines[0].startswith("agentkit · config "), lines[0])
-        self.assertEqual(lines[headings(lines)].split(), ["effort"])
-        self.assertEqual(row(lines, "fable")[1].split(), ["›", "Fable", "5.1", "▰▰▰▰▱", "xhigh"])
-        self.assertEqual(lines[-1], EFFORT_KEYS)          # the effort is the first cell
-        self.assertFalse(any(mark in line for line in lines for mark in "●○■□"), lines)
-        lines = screen.press(LEFT, lambda lines: lines[-1] == "  ↑↓←→ move   ⏎ open   esc back")
-        lines = screen.press(RIGHT + RIGHT, lambda lines: lines[-1] == EFFORT_KEYS)
+        self.assertTrue(lines[0].startswith("agentkit · config · new seats "), lines[0])
+        self.assertEqual(lines[headings(lines)].split(), ["orch", "builds", "reviews", "effort"])
+        self.assertEqual(row(lines, "opus")[1].split()[2:5], ["●", "■", "■"])
+        self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ mark   esc back")
+        lines = screen.press(RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
         self.assertEqual(screen.path.read_bytes(), before)
         screen.press(DOWN + ENTER, lambda lines: effort(lines, "opus") == "max")
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "max")

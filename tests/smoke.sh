@@ -3442,10 +3442,10 @@ printf '\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-q.log" 2>&1 || MENU=1
 # the key line is those four letter keys and nothing else; numbers open seats
 grep -q '^  n new   x stop   c config   esc leave' "$WORK/menu-q.log" || MENU=1
 grep -q 'p preview\|b browser\|r runs\|u update\|s shell' "$WORK/menu-q.log" && MENU=1
-# `c` lists the config with its values, with no seat the efforts alone;
+# `c` lists the config with its values, with no seat new seats' marks;
 # `i`/`r`/`p`/`b`/`s`/`u` are not keys
 printf 'c\n\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-c.log" 2>&1 || MENU=1
-grep -qx ' *effort' "$WORK/menu-c.log" || MENU=1
+grep -qx ' *orch  builds  reviews  effort' "$WORK/menu-c.log" || MENU=1
 for key in i r p b s u; do
   printf "$key\n\n" | HOME="$MHOME" ak --dry-run >"$WORK/menu-$key.log" 2>&1 || MENU=1
   grep -q "not a key: '$key'" "$WORK/menu-$key.log" || MENU=1
@@ -3746,12 +3746,12 @@ ovhost send-keys -t ovhost C-b m
 : >"$WORK/overlay-popup.txt"
 for _ in $(seq 1 30); do
   ovhost capture-pane -p -t ovhost >"$WORK/overlay-popup.txt" 2>/dev/null
-  grep -q 'n start a session   c models   x stop this session   esc leave' "$WORK/overlay-popup.txt" &&
+  grep -q 'n new   x stop   c config   esc leave' "$WORK/overlay-popup.txt" &&
     grep -q 'esc leave' "$WORK/overlay-popup.txt" && break
   sleep 1
 done
-# the popup drew this server's two seats, in order, under the overlay's own key line
-grep -q 'n start a session   c models   x stop this session   esc leave' "$WORK/overlay-popup.txt" &&
+# the popup drew this server's two seats, in order, under the main screen's key line
+grep -q 'n new   x stop   c config   esc leave' "$WORK/overlay-popup.txt" &&
   grep -q 'esc leave' "$WORK/overlay-popup.txt" || OVERLAY=1
 # two seats holding a sleep, with nothing asked or owed: at rest
 IDLE_GLYPH=$(LC_ALL=C.UTF-8 PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("idle"))')
@@ -3767,16 +3767,16 @@ OVWHERE=0
 for _ in $(seq 1 30); do
   OVWHERE=$(ovtmux list-clients -F '#{session_name}' 2>/dev/null | grep -c "^$OV2\$")
   ovhost capture-pane -p -t ovhost >"$WORK/overlay-after.txt" 2>/dev/null
-  [ "$OVWHERE" = 1 ] && ! grep -q 'n start a session' "$WORK/overlay-after.txt" &&
+  [ "$OVWHERE" = 1 ] && ! grep -q 'c config   esc leave' "$WORK/overlay-after.txt" &&
     grep -qF "$OV2   $ASTRA" "$WORK/overlay-after.txt" && break
   sleep 1
 done
 [ "$OVWHERE" = 1 ] || OVERLAY=1
-grep -q 'n start a session' "$WORK/overlay-after.txt" && OVERLAY=1        # the popup came down with it
+grep -q 'c config   esc leave' "$WORK/overlay-after.txt" && OVERLAY=1        # the popup came down with it
 grep -qF "$OV2   $ASTRA" "$WORK/overlay-after.txt" || OVERLAY=1   # its own bar
 ovhost kill-server 2>/dev/null
 ovtmux kill-server 2>/dev/null
-[ "$OVERLAY" = 0 ] && ok "20e Ctrl-b m: the popup drew both seats under the overlay's own keys, 2 switched the client to smoke-ov-2 and closed the popup behind it; each seat carried the status bar agentkit's own tmux.conf dressed it with" \
+[ "$OVERLAY" = 0 ] && ok "20e Ctrl-b m: the popup drew both seats under the main screen's keys, 2 switched the client to smoke-ov-2 and closed the popup behind it; each seat carried the status bar agentkit's own tmux.conf dressed it with" \
                  || { no "20e the menu overlay (clients on smoke-ov-2: $OVWHERE)"; sed 's/^/      /' "$WORK/overlay-start.log" | head -4; sed 's/^/      popup /' "$WORK/overlay-popup.txt" | head -8; sed 's/^/      after /' "$WORK/overlay-after.txt" | head -8; }
 
 # --- 20f: the name is the user's, and a seat outlives the process in it -------
@@ -5287,8 +5287,8 @@ assert not any("press r" in line for line in lines), lines
 for key in ("i", "r", "p", "b", "s", "u"):
     out = menu_lines(f"{key}\n\n")
     assert any(f"not a key: {key!r}" in line for line in out), (key, out)
-shown = menu_lines("c\n\n")      # a pipe highlights no seat: the efforts alone
-assert any(line.strip() == "effort" for line in shown), shown
+shown = menu_lines("c\n\n")      # a pipe highlights no seat: new seats' marks
+assert any(line.strip() == "orch  builds  reviews  effort" for line in shown), shown
 assert watch.plan_progress("atoll-fix") == (2, 5)
 assert watch.plan_progress("no-such-seat") == (0, 0)
 print("ok")

@@ -1,4 +1,4 @@
-"""Admission reads ak's own slice CPU pressure, not the host's load average.
+"""Admission reads the runs slice's CPU pressure, not the host's load average.
 
 A run starts while the slice has CPU room whatever the host load is, waits
 while the slice itself is saturated, and --first skips the CPU check as it
@@ -57,7 +57,7 @@ class AdmissionSliceCpu(unittest.TestCase):
         admitted, state = self.claim(loaded)
         self.assertFalse(admitted)  # first steady poll
         self.assertEqual(state["slot_wait_reason"],
-                         "waiting for steady readings · 4 G free, ak cpu pressure 5%")
+                         "waiting for steady readings · 4 G free, runs cpu pressure 5%")
         self.assertNotIn("slot_wait_kind", state)
         admitted, state = self.claim(loaded, state)
         self.assertTrue(admitted)
@@ -67,7 +67,7 @@ class AdmissionSliceCpu(unittest.TestCase):
         admitted, state = self.claim({**READINGS, "slice_cpu_pressure": 62})
         self.assertFalse(admitted)
         self.assertEqual(state["slot_wait_reason"],
-                         "waiting for ak's CPU · pressure 62%, limit 40%")
+                         "waiting for runs' CPU · pressure 62%, limit 40%")
         self.assertEqual(state["slot_wait_kind"], "cpu")
         admitted, state = self.claim(READINGS, state)
         self.assertFalse(admitted)
@@ -153,9 +153,9 @@ class AdmissionSliceCpu(unittest.TestCase):
         readings = {**READINGS, "slice_cpu_pressure": 12}
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(readings)}):
             self.assertEqual(gate.host_status_line(),
-                             "host: 8 cpus · ak cpu 12% · 4 G free · "
+                             "host: 8 cpus · runs cpu 12% · 4 G free · "
                              "a run is admitted while ≥ 3 G free and "
-                             "ak cpu ≤ 40% · at most 1 run at once\n"
+                             "runs cpu ≤ 40% · at most 1 run at once\n"
                              "heavy suites: 2 at once (derived)")
 
 

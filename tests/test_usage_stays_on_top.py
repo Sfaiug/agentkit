@@ -25,6 +25,8 @@ from fixtures.sandbox import Sandbox  # noqa: E402
 from agentkit import config, menu, terminal  # noqa: E402
 
 WEEK = 604800
+# the longest key line the menu draws: a stopped seat's `p past` on it, the keyboard its own
+LONG_KEYS = "↑↓ move   ⏎ open   n new   x stop   p past   c config   esc leave"
 
 
 class UsageStaysOnTop(Sandbox):
@@ -81,9 +83,9 @@ class UsageStaysOnTop(Sandbox):
         labels = [terminal.plain(label) for _, label, _, _ in menu.usage_rows(self.cfg)]
         for width, height, seats, keys in ((100, 14, 14, None), (40, 14, 14, None),
                                            (30, 14, 1, None), (30, 20, 14, None),
-                                           (30, 11, 1, None), (38, 10, 1, menu.OVERLAY_KEYS),
-                                           (28, 13, 1, menu.OVERLAY_KEYS),
-                                           (38, 10, 14, menu.OVERLAY_KEYS),
+                                           (30, 11, 1, None), (38, 10, 1, LONG_KEYS),
+                                           (28, 13, 1, LONG_KEYS),
+                                           (38, 10, 14, LONG_KEYS),
                                            (40, 15, 0, None), (100, 11, 0, None)):
             lines, _ = self.draw(width, height, seats, keys=keys)
             text = "\n".join(lines)
@@ -98,7 +100,7 @@ class UsageStaysOnTop(Sandbox):
         for width, height in ((30, 8), (28, 9)):
             for piped in (False, True):
                 with self.subTest(width=width, height=height, piped=piped):
-                    lines, _ = self.draw(width, height, seats=0, keys=menu.OVERLAY_KEYS,
+                    lines, _ = self.draw(width, height, seats=0, keys=LONG_KEYS,
                                          piped=piped)
                     self.assertIn("Claude 21%", lines[0])
                     self.assertIn("  no sessions; n starts one", lines)
@@ -123,20 +125,20 @@ class UsageStaysOnTop(Sandbox):
         self.assertEqual([line for line in lines if terminal.cells(line) > 28], [])
 
     def test_only_a_screen_with_no_room_for_a_seat_cuts_the_readings_and_says_so(self):
-        lines, _ = self.draw(30, 9, keys=menu.OVERLAY_KEYS)
+        lines, _ = self.draw(30, 9, keys=LONG_KEYS)
         self.assertLessEqual(len(lines), 7, lines)
         self.assertTrue(lines[0].endswith(" · …"), lines)
         self.assertTrue(any(re.match(r"[›> ] +\d+  ", line) for line in lines), lines)
         # a first reading as wide as the line keeps what it has left, its label giving way
         self.meters["anthropic"] = {"meters": [{"name": "weekly_all", "used": 100}],
                                     "credits": 62469.67}
-        self.assertRegex(self.draw(30, 9, keys=menu.OVERLAY_KEYS)[0][0],
+        self.assertRegex(self.draw(30, 9, keys=LONG_KEYS)[0][0],
                          r"^  \S+… 62,469 credits left · …$")
         self.cfg["providers"]["acme_subscription_provider"] = dict(self.cfg["providers"]["openai"],
                                                                    colour="#ff0000")
         self.meters["acme_subscription_provider"] = {
             "meters": [{"name": "weekly", "used": 17, "window_secs": WEEK}]}
-        self.assertRegex(self.draw(30, 9, keys=menu.OVERLAY_KEYS)[0][0],
+        self.assertRegex(self.draw(30, 9, keys=LONG_KEYS)[0][0],
                          r"^  Acme_Sub\S*… 83% · …$")
 
     def test_the_line_under_the_pointer_fits_and_reads_the_grid_it_lights(self):

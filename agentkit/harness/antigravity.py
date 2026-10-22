@@ -1,4 +1,5 @@
-"""Antigravity: the conversation a seat holds, read back for a model taking the seat over.
+"""Antigravity: the conversation a seat holds, read back for a model taking the seat over, and
+ended, with what every home keeps of it, once `ak gc` finds it stale.
 
 agy keeps each conversation as a SQLite database of its own, ~/.gemini/antigravity-cli/
 conversations/<id>.db, where every login's are (adapters/antigravity.sh links them): one row
@@ -6,8 +7,11 @@ per step, its `step_payload` a protocol buffer.  agy ships no schema for it; the
 were read off agy 1.2.13's own databases.
 """
 
+import contextlib
 from pathlib import Path
 import re
+import shutil
+import sqlite3
 
 # `steps.step_type`, and where each keeps its words in its payload: a user input's text, and
 # a planner response's answer -- its thinking (3) and tool calls (7) are fields beside that.
@@ -18,7 +22,7 @@ def said(record, cwd, conversation):
     from . import rows
     if not isinstance(conversation, str) or not re.fullmatch(r"[\w-]+", conversation):
         return None
-    found = rows(Path.home() / ".gemini/antigravity-cli/conversations" / f"{conversation}.db",
+    found = rows(conversation_stores()[0]["root"] / f"{conversation}.db",
                  "SELECT step_type, step_payload FROM steps WHERE step_type IN (?, ?)"
                  " ORDER BY idx", *WORDS)
     if found is None:
@@ -30,6 +34,63 @@ def said(record, cwd, conversation):
         if text:
             said.append({"who": who, "text": text})
     return said
+
+
+def conversation_stores():
+    """The default home's conversations: agy 1.4.4 ends none, and only an RPC no subcommand
+    reaches (DeleteConversation) would."""
+    return [{"root": Path.home() / ".gemini/antigravity-cli/conversations", "pattern": "*.db"}]
+
+
+def end_conversation(path, ends):
+    """Its row in every home's conversation_summaries.db, its annotations, implicit and presence
+    files in every home, its brain folder, then its .db: a pass cut short finds the .db again.
+    Asked once every home's summaries wait on us, as agy writes a conversation's summary there."""
+    conversation = Path(path)
+    default = conversation.parents[1]
+    homes = [default, *sorted(default.parent.glob(f"{default.name}-*"))]
+    parts = [home / name / f"{conversation.stem}{suffix}" for home in homes
+             for name, suffix in (("annotations", ".pbtxt"), ("implicit", ".pb"),
+                                  ("presence", ".lock"))]
+    parts.append(default / "brain" / conversation.stem)
+    from .. import retention   # here: retention imports this package
+    try:
+        with contextlib.ExitStack() as held:
+            summaries = []
+            for found in (home / "conversation_summaries.db" for home in homes):
+                if not there(found):
+                    continue
+                if not retention.safe(found):
+                    raise OSError(f"{found} is reached through a link or is not a file of ours")
+                db = held.enter_context(contextlib.closing(sqlite3.connect(
+                    found.as_uri() + "?mode=rw", uri=True, timeout=30)))
+                held.enter_context(db)
+                db.execute("BEGIN IMMEDIATE")
+                summaries.append(db)
+            parts = [part for part in parts if there(part)]
+            if not ends(*parts):
+                return
+            for db in summaries:
+                db.execute("DELETE FROM conversation_summaries WHERE conversation_id = ?",
+                           (conversation.stem,))
+    except sqlite3.Error as exc:
+        raise OSError(f"Antigravity's conversation summaries: {exc}") from exc
+    for part in parts:     # ends refused any reached through a link
+        if part.is_dir():
+            shutil.rmtree(part)
+        else:
+            part.unlink()
+    conversation.unlink()
+
+
+def there(path):
+    """Whether something is at that path, link or not; what cannot be looked at raises, as a
+    home nobody may search may still keep a row or a file of the conversation."""
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return False
+    return True
 
 
 def field(message, number):

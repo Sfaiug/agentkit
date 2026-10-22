@@ -256,8 +256,8 @@ class Pages(Sandbox):
         # under it, else its one line; a screen too short for that drops the frame as well.
         for width, height, keys in (
                 (40, 24, menu.KEYS), (100, 30, menu.KEYS), (40, 12, menu.KEYS),
-                (30, 14, menu.OVERLAY_KEYS), (78, 19, menu.OVERLAY_KEYS),
-                (38, 22, menu.OVERLAY_KEYS), (38, 10, menu.OVERLAY_KEYS)):
+                (30, 14, menu.KEYS), (78, 19, menu.KEYS), (38, 22, menu.KEYS),
+                (38, 10, menu.KEYS)):
             with self.subTest(width=width, height=height):
                 seen, pages = [], None
                 for page in range(20):
@@ -288,7 +288,7 @@ class Pages(Sandbox):
         self.assertIn("no reading yet", "\n".join(lines))     # the grid, not its readings
         # the popup over a seat, one seat listed: the usage keeps every reading, the frame
         # giving way first
-        lines, drawn = self.draw(self.seats(1), 38, 14, keys=menu.OVERLAY_KEYS)
+        lines, drawn = self.draw(self.seats(1), 38, 14)
         self.assertEqual(drawn, (0, 1))
         self.assertLessEqual(len(lines) + 2, 14, "\n".join(lines))
         self.assertRegex("\n".join(lines), usage)
@@ -803,10 +803,12 @@ class Phone(Sandbox):
         if not narrow:
             self.assertEqual(self.numbers(screen), set(range(1, 13)))
             self.assertNotIn("j more", "\n".join(screen))
-        # the popup over a seat holds fewer rows still, and pages them the same way
+        # the popup over a seat holds fewer rows still, and pages them the same way, opening on
+        # the page its own seat is highlighted on
         phone.press("11")                    # phone-audit, made after the ten
         phone.until(STAND_IN, "   phone-a")
-        screen = phone.menu("esc leave", "←  1 / ")
+        screen = phone.menu("esc leave", " / ")
+        self.assertEqual(self.marked(self.popup_page(screen)), 11)
         self.every_page(phone, screen, self.popup_page, 12, 8)
         phone.keys("Escape")
         phone.until(STAND_IN, absent=["esc leave"])
@@ -837,7 +839,8 @@ class Phone(Sandbox):
         # the popup over a seat on that short screen fills it, and still pages rows
         phone.press("11")
         phone.until(STAND_IN, "   phone-a")
-        screen = phone.menu("←  1 / ")
+        screen = phone.menu(" / ")
+        self.assertEqual(self.marked(self.popup_page(screen)), 11)
         self.assertIn("not assigned yet", "\n".join(Terminal.inside(screen)))
         self.every_page(phone, screen, self.popup_page, 12, 8)
         phone.keys("Escape")

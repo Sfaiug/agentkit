@@ -78,8 +78,8 @@ class FilesScope(unittest.TestCase):
         self.assertIn("tests/check.py", run.git(self.repo, "show", "--name-only", "HEAD"))
 
     def test_repeated_lines_keep_every_spec(self):
-        lp = self.loop("files: src/, tests/\nfiles: docs/*.md  # also docs\n")
-        for name in ("src/api.py", "tests/check.py", "docs/guide.md"):
+        lp = self.loop("files: src/, tests/\nfiles: docs/*.txt  # also docs\n")
+        for name in ("src/api.py", "tests/check.py", "docs/guide.txt"):
             self.write(name, "changed\n")
         ok, text = self.verify(lp)
         self.assertTrue(ok, text)

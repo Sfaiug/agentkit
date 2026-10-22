@@ -1,7 +1,6 @@
 """`c` is the one model screen: on a seat its matrix holds that seat's own roles, flipped and
 saved to its record, and its row and the next run it starts read the same record; on a heading
-only the efforts show; `m` is no key; and `n` starts from what the last session was created
-with, the one thing that writes `[defaults]`.
+its marks are new seats', `[defaults]`; `m` is no key; and `n` starts from `[defaults]`.
 
 Each test runs `menu.loop` in a child process on a pty of its own, the way
 tests/test_session_models_screen.py does, in a temporary HOME holding the shipped config, the
@@ -316,17 +315,17 @@ class OneConfigScreen(unittest.TestCase):
         menu.config.write_text(shipped)                   # for the pick the child ends on
         menu.leave()
 
-    def test_on_a_heading_only_the_efforts_show(self):
+    def test_on_a_heading_the_marks_are_new_seats(self):
         menu = Menu(self)
         menu.screen()
         lines = menu.press(b"k", lambda lines: any("esc leave" in line for line in lines)
                            and "ACME" in highlighted(lines))
-        lines = menu.press(b"c", title("config"))
-        self.assertEqual(lines[2].split(), ["effort"])
-        self.assertEqual(model(lines, "fable").split(),
-                         ["›", *full("fable").split(), "▰▰▰▰▱", "xhigh"])
-        self.assertFalse(any(marks(line) for line in lines), lines)
-        self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ effort   esc back")
+        lines = menu.press(b"c", title("config · new seats"))
+        self.assertEqual(lines[2].split(), ["orch", "builds", "reviews", "effort"])
+        # the shipped [defaults]: opus orchestrates, and it and astra build and review
+        self.assertEqual([marks(model(lines, name)) for name in ("fable", "opus", "astra")],
+                         ["○□□", "●■■", "○■■"])
+        self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ mark   esc back")
         menu.press(ESC)
         menu.leave()
 
@@ -351,14 +350,15 @@ class OneConfigScreen(unittest.TestCase):
         menu.screen()
         menu.press(b"k", lambda lines: any("esc leave" in line for line in lines)
                    and "ACME" in highlighted(lines))
-        menu.press(b"c", title("config"))
+        menu.press(b"c", title("config · new seats"))
         # another process creates a seat while `c` is open, and writes what it was given
         menu.config.write_text(menu.config.read_text().replace(
             'orchestrator = "opus"\nworkers = ["opus", "astra"]',
             'orchestrator = "astra"\nworkers = ["fable"]\nreviewers = ["opus"]'))
         elsewhere = {"orchestrator": "astra", "workers": ["fable"], "reviewers": ["opus"]}
         self.assertEqual(menu.defaults(), elsewhere)
-        menu.press(ENTER, lambda lines: model(lines, "fable").endswith(" max"))   # an effort saved
+        menu.press(RIGHT * 3 + ENTER,                     # an effort saved
+                   lambda lines: model(lines, "fable").endswith(" max"))
         self.assertEqual(tomllib.loads(menu.config.read_text())["models"]["fable"]["effort"],
                          "max")
         self.assertEqual(menu.defaults(), elsewhere)      # kept, whatever `c` read before

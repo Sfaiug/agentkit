@@ -28,6 +28,9 @@ class Harness:
     def conversation(self, record, cwd):
         return "c1"
 
+    def seat_token_sources(self, record):
+        return None
+
     def user_messages(self, record, cwd, conversation, *, seat=None):
         return [{"at": at, "text": "words"} for at in self.said]
 

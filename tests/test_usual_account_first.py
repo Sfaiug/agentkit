@@ -67,6 +67,9 @@ class UsualAccountFirst(unittest.TestCase):
         self.stack.enter_context(patch.object(statusbar, "dress"))
         self.stack.enter_context(patch.object(watch, "pane_text", side_effect=lambda _: self.pane))
         self.pane = "❯"
+        self.tty = self.root / "tty"    # the seat's terminal, last given keys an hour ago
+        self.tty.write_text("")
+        os.utime(self.tty, (self.now - 3600, self.now - 3600))
         self.stack.enter_context(patch.object(watch, "type_into", side_effect=self.type_into))
         self.commands, self.typed, self.logs = [], [], []
         config.save_session(self.cfg, NAME, "opus", ["opus", "astra"], {
@@ -93,9 +96,11 @@ class UsualAccountFirst(unittest.TestCase):
             "fetched_at": self.now, "reset_checked_at": self.now, "providers": providers}))
 
     def tmux(self, *args, **kwargs):
-        if args[0] == "respawn-pane":
+        if "respawn-pane" in args:
             self.commands.append(shlex.split(pane.resolved(args)[-1]))
             self.pane = "❯"
+        if args[0] == "display-message" and args[-1] == "#{pane_tty}":
+            return 0, str(self.tty)
         return 0, ""
 
     def type_into(self, session, text, log, stale=lambda _: False, **_kw):
