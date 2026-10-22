@@ -498,10 +498,7 @@ The tick closes a tab idle for an hour or past twelve open, and one a run or sea
 `ak models` (`agentkit/matrix.py`) reads the public boards whose numbers export (`agentkit/boards.py`), each at most
 once a day into `~/.agentkit/state/boards.json` (`FRESH_FOR`), and again, once, when a new build of ak reads a column the
 cached rows carry none of (`matrix.needed`: the reader changed); `--refresh` asks again now, `--json` prints the scored rows, the
-recommendation and each board's `asked_at`, `fetched_at` and `error`. The table, the recommendation, the line `c` says
-and `r` takes are of the models the owner marks (`assessed`): `[assess]` in config.toml lists model ids under each
-harness (`acme = ["acme-pro"]`; written empty, nothing is assessed), and until it is written every model the
-config runs; `rank` orders every configured model as scored, marked or not. Artificial
+recommendation and each board's `asked_at`, `fetched_at` and `error`. Artificial
 Analysis is read off its site's pages (`AA_PAGES`: a retired model's page, which carries every model's record whole,
 and DeepsecBench's, which carries its score), no key: each model's record in the data a page hands its scripts, merged
 by its slug, one row per model and effort, every number as `aa.<field>`, a table's fields under the table's name
