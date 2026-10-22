@@ -4065,7 +4065,7 @@ def role_mark(cfg, selected, name, column, providers):
         role: [peer for peer in group if peer != name] if name in group else [*group, name]})
 
 
-HANDOVER_BYTES = 60000   # Codex takes its rulebook as one argument, which Linux caps at 128 KiB
+HANDOVER_BYTES = 60000   # a harness may take its rulebook as one argument: Linux caps one at 128 KiB
 
 
 def handover(name, record, old_model, old_harness, owned):
