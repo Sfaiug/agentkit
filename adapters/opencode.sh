@@ -210,6 +210,7 @@ interactive)
   # receipt -- agentkit/harness/opencode.py -- and never a directory's latest by guess.
   [ "${4:-}" = new ] && {
     echo "opencode.sh interactive: the TUI cannot be given a session id" >&2; exit 3; }
+  binary=$(command -v opencode) || { echo "opencode.sh: opencode is not installed" >&2; exit 2; }
   resume=""; [ -n "${3:-}" ] && resume=$(printf -- '--session %q ' "$3")
   # idle-compact.py wraps the TUI, as every seat's, so the seat is looked at again when its
   # screen comes to rest, starts moving or opencode exits.  Headless `ak worker` runs are not
@@ -242,10 +243,11 @@ interactive)
   # sent once the conversation has loaded, never typed into a TUI still loading it.
   # Joined by `=`, so a message starting with `-` is still its value; in single quotes, not
   # %q: shlex.split, which `ak orch` parses this line with, reads no $'...'.
-  first=""; [ -z "${AGENTKIT_FIRST_PROMPT:-}" ] ||
-    { sq="'"; first=" --prompt='${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"; }
-  printf 'python3 %q --harness opencode -- env OPENCODE_DISABLE_AUTOUPDATE=1 %s %sopencode %s--standalone --auto%s\n' \
-      "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$rules" "$resume" "$first" ;;
+  sq="'"; first=""; [ -z "${AGENTKIT_FIRST_PROMPT:-}" ] ||
+    first=" --prompt='${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"
+  # The pane does not inherit the adapter's fallback PATH.
+  printf 'python3 %q --harness opencode -- env OPENCODE_DISABLE_AUTOUPDATE=1 %s %s%s %s--standalone --auto%s\n' \
+      "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$rules" "'${binary//$sq/$sq\\$sq$sq}'" "$resume" "$first" ;;
 usage)
   # No login is a failed probe, not a missing meter: without one an unauthenticated provider
   # would read as a neutral 1.0 provider and be picked ahead of logged-in ones, only for
