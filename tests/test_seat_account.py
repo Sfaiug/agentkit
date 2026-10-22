@@ -710,7 +710,8 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         watch.opened_now(NAME)
         self.meters(100, 0)
         self.pane = "❯ the owner is typing"
-        with patch.object(watch, "carry_draft") as carried:
+        with patch.object(watch, "seat_editor", return_value={"id": "%1"}), \
+                patch.object(watch, "carry_draft") as carried:
             self.tick()
         carried.assert_called_once()        # into the composer the resumed harness opens
         self.assertEqual(len(self.commands), 1)
