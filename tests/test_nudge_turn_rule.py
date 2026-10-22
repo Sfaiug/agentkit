@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
 from fixtures.seats import cursor_row
-from agentkit import config, host, job as jobs, menu, notify, orch, run, watch
+from agentkit import config, host, job as jobs, menu, notify, orch, questions, run, watch
 from agentkit import record
 
 SEAT, OTHER = "acme-api", "fix-api"
@@ -123,7 +123,7 @@ class NudgeTurnRule(Sandbox):
 
     def hook_holds(self, blocks=0):
         """Does hooks/orchestrator-stop.sh send this same stop back, where a harness runs it,
-        having sent `blocks` of this turn's stops back already?"""
+        after delivering its recorded questions and sending `blocks` of its stops back already?"""
         home, sockets = self.root / "hook-home", self.root / "sockets"
         sockets.mkdir(mode=0o700, exist_ok=True)
         for name, target in (("state", config.STATE), ("runs", config.RUNS)):
@@ -134,8 +134,9 @@ class NudgeTurnRule(Sandbox):
         (config.STATE / f"stop-{SEAT}.json").write_text(json.dumps(
             {"session": SEAT, "turn": watch.seat_read(SEAT)["turn_began"], "blocks": blocks}) + "\n")
         transcript = self.root / "transcript.jsonl"
+        said = "\n\n".join(questions.pending(SEAT)) or SAID
         transcript.write_text(json.dumps({"type": "assistant", "message": {
-            "role": "assistant", "content": [{"type": "text", "text": SAID}]}}) + "\n")
+            "role": "assistant", "content": [{"type": "text", "text": said}]}}) + "\n")
         done = subprocess.run(
             ["bash", str(REPO / "hooks/orchestrator-stop.sh")], text=True, capture_output=True,
             input=json.dumps({"hook_event_name": "Stop", "session_id": "fake",

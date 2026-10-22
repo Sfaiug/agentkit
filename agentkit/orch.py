@@ -43,7 +43,7 @@ import threading
 import time
 import uuid
 from collections import Counter
-from contextlib import ExitStack, closing, contextmanager, redirect_stderr, redirect_stdout
+from contextlib import ExitStack, closing, contextmanager, nullcontext, redirect_stderr, redirect_stdout
 from datetime import datetime
 from pathlib import Path
 
@@ -169,11 +169,13 @@ def choose(cfg, providers):
 
 def going_on(cfg, current, providers):
     """The model a seat out of usage on `current` goes on with now, or None: the first in
-    `in_order`, other than `current`, whose harness is here and that has a window left -- none
+    `in_order` on another provider, whose harness is here and that has a window left -- none
     the move would refuse as spent (`_switch_plan`), and none on credits, which cost money a
     click to go on now never spends unasked (`switch_orchestrator`'s `credits`)."""
+    provider = config.model(cfg, current)["provider"]
     return next((name for name in in_order(cfg)
-                 if name != current and config.harness_present(config.model(cfg, name)["harness"])
+                 if config.model(cfg, name)["provider"] != provider
+                 and config.harness_present(config.model(cfg, name)["harness"])
                  and not usage.model_spent(cfg, name, providers)[0]
                  and not usage.spent_meter(cfg, name, providers)
                  and not usage.on_credits(cfg, name, providers)), None)
@@ -2455,6 +2457,7 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None):
     down -- a launcher-issued id by default -- and whatever else its plugin needs for that,
     Codex's per-invocation receipt among them, is carried into the command as environment.
     """
+    repository = git_dirs(cwd)
     plugin = seat_plugin({"orchestrator": model})
     from . import notify, watch
     # The rulebook this launch hands its harness, written down before the harness is up: its
@@ -2462,7 +2465,10 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None):
     # the seat's lock, so a rename going on keeps its record; a launch whose harness never
     # starts puts the record back, since the harness that read the old one is still there.
     kept = ("rulebook_sha", "rulebook_told", "rulebook_read")
-    with notify.session_lock(name) as current:
+    with notify.session_lock(name) as current, \
+            (gitcall.repository_lock(cwd) if repository else nullcontext()):
+        if repository:
+            gitcall.no_auto_gc(cwd)
         # read under the lock the prompts rewrite it under, and held until the harness is up:
         # till its pane is replaced the one it replaces can still prompt, and that prompt's
         # rewrite waits here, so the file read is the one recorded
