@@ -17,7 +17,8 @@ import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import Home
+from fixtures import akconfig
+from fixtures.akbin import boxable, Home
 from fixtures.fakegh import LOGGED_OUT, OFFLINE, GitHub
 
 
@@ -29,7 +30,7 @@ def login_probe(call):
 def tick(home, env=None):
     """One tick: how it ended, the gh calls it made and the watch.json it left."""
     asked = len(home.calls("gh"))
-    done = home.ak("watch", env=env)
+    done = home.tick(env=env)
     watch = json.loads((home.path / ".agentkit/state/watch.json").read_text())
     return done, home.calls("gh")[asked:], watch
 
@@ -46,11 +47,13 @@ def without_gh(home):
     return str(farm)
 
 
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class LoggedOut(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
+        akconfig.write(cls.home, ["opus"])
         GitHub(cls.home).reply("", err=LOGGED_OUT, code=4)
         cls.before = time.time()
         cls.out, cls.out_calls, watch = tick(cls.home)
@@ -83,6 +86,7 @@ class LoggedOut(unittest.TestCase):
         self.assertFalse(all(map(login_probe, self.back_calls)), self.back_calls)
 
 
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class Unavailable(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -90,6 +94,8 @@ class Unavailable(unittest.TestCase):
         offline, missing = Home(), Home()
         cls.addClassCleanup(offline.close)
         cls.addClassCleanup(missing.close)
+        for home in (offline, missing):
+            akconfig.write(home, ["opus"])
         GitHub(offline).reply("", err=OFFLINE, code=1)
         cls.offline, cls.offline_calls, cls.offline_watch = tick(offline)
         GitHub(missing)

@@ -12,41 +12,30 @@ test fails against `/bin/false`.
 
 import fcntl
 import json
-import socket
 import sys
 from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import Home
+from fixtures.akbin import boxable, Home
 from fixtures.fakegh import GitHub
 from fixtures import akconfig
 
-PROXIES = ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
 KEPT = ("reviewed", "own", "stalls", "seen_at", "after_merge")
 BOOT = Path("/proc/sys/kernel/random/boot_id")
 USAGE = "ak watch: usage: ak watch [--dry-run]  (got {!r})\n"
 
 
-def offline(home):
-    """The tick asks the public model boards over HTTP itself, not through a tool on PATH: every
-    proxy an HTTP client honours names a loopback port nobody listens on."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
-    home.env.update(dict.fromkeys(PROXIES, f"http://127.0.0.1:{port}"))
-
-
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class OneTick(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        offline(home)
         akconfig.write(home, ["opus"])
         GitHub(home)
         cls.state = home.path / ".agentkit" / "state"
-        cls.tick = home.ak("watch")
+        cls.tick = home.tick()
 
     def test_a_tick_succeeds_and_keeps_its_state_in_watch_json(self):
         self.assertEqual(self.tick.code, 0, self.tick.err)
@@ -66,16 +55,19 @@ class OneTick(unittest.TestCase):
     def test_a_tick_finding_the_lock_held_runs_nothing_and_says_whose_it_is(self):
         kept = (self.state / "watch.json").read_bytes()
         asked = len(self.home.calls("gh"))
-        held = {2400: "tick already running (pid 4242, for 40 min)\nWARN the tick holding the "
-                      "lock has been running for 40 min; look at it, and kill it if it is hung\n",
-                0: "tick already running (pid 4242, for 0 min)\n"}
+        # A slow start can cross a minute: the exact age belongs to test_key_tick_lock_held.
+        held = {2400: r"tick already running \(pid 4242, for \d+ min\)\nWARN the tick holding "
+                      r"the lock has been running for \d+ min; look at it, and kill it if it "
+                      r"is hung\n",
+                0: r"tick already running \(pid 4242, for \d+ min\)\n"}
         for ago, said in held.items():
             with self.subTest(ago=ago):
                 lock = self.home.write(".agentkit/state/watch.tick.lock", "4242\n", ago=ago)
                 with lock.open("r") as holder:
                     fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     done = self.home.ak("watch")
-                self.assertEqual((done.code, done.out, done.err), (0, said, ""))
+                self.assertEqual((done.code, done.err), (0, ""))
+                self.assertRegex(done.out, rf"\A{said}\Z")
                 self.assertEqual((self.state / "watch.json").read_bytes(), kept)
                 self.assertEqual(len(self.home.calls("gh")), asked)
 
