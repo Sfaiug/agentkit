@@ -106,6 +106,16 @@ class LiveHandBackNamesFailures(unittest.TestCase):
         self.assertIn(SUMMARY, line)
         self.assertIn("[exit 1]", line)
 
+    def test_a_line_reads_as_the_terminal_last_showed_it_with_no_control_code(self):
+        spinner = "\x1b[999D\x1b[J".join(
+            f"{frame}  Upgrading{'.' * dots}" for dots in range(4) for frame in "◒◐◓◑")
+        line = self.hand_back([
+            *FAILURES, "\x1b[?25l│", f"{spinner}\x1b[999D\x1b[J◇  Upgrade complete",
+            "\x1b[32mPASS\x1b[0m  7 acme check", *ENDING])
+        self.assertNotRegex(line, r"[\x00-\x1f\x7f]")
+        self.assertNotIn("Upgrading", line)
+        self.assertIn("│ / ◇  Upgrade complete / PASS  7 acme check / ----", line)
+
 
 if __name__ == "__main__":
     unittest.main()

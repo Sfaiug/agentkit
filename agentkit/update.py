@@ -36,7 +36,7 @@ import tempfile
 import time
 from datetime import datetime
 
-from . import command_help, config, host, orch, retention, worker
+from . import command_help, config, host, orch, retention, terminal, worker
 from .harness import load as harness_plugin
 
 VERSION = re.compile(r"\d+\.\d+\.\d+[^\s()]*")
@@ -50,6 +50,7 @@ UPDATE_TAIL = 10            # how many of a failed start-up update's last lines 
 LIVE_REPORT_CAP = 4 * 1024  # a typed hand-back stays readable even with long diagnostics
 ASK_EVERY = 60 * 60         # how often the tick asks a harness's latest release, at most
 RETRY_AFTER = 24 * 60 * 60  # a gate can fail for what the release did not cause: try it daily
+REDRAW = re.compile(r"\x1b\[[0-9]*[DG]")  # back to the line's start: a spinner's next frame
 
 VERSION_KEY = "{version}"   # `[update] revert`: where the version to reinstall goes
 MOVING = "agentkit-update.lock"  # under config.TMP: held by each move of ~/agentkit
@@ -825,9 +826,19 @@ def live_tick(log, now, fetched):
          worker.RUN_MARKER: str(check)}, os.devnull, log, target_slice=orch.slice_name())
 
 
+def _shown(line):
+    """What a terminal last showed of that line: its last frame, with no control code."""
+    frames = [terminal.plain(frame, spaced=True) for frame in REDRAW.split(line)]
+    return next((frame for frame in reversed(frames) if frame.strip()), "")
+
+
 def _live_excerpt(said):
-    """Failure blocks before the closing tail, each with a share of the message's cap."""
-    output = said.splitlines()
+    """Failure blocks before the closing tail, each with a share of the message's cap.
+
+    Each line as the terminal showed it: the excerpt is typed into a seat, where a control
+    code is a key, and a spinner's frames are one line rewritten in place.
+    """
+    output = [_shown(line) for line in said.splitlines()]
     failures, following = [], False
     for n, line in enumerate(output):
         if line.startswith("FAIL  "):
