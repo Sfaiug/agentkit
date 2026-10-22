@@ -212,9 +212,10 @@ class RuleProgress(unittest.TestCase):
                 patch.object(update, "left_as_is", return_value=""), \
                 patch.object(config, "ensure_dirs"), patch.object(config, "TMP", Path(home.name)), \
                 patch.object(config, "STATE", Path(home.name)), \
+                patch.object(update.versions, "switch", lambda *_: ran.append("switch") or ""), \
                 patch.object(update.subprocess, "run", run), redirect_stdout(io.StringIO()):
             update.update_agentkit(progress)
-        self.assertEqual(ran, ["fetch", "rev-parse", "cat-file", "merge", "install.sh"])
+        self.assertEqual(ran, ["fetch", "rev-parse", "cat-file", "switch", "install.sh"])
         lines = out.getvalue().splitlines()
         frames = [(lines[n - 1], line) for n, line in enumerate(lines) if set(line) <= set("━─")
                   and line]

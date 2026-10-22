@@ -41,7 +41,7 @@ class IntentOncePerDelivery(Sandbox):
         self.harness, self.runs = Harness(), []
         for target, name, value in ((orch, "seat_plugin", lambda record, **_kw: self.harness),
                                     (config, "session_records", lambda: {"fix-api": {"cwd": "/acme"}}),
-                                    (menu, "run_records", lambda: [
+                                    (menu, "run_records", lambda **_kw: [
                                         (Path(run), {"launched_session": "fix-api", "started_at": at,
                                                      "merged": True}) for run, at in self.runs]),
                                     (scoreboard, "_git", lambda *args, **kw: None),
