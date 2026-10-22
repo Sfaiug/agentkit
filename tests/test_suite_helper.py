@@ -49,7 +49,8 @@ MAC_TOOLS = {
               ' hw.memsize) echo 17179869184;; esac',
     "memory_pressure": 'echo "System-wide memory free percentage: 50%"',
     "caffeinate": 'shift; exec "$@"',
-    "container": 'case "$1 $2" in "system "*|"builder "*) exit 0;;\n'
+    "container": 'case "$1 $2" in "system "*) [ ! -e "$FAKE/system-broken" ];;\n'
+                 '"builder "*) exit 0;;\n'
                  '"image inspect") [ -e "$FAKE/has-${3##*/}" ];;\n'
                  '"build "*) touch "$FAKE/has-debian:trixie-slim"\n'
                  '  [ ! -e "$FAKE/broken" ] && touch "$FAKE/has-ak-helper:new";;\n'
@@ -311,25 +312,29 @@ class HelperMac(unittest.TestCase):
 
     def test_probe_leaves_load_half_the_free_memory_battery_and_a_held_mac(self):
         # 10 CPUs less a load of 1; half of 8 GiB free.
-        self.assertEqual(helper.room("acme-mac", 1.0, 500), (4, 2, 1024))
+        self.assertEqual(helper.room("acme-mac", 1.0, 500), ((4, 2, 1024), ""))
         # a small piece still gets two CPUs: 9 spare make 4 VMs, not 9 of one CPU
-        self.assertEqual(helper.room("acme-mac", 1.0, 100), (4, 2, 1024))
-        self.assertIsNone(helper.room("acme-mac", 1.0, 2100))
+        self.assertEqual(helper.room("acme-mac", 1.0, 100), ((4, 2, 1024), ""))
+        self.assertEqual(helper.room("acme-mac", 1.0, 2100),
+                         (None, "has no room (9 spare CPUs and 4096 MiB)"))
         # VMs a suite of the repository ran out of memory in: fewer, larger ones
-        self.assertEqual(helper.room("acme-mac", 1.0, 500, 1500), (2, 4, 2048))
+        self.assertEqual(helper.room("acme-mac", 1.0, 500, 1500), ((2, 4, 2048), ""))
+        (self.fake / "system-broken").touch()
+        self.assertEqual(helper._remote("acme-mac", "probe", text=True).returncode, helper.BROKEN)
+        (self.fake / "system-broken").unlink()
         (self.root / "other").mkdir(parents=True)
         (self.root / "other" / "held").touch()
-        self.assertIsNone(helper.room("acme-mac", 1.0, 500))
+        self.assertEqual(helper.room("acme-mac", 1.0, 500), (None, "is busy"))
         os.utime(self.root / "other" / "held", (time.time() - 600,) * 2)
-        self.assertIsNotNone(helper.room("acme-mac", 1.0, 500))
+        self.assertIsNotNone(helper.room("acme-mac", 1.0, 500)[0])
         os.environ["FAKE_AC_CALLS"] = "0"
-        self.assertIsNone(helper.room("acme-mac", 1.0, 500))
+        self.assertEqual(helper.room("acme-mac", 1.0, 500), (None, "is on battery"))
 
     def test_one_suite_holds_the_mac_and_only_its_own_old_image_goes(self):
         prepare = lambda key: self.prepare(key)[0]
         # a failed build keeps the helper's old image and drops the base it fetched
         (self.fake / "broken").touch()
-        self.assertEqual(prepare("broken"), helper.LOST)
+        self.assertEqual(prepare("broken"), helper.BROKEN)
         self.assertEqual((self.fake / "deleted").read_text(),
                          "docker.io/library/debian:trixie-slim\n")
         (self.fake / "broken").unlink()
@@ -338,8 +343,8 @@ class HelperMac(unittest.TestCase):
         self.assertEqual((self.root / "first/context/setup.sh").stat().st_mode & 0o777, 0o755)
         self.assertEqual((self.fake / "deleted").read_text(),
                          "ak-helper:old\ndocker.io/library/debian:trixie-slim\n")
-        self.assertIsNone(helper.room("acme-mac", 1.0, 500))
-        self.assertEqual(prepare("second"), helper.LOST)
+        self.assertEqual(helper.room("acme-mac", 1.0, 500), (None, "is busy"))
+        self.assertEqual(prepare("second"), helper.BUSY)
         for key in ("first", "second"):
             helper.finish(helper.Away("acme-mac", key, *[None] * 8))
         self.assertEqual(prepare("third"), 0)
@@ -377,7 +382,7 @@ class HelperMac(unittest.TestCase):
         # suite asks what it has.
         (self.root / "rival").mkdir()
         (self.root / "rival" / "held").touch()
-        self.assertEqual(self.prepare("lost", "other")[0], helper.LOST)
+        self.assertEqual(self.prepare("lost", "other")[0], helper.BUSY)
         shutil.rmtree(self.root / "rival")
         helper.finish(helper.Away("acme-mac", "lost", *[None] * 8))
         for path in (mirror, other):
@@ -420,12 +425,13 @@ class HelperMac(unittest.TestCase):
             return answer
 
         with patch.object(helper.config, "suite_helper", return_value="acme-mac"), \
-                patch.object(helper, "room", return_value=(1, 2, 512)), \
+                patch.object(helper, "room", return_value=((1, 2, 512), "")), \
                 patch.object(helper.orch, "agent_programs", return_value=[]), \
                 patch.object(helper, "_known", side_effect=gone):
             for _ in range(2):
-                away = helper.start(1, 512, self.repo, logs.append)
+                away, reason = helper.start(1, 512, self.repo, logs.append)
                 self.assertIsNotNone(away, logs)
+                self.assertEqual(reason, "")
                 helper.finish(away)
                 self.git("-C", str(self.repo), "commit", "-q", "--allow-empty", "-m", "merged")
                 self.git("-C", str(self.repo), "update-ref", "refs/remotes/origin/main", "HEAD")
@@ -462,7 +468,7 @@ class HelperMac(unittest.TestCase):
         os.environ["FAKE_AC_CALLS"] = "1"
         run = helper._remote("acme-mac", "run", "key", "ak-helper:new", "ak-key-1-2", 1, 512,
                              "acme", timeout=30)
-        self.assertEqual(run.returncode, helper.LOST)
+        self.assertEqual(run.returncode, helper.BATTERY)
         self.assertEqual(list(self.fake.glob("vm-*")), [])
 
 
