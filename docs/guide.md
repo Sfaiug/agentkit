@@ -516,9 +516,10 @@ read off the bracket in its name (`Claude Opus 5.5 (max)`; `Acme Pro (High) (081
 leaves the row at none). A board that cannot answer keeps its last
 rows with the error beside them and, like one that answered, is not asked again before the day is up. Callers at once
 share one collection: each writer of `state/boards.json` holds `boards.lock` from reading it to replacing it.
-The matrix is stored in `state/matrix.json` (`refresh`, the tick's boards pass) and computed again only once a board answered anew
-or the config's models, the harnesses installed or ak's own build (`update.agentkit_version`) changed, so a matching or
-scoring rule that landed holds at the next tick, not a day later.
+The matrix is stored in `state/matrix.json` (`refresh`, run as the models screen opens and by `ak models`, never by the tick:
+the boards are read when someone asks) and computed again only once a board answered anew or the config's models, the
+harnesses installed or ak's own build (`update.agentkit_version`) changed, so a matching or scoring rule that landed holds
+at the next ask, not a day later.
 
 The matrix (`rows`) is one row per model and effort the installed harnesses offer (every `config.manifests` name
 `config.harness_present` says is here, their `config.catalog`, and every configured model): an effort a board lists

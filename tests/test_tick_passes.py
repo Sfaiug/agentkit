@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import browser, config, gc, job as jobs, notify, orch, run, staffing, update  # noqa: E402
-from agentkit import leases, logins, matrix, seat_tokens, usage, watch  # noqa: E402
+from agentkit import leases, logins, seat_tokens, usage, watch  # noqa: E402
 from fixtures.tick import only_passes  # noqa: E402
 
 # The passes of the tick this test runs, in its order: the WARN line a raise of each is told in
@@ -34,7 +34,6 @@ PASSES = (
     (usage, "collect", "the usage refresh did not finish", False),
     (logins, "remind", "the login-end read did not run", False),
     (watch, "remind_worker_tokens", "the worker-token reminder did not run", False),
-    (matrix, "refresh", "the boards pass did not run", False),
     (staffing, "_cached_providers", "the usage refresh did not finish", True),
     (watch, "resume_exhausted", "the exhausted-resume pass did not run", True),
     (watch, "resume_waiting_login", "the login-resume pass did not run", True),

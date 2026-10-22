@@ -68,6 +68,7 @@ provider = "anthropic"
 ESC, UP, DOWN, RIGHT, LEFT, ENTER = b"\x1b", b"\x1b[A", b"\x1b[B", b"\x1b[C", b"\x1b[D", b"\r"
 TAB = b"\t"
 EFFORT_KEYS = "  ↑↓←→ move   ⏎ effort   esc back"   # the key line on an effort
+MARK_KEYS = "  ↑↓←→ move   ⏎ mark   r recommended   esc back"   # on a seat's mark
 # What a worker's own run leaves in the environment; nothing here may act on that run.
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
              "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLORTERM", "COLUMNS", "LINES")
@@ -236,8 +237,8 @@ class Matrix(unittest.TestCase):
         version = tail.index("Version abc1234 · 2026-09-29")
         self.assertTrue(tail[version - 2].startswith("Weekly audit"), tail)
         self.assertEqual(tail[version - 1:], ["", "Version abc1234 · 2026-09-29", "",
-                                              "↑↓←→ move   ⏎ mark   esc back"])
-        self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ mark   esc back")
+                                              MARK_KEYS.strip()])
+        self.assertEqual(lines[-1], MARK_KEYS)
         screen.leave()
         self.assertIn("\x1b[?1049l", screen.text())       # the terminal given back
         self.assertNotIn("<harness version>", screen.text())
@@ -309,7 +310,7 @@ class Matrix(unittest.TestCase):
         self.assertEqual(lines[-1], EFFORT_KEYS)
         self.assertEqual(screen.path.read_bytes(), before)    # no arrow steps an effort
         # ← comes back to the reviewer mark, which Enter flips
-        lines = screen.press(LEFT, lambda lines: lines[-1] == "  ↑↓←→ move   ⏎ mark   esc back")
+        lines = screen.press(LEFT, lambda lines: lines[-1] == MARK_KEYS)
         screen.press(ENTER, lambda lines: "□" in row(lines, "opus")[1])
         self.assertEqual(screen.record()["reviewers"], ["astra"])
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "xhigh")
@@ -352,7 +353,7 @@ class Matrix(unittest.TestCase):
         screen.frame()
         before = screen.path.read_bytes()
         lines = screen.press(TAB)                         # on fable's orchestrator mark
-        self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ mark   esc back")
+        self.assertEqual(lines[-1], MARK_KEYS)
         self.assertEqual(screen.path.read_bytes(), before)
         screen.press(ENTER,                               # still that mark: it moves the seat
                      lambda lines: "●" in row(lines, "fable")[1])

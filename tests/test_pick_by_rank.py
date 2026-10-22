@@ -96,12 +96,9 @@ class PickByRank(Sandbox):
         self.assertIsNone(matrix.rank(self.cfg, "execute")["opus"])
         matrix.refresh(self.cfg, now=10000 + boards.FRESH_FOR + 3)
         self.assertIsNotNone(matrix.rank(self.cfg, "execute")["opus"])
-        # the tick's pass is the same refresh, never on a dry run
-        passes = {what: (step, dry) for what, step, dry in watch.local_passes({}, False, print)}
-        self.assertFalse(passes["the boards pass did not run"][1])
-        with patch.object(matrix, "refresh") as refreshed:
-            passes["the boards pass did not run"][0]()
-        refreshed.assert_called_once()
+        # the tick never reads the boards: the models screen and `ak models` do, when asked
+        self.assertNotIn("the boards pass did not run",
+                         {what for what, _, _ in watch.local_passes({}, False, print)})
 
     def test_each_configured_model_s_place_for_a_role_is_read_off_the_stored_matrix(self):
         self.assertEqual(matrix.rank(self.cfg, "execute"),

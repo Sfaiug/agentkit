@@ -469,8 +469,9 @@ def refresh(cfg, *, refresh=False, now=None):
     `state/matrix.json` so every pick reads one computed truth; computed again
     only once a board answered anew, the config's models changed, the harnesses installed are
     not the ones it rowed or ak's own build is not the one that computed it (a matching rule
-    that landed holds at the next tick, not a day later), since the harness catalogs it asks
-    take time.  Returns (boards, the scored rows); `recommended` reads off the rows."""
+    that landed holds at the next ask, not a day later), since the harness catalogs it asks
+    take time.  The models screen and `ak models` ask it, never the tick.  Returns (boards,
+    the scored rows); `recommended` reads off the rows."""
     from . import update        # here, not at the top: update reaches this module through orch
     now = time.time() if now is None else now
     harnesses, build = present(), update.agentkit_version()

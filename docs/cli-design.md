@@ -327,9 +327,11 @@ screen), `terminal.state_text`.
 
 ## The models screen
 
-`r recommended` on `c` -- the key stands while a matrix is computed and the seat has a
-record -- opens `agentkit · models · <seat>`: every model the installed harnesses offer
-against the public boards, as `ak models` scores them, with nothing typed. Its first row is
+`r recommended` on `c` -- the key stands while the seat has a record -- opens `agentkit ·
+models · <seat>` and reads the public boards at once (at most once a day), the rule gliding
+until they land and what was stored standing meanwhile, a reading that failed said under the
+rows: every model the installed harnesses offer against the boards, as `ak models` scores
+them, with nothing typed. Its first row is
 the one knob, `as good as the best: within ‹ 5 ›`: ←/→ step `within` a point, never
 under 0, saved to config.toml at once, and the lines under it follow. Then the formula,
 each row said with its quality and cost (`opus @ max 100 $5.98`): `best`, dim, the row of the
