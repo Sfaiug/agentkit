@@ -1638,10 +1638,6 @@ def handover_section(session):
     head = (f"# Where this seat's work stands\n\nThis seat ran on {model} until {when}; you take "
             "its work over under the same name. Its runs go on and report to you (`ak run "
             "status`), and its plan is `ak plan`.")
-    if not turns:
-        where = handed.get("transcript")
-        return (f"{head} Its conversation's raw transcript is at {where}.\n" if where else
-                f"{head} Its conversation cannot be read here.\n")
     left = handed.get("left") or 0
     said = "\n\n".join(f"**{turn.get('who')}:** {turn.get('text')}" for turn in turns)
     return (f"{head} What was said in its conversation, oldest first, its tools' calls and "

@@ -18,6 +18,7 @@ from agentkit.harness import Harness
 
 ASKED = {"who": "user", "text": "Make the endpoint answer 404 for a missing id"}
 ANSWERED = {"who": "model", "text": "Done: it answers 404, and its test passes."}
+SAID = Harness.said     # each harness's own reader
 
 
 class HandsOver(SeatMove):
@@ -64,16 +65,24 @@ class HandsOver(SeatMove):
 
     def test_the_latest_messages_are_what_fits(self):
         self.said["claude"] = [ASKED, ANSWERED, {"who": "user", "text": "Ship it"}]
-        with patch.object(orch, "HANDOVER_CHARS", len(ANSWERED["text"]) + len("Ship it")):
+        kept = f"**opus:** {ANSWERED['text']}\n\n**user:** Ship it\n\n"
+        with patch.object(orch, "HANDOVER_BYTES", len(kept)):
             self.move("astra")
         rulebook = self.rulebook()
         self.assertNotIn(ASKED["text"], rulebook)
         self.assertIn("its 1 earliest messages too", rulebook)
         self.assertIn("**user:** Ship it", rulebook)
 
-    def test_a_seat_moved_before_its_first_word_hands_on_nothing(self):
-        self.said["claude"] = []
+    def test_what_it_hands_on_fits_the_one_argument_codex_takes_its_rulebook_in(self):
+        self.said["claude"] = [{"who": "user", "text": "界" * 60000}]
         self.move("astra")
+        rulebook = self.rulebook()
+        self.assertIn("界" * 1000, rulebook)
+        self.assertLess(len(rulebook.encode()), 128 * 1024)
+
+    def test_a_seat_moved_before_its_first_word_hands_on_nothing(self):
+        with patch.object(Harness, "said", new=SAID):     # Claude has written no transcript yet
+            self.move("astra")
         self.assertNotIn("This seat ran on", self.rulebook())
 
     def test_a_harness_that_reads_nothing_back_hands_on_its_transcript(self):
@@ -81,6 +90,21 @@ class HandsOver(SeatMove):
         with patch.object(Harness, "transcript", return_value="/tmp/acme/transcript.jsonl"):
             self.move("astra")
         self.assertIn("raw transcript is at /tmp/acme/transcript.jsonl", self.rulebook())
+
+    def test_each_raw_transcript_is_handed_on_in_its_place(self):
+        self.said.pop("claude")
+        with patch.object(Harness, "transcript", return_value="/tmp/acme/first.jsonl"):
+            self.move("astra")
+        self.said["codex"] = [{"who": "user", "text": "And for a deleted one?"}]
+        with patch.object(Harness, "conversation", new=lambda *_a: "thread-of-astra"):
+            self.move("fable")
+        with patch.object(Harness, "transcript", return_value="/tmp/acme/third.jsonl"):
+            self.move("astra")
+        rulebook = self.rulebook()
+        self.assertLess(rulebook.index("/tmp/acme/first.jsonl"),
+                        rulebook.index("And for a deleted one?"))
+        self.assertLess(rulebook.index("And for a deleted one?"),
+                        rulebook.index("/tmp/acme/third.jsonl"))
 
     def test_a_move_that_fails_leaves_no_handover_behind(self):
         self.refused = "no such pane"

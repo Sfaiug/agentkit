@@ -4065,16 +4065,17 @@ def role_mark(cfg, selected, name, column, providers):
         role: [peer for peer in group if peer != name] if name in group else [*group, name]})
 
 
-HANDOVER_CHARS = 60000   # the most of a conversation a move hands on; a longer one, its latest
+HANDOVER_BYTES = 60000   # Codex takes its rulebook as one argument, which Linux caps at 128 KiB
 
 
 def handover(name, record, old_model, old_harness, owned):
     """What a seat moving to another harness hands its next model, for the rulebook's last
     section (`config.handover_section`): from which model, and the conversation so far -- what
-    the move before handed on, then the conversation it leaves as its harness reads it back
-    (`said`), the latest messages that fit HANDOVER_CHARS -- or that conversation's raw
-    transcript where its harness reads none back.  None for a seat whose conversation said
-    nothing and that was handed nothing: a new seat moved before its first word.
+    the moves before handed on, then the conversation it leaves as its harness reads it back
+    (`said`), or a note of that conversation's raw transcript where its harness reads none
+    back -- the latest messages that fit HANDOVER_BYTES in UTF-8.  None for a seat whose
+    conversation said nothing and that was handed nothing: a new seat moved before its first
+    word.
     """
     plugin = harness_plugin(old_harness) if old_harness else None
     said = plugin.said(record, record.get("cwd"), owned) if plugin and owned else None
@@ -4082,20 +4083,26 @@ def handover(name, record, old_model, old_harness, owned):
         before = json.loads(config.seat_file("handover", name).read_text(encoding="utf-8"))
     except (OSError, ValueError, config.Error):
         before = {}
+    if said is None:
+        where = plugin.transcript(record, record.get("cwd"), owned) if plugin else None
+        said = [{"who": "model", "text": f"(Its conversation's raw transcript is at {where}.)"
+                 if where else "(Its conversation cannot be read here.)"}]
     turns = [*(before.get("turns") or []),
              *({"who": "user" if turn["who"] == "user" else old_model, "text": turn["text"]}
-               for turn in said or [])]
-    if said == [] and not turns:
+               for turn in said)]
+    if not turns:
         return None
+
+    def size(turn):    # as `config.handover_section` renders it
+        return len(f"**{turn['who']}:** {turn['text']}\n\n".encode())
     left = before.get("left") or 0
-    while len(turns) > 1 and sum(len(turn["text"]) for turn in turns) > HANDOVER_CHARS:
+    while len(turns) > 1 and sum(map(size, turns)) > HANDOVER_BYTES:
         turns.pop(0)
         left += 1
-    if turns and len(turns[0]["text"]) > HANDOVER_CHARS:    # one message longer than all of it
-        turns[0] = {**turns[0], "text": "…" + turns[0]["text"][-HANDOVER_CHARS:]}
-    return {"from": old_model, "at": time.time(), "turns": turns, "left": left,
-            "transcript": None if said is not None or not plugin
-            else plugin.transcript(record, record.get("cwd"), owned)}
+    if len(turns[0]["text"].encode()) > HANDOVER_BYTES:    # one message longer than all of it
+        cut = turns[0]["text"].encode()[-HANDOVER_BYTES:].decode(errors="ignore")
+        turns[0] = {**turns[0], "text": "…" + cut}
+    return {"from": old_model, "at": time.time(), "turns": turns, "left": left}
 
 
 def _switch_plan(cfg, name, model, providers, credits=True):

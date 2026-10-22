@@ -86,12 +86,7 @@ A Codex seat trusts only agentkit's hooks; other hooks still need Codex's review
 writes its session into one, and Muse and Antigravity open a new conversation each time. A receipt goes only once the
 harness launched after it is up, so a restart tmux refuses leaves the running one on its own. A seat moved on `c` to another
 model of its harness goes on with the conversation that harness can resume, without a handover, and a turn it was in
-is told to go on; one moved to another harness, or with no conversation to resume, opens a new one whose rulebook ends
-with the handover (`orch.handover`, kept in its `handover` file): from which model, `ak plan` and `ak run status`, and what
-was said so far, oldest first, as the old harness reads it back (its plugin's `said`: what was typed and the model's
-visible answers, nothing its tools did), what earlier moves handed on first, the latest 60,000 characters of it; where
-that harness reads nothing back, its raw transcript's path. Nothing is typed for it: only a turn it was in is told to go
-on, the line the new harness opens on. A seat moved before its first word hands on nothing.
+is told to go on; one moved to another harness, or with no conversation to resume, opens a new one with the handover.
 Either way its bar and row name the new model from the moment the new harness is up. Nothing on its screen refuses the
 move: text you typed and had not sent waits in the new composer once it is up, where both harnesses hand their composer
 to ak's editor (Claude Code, Codex, Antigravity, Muse); elsewhere it goes with the old harness. Where that editor
