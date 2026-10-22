@@ -25,11 +25,6 @@ RECORDS = (("done",), ("blocked", "the staging database is down"),
            ("not-needed", "fix-api already landed"))
 
 
-def files(root):
-    """Every file under `root` with what it holds."""
-    return {path: path.read_bytes() for path in root.rglob("*") if path.is_file()}
-
-
 class OutsideATurn(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -41,14 +36,14 @@ class OutsideATurn(unittest.TestCase):
         """Every record handed in with `env` is refused, saying `said`; HOME is unchanged."""
         for record in RECORDS:
             with self.subTest(env=env, record=record):
-                before = files(self.home.path)
+                before = self.home.tree()
                 done = self.home.ak("hand-in", *record, env=env, cwd=self.seat.cwd)
                 self.assertEqual((done.code, done.out), (2, ""), done.err)
                 if isinstance(said, str):
                     self.assertEqual(done.err, said)
                 else:
                     self.assertRegex(done.err, said)
-                self.assertEqual(files(self.home.path), before)
+                self.assertEqual(self.home.tree(), before)
 
     def test_with_no_turn_named_every_hand_in_is_refused(self):
         self.refused({}, NO_TURN)
