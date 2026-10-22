@@ -3,9 +3,10 @@
 A seat's word tells the owner when only they can unblock it.  A question the seat asks with
 `ak notify needs` is that: the seat's word is `needs you`, the question its reason, until the
 owner's next prompt answers it.  One asked mid-turn waits for the turn's end, since until then
-the seat works on.  Muse asks with a question tool of its own, whose dialog only its
-`question_prompt` notification says is open.  Output can quote that dialog, so the screen alone
-never asks, and an answered question gives way to the turn.  Black-box: the program `AK_BIN`
+the seat works on, and that turn ends only once the seat has said it in the chat.  Muse asks
+with a question tool of its own, whose dialog only its `question_prompt` notification says is
+open.  Output can quote that dialog, so the screen alone never asks, and an answered question
+gives way to the turn.  Black-box: the program `AK_BIN`
 names runs from outside through tests/fixtures/akbin.py, before seats of
 tests/fixtures/akseat.py whose hooks fire as their harness fires them (tests/fixtures/hookdrive.py).
 """
@@ -85,7 +86,9 @@ class ItsOwnQuestion(unittest.TestCase):
         self.assertEqual(done.code, 0, done.err)
         self.assertEqual(why(self.home, "fix-api"), ("fix-api  working", "-"))
         seat.show("claude-prompt-pane.txt")
-        self.hooks.fire("Stop", STOP, seat="fix-api", pane=seat)
+        # its turn ends once it has said the question in the chat, the owner seeing it there
+        said = hookdrive.transcript(self.home, "fix-api", "Which port?")
+        self.hooks.fire("Stop", {**STOP, "transcript_path": said}, seat="fix-api", pane=seat)
         self.assertEqual(settled(self.home, "fix-api", "needs you"),
                          ("fix-api  needs you", "Which port?"))
         # the owner's prompt answers it, and the turn it starts ends with nothing asked
