@@ -9,44 +9,20 @@ tokens, and it says so too where the old wrapper asked (IDLE_COMPACT_STATE).  It
 prompt keeping every byte that reaches it, through a tick of `ak watch` and well past that quiet.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, and a
-person's terminal from akterm.py.  The seat's wrapper names its pane through the socket path
-tmux gave it, so this Home's tmux takes a socket path inside the Home's own directory; and the
-tick runs with a /tmp of its own, since a tick may start collection, which sweeps /tmp.
+person's terminal from akterm.py, and the tick in the box `home.tick()` builds.
 """
 
 import shlex
-import shutil
 import sys
 from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import AK, REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import FIXTURES
 from fixtures.akterm import Terminal
 
 QUIET = 12      # seconds at the prompt: past the old wrapper's quiet and its next poll
-# The Home's own guard, but a socket path inside this Home's directory goes through.
-TMUX = """#!/bin/sh
-skip=
-for a do
-  if [ -n "$skip" ]; then
-    if [ "$skip" = S ]; then
-      case $a in {dir}/*) ;; *) echo "tmux: not this Home's server" >&2; exit 2 ;; esac
-    fi
-    skip=; continue
-  fi
-  case $a in
-    -S) skip=S ;;
-    -S*) echo "tmux: not this Home's server" >&2; exit 2 ;;
-    -[cfLT]) skip=1 ;;
-    -*) ;;
-    *) break ;;
-  esac
-done
-export TMUX_TMPDIR={dir}
-exec {real} "$@"
-"""
 HARNESS = r"""
 import json, os, re, select, sys, time, tty
 screen, report, release, *args = sys.argv[1:]
@@ -77,13 +53,11 @@ os.rename(report + ".part", report)
 """
 
 
-@unittest.skipUnless(REAL_TMUX and shutil.which("bwrap"), "needs tmux and bwrap")
+@unittest.skipUnless(REAL_TMUX and boxable(), "needs tmux and a bwrap able to box a tick")
 class IdleSeat(unittest.TestCase):
     def test_a_seat_idle_long_on_a_large_context_is_typed_nothing(self):
         home = Home()
         self.addCleanup(home.close)
-        home.fake("tmux", TMUX.replace("{dir}", shlex.quote(str(home.tmux_dir)))
-                  .replace("{real}", shlex.quote(REAL_TMUX)))
         harness, report, release = (home.root / name for name in ("harness.py", "typed", "go"))
         harness.write_text(HARNESS)
         home.fake("claude", f"#!/bin/sh\nQUIET={QUIET} exec " + shlex.join([
@@ -97,9 +71,7 @@ class IdleSeat(unittest.TestCase):
         term = Terminal(home, "orch", "acme", "--model", "opus", "--workers", "opus",
                         size=(100, 40))
         term.wait("bypass permissions on")
-        tick = home.run("bwrap", "--dev-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/var/tmp",
-                        "--bind", str(home.root), str(home.root),
-                        "--bind", str(home.tmux_dir), str(home.tmux_dir), "--", AK, "watch")
+        tick = home.tick()
         self.assertEqual(tick.code, 0, tick.out + tick.err)
         release.touch()
         term.wait(lambda _: report.exists(), bound=QUIET + 60)
