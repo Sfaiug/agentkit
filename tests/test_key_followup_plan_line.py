@@ -115,9 +115,9 @@ class SeatWithExecutors(Seated, unittest.TestCase):
         cls.done = cls.home.ak("run", str(cls.task), env={"AGENTKIT_SESSION": "acme"},
                                timeout=300)
         cls.held_plan = cls.plan()
-        cls.addClassCleanup(cls.settle)
         cls.parent_dir, *fixes = taskfile.runs(cls.home)
         cls.fix_dir = fixes[0] if len(fixes) == 1 else None
+        cls.addClassCleanup(cls.settle)
         cls.fix_held = cls.state(cls.fix_dir) if cls.fix_dir else {}
         cls.release.write_text("")
         cls.ticked = cls.fix_dir and wait_for(lambda: cls.plan().startswith("- [x]")
