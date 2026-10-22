@@ -120,6 +120,14 @@ state = "working"
 # narrow pane cuts the border's words short of its corner (`· always-appro─╯`, 1.0.46).
 [screen]
 composer = '(?:│ ❯\s*│|╰─+ .*─╯)$'
+# Only its command palette's `Edit Prompt in External Editor`, the one match `edit prompt`
+# leaves, hands the composer to $VISUAL, ak's editor, mid-turn too, each key typed once the
+# palette shows the one before it landed (1.0.46)
+editor = ["C-p", "edit prompt", "Enter"]
+editor_shows = ['│\s+search: ', '│\s+search: edit prompt\s']
+# It refuses that edit for a draft holding a pasted chip, `[Pasted: 40 lines]`, saying so in
+# its transcript, so such a draft holds ak's line back as any draft does
+editor_refuses = '\[Pasted:\s*\d+\s*lines?\]'
 # the first Esc on a draft turns the hints into `Esc:press again to clear`, and a suggestion
 # into `Tab/→:accept suggestion` (1.0.46)
 footer = ['Shift\+Tab:mode.*', 'Enter:send.*', 'Esc:press again to clear',
@@ -173,6 +181,17 @@ id = "working.turn"
 state = "working"
 lines = 8
 any = ["responding…", "ctrl+c:cancel", "compacting…"]
+
+# A dropdown it draws over the box, a slash command's or its argument's (`/model`'s models), its
+# highlighted row's `❯` four columns in: Ctrl-P there moves that highlight rather than opening
+# the palette, and Enter picks the row (1.0.46).  It is the owner's own hand, as a draft is.
+[[rule]]
+id = "draft.dropdown"
+state = "draft"
+lines = 18
+at_composer = true
+row = '^ {4}❯ \S'
+picker = true
 
 # A composer holding bright, typed text is a draft never sent; one holding only its faint
 # suggestion is empty, so the suggestion rule reads at_prompt like the other harnesses'.
