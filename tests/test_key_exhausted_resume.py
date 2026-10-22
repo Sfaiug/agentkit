@@ -21,11 +21,11 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import Home
+from fixtures.akbin import boxable, Home
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
-# The tick asks the public boards and fetches the checkout it runs from: a test reaches neither.
+# ak asks the public boards and fetches the checkout it runs from: a test reaches neither.
 OFFLINE = {"https_proxy": "http://127.0.0.1:9", "http_proxy": "http://127.0.0.1:9",
            "GIT_ALLOW_PROTOCOL": "file"}
 WEEK = 604800
@@ -66,7 +66,7 @@ def staged(case, workers, **turns):
 
 
 def tick(home):
-    done = home.ak("watch")
+    done = home.tick()
     assert done.code == 0, done.out + done.err
     return done.out
 
@@ -83,18 +83,21 @@ def workspaces(fake, role="executor"):
     return [run["argv"][2] for run in fake.runs() if run["role"] == role]
 
 
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class WindowRefills(unittest.TestCase):
     """opus alone builds; its turn is refused with a moment to try again at."""
 
     @classmethod
     def setUpClass(cls):
+        home = staged(cls, ["opus"], claude="work", codex="pass")
+        task = taskfile.write(home, cls.rig.path)
         # The moment comes from the harness's own words and ak reads it against the real
-        # clock, so the test waits it out: just long enough for the run to have reached it.
+        # clock, so the test waits it out: counted from the run's start, which reaches its
+        # turn in a second or two, so a moment already past cannot park the run for an hour.
         cls.back = time.time() + 10
         at = datetime.fromtimestamp(cls.back, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        refused = {"final": f"{SPENT} Try again at {at}.", "exit": 1}
-        home = staged(cls, ["opus"], claude=[refused, "work"], codex="pass")
-        cls.ran = home.ak("run", str(taskfile.write(home, cls.rig.path)), "--no-merge")
+        cls.fakes["claude"].behave({"final": f"{SPENT} Try again at {at}.", "exit": 1}, "work")
+        cls.ran = home.ak("run", str(task), "--no-merge")
         cls.run_dir = taskfile.only_run(home)
         cls.dry = record(cls.run_dir)
         cls.row = row(home, cls.dry["title"])
@@ -125,6 +128,7 @@ class WindowRefills(unittest.TestCase):
         self.assertEqual(workspaces(self.fakes["claude"]), [self.dry["worktree"]] * 2)
 
 
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class AnotherWorker(unittest.TestCase):
     """Two runs with opus alone marked to build, both refused; then the owner marks astra
     too, and a later run of the second's task merges."""
