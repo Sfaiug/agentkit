@@ -31,6 +31,7 @@ TMP_AGE = 2 * 86400             # a /tmp entry nothing changed for two days goes
 DISK_LIMIT = 85                 # pressure shortens retention, never below one day
 TEST_UNIT_AGE = 86400           # no suite runs a day: a test-slice unit this old was left
 ENDED_LOGIN_AGE = 86400         # what a login still runs a day after it ended was forgotten
+GIT_LOCK_AGE = 60               # a git lock this old is asked about: a git at work is mostly done
 
 
 def disk_pressure():
@@ -968,6 +969,71 @@ def stop_ended_logins(log):
                     f"still running: {commands}")
         except (OSError, ValueError, KeyError, subprocess.SubprocessError):
             continue
+
+
+def git_locks(common):
+    """Every lock file in that git directory, the loose objects' folders unread."""
+    for top, dirs, files in os.walk(common):
+        if top == str(common / "objects"):
+            dirs[:] = [name for name in dirs if len(name) != 2]
+        yield from (Path(top) / name for name in files if name.endswith(".lock"))
+
+
+def git_in_use(common, table):
+    """Does a process use that repository: a git in its checkout or a worktree of it, or any
+    process holding a file in its git directory?"""
+    homes = [common.parent]
+    for gitdir in (common / "worktrees").glob("*/gitdir"):
+        try:
+            homes.append(Path(gitdir.read_text().strip()).parent)
+        except OSError:
+            return True             # a worktree it cannot name may be where a git works
+    for row in table.values():
+        git = bool(row["args"]) and Path(row["args"][0]).name.startswith("git")
+        if retention.busy(common, row["paths"]) or git and any(
+                retention.busy(home, [row["cwd"], *row["paths"]]) for home in homes):
+            return True
+    return False
+
+
+def clear_git_locks(log, now=None):
+    """Remove the locks a killed git left in each repository ak works in.
+
+    A git killed holding one leaves it, and every git after it that needs that file fails:
+    the host's memory killer takes git first, and a HEAD.lock left so kept ~/agentkit half
+    moved for ten hours.  A lock's age proves nothing (a commit holds index.lock through its
+    hooks), so one goes only while no process uses its repository (`git_in_use`), as every
+    process can be read, and only if it is still the file that was found.
+    """
+    now = time.time() if now is None else now
+    repos = {config.REPO, *(Path(record["repo"]) for record in config.session_records().values()
+                            if record.get("repo"))}
+    for common in sorted(repo / ".git" for repo in repos):
+        found = {}
+        for lock in git_locks(common):
+            try:
+                info = lock.stat()
+            except OSError:
+                continue
+            if now - info.st_mtime >= GIT_LOCK_AGE:
+                found[lock] = (info.st_ino, info.st_mtime_ns)
+        if not found:
+            continue
+        # read after the locks were found: a git holding one this old was running before
+        table = tmp_processes()[1]
+        if table is None:
+            return                  # no proof any is gone: the next tick asks again
+        if git_in_use(common, table):
+            continue
+        for lock, was in found.items():
+            try:
+                info = lock.stat()
+                if (info.st_ino, info.st_mtime_ns) == was:
+                    lock.unlink()
+                    log(f"removed {lock}, left {orch.span(now - info.st_mtime)} ago by a git "
+                        "that has ended")
+            except OSError:
+                continue
 
 
 def before_run(log):

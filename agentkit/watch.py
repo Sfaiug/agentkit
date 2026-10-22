@@ -7330,6 +7330,9 @@ def local_passes(state, dry_run, log):
         ("retention pass did not finish", orch.stamp, False),
         ("retention pass did not finish", lambda: orch.sweep(log), False),
         ("the ended-login pass did not run", lambda: gc.stop_ended_logins(log), False),
+        # A lock a killed git left fails every git after it that needs that file: gone before
+        # the fetches and the move of ~/agentkit below need theirs.
+        ("the dead git lock pass did not run", lambda: gc.clear_git_locks(log), False),
         # The shared browser's idle tabs are reaped: a machine with no browser on CDP costs one
         # refused connection and nothing else.
         ("browser tidy did not finish", lambda: browser.tidy(log), False),
