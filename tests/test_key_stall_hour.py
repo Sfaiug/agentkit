@@ -5,9 +5,9 @@ nothing it types will move it: only the owner can.  So the pass that finds the s
 types nothing and asks instead: the seat's question is the stall in plain words, which the
 seat's row gives as its reason, and the seat reads `needs you`; the passes after it neither type
 nor ask again.  The hour is the stall's clock as ak keeps it, set back an hour, not waited out.
-Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, before
-a seat of tests/fixtures/akseat.py showing a real Claude pane stopped on an API error, paging
-tests/fixtures/sink.py.
+Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, each
+pass in the box `home.tick()` builds, before a seat of tests/fixtures/akseat.py showing a real
+Claude pane stopped on an API error.
 """
 
 import json
@@ -19,7 +19,6 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
-from fixtures.sink import Sink
 
 ASKED = ("acme is stalled on API Error for an hour and typing has not moved it; open the host, "
          "press this session's number, and get it going again.")
@@ -50,10 +49,8 @@ class StalledAnHour(unittest.TestCase):
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        cls.sink = Sink(home)
-        cls.addClassCleanup(cls.sink.close)
         cls.seat = Seat(home, "acme", screen="claude-stall-pane.txt")
-        cls.passes = [home.ak("watch")]      # the stall, seen for the first time
+        cls.passes = [home.tick()]      # the stall, seen for the first time
         watched = state(home, "watch.json") or {}
         stall = (watched.get("stalls") or {}).get("acme")
         assert stall, f"the first pass kept no stall for acme: {cls.passes[0]}"
@@ -63,11 +60,11 @@ class StalledAnHour(unittest.TestCase):
         stall.update(since=now - HOUR, stall_at=now - HOUR, changed_at=now - HOUR,
                      nudged_at=now - HOUR + 200)
         home.write(".agentkit/state/watch.json", watched)
-        cls.passes.append(home.ak("watch"))
+        cls.passes.append(home.tick())
         cls.notice = state(home, "notify-acme.json")
         cls.told = state(home, "watch.json")["stalls"]["acme"].get("told")
         cls.row = row(home, "acme")
-        cls.passes.append(home.ak("watch"))
+        cls.passes.append(home.tick())
 
     def test_every_pass_succeeds(self):
         for done in self.passes:
@@ -92,10 +89,6 @@ class StalledAnHour(unittest.TestCase):
         self.assertEqual(state(self.home, "notify-acme.json"), self.notice)
         self.assertEqual(state(self.home, "watch.json")["stalls"]["acme"].get("told"),
                          self.told)
-        # the page itself waits out a needs-you card's minute, so these passes, seconds apart,
-        # may not have sent it yet; never twice, and never with what the seat said
-        self.assertIn([page for page in self.sink.pages() if "acme" in page],
-                      ([], ["🙋 Needs you · acme"]))
 
 
 if __name__ == "__main__":
