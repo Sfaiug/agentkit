@@ -67,8 +67,9 @@ provider = "anthropic"
 """
 ESC, UP, DOWN, RIGHT, LEFT, ENTER = b"\x1b", b"\x1b[A", b"\x1b[B", b"\x1b[C", b"\x1b[D", b"\r"
 TAB = b"\t"
-EFFORT_KEYS = "  ↑↓←→ move   ⏎ effort   esc back"   # the key line on an effort
-MARK_KEYS = "  ↑↓←→ move   ⏎ mark   r recommended   esc back"   # on a seat's mark
+# the key lines on a seat's effort and mark: a seat's open the models screen with `r`
+EFFORT_KEYS = "  ↑↓←→ move   ⏎ effort   r recommended   esc back"
+MARK_KEYS = "  ↑↓←→ move   ⏎ mark   r recommended   esc back"
 # What a worker's own run leaves in the environment; nothing here may act on that run.
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
              "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLORTERM", "COLUMNS", "LINES")
@@ -251,7 +252,7 @@ class Matrix(unittest.TestCase):
         self.assertEqual(lines[headings(lines)].split(), ["orch", "builds", "reviews", "effort"])
         self.assertEqual(row(lines, "opus")[1].split()[2:5], ["●", "■", "■"])
         self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ mark   esc back")
-        lines = screen.press(RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
+        lines = screen.press(RIGHT * 3, lambda lines: lines[-1] == "  ↑↓←→ move   ⏎ effort   esc back")
         self.assertEqual(screen.path.read_bytes(), before)
         screen.press(DOWN + ENTER, lambda lines: effort(lines, "opus") == "max")
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "max")
@@ -397,13 +398,13 @@ class Matrix(unittest.TestCase):
                                                 if "+ add a model" in line)]
         down = sum(1 for line in models if line.startswith(("  ", "›"))) + 2
         lines = screen.press(DOWN * down, lambda lines: highlighted(lines).startswith("› Discord"))
-        self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   esc back")
+        self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   r recommended   esc back")
         mark = len(screen.text())
         screen.press(ENTER)                               # the step, then the screen again
         screen.saw("<discord step>", after=mark)
         self.assertNotIn("\x1b[?1049l", screen.text()[mark:])   # typed on the matrix's keys
         lines = screen.press(DOWN, lambda lines: highlighted(lines).startswith("› Weekly audit"))
-        self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   esc back")   # its step, like Discord's
+        self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   r recommended   esc back")   # its step, like Discord's
         # the last stop: the build under the page is read, and never highlighted
         lines = screen.press(DOWN, lambda lines: highlighted(lines).startswith("› Weekly audit"))
         self.assertIn("Version abc1234 · 2026-09-29", [line.strip() for line in lines])
