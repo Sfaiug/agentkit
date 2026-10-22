@@ -27,7 +27,8 @@ workspace), `sh` (a command run there), `commit` (a message for all of it), `han
 of argument lists for `ak hand-in`), `final` (final.md's text), `session` (the id handed back:
 the one resumed, else `sid-<harness>-<n>`), `exit` (0).  A hand-in goes through the ak build
 under test, the one AK_BIN names.  Every other verb answers as `answer` set it, or as a harness
-that is logged in with no meter to read.
+that is logged in with no meter to read, except that `interactive` refuses an id for a new
+conversation (exit 3) where the shipped adapter does, as Codex's TUI takes none.
 
 Each harness's Adapter: `n` counts its `run` calls, `runs()` and `calls(verb)` read its log,
 `behave(*steps)` scripts its next turns, `answer(verb, out, code)` sets what another verb
@@ -79,6 +80,8 @@ WORDS = {"work": {**_every(WORK), "reviewer": PASS}, "pass": _every(PASS),
          "silent": _every({}),
          "flaky": _every({"final": 'API Error: 500 {"type":"error"}', "exit": 1}),
          "dead": _every({"final": "You have hit your usage limit.", "exit": 1})}
+# How a shipped adapter refuses a conversation id of ak's making for a TUI that takes none.
+NEW_ID_REFUSED = '[ "${4:-}" = new ] && {'
 ANSWERS = {"usage": '{"meters": [], "error": "unknown: fake"}', "auth": "the fake needs no login",
            "interactive": "sleep 600", "login-end": '{"email": null, "ends": null}',
            "models": ""}
@@ -160,7 +163,12 @@ def main(directory, harness, ak, verb="", *args):
     fake = Adapter(Path(directory), harness)
     call = {"verb": verb, "argv": list(args), "cwd": os.getcwd(),
             "env": {k: v for k, v in os.environ.items() if k.startswith(("AK_", "AGENTKIT_"))}}
-    if verb != "run":
+    shipped = REPO / "adapters" / f"{harness}.sh"
+    if (verb == "interactive" and args[3:4] == ("new",) and shipped.is_file()
+            and NEW_ID_REFUSED in shipped.read_text()):
+        print(f"{harness}.sh interactive: the TUI cannot be given a thread id", file=sys.stderr)
+        code = 3
+    elif verb != "run":
         out, code = (fake._json("answers") or {}).get(verb) or [
             ANSWERS.get(verb, f"fake {harness}: {verb}"), 0]
         print(out)
