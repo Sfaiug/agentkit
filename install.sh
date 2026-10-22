@@ -880,16 +880,15 @@ EOF
     note "run \`systemctl --user daemon-reload\` to pick up $LIMITS"
   echo "slice: $LIMITS caps agentkit at $slice_tasks tasks and $mem_max of memory; CPU yields to other work"
   fi
-  # Sessions keep the larger share of a busy host.  These are separate child slices so a
-  # leaking detached run cannot consume the session slice's weight.  Memory says the same: 30%
-  # of the machine is protected for the seats, so under pressure inside the slice the
+  # Finished work and runs get the CPU and I/O before seats testing their own work.
+  # Memory still protects 30% of the machine for seats, so under memory pressure the
   # runs give memory back first.  A share, like the ceiling, so it follows this machine.  Our
   # own file is rewritten when it differs; one whose first line is not ours is left alone.
   for child in agentkit-seats.slice agentkit-runs.slice; do
-    weight=100 protect=$'\nMemoryLow=30%'
+    weight=10 protect=$'\nMemoryLow=30%'
     [ "$child" = agentkit-runs.slice ] && weight=40 protect=""
     dropin="$HOME/.config/systemd/user/$child.d/weights.conf"
-    want="# Written by agentkit's install.sh: interactive sessions have priority over detached runs.
+    want="# Written by agentkit's install.sh: seats yield CPU and I/O to runs.
 [Slice]
 CPUWeight=$weight
 IOWeight=$weight$protect"
@@ -904,6 +903,9 @@ IOWeight=$weight$protect"
       printf '%s\n' "$want" >"$dropin"
       WEIGHTS_CHANGED=1
     fi
+    # Updating the file alone must not leave already open seats with the old share.
+    systemctl --user set-property --runtime "$child" "CPUWeight=$weight" "IOWeight=$weight" 2>/dev/null ||
+      note "run \`systemctl --user set-property --runtime $child CPUWeight=$weight IOWeight=$weight\` to apply the weights"
   done
   # Each seat and each tmux pane holds a run's cap, so a runaway dies alone, long before the
   # slice fills: agentkit-seat-*.scope is a seat's harness with all it starts (and a server

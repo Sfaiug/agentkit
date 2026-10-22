@@ -110,7 +110,7 @@ class Band(unittest.TestCase):
                      matrix.render(TABLE, {}, band=5).splitlines()]
         self.assertEqual(lines[0].split(), ["model", "harness", "id", "orch", "exec", "review",
                                             "cost", "$/task"])
-        self.assertRegex(lines[1], r"^- +acme +acme-5 @ max +- +100 of 3 +- +5 +-$")
+        self.assertRegex(lines[1], r"^- +acme +acme-5 @ max +- +100 of 3 +- +5\.00 +-$")
         text = "\n".join(lines)
         self.assertIn("recommended: execute acme-5 @ high (96 of 3)", text)
         self.assertIn("a row's quality for a role is 100 less the mean of the points it is behind",

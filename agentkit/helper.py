@@ -5,7 +5,7 @@ own), with only the tree under test and its repository's history mounted, read-o
 beyond loopback: the Mac's own files, keys and logins never reach it. A repository with neither
 runs its suite here. The Mac keeps each repository's history between suites, so a suite sends
 only the commits it lacks. A piece the Mac lost -- it left its charger or slept, the connection
-or the VM broke -- exits `LOST`.
+or the VM broke -- returns a helper failure code.
 """
 
 from collections import namedtuple
@@ -22,9 +22,10 @@ import tempfile
 
 from . import config, gitcall, orch
 
-LOST = 255            # ssh's own failure, and tools/helper/mac.sh's for each failure of its own
+LOST = 255            # ssh's own failure
 LACKS = 3             # mac.sh's `prepare`: the Mac's copy lacks history the parcel left out
 SHORT = 254           # piece.sh: the kernel of the piece's VM killed a process for memory
+BATTERY, BUSY, BROKEN = 251, 252, 253   # mac.sh: off power, held by another suite, could not run
 TOOLS = config.REPO / "tools" / "helper"
 RECIPE = "tools/helper/Containerfile"     # a repository's recipe when `suite_image:` names none
 SSH = ("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15")
@@ -85,25 +86,34 @@ def _tracked(cwd, path):
 
 
 def room(alias, piece_cpus, piece_mem_mb, least_mb=0):
-    """(pieces, CPUs each, MiB each) the Mac fits now, or None: no answer, on battery, another
-    suite holds it or no room. Its CPUs less its load; half the memory macOS calls free, so the
+    """((pieces, CPUs each, MiB each), reason): a fit, or (None, why it cannot run there).
+    Its CPUs less its load; half the memory macOS calls free, so the
     Mac stays its owner's. A VM gets two CPUs or more, as a one-CPU VM's kernel hands a
     terminal's bytes over late and the suite's terminal tests read them at once, and twice the
     piece's measured memory, as it also holds its own kernel, page cache and clone, or
     `least_mb` where that is more."""
     try:
         probe = _remote(alias, "probe", text=True, timeout=30)
+        if probe.returncode:
+            return None, failure(probe.returncode)
         readings = {key: float(value) for key, value in
                     (line.split(None, 1) for line in probe.stdout.splitlines() if " " in line)}
         spare = readings["cpus"] - readings["load"]
         free_mb = readings["memory_mb"] * readings["free_percent"] / 200
-    except (OSError, subprocess.TimeoutExpired, KeyError, ValueError):
-        return None
-    count = min(int(spare // max(piece_cpus, 2)),
-                int(free_mb // max(2 * piece_mem_mb, least_mb)))
-    if probe.returncode or count < 1:
-        return None
-    return count, int(spare // count), int(free_mb // count)
+        count = min(int(spare // max(piece_cpus, 2)),
+                    int(free_mb // max(2 * piece_mem_mb, least_mb)))
+    except (OSError, subprocess.TimeoutExpired, KeyError, ValueError, OverflowError):
+        return None, "did not answer (asleep or away)"
+    if count < 1:
+        return None, f"has no room ({spare:g} spare CPUs and {free_mb:g} MiB)"
+    return (count, int(spare // count), int(free_mb // count)), ""
+
+
+def failure(code):
+    """The helper's reason, decided from its exit, never its diagnostic output."""
+    return {LOST: "did not answer (asleep or away)", BATTERY: "is on battery", BUSY: "is busy",
+            BROKEN: "could not prepare or run the container", SHORT: "ran out of memory"}.get(
+                code, f"failed (exit {code})")
 
 
 def _known(alias, repo):
@@ -139,22 +149,22 @@ def _parcel(cwd, default, known, recipe, parcel):
 
 
 def start(piece_cpus, piece_mem_mb, cwd, log):
-    """The suite at `cwd` sent to the helper, or None to run it here."""
+    """(the suite sent to the helper, reason): an Away, or (None, why it runs here)."""
     alias = config.suite_helper()
     if not alias:
-        return None
+        return None, "no suite helper set up"
     # A checkout's repository is the one its main checkout has, wherever the suite runs.
     repo = hashlib.sha256(str(gitcall.main_checkout(cwd)).encode()).hexdigest()[:12]
     try:
         image, recipe = _recipe(cwd, repo) or (None, None)
     except ValueError as exc:
         log(f"WARN the suite helper cannot build suite_image: {exc}; the suite runs here")
-        return None
+        return None, f"helper {alias} cannot build suite_image: {exc}"
     if not image:
-        return None
-    fit = room(alias, piece_cpus, piece_mem_mb, _least(repo))
+        return None, f"no recipe for the suite helper {alias}"
+    fit, reason = room(alias, piece_cpus, piece_mem_mb, _least(repo))
     if fit is None:
-        return None
+        return None, f"helper {alias} {reason}"
     code, branch = gitcall.git_out(cwd, "symbolic-ref", "-q", "--short", "HEAD")
     named, default = gitcall.git_out(cwd, "rev-parse", "--abbrev-ref", "origin/HEAD")
     programs = {program for program in orch.agent_programs() if config.harness_binary(program)}
@@ -174,11 +184,10 @@ def start(piece_cpus, piece_mem_mb, cwd, log):
     except (OSError, subprocess.SubprocessError):
         sent = LOST
     if sent:
-        log(f"WARN the suite helper {alias} did not take the suite; it runs here")
         finish(away)
-        return None
+        return None, f"helper {alias} {failure(sent)}"
     log(f"suite on {alias}: {fit[0]} pieces, {fit[1]} CPUs and {fit[2]} MiB each")
-    return away
+    return away, ""
 
 
 def _least(repo):
@@ -208,7 +217,7 @@ def short(away):
 
 
 def piece(away, shard, command):
-    """The argv of one piece on the helper: it exits as the piece did, or `LOST`."""
+    """The argv of one piece on the helper: it exits as the piece did, or a helper failure."""
     return _remote(away.alias, "run", away.key, away.image,
                    f"ak-{away.key}-{shard.replace('/', '-')}", away.cpus, away.memory_mb,
                    away.repo, shard, away.branch, away.default, away.programs, command)

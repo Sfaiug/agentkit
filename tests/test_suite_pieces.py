@@ -186,6 +186,7 @@ class SuitePieces(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {
             "AK_CGROUP_ROOT": str(root), "AK_CGROUP_FILE": str(membership)}))
         self.stack.enter_context(patch.object(orch, "slice_cgroup", return_value=whole))
+        self.stack.enter_context(patch.object(orch, "run_slice_cgroup", return_value=parent))
         self.stack.enter_context(patch.object(host.time, "sleep", side_effect=sleep))
         self.stack.enter_context(patch.object(host.time, "monotonic", side_effect=lambda: clock[0]))
         return whole, parent

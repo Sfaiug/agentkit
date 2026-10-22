@@ -27,6 +27,9 @@ class Harness:
     def conversation(self, record, cwd):
         return "c1"
 
+    def seat_token_sources(self, record):
+        return None
+
     def user_messages(self, record, cwd, conversation, *, seat=None):
         return [{"at": NOW - 10 * HOUR, "text": "words"}]
 

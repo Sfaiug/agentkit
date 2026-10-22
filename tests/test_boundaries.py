@@ -24,6 +24,13 @@ REPO = Path(__file__).resolve().parents[1]
 SCOPE = ("--", ".", ":!tests/", ":!*.md")
 
 RULES = [
+    # Lifecycle reads belong to the lightweight reader, so a completed tool never needs
+    # the screen watcher. The two reads formerly in watch.py have moved here together.
+    {"name": "lifecycle fact interpretation",
+     "flags": (),
+     "pattern": r'fact\.get\("event"\)|hook_facts_path\([^)]*\)\.read_text',
+     "home": ("agentkit/lifecycle.py",),
+     "max": 0},
     # The old wrapper owned four blocking transfer/drain sites. One relay now
     # owns both directions, so another injector cannot reintroduce their cycle.
     {"name": "terminal relay",
@@ -81,7 +88,7 @@ RULES = [
      "pattern": "claude|codex|muse|opencode|grok|grokbuild|antigravity|gemini|anthropic|openai"
                 "|xai|mimo|[\"']meta[\"']|[\"']google[\"']",
      "home": ("adapters/", "agentkit/harness/", "config.default.toml"),
-     "max": 188},
+     "max": 187},
     # What a refusal from a provider looks like is the harness's to say (adapters/*.toml,
     # its plugin): a copy in the loop or the watcher is a second classifier to keep in step.
     # Every provider word counts, in code or comment, but none of ak's own names: the

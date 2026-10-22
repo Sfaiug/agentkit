@@ -36,6 +36,14 @@ FRONT_KEYS = ("tests", "health", "cleanup", "users", "features", "suite_image", 
 BODY_WORDS = 300
 
 
+# Prose is where a branch would put facts no check holds.  Past AGENTS.md (`BODY_WORDS`) and a
+# root README of `README_WORDS` (what the project is and how to start it), a prose file only
+# shrinks and a new one holds nothing, so no guide, map or notes file ever regrows; the product
+# text the base's `content:` names grows freely.
+PROSE = (".md", ".markdown", ".mdx", ".rst", ".adoc")
+README_WORDS = 300
+
+
 BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
                 "the task or its checks are wrong")
 
@@ -286,12 +294,17 @@ def files_scope(lp):
 
 
 def rules_check(lp):
-    """Refuse a branch's change to AGENTS.md that workers would not get as written: a link, a
-    Git filter, more than a harness reads of it, or a front matter line ak does not read; or
-    one that grows its body past `BODY_WORDS` and past what the base holds.
-    A branch that leaves the file alone, or deletes it, passes."""
-    if lp.scratch or not gitcall.git(lp.wt, "diff", "--name-only", "--no-renames",
-                             f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
+    """Refuse a branch that grows prose past what it may hold (`prose_grown`), or changes
+    AGENTS.md so workers would not get it as written: a link, a Git filter, more than a harness
+    reads of it, or a front matter line ak does not read; or grows its body past `BODY_WORDS`
+    and past what the base holds.  A branch that leaves the file alone, or deletes it, passes
+    that part."""
+    if lp.scratch:
+        return ""
+    grown = prose_grown(lp)
+    if grown:
+        return grown
+    if not gitcall.git(lp.wt, "diff", "--name-only", "--no-renames", f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
         return ""
     entry = gitcall.git(lp.wt, "ls-tree", "HEAD", "--", "AGENTS.md")
     if not entry:
@@ -327,6 +340,31 @@ def rules_check(lp):
     return (f"AGENTS.md front matter has lines ak does not read: "
             f"{', '.join(f'`{line}`' for line in unread)} (it reads {', '.join(FRONT_KEYS)}): "
             "remove them, or fix the misspelled name.")
+
+
+def prose_grown(lp):
+    """The refusal for the first prose file (`PROSE`) the branch grows past what it may hold, or "".
+
+    Measured against the base, whose `content:` is the one that counts: a branch cannot widen
+    its own exemption.  A rename is a new file, so no file grows by moving.
+    """
+    content = (gitcall.declared_at(lp.wt, lp.base_sha, "content") or "").split()
+    # a link turned file (T) grows too, and names keep every byte, leading spaces included
+    changed = gitcall.git_bytes(lp.wt, "diff", "--name-only", "--no-renames", "--diff-filter=AMT", "-z",
+                                f"{lp.base_sha}...HEAD")
+    for path in filter(None, changed.split("\0")):
+        if (not path.lower().endswith(PROSE) or path == "AGENTS.md"
+                or any(path.startswith(prefix) for prefix in content)):
+            continue
+        before, words = (len(gitcall.git(lp.wt, "cat-file", "-p", f"{ref}:{path}", check=False).split())
+                         for ref in (lp.base_sha, "HEAD"))
+        floor = README_WORDS if path == "README.md" else 0
+        if words > max(floor, before):
+            return (f"{path} grows from {before} to {words} words; prose outside the project's "
+                    f"`content:` {f'past {floor} words ' if floor else ''}only shrinks. Move what "
+                    "this adds into a test, a check or a comment at the code it is about; words that are "
+                    "the product itself need the base's `content:` to name them first.")
+    return ""
 
 
 def unknown_front_lines(text):

@@ -14,10 +14,9 @@ HAND_IN_DISPUTE = 'ak hand-in dispute PATH:LINE "WHY IT IS WRONG" (--run COMMAND
 COMMANDS = {
     "models": ("usage: ak models [--json] [--refresh]",
                "Score every model and effort per role from the public boards and recommend one per\n"
-               "role: Artificial Analysis (key in ~/.agentkit/secrets/artificialanalysis_key, free),\n"
-               "Arena and LiveBench, each asked once a day; --refresh asks now, --json prints\n"
-               "the scored rows, the recommendation and when each board was asked and answered, or\n"
-               "its error.",
+               "role: Artificial Analysis, Arena and LiveBench, each asked once a day; --refresh\n"
+               "asks now, --json prints the scored rows, the recommendation and when each board\n"
+               "was asked and answered, or its error.",
                "ak models"),
     "usage": ("usage: ak usage [--json]", "Show provider usage and worker pick order.",
               "ak usage --json"),

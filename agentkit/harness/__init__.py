@@ -209,6 +209,26 @@ def moment(at):
     return at
 
 
+def token_family(paths, roots, metadata):
+    """Find descendants from small session headers, never scanning other sessions' messages."""
+    children, found, pending = {}, {}, list(roots)
+    for path in paths:
+        try:
+            with path.open("rb") as source:
+                session, parent = metadata(json.loads(source.readline()))
+            found[session] = path
+            children.setdefault(parent, []).append(session)
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+            continue
+    seen = set()
+    while pending:
+        session = pending.pop()
+        if session not in seen:
+            seen.add(session)
+            pending.extend(children.get(session, ()))
+    return [found[session] for session in seen if session in found]
+
+
 def user_message(at, text):
     """Keep the recorded text and time, never inventing either for a notice."""
     if not isinstance(text, str) or not text:
@@ -637,7 +657,17 @@ class Harness:
         hook = self._hook("register_mcp")
         return hook(servers) if hook else None
 
-    # --- what one headless turn spent ----------------------------------------
+    # --- what seats and headless turns spent ---------------------------------
+
+    def seat_token_sources(self, record):
+        """Usage logs for this seat and its children; None means no reader is available."""
+        hook = self._hook("seat_token_sources")
+        return hook(record) if hook else None
+
+    def seat_token_usage(self, entry, cursor):
+        """One log entry's (time, unique event id, tokens), or None; cursor survives readings."""
+        hook = self._hook("seat_token_usage")
+        return hook(entry, cursor) if hook else None
 
     def record_turn(self, out, state_dir, account):
         """Import this harness's reports after the box closes, without exposing ak's records."""

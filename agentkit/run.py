@@ -750,7 +750,7 @@ def memory_cap_mb(ceiling_mb=None):
 def run_scope_limits(ceiling_mb=None, *, cap_mb=None, cpu_weight=40):
     """(cap in MiB, systemd properties) for one run scope.
 
-    CPU and I/O weight stay below the seats' 100, and the memory cap is applied
+    CPU and I/O weight stay above the seats', and the memory cap is applied
     as both MemoryMax and MemorySwapMax: the same number, so a leak cannot trade
     one for the other and keep going.  OOMPolicy=continue, where the manager takes
     it, has the kernel end only the process that grew, not the whole scope: the
@@ -758,7 +758,7 @@ def run_scope_limits(ceiling_mb=None, *, cap_mb=None, cpu_weight=40):
     so.  The properties are what `systemd-run -p` takes; the cap is what the
     receipt records, so the reason can still name the number after the process
     that knew it is gone. A lander supplies its recorded suite need as `cap_mb`,
-    and its own CPU weight: among the runs only, so the seats keep theirs.
+    and its own CPU weight, above every run's.
     """
     cap = memory_cap_mb(ceiling_mb) if cap_mb is None else cap_mb
     return cap, ("-p", f"CPUWeight={cpu_weight}", "-p", "IOWeight=40",

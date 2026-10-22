@@ -1,9 +1,9 @@
 """A red batch whose suite piece named the tests that failed again alone is narrowed by those
 tests first: each halfway step runs them alone, a pass, each named as run, moving the search
 deeper, and the stack right behind the deepest one they pass in is the member that turned them
-red.  It fixes; the rest rebuild and land in the same pass.  Any other step gets its whole
-check, as without them -- a test a later member added is not there yet -- so a red or an empty
-run there alone blames no one.
+red.  A confirmed failure moves the search earlier.  It fixes; the rest rebuild and land in
+the same pass.  An inconclusive step gets its whole check, as without them -- a test a later
+member added is not there yet -- so an empty run there alone blames no one.
 
 Offline: real Git and checks, the suite a shell runner that runs only those asked for and
 names each it runs and each that fails, sandbox records, fake processes and wakes.
@@ -37,7 +37,7 @@ def on(*members):
     return {f"member-{n}.txt" for n in members}
 
 
-class RedNarrowedByItsFailedTests(test_lander.LanderFixture, unittest.TestCase):
+class NarrowFixture(test_lander.LanderFixture):
     stacked_files = test_merge_train.MergeTrain.stacked_files
     assert_members_deliver_in_order = test_merge_train.MergeTrain.assert_members_deliver_in_order
 
@@ -77,13 +77,14 @@ class RedNarrowedByItsFailedTests(test_lander.LanderFixture, unittest.TestCase):
                    for files, (_, _, kw) in zip(self.trees, self.checks)]
         return checked, self.wait(members[culprit - 1])["fix"]
 
+
+class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
     def test_a_bad_fourth_of_six_is_found_by_its_failed_tests_alone(self):
         checked, fix = self.narrow(NAMED, {}, 6, 4, {"broken.txt": "broken\n"})
         self.assertEqual(checked, [
             (on(1, 2, 3, 4, 5, 6), None),       # the deepest, whole: red on t_tax
             (on(1, 2, 3), ["t_tax"]),           # halfway: they pass, deeper
-            (on(1, 2, 3, 4), ["t_tax"]),        # they fail: proves nothing alone
-            (on(1, 2, 3, 4), None),             # its whole check: red, behind their pass
+            (on(1, 2, 3, 4), ["t_tax"]),        # confirmed red, behind their pass
             (on(1, 2, 3, 5, 6), None)])         # rebuilt, whole
         self.assertEqual(fix["tests"], ["t_tax"])
         self.assertIn("FAIL t_tax", Path(fix["log"]).read_text())
@@ -95,8 +96,7 @@ class RedNarrowedByItsFailedTests(test_lander.LanderFixture, unittest.TestCase):
             (on(1, 2, 3, 4), None),             # the deepest, whole: red on test_new.sh
             (on(1, 2), ["test_new.sh"]),        # not there yet: runs none, proves nothing
             (on(1, 2), None),                   # its whole check: green
-            (on(1, 2, 3), ["test_new.sh"]),
-            (on(1, 2, 3), None),                # red, right behind green
+            (on(1, 2, 3), ["test_new.sh"]),      # confirmed red, right behind green
             (on(1, 2, 4), None)])               # rebuilt, whole
         self.assertEqual(fix["tests"], ["test_new.sh"])
 
@@ -112,7 +112,6 @@ class RedNarrowedByItsFailedTests(test_lander.LanderFixture, unittest.TestCase):
             (on(1, 2, 3), ["t_tax"]),           # moved its checkout: proves nothing
             (on(1, 2, 3), None),                # on the stack itself: green
             (on(1, 2, 3, 4), ["t_tax"]),
-            (on(1, 2, 3, 4), None),             # red, right behind green
             (on(1, 2, 3, 5, 6), None)])
         self.assertEqual(run.git(self.repo, "rev-parse", "kept"), kept)
 

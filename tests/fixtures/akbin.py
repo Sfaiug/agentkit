@@ -18,9 +18,13 @@ may send another way.
     with Home() as home:
         done = home.ak("run", "-h")
         assert done.code == 0, done.err
+
+`home.tick()` runs one `ak watch` in a box (`boxable()` says whether bubblewrap can build
+one here) and waits out what it detached there, so nothing of it outlives the test.
 """
 
 from collections import namedtuple
+import functools
 import json
 import os
 from pathlib import Path
@@ -46,6 +50,28 @@ REFUSED = ("gh", "ssh", "curl", "systemctl", "systemd-run", "loginctl", "journal
            "notify-send", "claude", "codex", "muse", "grok", "opencode", "agy")
 
 Done = namedtuple("Done", "code out err")
+
+# A tick's last breath in its box: what it detached is waited out before the box goes.
+_LAST = r"""
+import os, subprocess, sys, time
+code = subprocess.call(sys.argv[1:])
+deadline = time.monotonic() + 60
+while time.monotonic() < deadline:
+    if not [p for p in os.listdir("/proc") if p.isdigit() and int(p) not in (1, os.getpid())]:
+        sys.exit(code)
+    time.sleep(0.1)
+sys.exit("the tick left processes running")
+"""
+_BOX = ("bwrap", "--dev-bind", "/", "/", "--unshare-net", "--unshare-pid", "--proc", "/proc",
+        "--tmpfs", "/tmp")
+
+
+@functools.cache
+def boxable():
+    """Whether bubblewrap can build `home.tick()`'s box here."""
+    return bool(shutil.which("bwrap")) and subprocess.run(
+        [*_BOX, "--", "true"], capture_output=True, timeout=60).returncode == 0
+
 
 LOG = "#!/bin/sh\n{python} -c 'import json, sys; print(json.dumps(sys.argv[1:]))' \"$@\" >>{log}\n"
 REFUSE = LOG + 'echo "{name}: not scripted in this test" >&2\nexit 1\n'
@@ -216,6 +242,15 @@ class Home:
                 if fd is not None:
                     os.close(fd)
         return Done(proc.returncode, out, err)
+
+    def tick(self, env=None):
+        """One `ak watch`, boxed: a tick asks the public boards and the shared browser on
+        loopback, so it gets a loopback of its own, and its collection sweeps /tmp, so it gets
+        one holding only this Home and the program."""
+        keep = {self.root, self.tmux_dir, REPO, Path(AK).resolve().parent}
+        binds = [arg for path in sorted(map(str, keep), key=len)
+                 if Path(path).is_relative_to("/tmp") for arg in ("--bind", path, path)]
+        return self.run(*_BOX, *binds, "--", sys.executable, "-c", _LAST, AK, "watch", env=env)
 
     def spawn(self, *args, env=None, cwd=None):
         """Start the program and leave it running, its output in `home.log(...)`; `close` ends
