@@ -3284,7 +3284,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     withholding that Enter would leave a draft the caller cannot recover, or let a retry
     append the same text to itself.
     """
-    text = terminal_mod.plain(text, spaced=True)    # a typed escape or newline is a key, not text
+    text = terminal_mod.keyed(text)    # a typed escape or newline is a key, not text
     try:
         seat = dict(session, name=config.resolve_session(session["name"]))
     except (config.Error, OSError):
@@ -3928,7 +3928,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     answer, which only the owner's own prompt gives (`notify.progress`).
     """
     session = pinned(session)
-    text = terminal_mod.plain(text, spaced=True)    # as `type_checked` types it: marks match
+    text = terminal_mod.keyed(text)    # as `type_checked` types it: marks match
     mark = {"line": text, "seat": session.get("created")}
     if isinstance(typed, dict) and typed.get("pane") and typed == dict(mark, pane=typed["pane"]):
         return _line_left(dict(session, pane=typed["pane"]), text, log, cfg, stale)

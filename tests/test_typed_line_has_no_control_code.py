@@ -1,6 +1,7 @@
 """A line ak types into a seat reaches it with no control code, whoever wrote the line: a typed
-escape is a key.  A hand-back carrying a spinner's frames moved the composer's cursor on each one
-and landed scrambled, under an Enter that never matched it (22 Oct 2026).
+escape is a key.  Every printable character stays the line's own.  A hand-back carrying a
+spinner's frames moved the composer's cursor on each one and landed scrambled, under an Enter
+that never matched it (22 Oct 2026).
 
 Offline: every read of the seat and every key into it are fakes under `watch`.
 """
@@ -16,8 +17,8 @@ sys.path.insert(0, str(REPO))
 from agentkit import watch  # noqa: E402
 
 SEAT = {"name": "acme", "created": 10}
-RAW = "Fix acme: \x1b[32mPASS\x1b[0m / \x1b[?25l◒  Upgrading\x1b[999D\x1b[J◇  done\tnow\n"
-CLEAN = "Fix acme: PASS / ◒  Upgrading◇  done now "
+RAW = "Fix \"a\u00a0b.py\", \"\ue000.py\": \x1b[32mPASS\x1b[0m / \x1b[?25l◒  Upgrading\x1b[999D\x1b[J◇  done\tnow\n"
+CLEAN = "Fix \"a\u00a0b.py\", \"\ue000.py\": PASS / ◒  Upgrading◇  done now "
 
 
 class TypedLineHasNoControlCode(unittest.TestCase):
