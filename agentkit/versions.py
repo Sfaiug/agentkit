@@ -26,8 +26,8 @@ import tempfile
 
 from . import config, retention
 
-REPOSITORY = "agentkit.git"     # under config.HOME: ak's repository, each version a worktree of it
-VERSIONS = "versions"           # under config.HOME: a version checked out to go live, or swapped out
+REPOSITORY = "agentkit.git"     # in config.OWN: ak's repository, each version a worktree of it
+VERSIONS = "versions"           # in config.OWN: a version checked out to go live, or swapped out
 CAP = 30 * 60                   # one git step, as update.STEP_CAP
 AT_FDCWD = -100                 # Linux's, for renameat2
 RENAME_EXCHANGE = 2             # renameat2's flag on Linux
@@ -120,10 +120,10 @@ def remove(path):
 
 
 def repair(*paths):
-    """Each version's record of where it is, put right: a swap leaves the two crossed."""
+    """Did each version's record of where it is come out right?  A swap leaves the two crossed."""
     # the clone adopted is no worktree of the repository, and git would fail the lot over it
-    git(repository(), "worktree", "repair", *(str(path) for path in paths
-                                              if (path / ".git").is_file()))
+    return git(repository(), "worktree", "repair", *(str(path) for path in paths
+                                                     if (path / ".git").is_file()))[0] == 0
 
 
 def tidy(live):
@@ -135,12 +135,14 @@ def tidy(live):
         found = sorted((config.HOME / VERSIONS).iterdir())
     except OSError:
         return
-    repair(live, *found)
+    if not repair(live, *found):
+        return      # a record still crossed would have git remove the live one's
     held = gc.tmp_processes()[0]
     for path in found:
         code, changes = git(path, "--no-optional-locks", "status", "--porcelain")
-        # a checkout cut off part way lists only what it never wrote: nobody's work
-        kept = code == 0 and any(line[:2] not in (" D", "D ") for line in changes.splitlines())
+        # a checkout cut off part way lists only what it never wrote: nobody's work; a status
+        # git could not read proves nothing
+        kept = code != 0 or any(line[:2] not in (" D", "D ") for line in changes.splitlines())
         if not kept and not retention.busy(path.resolve(), held):
             remove(path)
 

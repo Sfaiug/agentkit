@@ -12,6 +12,7 @@ test_go_live_retries_install's offline clone, its origin one commit ahead.
 import errno
 from pathlib import Path
 import sys
+import time
 import unittest
 from unittest.mock import patch
 
@@ -65,6 +66,9 @@ class InstallSwitchesInOneStep(unittest.TestCase):
         # a worktree added from the clone is still of agentkit's checkout, wherever its repository went
         self.assertEqual(gitcall.main_checkout(self.wt), self.clone)
         self.assertEqual(retention.common_directory(self.clone), versions.repository().resolve())
+        # ak's own, never a session's leftover a week unchanged
+        later = time.time() + gc.GC_AGE + 60
+        self.assertEqual(list(gc.home_entries(config.HOME, gc.GC_AGE, later, set())), [])
         third = self.push("third")
         gitdir = Path(git(self.clone, "rev-parse", "--absolute-git-dir"))
         (gitdir / "HEAD.lock").write_text("")
@@ -92,6 +96,7 @@ class InstallSwitchesInOneStep(unittest.TestCase):
     def test_a_move_cut_off_after_the_swap_is_live_whole_and_installs_next(self):
         self.go_live()
         third, real, swapped = self.push("third"), versions.exchange, []
+        real_repair = versions.repair
 
         def exchange(one, other):
             real(one, other)
@@ -100,6 +105,7 @@ class InstallSwitchesInOneStep(unittest.TestCase):
         def repair(*paths):
             if swapped:
                 raise KeyboardInterrupt     # the tick, killed the moment after its swap
+            return real_repair(*paths)
         with patch.object(versions, "exchange", exchange), \
                 patch.object(versions, "repair", repair), self.assertRaises(KeyboardInterrupt):
             self.go_live()
@@ -107,6 +113,12 @@ class InstallSwitchesInOneStep(unittest.TestCase):
         self.assertEqual(self.installs(), 1)
         self.assertEqual(self.go_live(), [f"agentkit is live at {third[:12]}"])
         self.assertEqual(self.installs(), 2)
+        # records git could not put right keep every version, the live one's among them
+        with patch.object(versions, "repair", return_value=False), \
+                patch.object(gc, "tmp_processes", lambda: (set(), {})):
+            versions.tidy(self.clone)
+        self.live(third)
+        self.assertEqual(self.swapped_out(), [self.new])
         # the two swapped left each other's record of where they are; the next move puts them
         # right before it removes the one swapped out, and the live one is no worse for it
         fourth = self.push("fourth")
@@ -136,6 +148,14 @@ class InstallSwitchesInOneStep(unittest.TestCase):
         kept = [path for path in (config.HOME / versions.VERSIONS).iterdir()
                 if (path / "mine").exists()]
         self.assertEqual([(path / "mine").read_text() for path in kept], ["somebody's\n"])
+        # nor one whose changes git could not read
+        unread = next(path for path in (config.HOME / versions.VERSIONS).iterdir()
+                      if git(path, "rev-parse", "HEAD") == fourth)
+        Path(git(unread, "rev-parse", "--absolute-git-dir"), "index").write_bytes(b"cut")
+        sixth = self.push("sixth")
+        self.go_live()
+        self.live(sixth)
+        self.assertEqual(self.swapped_out(), sorted([self.new, third, fourth, fifth]))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
