@@ -39,10 +39,11 @@ class DeadGitLocks(unittest.TestCase):
             subprocess.run(["git", "init", "-q", *apart, str(repo)], check=True, timeout=60)
             git(repo, "commit", "-q", "--allow-empty", "-m", "first")
         git(self.repo, "worktree", "add", "-q", "--detach", str(self.wt))
+        git(self.other, "worktree", "add", "-q", "--detach", str(self.root / "acme-wt"))
         self.now, self.table = 10 * DAY, {}
         patch.object(config, "REPO", self.repo).start()
         patch.object(config, "session_records",
-                     lambda: {"fix-api": {"repo": str(self.other)}}).start()
+                     lambda: {"fix-api": {"repo": str(self.root / "acme-wt")}}).start()
         patch.object(gc, "tmp_processes", lambda: (set(), self.table)).start()
         self.addCleanup(patch.stopall)
         self.lock = self.plant(self.repo / ".git", "HEAD.lock", DAY)
@@ -65,7 +66,9 @@ class DeadGitLocks(unittest.TestCase):
 
     def test_locks_no_living_git_holds_go_from_every_repository_and_young_ones_stay(self):
         young = self.plant(self.repo / ".git", "index.lock", 10)
-        theirs = self.plant(self.repo / ".git", "hooks/Gemfile.lock", DAY)    # a hook's, not git's
+        theirs = [self.plant(self.repo / ".git", "hooks/Gemfile.lock", DAY),    # a hook's
+                  # the object store may be linked from a folder the table names apart
+                  self.plant(self.repo / ".git", "objects/pack/multi-pack-index.lock", DAY)]
         dead = [self.lock, self.plant(self.repo / ".git", "refs/heads/topic.lock", DAY),
                 self.plant(self.repo / ".git", f"worktrees/{self.wt.name}/index.lock", DAY),
                 self.plant(self.root / "acme.git", "refs/remotes/origin/main.lock", DAY)]
@@ -73,7 +76,7 @@ class DeadGitLocks(unittest.TestCase):
         self.process(["bash"], self.wt)             # a shell in a checkout is no git at work
         said = self.clear()
         self.assertEqual([lock.exists() for lock in dead], [False] * 4)
-        self.assertTrue(young.exists() and theirs.exists())
+        self.assertEqual([lock.exists() for lock in [young, *theirs]], [True] * 3)
         self.assertEqual(len(said), 4)
         self.assertIn(f"removed {self.lock}, left 1d ago by a git that has ended", said)
 
@@ -85,6 +88,12 @@ class DeadGitLocks(unittest.TestCase):
                 self.table.clear()
                 self.process(args, cwd, *held)
                 self.assertEqual((self.clear(), self.lock.exists()), ([], True))
+
+    def test_a_git_in_the_main_checkout_of_a_seat_s_worktree_keeps_its_locks(self):
+        acme = self.plant(self.root / "acme.git", "index.lock", DAY)
+        self.process(["git", "commit"], self.other)
+        self.assertEqual((self.clear(), acme.exists()),
+                         ([f"removed {self.lock}, left 1d ago by a git that has ended"], True))
 
     def test_a_file_held_through_a_linked_git_directory_keeps_its_lock(self):
         # /proc names the file a process holds by its real path, never the link's
