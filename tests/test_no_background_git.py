@@ -5,6 +5,7 @@ inventory. No host process, seat, service, global config or remote is read or ch
 """
 
 from contextlib import redirect_stdout
+import fcntl
 import hashlib
 import io
 import json
@@ -80,6 +81,17 @@ class NoBackgroundGit(Sandbox):
             for checkout in (repo, tree):
                 self.assertEqual(self.git(checkout, "config", "--local", "gc.auto"), "0")
                 self.assertEqual(self.git(checkout, "config", "maintenance.auto"), "false")
+        self.assertEqual(self.global_config.read_bytes(), self.original)
+
+    def test_worktree_config_cannot_override_the_repository_housekeeping_policy(self):
+        tree = self.worktree()
+        self.git(self.repo, "config", "extensions.worktreeConfig", "true")
+        for checkout in (self.repo, tree):
+            self.git(checkout, "config", "--worktree", "gc.auto", "1")
+            self.git(checkout, "config", "--worktree", "maintenance.auto", "true")
+            gitcall.no_auto_gc(checkout)
+            self.assertEqual(self.git(checkout, "config", "gc.auto"), "0")
+            self.assertEqual(self.git(checkout, "config", "maintenance.auto"), "false")
         self.assertEqual(self.global_config.read_bytes(), self.original)
 
     def test_a_commit_above_the_auto_gc_threshold_starts_no_housekeeping_child(self):
@@ -172,6 +184,55 @@ class NoBackgroundGit(Sandbox):
         self.assertFalse(self.mark().exists())
         self.processes.clear()
         self.assertIn(f"git gc: {self.repo}", self.tick())
+
+    def test_a_seat_using_absolute_paths_from_code_holds_its_repository(self):
+        self.running()
+        self.processes[PID].update(cwd=str(config.CODE),
+                                  paths=[str(self.repo / ".git" / "index")])
+        with patch.object(orch, "sessions", return_value=[{"name": "builder", "path": str(config.CODE)}]):
+            self.tick()
+        self.assertFalse(self.mark().exists())
+        self.processes.clear()
+        self.assertIn(f"git gc: {self.repo}", self.tick())
+
+    def test_a_run_started_during_an_earlier_collection_holds_its_repository(self):
+        other = self.repository(config.CODE / "widgets")
+        real_run = subprocess.run
+
+        def start(argv, **kw):
+            if argv == ["git", "-C", str(self.repo), "gc"]:
+                directory = config.RUNS / "fix-api"
+                directory.mkdir()
+                record.save_state(directory, {"repo": str(other), "state": "running", "pid": PID})
+                self.running()
+            return real_run(argv, **kw)
+
+        with patch.object(gc.subprocess, "run", side_effect=start):
+            self.tick()
+        self.assertTrue(self.mark().exists())
+        self.assertFalse(self.mark(other).exists())
+        self.processes.clear()
+        self.assertIn(f"git gc: {other}", self.tick())
+
+    def test_preparation_and_collection_exclude_each_other_across_worktrees(self):
+        tree = self.worktree()
+        with gitcall.repository_lock(tree):
+            self.tick()
+        self.assertFalse(self.mark().exists())
+        real_run = subprocess.run
+
+        def collecting(argv, **kw):
+            if argv == ["git", "-C", str(self.repo), "gc"]:
+                directory = os.open(orch.git_dirs(tree)[0], os.O_RDONLY | os.O_DIRECTORY)
+                try:
+                    with self.assertRaises(BlockingIOError):
+                        fcntl.flock(directory, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                finally:
+                    os.close(directory)
+            return real_run(argv, **kw)
+
+        with patch.object(gc.subprocess, "run", side_effect=collecting):
+            self.assertIn(f"git gc: {self.repo}", self.tick())
 
     def test_an_unreadable_process_inventory_is_no_proof_of_idle(self):
         self.inventory.side_effect = lambda *_: ({}, [PID])

@@ -123,9 +123,9 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         clear_delivery(state)
         state.setdefault("stalls", [])
         repo = Path(state["repo"]) if state.get("repo") else None
-        if repo:
-            gitcall.no_auto_gc(repo)
         wt = Path(state["worktree"])
+        if repo:
+            gitcall.no_auto_gc(wt)
         log(f"resuming at round {len(state['round_summaries']) + 1}/{state['rounds']}: {wt}"
             + (f" on {state['branch']}" if state.get("branch") else ""))
         history_start(state, log)

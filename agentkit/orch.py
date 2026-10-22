@@ -43,7 +43,7 @@ import threading
 import time
 import uuid
 from collections import Counter
-from contextlib import ExitStack, closing, contextmanager, redirect_stderr, redirect_stdout
+from contextlib import ExitStack, closing, contextmanager, nullcontext, redirect_stderr, redirect_stdout
 from datetime import datetime
 from pathlib import Path
 
@@ -2457,8 +2457,7 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None):
     down -- a launcher-issued id by default -- and whatever else its plugin needs for that,
     Codex's per-invocation receipt among them, is carried into the command as environment.
     """
-    if git_dirs(cwd):
-        gitcall.no_auto_gc(cwd)
+    repository = git_dirs(cwd)
     plugin = seat_plugin({"orchestrator": model})
     from . import notify, watch
     # The rulebook this launch hands its harness, written down before the harness is up: its
@@ -2466,7 +2465,10 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None):
     # the seat's lock, so a rename going on keeps its record; a launch whose harness never
     # starts puts the record back, since the harness that read the old one is still there.
     kept = ("rulebook_sha", "rulebook_told", "rulebook_read")
-    with notify.session_lock(name) as current:
+    with notify.session_lock(name) as current, \
+            (gitcall.repository_lock(cwd) if repository else nullcontext()):
+        if repository:
+            gitcall.no_auto_gc(cwd)
         # read under the lock the prompts rewrite it under, and held until the harness is up:
         # till its pane is replaced the one it replaces can still prompt, and that prompt's
         # rewrite waits here, so the file read is the one recorded
