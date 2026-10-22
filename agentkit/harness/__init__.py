@@ -248,6 +248,25 @@ def prompt(entry):
     return None
 
 
+def reported_tokens(out):
+    """Kept turn usage, including a plugin's session store when events carry no counters."""
+    from .. import history
+    out = Path(out)
+    total = history.event_tokens(out / "events.jsonl")
+    if total is None:
+        for module in _plugins("tokens"):
+            total = module.tokens(out)
+            if total is not None:
+                break
+    return total
+
+
+def turn_token_counts(run_dir):
+    """Kept event files mapped to (reported usage, turn spend) by their harness."""
+    return {path: (total, spent) for module in _plugins("token_counts")
+            for path, total, spent in module.token_counts(run_dir)}
+
+
 def config_entries():
     """Where each harness keeps the trust and MCP entries agentkit writes for it, as
     [{"file": its config, read as JSON or TOML by its suffix, "trust": the table of trusted

@@ -20,7 +20,7 @@ SUMMARY_POINTS = 3    # ... and tasks over this many numbered goal points, by me
 # The repositories the smoke and e2e suites clone: their runs are tests, never work to learn from.
 SANDBOX_REPOS = ("agentkit-smoke", "agentkit-e2e")
 # The condition every statistic reads rows under: no stopped run and no suite's (`suite_run`).
-# Every other row is read as it was written, never rewritten.
+# Other values stay as written, except duplicated thread tokens repaired by `_recount_tokens`.
 REAL_WORK = "COALESCE(final_state,'') != 'stopped' AND NOT suite_run(run_id, repo)"
 STEP_COLUMNS = {"executor": "executor_seconds", "done-when": "done_when_seconds",
                 "reviewer": "reviewer_seconds", "merge": "merge_seconds"}
@@ -172,7 +172,64 @@ def _connect(*, readonly=False):
         for name, kind in migrations:
             if name not in have:
                 connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+    if connection.execute("PRAGMA user_version").fetchone()[0] < 2:
+        _apply_token_recounts(connection, _recount_tokens(connection))
     return connection
+
+
+def _recount_tokens(connection):
+    """Yield repairs to recorded prefixes of kept turns, leaving unmatched totals alone."""
+    from .harness import reported_tokens, turn_token_counts
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
+    if not {"executor_tokens", "reviewer_tokens"} <= columns:
+        return
+    rows = connection.execute("SELECT run_id, executor_tokens, reviewer_tokens FROM runs").fetchall()
+    for run_id, executor, reviewer in rows:
+        recorded = {"executor": executor, "reviewer": reviewer}
+        raw, corrected, matched = dict.fromkeys(recorded, 0), dict.fromkeys(recorded, 0), {}
+        run_dir = config.RUNS / run_id
+        counts = turn_token_counts(run_dir)
+        for path in event_paths(run_dir):
+            total, spent = counts.get(path, (None, None))
+            if total is None:
+                total = spent = reported_tokens(path.parent)
+            if total is None:
+                continue
+            # All other worker turns, including landing fixers, count as executor work.
+            role = "reviewer" if path.parent.name.startswith("reviewer") else "executor"
+            raw[role] += total
+            corrected[role] += spent
+            # A log can flush before its finally block adds usage. Only a prefix matching
+            # the row's old total identifies which reports were already recorded.
+            if raw[role] == recorded[role]:
+                matched[role] = corrected[role]
+        for role, amount in matched.items():
+            if amount != recorded[role]:
+                yield role, amount, run_id
+
+
+def _apply_token_recounts(connection, repairs):
+    for role, amount, run_id in repairs:
+        connection.execute(f"UPDATE runs SET {role}_tokens=? WHERE run_id=?", (amount, run_id))
+    connection.execute("PRAGMA user_version=2")
+    connection.commit()
+
+
+def _ensure_tokens_recounted():
+    """Recount on a read only when a repair is proven, without migrating unrelated schema."""
+    try:
+        if not path().exists():
+            return
+        with _writing():
+            with contextlib.closing(_connect(readonly=True)) as connection:
+                if connection.execute("PRAGMA user_version").fetchone()[0] >= 2:
+                    return
+                repairs = list(_recount_tokens(connection))
+            if repairs:
+                with contextlib.closing(sqlite3.connect(path(), timeout=2)) as connection:
+                    _apply_token_recounts(connection, repairs)
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        pass
 
 
 @contextlib.contextmanager
@@ -654,6 +711,7 @@ def sample_rss(run_id, pid=None, *, log=None):
 
 def get(run_id):
     """Return one row as a plain mapping for machine-readable run status."""
+    _ensure_tokens_recounted()
     try:
         with _LOCK:
             connection = _connect(readonly=True)
@@ -751,6 +809,7 @@ def rules_size(repo):
 
 def ended_runs(since, until):
     """Real runs with a finish date in the inclusive range, read as plain mappings."""
+    _ensure_tokens_recounted()
     try:
         with _LOCK:
             connection = _connect(readonly=True)
@@ -772,6 +831,20 @@ def recent_peak_rss_mb():
              if isinstance(peak := row.get("peak_rss_mb"), (int, float))
              and math.isfinite(peak) and peak > 0]
     return median(peaks) if peaks else None
+
+
+def event_paths(run_dir):
+    """Kept worker event files in reporting order."""
+    paths = []
+    for path in Path(run_dir).glob("round-*/*/events.jsonl"):
+        try:
+            # Rounds are numeric; file times order retries and handovers within a round.
+            order = (int(path.parent.parent.name.removeprefix("round-")),
+                     path.stat().st_mtime_ns, str(path))
+            paths.append((order, path))
+        except (OSError, ValueError):
+            continue
+    return [path for _, path in sorted(paths)]
 
 
 def event_tokens(path):
