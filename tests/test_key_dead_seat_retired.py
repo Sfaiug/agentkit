@@ -12,38 +12,28 @@ tests/fixtures/akbin.py, before seats of tests/fixtures/akseat.py; this test fai
 """
 
 import json
-import socket
 import sys
 from pathlib import Path
 import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures import akconfig
 
 DAY = 86400
-PROXIES = ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
 
 
-def offline(home):
-    """The tick asks the public model boards over HTTP itself, not through a tool on PATH: every
-    proxy an HTTP client honours names a loopback port nobody listens on."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
-    home.env.update(dict.fromkeys(PROXIES, f"http://127.0.0.1:{port}"))
-
-
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class SeatRetired(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        offline(home)
         akconfig.write(home, ["opus"])
+        # a collection on record from just now: one due would outlive the tick's box
+        home.write(".agentkit/state/gc.json", {"started_at": time.time()})
         cls.started = now = time.time()
 
         def seen(days, **more):
@@ -65,7 +55,7 @@ class SeatRetired(unittest.TestCase):
         Seat(home, "zeta", record=seen(8))
         cls.dead = Seat(home, "theta", record=seen(8, exited_since=now - 8 * DAY))
         cls.end(cls.dead)
-        cls.tick = home.ak("watch")
+        cls.tick = home.tick()
 
     @classmethod
     def end(cls, seat, bound=30):

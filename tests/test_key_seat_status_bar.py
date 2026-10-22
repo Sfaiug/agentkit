@@ -18,7 +18,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 
@@ -26,19 +26,21 @@ KEY = "Ctrl-b m  menu"
 
 
 class Bar(unittest.TestCase):
-    """A seat on `screen`, its terminal attached, then read once by `ak` with `READ`."""
+    """A seat on `SCREEN`, its terminal attached, then read once by `read`."""
 
-    NAME = SCREEN = READ = None
+    NAME = SCREEN = None
 
     @classmethod
     def setUpClass(cls):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
         akconfig.write(cls.home, ["opus"])     # the audit off: a tick opens no seat of its own
+        # a collection on record from just now: one due would outlive the tick's box
+        cls.home.write(".agentkit/state/gc.json", {"started_at": time.time()})
         cls.seat(cls.home)
         cls.terminal = Terminal(cls.home, "orch", cls.NAME, size=(100, 24))
         cls.terminal.wait(lambda screen: cls.NAME in screen)
-        done = cls.home.ak(*cls.READ)
+        done = cls.read(cls.home)
         assert done.code == 0, done.err
         cls.screen = cls.terminal.wait(lambda screen: screen.rstrip().endswith(KEY))
 
@@ -53,7 +55,11 @@ class Bar(unittest.TestCase):
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class AQuestionSeat(Bar):
-    NAME, SCREEN, READ = "acme", "claude-question-pane.txt", ("orch", "why", "acme")
+    NAME, SCREEN = "acme", "claude-question-pane.txt"
+
+    @staticmethod
+    def read(home):
+        return home.ak("orch", "why", "acme")
 
     def test_line_one_is_its_word_its_name_and_its_model(self):
         self.assertRegex(self.bar()[0], r"^ *! needs you +acme +Opus 5\.5$")
@@ -71,9 +77,10 @@ class AQuestionSeat(Bar):
         self.assertIn("MouseDown1StatusRight", done.out)
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class AWorkingSeatWithAPlan(Bar):
-    NAME, SCREEN, READ = "wrk", "claude-working-pane.txt", ("watch",)
+    NAME, SCREEN = "wrk", "claude-working-pane.txt"
+    read = staticmethod(Home.tick)
 
     @classmethod
     def seat(cls, home):
