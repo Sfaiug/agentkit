@@ -45,6 +45,8 @@ def collect(processes):
                 raise ValueError("pid was reused during the scan")
             rows[int(proc.name)] = {"uid": uid, "start": start, "args": args,
                                     "cwd": links["cwd"], "stdout": links.get("1"),
+                                    "open_paths": sorted({path for path in links.values()
+                                                          if path.startswith("/")}),
                                     "paths": sorted(paths)}
         except (OSError, ValueError, IndexError, StopIteration):
             try:
