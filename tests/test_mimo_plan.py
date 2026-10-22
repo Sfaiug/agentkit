@@ -209,7 +209,7 @@ class MimoPlan(unittest.TestCase):
                               capture_output=True, text=True, timeout=60)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         words = shlex.split(proc.stdout)
-        launch = words[words.index("env"):words.index("opencode", words.index("env"))]
+        launch = words[words.index("env"):words.index(str(bin_dir / "opencode"))]
         self.assertIn("OPENCODE_DISABLE_PROJECT_CONFIG=1", launch)
         self.assertIn("OPENCODE_CONFIG_PROJECT_DISABLE=1", launch)
 
