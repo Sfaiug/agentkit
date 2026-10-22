@@ -3805,8 +3805,10 @@ def _editor_read(session, where, cfg=None):
         refuses = harness and screen(harness)["editor_refuses"]
     except (config.Error, OSError):
         return None
-    # a draft that editor would lose part of (`editor_refuses`), lost by whatever step opens it
-    lost = refuses and refuses.search("".join(_composer_rows(harness, pane, exact=True) or ()))
+    # a draft that editor would lose part of (`editor_refuses`), lost by whatever step opens it,
+    # or one not read whole, which may hold one
+    rows = refuses and _composer_rows(harness, pane, exact=True)
+    lost = refuses and (rows is None or refuses.search("".join(rows)))
     return ((harness, pane, found) if found.get("authority") and not asking(name, harness, pane)
             and not picker and not lost and not pane_unread(session) else None)
 

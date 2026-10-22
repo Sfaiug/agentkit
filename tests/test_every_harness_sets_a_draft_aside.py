@@ -15,7 +15,7 @@ DRAFT = "and add these posts"
 
 
 class EveryHarness(EditorSeat):
-    def test_each_harness_s_keys_set_the_owners_text_aside_and_give_it_back(self):
+    def test_every_harness_s_keys_set_the_owners_text_aside_and_give_it_back(self):
         for harness in ("claude", "codex", "muse", "antigravity", "opencode"):
             with self.subTest(harness):
                 self.chord = watch.screen(harness)["editor"]

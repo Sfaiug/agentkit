@@ -186,15 +186,18 @@ class LinePastOwnersText(EditorSeat):
 
     def test_a_draft_holding_a_paste_its_editor_would_lose_stays(self):
         # Muse's editor sends a paste's placeholder alone, the paste gone -- pasted too once a
-        # line went in through that editor, before its mark's pass
+        # line went in through that editor, before its mark's pass, or above the rows read
         self.buffers.update(kept(aside_editor.ASIDE))
         mark = {"line": LINE, "seat": self.seat["created"], "pane": PANE}
         loses = dict(watch.screen("claude"), editor_refuses=watch.screen("muse")["editor_refuses"])
+        tall = "\n".join(f"pasted row {n} of a long paste" for n in range(1, 61))
         with patch.object(watch, "screen", return_value=loses):
-            self.show(f"{DRAFT} [Pasted Content 1190 chars]")
-            self.assertFalse(self.typed_line())
-            self.assertFalse(watch.type_at_prompt(self.seat, LINE, lambda _: None, cfg=self.cfg,
-                                                  typed=mark))
+            for draft in (f"{DRAFT} [Pasted Content 1190 chars]",
+                          f"[Pasted Content 1190 chars]\n{tall}"):
+                self.show(draft)
+                self.assertFalse(self.typed_line())
+                self.assertFalse(watch.type_at_prompt(self.seat, LINE, lambda _: None,
+                                                      cfg=self.cfg, typed=mark))
         self.assertEqual((self.keys, self.typed), ([], []))
 
     def test_a_picker_the_owner_opens_over_their_text_as_the_step_reads_it_takes_no_step(self):
