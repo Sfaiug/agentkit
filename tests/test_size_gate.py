@@ -1,22 +1,24 @@
 """Past the size ceilings, ak refuses with `split it`.
 
-Owner rule, 3 Oct, 4 Oct, 9 Oct, 11 Oct, 13 Oct, 15 Oct, 16 Oct, 20 Oct 2026: "A change's first
-review takes at most 400 added lines, a seat's own pull request's and a task's alike (deletions and
-unchanged moves never count), and a task at most three checks a round runs: past either, ak refuses
-with `split it`. Reason: 81% of 201-400-line changes merged, 67% of larger ones (1-16 Oct); it is
-looked at again in early November on first-review sizes recorded since. Review rounds stay three,
+Owner rule, 3 Oct, 4 Oct, 9 Oct, 11 Oct, 13 Oct, 15 Oct, 16 Oct, 20 Oct, 21 Oct 2026: "A task's first
+review takes at most 300 added lines and a seat's own pull request stays under 50 (deletions and
+unchanged moves never count), and a task at most three checks a round runs: past either task cap,
+ak refuses with `split it`; from 50 lines a seat writes a task for an executor. Reason: first-review
+sizes recorded 14-21 Oct merged 68% at 300-400 lines against 77% at 200-299, with one in six against
+7% turning landing red, while tokens per merged line stayed flat at 55-80K from 50 to 400 lines.
+It is looked at again once four weeks of first-review sizes are recorded. Review rounds stay three,
 and a pull request mostly re-adding a failed one's lines inherits its rounds. No cap on task points
 or words: size is recorded and shown. Nothing ak hands a model is cut." Held here with
-tests/test_own_pr_rounds.py, tests/test_replacement_pr_rounds.py, tests/test_task_size.py and
-tests/test_rules_cap_told.py.
+tests/test_own_pr_rounds.py, tests/test_replacement_pr_rounds.py, tests/test_task_size.py,
+tests/test_rules_cap_told.py and tests/test_seat_pr_under_fifty_lines.py.
 
 A task has at most three checks a round runs (`task.MAX_CHECKS`, counted by preflight on the
 list the loop settles: the repository's suite line, however the task names it, runs once at
-landing and never counts; a `# once` line counts where the run has no landing), and a change,
-a seat's own pull request or a task's, gets its first review only up to 400 added lines
-(`task.MAX_PR_LINES`), generated files aside
+landing and never counts; a `# once` line counts where the run has no landing), and a task
+gets its first review only up to 300 added lines (`task.MAX_PR_LINES`); a seat's own PR stays
+under 50 (`task.SEAT_TASK_LINES`), documents alone exempt, generated files aside
 and nothing deleted counted, as `run.diff_lines` counts them, less the blocks `run.carried_lines`
-finds moved unchanged from lines the diff deletes.  tests/test_own_pr_rounds.py drives the
+finds moved unchanged from lines the diff deletes.  tests/test_seat_pr_under_fifty_lines.py drives the
 refusal through the review itself.  Offline: a real checkout whose attributes mark a
 generated file.
 """
@@ -91,7 +93,7 @@ class SizeGate(Sandbox):
         with self.assertRaisesRegex(config.Error, "^" + re.escape(refused) + "$"):
             run.preflight(directory, {"--review-pr": None, "--no-merge": False}, lambda _: None)
 
-    def test_a_task_s_first_review_takes_at_most_400_added_lines(self):
+    def test_a_task_s_first_review_takes_at_most_300_added_lines(self):
         # the branch already adds 2 lines a reviewer reads (dist/ is generated); the executor
         # adds the rest, uncommitted, as executors do
         def loop(run_id, change=None, **extra):
@@ -132,8 +134,8 @@ class SizeGate(Sandbox):
                          (1, None, None))
         self.git("reset", "-q", "--hard", self.head)
         reviewed, why, section = rounds(loop("20261015-0910-past-it"), taskfile.MAX_PR_LINES - 1)
-        refused = ("The change on fix-api adds 401 lines (generated files aside; deletions never "
-                   "count): a first review takes at most 400; split it")
+        refused = ("The change on fix-api adds 301 lines (generated files aside; deletions never "
+                   "count): a first review takes at most 300; split it")
         self.assertEqual((reviewed, why, section), (0, refused, f"## Blocked\n\n{refused}"))
         self.assertIsNone(history.get("20261015-0910-past-it")["first_review_lines"])
         # the work is committed on the branch the blocked run keeps, for the pieces
@@ -158,7 +160,7 @@ class SizeGate(Sandbox):
                                     "round_summaries": [{"round": 1, "verdict": "FAIL"}]})
         self.assertEqual(rounds(loop("20261015-0920-from-its-branch", "the-change"),
                                 taskfile.MAX_PR_LINES), (1, None, None))
-        # the first review read 400 lines; a later review of the change is no first review
+        # the first review read 300 lines; a later review of the change is no first review
         self.assertEqual(read, [taskfile.MAX_PR_LINES, None])
 
     def test_a_first_review_resumed_before_its_verdict_keeps_the_size_it_first_read(self):
@@ -203,8 +205,8 @@ class SizeGate(Sandbox):
         self.assertEqual(run.diff_lines(self.repo, self.base, head), 6)
         self.assertIsNone(run.first_review_refusal("PR #7", taskfile.MAX_PR_LINES))
         self.assertEqual(run.first_review_refusal("PR #7", taskfile.MAX_PR_LINES + 1),
-                         "PR #7 adds 401 lines (generated files aside; deletions never count): "
-                         "a first review takes at most 400; split it")
+                         "PR #7 adds 301 lines (generated files aside; deletions never count): "
+                         "a first review takes at most 300; split it")
 
     def test_a_change_cannot_mark_its_own_lines_generated(self):
         # the base marks dist/*.js generated; a change marking its own new file generated in
@@ -261,11 +263,11 @@ class SizeGate(Sandbox):
             self.git("config", key, value)
         self.assertEqual(run.carried_lines(self.repo, base, head), 503)
         self.assertIsNone(run.first_review_refusal("PR #7", added, 503))
-        self.assertEqual(run.first_review_refusal("PR #7", 1000, 599),
-                         "PR #7 adds 1000 lines, 599 of them moved unchanged from lines it deletes "
+        self.assertEqual(run.first_review_refusal("PR #7", 1000, 699),
+                         "PR #7 adds 1000 lines, 699 of them moved unchanged from lines it deletes "
                          "(generated files aside; deletions never count): a first review takes at "
-                         "most 400; split it")
-        self.assertIsNone(run.first_review_refusal("PR #7", 1000, 600))
+                         "most 300; split it")
+        self.assertIsNone(run.first_review_refusal("PR #7", 1000, 700))
 
     def test_a_module_replaced_by_fresh_code_moves_nothing(self):
         # the braces and blank lines the new code shares with the old are no moved block, and a
