@@ -12,6 +12,7 @@ answering what the real ones answered on 30 Sep; nothing real is asked or upgrad
 from contextlib import ExitStack
 from pathlib import Path
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -132,7 +133,8 @@ class HarnessLatest(unittest.TestCase):
             self.stack.enter_context(patch.object(config, name, config.HOME / name.lower()))
         config.ensure_dirs()
         # the tick moves only from the checkout it runs from: here, a throwaway one
-        (self.root / "agentkit").mkdir()
+        subprocess.run(["git", "init", "-q", "-b", "main", str(self.root / "agentkit")],
+                       check=True, timeout=60)
         self.stack.enter_context(patch.object(config, "REPO", self.root / "agentkit"))
         self.stack.enter_context(patch.object(
             config, "load", return_value={"models": {"muse": {"harness": "muse"}}}))

@@ -20,7 +20,8 @@ from unittest import mock
 
 from test_config_matrix import DOWN, ENTER, ESC, Screen, highlighted
 from test_add_model import listed
-from test_provider_screen import GIVE, ONE, SHIPPED, TAKE, open_providers, pick, providers, title
+from test_provider_screen import (ADD, GIVE, MATRIX, ONE, SHIPPED, TAKE, open_providers, pick,
+                                  providers, title)
 from agentkit import matrix, usage
 
 FAKE = r"""#!/usr/bin/env bash
@@ -69,8 +70,7 @@ with closing(terminal.Keyboard()) as keyboard:
     menu.show_config(False, keyboard)
 print("<left>", flush=True)
 """ % (FAKE,)
-MATRIX, ADD = "agentkit · config", "agentkit · config · add a provider"
-THROUGH = "agentkit · config · add a provider · OpenCode"
+THROUGH = ADD + " · OpenCode"
 
 
 def through(screen):

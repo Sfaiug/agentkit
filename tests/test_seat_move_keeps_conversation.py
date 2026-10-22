@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from fixtures.clock import Clock
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, orch, statusbar, watch
+from agentkit import config, notify, orch, statusbar, watch
 from agentkit.harness import claude
 
 SEAT = "acme-fix"
@@ -24,6 +24,19 @@ NOW = 20000
 
 def capture(name):
     return (REPO / "tests/fixtures" / name).read_text(encoding="utf-8", errors="replace")
+
+
+def locked():
+    """Whether another process would find the seat's lock taken."""
+    taken = []
+
+    def other():
+        with notify.session_lock(SEAT, wait=False) as held:
+            taken.append(held is None)
+    thread = threading.Thread(target=other)
+    thread.start()
+    thread.join()
+    return taken[0]
 
 
 class Stopped(Clock):
@@ -139,19 +152,35 @@ class SeatMove(Sandbox):
         self.assertEqual(watch.seat_read(SEAT)["midturn"]["line"], watch.MIDTURN_LINE)
         self.assertIsNone(watch.seat_read(SEAT).get("usage_wait"))
 
-    def test_a_seat_with_a_draft_up_is_refused_and_left_as_it_was(self):
+    def test_a_seat_with_a_draft_up_moves_and_carries_the_draft_on(self):
         watch.seat_write(SEAT, state="at_prompt")     # its last reading, from before the draft
         self.pane = capture("claude-draft-pane.txt")
+        carried = []
+
+        def carry(_seat, harness, pane, to, _cfg):
+            # the seat's lock, held from here over the respawn: no tick hands the text back between
+            carried.append((harness, pane, to, list(self.respawned), locked()))
+            return True
+        with patch.object(watch, "carry_draft", side_effect=carry):
+            self.assertEqual(self.move("fable"), "")
+            self.assertEqual(carried, [("claude", self.pane, "claude", [], True)])   # before it
+            self.assertEqual(self.respawned, [["acme-tui", "fable", OWN]])
+            self.pane = ""                       # a capture that failed moves it as well
+            self.assertEqual(self.move("opus"), "")
+            self.pane = capture("claude-draft-while-working-pane.txt")    # typed mid-turn
+            self.assertEqual(self.move("fable"), "")
+        self.assertEqual(carried[1:], [("claude", self.pane, "claude", self.respawned[:2], True)])
+        self.assertEqual(len(self.respawned), 3)
+        self.assertFalse(locked())
+
+    def test_text_that_cannot_be_kept_refuses_the_move_and_leaves_it_as_it_was(self):
+        self.pane = capture("claude-draft-pane.txt")
         before = self.record()
-        note = self.move("fable")
+        with patch.object(watch, "carry_draft", return_value=False):
+            note = self.move("fable")
         self.assertIn(SEAT, note)
         self.assertNotIn("\n", note)
         self.assertEqual((self.respawned, self.record()), ([], before))
-        self.pane = ""                           # a capture that failed shows no draft either
-        self.assertIn(SEAT, self.move("fable"))
-        self.assertEqual((self.respawned, self.record()), ([], before))
-        self.seat["exited"] = True               # its harness is gone, and that draft with it
-        self.assertEqual(self.move("fable"), "")
 
     def test_a_redress_while_the_new_harness_comes_up_draws_the_new_model(self):
         self.move("fable")

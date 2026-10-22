@@ -110,6 +110,21 @@ class CrewAndSquares(Sandbox):
             self.assertEqual(menu.detail(self.cfg, info, 39),
                              ["astra ⚒   opus ⚒   fable ◎…   ■□□"])
 
+    def test_an_orchestrator_building_alone_is_no_builder_on_the_line(self):
+        """The owner's word of 21 Oct 2026: with no executor marked, no ⚒ names the seat's own
+        model, so the line differs from one whose executor is that same model."""
+        records = [run("g1-parser", state="running", step="reviewer")]
+        lines = {}
+        for workers in ([], ["astra"]):
+            config.save_session(self.cfg, SEAT, "astra", workers, {"reviewers": ["fable"]})
+            info = menu.v5o_seat_info(self.cfg, 1, {"name": SEAT, "created": NOW}, records, {},
+                                      None, NOW)
+            info["word"] = "working"
+            with patch.object(terminal, "colour_depth", return_value=0):
+                [lines[bool(workers)]] = menu.detail(self.cfg, info, 80)
+        self.assertEqual(lines, {False: "Fable 5.1 ◎   ■■□",
+                                 True: "GPT-6-Astra ⚒   Fable 5.1 ◎   ■■□"})
+
 
 if __name__ == "__main__":
     unittest.main()

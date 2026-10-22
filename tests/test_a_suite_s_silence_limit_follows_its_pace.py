@@ -30,6 +30,7 @@ ROOM = {"cpus": 4, "load": 0, "free_mb": 820,
         "slice_memory_high_mb": 820, "slice_memory_used_mb": 0}
 SUITE = 'printf "piece %s\\n" "${AK_SHARD:-all}"'
 WHOLE = "echo whole"
+HERE = "suite runs here: command is not sent to the suite helper (does not name AK_SHARD)"
 NOBODY = 2 ** 22 + 1    # past any pid_max: a stopped command with no children to name
 
 
@@ -186,11 +187,12 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
                         [WHOLE], self.root, self.root / "gate.log", set(), 3600, logs.append,
                         silence=1200, run_dir=self.run_dir, heavy=True)
                 self.assertEqual((passed, silences), (ok, [300, 900]))
+                self.assertEqual(logs[:2], [HERE, HERE])
                 if ok:
                     self.assertIn(f"flaky: {WHOLE} was stopped after 5 min of silence, then "
                                   "passed on its re-run", text)
                 else:
-                    self.assertEqual(logs, [
+                    self.assertEqual(logs[2:], [
                         "done-when: stopped after 15 min of silence on its second go (5 on its "
                         f"first, at its suite's pace): {WHOLE} (last output: working)"])
 

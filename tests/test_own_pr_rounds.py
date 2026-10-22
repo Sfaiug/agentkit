@@ -424,8 +424,8 @@ class OwnPrRounds(OwnPr):
     def test_an_own_pr_of_text_only_lands_whatever_its_size(self):
         self.git("checkout", "-qb", "notes", "main")
         (self.repo / "docs").mkdir()
-        (self.repo / "docs/notes.md").write_text("note\n" * 500)
-        self.git("add", "docs/notes.md")
+        (self.repo / "docs/notes.txt").write_text("note\n" * 500)
+        self.git("add", "docs/notes.txt")
         self.git("commit", "-qm", "Notes")
         self.git("push", "-q", "--force", "origin", f"{self.git('rev-parse', 'HEAD')}:refs/heads/{BRANCH}")
         state = self.review([])

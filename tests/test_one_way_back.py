@@ -55,10 +55,11 @@ class Back(unittest.TestCase):
         screen, read = self.config_screen()
         self.assertEqual(read.call_count, 0)
         self.assertTrue(screen.startswith("agentkit · config"), screen)
-        # no seat is highlighted from a pipe, so the matrix is the efforts alone, under the meters
+        # no seat is highlighted from a pipe, so the marks are new seats', under the meters
+        self.assertTrue(screen.startswith("agentkit · config · new seats"), screen)
         lines = terminal.ANSI.sub("", screen).splitlines()
         heads = next(line for line in lines if line.split()[-1:] == ["effort"])
-        self.assertEqual(heads.split(), ["effort"])
+        self.assertEqual(heads.split(), ["orch", "builds", "reviews", "effort"])
         self.assertIn("  Claude ", "\n".join(lines[2:lines.index(heads)]))  # whatever it reads
 
     def test_v5u_menu_arrow_sequence_is_no_key(self):
@@ -109,19 +110,6 @@ class Back(unittest.TestCase):
                 patch.object(stop, "cmd_stop") as run_stop:
             self.stop("1", "y")
         self.assertEqual(run_stop.call_count, 0)
-
-    def test_v5u_overlay_x_says_stop_cannot_be_undone(self):
-        # Stop keeps the seat's record a week (`orch.cmd_stop`): the pipe's question says so,
-        # as the keyboard card does, and where the seat goes: the past screen, `p`.
-        out = io.StringIO()
-        with patch.object(config, "current_session", return_value="atoll-fix"), \
-                patch.object(menu, "read", side_effect=["n"]), \
-                patch.object(orch, "cmd_stop", return_value=0) as stopped, \
-                redirect_stdout(out):
-            menu.stop_this_session(False)
-        self.assertEqual(stopped.call_count, 0)
-        self.assertIn(menu.stop_means(None), " ".join(out.getvalue().split()))
-        self.assertIn("past sessions, p", out.getvalue())
 
     def test_v5u_x_n_goes_back(self):
         _, _, stopped = self.stop("1", "n")

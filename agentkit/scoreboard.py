@@ -7,7 +7,7 @@ import subprocess
 import time
 from statistics import median
 
-from . import config, history, record, terminal, transitions
+from . import config, history, record, seat_tokens, terminal, transitions
 
 # The parts of a merged change's hours, each second of its runs' phase rows in the first that
 # holds it: a model turn, else ak's own work (a check, or a merge step, which runs from the run's
@@ -22,6 +22,7 @@ PARTS = (("model", ("executor", "reviewer")), ("ak", ("done-when", "merge")),
 MEASURES = (
     ("products", "products", ("runs", "merged", "first_round", "unmerged", "hours", "tokens")),
     ("ak", "ak", ("runs", "merged", "first_round", "unmerged", "hours", "tokens", "token_share")),
+    ("tokens", "tokens", ("total_tokens", "seat_tokens", "not_counted")),
     ("intent", "intent", ("measured", "hours", "live", "live_hours")),
     ("owner", "owner", ("asked", "paged", "hours")),
     ("built", "built", ("seat_merged", "seat_first_round", "worker_merged", "worker_first_round")),
@@ -244,7 +245,8 @@ def compute(now=None):
     held = history.parks(now - 2 * week, now)       # stopped rows: not among `rows`
     moments = history.owner(now - 2 * week, now)
     dones = history.dones(now - 2 * week, now)
-    board, waits, merged_changes, broken = {"products": [], "ak": []}, [], [], []
+    seats, not_counted = seat_tokens.read(now - 2 * week, now)
+    board, waits, merged_changes, broken = {"products": [], "ak": [], "tokens": []}, [], [], []
     built, parks, sunk, owner, intent = [], [], [], [], []
     for end in (now, now - week):
         finished = [row for row in rows if in_week(row["finished_at"], end)]
@@ -252,6 +254,12 @@ def compute(now=None):
         ended = [row for row in finished if row["final_state"] != "not_needed"]
         total_tokens = sum((row.get(role + "_tokens") or 0)
                            for row in ended for role in ("executor", "reviewer"))
+        seat_spent = [(repo, tokens) for repo, at, tokens in seats if in_week(at, end)]
+        own_spent = sum(tokens for repo, tokens in seat_spent if repo in own_names)
+        seat_total = sum(tokens for _, tokens in seat_spent)
+        total_tokens += seat_total
+        board["tokens"].append({"total_tokens": total_tokens, "seat_tokens": seat_total,
+                                "not_counted": not_counted} if total_tokens or not_counted else None)
         recorded = [row for row in finished
                     if row.get("slot_wait_seconds") is not None and row.get("total_seconds")
                     and settled(row)]
@@ -285,9 +293,9 @@ def compute(now=None):
         intent.append(None if dones is None else {
             "measured": len(took), "hours": median(took) if took else None,
             "live": len(lived), "live_hours": median(lived) if lived else None})
-        for label in board:
+        for label in ("products", "ak"):
             group = [row for row in ended if (row["repo"] in own_names) == (label == "ak")]
-            if not group:
+            if not group and not (label == "ak" and own_spent):
                 board[label].append(None)
                 continue
             merged = [row for row in group if history.merged(row)]
@@ -296,15 +304,15 @@ def compute(now=None):
             tokens = [row["executor_tokens"] + row["reviewer_tokens"] for row in merged
                       if row.get("executor_tokens") is not None and row.get("reviewer_tokens") is not None]
             stats = {"runs": len(group), "merged": len(merged),
-                     "first_round": sum(row["rounds_used"] == 1 for row in merged) / len(group),
+                     "first_round": sum(row["rounds_used"] == 1 for row in merged) / len(group) if group else None,
                      "unmerged": sum(row["final_state"] in (*record.FAILED, "exhausted")
-                                     for row in group if row not in merged) / len(group),
+                                     for row in group if row not in merged) / len(group) if group else None,
                      "hours": median(hours) if hours else None,
                      "tokens": median(tokens) if tokens else None}
             if label == "ak":
                 spent = sum((row.get(role + "_tokens") or 0)
                             for row in group for role in ("executor", "reviewer"))
-                stats["token_share"] = spent / total_tokens if total_tokens else None
+                stats["token_share"] = (spent + own_spent) / total_tokens if total_tokens else None
             board[label].append(stats)
 
     def size(ref):
@@ -343,6 +351,8 @@ def render(board=None):
     def week(stats, own):
         if stats is None:
             return "no runs ended"
+        if not stats["runs"]:
+            return f"no runs ended; {stats['token_share']:.0%} of all recorded tokens"
         text = (f"{stats['runs']} runs ended; {stats['first_round']:.0%} merged in round 1; "
                 f"{stats['unmerged']:.0%} ended without merging; ")
         if not stats["merged"]:
@@ -436,7 +446,16 @@ def render(board=None):
             text += f", median {stats['hours']:.1f} hours waiting for an answer"
         return text
 
-    words = {"products": lambda stats: week(stats, False), "ak": lambda stats: week(stats, True),
+    def tokens(stats):
+        if stats is None:
+            return "no tokens recorded"
+        text = (f"{stats['total_tokens']:,} tokens; {stats['seat_tokens']:,} from seats"
+                if stats["total_tokens"] else "no tokens recorded")
+        if stats["not_counted"]:
+            text += "; not counted: " + ", ".join(stats["not_counted"])
+        return text
+
+    words = {"products": lambda stats: week(stats, False), "ak": lambda stats: week(stats, True), "tokens": tokens,
              "intent": intent, "owner": owner, "built": built, "waits": waited, "merged": split, "parks": parked,
              "sunk": sunk, "broke": broke, "size": size}
     rows = [("", "last 7 days", "7 days before"),

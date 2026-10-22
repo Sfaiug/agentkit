@@ -45,9 +45,11 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, host, notify,
-               orch, staffing, statusbar, transitions, turns, update, usage, worker)
+               orch, seat_tokens, staffing, statusbar, transitions, turns, update, usage, worker)
 from . import record as run_record
+from . import terminal as terminal_mod
 from .harness import LIMITED, SPENT, says
+from .lifecycle import LIVE, facts as hook_facts, state as hook_state
 
 INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is typed into
 # what a seat reopened after its process died mid-turn is told, in a run's mid-turn words
@@ -842,9 +844,8 @@ def stop_marks(harness, pane, found, previous, at):
 def stop_enforced(harness):
     """Does the end-of-turn rule have to be typed at this harness, for want of a hook?
 
-    Claude Code and Codex both run hooks/orchestrator-stop.sh on the end of a turn and decide
-    it there, which is where it belongs.  A harness with no blocking end-of-turn hook says
-    `[stop] enforce = "nudge"` and the tick applies the same test to its screen instead.
+    A harness with no blocking end-of-turn hook says `[stop] enforce = "nudge"`
+    and the tick applies the same test to its screen instead.
     """
     block = config.manifest(harness).get("stop")
     return bool(isinstance(block, dict) and block.get("enforce") == "nudge")
@@ -1104,7 +1105,6 @@ def worker_token_note(now=None):
     return None
 
 
-LIVE = ("asking", "working", "at_prompt", "draft")   # the states a live seat can be caught in
 TURN_SECS = 3 * 3600   # age of a seat fact worth checking; never a worker turn cap
 # Screen captures for the seat rules are taken with attributes (`capture-pane -p -e`),
 # so dim text can be told from typed text. A faint (SGR 2) span is a suggestion or
@@ -1703,41 +1703,6 @@ def stuck_on(harness, tail, name=None):
 # facts alone, so the menu, the overlay, `ak orch list`, the status bar and a watch tick all say
 # the same word with the same `since`.  Observation is never acknowledgement: nothing here opens
 # a seat, answers a notice or types into one.
-
-
-def hook_facts(name):
-    """The last lifecycle event that seat's own harness reported, or {}."""
-    try:
-        data = json.loads(config.hook_facts_path(name).read_text(encoding="utf-8"))
-    except (OSError, ValueError, config.Error):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def hook_state(harness, fact):
-    """(state, event, evidence, when) the manifest maps that fact to, or (None, "", "", None).
-
-    The hook records the event and its payload; which state it means is the manifest's to say,
-    so no harness's vocabulary is spelled out here.
-    """
-    if not isinstance(fact, dict):
-        return None, "", "", None
-    event, kind, when = fact.get("event"), fact.get("kind") or "", fact.get("at")
-    if (not isinstance(event, str) or not isinstance(when, (int, float))
-            or isinstance(when, bool) or not math.isfinite(when)):
-        return None, "", "", None
-    hooks = config.manifest(harness).get("hooks")
-    for entry in (hooks or {}).get("event") or ():
-        if not isinstance(entry, dict) or entry.get("name") != event:
-            continue
-        kinds = entry.get("kinds")
-        if isinstance(kinds, list) and kind not in kinds:
-            continue
-        if entry.get("state") in LIVE:
-            text = str(fact.get("text") or "").strip()
-            return (entry["state"], f"{event}/{kind}" if kind else event,
-                    " ".join((text or event).split())[:160], float(when))
-    return None, "", "", None
 
 
 def _screen_rows(tail):
@@ -2401,7 +2366,6 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     """
     from . import menu as menu_mod    # here, not at the top: the menu imports this module
     from . import run as run_mod
-    from . import terminal as terminal_mod
     at = time.time() if now is None else now
     if session is None:
         session = next((s for s in orch.listing(reconcile=False) if s["name"] == name),
@@ -3320,6 +3284,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     withholding that Enter would leave a draft the caller cannot recover, or let a retry
     append the same text to itself.
     """
+    text = terminal_mod.keyed(text)    # a typed escape or newline is a key, not text
     try:
         seat = dict(session, name=config.resolve_session(session["name"]))
     except (config.Error, OSError):
@@ -3815,7 +3780,8 @@ def _editor_read(session, where, cfg=None, *, after_line=False):
     """That seat's screen as (harness, pane, live state) where it may be asked an editor step
     now, or None: nothing typed into its pane (`where`, `seat_editor`) for DRAFT_STILL -- but
     for the step that follows its line's own Enter at once (`after_line`), as the terminal takes
-    ak's keys as it does the owner's -- and none unread, read with no question or picker up
+    ak's keys as it does the owner's, or text set aside for no line, a switch's (`carry_draft`)
+    -- and none unread, read with no question or picker up
     (`[[rule]] picker`) -- the step's keys open the editor from a composer alone, and a picker
     drawn on over what it puts there takes its Enter."""
     name = session["name"]
@@ -3837,17 +3803,21 @@ def drafts_back(cfg):
     """Each tick: text ak's editor set aside from a pane of a seat's (`aside_editor.ASIDE`) asked
     back, every read and key of the step on that pane, whichever the owner selects: the editor
     hands it back only into an empty composer, however the pass that put ak's line in its place
-    ended.  A line still in the composer is the mark's pass to send first."""
+    ended.  A line still in the composer is the mark's pass to send first, and a line the seat
+    is owed (a `midturn` mark) goes before any text back; text a switch carried (`carry_draft`)
+    goes back at once after it."""
     seats = [session for session in orch.sessions() if not session.get("legacy")
              and not any(session.get(key) for key in orch.CLOSED)]
     for session in seats:
         if not _editor_kept(session):   # most ticks keep nothing: no seat's send lock waited on
             continue
         with seat_held(session["name"]):
-            for pane, (state, _) in sorted((_editor_kept(session) or {}).items()):
+            if seat_read(session["name"]).get("midturn"):
+                continue    # its line goes first: text back in the composer would go with it
+            for pane, (state, put) in sorted((_editor_kept(session) or {}).items()):
                 bound = dict(session, pane=pane)
                 where = state == aside_editor.ASIDE and seat_editor(bound, cfg)
-                read = where and _editor_read(bound, where, cfg)
+                read = where and _editor_read(bound, where, cfg, after_line=not put)
                 if read and composer_draft(read[0], read[1]) == "":
                     _edit(bound, where, "back")
 
@@ -3905,6 +3875,22 @@ def _line_left(session, text, log, cfg, stale):
         return word == "sent" and not pane_unread(session)
 
 
+def carry_draft(session, harness, pane, to, cfg=None):
+    """Whether the owner's unsent text in that seat's composer is kept from a switch ending its
+    harness, on any turn: lifted whole by ak's editor (its `line` step with no line) into its
+    pane's kept buffer, which the respawn keeps with the pane and `drafts_back` hands the
+    harness launched there next, or left there, set aside already for a line of ak's.  Not
+    where the editor gives no answer, or finds text typed since that set aside, which no step
+    merges.  Only through ak's editor, which reads a composer whole, and only to a harness
+    (`to`) that opens it too: a screen draws a draft late, wrapped and cropped, and elsewhere
+    the text goes with the old harness.  Under the seat's lock its caller holds over the
+    respawn too, so no tick hands the text back to the harness going."""
+    # keys go out unless the composer reads empty, and never to a question: they could answer it
+    where = (harness and screen(to).get("editor") and composer_draft(harness, pane) != ""
+             and not asking(session["name"], harness, pane) and seat_editor(session, cfg))
+    return not where or _edit(session, where, "line") in ("line", "unsent")
+
+
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
                    source="ak", stale=lambda held: False):
     """One line into a seat, and only while its harness sits at its own prompt.
@@ -3942,6 +3928,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     answer, which only the owner's own prompt gives (`notify.progress`).
     """
     session = pinned(session)
+    text = terminal_mod.keyed(text)    # as `type_checked` types it: marks match
     mark = {"line": text, "seat": session.get("created")}
     if isinstance(typed, dict) and typed.get("pane") and typed == dict(mark, pane=typed["pane"]):
         return _line_left(dict(session, pane=typed["pane"]), text, log, cfg, stale)
@@ -4316,12 +4303,38 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
         log(f"{name}: stopped with work open, no question and no run; typed {keys!r}")
 
 
-def _resume_on(cfg, name, log, account, continuing):
+def _resume_on(cfg, name, log, account, continuing, still=None):
     """Resume that seat's conversation on `account`; a turn it was in goes on there."""
-    resumed = orch.resume(cfg, name, log=log, hand_over=False, account=account)
+    resumed = orch.resume(cfg, name, log=log, hand_over=False, account=account, still=still)
     if continuing and resumed == "resumed":
         seat_write(name, midturn={"boot": boot_id(), "at": time.time(), "name": name,
                                  "line": ACCOUNT_LINE})
+
+
+def between_turns(name, harness, record, opened_at, pane=None):
+    """Is that seat, looked at afresh, the one `record` and `opened_at` were read for -- not
+    closed, renamed, reopened or moved since -- with its harness's pane (`pane`, or the one a
+    respawn would take) at its prompt with nothing in its composer, in no turn, asking nothing,
+    and its terminal given no keys for DRAFT_STILL, none unread?  A capture that failed shows
+    none of that, nor does a terminal that cannot be asked."""
+    seat, now = orch.find(name), config.session_records().get(name) or {}
+    if (not seat or any(seat.get(key) for key in orch.CLOSED) or seat_closed_by_owner(name)
+            or any(now.get(key) != record.get(key)
+                   for key in ("orchestrator", "conversation", "account"))
+            or seat_read(name).get("opened_at") != opened_at):
+        return False
+    seat = dict(seat, pane=pane or orch.harness_pane(name, orch.seat_socket(seat)))
+    rc, tty = orch.tmux_out("display-message", "-p", "-t", _pane(seat), "#{pane_tty}",
+                            socket=orch.seat_socket(seat))
+    try:
+        # a key its harness took is drawn long before: the kernel dates a read to 8 seconds
+        quiet = rc == 0 and time.time() - os.stat(tty).st_atime >= DRAFT_STILL
+    except (OSError, ValueError):
+        return False
+    pane = pane_text(seat)
+    fresh = observed(name, harness, pane, seat_read(name), time.time())
+    return (quiet and bool(pane.strip()) and fresh["state"] == "at_prompt"
+            and not _turn_in_flight(harness, fresh)[0] and not pane_unread(seat))
 
 
 def seat_account(cfg, session, harness, provider, pane, dry_run, log):
@@ -4364,6 +4377,9 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         return not spent(account) and not usage.on_credits(
             cfg, model, {provider: readings.get(account, {})})
 
+    def low(account):
+        return usage.model_low(cfg, model, {provider: readings.get(account, {})})
+
     lines = content_lines(harness, pane_tail(pane))
     line = recorded_error(harness, name)
     if line is None:
@@ -4399,8 +4415,12 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     if not waiting and not refusal and not spent(current):
         # An idle seat comes home once home has a window, and leaves credits for any window; a
         # turn the limit ended goes on there, though the meters may not show that limit yet.
+        # One whose account runs low moves to one that does not, between turns, so no turn of
+        # it is cut off when that account is spent; with every one low it spends its own, and
+        # it comes home only to room it would not leave again at once.
         moves = [a for a in orch.account_order(cfg, model, readings, home) if a != current
-                 and window(a) and (a == home or not window(current))]
+                 and window(a) and (not window(current) or not low(a)
+                                    and (a == home or low(current)))]
         if (moves and live.get("state") == "at_prompt"
                 and not _turn_in_flight(harness, live)[0]
                 and orch.resumable(record)):
@@ -4411,15 +4431,15 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                            if orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
             if target is None:
                 return False
+            def still(pane=None):
+                # The last look, the old harness taking no keys from it on (the owner's choice
+                # of 21 Oct 2026: a prompt from the phone in that instant may be lost).
+                return between_turns(name, harness, record, live.get("opened_at"), pane)
             with state_lock():
-                current_seat = orch.find(name)
-                if (seat_closed_by_owner(name) or config.session_records().get(name) != record
-                        or seat_read(name).get("opened_at") != live.get("opened_at")
-                        or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)
-                        or pane_text(current_seat) != pane):
+                if not still():
                     return True
                 try:
-                    _resume_on(cfg, name, log, target, limit_ended(harness, name))
+                    _resume_on(cfg, name, log, target, limit_ended(harness, name), still)
                 except (config.Error, OSError) as exc:
                     log(f"WARN {name}: {provider} account reopen failed: {exc}")
                     return True
@@ -7309,6 +7329,7 @@ def local_passes(state, dry_run, log):
         # Every feature switch on for everyone for two weeks becomes a line in the plan of a seat
         # on its project, to take out of the code.
         ("the switch retirement pass did not run", lambda: retire.hand(log), False),
+        ("the seat token pass did not run", lambda: seat_tokens.read(0, 0), False),
         # The first tick of a week writes the board with its largest loss, and the `audit`
         # seat, opened with `[audit]`'s models, is told it at its quiet prompt.
         ("the weekly audit pass did not run", lambda: tell_audit(config.load(), log), False),

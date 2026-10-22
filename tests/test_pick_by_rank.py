@@ -32,16 +32,10 @@ import test_model_rows as rows_test
 # Artificial Analysis rows with the index per effort, Terminal-Bench, which builds, and two
 # measures of review
 OPUS = {"terminalBench40": 0.6, "deepsecBench": 0.27, "omniscience": 46}
-MORE = [{"name": "Claude Opus 5.5 (max)", **OPUS,
-         "evaluations": {"artificial_analysis_intelligence_index": 58},
-         "performance": {"median_output_tokens_per_second": 95}},
-        {"name": "Claude Opus 5.5 (xhigh)", **OPUS,
-         "evaluations": {"artificial_analysis_intelligence_index": 56},
-         "artificial_analysis_intelligence_index_cost": {"total_cost": 2000},
-         "performance": {"median_output_tokens_per_second": 82}},
-        {"name": "GPT 6 Astra (max)", "terminalBench40": 0.25,
-         "evaluations": {"artificial_analysis_intelligence_index": 53},
-         "performance": {"median_output_tokens_per_second": 57}}]
+MORE = [{"name": "Claude Opus 5.5 (max)", **OPUS, "intelligenceIndex": 58},
+        {"name": "Claude Opus 5.5 (xhigh)", **OPUS, "intelligenceIndex": 56,
+         "intelligenceIndexCostPerTask": {"cost": {"total": 2.5}}},
+        {"name": "GPT 6 Astra (max)", "terminalBench40": 0.25, "intelligenceIndex": 53}]
 
 def meters(**used):
     """Fake providers, each with one weekly meter `used` percent in."""
@@ -115,10 +109,10 @@ class PickByRank(Sandbox):
         matrix.refresh(self.cfg, now=10000)
         ranks = matrix.rank(self.cfg, "execute")
         scores = {(row["model"], row["effort"]): row["scores"]["execute"] for row in matrix.stored()["rows"]}
-        # opus @ xhigh is as good as the best: first by what Artificial Analysis's index run cost
-        # at xhigh, then its quality; astra @ max is under the best by more than `within`: after
-        # every row as good, by quality
-        self.assertEqual(ranks["opus"], (0, 0, 2000, -scores[("claude-opus-5-5", "xhigh")]["score"]))
+        # opus @ xhigh is as good as the best: first by what a task of Artificial Analysis's
+        # index run cost at xhigh, then its quality; astra @ max is under the best by more than
+        # `within`: after every row as good, by quality
+        self.assertEqual(ranks["opus"], (0, 0, 2.5, -scores[("claude-opus-5-5", "xhigh")]["score"]))
         self.assertEqual(ranks["astra"], (1, 0, 0.0, -scores[("gpt-6-astra", "max")]["score"]))
         self.assertLess(scores[("gpt-6-astra", "max")]["score"], 100 - matrix.within(self.cfg))
         self.assertIsNone(ranks["fable"])                     # no board has Fable 5.1
