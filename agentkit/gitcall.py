@@ -654,9 +654,12 @@ def main_checkout(repo):
     cannot read as a checkout -- gone, never one, or a git that never answered -- keys on
     itself: a turn's key is not worth stopping the run over.
     """
+    from . import update, versions
     code, out, _ = tool_run(["git", "-C", str(repo), "rev-parse", "--git-common-dir"])
-    common = out.strip() if code == 0 else ""
-    return (Path(repo) / common).resolve().parent if common else Path(repo)
+    common = (Path(repo) / out.strip()).resolve() if code == 0 and out.strip() else None
+    if common == versions.repository().resolve():
+        return update.agentkit_dir()     # ak's own: each version of ~/agentkit is a worktree of it
+    return common.parent if common else Path(repo)
 
 
 def leftover_junk(path):
