@@ -2840,6 +2840,7 @@ CONFIG_HEADS = (*orch.ROLE_HEADS, "effort")
 # The key on the config screen that opens what `ak models` recommends per role.
 ADVICE_KEY = "r recommended"
 CONFIG_KEYS = {"mark": ("↑↓←→ move   ⏎ mark", "arrows move   enter mark"),
+               "for": ("↑↓←→ move   ⏎ choose", "arrows move   enter choose"),
                "effort": ("↑↓←→ move   ⏎ effort", "arrows move   enter effort"),
                "row": ("↑↓ move   ⏎ open", "arrows move   enter open"),
                "label": ("↑↓←→ move   ⏎ open", "arrows move   enter open")}
@@ -2855,6 +2856,7 @@ REMOVE_ASK = ("Remove {} from the config?",   # what `Remove` asks, and what it 
               "Nothing new starts on it; + add a model brings it back.")
 # Whom `c`'s marks are for when they are no seat's: [defaults], what the next `n` starts from.
 NEW_SEATS = "new seats"
+FOR_ROW = ("for", "For")     # the row over the headings that turns whom they are for
 # Every effort word, weakest first -- the widest list a manifest names (adapters/muse.toml) --
 # so a new model id that does not take its model's effort takes the nearest one it does.
 EFFORT_RANK = ("none", "minimal", *config.EFFORTS)
@@ -3241,7 +3243,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     the cell on it the keys act on, -1 its label.  `cells` are a model row's (first, last,
     column), for a click, counted from 1 as the terminal counts. On a phone the cells give
     way, then the label.  `scope`, whom the marks are for -- NEW_SEATS or a seat's name -- is
-    said over the headings.
+    the For row over the headings, FOR_ROW, its name one cell (-1).
     """
     room, utf = terminal.layout_width(), terminal.utf8()
     marks = "●○■□" if utf else "*.x."
@@ -3271,10 +3273,13 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     left = 2 + label                                        # the columns before the marks
     lines = [terminal.styled((" " * left + "".join(
         "  " + terminal.pad(head, width) for head, width in zip(heads, widths))).rstrip(), "dim")]
-    if scope is not None:     # cut to the width, never `For`
-        lines.insert(0, "  " + terminal.styled("For  ", "dim")
-                     + terminal.styled(terminal.cut(scope, max(1, room - 7)), "bold"))
     places = {}
+    if scope is not None:     # cut to the width, never `For`
+        named = terminal.cut(scope, max(1, room - 7))
+        line = "  " + terminal.styled("For  ", "dim") + terminal.styled(
+            named, "reverse" if at == FOR_ROW else "bold")
+        places[0] = (FOR_ROW, [(8, 7 + terminal.cells(named), -1)])     # counted from 1
+        lines.insert(0, terminal.highlight(line) if at == FOR_ROW else line)
     for harness in dict.fromkeys(models[name]["harness"] for name in names):
         lines.append(model_heading(harness))
         for name in (name for name in names if models[name]["harness"] == harness):
@@ -3692,8 +3697,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     `selected` is `session`'s record, and its role marks are that seat's models: Enter, space or
     a click flips one (session_mark), the orchestrator moving the seat at once, the roles saved
     to the record for the runs it launches next, the mark filling or emptying over two frames
-    and one refused shaking (motion.toggled).  With no session they are new seats': a flip is
-    [defaults], what the next `n` starts from (defaults_mark), and no open seat changes.
+    and one refused shaking (motion.toggled).  The For row over them turns, ← back and →,
+    Enter or a click on, between `session` and new seats: their marks are [defaults], what the
+    next `n` starts from (defaults_mark), no open seat changing.
     ↑/↓, k/j and the wheel move between rows and ←/→ between columns, the effort's too.  Enter
     or space on an effort steps it up, from its highest round to its lowest, as a click on its
     word does, and a click on one of its cells takes that level: each change is saved and drawn
@@ -3720,25 +3726,26 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     """
     from . import watch   # here, not at the top: the menu draws without the tick
     standing = watch.token_standing() or ""     # a file's date, read once a visit
-    columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
-    scope = config_for(session, selected)
-    here, column, top, clock = None, columns[1], 0, motion.Clock(page=True)
+    scopes = [NEW_SEATS, *filter(None, [session])]
+    scope = len(scopes) - 1                         # the seat `c` opened on, else new seats
+    here, column, top, clock = None, 0, 0, motion.Clock(page=True)
     held = matrix.stored()                          # read once a visit: the tick keeps the file
     while True:
+        columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
         # what `r` recommends is a seat's to take, against the config as it stands
-        found = advice(cfg, held) if selected and session else None
+        found = advice(cfg, held) if selected and scopes[scope] != NEW_SEATS else None
         # the meter the highlight or the pointer is on, lit as the main screen lights one
         lit = here[1] if here and here[0] == "usage" and not terminal.away() else None
         subs, spans = usage_rows(cfg), {}
         over, meters = config_meters(cfg, lit, subs, spans)
         models = [*(("model", name) for name in config_models(cfg)),
                   *(("row", row) for row in CONFIG_ROWS)]
-        rows = [cell for _, cells in meters.values() for *_, cell in cells] + models
+        rows = [cell for _, cells in meters.values() for *_, cell in cells] + [FOR_ROW, *models]
         here = here if here in rows else models[0]    # the highlight is the row itself
         if here[0] == "model" and column not in columns:
             column = columns[-1]      # onto a row without marks
-        where = ("row" if here[0] in ("row", "usage") else "effort" if column == 3
-                 else "label" if column < 0 else "mark")
+        where = ("for" if here == FOR_ROW else "row" if here[0] in ("row", "usage")
+                 else "effort" if column == 3 else "label" if column < 0 else "mark")
         keys = (CONFIG_KEYS[where][0 if terminal.utf8() else 1]
                 + (f"   {ADVICE_KEY}" if found else "") + "   esc back")
         # each meter's cells, on the lines over the page counted back from it, washing in and out
@@ -3746,7 +3753,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                   motion.washing([(column, text, rest)], colour(cfg, subs[number - 1][0])))
                  for number, took in spans.items() for line, column, text, rest in took]
         body, places = config_body(cfg, None if terminal.away() else here, column,
-                                   selected, providers, moves, subs, lit, scope)
+                                   selected, providers, moves, subs, lit, scopes[scope])
         moves += [(line, here, None, motion.glowing(body[line]))     # a row just added glows
                   for line, (row, _) in places.items() if row == here]
         # agentkit's build, read under the page so every page shows it, and what was said under it
@@ -3757,7 +3764,11 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                                             told, keys, marks=3,
                                             clock=clock, moves=moves,
                                             over=over, over_places=meters)
-        column = column if clicked is None else clicked
+        if here == FOR_ROW and act in ("left", "right", "enter", "space"):
+            scope = (scope + (-1 if act == "left" else 1)) % len(scopes)     # round the ends
+            selected, note = for_selected(cfg, scopes[scope])
+            continue
+        column = column if clicked is None or here == FOR_ROW else clicked
         if act is None:
             continue                  # a resize or the pointer: drawn again
         note = ""
@@ -3765,7 +3776,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             return cfg
         if act == "r" and found:
             clock.forget()            # another screen: the matrix back from it replays nothing
-            models_screen(cfg, session, selected, providers, held)
+            models_screen(cfg, scopes[scope], selected, providers, held)
             continue
         if act in ("enter", "space") and (here[0] in ("row", "usage") or column < 0):
             clock.forget()            # another screen: the matrix back from it replays nothing
@@ -3800,8 +3811,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             if here[1] not in cfg["models"]:
                 here = rows[rows.index(here) + 1]     # removed: the row under it is highlighted
         elif act in ("enter", "space") and column < 3:
-            note = (session_mark(cfg, session, selected, here[1], column, providers) if session
-                    else defaults_mark(cfg, selected, here[1], column))
+            note = (defaults_mark(cfg, selected, here[1], column) if scopes[scope] == NEW_SEATS
+                    else session_mark(cfg, scopes[scope], selected, here[1], column, providers))
             if note:
                 clock.touch(("mark", here[1], column))    # refused: the mark shakes
         elif act in ("enter", "space") or isinstance(act, int):     # the effort column
@@ -4611,11 +4622,7 @@ def show_config(dry_run=False, keyboard=None, session=None):
             keyboard.give()
         pause(f"config: {exc}")
         return None
-    try:
-        selected, note = (config.load_session(cfg, session, required=False)
-                          if session else None), ""
-    except config.Error as exc:
-        selected, note = None, f"{session}'s roles are not shown: {exc}"
+    selected, note = for_selected(cfg, session or NEW_SEATS)
     if selected is None and not note:     # a seat with no record has no models to give
         session, selected = None, copy.deepcopy(cfg["defaults"])
     try:                      # what a seat's flip is refused on, and spent; Esc while it is read
@@ -4629,16 +4636,23 @@ def show_config(dry_run=False, keyboard=None, session=None):
         terminal.frame("config",
                        [*config_meters(cfg)[0],
                         *config_body(cfg, selected=selected, providers=providers,
-                                     scope=config_for(session, selected))[0],
+                                     scope=session or NEW_SEATS)[0],
                         *note_lines(f"Version {version or '?'}")],
                        "esc back")
         return cfg
     return config_matrix(cfg, keyboard, version, session, selected, providers, note)
 
 
-def config_for(session, selected):
-    """Whom `c`'s marks are for, said over its headings: a seat's, new seats', or none's."""
-    return (session or NEW_SEATS) if selected else None
+def for_selected(cfg, scope):
+    """The marks `c` shows for the For row's `scope`, and what to say about them: [defaults]
+    for NEW_SEATS, else that seat's record -- None for one with none, and for one that will
+    not read, said so."""
+    if scope == NEW_SEATS:
+        return copy.deepcopy(cfg["defaults"]), ""
+    try:
+        return config.load_session(cfg, scope, required=False), ""
+    except config.Error as exc:
+        return None, f"{scope}'s roles are not shown: {exc}"
 
 
 def defaults_mark(cfg, selected, model, column):
