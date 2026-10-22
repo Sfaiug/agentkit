@@ -540,7 +540,8 @@ def update_agentkit(progress=None, pull=True):
     start fills the rule under its header from it, and the fetch is a step of its own, so the
     rule moves through the network wait.  The fast-forward goes to `live_target`, and with none
     nothing moves or reinstalls.  `pull=False` only reinstalls what is checked out; a commit
-    fast-forwards to exactly it, already fetched.
+    fast-forwards to exactly it, already fetched.  A fast-forward cut off anywhere -- a git
+    killed, or failing half way -- is done again whole, what the checkout held kept in a stash.
     """
     config.ensure_dirs()
     with (config.TMP / MOVING).open("a") as lock:
@@ -548,20 +549,37 @@ def update_agentkit(progress=None, pull=True):
         # the pending mark of another still running, which then fails with nothing to retry it
         fcntl.flock(lock, fcntl.LOCK_EX)
         directory = agentkit_dir()
-        why = left_as_is()
-        if why:
-            say(f"update: agentkit: left as it is: {directory} is {why}")
-            return 1
         if upgrading():
             # asked under this lock, which `upgrade` waits for before it begins, so its gates
             # test one commit from start to end; the next tick after it moves this one (go_live)
             say("update: agentkit: moves once the harness upgrade running now ends")
             return 0
+        pending = config.STATE / "agentkit-install-pending"
+        try:
+            moving = pending.read_text().strip()
+        except OSError:
+            moving = ""
+        if (moving and (head := _git("rev-parse", "HEAD")[1]) != moving
+                and _git("symbolic-ref", "--quiet", "--short", "HEAD")[1] == "main"
+                and _git("merge-base", "--is-ancestor", head, moving)[0] == 0):
+            # git moves HEAD last, so the files of a move that never got it there may be
+            # anywhere between the two commits, some half written; nothing tells them from
+            # anybody's edits since, so the stash keeps them all, and the move ends where it went
+            say(f"update: agentkit: finishing the move to {moving[:12]} that was cut off, "
+                f"what {directory} held kept in `git stash list`")
+            if (_git("stash", "push", "--include-untracked", "--quiet", "-m",
+                     f"ak: held when its move to {moving[:12]} was cut off", timeout=STEP_CAP)[0]
+                    or _git("reset", "--hard", "--quiet", moving, timeout=STEP_CAP)[0]):
+                say(f"update: agentkit: the move to {moving[:12]} could not be finished yet")
+                return 1
+        why = left_as_is()
+        if why:
+            say(f"update: agentkit: left as it is: {directory} is {why}")
+            return 1
         install = [str(directory / "install.sh")]
         merge = ["git", "-C", str(directory), "merge", "--ff-only"]   # to a commit known later
         steps = ([["git", "-C", str(directory), "fetch", "--quiet", "origin", "main"], merge]
                  if pull is True else [merge] if pull else []) + [install]
-        pending = config.STATE / "agentkit-install-pending"
         for done, cmd in enumerate(steps):
             if progress:
                 progress(done, len(steps))
@@ -571,6 +589,7 @@ def update_agentkit(progress=None, pull=True):
                     say("update: agentkit: origin/main moves here once its tests/live.sh passed")
                     return 0
                 cmd = [*merge, target]
+                _put(pending, target)   # what the move is for, should it be cut off (above)
             if cmd is install:
                 # here until install.sh passes: the pull has already moved HEAD, so origin/main
                 # is no longer ahead of it, and only this tells the tick to run it again (go_live)
