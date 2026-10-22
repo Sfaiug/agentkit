@@ -1,6 +1,6 @@
 # adapters/claude.toml -- everything agentkit reads off a Claude Code seat's screen, and who
 # has the authority to say what that seat is doing.  Paired with adapters/claude.sh; the format
-# is the adapter contract in docs/guide.md, "Adding a harness".
+# is the adapter contract in `config.adapter`.
 # Verified against Claude Code 2.1.263; see tests/fixtures/README.md for the captures.
 version = 1
 name = "Claude Code"
