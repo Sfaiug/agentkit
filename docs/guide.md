@@ -589,8 +589,7 @@ are no step's), the seconds it waited for a slot and for a heavy-suite turn of i
 (summed across resumes; a row from before they were kept reads as not recorded, never zero), one row per phase of the run -- each step a process ran, ended at its last checkpoint while it runs, and each wait, whole -- in order, tokens where the harness reports them (else unknown), peak process-tree memory, session, and the task's
 words, goal points, checks and files changed, and the change it belongs to: the PR it reviews as `owner/repo#n`, however its URL was spelled, else the change of the run a `from:` launch continues, else its own; and each finished review, by the harness and model id
 that ran it, with its weighed counts, its round and the round's verdict. Merged runs also keep additions plus deletions, excluding files marked
-`linguist-generated` in `.gitattributes`. Smoke and e2e runs are never recorded; an older agentkit's rows are read
-as written, never rewritten. Statistics skip
+`linguist-generated` in `.gitattributes`. Codex's running thread totals count only the increase since that thread's previous turn in the run; fresh threads count in full. Older rows have duplicated Codex tokens removed once where kept event logs prove them; other values stay as written. Smoke and e2e runs are never recorded. Statistics skip
 stopped runs and suite runs, by name or run record. History is best effort.
 The board's tokens row includes seats and their subagents, read incrementally from their harness records at the time spent and filed under the seat's project, including retained history on the first reading. The tick also records them. ak's token share and sunk-token share divide by this total; per-merged-run medians still measure runs. Seats without a reader or readable records are named as not counted.
 `ak run status --history` compares the last 7 days with the 7 before for products and ak:

@@ -20,7 +20,7 @@ SUMMARY_POINTS = 3    # ... and tasks over this many numbered goal points, by me
 # The repositories the smoke and e2e suites clone: their runs are tests, never work to learn from.
 SANDBOX_REPOS = ("agentkit-smoke", "agentkit-e2e")
 # The condition every statistic reads rows under: no stopped run and no suite's (`suite_run`).
-# Every other row is read as it was written, never rewritten.
+# Other values stay as written, except duplicated Codex tokens repaired by `_recount_tokens`.
 REAL_WORK = "COALESCE(final_state,'') != 'stopped' AND NOT suite_run(run_id, repo)"
 STEP_COLUMNS = {"executor": "executor_seconds", "done-when": "done_when_seconds",
                 "reviewer": "reviewer_seconds", "merge": "merge_seconds"}
@@ -172,7 +172,29 @@ def _connect(*, readonly=False):
         for name, kind in migrations:
             if name not in have:
                 connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+    if connection.execute("PRAGMA user_version").fetchone()[0] < 2:
+        _recount_tokens(connection)
+        connection.execute("PRAGMA user_version=2")
+        connection.commit()
     return connection
+
+
+def _recount_tokens(connection):
+    """Remove proven double counts once, preserving other harnesses and missing logs."""
+    from .harness.codex import token_counts
+    for (run_id,) in connection.execute("SELECT run_id FROM runs").fetchall():
+        duplicates = {"executor": 0, "reviewer": 0}
+        for path, total, spent in token_counts(config.RUNS / run_id):
+            name = path.parent.name
+            role = "reviewer" if name.startswith("reviewer") else "executor" \
+                if name.startswith(("executor", "fixer")) else None
+            if role:
+                duplicates[role] += total - spent
+        for role, amount in duplicates.items():
+            if amount:
+                connection.execute(
+                    f"UPDATE runs SET {role}_tokens=MAX(0,{role}_tokens-?) WHERE run_id=?",
+                    (amount, run_id))
 
 
 @contextlib.contextmanager
@@ -654,6 +676,7 @@ def sample_rss(run_id, pid=None, *, log=None):
 
 def get(run_id):
     """Return one row as a plain mapping for machine-readable run status."""
+    _ensure_migrated()
     try:
         with _LOCK:
             connection = _connect(readonly=True)
@@ -675,6 +698,8 @@ def _ensure_migrated():
     database that cannot be migrated -- read-only, missing -- is left alone, and
     the read that asked goes on to fail soft as it always has.
     """
+    if not path().exists():
+        return
     try:
         with _writing():
             _connect().close()
@@ -751,6 +776,7 @@ def rules_size(repo):
 
 def ended_runs(since, until):
     """Real runs with a finish date in the inclusive range, read as plain mappings."""
+    _ensure_migrated()
     try:
         with _LOCK:
             connection = _connect(readonly=True)
