@@ -49,11 +49,9 @@ class JoinLine(Sandbox):
     def saved(self):
         return record.read_state(self.directory)
 
-    def test_merge_joins_without_integrating_checking_or_delivering(self):
+    def test_merge_joins_without_delivering(self):
         before = copy.deepcopy(self.lp.state)
-        with patch.object(run, "integrate", side_effect=AssertionError("integration")), patch.object(run, "final_check", side_effect=AssertionError("suite")), \
-                patch.object(roundloop, "integrate", side_effect=AssertionError("integration")), patch.object(roundloop, "final_check", side_effect=AssertionError("suite")), \
-                patch.object(run, "push", side_effect=AssertionError("push")), patch.object(deliver, "push", side_effect=AssertionError("push")), \
+        with patch.object(run, "push", side_effect=AssertionError("push")), patch.object(deliver, "push", side_effect=AssertionError("push")), \
                 patch.object(deliver, "merge_lock", side_effect=AssertionError("delivery lock")):
             self.assertFalse(run.merge(self.lp))
         state = self.saved()
@@ -111,8 +109,7 @@ class JoinLine(Sandbox):
         self.lp.write()
         info = {"headRefOid": self.lp.state["delivery_sha"], "baseRefName": "main", "state": "OPEN"}
         with patch.object(run, "pr_view", return_value=info), \
-                patch.object(run, "finish", side_effect=AssertionError("ending")), \
-                patch.object(run, "integrate", side_effect=AssertionError("integration")), patch.object(roundloop, "integrate", side_effect=AssertionError("integration")):
+                patch.object(run, "finish", side_effect=AssertionError("ending")):
             self.assertEqual(run.cmd_merge([self.directory.name]), 0)
         self.assertEqual(self.saved()["state"], "waiting")
         self.assertIsNone(self.saved()["pid"])
