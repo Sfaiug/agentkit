@@ -9,8 +9,10 @@ board name that is the id with a qualifier in brackets (`Acme 5 (Default Fallbac
 on a config entry names the board's model on a board where none fits.  A board's name ending in
 an effort word (`acme-5-max`) is the model at that effort, matched the same ways.  A board
 naming no effort stands at the model's highest effort Artificial Analysis has an index for, or
-at every effort where it has none.  A row takes each board's rows at its effort, together, else
-the nearest above, which loses what Artificial Analysis's intelligence index loses between the
+at every effort where it has none.  The recommendation is of the models the owner marks
+(`assessed`: `[assess]` in config.toml, else the models the config runs), and `rank` of every
+configured model as scored.  A row takes each board's rows at its effort, together, else the
+nearest above, which loses what Artificial Analysis's intelligence index loses between the
 two efforts (`drops`; nothing from that board where the index is missing at either), else the
 nearest below as it is: never credited upward.  A price is read only off a board's row at the
 row's own effort.
@@ -312,6 +314,22 @@ def scored(table, best):
     return table
 
 
+def assessed(cfg):
+    """The models the recommendation is of, {(harness, model)}: `[assess]` in config.toml, each
+    harness's list of model ids, else every model the config runs."""
+    marks = cfg.get("assess")
+    if marks is not None:
+        return {(harness, model) for harness, models in marks.items() for model in models}
+    return {(cfg["models"][name]["harness"], cfg["models"][name]["model"])
+            for name in config.offered(cfg)}
+
+
+def assessment(cfg, table):
+    """The rows of `table` the recommendation is of (`assessed`)."""
+    marks = assessed(cfg)
+    return [row for row in table if (row["harness"], row["model"]) in marks]
+
+
 def best(row):
     """A row's best quality in any role, -1 where no role scores it: what orders rows."""
     return max((found["score"] for found in (row.get("scores") or {}).values() if found),
@@ -573,7 +591,7 @@ def main(argv):
         raise config.Error(f"usage: ak models [--json] [--refresh]  (got {argv!r})")
     cfg = config.load()
     boards, table = refresh(cfg, refresh="--refresh" in flags)
-    own = live(cfg)
+    table, own = assessment(cfg, table), live(cfg)
     if "--json" in flags:
         json.dump({"rows": table, "within": within(cfg),
                    "recommended": {role: [row_label(row) for row in rows]

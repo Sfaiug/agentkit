@@ -2922,7 +2922,8 @@ def advice(cfg, held):
     (matrix.stored): {role: (its row's label, the configured model `r` takes it as or None
     (takes), the row's effort)}; {} while nothing is computed."""
     found = {}
-    for role, rows in matrix.recommended(held.get("rows") or [], matrix.within(cfg)).items():
+    marked = matrix.assessment(cfg, held.get("rows") or [])
+    for role, rows in matrix.recommended(marked, matrix.within(cfg)).items():
         name = takes(cfg, rows[0], role)
         found[role] = (matrix.row_label({**rows[0], "name": name}), name, rows[0].get("effort"))
     return found
@@ -3072,7 +3073,8 @@ def models_body(cfg, table, levels, shown, at, picks):
     lines.append(terminal.highlight(line) if at == KNOB else line)
     ids = {role: [(row["harness"], row["model"], row["effort"]) for row in rows]
            for role, rows in picks.items()}
-    tops = matrix.tops([row for rows in table.values() for row in rows.values()])
+    tops = matrix.tops(matrix.assessment(cfg, [row for rows in table.values()
+                                                for row in rows.values()]))
     said = {word: [] for word in SAID}
     for number, role in enumerate(matrix.ROLES):
         rows, head = picks.get(role) or [], orch.ROLE_HEADS[number]
@@ -3186,7 +3188,8 @@ def models_screen(cfg, session, selected, providers, held):
     here, top, note, title = models[0] if models else KNOB, 0, "", f"models · {session}"
     clock = motion.Clock(page=True)
     while True:
-        picks = matrix.recommended(held.get("rows") or [], matrix.within(cfg))
+        picks = matrix.recommended(matrix.assessment(cfg, held.get("rows") or []),
+                                   matrix.within(cfg))
         where = ("knob" if here == KNOB else "effort"
                  if here[0] == "model" and len(levels[here[1:]]) > 1 else "still")
         keys = (MODELS_KEYS[where][0 if terminal.utf8() else 1]
