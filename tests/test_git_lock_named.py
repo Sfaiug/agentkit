@@ -105,6 +105,13 @@ class GitLockNamed(unittest.TestCase):
             self.assertNotEqual(gitlock.run(["git", "-C", str(self.root / "gone"), "status"],
                                             capture_output=True).returncode, 0)
         self.assertEqual(ran.call_count, 1)
+        # git's words in a failing diff's content name no lock: only git's own error line does
+        unrelated = self.root / "document.lock"
+        unrelated.write_text("")
+        (self.repo / "notes.md").write_text(f"Unable to create '{unrelated}': File exists.\n")
+        git(self.repo, "add", "-N", "notes.md")
+        self.assertEqual(gitcall.tool_run(["git", "-C", str(self.repo), "diff", "--exit-code"])[0], 1)
+        self.assertTrue(unrelated.exists())
 
 
 class TheTickMovesPastIt(unittest.TestCase):

@@ -19,8 +19,9 @@ from pathlib import Path
 
 from . import retention
 
-# git's line for a lock it found taken; `.*`, as a checkout path may hold an apostrophe
-NAMED = re.compile(r"Unable to create '(.*\.lock)': File exists\.$", re.M)
+# git's own error line for a lock it found taken, on its stderr: the same words in a diff, a log
+# or a hook's output on stdout name no lock; `.*`, as a checkout path may hold an apostrophe
+NAMED = re.compile(r"^(?:fatal|error): .*Unable to create '(.*\.lock)': File exists\.$", re.M)
 
 WAIT = 10   # seconds a named lock waits for a moment no git runs: one still running past it
             # keeps the lock, and the next git it stops asks again
@@ -33,8 +34,8 @@ def run(cmd, **kwargs):
     gone = set()
     while True:
         proc = subprocess.run(cmd, **kwargs)
-        said = "\n".join(part.decode(errors="replace") if isinstance(part, bytes) else part
-                         for part in (proc.stdout, proc.stderr) if isinstance(part, (str, bytes)))
+        said = proc.stderr or ""
+        said = said.decode(errors="replace") if isinstance(said, bytes) else said
         lock = next(iter(NAMED.findall(said)), None) if proc.returncode else None
         if lock is None or lock in gone or not clear(Path(lock)):
             return proc
