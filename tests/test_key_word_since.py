@@ -17,7 +17,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, boxable, Home
 from fixtures.akseat import Seat
 
 LONG_AGO = 1000    # 1970-01-01 00:16 UTC: no read could take it for its own moment
@@ -43,13 +43,14 @@ class WordSince(unittest.TestCase):
         self.assertEqual(done.code, 0, done.err)
         return done.out
 
+    @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
     def test_reads_that_find_the_same_word_keep_when_it_began(self):
         said = self.why()
         self.assertEqual(said.split()[:2], ["acme", "idle"])
         since, = [line.strip() for line in said.splitlines() if line.strip().startswith("since:")]
         self.assertIn("1970-01-01 00:16", since)
         self.assertEqual(self.word(), ("idle", LONG_AGO))
-        done = self.home.ak("watch")      # the tick is a reader too
+        done = self.home.tick()       # the tick is a reader too
         self.assertEqual(done.code, 0, done.err)
         self.assertEqual(self.word(), ("idle", LONG_AGO))
 
