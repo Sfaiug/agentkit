@@ -3842,21 +3842,22 @@ def _editor_kept(session):
     return found
 
 
-def _editor_read(session, where, cfg=None, *, after_line=False):
+def _editor_read(session, where, cfg=None):
     """That seat's screen as (harness, pane, live state) where it may be asked an editor step
-    now, or None: nothing typed into its pane (`where`, `seat_editor`) for DRAFT_STILL -- but
-    for the step that follows its line's own Enter at once (`after_line`), as the terminal takes
-    ak's keys as it does the owner's -- and none unread, read with no question or picker up
-    (`[[rule]] picker`) -- the step's keys open the editor from a composer alone, and a picker
-    drawn on over what it puts there takes its Enter -- nor a draft that editor would lose part
-    of (`editor_refuses`), which a step opening it on loses whatever it asks."""
+    now, or None: a composer read empty, or nothing typed into its pane (`where`, `seat_editor`)
+    for DRAFT_STILL -- the owner types into text they see, and a terminal takes ak's keys, its
+    line's Enter among them, as it does theirs -- and none unread, read with no question or
+    picker up (`[[rule]] picker`) -- the step's keys open the editor from a composer alone, and a
+    picker drawn on over what it puts there takes its Enter -- nor a draft that editor would lose
+    part of (`editor_refuses`), which a step opening it on loses whatever it asks."""
     name = session["name"]
     try:
-        if not after_line and time.time() - os.stat(where["tty"]).st_atime < DRAFT_STILL:
-            return None
         harness = seat_model(config.load() if cfg is None else cfg, name)[0]
         pane = pane_text(session) if harness else ""
         found = live_state(session, harness, pane=pane, cfg=cfg) if pane.strip() else {}
+        if (found and composer_draft(harness, pane) != ""
+                and time.time() - os.stat(where["tty"]).st_atime < DRAFT_STILL):
+            return None
         picker = found and any(rule["picker"] and rule["id"] == found.get("rule")
                                for rule in screen(harness)["rules"])
         refuses = harness and screen(harness)["editor_refuses"]
@@ -3921,7 +3922,7 @@ def _line_through(session, where, held, mark, log, receipt, cfg=None, *, source=
         return False
     _send_enter(session, log)
     return (_wait_ready(lambda name: composer_holds(name, session, text, cfg) == "empty", held)
-            and _editor_read(session, where, cfg, after_line=True)
+            and _editor_read(session, where, cfg)
             and _edit(session, where, "back", text) == "sent" and not pane_unread(session))
 
 
