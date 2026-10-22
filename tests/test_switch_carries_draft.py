@@ -70,6 +70,13 @@ class SwitchCarriesDraft(EditorSeat):
         self.assertFalse(self.switched())
         self.assertEqual((self.composer, self.sent), ("typed since", []))
 
+    def test_a_paste_its_editor_would_lose_stays_in_the_composer_and_takes_no_key(self):
+        self.cfg["models"]["opus"]["harness"] = "muse"
+        self.pane = (REPO / "tests/fixtures/muse-draft-pane.txt").read_text().replace(
+            "Fix the login redirect", "[Pasted Content 1190 chars]")
+        self.assertFalse(self.switched(harness="muse"))
+        self.assertEqual((self.keys, self.buffers), ([], {}))
+
     def test_no_keys_go_to_a_question_or_for_a_harness_that_opens_no_editor_of_ak_s(self):
         with patch.object(watch, "asking", return_value=True):
             self.assertTrue(self.switched())

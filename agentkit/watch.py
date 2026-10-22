@@ -3802,16 +3802,21 @@ def _editor_read(session, where, cfg=None):
         found = live_state(session, harness, pane=pane, cfg=cfg) if pane.strip() else {}
         picker = found and any(rule["picker"] and rule["id"] == found.get("rule")
                                for rule in screen(harness)["rules"])
-        refuses = harness and screen(harness)["editor_refuses"]
+        lost = harness and _editor_loses(harness, pane)
     except (config.Error, OSError):
         return None
-    # a draft that editor would lose part of (`editor_refuses`), lost by whatever step opens it,
-    # or one not read whole, which may hold one: only a composer read empty holds none
-    lost = refuses and composer_draft(harness, pane) != "" and (
-        (rows := _composer_rows(harness, pane, exact=True)) is None
-        or refuses.search("".join(rows)))
     return ((harness, pane, found) if found.get("authority") and not asking(name, harness, pane)
             and not picker and not lost and not pane_unread(session) else None)
+
+
+def _editor_loses(harness, pane):
+    """Whether that composer may hold a draft its editor would lose part of (`editor_refuses`),
+    lost by whatever step opens it: one that does, or one not read whole, which may hold one.
+    Only a composer read empty holds none."""
+    refuses = screen(harness)["editor_refuses"]
+    return bool(refuses) and composer_draft(harness, pane) != "" and (
+        (rows := _composer_rows(harness, pane, exact=True)) is None
+        or bool(refuses.search("".join(rows))))
 
 
 def drafts_back(cfg):
@@ -3900,14 +3905,16 @@ def carry_draft(session, harness, pane, to, cfg=None):
     pane's kept buffer, which the respawn keeps with the pane and `drafts_back` hands the
     harness launched there next, or left there, set aside already for a line of ak's.  Not
     where the editor gives no answer, or finds text typed since that set aside, which no step
-    merges.  Only through ak's editor, which reads a composer whole, and only to a harness
-    (`to`) that opens it too: a screen draws a draft late, wrapped and cropped, and elsewhere
-    the text goes with the old harness.  Under the seat's lock its caller holds over the
+    merges, or where it may hold what that editor would lose (`_editor_loses`).  Only through
+    ak's editor, which reads a composer whole, and only to a harness (`to`) that opens it too:
+    a screen draws a draft late, wrapped and cropped, and elsewhere the text goes with the old
+    harness.  Under the seat's lock its caller holds over the
     respawn too, so no tick hands the text back to the harness going."""
     # keys go out unless the composer reads empty, and never to a question: they could answer it
     where = (harness and screen(to).get("editor") and composer_draft(harness, pane) != ""
              and not asking(session["name"], harness, pane) and seat_editor(session, cfg))
-    return not where or _edit(session, where, "line") in ("line", "unsent")
+    return not where or (not _editor_loses(harness, pane)
+                         and _edit(session, where, "line") in ("line", "unsent"))
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
