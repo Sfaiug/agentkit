@@ -220,7 +220,6 @@ class DesktopAndBoot(Sandbox):
         state["stalls"]["fresh"] = {}
         watch.save_state(state)
         self.save_seat("unowned-claude", conversation="guessed", id_source="discovered")
-        menu.run_records()      # the pass that first reads a record keeps it; a dry run adds nothing
         before = self.snapshot()
         with only_passes(self.root, "the boot resume pass did not run",
                          "the session health pass did not run"), \
