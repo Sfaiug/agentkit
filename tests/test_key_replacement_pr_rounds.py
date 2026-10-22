@@ -57,7 +57,8 @@ class ReplacementRounds(unittest.TestCase):
         cls.again = cls.open_pr("fix-api-again", "api.py", FAILED[:30] + OWN[:5])   # #2
         cls.over = cls.open_pr("fetch-part", "part.py", FAILED[:21])                # #3
         cls.split = cls.open_pr("fetch-half", "half.py", FAILED[:20])               # #4
-        cls.redesign = cls.open_pr("store", "store.py", FAILED[:30] + OWN)          # #5
+        # under the seat's 50 lines, re-adding more than a split may, half of them its own
+        cls.redesign = cls.open_pr("store", "store.py", FAILED[:24] + OWN[:24])     # #5
 
     @classmethod
     def open_pr(cls, branch, path, lines):
