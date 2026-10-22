@@ -60,16 +60,18 @@ class CutMoveStashed(unittest.TestCase):
                           git(self.clone, "show", "stash@{0}^2:install.sh")),
                          ("sec", "#!/bin/sh\necho mine"))
 
-    def test_a_repository_nested_where_the_move_goes_stays(self):
-        # the stash skips a nested repository, and the reset would delete one at a tracked path
+    def test_what_no_stash_holds_where_the_move_goes_stays(self):
+        # a stash skips a nested repository and ignored files, and the move must not delete them
         self.cut()
         (self.clone / "notes").unlink()
         (self.clone / "notes").mkdir()
         git(self.clone / "notes", "init", "-q")
         (self.clone / "notes" / "mine").write_text("only copy")
-        self.go_live()
-        self.assertEqual(((self.clone / "notes" / "mine").read_text(), self.installs(),
-                          git(self.clone, "rev-parse", "HEAD")), ("only copy", 0, self.old))
+        for exclude in ("", "/notes/\n"):
+            (self.clone / ".git" / "info" / "exclude").write_text(exclude)
+            self.go_live()
+            self.assertEqual(((self.clone / "notes" / "mine").read_text(), self.installs(),
+                              git(self.clone, "rev-parse", "HEAD")), ("only copy", 0, self.old))
 
     def test_a_commit_of_its_own_after_a_cut_move_stays(self):
         self.cut()
