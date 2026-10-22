@@ -20,6 +20,10 @@
 //     for one opened without it)
 // session.renamed also restores ak's title below; deltas and config updates are ignored.
 //
+// And before the `question` tool opens its dialog, the gate hooks/orchestrator-stop.sh is asked
+// whether a finished seat's question is refused (`stop.question_refused`), as a PreToolUse hook
+// asks it: the reason it gives is thrown, which 2.1.1 hands the model as the tool's error.
+//
 // And the session the seat is talking in, for the seat to come back to: where a prompt goes in,
 // its id is written into this launch's receipt, the directory agentkit/harness/opencode.py
 // named in $AGENTKIT_OPENCODE_RECEIPT.  A subagent's session is never the seat's: OpenCode's
@@ -33,6 +37,8 @@ import { fileURLToPath } from "node:url";
 
 // The hook beside this plugin in the checkout, whatever directory the seat runs from.
 const SEAT_STATE = fileURLToPath(new URL("../seat-state.sh", import.meta.url));
+// The end-of-turn gate, which also answers whether the seat may ask.
+const GATE = fileURLToPath(new URL("../orchestrator-stop.sh", import.meta.url));
 // This launch's receipt, or none where the seat was not opened by agentkit.
 const RECEIPT = process.env.AGENTKIT_OPENCODE_RECEIPT || "";
 
@@ -46,6 +52,22 @@ function send(payload) {
       stdio: ["pipe", "ignore", "ignore"], timeout: 5000 });
   } catch {
     // The hook left before its fact arrived; nothing here re-sends one.
+  }
+}
+
+// Why the seat's question goes nowhere, or null where it may ask: the gate's PreToolUse answer,
+// in PreToolUse's spelling.  A gate that cannot answer lets the question through.
+export function refusal() {
+  try {
+    const run = spawnSync(GATE, [], {
+      input: JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "question" }),
+      encoding: "utf8", stdio: ["pipe", "pipe", "ignore"], timeout: 10000 });
+    const answer = JSON.parse(run.stdout || "null")?.hookSpecificOutput;
+    return answer?.permissionDecision === "deny"
+      && typeof answer.permissionDecisionReason === "string"
+      ? answer.permissionDecisionReason : null;
+  } catch {
+    return null;
   }
 }
 
@@ -184,6 +206,14 @@ export default {
   async setup(ctx) {
     console.log("[agentkit.seat] reporting seat-state facts to hooks/seat-state.sh");
     const controller = new AbortController();
+    // A version with no tool hook asks as it always did.
+    const gate = Promise.resolve()
+      .then(() => ctx.tool.hook("execute.before", (call) => {
+        if (call?.tool !== "question") return;
+        const reason = refusal();
+        if (reason) throw new Error(reason);
+      }))
+      .catch(() => null);
     const syncTitle = titleSync(ctx);
     const timer = setInterval(syncTitle, 1000);
     timer.unref();
@@ -221,6 +251,10 @@ export default {
         // The stream ended, the server with it; the cleanup below runs on unload.
       }
     })();
-    return () => { clearInterval(timer); controller.abort(); };
+    return () => {
+      clearInterval(timer);
+      controller.abort();
+      gate.then((hook) => hook?.dispose?.()).catch(() => {});
+    };
   },
 };

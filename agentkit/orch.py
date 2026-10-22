@@ -63,8 +63,8 @@ SOCKET = "agentkit"        # the toolkit's own tmux server, never the user's def
 CONTROL = "_ak"            # the Go port's hidden control session there: never a seat, never swept
 JOBS = "-jobs"             # appended to it: the server the background jobs run on
 SLICE = "agentkit.slice"   # the user systemd slice every agent process is started inside
-SEATS_SLICE = "agentkit-seats.slice"  # interactive sessions keep the default weight
-RUNS_SLICE = "agentkit-runs.slice"    # detached runs are deliberately below sessions
+SEATS_SLICE = "agentkit-seats.slice"  # seats yield CPU and I/O to runs
+RUNS_SLICE = "agentkit-runs.slice"    # the lander takes priority within the runs
 NO_SLICE = "no slice (no user systemd manager)"   # ... on a host that has no manager to ask
 SLICE_WAIT = 30            # how long `systemd-run` has to say whether it took a unit
 NO_SUCH_UNIT = 5           # what `systemctl` answers about a unit it was never given
@@ -954,6 +954,11 @@ def slice_cgroup():
     pieces = slice_name().removesuffix(".slice").split("-")
     return root.joinpath(*[f"{'-'.join(pieces[:depth + 1])}.slice"
                            for depth in range(len(pieces))])
+
+
+def run_slice_cgroup():
+    """CPU readings for runs and their lander exclude seats in the sibling slice."""
+    return slice_cgroup() / run_slice_name()
 
 
 def slice_ceiling():
@@ -4146,10 +4151,11 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
     status`, and the old transcript -- is marked for the tick, which types it after the
     new TUI is listening through the confirmed send, the way a reopened seat's line goes.
     The record names the new model before the harness is up, so no redress draws the old
-    one after it. A draft or a question on the screen, which a respawn would lose, refuses
-    the move, and so does a login on credits without `credits`; a refusal, and a restart that
-    fails, leave the seat as they found it and say so in one line. What to say under the rows,
-    or "".
+    one after it. Nothing on its screen refuses the move: the owner moving it knows what is
+    there, and their unsent text goes on into the new composer (`watch.carry_draft`), or the
+    move is refused where it cannot be kept; a login on credits without `credits` refuses it
+    too. A refusal, and a restart that fails, leave the seat as they found it and say so in
+    one line. What to say under the rows, or "".
     """
     from . import watch   # here, not at the top: watch imports this module
     providers = usage.collect(cfg) if providers is None else providers
@@ -4161,16 +4167,11 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
     old_model = record["orchestrator"]
     if old_model == model:
         return ""
-    # Its screen and hooks as they are now: a recorded reading can be a prompt or a draft behind,
-    # and a capture that failed is no evidence that nothing is on its screen.
+    # Its screen and hooks as they are now: a recorded reading can be a prompt or a draft behind.
     session = find(name)
     pane = (watch.pane_text(session)
             if session and not any(session.get(key) for key in CLOSED) else None)
-    if pane is not None and not pane.strip():
-        return f"{name} stays on {old_model}: its screen could not be read"
-    live = watch.look_at(session, cfg=cfg, pane=pane)[1] if pane else {}
-    if live.get("state") in ("draft", "asking"):
-        return f"{name} stays on {old_model} while a draft or a question is on its screen"
+    live = watch.look_at(session, cfg=cfg, pane=pane)[1] if pane and pane.strip() else {}
     new_harness = config.model(cfg, model)["harness"]
     try:
         old_harness = config.model(cfg, old_model)["harness"]
@@ -4195,19 +4196,32 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
         moved = True          # its model is gone: no provider to stay home on
     chosen = {"orchestrator": model, "account": account,
               **({"home_account": account} if moved else {})}
-    # Under what every redress and look reads the record under, till the new harness is up: a
-    # look before it would follow the old model's last answer back (watch.follow_model).
-    with watch.announcing(name):
-        try:
-            config.update_session(name, **chosen)
-        except OSError as exc:
-            return f"session: {_one_line(exc)}"
-        waited = watch.seat_read(name).get("usage_wait")   # a turn its usage cut off goes on
-        try:
-            launch(name, model, cwd, cmd, conversation, session)
-            failed = None
-        except (config.Error, OSError) as exc:
-            failed = exc
+    from . import notify
+    # the owner's text lifted, the harness respawned and any line it is owed marked in one hold
+    # of the seat's lock, so no tick hands the text back to the harness going or before that line
+    with notify.session_lock(name):
+        if pane and not watch.carry_draft(session, old_harness, pane, new_harness, cfg):
+            return f"{name} stays on {old_model}: the text in its input field could not be kept"
+        # Under what every redress and look reads the record under, till the new harness is up: a
+        # look before it would follow the old model's last answer back (watch.follow_model).
+        with watch.announcing(name):
+            try:
+                config.update_session(name, **chosen)
+            except OSError as exc:
+                return f"session: {_one_line(exc)}"
+            waited = watch.seat_read(name).get("usage_wait")   # a turn its usage cut off goes on
+            try:
+                launch(name, model, cwd, cmd, conversation, session)
+                failed = None
+            except (config.Error, OSError) as exc:
+                failed = exc
+        line = None if failed else (
+            handover_text(name, old_model, transcript) if not kept else watch.MIDTURN_LINE
+            if watch._turn_in_flight(new_harness, live)[0] or (waited or {}).get("continue")
+            else None)
+        if line:
+            watch.seat_write(name, midturn={"boot": watch.boot_id(), "at": time.time(),
+                                            "name": name, "line": line})
     if failed:
         try:
             config.update_session(name, **{key: record.get(key) for key in chosen})
@@ -4216,16 +4230,10 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
         except (config.Error, OSError, ValueError):
             pass    # the note below already says the restart failed
         return _one_line(failed)
-    if kept:
-        if watch._turn_in_flight(new_harness, live)[0] or (waited or {}).get("continue"):
-            watch.seat_write(name, midturn={"boot": watch.boot_id(), "at": time.time(),
-                                            "name": name, "line": watch.MIDTURN_LINE})
-        return ""
-    if old_harness:
-        harness_plugin(old_harness).forget(record)
-    watch.forget(name)    # a new conversation: no latch of the old one's survives it
-    watch.seat_write(name, midturn={"boot": watch.boot_id(), "at": time.time(), "name": name,
-                                    "line": handover_text(name, old_model, transcript)})
+    if not kept:
+        if old_harness:
+            harness_plugin(old_harness).forget(record)
+        watch.forget(name)    # a new conversation: no latch of the old one's survives it
     return ""
 
 

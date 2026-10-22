@@ -9,13 +9,14 @@ the stub's blanks and dummies.
 """
 
 import calendar
-from contextlib import ExitStack, redirect_stdout
+from contextlib import ExitStack, closing, redirect_stdout
 import datetime
 import io
 import json
 import os
 import shlex
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -27,7 +28,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history, orch, transitions, watch  # noqa: E402
+from agentkit import config, history, orch, stop, transitions, watch  # noqa: E402
 
 ADAPTER = str(REPO / "adapters/opencode.sh")
 FIXTURES = REPO / "tests/fixtures"
@@ -937,6 +938,56 @@ console.log(JSON.stringify(facts));
             {"hook_event_name": "Interrupt", "session_id": "ses_plug"},
             {"hook_event_name": "PermissionRequest", "tool_name": "bash", "message": "bash ls"},
         ])
+
+    def test_plugin_refuses_a_finished_seat_s_question_before_its_dialog(self):
+        node = shutil.which("node")
+        self.assertIsNotNone(node, "node is required to load the OpenCode plugin")
+        # the tool hook OpenCode 2.1.1 hands a plugin, and the two calls it then makes of it
+        driver = r"""
+import { pathToFileURL } from "node:url";
+const plugin = (await import(pathToFileURL(process.argv[1]).href)).default;
+let before;
+const ctx = { session: { get: async () => ({}) }, event: { subscribe: async function* () {} },
+  tool: { hook: async (name, fn) => { if (name === "execute.before") before = fn; return {}; } } };
+const stop = await plugin.setup(ctx);
+await new Promise((resolve) => setTimeout(resolve, 0));
+const refused = [];
+for (const tool of ["question", "bash"]) {
+  try { await before({ tool, sessionID: "ses_seat", input: {} }); refused.push(null); }
+  catch (error) { refused.push(error.message); }
+}
+stop();
+console.log(JSON.stringify(refused));
+"""
+        state = self.home / ".agentkit/state"
+        token, sid = "a" * 32, "ses_0fa1c2d3e4ffAcmeFixture01"
+        (state / f"opencode-launch-{token}").mkdir(parents=True)
+        (state / f"opencode-launch-{token}/session").write_text(sid)
+        (state / "session-fakesession.json").write_text(json.dumps(
+            {"orchestrator": "mimo", "cwd": str(self.home), "opencode_launch": token}))
+        db = self.home / ".local/share/opencode/opencode.db"
+        db.parent.mkdir(parents=True)
+        with closing(sqlite3.connect(db)) as conn, conn:
+            conn.executescript((FIXTURES / "said-opencode.sql").read_text())
+        plan = state / "plan-fakesession.md"
+        # the third: the owner wrote in the seat's session after its plan was done
+        for lines, wrote, refused in (("- [x] the parser parses\n", False, [stop.DONE_ASKING, None]),
+                                      ("- [ ] the parser parses\n", False, [None, None]),
+                                      ("- [x] the parser parses\n", True, [None, None])):
+            with self.subTest(plan=lines, wrote=wrote):
+                plan.write_text(lines)
+                os.utime(plan, (100, 100))
+                if wrote:
+                    with closing(sqlite3.connect(db)) as conn, conn:
+                        conn.execute("INSERT INTO session_message VALUES (?, ?, ?, ?, ?, ?, ?)", (
+                            "msg_10", sid, "user", 10, 200000, 200000,
+                            json.dumps({"text": "Please add CSV export."})))
+                proc = subprocess.run(
+                    [node, "--input-type=module", "-e", driver,
+                     str(REPO / "hooks/opencode-seat/index.js")],
+                    capture_output=True, text=True, env=self.env)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(json.loads(proc.stdout.splitlines()[-1]), refused)
 
     # --- the session a seat comes back to ----------------------------------------
     def run_plugin(self, receipt, events, parents):

@@ -24,7 +24,7 @@ from fixtures.akbin import Home
 LAPTOP = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAacmelaptop laptop\n"
 OLD = ('command="ak orch",no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAacmeold phone-termius\n'
        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAacmebare phone-termius\n"
-       "no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAacmeopts phone-termius\n")
+       "  no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAacmeopts phone-termius\n")
 PHONE = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAacmephone acme@phone"
 ATTACH = 'command="ak attach",no-agent-forwarding,no-port-forwarding'
 CODEX = ('model = "acme-model"\napproval_policy = "on-request"  # the owner\'s\n\n'

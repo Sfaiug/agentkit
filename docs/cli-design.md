@@ -158,7 +158,7 @@ style back once the last popup over it is down, however each came down: its
 menu ending, a crash, a kill, its client going. A tmux older than 3.3 draws the
 plain popup and says nothing (`orch.tmux_conf`, `terminal.inset`).
 
-`x` is the highlighted seat's, or in the popup the popup's own seat's. A done
+`x` is the highlighted seat's, in the popup as on the menu. A done
 seat it closes at once, with no question: `orch.cmd_stop` takes its runs,
 checkouts and tmux session and keeps the seat, its number reopening it. Any
 other it asks about
@@ -167,7 +167,7 @@ down: `Stop <name> and everything it runs?`, then how many runs stop with it
 and that the session moves to past sessions, where it reopens where it
 stopped; the key line reads `esc back` while it asks. The runs are counted off the draw, so the card is up at
 once: `Its runs stop` until the number lands. The key line says `x close` while
-a done seat is highlighted (in the popup, while its own seat is done) and `x
+a done seat is highlighted and `x
 stop` otherwise; a seat's tmux bar reads `Ctrl-b m  menu` at the right end of its second
 line whatever its word.
 
@@ -269,7 +269,7 @@ and scroll with it. It is a
 matrix read with the keys, so the file is never
 opened: every offered model once, under its provider's display name in the
 accent, a row of label, then `orch` (`●` on the highlighted
-session's, `○` dim elsewhere), `builds` and `reviews` (`■`/`□`) and `effort`: a
+session's, on a heading new seats', `config · new seats`, `[defaults]`; `○` dim elsewhere), `builds` and `reviews` (`■`/`□`) and `effort`: a
 cell for each level that model offers, full up to its effort and the rest open
 and dim, then its word (`▰▰▰▰▱  xhigh`; without UTF-8 `####-`), the words in one
 column after the most cells any model has (the owner's pick of 18 Oct 2026). A

@@ -211,7 +211,7 @@ class DocsOnlyOverlapLands(unittest.TestCase):
         # the branch's own first path sorts before the shared code file, main's does not
         lp = make_run(self.root, remote, "gizmo", self.cmds(),
                       {GUIDE: "gizmo\n2\n3\n4\n5\n", CODE: "gizmo\n2\n3\n4\n5\n",
-                       "\t0.md": "gizmo\n"})
+                       "\t0.txt": "gizmo\n"})
         self.assertTrue(self.land(lp, owner, {GUIDE: "1\n2\n3\n4\nfive\n",
                                               CODE: "1\n2\n3\n4\nfive\n"}))
         self.assertEqual(self.delivered, [True])

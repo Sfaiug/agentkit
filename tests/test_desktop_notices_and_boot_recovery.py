@@ -292,8 +292,9 @@ class DesktopAndBoot(Sandbox):
         self.assertEqual(self.output(other), b"")
         self.assertEqual(len(self.posts), 1)
         notify.answered("source", notify.last("source")["time"] + 1)
-        # A disconnected client does not prevent Discord's next event.
-        with patch.object(notify.os, "write", side_effect=OSError("gone")):
+        # A disconnected client does not prevent Discord's next event, asked after the answer.
+        with patch.object(notify.os, "write", side_effect=OSError("gone")), \
+                patch.object(notify.time, "time", return_value=10002):
             self.assertEqual(notify.shaped("needs", "Which branch now?", session="source"), 0)
             self.assertEqual(notify.transition("source", now=notify.time.time() + 2 * notify.CARD_WAIT), 0)
         self.assertEqual(len(self.posts), 2)
