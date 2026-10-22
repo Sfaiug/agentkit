@@ -14,6 +14,7 @@ import fcntl
 import json
 import sys
 from pathlib import Path
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -55,19 +56,23 @@ class OneTick(unittest.TestCase):
     def test_a_tick_finding_the_lock_held_runs_nothing_and_says_whose_it_is(self):
         kept = (self.state / "watch.json").read_bytes()
         asked = len(self.home.calls("gh"))
-        # A slow start can cross a minute: the exact age belongs to test_key_tick_lock_held.
-        held = {2400: r"tick already running \(pid 4242, for \d+ min\)\nWARN the tick holding "
-                      r"the lock has been running for \d+ min; look at it, and kill it if it "
-                      r"is hung\n",
-                0: r"tick already running \(pid 4242, for \d+ min\)\n"}
-        for ago, said in held.items():
+        held = "tick already running (pid 4242, for {} min)\n"
+        hung = ("WARN the tick holding the lock has been running for {} min; look at it, "
+                "and kill it if it is hung\n")
+        for ago in (2400, 0):
             with self.subTest(ago=ago):
                 lock = self.home.write(".agentkit/state/watch.tick.lock", "4242\n", ago=ago)
                 with lock.open("r") as holder:
                     fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    began = lock.stat().st_mtime
+                    before = time.time()
                     done = self.home.ak("watch")
+                    after = time.time()
+                # The subprocess can read either side of a minute boundary.
+                ages = range(int((before - began) // 60), int((after - began) // 60) + 1)
                 self.assertEqual((done.code, done.err), (0, ""))
-                self.assertRegex(done.out, rf"\A{said}\Z")
+                self.assertIn(done.out, [held.format(age) + (hung.format(age) if age >= 30 else "")
+                                         for age in ages])
                 self.assertEqual((self.state / "watch.json").read_bytes(), kept)
                 self.assertEqual(len(self.home.calls("gh")), asked)
 
