@@ -483,37 +483,42 @@ def behind(timeout=START_WAIT):
                 and _git("merge-base", "--is-ancestor", head[0], "HEAD")[0])
 
 
-def _git(*args, timeout=60, env=None):
-    """One git command in that checkout: its exit code and output, 1 when it could not run."""
+def _git(*args, timeout=60, raw=False):
+    """One git command in that checkout: its exit code and output, 1 when it could not run.
+    `raw` gives the bytes as git wrote them, for file contents and names."""
     try:
         proc = subprocess.run(["git", "-C", str(agentkit_dir()), *args], capture_output=True,
-                              encoding="utf-8", errors="replace", timeout=timeout,
-                              env={**config.child_env(), **PINS, **(env or {})})
+                              timeout=timeout, env={**config.child_env(), **PINS})
     except (OSError, subprocess.TimeoutExpired):
-        return 1, ""
-    return proc.returncode, proc.stdout.strip()
+        return 1, b"" if raw else ""
+    return proc.returncode, (proc.stdout if raw
+                             else proc.stdout.decode("utf-8", "replace").strip())
 
 
 def _moved_only(moving):
-    """Whether every file the checkout changed holds what `moving` has there: what a move to it
-    wrote, and no edit of somebody's since.  git compares them, in an index of its own."""
-    tracked = _git("diff", "--name-only", "-z", "HEAD")
-    untracked = _git("ls-files", "-z", "--others", "--exclude-standard")
-    if tracked[0] or untracked[0]:
+    """Whether the checkout holds only what a move to `moving` leaves, cut off anywhere: git
+    writes the index whole, so it is HEAD's or that commit's, and deletes each file it moves
+    before writing it anew from its start, so every file changed is gone or the start of the
+    commit's.  Anything else is an edit of somebody's."""
+    if all(_git("diff", "--cached", "--quiet", tree)[0] for tree in ("HEAD", moving)):
         return False
-    changed = [path for path in f"{tracked[1]}\0{untracked[1]}".split("\0") if path]
-    if not changed:
-        return True
-    with tempfile.TemporaryDirectory() as tmp:
-        env = {"GIT_INDEX_FILE": str(Path(tmp) / "index"), "GIT_LITERAL_PATHSPECS": "1"}
-        if _git("read-tree", moving, env=env)[0] or _git("diff", "--quiet", "--", *changed,
-                                                         env=env)[0]:
+    listed = [_git(*args, raw=True) for args in (("diff", "--name-only", "-z", "HEAD"),
+                                                 ("ls-files", "-z", "--others",
+                                                  "--exclude-standard"))]
+    if any(code for code, _ in listed):
+        return False
+    for name in filter(None, b"\0".join(out for _, out in listed).split(b"\0")):
+        path = agentkit_dir() / os.fsdecode(name)
+        if not os.path.lexists(path):
+            continue
+        code, wanted = _git("cat-file", "--filters", f"{moving}:{os.fsdecode(name)}", raw=True)
+        try:
+            has = os.fsencode(os.readlink(path)) if path.is_symlink() else path.read_bytes()
+        except OSError:
             return False
-        code, there = _git("ls-files", "-z", "--", *changed, env=env)
-    # a changed file `moving` lacks is one the move only deletes: still there, it is somebody's
-    there = set(there.split("\0"))
-    return not code and not any(os.path.lexists(agentkit_dir() / path)
-                                for path in changed if path not in there)
+        if code or not wanted.startswith(has):
+            return False
+    return True
 
 
 def left_as_is():

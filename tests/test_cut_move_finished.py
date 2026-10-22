@@ -41,21 +41,26 @@ class CutMoveFinished(unittest.TestCase):
         lock.unlink()                               # the dead git lock pass
         self.live()
 
-    def cut(self):
-        """The tick's move killed at its cap once the files and the index had moved."""
+    def cut(self, moved=lambda clone, target: git(clone, "read-tree", "-m", "-u", "HEAD", target)):
+        """The tick's move killed at its cap once it `moved` the checkout: by default its files
+        and its index."""
         run = subprocess.run
 
         def killed(cmd, *args, **kwargs):
             if "merge" not in cmd:
                 return run(cmd, *args, **kwargs)
-            git(self.clone, "read-tree", "-m", "-u", "HEAD", cmd[-1])
+            moved(self.clone, cmd[-1])
             raise subprocess.TimeoutExpired(cmd, update.STEP_CAP)
         with patch.object(update.subprocess, "run", side_effect=killed):
             update.go_live(lambda line: None)
-        self.assertEqual(((self.clone / "notes").read_text(), self.installs()), ("second\n", 0))
+        self.assertEqual(self.installs(), 0)
 
     def test_a_move_killed_mid_way_goes_live(self):
         self.cut()
+        self.live()
+
+    def test_a_move_killed_mid_file_goes_live(self):
+        self.cut(lambda clone, target: (clone / "notes").write_text("sec"))
         self.live()
 
     def test_a_commit_of_its_own_after_a_cut_move_stays(self):
@@ -66,12 +71,18 @@ class CutMoveFinished(unittest.TestCase):
         self.tick()
         self.assertEqual((self.head(), self.installs()), (mine, 0))
 
-    def edited(self):
-        """The owner's edit, which no later tick may touch, and the HEAD it stays on."""
+    def edited(self, staged=False):
+        """The owner's edit, in the file or only staged, which no later tick may touch, and the
+        HEAD it stays on."""
         mine, head = self.clone / "install.sh", self.head()
-        mine.write_text(mine.read_text() + "# mine\n")
+        kept = mine.read_text()
+        mine.write_text(kept + "# mine\n")
+        if staged:
+            git(self.clone, "add", "install.sh")
+            mine.write_text(kept)
         self.tick()
-        self.assertEqual((self.head(), mine.read_text().endswith("# mine\n"), self.installs()),
+        edit = git(self.clone, "show", ":install.sh") if staged else mine.read_text()
+        self.assertEqual((self.head(), edit.strip().endswith("# mine"), self.installs()),
                          (head, True, 0))
 
     def test_an_edit_after_a_move_that_never_began_stays(self):
@@ -84,6 +95,10 @@ class CutMoveFinished(unittest.TestCase):
     def test_an_edit_after_a_cut_move_stays(self):
         self.cut()
         self.edited()
+
+    def test_a_staged_edit_after_a_cut_move_stays(self):
+        self.cut()
+        self.edited(staged=True)
 
 
 if __name__ == "__main__":
