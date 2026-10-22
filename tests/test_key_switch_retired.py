@@ -21,14 +21,11 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.gitrig import Rig
 
 DAY = 86400
-# The tick asks the public boards over HTTP: a proxy nobody answers keeps it off the network.
-OFFLINE = {name: "http://127.0.0.1:9"
-           for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
 WORKING, AT_REST = "claude-working-pane.txt", "claude-prompt-pane.txt"
 
 
@@ -69,18 +66,18 @@ def naming(lines, switch):
 
 
 def tick(home):
-    done = home.ak("watch")
+    done = home.tick()
     assert done.code == 0, done.out + done.err
     return done
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class ProvenSwitches(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        home.env.update(OFFLINE)
         akconfig.write(home, ["opus"])
         cls.project = project = Project(home)
         project.show({"id": "fast-search", "everyone": True, "everyone_since": since(15)},
@@ -125,12 +122,12 @@ class ProvenSwitches(unittest.TestCase):
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class SwitchInHand(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        home.env.update(OFFLINE)
         akconfig.write(home, ["opus"])
         project = Project(home)
         project.show({"id": "fast-search", "everyone": True, "everyone_since": since(20)})
@@ -149,12 +146,12 @@ class SwitchInHand(unittest.TestCase):
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class NoSeatAtWork(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        home.env.update(OFFLINE)
         akconfig.write(home, ["opus"])
         project = Project(home)
         project.show({"id": "fast-search", "everyone": True, "everyone_since": since(20)})
