@@ -157,6 +157,18 @@ def git_directory(repo):
     return path
 
 
+def common_directory(repo):
+    """The repository a checkout is of: its own git directory, or the one a worktree's names
+    (ak's own, at ~/agentkit: `versions`)."""
+    path = git_directory(repo)
+    if not os.path.lexists(path / "commondir"):
+        return path
+    path = Path(os.path.abspath(path / read_bytes(path / "commondir").decode().strip()))
+    if not safe(path):
+        raise ValueError("unsafe git directory")
+    return path
+
+
 def git_ref(common, ref):
     if not ref.startswith("refs/heads/") or ".." in Path(ref).parts:
         return None
@@ -240,7 +252,7 @@ def clean_worktree(repo, wt, state, junk):
     import struct
     import zlib
     try:
-        common, private = git_directory(repo), git_directory(wt)
+        common, private = common_directory(repo), git_directory(wt)
         if (not safe(wt) or private.parent != common / "worktrees"
                 or read_bytes(private / "gitdir").decode().strip() != str(wt / ".git")):
             return False

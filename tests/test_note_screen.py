@@ -120,10 +120,10 @@ class NoteScreen(unittest.TestCase):
         screen = Screen(self)
         screen.frame()
         screen.send(b"c")
-        screen.screen("config · new seats")
+        screen.screen("config")
         mark = len(screen.text())
         screen.send(DOWN * 30 + b"\x1b[A")       # Discord, above Weekly audit
-        before = screen.screen("config · new seats", after=mark,
+        before = screen.screen("config", after=mark,
                                where=lambda lines: any(line.startswith("›") and "Discord" in line
                                                        for line in lines))
         self.assertIn("Discord", screen.highlighted(before))
@@ -136,7 +136,7 @@ class NoteScreen(unittest.TestCase):
         self.assertNotIn("\x1b[?1049l", screen.text()[mark:])
         mark = len(screen.text())
         screen.send(ESC)
-        self.assertEqual(screen.screen("config · new seats", after=mark)[1:], before[1:])
+        self.assertEqual(screen.screen("config", after=mark)[1:], before[1:])
         mark = len(screen.text())
         screen.send(ESC)
         screen.frame(after=mark)
