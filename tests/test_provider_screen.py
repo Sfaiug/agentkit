@@ -84,7 +84,8 @@ provider = "anthropic"
 mode = "subscription"
 """
 SHIPPED = tomllib.loads((REPO / "config.default.toml").read_text())
-MATRIX, ADD = "agentkit · config", "agentkit · config · add a provider"
+# `c` from a heading, new seats' marks over the efforts
+MATRIX, ADD = "agentkit · config · new seats", "agentkit · config · add a provider"
 KEYS = {"row": "  ↑↓ move   ⏎ open   esc back", "add": "  ↑↓ move   ⏎ add   esc back",
         "choose": "  ↑↓ move   ⏎ choose   esc back", "ask": "  esc back"}
 GIVE, TAKE = "\x1b[?1049l", "\x1b[?1049h"

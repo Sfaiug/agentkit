@@ -3442,10 +3442,10 @@ printf '\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-q.log" 2>&1 || MENU=1
 # the key line is those four letter keys and nothing else; numbers open seats
 grep -q '^  n new   x stop   c config   esc leave' "$WORK/menu-q.log" || MENU=1
 grep -q 'p preview\|b browser\|r runs\|u update\|s shell' "$WORK/menu-q.log" && MENU=1
-# `c` lists the config with its values, with no seat the efforts alone;
+# `c` lists the config with its values, with no seat new seats' marks;
 # `i`/`r`/`p`/`b`/`s`/`u` are not keys
 printf 'c\n\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-c.log" 2>&1 || MENU=1
-grep -qx ' *effort' "$WORK/menu-c.log" || MENU=1
+grep -qx ' *orch  builds  reviews  effort' "$WORK/menu-c.log" || MENU=1
 for key in i r p b s u; do
   printf "$key\n\n" | HOME="$MHOME" ak --dry-run >"$WORK/menu-$key.log" 2>&1 || MENU=1
   grep -q "not a key: '$key'" "$WORK/menu-$key.log" || MENU=1
@@ -5287,8 +5287,8 @@ assert not any("press r" in line for line in lines), lines
 for key in ("i", "r", "p", "b", "s", "u"):
     out = menu_lines(f"{key}\n\n")
     assert any(f"not a key: {key!r}" in line for line in out), (key, out)
-shown = menu_lines("c\n\n")      # a pipe highlights no seat: the efforts alone
-assert any(line.strip() == "effort" for line in shown), shown
+shown = menu_lines("c\n\n")      # a pipe highlights no seat: new seats' marks
+assert any(line.strip() == "orch  builds  reviews  effort" for line in shown), shown
 assert watch.plan_progress("atoll-fix") == (2, 5)
 assert watch.plan_progress("no-such-seat") == (0, 0)
 print("ok")
