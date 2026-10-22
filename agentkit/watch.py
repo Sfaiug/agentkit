@@ -3702,7 +3702,8 @@ def quiet_prompt(session, held, cfg=None):
                 and not asking(held, harness, pane) and composer_draft(harness, pane) == "")
 
 
-DRAFT_STILL = 120       # a seat whose terminal took no keys this long is not one the owner types in
+DRAFT_STILL = 120       # a seat whose terminal took no keys this long is not one the owner types in:
+                        # only then is their text set aside for a line (`_past_text`)
 
 
 def seat_editor(session, cfg=None):
@@ -3776,18 +3777,15 @@ def _editor_kept(session):
     return found
 
 
-def _editor_read(session, where, cfg=None, *, after_line=False):
+def _editor_read(session, where, cfg=None):
     """That seat's screen as (harness, pane, live state) where it may be asked an editor step
-    now, or None: nothing typed into its pane (`where`, `seat_editor`) for DRAFT_STILL -- but
-    for the step that follows its line's own Enter at once (`after_line`), as the terminal takes
-    ak's keys as it does the owner's, or text set aside for no line, a switch's (`carry_draft`)
-    -- and none unread, read with no question or picker up
-    (`[[rule]] picker`) -- the step's keys open the editor from a composer alone, and a picker
-    drawn on over what it puts there takes its Enter."""
+    now, or None: none of its pane's input unread (`where`, `seat_editor`), read with no
+    question or picker up (`[[rule]] picker`) -- the step's keys open the editor from a composer
+    alone, and a picker drawn on over what it puts there takes its Enter.  However recently its
+    terminal took keys: text given back goes only into a composer empty or holding the line
+    alone, and the terminal takes ak's own keys as it does the owner's."""
     name = session["name"]
     try:
-        if not after_line and time.time() - os.stat(where["tty"]).st_atime < DRAFT_STILL:
-            return None
         harness = seat_model(config.load() if cfg is None else cfg, name)[0]
         pane = pane_text(session) if harness else ""
         found = live_state(session, harness, pane=pane, cfg=cfg) if pane.strip() else {}
@@ -3814,10 +3812,10 @@ def drafts_back(cfg):
         with seat_held(session["name"]):
             if seat_read(session["name"]).get("midturn"):
                 continue    # its line goes first: text back in the composer would go with it
-            for pane, (state, put) in sorted((_editor_kept(session) or {}).items()):
+            for pane, (state, _) in sorted((_editor_kept(session) or {}).items()):
                 bound = dict(session, pane=pane)
                 where = state == aside_editor.ASIDE and seat_editor(bound, cfg)
-                read = where and _editor_read(bound, where, cfg, after_line=not put)
+                read = where and _editor_read(bound, where, cfg)
                 if read and composer_draft(read[0], read[1]) == "":
                     _edit(bound, where, "back")
 
@@ -3840,7 +3838,11 @@ def _past_text(session, cfg=None):
     except (config.Error, OSError):
         return None
     where = past(harness, pane, found) and seat_editor(session, cfg)   # most seats ask no editor
-    read = where and _editor_read(session, where, cfg)
+    try:
+        alone = where and time.time() - os.stat(where["tty"]).st_atime >= DRAFT_STILL
+    except OSError:
+        return None
+    read = alone and _editor_read(session, where, cfg)
     return where if read and past(*read) else None
 
 
@@ -3857,7 +3859,7 @@ def _line_through(session, where, held, mark, log, receipt, cfg=None, *, source=
         return False
     _send_enter(session, log)
     return (_wait_ready(lambda name: composer_holds(name, session, text, cfg) == "empty", held)
-            and _editor_read(session, where, cfg, after_line=True)
+            and _editor_read(session, where, cfg)
             and _edit(session, where, "back", text) == "sent" and not pane_unread(session))
 
 
