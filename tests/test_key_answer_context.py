@@ -1,4 +1,4 @@
-"""An owner's prompt is told which open questions it may answer; a prompt that is not his is not.
+"""An owner's prompt is told which open questions it may answer; a prompt not theirs is not.
 
 A seat asks with `ak notify needs` and works on, so the prompt that answers may come turns later,
 when the seat no longer has the question in view: the prompt hook hands the harness each question
