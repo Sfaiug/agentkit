@@ -20,6 +20,8 @@ from fixtures.akterm import Terminal
 
 WEEK = 7 * 24 * 3600
 CLOCK = re.compile(r"^agentkit +\d\d:\d\d$")
+# The rule under the header, its glide (motion.fetching) lit while the usage is still fetched.
+RULE = "^[─━]{%d}$"
 FIX = "atoll-fix  Fable 5.1  ● working"
 
 
@@ -64,7 +66,7 @@ class MenuWidth(unittest.TestCase):
                                 and "  c config   esc leave" in shown(screen)))
         self.assertRegex(lines[0], CLOCK)
         self.assertEqual(len(lines[0]), 40)
-        self.assertEqual(lines[1], "─" * 40)
+        self.assertRegex(lines[1], RULE % 40)
         self.assertIn("  Claude   ▰▰▱▱▱▱▱▱▱▱  21% left", lines)
         self.assertIn("  ChatGPT  ▰▰▰▰▰▰▰▱▱▱  69% left", lines)
         row = lines.index(f"› 1  {FIX}")
@@ -77,7 +79,7 @@ class MenuWidth(unittest.TestCase):
         _, lines = self.menu(170)
         self.assertRegex(lines[0], CLOCK)
         self.assertEqual(len(lines[0]), 120)
-        self.assertEqual(lines[1], "─" * 120)
+        self.assertRegex(lines[1], RULE % 120)
         self.assertEqual([line for line in lines if len(line) > 120], [])
         wide = next(line for line in lines if FIX in line)
         self.assertTrue(wide.endswith(" 3 of 7"), wide)
