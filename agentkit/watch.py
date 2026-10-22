@@ -58,8 +58,9 @@ MIDTURN_LINE = ("Your process was ended by the host, not by you, in the middle o
 # ... and one reopened while it asked the owner: its harness marks the open question interrupted
 ASKED_LINE = ("The host restarted while your question to the owner was still open. "
               "Ask it again.")
-ACCOUNT_LINE = ("Your subscription ran out. This seat has resumed the same conversation on "
-                "an account of the same provider with usage available. Continue where you stopped.")
+# ... and one whose turn its usage cut off, on an account with usage again, this or another
+ACCOUNT_LINE = ("Your turn was cut off when its usage ran out, and there is usage again. "
+                "Continue that turn and finish it; do not start over.")
 CONTINUE_LINE = "continue"
 MIDTURN_TRIES = 3       # passes that may type it before a seat is left at its prompt
 MARKER = "agentkit review of"
@@ -1456,15 +1457,16 @@ def ruled_composer(chrome, rows):
 
 
 def chrome_below(chrome, rows):
-    """Where the chrome under a ruled harness's composer begins in `rows`, else len(rows).
+    """Where a ruled harness's composer begins in `rows`, its prompt row, else len(rows).
 
-    From the composer's closing rule down to a footer on the bottom row, everything is chrome,
-    a user's status line among it.  A bottom row that is no footer is newer output, as
-    anywhere else, and leaves the rows as they are.
+    From the composer's prompt row down to a footer on the bottom row nothing is output: the
+    owner's unsent text, the closing rule and the chrome under it, a user's status line among
+    it.  A bottom row that is no footer is newer output, as anywhere else, and leaves the rows
+    as they are.
     """
-    end = ruled_composer(chrome, rows)[1]
+    at, end = ruled_composer(chrome, rows)
     last = next((row for row in reversed(rows) if row.strip()), "")
-    return end if end is not None and chrome_line(chrome, last) else len(rows)
+    return at if end is not None and chrome_line(chrome, last) else len(rows)
 
 
 def chrome_line(chrome, line):
@@ -1512,8 +1514,9 @@ def recorded_error(harness, name):
 
 
 def limit_ended(harness, name):
-    """Did that seat's harness end its latest turn for a spent subscription -- told the model to
-    wrap up, so it stopped without a refusal -- on a job its plan does not prove done?"""
+    """When that seat's harness ended its latest turn for a spent subscription -- told the model
+    to wrap up, so it stopped without a refusal -- on a job its plan does not prove done; None
+    where it did not."""
     from . import plan as plan_mod
     record = config.session_records().get(name) if name else None
     if not record:
@@ -1523,8 +1526,8 @@ def limit_ended(harness, name):
     try:
         at = plugin.wrapped_up(record, cwd, plugin.conversation(record, cwd))
     except OSError:
-        return False
-    return at is not None and not plan_mod.finished(name)
+        return None
+    return at if at is not None and not plan_mod.finished(name) else None
 
 
 def interrupted_at(harness, name):
@@ -4399,8 +4402,8 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     live = seat_read(name)
     if (live.get("midturn") or {}).get("line") == ACCOUNT_LINE:
         return True       # its resumed transcript may still show the previous account's refusal
-    if live.get("state") in ("draft", "asking"):
-        return True       # a respawn would lose them; an open question is ak's record and stays
+    if live.get("state") == "asking":
+        return True       # a respawn would lose it; an open question is ak's record and stays
     accounts = config.accounts(cfg, provider)
     current = record.get("account") or config.DEFAULT_ACCOUNT
     home = record.get("home_account") or config.DEFAULT_ACCOUNT
@@ -4442,13 +4445,22 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         # What starts it again is still the screen's to say: no record holds a goal's trailer.
         cue = error_said(harness, lines)
     refusal = outcome in (SPENT, LIMITED)
+    if (not refusal and not waiting and live.get("state") in ("at_prompt", "draft")
+            and not _turn_in_flight(harness, live)[0]):
+        # A turn its harness wrapped up for the limit (`limit_ended`, its own note) refused
+        # nothing, but its account is spent all the same, whatever the meters read yet.
+        ended = limit_ended(harness, name)
+        if ended:
+            refusal, outcome, line = True, SPENT, f"wrap_up {ended}"
     now = time.time()
     observed = live.get("usage_refusal") or {}
     until = turns.try_again_at(line) if refusal else None
     handled = observed.get("line") == line and observed.get("handled")
     if handled and not waiting and not spent(current):
         return True       # a consumed refusal is still history when its transcript is redrawn
-    if refusal and not waiting and not spent(current):
+    if refusal and not waiting and not spent(current) and outcome == LIMITED:
+        # A bare 429 has to stand before it counts; a spent window is acted on at once, so
+        # the seat never sits at its prompt reading idle while it is out of usage.
         if observed.get("line") != line:
             if not dry_run:
                 seat_write(name, usage_refusal={"line": line, "at": now})
@@ -4553,7 +4565,14 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                 return True       # a move to another account waits for that turn's end
             try:
                 if owned:
-                    _resume_on(cfg, name, log, target, continuing)
+                    # the owner's text lifted and the harness respawned in one hold, as a switch does;
+                    # a move nobody asked for waits while no editor of ak's lifts it, or none could
+                    with notify.session_lock(name):
+                        if live.get("state") == "draft" and not (
+                                seat_editor(session, cfg)
+                                and carry_draft(session, harness, pane, harness, cfg)):
+                            return True     # a respawn would lose the text
+                        _resume_on(cfg, name, log, target, continuing)
                 elif continuing and not type_into(session, keystroke(harness, cue), log,
                                                   asked=True):
                     return True
@@ -7400,6 +7419,7 @@ def local_passes(state, dry_run, log):
         # A seat that died under its running runs comes back, after its endings were announced
         # to it.
         ("the seat revival pass did not run", lambda: revive_seats(config.load(), log), False),
+        ("git housekeeping did not finish", lambda: gc.git_housekeeping(log), False),
         # Expensive collection runs detached; malformed retention metadata cannot stop a tick.
         ("retention pass did not finish", lambda: gc.schedule_gc(log), False),
         ("retention pass did not finish", orch.stamp, False),
