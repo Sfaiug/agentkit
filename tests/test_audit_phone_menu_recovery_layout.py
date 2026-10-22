@@ -697,7 +697,7 @@ class Phone(Sandbox):
             self.assertEqual(orch.main(["rename", first, "Phone Audit"]), 0)
         phone.menu("1  phone-au")
         phone.press("c")
-        screen = phone.until("config · phone-audit", "esc back", prompt="esc back")
+        screen = phone.until("For  phone-audit", "esc back", prompt="esc back")
         self.fits(screen, width, height)
         phone.keys("Escape")
         screen = phone.until("esc leave", "1  phone-au", prompt="esc leave")
