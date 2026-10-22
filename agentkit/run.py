@@ -40,7 +40,7 @@ from .handback import (announce, announce_safely, clear_delivery, join_session_p
 from .staffing import (barred_refusal, best_pair, collect_usage, head_writers, next_executor,
     note_handover, pair_refusal, pick_models, ready_order, refuse_outside_group,
     refuse_unready, reviewer_order, run_workers, same_model, started_round)
-from .transitions import (carried_lines, change_budget, change_on, first_review_refusal, replacement_refusal,
+from .transitions import (carried_lines, change_budget, change_on, replacement_refusal,
     change_reviewed, delivery, diff_lines, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
     invalidate_saved_pass, judged_in_integration, landing_line, launched_session, needs_recovery, over_lineage, park_error, park_exhausted, PR_PARTS,
@@ -1167,8 +1167,7 @@ def preflight(run_dir, opts, log):
             why = own_pr_budget(url, run_dir)[1]
             if why:
                 raise config.Error(why)
-            # ... and a PR too large for its first review is refused here too, before the run
-            # waits for a slot, so its seat hears `split it` at once
+            # ... and a PR too large for the seat is refused before it waits for a slot
             checkout = checkout_for(f"{owner}/{name}", log)
             default = origin_default(checkout)
             if info["baseRefName"] != default:
@@ -2103,16 +2102,19 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
     """(the lines a seat's own PR's first review reads, the sentence refusing that review or
     None), or None where no first review is ahead: a PR of wording alone, or one a review
     already judged in this run or any, whose later rounds review whatever the fix left.  The
-    first review takes at most `task.MAX_PR_LINES` added lines, the ones moved unchanged aside
+    seat builds under `task.SEAT_TASK_LINES` added lines, the ones moved unchanged aside
     and the files the target's tip marks generated, as the change will land on it, and a PR
     that re-adds most of a budget-failed one's lines, no real split of it, inherits that one's
     rounds (`replacement_refusal`)."""
     if text_only_pr(repo, base_sha, head) or change_reviewed(pr=url):
         return None
     lines, carried = diff_lines(repo, target_sha, head, added_only=True), carried_lines(repo, target_sha, head)
-    return lines - carried, (first_review_refusal(f"PR #{number}", lines, carried)
-                             or replacement_refusal(repo, target_sha, head, number, lines - carried,
-                                                    exclude=run_dir))
+    read = lines - carried
+    if read >= taskfile.SEAT_TASK_LINES:
+        return read, (f"PR #{number} adds {read} lines (generated files and unchanged moves aside): "
+                      f"too big for the seat, which builds under {taskfile.SEAT_TASK_LINES} added "
+                      "lines. Write it as a task and launch it; a worker builds it")
+    return read, replacement_refusal(repo, target_sha, head, number, read, exclude=run_dir)
 
 
 def pr_review_blocked(lp, exc):

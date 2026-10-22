@@ -1,4 +1,4 @@
-"""A seat's own PR within the first-review ceiling is reviewed and its size recorded (tests/test_size_gate.py has the ceiling); inbox PRs run freely.
+"""A seat's own PR under its build limit is reviewed and its size recorded (tests/test_seat_pr_under_fifty_lines.py holds the limit); inbox PRs run freely.
 
 Offline: local git fixtures, a temporary HOME, and fake GitHub and reviewer calls.
 """
@@ -116,7 +116,7 @@ class OwnPrReview(unittest.TestCase):
         return state, reviewer, usage, inbox
 
     def test_an_own_pr_within_the_ceiling_is_reviewed_and_its_size_recorded(self):
-        self.change(taskfile.MAX_PR_LINES)          # the ceiling itself, generated files aside
+        self.change(taskfile.SEAT_TASK_LINES - 1)   # under the seat's limit, generated files aside
         (self.repo / "output.generated").write_text("generated\n" * 1000)
         self.commit()
         firsts = []
@@ -129,10 +129,10 @@ class OwnPrReview(unittest.TestCase):
                 reviewer.assert_called_once()
                 self.assertEqual(usage.call_count, 2 if background else 1)
                 run.history_finish(state)
-                self.assertEqual(history.get(state["run_id"])["changed_lines"], taskfile.MAX_PR_LINES)
+                self.assertEqual(history.get(state["run_id"])["changed_lines"], taskfile.SEAT_TASK_LINES - 1)
                 firsts.append(history.get(state["run_id"])["first_review_lines"])
         # the first review records what it read; the second run reviews a PR already reviewed
-        self.assertEqual(firsts, [taskfile.MAX_PR_LINES, None])
+        self.assertEqual(firsts, [taskfile.SEAT_TASK_LINES - 1, None])
 
     def test_an_own_pr_review_resumed_before_its_verdict_keeps_the_size_it_first_read(self):
         predecessor = self.change(2)

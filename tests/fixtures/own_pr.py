@@ -182,3 +182,17 @@ class OwnPr(unittest.TestCase):
         self.verdicts = verdicts
         return run.review_pr(self.cfg, self.run_dir, URL,
                              {"--review": None, "--review-pr": URL}, lambda _: None)
+
+    def launch(self):
+        """(the refusal, how many background runs started, the new run's record)."""
+        before = set(config.RUNS.iterdir())
+        with patch.object(run, "spawn_bg", return_value=0) as spawned, \
+                patch.object(gate, "wait_for_slot", side_effect=AssertionError("waited for a slot")):
+            try:
+                run.review_pr_main(self.cfg, {"--review-pr": URL, "--review": None},
+                                   {"--bg": True}, ["--review-pr", URL, "--bg"], None)
+                why = None
+            except config.Error as refused:
+                why = str(refused)
+        launched = (set(config.RUNS.iterdir()) - before).pop()
+        return why, spawned.call_count, record.read_state(launched)
