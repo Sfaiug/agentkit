@@ -4343,11 +4343,14 @@ def config_subscriptions(cfg, keyboard):
     """`Subscriptions` on `c`: a row for each subscription, saying when its login ends where it
     soon does (login_notes) and the resets it holds, Enter opening what it offers under it
     (subscription_acts)."""
+    def acts(number):     # `− remove`, last, highlighted: only a move or a click picks the spend
+        offered = subscription_acts(cfg, number)
+        return [(text, act, at == len(offered)) for at, (text, act) in enumerate(offered, 1)]
+
     def page():
         subs = usage_rows(cfg)
         rows = [(label, " · ".join(filter(None, (ends, in_hand(prov)))),
-                 (lambda number=number: [(text, act, False) for text, act
-                                         in subscription_acts(cfg, number)], False))
+                 (lambda number=number: acts(number), False))
                 for number, ((_, label, prov, _), ends)
                 in enumerate(zip(subs, login_notes(subs)), 1)]
         return rows, ""
@@ -4399,6 +4402,8 @@ def config_page(name, page):
     keys = ADD_KEYS["choose"][0 if terminal.utf8() else 1] + "   esc back"
     while True:
         rows, note = page()
+        if not opened:                # a pick removed the last row: the highlight on the new last
+            here = ("row", max(0, min(here[1], len(rows) - 1)))
         drawn = [(("row", number), label, value) for number, (label, value, _) in enumerate(rows)]
         if opened:
             drawn[opened[0] + 1:opened[0] + 1] = [(("row", opened[0], number), None, value)
@@ -4416,7 +4421,7 @@ def config_page(name, page):
             if not opened:
                 return
             here, opened = ("row", opened[0]), None
-        elif act not in ("enter", "space"):
+        elif act not in ("enter", "space") or not rows:
             continue
         elif len(here) == 3:
             said = listed[here[2]][1]() or ""

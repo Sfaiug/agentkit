@@ -69,6 +69,36 @@ class SubscriptionsPage(Sandbox):
         menu.config_subscriptions(self.cfg, None)
         self.assertEqual((spent, removed), ([], ["Claude"]))
 
+    def drive(self, *keys):
+        """The page read with `keys`, then Esc, nothing spent: what was removed."""
+        removed, keys = [], iter(map(terminal.Key, [*keys, "esc"]))
+
+        def remove(cfg, picked):
+            removed.append(picked[2])
+            del cfg["providers"][picked[0]]
+            return ""
+        for name, fake in (("config_spend_reset", AssertionError),
+                           ("config_remove_provider", remove)):
+            self.stack.enter_context(patch.object(menu, name, side_effect=fake))
+        self.stack.enter_context(patch.object(terminal, "read_key",
+                                              side_effect=lambda *_a, **_kw: next(keys)))
+        self.stack.enter_context(patch.object(terminal, "frame", return_value={}))
+        menu.config_subscriptions(self.cfg, None)
+        return removed
+
+    def test_enter_twice_on_a_reset_in_hand_removes_rather_than_spends(self):
+        # The meter's own safeguard: `− remove` lit as the list opens, the spend a move away.
+        self.assertEqual(self.drive("enter", "enter"), ["Claude"])
+
+    def test_the_last_row_removed_leaves_the_highlight_on_the_new_last(self):
+        last = len(self.rows) - 1
+        self.assertEqual(self.drive(*["down"] * last, "enter", "enter", "down", "enter", "esc"),
+                         [self.rows[last]])
+
+    def test_a_page_with_no_subscription_reads_enter_as_nothing(self):
+        self.stack.enter_context(patch.object(menu, "usage_rows", return_value=[]))
+        self.assertEqual(self.drive("enter", "down", "enter"), [])
+
 
 if __name__ == "__main__":
     unittest.main()
