@@ -488,11 +488,11 @@ def _git(*args, timeout=60, raw=False):
     `raw` gives the bytes as git wrote them, for file contents and names."""
     try:
         proc = subprocess.run(["git", "-C", str(agentkit_dir()), *args], capture_output=True,
-                              timeout=timeout, env={**config.child_env(), **PINS})
+                              timeout=timeout, env={**config.child_env(), **PINS},
+                              **({} if raw else {"encoding": "utf-8", "errors": "replace"}))
     except (OSError, subprocess.TimeoutExpired):
         return 1, b"" if raw else ""
-    return proc.returncode, (proc.stdout if raw
-                             else proc.stdout.decode("utf-8", "replace").strip())
+    return proc.returncode, proc.stdout if raw else proc.stdout.strip()
 
 
 def _moved_only(moving):
