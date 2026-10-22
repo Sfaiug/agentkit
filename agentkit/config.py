@@ -539,6 +539,12 @@ def one_login(harness):
     return (manifest(harness).get("auth") or {}).get("accounts") is False
 
 
+def signs_in_again(harness):
+    """False where that harness's manifest says `[auth] again = false`: its adapter's `login
+    again` cannot sign in afresh over a login that still stands, so nothing offers it."""
+    return (manifest(harness).get("auth") or {}).get("again") is not False
+
+
 def listed_providers(harness):
     """Every provider that harness can log in to, as its adapter's `providers` verb lists them:
     (id, name, mode), the logged-in ones first with their mode, `subscription`, `free` or

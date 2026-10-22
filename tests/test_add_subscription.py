@@ -1,8 +1,9 @@
-"""Another subscription of a provider is added on `c`'s `Subscriptions`, removed on its meter:
-`+ add` lists one more of every provider the config has as the name it will get (`Claude II`),
+"""Another subscription of a provider is added by `+ add a subscription` on `c`'s `Subscriptions`,
+removed under its row there: `+ add` lists one more of every provider the config has as the name
+it will get (`Claude II`),
 logs it in on the terminal under a fresh AGENTKIT_ACCOUNT and appends that name to the
 provider's `accounts`, `default` first when it listed none; a login that fails adds nothing.
-`− remove` on the meter of each but the usual login of a provider with several asks with
+`− remove` under the row of each but the usual login of a provider with several asks with
 `Keep` picked, and takes that one name out of `accounts`, leaving its login files on disk.
 
 Each test runs `menu.show_config` with a real `terminal.Keyboard` in a child process on a pty of
@@ -18,9 +19,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from test_config_matrix import DOWN, ENTER, UP, Screen
-from test_provider_screen import (ADD, KEYS, MATRIX, PAGE, back, choices, open_meter,
-                                  open_providers, pick, title)
+from test_config_matrix import DOWN, ENTER, Screen
+from test_provider_screen import (ADD, KEYS, PAGE, back, choices, open_providers, open_row, pick,
+                                  remove_asked, removing, subscriptions, title)
 from agentkit import config, menu
 
 FAKE = r"""#!/usr/bin/env bash
@@ -148,37 +149,40 @@ class RemoveSubscription(unittest.TestCase):
         home = screen.path.parent.parent
         (home / ".claude-b2").mkdir()
         (home / ".claude-b2" / ".credentials.json").write_text("{}")
-        open_meter(screen, "Claude III")
         before = screen.path.read_bytes()
-        asked = screen.press(ENTER, lambda lines: lines[-1] == KEYS["ask"])
+        asked = remove_asked(screen, "Claude III")
         self.assertIn("  Remove Claude III?", asked)
         self.assertIn("  Nothing new starts on it; its login stays on this machine.", asked)
         mark = screen.text().rindex("Remove Claude III?")
         self.assertEqual(choices(screen, mark, 2), ["› ✓ Keep", "  ✗ Remove"])
-        screen.press(ENTER, lambda lines: title(lines) == MATRIX)          # Enter keeps
+        screen.press(ENTER, lambda lines: title(lines) == PAGE)            # Enter keeps
         self.assertEqual(screen.path.read_bytes(), before)
-        screen.press(ENTER, lambda lines: lines[-1] == KEYS["ask"])
-        screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
+        removing(screen, lambda lines: lines[-1] == KEYS["ask"])
+        screen.press(DOWN + ENTER, lambda lines: title(lines) == PAGE)
         saved = screen.saved()
         self.assertEqual(saved["providers"]["anthropic"]["accounts"], ["default", "a1"])
         self.assertEqual(set(saved["providers"]), {"anthropic", "openai"})
         self.assertEqual(set(saved["models"]), {"opus", "astra"})
         self.assertTrue((home / ".claude-b2" / ".credentials.json").exists())
         self.assertEqual(rows(home), ["Claude I", "Claude II", "ChatGPT"])
+        back(screen)
         screen.leave()
 
     def test_the_last_provider_offers_only_its_subscriptions(self):
         several = CLAUDE.replace('mode = "subscription"',
                                  'mode = "subscription"\naccounts = ["default", "a1"]')
         screen = Screen(self, child=CHILD, text=several)
-        open_meter(screen, "Claude II")
-        screen.press(ENTER, lambda lines: "  Remove Claude II?" in lines)
-        screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
+        open_row(screen, "Claude II")
+        removing(screen, lambda lines: "  Remove Claude II?" in lines)
+        lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == PAGE)
         self.assertEqual(screen.saved()["providers"]["anthropic"]["accounts"], ["default"])
-        # the usual login's meter, the one left, over the page, is the last provider's: it stays
+        # the usual login's row, the one left, is the last provider's: it stays
         before = screen.path.read_bytes()
-        screen.press(UP + ENTER, lambda lines: "the config needs one provider" in lines[-3])
+        [left] = subscriptions(lines)
+        open_row(screen, left)
+        removing(screen, lambda lines: "the config needs one provider" in lines[-3])
         self.assertEqual(screen.path.read_bytes(), before)
+        back(screen)
         screen.leave()
 
 

@@ -765,6 +765,9 @@ cat "$dir/bridge-eval"
         proc = self.adapter("login", stdin=subprocess.DEVNULL)
         self.assertEqual(proc.returncode, 0)
         self.assertIn("already logged in", proc.stdout)
+        proc = self.adapter("login", "again", stdin=subprocess.DEVNULL)   # afresh, over it
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("opencode auth login", proc.stderr)
         self.write_config("")
         proc = self.adapter("login", stdin=subprocess.DEVNULL)
         self.assertEqual(proc.returncode, 1)
