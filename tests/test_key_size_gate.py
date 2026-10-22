@@ -1,12 +1,13 @@
-"""A change's first review takes at most 400 added lines; past them ak refuses it with `split it`.
+"""A task's first review takes at most 300 added lines, a seat's own pull request under 50.
 
-Changes past 400 lines merged far less often, so a task's change and a seat's own pull request
-alike reach their first reviewer only up to 400 added lines.  What counts is what a reviewer
-reads: deleted lines never count, nor files the target marks generated, nor blocks moved
-unchanged (whitespace aside) from lines the same change deletes.  A task's change past the
-ceiling ends the run blocked before any reviewer turn, its work kept on its branch for the
-pieces; a seat's own pull request past it is refused at launch.  A later review of the same
-change, after a fix, is not held to it.  Black-box: the program `AK_BIN` names runs from outside
+Big changes merged far less often, so a task's change reaches its first reviewer only up to 300
+added lines, past them refused with `split it`, and a seat builds only what stays under 50,
+from 50 told to write a task for a worker.  What counts is what a reviewer reads: deleted lines
+never count, nor files the target marks generated, nor blocks moved unchanged (whitespace
+aside) from lines the same change deletes.  A task's change past the ceiling ends the run
+blocked before any reviewer turn, its work kept on its branch for the pieces; a seat's own pull
+request from 50 lines is refused at launch.  A later review of the same change, after a fix, is
+not held to it.  Black-box: the program `AK_BIN` names runs from outside
 through tests/fixtures/akbin.py, on a project from gitrig.py, with scripted harnesses from
 fakeadapter.py and, for pull requests, the GitHub of fakegh.py.
 """
@@ -23,7 +24,7 @@ from fixtures.akseat import Seat
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
-TAIL = ("(generated files aside; deletions never count): a first review takes at most 400; "
+TAIL = ("(generated files aside; deletions never count): a first review takes at most 300; "
         "split it")
 # The table keeps its heading, so a change moving its rows out is never read as a rename.
 HEADING = "# widget table\n# rows below\n"
@@ -48,9 +49,9 @@ FINDING = {"final": "Found one.", "hand_in": [
 
 # title: (the executor's turns, then the fixer's; the reviewer's; the task's check)
 CASES = {
-    "At the ceiling": ([change({"big.txt": rows(400)})], ["pass"], "test -f big.txt"),
+    "At the ceiling": ([change({"big.txt": rows(300)})], ["pass"], "test -f big.txt"),
     # Executors leave their work uncommitted; the branch the blocked run keeps must hold it.
-    "Past the ceiling": ([change({"big.txt": rows(401)}, commit=False)], ["pass"],
+    "Past the ceiling": ([change({"big.txt": rows(301)}, commit=False)], ["pass"],
                          "test -f big.txt"),
     "Move the table": ([change({"table.txt": HEADING,
                                 "shelf.txt": rows(600, "old", indent="    ") + rows(10)})],
@@ -61,8 +62,8 @@ CASES = {
                            ["pass"], "test -f notes.txt"),
     "Move half and grow": ([change({"table.txt": HEADING + rows(300, "old"),
                                     "shelf.txt": rows(300, "old", start=300, indent="\t")
-                                    + rows(401)})], ["pass"], "test -f shelf.txt"),
-    "Grow after review": ([change({"flaw.txt": "x\n", "big.txt": rows(300)}),
+                                    + rows(301)})], ["pass"], "test -f shelf.txt"),
+    "Grow after review": ([change({"flaw.txt": "x\n", "big.txt": rows(299)}),
                            {"sh": "git rm -q flaw.txt", **change({"more.txt": rows(300)})}],
                           [FINDING, "pass"], "test -f big.txt"),
 }
@@ -112,17 +113,17 @@ class TaskChange(unittest.TestCase):
         for line in ("VERDICT: BLOCKED", "rounds: 0 of 3", "## Blocked", why):
             self.assertIn(line, lines)
 
-    def test_four_hundred_added_lines_get_their_first_review(self):
+    def test_three_hundred_added_lines_get_their_first_review(self):
         self.reviewed("At the ceiling")
 
     def test_one_line_more_ends_the_run_blocked_before_any_review(self):
-        self.blocked("Past the ceiling", f"The change on ak/past-the-ceiling adds 401 lines {TAIL}")
+        self.blocked("Past the ceiling", f"The change on ak/past-the-ceiling adds 301 lines {TAIL}")
 
     def test_the_blocked_run_keeps_its_work_on_its_branch_for_the_pieces(self):
         branch = "ak/past-the-ceiling"
         self.assertEqual(self.runs["Past the ceiling"][2]["branch"], branch)
         self.assertIn(branch, self.rig.branches(remote=False))
-        self.assertEqual(self.rig.git("show", f"{branch}:big.txt") + "\n", rows(401))
+        self.assertEqual(self.rig.git("show", f"{branch}:big.txt") + "\n", rows(301))
         self.assertEqual(self.rig.branches(), ["main"])
 
     def test_lines_moved_unchanged_whitespace_aside_are_not_counted(self):
@@ -135,9 +136,9 @@ class TaskChange(unittest.TestCase):
                 self.reviewed(title)
 
     def test_a_refusal_says_how_many_of_its_lines_were_moved(self):
-        # 701 added, 300 of them moved: 401 left to read
+        # 601 added, 300 of them moved: 301 left to read
         self.blocked("Move half and grow",
-                     "The change on ak/move-half-and-grow adds 701 lines, 300 of them moved "
+                     "The change on ak/move-half-and-grow adds 601 lines, 300 of them moved "
                      f"unchanged from lines it deletes {TAIL}")
 
     def test_only_the_first_review_is_held_to_the_ceiling(self):
@@ -159,7 +160,7 @@ class SeatPullRequest(unittest.TestCase):
         fakes = fakeadapter.install(cls.home, claude="pass", codex="pass")
         Seat(cls.home, "acme", model="opus", cwd=cls.rig.path, alive=False)
         cls.reviews = {}
-        for branch, count in (("big-change", 401), ("fit-change", 400)):
+        for branch, count in (("big-change", 50), ("fit-change", 49)):
             cls.rig.branch(branch, {f"{branch}.txt": rows(count)})
             url = cls.gh.open_pr(cls.rig, branch, title=branch)
             before = reviews(fakes)
@@ -170,9 +171,11 @@ class SeatPullRequest(unittest.TestCase):
                         if path.name.endswith(f"-review-pr-widgets-{url.split('/')[-1]}")]
             cls.reviews[branch] = (done, run_dir, reviews(fakes) - before)
 
-    def test_a_pull_request_over_400_lines_is_refused_at_launch_unreviewed(self):
+    def test_a_pull_request_of_50_lines_is_refused_at_launch_unreviewed(self):
         done, run_dir, reviewed = self.reviews["big-change"]
-        why = f"PR #1 adds 401 lines {TAIL}"
+        why = ("PR #1 adds 50 lines (generated files and unchanged moves aside): too big for the "
+               "seat, which builds under 50 added lines. Write it as a task and launch it; a "
+               "worker builds it")
         self.assertEqual(done.code, 2, done.out + done.err)
         self.assertIn(why, done.err)
         self.assertEqual(reviewed, 0)
@@ -181,7 +184,7 @@ class SeatPullRequest(unittest.TestCase):
         self.assertIn(why, lines)
         self.assertEqual((self.gh.pr(1)["state"], self.gh.pr(1)["reviews"]), ("OPEN", []))
 
-    def test_a_pull_request_of_400_lines_gets_its_review(self):
+    def test_a_pull_request_of_49_lines_gets_its_review(self):
         done, run_dir, reviewed = self.reviews["fit-change"]
         self.assertEqual(done.code, 0, done.out + done.err)
         self.assertEqual(reviewed, 1)
