@@ -3833,9 +3833,10 @@ def _editor_read(session, where, cfg=None, *, after_line=False):
     except (config.Error, OSError):
         return None
     # a draft that editor would lose part of (`editor_refuses`), lost by whatever step opens it,
-    # or one not read whole, which may hold one
-    rows = refuses and _composer_rows(harness, pane, exact=True)
-    lost = refuses and (rows is None or refuses.search("".join(rows)))
+    # or one not read whole, which may hold one: only a composer read empty holds none
+    lost = refuses and composer_draft(harness, pane) != "" and (
+        (rows := _composer_rows(harness, pane, exact=True)) is None
+        or refuses.search("".join(rows)))
     return ((harness, pane, found) if found.get("authority") and not asking(name, harness, pane)
             and not picker and not lost and not pane_unread(session) else None)
 
