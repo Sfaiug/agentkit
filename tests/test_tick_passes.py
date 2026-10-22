@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import browser, config, gc, job as jobs, notify, orch, run, staffing, update  # noqa: E402
-from agentkit import leases, logins, matrix, usage, watch  # noqa: E402
+from agentkit import leases, logins, matrix, seat_tokens, usage, watch  # noqa: E402
 from fixtures.tick import only_passes  # noqa: E402
 
 # The passes of the tick this test runs, in its order: the WARN line a raise of each is told in
@@ -44,6 +44,7 @@ PASSES = (
     (watch, "offer_endings", "the ending pass did not run", False),
     (jobs, "deliver_job_handbacks", "a finished job was not handed back", False),
     (watch, "wait_over", "the wait pass did not run", False),
+    (seat_tokens, "read", "the seat token pass did not run", False),
     (watch, "tell_audit", "the weekly audit pass did not run", False),
     (notify, "tick_cards", "the card transition pass did not run", False),
     (watch, "revive_seats", "the seat revival pass did not run", False),

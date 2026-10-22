@@ -142,6 +142,40 @@ def transcript(record, cwd, conversation):
     return str(Path(path).resolve()) if isinstance(path, str) and path else None
 
 
+def seat_token_sources(record):
+    from . import token_family
+    receipt = read(record)
+    path = (receipt.get("event") or {}).get("transcript_path")
+    paths = [Path(path)] if path and Path(path).is_file() else []
+    # A remote seat's private store holds its threads and their subagents, on every login.
+    if receipt.get("remote"):
+        paths.extend(seat_conversations(receipt["remote"]).rglob("rollout-*.jsonl"))
+    elif record.get("conversation"):
+        def metadata(entry):
+            meta = entry["payload"]
+            source = meta.get("source")
+            subagent = source.get("subagent") if isinstance(source, dict) else None
+            parent = (subagent or {}).get("thread_spawn") or {}
+            return meta["id"], parent.get("parent_thread_id")
+        root = Path.home() / ".codex"
+        candidates = [path for folder in ("sessions", "archived_sessions")
+                      for path in (root / folder).rglob("rollout-*.jsonl")]
+        paths.extend(token_family(candidates, [record.get("conversation")], metadata))
+    return paths
+
+
+def seat_token_usage(entry, cursor):
+    from . import moment
+    payload = entry.get("payload") or {}
+    if entry.get("type") != "event_msg" or payload.get("type") != "token_count":
+        return None
+    total = ((payload.get("info") or {}).get("total_token_usage") or {}).get("total_tokens")
+    if type(total) is int and total >= 0 and moment(entry.get("timestamp")) is not None:
+        previous = cursor.get("total", 0)
+        cursor["total"] = max(previous, total)
+        return entry["timestamp"], f"{Path(cursor['source']).name}:{total}", max(0, total - previous)
+
+
 def prompt(entry):
     """The owner's words one rollout line holds, or None for anything else."""
     # Response items also contain rules and environment text with the user role.
