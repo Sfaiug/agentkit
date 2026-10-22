@@ -5,10 +5,10 @@ without its verdict on GitHub, a later tick starts another, until one gets there
 started again at once: ten minutes after the tick saw the first fail, half an hour after the
 second, an hour after the third and hourly from then on, so an outage is not met with a review
 every tick.  The tick writes the next try down in watch.json, and putting it in the past stands
-in for the wait.  Black-box: the program `AK_BIN` names runs `ak watch` from outside through
-tests/fixtures/akbin.py, against the bare origin of gitrig.py and the GitHub of fakegh.py, which
-refuses the first four reviews' posts, with a scripted reviewer from fakeadapter.py; this test
-fails against `/bin/false`.
+in for the wait.  Black-box: the program `AK_BIN` names runs `ak watch` from outside, in the
+box `home.tick()` of tests/fixtures/akbin.py builds, against the bare origin of gitrig.py and
+the GitHub of fakegh.py, which refuses the first four reviews' posts, with a scripted reviewer
+from fakeadapter.py; this test fails against `/bin/false`.
 """
 
 import json
@@ -19,25 +19,21 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
-# The tick asks the public boards over HTTP: a proxy nobody answers keeps it off the network.
-OFFLINE = {name: "http://127.0.0.1:9"
-           for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
 REFUSED = 4
 LADDER = [600, 1800, 3600, 3600]
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "needs tmux and a bwrap able to box a tick")
 class RetriedLater(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        home.env.update(OFFLINE)
         rig, cls.gh = Rig(home, "widgets"), GitHub(home)
         akconfig.write(home, ["opus"])
         fakeadapter.install(home, claude="pass")
@@ -62,7 +58,7 @@ class RetriedLater(unittest.TestCase):
 
     @classmethod
     def tick(cls):
-        done = cls.home.ak("watch")
+        done = cls.home.tick()
         assert done.code == 0, done.out + done.err
 
     @classmethod
