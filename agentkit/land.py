@@ -607,7 +607,7 @@ def _landing_checks(directory, state, scratch, tip):
     once = task.group_commands(gitcall.with_suite(cmds, scratch, ref=tip))[1]
     # Added after grouping: a shell line with an odd quote would hide a `# once` marker.
     own = gitcall.declared(scratch, "tests")
-    if own and own != gitcall.declared_suite(scratch, ref=tip):
+    if own and own not in (gitcall.declared_suite(scratch, ref=tip), *once):
         once.append(own)
     return tuple(once)
 
