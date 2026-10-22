@@ -225,7 +225,8 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         self.commit("fixture removes the finding and leaves wording")
         run.git(self.repo, "push", "origin", self.prs[url]["branch"])
         self.prs[url]["head"] = run.git(self.repo, "rev-parse", "HEAD")
-        with patch.object(run, "fix_own_pr", return_value=False):
+        with patch.object(run, "fix_own_pr", side_effect=lambda cfg, directory, url, state, opts, log:
+                          self.prs[url]["head"] != state["head_sha"]):
             state = self.review(directory, url)
         self.assertEqual(state["verdict"], "FAIL")
         current_failure = state["review"]["overridden"]
