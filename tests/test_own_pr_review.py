@@ -1,4 +1,4 @@
-"""A seat's own PR within the first-review ceiling is reviewed and its size recorded (tests/test_size_gate.py has the ceiling); inbox PRs run freely.
+"""A seat's own PR under its build limit is reviewed and its size recorded (tests/test_seat_pr_under_fifty_lines.py holds the limit); inbox PRs run freely.
 
 Offline: local git fixtures, a temporary HOME, and fake GitHub and reviewer calls.
 """

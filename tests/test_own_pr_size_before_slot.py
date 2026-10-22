@@ -1,8 +1,8 @@
-"""A seat's own PR too large for its first review is refused at launch, before it waits for a slot.
+"""A PR too large for the seat is refused at launch, before it waits for a slot.
 
 `ak run --review-pr` checks the PR's size in its preflight, beside its round budget: at the
 seat's task threshold (`task.SEAT_TASK_LINES`, moved lines aside) or mostly a budget-failed PR's
-lines, the launch is refused with the same sentence the review would end on, so the seat hears
+lines, the launch is refused with the same sentence the review would end on, so the seat is told
 to write a task at once instead of after the queue (16 Oct 2026: refused PRs had waited 34 hours in
 all for a slot first).  A PR of wording alone, one a review already judged and somebody else's
 PR launch whatever their size.  Offline, on the `fixtures.own_pr` stage.
