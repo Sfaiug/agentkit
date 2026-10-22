@@ -1418,7 +1418,7 @@ def adapter(harness):
     space-separated; a harness that runs one provider may ignore it.  Each manifest table is
     explained at the code that reads it.
     """
-    root =Path(os.environ.get(ADAPTER_DIR_ENV) or REPO / "adapters").expanduser()
+    root = Path(os.environ.get(ADAPTER_DIR_ENV) or REPO / "adapters").expanduser()
     path = root / f"{harness}.sh"
     if not path.exists():
         raise Error(f"no adapter for harness {harness!r}: {path} does not exist")
