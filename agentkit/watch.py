@@ -744,6 +744,8 @@ def screen(harness):
              # the keys that hand its composer to $VISUAL, ak's editor (`seat_editor`)
              "editor": tuple(key for key in block.get("editor") or ()
                              if isinstance(key, str) and key),
+             # a draft that editor would lose part of, as its rows read run together
+             "editor_refuses": _pattern(block.get("editor_refuses"), path),
              "rules": [_rule(entry, path) for entry in data.get("rule") or ()]}
     _SCREEN[harness] = (data, built)
     return built
@@ -3800,10 +3802,13 @@ def _editor_read(session, where, cfg=None):
         found = live_state(session, harness, pane=pane, cfg=cfg) if pane.strip() else {}
         picker = found and any(rule["picker"] and rule["id"] == found.get("rule")
                                for rule in screen(harness)["rules"])
+        refuses = harness and screen(harness)["editor_refuses"]
     except (config.Error, OSError):
         return None
+    # a draft that editor would lose part of (`editor_refuses`), lost by whatever step opens it
+    lost = refuses and refuses.search("".join(_composer_rows(harness, pane, exact=True) or ()))
     return ((harness, pane, found) if found.get("authority") and not asking(name, harness, pane)
-            and not picker and not pane_unread(session) else None)
+            and not picker and not lost and not pane_unread(session) else None)
 
 
 def drafts_back(cfg):

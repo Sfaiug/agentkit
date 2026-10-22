@@ -184,11 +184,27 @@ class LinePastOwnersText(EditorSeat):
             self.assertFalse(self.typed_line())
         self.assertEqual((self.keys, self.typed), ([], []))
 
+    def test_a_draft_holding_a_paste_its_editor_would_lose_stays(self):
+        # Muse's editor sends a paste's placeholder alone, the paste gone -- pasted too once a
+        # line went in through that editor, before its mark's pass
+        self.buffers.update(kept(aside_editor.ASIDE))
+        mark = {"line": LINE, "seat": self.seat["created"], "pane": PANE}
+        loses = dict(watch.screen("claude"), editor_refuses=watch.screen("muse")["editor_refuses"])
+        with patch.object(watch, "screen", return_value=loses):
+            self.show(f"{DRAFT} [Pasted Content 1190 chars]")
+            self.assertFalse(self.typed_line())
+            self.assertFalse(watch.type_at_prompt(self.seat, LINE, lambda _: None, cfg=self.cfg,
+                                                  typed=mark))
+        self.assertEqual((self.keys, self.typed), ([], []))
+
     def test_a_picker_the_owner_opens_over_their_text_as_the_step_reads_it_takes_no_step(self):
-        # its highlighted row reads as typed text, and Enter under it picks a row
+        # Enter under it picks a row, a key moves its highlight, and it reads as typed text or as
+        # a composer left empty, which text kept goes past too
+        self.buffers.update(kept(aside_editor.GIVEN))
         step = watch._editor_read
         for harness, picker in (("codex", "codex-model-picker-pane.txt"),
-                                ("antigravity", "antigravity-chooser-pane.txt")):
+                                ("antigravity", "antigravity-chooser-pane.txt"),
+                                ("muse", "muse-model-picker-pane.txt")):
             draft = (FIXTURES / f"{harness}-draft-pane.txt").read_text()
 
             def opened(*args, **kwargs):

@@ -109,6 +109,10 @@ composer = '[┃╹].*'
 # opens over the transcript -- its models, commands, sessions, themes -- whose search takes what
 # is typed and whose Enter picks a row (2.0.32)
 cursor = true
+# Its leader key (ctrl+x) and `e`, its `editor_open`, hand the composer to $VISUAL, ak's
+# editor, mid-turn too, in one write: it drops a ctrl+x typed alone while it opens a new
+# session (2.0.32)
+editor = ["C-x", "e"]
 # and the key hints under it: the working, resting and fresh footers all end on this --
 # and the release stamp alone on the fresh prompt's last line, `2.0.13` bottom-right --
 # and the finished-turn footer under a turn's last line: `<agent> · <model> · <duration>`,

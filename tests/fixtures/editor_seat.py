@@ -1,5 +1,6 @@
-"""fixtures.seats' seat, launched with ak's editor: its tmux faked as a harness whose Ctrl-G hands
-its composer to the real agentkit/aside_editor.py, takes what that hands back at once and draws
+"""fixtures.seats' seat, launched with ak's editor: its tmux faked as a harness whose editor keys
+(`chord`, Ctrl-G unless the test names another harness's) hand its composer to the real
+agentkit/aside_editor.py, takes what that hands back at once and draws
 it a few reads late, and whose Enter sends what its composer holds, one composer for any pane
 ak names.  Whether it hears the key (`deaf`), the seat's launch, the panes of its session
 (PANE the one selected), unread input and when its terminal last took keys are the test's to
@@ -18,7 +19,7 @@ class EditorSeat(Seats):
         self.keys, self.sent, self.buffers, self.ask, self.late = [], [], {}, None, 0
         self.opened = []        # the owner's own editor, opened where ak asked nothing
         self.deaf, self.launched, self.tty, self.panes = False, True, self.root / "tty", [PANE]
-        self.unread = False
+        self.unread, self.chord = False, ("C-g",)
         self.tty.write_text("")
         for target, name, fake in ((aside_editor, "launched", lambda _pid, _tty: self.launched),
                                    (aside_editor, "_tmux", lambda *args, data=None:
@@ -92,7 +93,7 @@ class EditorSeat(Seats):
 
     def press(self, key, pane=PANE):
         self.keys.append(key)
-        if key == "C-g" and not self.deaf:
+        if tuple(self.keys[-len(self.chord):]) == self.chord and not self.deaf:
             path = self.root / "composer.md"
             path.write_text(self.composer)
             with patch.dict(os.environ, {"TMUX_PANE": pane}):
