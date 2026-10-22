@@ -19,7 +19,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import Home
+from fixtures.akbin import boxable, Home
 from fixtures.loginend import Logins, midday, tick
 from fixtures.sink import Sink
 
@@ -35,6 +35,7 @@ def events(home):
             (home.path / ".agentkit/state/notification-outbox").glob("*.json")]
 
 
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class Accounts(unittest.TestCase):
     def setUp(self):
         self.home = Home()
@@ -75,6 +76,7 @@ class Accounts(unittest.TestCase):
         self.assertEqual((kept["dock"]["ends"], kept["harbor"]["ends"]), (None, ends))
 
 
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class Cadence(unittest.TestCase):
     def test_a_login_a_month_off_is_asked_again_only_after_an_hour(self):
         with Home() as home, Sink(home) as sink:

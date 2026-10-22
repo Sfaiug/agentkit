@@ -20,7 +20,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import Home
+from fixtures.akbin import boxable, Home
 from fixtures.loginend import Logins, midday, tick
 from fixtures.sink import Sink
 
@@ -36,6 +36,7 @@ def events(home):
             (home.path / ".agentkit/state/notification-outbox").glob("*.json")]
 
 
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class LoginEnd(unittest.TestCase):
     def setUp(self):
         self.home = Home()
