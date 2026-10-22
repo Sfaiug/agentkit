@@ -207,8 +207,8 @@ class Editor(unittest.TestCase):
 
     def test_main_screen_lists_values(self):
         _, screen = self.drive(session="fix-api")
-        self.assertTrue(screen.startswith("agentkit · config · fix-api"), screen)
-        for bit in ("orch  builds  reviews  effort", "Claude", "●", "■", "□",
+        self.assertTrue(screen.startswith("agentkit · config "), screen)
+        for bit in ("For  fix-api", "orch  builds  reviews  effort", "Claude", "●", "■", "□",
                     "▰▰▰▰▱", "add a model", "Discord", "Version abc1234 · 2026-09-29",
                     "esc back"):
             self.assertIn(bit, screen)
