@@ -522,7 +522,7 @@ def provider_harnesses(cfg, provider):
 
 def provider_hosts():
     """{harness: its name} for each harness that runs any provider it can log in to, as its
-    manifest's `[providers] label` says: `+ add a provider` offers it by that name, then
+    manifest's `[providers] label` says: `+ add a subscription` offers it by that name, then
     each provider its adapter lists (listed_providers)."""
     hosts = {}
     for harness, found in manifests():

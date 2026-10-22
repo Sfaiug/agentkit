@@ -197,7 +197,7 @@ signatures = [
 ]
 
 # OpenCode runs any provider it can log in to, which its adapter's `providers` verb lists:
-# `+ add a provider` offers OpenCode under this name, then each of them to log in to.
+# `+ add a subscription` offers OpenCode under this name, then each of them to log in to.
 [providers]
 label = "OpenCode"
 

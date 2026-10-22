@@ -1,6 +1,6 @@
-"""`+ add a provider` offers OpenCode, then every model OpenCode runs now, as its own `/models`
-lists them, and after them every provider it can log in to; a picked provider is logged in on
-the terminal and its models join the list.  A model and an effort picked are added with the
+"""`+ add a subscription` offers OpenCode, then every model OpenCode runs now, as its own
+`/models` lists them, and after them every provider it can log in to; a picked provider is logged
+in on the terminal and its models join the list.  A model and an effort picked are added with the
 provider's table -- the shipped one where the shipped default has it, else the mode OpenCode's
 prices say, under the name OpenCode gives it, but its own provider's, which is OpenCode -- so
 nothing is typed into ak but what `/` finds in a list.  No second OpenCode login is offered: it
@@ -20,8 +20,8 @@ from unittest import mock
 
 from test_config_matrix import DOWN, ENTER, ESC, Screen, highlighted
 from test_add_model import listed
-from test_provider_screen import (ADD, GIVE, MATRIX, ONE, SHIPPED, TAKE, open_providers, pick,
-                                  providers, title)
+from test_provider_screen import (ADD, GIVE, ONE, PAGE, SHIPPED, TAKE, back, open_providers, pick,
+                                  providers, subscriptions, title)
 from agentkit import matrix, usage
 
 FAKE = r"""#!/usr/bin/env bash
@@ -114,7 +114,8 @@ class AddOpenCodeProvider(unittest.TestCase):
         lines = screen.press(ENTER, lambda lines: "  effort" in lines)
         self.assertIn("  model   Comet 2 · Zeta Cloud", lines)
         self.assertEqual(listed(lines), [["none"]])
-        lines = screen.press(ENTER, lambda lines: title(lines) == MATRIX)
+        screen.press(ENTER, lambda lines: title(lines) == PAGE)
+        lines = back(screen)
         # by the name OpenCode gives it on its meter, its model under OpenCode
         self.assertEqual(providers(lines), ["Claude", "Zeta Cloud"])
         shown = [line.strip() for line in lines]
@@ -136,10 +137,10 @@ class AddOpenCodeProvider(unittest.TestCase):
         self.assertEqual(listed(lines), [["Zeta Free", "OpenCode"],
                                          ["Zeta Cloud", "zeta", "log in"]])
         screen.press(ENTER, lambda lines: "  effort" in lines)
-        screen.press(ENTER, lambda lines: title(lines) == MATRIX)
+        screen.press(ENTER, lambda lines: title(lines) == PAGE)
         through(screen)
         screen.press(ENTER, lambda lines: "  effort" in lines)
-        screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
+        screen.press(DOWN + ENTER, lambda lines: title(lines) == PAGE)
         self.assertNotIn("opencode login opencode", verbs(screen))
         saved = screen.saved()
         # OpenCode's own provider, by the harness's name rather than the one OpenCode gives it
@@ -153,18 +154,19 @@ class AddOpenCodeProvider(unittest.TestCase):
         self.assertEqual(listed(lines)[1][:2], ["Zeta Free", "OpenCode"])   # marked as added
         screen.press(DOWN * 3 + ENTER, lambda lines: "MiMo V2.6 Pro" in str(lines))
         screen.press(ENTER, lambda lines: "  effort" in lines)
-        screen.press(ENTER, lambda lines: title(lines) == MATRIX)
+        screen.press(ENTER, lambda lines: title(lines) == PAGE)
         self.assertEqual(screen.saved()["providers"]["mimo"], SHIPPED["providers"]["mimo"])
         # no meter for OpenCode's own models, which are free; `+ add` offers it again, and no
         # second login of a provider on it, since it keeps one
         lines = open_providers(screen)
-        self.assertEqual(providers(lines), ["Claude", "MiMo"])
+        self.assertEqual(sorted(subscriptions(lines)), ["Claude", "MiMo"])
         mark = len(screen.text())
         _, offered = pick(screen, ENTER, ADD, 6)
         self.assertEqual(offered[4:], ["  OpenCode", "  Claude II"])
         for name in ("OpenCode II", "MiMo II"):
             self.assertNotIn(name, screen.text()[mark:])
-        screen.press(ESC, lambda lines: title(lines) == MATRIX)
+        screen.press(ESC, lambda lines: title(lines) == PAGE)
+        back(screen)
         screen.leave()
 
     def test_the_name_an_older_add_gave_opencode_s_own_provider_reads_and_saves_as_opencode(self):
@@ -172,13 +174,14 @@ class AddOpenCodeProvider(unittest.TestCase):
                        '\n[models.rocket]\nharness = "opencode"\nmodel = "opencode/rocket-1"\n'
                        'effort = "high"\nprovider = "opencode"\n')
         screen = Screen(self, child=CHILD, text=older)
-        self.assertEqual(providers(open_providers(screen)), ["Claude", "OpenCode"])
+        self.assertEqual(sorted(subscriptions(open_providers(screen))), ["Claude", "OpenCode"])
         lines = through(screen)
         self.assertEqual(listed(lines)[1][:2], ["Zeta Free", "OpenCode"])
         screen.press(DOWN + ENTER, lambda lines: "  effort" in lines)
-        screen.press(ENTER, lambda lines: title(lines) == MATRIX)
+        screen.press(ENTER, lambda lines: title(lines) == PAGE)
         self.assertEqual(screen.saved()["providers"]["opencode"],
                          {"mode": "subscription", "name": "OpenCode"})
+        back(screen)
         screen.leave()
 
     def test_a_model_opencode_pays_for_stays_payg_whatever_its_provider_table_says(self):
@@ -190,7 +193,7 @@ class AddOpenCodeProvider(unittest.TestCase):
         for at in (2, 3):
             through(screen)
             screen.press(DOWN * at + ENTER, lambda lines: "  effort" in lines)
-            screen.press(ENTER, lambda lines: title(lines) == MATRIX)
+            screen.press(ENTER, lambda lines: title(lines) == PAGE)
         saved = screen.saved()
         self.assertEqual(saved["providers"]["anthropic"], {"mode": "subscription"})
         self.assertEqual(saved["providers"]["openai"], SHIPPED["providers"]["openai"])
@@ -202,6 +205,7 @@ class AddOpenCodeProvider(unittest.TestCase):
         with mock.patch.object(matrix, "rank", return_value={}):
             self.assertEqual(usage.pick_order(saved, {}, list(saved["models"]), quiet=True),
                              ["opus"])
+        back(screen)
         screen.leave()
 
     def test_esc_lets_a_find_go_then_goes_back_with_nothing_added(self):
@@ -216,8 +220,9 @@ class AddOpenCodeProvider(unittest.TestCase):
         screen.click(lines[-1].index("/ find") + 1, len(lines),
                      lambda lines: "  model  /" in lines)
         screen.press(ESC, lambda lines: "  model" in lines and "/ find" in lines[-1])
-        screen.press(ESC, lambda lines: title(lines) == MATRIX)
+        screen.press(ESC, lambda lines: title(lines) == PAGE)
         self.assertEqual(screen.path.read_bytes(), before)
+        back(screen)
         screen.leave()
 
 
