@@ -331,6 +331,9 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     HOME without child mounts, beneath the writable places and credential masks.
     """
     clean = {key: value for key, value in env.items() if key not in TOKENS}
+    # The network stays the host's, as a harness reaches its model's API from here: /run copied
+    # without its sockets keeps host services out of reach, but a socket elsewhere (under HOME)
+    # and every abstract socket stay reachable.
     cmd = ["bwrap", "--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent",
            "--new-session"]
     _walls(cmd)
