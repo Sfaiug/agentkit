@@ -16,16 +16,11 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, boxable, Home
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
 WORDS = ("working", "needs you", "done", "idle")
-# The tick asks public boards over HTTP: a proxy on a closed loopback port refuses that at once,
-# so no tick in this file reaches the network, whichever build runs it.
-NOWHERE = "http://127.0.0.1:9"
-OFFLINE = {"http_proxy": NOWHERE, "https_proxy": NOWHERE, "HTTP_PROXY": NOWHERE,
-           "HTTPS_PROXY": NOWHERE, "no_proxy": "", "NO_PROXY": ""}
 
 
 def row(screen, name):
@@ -109,12 +104,13 @@ class SeatFile(unittest.TestCase):
                 for key in ("state", "rule", "evidence"):
                     self.assertIn(key, data)
 
+    @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
     def test_a_tick_writes_a_working_seat_s_word_and_the_next_reader_keeps_its_beginning(self):
         # the weekly audit would open a seat of its own on this tick
         config = self.home.path / ".agentkit" / "config.toml"
         config.write_text(config.read_text() + "\n[audit]\non = false\n")
         seat = Seat(self.home, "acme", screen="claude-working-pane.txt")
-        done = self.home.ak("watch", env=OFFLINE)
+        done = self.home.tick()
         self.assertEqual(done.code, 0, done.err)
         ticked = self.seat_file("acme")
         self.assertEqual(ticked["word"], "working")
