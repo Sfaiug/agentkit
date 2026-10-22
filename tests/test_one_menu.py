@@ -18,7 +18,7 @@ from test_close_and_info import ESC, Menu  # noqa: E402
 
 # `c` says which seat it was handed, and goes back at once
 CHILD = test_close_and_info.CHILD.replace("sys.exit(menu.loop(", (
-    "menu.show_config = lambda dry_run, keyboard, session: print(f'<config {session}>', "
+    "menu.show_config = lambda dry_run, keyboard, session, seats=(): print(f'<config {session}>', "
     "flush=True)\nsys.exit(menu.loop("), 1)
 SEATS = {"alpha": "working", "omega": "working", "gone": "stopped"}
 

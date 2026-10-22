@@ -268,8 +268,8 @@ it they would leave the page fewer than three rows, they lead the page instead
 and scroll with it. It is a
 matrix read with the keys, so the file is never
 opened: every offered model once, under its provider's display name in the
-accent, a row of label, then `orch` (`●` on the highlighted
-session's, on a heading new seats', `config · new seats`, `[defaults]`; `○` dim elsewhere), `builds` and `reviews` (`■`/`□`) and `effort`: a
+accent, a row of label, then `orch` (`●` on the one the For row names, `○` dim
+elsewhere), `builds` and `reviews` (`■`/`□`) and `effort`: a
 cell for each level that model offers, full up to its effort and the rest open
 and dim, then its word (`▰▰▰▰▱  xhigh`; without UTF-8 `####-`), the words in one
 column after the most cells any model has (the owner's pick of 18 Oct 2026). A
@@ -283,7 +283,8 @@ lowest. The highlighted row
 is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
 drawn at once, asking nothing, the orchestrator only moves, and the last reviewer stays, saying
-so under the rows, its mark shaking (Motion). The highlighted model opens no line: what it
+so under the rows, its mark shaking (Motion). The For row over the headings says whom the marks are for, opening on the
+highlighted seat: `For  ‹ new seats ›` is `[defaults]`, what `n` starts from, and ←/→, Enter or a click turn it to each open seat, `‹` back. The highlighted model opens no line: what it
 runs on is the meter that lights it. `r recommended` opens the models screen
 (The models screen).
 Under the models `+ add a model`, `+ add a provider` (a list opening in the

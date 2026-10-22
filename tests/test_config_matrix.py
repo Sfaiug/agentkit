@@ -212,13 +212,15 @@ class Matrix(unittest.TestCase):
     def test_the_screen_is_the_models_under_their_providers_then_four_rows(self):
         screen = Screen(self)
         lines = screen.frame()
-        self.assertTrue(lines[0].startswith("agentkit · config · fix-api "), lines[0])
+        self.assertTrue(lines[0].startswith("agentkit · config "), lines[0])
+        # whom the marks are for, over their headings: the seat it was opened on
+        self.assertEqual(lines[headings(lines) - 1].split(), ["For", "‹", "fix-api", "›"])
         self.assertEqual(lines[headings(lines)].split(), ["orch", "builds", "reviews", "effort"])
         # each subscription's meter over the models, as on the main screen, once
-        meters = " ".join(" ".join(lines[2:headings(lines)]).split())
+        meters = " ".join(" ".join(lines[2:headings(lines) - 1]).split())
         for name in ("Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"):
             self.assertEqual(meters.count(f"{name} — no reading yet"), 1, meters)
-        self.assertEqual(lines[headings(lines) - 1], "")
+        self.assertEqual(lines[headings(lines) - 2], "")
         body = "\n".join(lines)
         for heading in ("Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"):
             self.assertIn(f"\n{heading}\n", body)
@@ -246,8 +248,8 @@ class Matrix(unittest.TestCase):
         screen = Screen(self, session=None)
         before = screen.path.read_bytes()
         lines = screen.frame()
-        self.assertTrue(lines[0].startswith("agentkit · config · new seats "), lines[0])
-        self.assertEqual(lines[headings(lines)].split(), ["orch", "builds", "reviews", "effort"])
+        self.assertTrue(lines[0].startswith("agentkit · config "), lines[0])
+        self.assertEqual(lines[headings(lines) - 1].split(), ["For", "‹", "new", "seats", "›"])
         self.assertEqual(row(lines, "opus")[1].split()[2:5], ["●", "■", "■"])
         self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ mark   esc back")
         lines = screen.press(RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)

@@ -697,8 +697,9 @@ class Phone(Sandbox):
             self.assertEqual(orch.main(["rename", first, "Phone Audit"]), 0)
         phone.menu("1  phone-au")
         phone.press("c")
-        screen = phone.until("config · phone-audit", "esc back", prompt="esc back")
-        self.fits(screen, width, height)
+        self.fits(phone.until("orch", "esc back", prompt="esc back"), width, height)
+        phone.keys("Up")      # the For row over the first model, scrolled off a short page
+        phone.until("‹ phone-audit ›", prompt="esc back")
         phone.keys("Escape")
         screen = phone.until("esc leave", "1  phone-au", prompt="esc leave")
         record = json.loads(config.session_path("phone-audit").read_text())

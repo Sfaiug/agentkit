@@ -173,7 +173,8 @@ class SessionModels(Sandbox):
                 redirect_stdout(io.StringIO()) as out:
             menu.show_config(dry_run=True, session="fix-api")
         screen = terminal.ANSI.sub("", out.getvalue())
-        self.assertIn("agentkit · config · fix-api", screen)
+        self.assertIn("agentkit · config", screen)
+        self.assertIn(menu.for_text("fix-api"), screen)
         self.assertEqual(self.rows(screen.splitlines())["GPT-6-Astra"], "○■■")
         self.assertIn("esc back", screen)
         with patch.object(update, "agentkit_version", return_value="fixture"), \
@@ -181,7 +182,7 @@ class SessionModels(Sandbox):
             menu.show_config(dry_run=True, session="nobody")
         screen = terminal.ANSI.sub("", out.getvalue())
         self.assertNotIn("nobody", screen)
-        self.assertIn("agentkit · config · new seats", screen)
+        self.assertIn(menu.for_text("new seats"), screen)
         self.assertEqual(self.rows(screen.splitlines())["Opus"], "●■■")     # [defaults]'
 
     def test_no_key_line_or_sentence_offers_m(self):

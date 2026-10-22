@@ -250,8 +250,8 @@ class OneConfigScreen(unittest.TestCase):
         self.assertIn("fix-api", highlighted(lines))
         self.assertIn(full("opus"), highlighted(lines))
         defaults = menu.defaults()
-        lines = menu.press(b"c", title("config · fix-api"))
-        self.assertEqual(lines[2].split(), ["orch", "builds", "reviews", "effort"])
+        lines = menu.press(b"c", title("config"))
+        self.assertEqual(lines[3].split(), ["orch", "builds", "reviews", "effort"])
         self.assertEqual(marks(model(lines, "opus")), "●■□")
         self.assertEqual(marks(model(lines, "astra")), "○■■")
         # fable executes, then opus and astra stop: fable alone executes, astra alone reviews
@@ -280,7 +280,7 @@ class OneConfigScreen(unittest.TestCase):
     def test_a_refusal_is_one_line_and_leaves_the_record_alone(self):
         menu = Menu(self, down="claude")
         menu.screen()
-        menu.press(b"c", title("config · fix-api"))
+        menu.press(b"c", title("config"))
         menu.press(DOWN + RIGHT + RIGHT + SPACE,          # opus joins the reviewers
                    lambda lines: marks(model(lines, "opus")) == "●■■")
         # Claude is down in this child, so astra leaving executes leaves no runnable
@@ -303,8 +303,8 @@ class OneConfigScreen(unittest.TestCase):
         cfg = tomllib.loads(shipped)
         del cfg["models"]["opus"]                         # removed while fix-api orchestrates on it
         menu.config.write_text(config.dump(cfg))
-        lines = menu.press(b"c", title("config · fix-api"))
-        self.assertEqual(lines[2].split(), ["orch", "builds", "reviews", "effort"])
+        lines = menu.press(b"c", title("config"))
+        self.assertEqual(lines[3].split(), ["orch", "builds", "reviews", "effort"])
         self.assertEqual(marks(model(lines, "astra")), "○■■")   # its roles, off what is left
         self.assertEqual(marks(model(lines, "fable")), "○□□")
         self.assertFalse(any("●" in marks(line) for line in lines), lines)
@@ -320,8 +320,8 @@ class OneConfigScreen(unittest.TestCase):
         menu.screen()
         lines = menu.press(b"k", lambda lines: any("esc leave" in line for line in lines)
                            and "ACME" in highlighted(lines))
-        lines = menu.press(b"c", title("config · new seats"))
-        self.assertEqual(lines[2].split(), ["orch", "builds", "reviews", "effort"])
+        lines = menu.press(b"c", title("config"))
+        self.assertEqual(lines[2].split(), ["For", "‹", "new", "seats", "›"])
         # the shipped [defaults]: opus orchestrates, and it and astra build and review
         self.assertEqual([marks(model(lines, name)) for name in ("fable", "opus", "astra")],
                          ["○□□", "●■■", "○■■"])
@@ -350,7 +350,7 @@ class OneConfigScreen(unittest.TestCase):
         menu.screen()
         menu.press(b"k", lambda lines: any("esc leave" in line for line in lines)
                    and "ACME" in highlighted(lines))
-        menu.press(b"c", title("config · new seats"))
+        menu.press(b"c", title("config"))
         # another process creates a seat while `c` is open, and writes what it was given
         menu.config.write_text(menu.config.read_text().replace(
             'orchestrator = "opus"\nworkers = ["opus", "astra"]',
