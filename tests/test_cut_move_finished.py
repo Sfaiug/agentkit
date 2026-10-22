@@ -3,7 +3,7 @@
 A killed git's HEAD.lock failed the tick's fast-forward after it had moved the files but not
 HEAD; every tick after found the checkout `dirty`, somebody's work, and nothing went live for ten
 hours.  A move ak cut off -- a git step failing half done, or one it killed at its cap -- is its
-own: it goes to the commit that move was for.  Commits of the checkout's own still stay.
+own: it goes to the commit that move was for.  Commits and edits of the checkout's own stay.
 test_go_live_retries_install's offline clone, its origin one commit ahead.
 """
 
@@ -65,6 +65,25 @@ class CutMoveFinished(unittest.TestCase):
         mine = self.head()
         self.tick()
         self.assertEqual((self.head(), self.installs()), (mine, 0))
+
+    def edited(self):
+        """The owner's edit, which no later tick may touch, and the HEAD it stays on."""
+        mine, head = self.clone / "install.sh", self.head()
+        mine.write_text(mine.read_text() + "# mine\n")
+        self.tick()
+        self.assertEqual((self.head(), mine.read_text().endswith("# mine\n"), self.installs()),
+                         (head, True, 0))
+
+    def test_an_edit_after_a_move_that_never_began_stays(self):
+        lock = self.clone / ".git/index.lock"
+        lock.write_text("")
+        self.tick()
+        lock.unlink()
+        self.edited()
+
+    def test_an_edit_after_a_cut_move_stays(self):
+        self.cut()
+        self.edited()
 
 
 if __name__ == "__main__":

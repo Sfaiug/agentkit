@@ -483,15 +483,37 @@ def behind(timeout=START_WAIT):
                 and _git("merge-base", "--is-ancestor", head[0], "HEAD")[0])
 
 
-def _git(*args, timeout=60):
+def _git(*args, timeout=60, env=None):
     """One git command in that checkout: its exit code and output, 1 when it could not run."""
     try:
         proc = subprocess.run(["git", "-C", str(agentkit_dir()), *args], capture_output=True,
                               encoding="utf-8", errors="replace", timeout=timeout,
-                              env={**config.child_env(), **PINS})
+                              env={**config.child_env(), **PINS, **(env or {})})
     except (OSError, subprocess.TimeoutExpired):
         return 1, ""
     return proc.returncode, proc.stdout.strip()
+
+
+def _moved_only(moving):
+    """Whether every file the checkout changed holds what `moving` has there: what a move to it
+    wrote, and no edit of somebody's since.  git compares them, in an index of its own."""
+    tracked = _git("diff", "--name-only", "-z", "HEAD")
+    untracked = _git("ls-files", "-z", "--others", "--exclude-standard")
+    if tracked[0] or untracked[0]:
+        return False
+    changed = [path for path in f"{tracked[1]}\0{untracked[1]}".split("\0") if path]
+    if not changed:
+        return True
+    with tempfile.TemporaryDirectory() as tmp:
+        env = {"GIT_INDEX_FILE": str(Path(tmp) / "index"), "GIT_LITERAL_PATHSPECS": "1"}
+        if _git("read-tree", moving, env=env)[0] or _git("diff", "--quiet", "--", *changed,
+                                                         env=env)[0]:
+            return False
+        code, there = _git("ls-files", "-z", "--", *changed, env=env)
+    # a changed file `moving` lacks is one the move only deletes: still there, it is somebody's
+    there = set(there.split("\0"))
+    return not code and not any(os.path.lexists(agentkit_dir() / path)
+                                for path in changed if path not in there)
 
 
 def left_as_is():
@@ -561,7 +583,8 @@ def update_agentkit(progress=None, pull=True):
             moving = ""
         if (moving and (head := _git("rev-parse", "HEAD")[1]) != moving
                 and _git("symbolic-ref", "--quiet", "--short", "HEAD")[1] == "main"
-                and _git("merge-base", "--is-ancestor", head, moving)[0] == 0):
+                and _git("merge-base", "--is-ancestor", head, moving)[0] == 0
+                and _moved_only(moving)):
             # A move to it never got HEAD there -- killed, or a git step that failed half done,
             # its files anywhere between the two commits: done again whole, it ends where it went.
             say(f"update: agentkit: finishing the move to {moving[:12]} that was cut off")
