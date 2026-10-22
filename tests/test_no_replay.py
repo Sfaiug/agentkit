@@ -210,10 +210,7 @@ class NoReplay(Sandbox):
                             {"cwd": str(self.root), "created": 100,
                              "conversation": "thread-seat", "id_source": orch.LAUNCHER})
         watch.seat_write(SEAT, stopped_at=None, closed_by_owner=None)
-        with patch.object(menu.terminal, "ask", return_value=SEAT), \
-                patch.object(menu, "read", return_value="y"), \
-                patch.object(menu.terminal, "frame", lambda *a, **k: None):
-            menu.stop_session([{"name": SEAT}], dry_run=False)
+        self.x_from_a_pipe([{"name": SEAT}], "1", "y", stop=menu.close_seat)
         self.assertTrue(watch.seat_read(SEAT)["closed_by_owner"])
         watch.seat_write(SEAT, stopped_at=None, closed_by_owner=None)
         orch.mark_owner_closed(SEAT)

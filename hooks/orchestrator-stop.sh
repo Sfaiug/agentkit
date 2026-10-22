@@ -73,7 +73,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
-from agentkit import config, harness, notify
+from agentkit import config, harness, notify, questions
 from agentkit.handback import handback_reason
 from agentkit.stop import question_refused, recorded_ending, ways_out
 from agentkit.watch import owner_question, seat_read, start_look, turn_ended
@@ -172,11 +172,10 @@ def transcript(payload):
 
 def last_message(payload):
     """Codex hands over the message; Claude names its transcript. Both key spellings occur."""
-    said = payload.get("last_assistant_message")
-    if not (isinstance(said, str) and said.strip()):
-        said = payload.get("lastAssistantMessage")
-    if isinstance(said, str) and said.strip():
-        return said
+    for key in ("last_assistant_message", "lastAssistantMessage"):
+        if key in payload:
+            said = payload[key]
+            return said if isinstance(said, str) else None
     for entry in transcript(payload):
         said = spoken(entry)
         if said:
@@ -321,10 +320,11 @@ def held(launched, payload):
     turn = moment(record.get("turn"))
     if turn is None:
         return ""    # no turn was written down; nothing here can say what happened during it
-    if background(payload):
-        return ""
     seat = resolve(launched)
-    if last_message(payload) is None:
+    delivery = questions.reminder(seat, last_message(payload))
+    if not delivery and background(payload):
+        return ""
+    if not delivery and last_message(payload) is None:
         return ""    # nothing it said can be read; nothing here can judge the turn
     # a question to the owner that nothing has answered yet ends a turn whenever it was asked:
     # a hand-back opens turns on a seat while it stands (`watch.stop_nudge`), and one the
@@ -333,7 +333,7 @@ def held(launched, payload):
     asked = (questioned(payload) or told(seat, turn, "needs") or kept
              or owner_question(notify.last(seat)))
     ends, undecided = recorded_ending(seat, question=asked, since=turn)
-    if ends:
+    if ends and not delivery:
         if (asked or record.get("asked_back") or not trails_question(last_message(payload))
                 or question_refused(seat)):
             return ""
@@ -342,11 +342,11 @@ def held(launched, payload):
     blocks = record.get("blocks")
     blocks = blocks + 1 if isinstance(blocks, int) and not isinstance(blocks, bool) else 1
     if blocks > LIMIT:
-        if not undecided:
+        if not ends and not undecided:
             asked_owner(seat, last_message(payload))
         return ""    # the third stop stands: the owner is paged with what the seat is stuck on
     latched(latch, {**record, "session": launched, "turn": turn, "blocks": blocks})
-    return parked_reason(undecided) if undecided else config.name_owed(seat) or REASON
+    return delivery or (parked_reason(undecided) if undecided else config.name_owed(seat) or REASON)
 
 
 def written(launched, kind):
@@ -376,7 +376,7 @@ def main():
         # record before this harness takes its next prompt (`watch.turn_ended`)
         turn_ended(resolve(launched))
     if tells(payload):
-        written(launched, "background" if background(payload) else "held" if back else "")
+        written(launched, "held" if back else "background" if background(payload) else "")
         # looked at again now its Stop is on record, however long judging it took
         start_look(launched)
     if back:

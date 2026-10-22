@@ -970,9 +970,11 @@ def mark_exhausted(cfg, provider, until=None, account=None):
 
     `until` is the harness's own "try again at", when its refusal named one; otherwise the
     soonest of the provider's own windows still to roll over, which is its other way of saying
-    the same thing.  A refusal beside meters that name no time at all is still a refusal, so
-    it parks the provider for `DRY_FOR` rather than for nothing: a provider left eligible
-    after refusing is handed the same work again, and again.
+    the same thing -- but `DRY_FOR` at most where no meter shows the refusal: a window with
+    room did not refuse, so its reset is no deadline, and a week's there withheld a
+    subscription with room for days.  A refusal beside meters that name no time at all is
+    still a refusal, so it parks the provider for `DRY_FOR` rather than for nothing: a
+    provider left eligible after refusing is handed the same work again, and again.
 
     The mark lives in the usage cache beside the meters, so `pick_order` excludes this
     provider for every later pick in every run, and it is dropped the moment the deadline has
@@ -988,7 +990,8 @@ def mark_exhausted(cfg, provider, until=None, account=None):
         prov = {}
     if account is not None:
         prov = (prov.get("accounts") or {}).get(account) or {}
-    if _number(until) is None or until <= now:
+    said = _number(until) is not None and until > now
+    if not said:
         until = _next_window(prov, now) or now + DRY_FOR
     ends, shown = {}, []
     for meter in prov.get("meters") or []:
@@ -1004,6 +1007,8 @@ def mark_exhausted(cfg, provider, until=None, account=None):
                     _number(meter.get("window_secs")) in (SESSION_SECS, None)
                     and until - now > SESSION_SECS):
                 shown.append((end, meter["name"]))
+    if not said and not shown:
+        until = min(until, now + DRY_FOR)
     _patch(provider, prov, account, mark={"exhausted_until": float(until),
                                           "exhausted_at": float(now), "exhausted_ends": ends,
                                           "exhausted_by": max(shown, default=(0, None))[1]})

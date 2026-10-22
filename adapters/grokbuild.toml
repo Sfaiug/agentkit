@@ -5,7 +5,7 @@
 version = 1
 
 [check]
-model = "grok-4.7-build-fast"
+model = "grok-4.7"
 effort = "low"
 
 # grok 1.0.40 has no switch for its own AGENTS.md

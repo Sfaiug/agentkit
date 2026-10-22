@@ -19,7 +19,8 @@ import time
 
 from . import (config, gitcall, handback, host, job as jobs, land, macbridge, orch, proc_snapshot,
                record, retention, run, stop, transitions, turns, watch, worktrees)
-from .harness import conversation_stores, end_conversation, load as harness_plugin
+from .harness import (conversation_stores, end_conversation, idle_conversations,
+                      load as harness_plugin)
 
 GC_INTERVAL = 86400             # background retention inspects old state at most once a day
 GC_LOG_LIMIT = 1024 * 1024      # retain two bounded automatic-collection logs
@@ -394,7 +395,11 @@ def home_entries(folder, age, now, paths):
 
 def stale_conversations(now):
     """Each conversation a harness keeps and never ends itself (`conversation_stores`) that
-    nobody wrote to for a run directory's age and nobody holds open."""
+    nobody wrote to for a run directory's age and nobody holds open, and each one kept as rows
+    of a harness's database that it names idle for as long (`idle_conversations`), by its id."""
+    for item in idle_conversations(now - RUN_DIR_AGE):
+        yield {"action": "remove", "kind": "conversation", "path": item["id"], **item,
+               "why": f"untouched for {RUN_DIR_AGE // 86400} days"}
     paths = tmp_processes()[0]
     if paths is None:
         return
@@ -1016,12 +1021,21 @@ def gc(report, automatic=False):
                         if item["harness"] in balked:
                             continue
                         try:
-                            end_conversation(item["harness"], path,
-                                             lambda *parts: conversation_ends(path, *parts))
+                            if "id" in item:
+                                # its harness asked again now: one updated since stays, and
+                                # one whose store is reached through a link
+                                idle = {"harness": item["harness"], "id": item["id"]}
+                                done = end_conversation(
+                                    item["harness"], item["id"], lambda *parts: all(
+                                        map(retention.safe, parts)) and idle
+                                    in idle_conversations(time.time() - RUN_DIR_AGE))
+                            else:
+                                end_conversation(item["harness"], path,
+                                                 lambda *parts: conversation_ends(path, *parts))
+                                done = not retention.present(path)
                         except (OSError, subprocess.SubprocessError):
                             balked.add(item["harness"])    # one failure, not one per conversation
                             raise
-                        done = not retention.present(path)
                     elif item["kind"] in ("orphan-worktree", "unmerged-worktree"):
                         # A resume commits under the run's recovery lock: it lands before
                         # the second look, and the tree stays, or finds the tree gone.
