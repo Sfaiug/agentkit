@@ -98,9 +98,8 @@ class Lines(unittest.TestCase):
         self.stack.enter_context(redirect_stdout(self.out))
         self.stack.enter_context(patch.object(terminal, "width", return_value=100))
         self.opened = self.stack.enter_context(patch.object(menu, "open_session"))
-        self.closed = self.stack.enter_context(patch.object(menu, "close_seat"))
+        self.closed = self.stack.enter_context(patch.object(menu, "remove_seat"))
         self.paused = self.stack.enter_context(patch.object(menu, "pause"))
-        self.stopped = self.stack.enter_context(patch.object(orch, "cmd_stop"))
         self.stack.enter_context(patch.object(orch, "listed", dict))
         self.stack.enter_context(patch.object(orch, "checkout_of",
                                               lambda repo, **_kw: repo and Path(repo)))
@@ -141,9 +140,8 @@ class Lines(unittest.TestCase):
         self.assertNotIn("omega", self.out.getvalue())
         self.assertEqual(read.call_args_list[-1].args[0], menu.stop_question("alpha"))
         with patch.object(menu, "read", side_effect=["1", "y"]):
-            menu.stop_session([OMEGA], False)
+            self.assertIsNone(menu.stop_session([OMEGA], False))
         self.paused.assert_called_once_with("no session to stop")
-        self.stopped.assert_not_called()
         self.assertNotIn("stop omega", self.out.getvalue())
 
     def test_more_than_a_page_keeps_each_row_under_its_projects_heading(self):

@@ -191,6 +191,9 @@ class ModelsScreen(Screen):
         # seven more models as good to build and review: `as good` wraps past a page at 40
         # cells.  Up to the knob, then down through every row, and every line of the screen,
         # including the quality and cost note, is on some page drawn, even at 40x12
+        self.cfg["assess"] = {"claude": ["claude-opus-5-5"], "codex": ["gpt-6-astra"],
+                              "opencode": [f"acme-model-{n}" for n in range(7)]}
+        config.save(self.cfg)
         self.store([
             row("claude", "claude-opus-5-5", "max", 100, 100, 100, cost=8),
             row("claude", "claude-opus-5-5", "xhigh", 96.55, 96.55, 96.55, cost=4),

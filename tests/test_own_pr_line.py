@@ -1,14 +1,17 @@
 """Own PRs share the landing line: independently green changes cannot land a red stack.
 
-Owner rule, 1 Oct, 2 Oct, 3 Oct, 4 Oct, 7 Oct, 13 Oct, 14 Oct, 16 Oct 2026: "The orchestrator
-builds, by the who-does-the-work cases in `orchestrator.md`; marked executors take only independent
-pieces sharing no file with its work, and ak moves no work for quota. Every change lands through
+Owner rule, 1 Oct, 2 Oct, 3 Oct, 4 Oct, 7 Oct, 13 Oct, 14 Oct, 16 Oct, 21 Oct 2026: "The orchestrator
+builds a change under 50 added lines; from 50 up it writes a task and a marked executor builds it;
+it tests and looks at every change end to end itself, and ak moves no work for quota. Reason: in
+14 days of runs, seat-built changes from 50 lines up failed all three rounds about twice as often
+as worker-built ones of the same size (50-99: 17% against 5%, the gap holding within each repository),
+and 58-72% of a seat's build context was unrelated history. Every change lands through
 the one path, the orchestrator's own included: review rounds, its tests and the landing line; only
 a diff of documents alone skips review. A behaviour change needs a test that fails on the old code,
 which ak proves where it can and never fails a round for. A FAIL is fixed by a fresh fixer session
 on the model that wrote the PR, never by the seat, whose conversation is the owner's." Held here
-with tests/test_own_pr_fixer.py, tests/test_regression_fails_before.py, tests/test_followup_runs.py
-and tests/test_review_own_pr.py.
+with tests/test_own_pr_fixer.py, tests/test_regression_fails_before.py, tests/test_followup_runs.py,
+tests/test_review_own_pr.py and tests/test_seat_pr_under_fifty_lines.py.
 
 Offline: real Git and the declared fixture suite, fake GitHub, reviewers and seats.
 """

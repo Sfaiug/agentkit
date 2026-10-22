@@ -100,7 +100,8 @@ class ModelRecommends(unittest.TestCase):
                       "first by name", " ".join(text.split()))
         self.assertIn("no recommendation yet: no board has a row ak can run", none)
         out = io.StringIO()
-        with redirect_stdout(out), patch.object(config, "load", return_value={"within": 20}), \
+        with redirect_stdout(out), patch.object(config, "load", return_value={
+                "within": 20, "assess": {"acme": ["acme-pro", "acme-mini"]}}), \
                 patch.object(matrix, "refresh", return_value=({}, table)), patch.object(matrix, "live", return_value={}):
             self.assertEqual(matrix.main(["--json"]), 0)
         data = json.loads(out.getvalue())

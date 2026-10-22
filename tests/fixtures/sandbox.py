@@ -10,7 +10,8 @@ pins `LANG` and `LC_ALL` to `C.UTF-8`: under LANG=C the menu draws ASCII, and th
 runs in the caller's locale.
 """
 
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, redirect_stdout
+import io
 import json
 import os
 from pathlib import Path
@@ -116,6 +117,19 @@ class Sandbox(unittest.TestCase):
         system_tmp.mkdir(exist_ok=True)
         self.stack.enter_context(patch.object(gc, "TMP_BASE", system_tmp))
         self.stack.enter_context(patch.object(gc, "VAR_TMP_BASE", system_tmp))
+
+    def x_from_a_pipe(self, seats, *answers, stop=None):
+        """The main screen's `x` read from a pipe over `seats`, answered with `answers`, then the
+        menu left: its reads and `Live.stop`, a mock doing `stop` in place of the stop's own
+        process (`teardown`), which would see none of a test's patches."""
+        with patch.object(orch, "listing", return_value=[dict(seat) for seat in seats]), \
+                patch.object(orch, "job_notices", return_value=[]), \
+                patch.object(menu, "draw", return_value=(0, 1)), \
+                patch.object(menu.Live, "stop", side_effect=stop) as stopped, \
+                menu_input(side_effect=["x", *answers, ""]) as read, \
+                redirect_stdout(io.StringIO()):
+            menu.loop(self.cfg)
+        return read, stopped
 
     def ended(self, name, owner="gone-seat", **extra):
         directory = config.RUNS / name

@@ -1,7 +1,7 @@
 """Text ak's editor set aside from a seat's composer for a line comes back on the tick, however
-the line's own pass ended, once that composer is empty and the owner has left the seat alone:
-the editor hands it back only into an empty composer, and a line still there is the mark's pass
-to send first.  Every read and key of it goes to the pane the text came from, whichever pane the
+the line's own pass ended, once that composer is empty with no input unread and no question up,
+however recently its terminal took keys -- ak's own among them: the editor hands it back only
+into an empty composer, and a line still there is the mark's pass to send first.  Every read and key of it goes to the pane the text came from, whichever pane the
 owner selects.  Offline: fixtures.editor_seat; the tick's pass is `watch.drafts_back`.
 """
 
@@ -43,10 +43,8 @@ class KeptTextComesBack(EditorSeat):
         self.assertEqual((self.keys, self.composer, self.buffers),
                          (["C-g"], DRAFT, kept(aside_editor.GIVEN, "%8")))
 
-    def test_text_waits_for_an_empty_composer_the_owner_left_alone(self):
-        self.untouched(watch.DRAFT_STILL - 10)
-        self.tick()
-        self.untouched(watch.DRAFT_STILL)
+    def test_text_waits_for_an_empty_composer_with_nothing_unread_or_asked(self):
+        self.untouched(0)               # keys just taken: the line's own Enter, or the owner's
         self.unread = True
         self.tick()
         self.unread = False

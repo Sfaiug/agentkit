@@ -178,8 +178,10 @@ class Switch(Sandbox):
 
     def test_the_tick_types_the_handover_after_the_warmup(self):
         selected = self.selected()
-        self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}),
-                         "")
+        # a harness that takes no first prompt has its line typed
+        with patch.object(orch, "takes_line", return_value=False):
+            self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}),
+                             "")
         line = watch.seat_read("fix-api")["midturn"]["line"]
         self.calls.clear()
         sleeps, logs = [], []

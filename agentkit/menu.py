@@ -2028,16 +2028,15 @@ def teardown(name, dry_run):
 
 
 def stop_session(found, dry_run):
-    """`x` read a line at a time -- a pipe, a file: which seat, then one question, and nothing else.
+    """`x` read a line at a time -- a pipe, a file: which seat, then one question, and nothing else;
+    the seat to stop, which the menu stops as the keyboard's `x` does (`Live.stop`), or None.
 
     With the keyboard `x` is the highlighted seat's instead (`loop`, `close_seat`).  The seat is
     picked by the number the main screen gives it or by name, among the ones not stopped already
     -- a stopped one keeps its number for the past screen (`show_past`), where it is removed,
     and is never asked about here; Esc and an empty Enter go back
     to the menu, as does anything but `y` to the one question, which says, as the
-    keyboard's card does, that the past screen reopens the seat. `ak orch stop` ends it,
-    then its runs, the same way `ak run stop` stops one, so none is left to read as an
-    accident afterwards, removes the checkouts and the tabs, and keeps the seat.
+    keyboard's card does, that the past screen reopens the seat.
     """
     offered = {number: session for number, session in enumerate(found, 1)
                if not session.get("closed")}
@@ -2055,9 +2054,8 @@ def stop_session(found, dry_run):
         print(f"would stop {session['name']}")
         return
     terminal.frame("stop", terminal.wrap(stop_means(None), terminal.width()))
-    if read(stop_question(session["name"]), "") != "y":
-        return
-    orch.cmd_stop([session["name"]])
+    if read(stop_question(session["name"]), "") == "y":
+        return session["name"]
 
 
 def open_session(cfg, session, dry_run):
@@ -2922,7 +2920,8 @@ def advice(cfg, held):
     (matrix.stored): {role: (its row's label, the configured model `r` takes it as or None
     (takes), the row's effort)}; {} while nothing is computed."""
     found = {}
-    for role, rows in matrix.recommended(held.get("rows") or [], matrix.within(cfg)).items():
+    marked = matrix.assessment(cfg, held.get("rows") or [])
+    for role, rows in matrix.recommended(marked, matrix.within(cfg)).items():
         name = takes(cfg, rows[0], role)
         found[role] = (matrix.row_label({**rows[0], "name": name}), name, rows[0].get("effort"))
     return found
@@ -3072,7 +3071,8 @@ def models_body(cfg, table, levels, shown, at, picks):
     lines.append(terminal.highlight(line) if at == KNOB else line)
     ids = {role: [(row["harness"], row["model"], row["effort"]) for row in rows]
            for role, rows in picks.items()}
-    tops = matrix.tops([row for rows in table.values() for row in rows.values()])
+    tops = matrix.tops(matrix.assessment(cfg, [row for rows in table.values()
+                                                for row in rows.values()]))
     said = {word: [] for word in SAID}
     for number, role in enumerate(matrix.ROLES):
         rows, head = picks.get(role) or [], orch.ROLE_HEADS[number]
@@ -3186,7 +3186,8 @@ def models_screen(cfg, session, selected, providers, held):
     here, top, note, title = models[0] if models else KNOB, 0, "", f"models · {session}"
     clock = motion.Clock(page=True)
     while True:
-        picks = matrix.recommended(held.get("rows") or [], matrix.within(cfg))
+        picks = matrix.recommended(matrix.assessment(cfg, held.get("rows") or []),
+                                   matrix.within(cfg))
         where = ("knob" if here == KNOB else "effort"
                  if here[0] == "model" and len(levels[here[1:]]) > 1 else "still")
         keys = (MODELS_KEYS[where][0 if terminal.utf8() else 1]
@@ -4991,7 +4992,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
                 choice = terminal.ask("Remove", names[0], names, read=read,
                                       numbers=[number for number, _ in past])
                 if choice:
-                    close_seat(choice, dry_run)
+                    remove_seat(choice, dry_run)
                     found = [session for session in found if session["name"] != choice]
             else:
                 pause(f"not a key: {line!r}", keys)
@@ -5020,11 +5021,16 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
         if act == "x" and not terminal.unseen():     # unseen, it only brings the highlight back
             keyboard.give()       # the stop says what it did where it can be read
             clock.forget()        # another screen: the page back from it is drawn as it is
-            # the owner's, as `x` on the main screen is: a refusal waits there as a notice
-            subprocess.run(teardown(here, dry_run), cwd=config.REPO, env=config.owner_env(),
-                           stdin=subprocess.DEVNULL)
+            remove_seat(here, dry_run)
             keyboard.take()
             found = [session for session in found if session["name"] != here]
+
+
+def remove_seat(name, dry_run):
+    """The past screen's `x`: the owner's, as `x` on the main screen is (`Live.stop`), so a seat
+    the menu is over refuses no other seat's removal; a refusal waits there as a notice."""
+    subprocess.run(teardown(name, dry_run), cwd=config.REPO, env=config.owner_env(),
+                   stdin=subprocess.DEVNULL)
 
 
 def move_keys():
@@ -5363,7 +5369,11 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 except config.Error as exc:
                     pause(f"new session: {exc}")
             elif key == "x":
-                stop_session(found, dry_run)
+                seat = stop_session(found, dry_run)
+                if seat:
+                    live.stop(seat, dry_run)
+                    if seat == own:
+                        return 0
             elif key == "c":
                 # read with the keys, too; the looks and probes go on with what it saved
                 cfg = live.cfg = show_config(dry_run, keyboard,

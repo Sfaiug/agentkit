@@ -114,7 +114,7 @@ class OneRulebook(unittest.TestCase):
         stack.enter_context(patch.dict(os.environ, {"PATH": f"{fakes}:{os.environ['PATH']}",
                                                    "FAKE_SEEN": str(self.seen)}))
         for harness in HARNESSES:
-            (fakes / self.binary(harness)).symlink_to("harness")
+            (fakes / config.manifest(harness)["update"]["version"][0]).symlink_to("harness")
         self.assertGreaterEqual(set(HARNESSES), {"claude", "codex", "muse"})
 
     def interactive(self, harness, seat="atoll"):
@@ -127,7 +127,7 @@ class OneRulebook(unittest.TestCase):
         return shlex.split(proc.stdout)
 
     def binary(self, harness):
-        """The program this adapter finally execs: the first word after the last
+        """The program's basename: the first word after the last
         `--` on its `interactive` line, past `env` and its `NAME=value` pins."""
         words = self.interactive(harness)
         seps = [i for i, word in enumerate(words) if word == "--"]
@@ -136,7 +136,7 @@ class OneRulebook(unittest.TestCase):
         while at < len(tail) and re.match(r"[A-Za-z_][A-Za-z0-9_]*=", tail[at]):
             at += 1
         self.assertLess(at, len(tail), f"{harness}: no program on its line")
-        return tail[at]
+        return Path(tail[at]).name
 
     @staticmethod
     def value_of(word):

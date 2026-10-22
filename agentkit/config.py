@@ -53,6 +53,7 @@ SEAT_REPO_ENV = "AGENTKIT_SEAT_REPO"      # a new seat's project, for rulebook.p
 # origin/HEAD would win the short one
 RULES_REF = "refs/remotes/origin/HEAD"
 ACCOUNT_ENV = "AGENTKIT_ACCOUNT"           # which of a provider's `accounts` an adapter call is for
+FIRST_PROMPT_ENV = "AGENTKIT_FIRST_PROMPT"  # ... and the line its harness opens on, where it takes one
 PROVIDER_ENV = "AGENTKIT_PROVIDER"         # ... and which providers, where a harness runs several's
 DEFAULT_ACCOUNT = "default"                # ... the login it has when it lists none: the empty name
 KEPT_LOGINS = "kept-logins.json"           # under STATE: the logins `− remove` left on disk
@@ -401,6 +402,12 @@ def load():
     if "within" in cfg and (isinstance(cfg["within"], bool) or not isinstance(cfg["within"], (int, float))
                             or cfg["within"] < 0):
         raise Error(f"{path}: within must be a number of points, 0 or more (got {cfg['within']!r})")
+    marks = cfg.get("assess")
+    if marks is not None and (not isinstance(marks, dict) or any(
+            not isinstance(models, list) or any(not isinstance(model, str) for model in models)
+            for models in marks.values())):
+        raise Error(f"{path}: [assess] must list model ids under each harness "
+                    f"(acme = [\"acme-pro\"]) (got {marks!r})")
     if not isinstance(defaults.setdefault("orchestrator", names[0]), str):
         raise Error(f"{path}: [defaults].orchestrator must be a model name "
                     f"(got {defaults['orchestrator']!r})")
