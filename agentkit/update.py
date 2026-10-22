@@ -751,11 +751,11 @@ def live_target():
 
 def owed_live(now):
     """(commit, since) for the commit ~/agentkit has owed going live at the longest, or None
-    while it owes none or a harness upgrade holds its moves: one whose tests/live.sh passed, the
-    fast-forward's target, or HEAD while its install.sh is owed, from that pass, else from its
-    landing.  What `stuck.stalls` reads, so a move that fails however it fails is not quiet.
+    while it owes none: one whose tests/live.sh passed, the fast-forward's target, or HEAD while
+    its install.sh is owed, from that pass, else from its landing.  What `stuck.stalls` reads, so
+    a move that fails however it fails is not quiet.
     """
-    if agentkit_dir().resolve() != config.REPO or upgrading():
+    if agentkit_dir().resolve() != config.REPO:
         return None
     passed = {}
     for started, commit, check in live_checks():
@@ -808,8 +808,10 @@ def live_tick(log, now, fetched):
         if alive:
             running = True
         elif had[commit]:
-            shutil.rmtree(check, ignore_errors=True)
-            pruned = True
+            # a pass dates the install it leaves owed (owed_live), so it stays until that passes
+            if not (config.STATE / "agentkit-install-pending").exists():
+                shutil.rmtree(check, ignore_errors=True)
+                pruned = True
         else:
             done.append((started, commit, check, _exit(check, started)))   # read once it ended
     if pruned:

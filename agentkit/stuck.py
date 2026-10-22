@@ -79,10 +79,13 @@ def stalls(now):
     if owed:
         commit, since = owed
         why = update.left_as_is()
+        # a harness upgrade holds the moves within its own caps: no stall then, yet still one
+        # (its key kept in `told`) once it ends
         yield (f"live:{commit}", "the stall of ak going live",
                f"ak stalled: {update.agentkit_dir()} has not gone live at {commit[:12]} for "
                f"{orch.span(now - since)}{f', and it is {why}' if why else ''}; the tick's log "
-               f"{watch.log_path()} says why. {ASKED}" if now - since > FLOOR else None)
+               f"{watch.log_path()} says why. {ASKED}"
+               if now - since > FLOOR and not update.upgrading() else None)
     first = gate.first_in_line(now)
     if first:
         run_id, since, behind, took = first

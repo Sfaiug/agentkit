@@ -4,7 +4,7 @@ A move a killed git left half done kept it off main for ten hours, its every tic
 `left as it is`, until a harness upgrade's gate failed on the tree.  However a move fails, a
 commit owed that long -- one whose tests/live.sh passed, the fast-forward's target, or HEAD while
 its install.sh is owed, from that pass, else from its landing -- is one stall (`stuck.stalls`),
-none while a harness upgrade holds the moves.  test_go_live_retries_install's offline clone.
+none told while a harness upgrade holds the moves, nor again once it ends.  test_go_live_retries_install's offline clone.
 """
 
 import os
@@ -54,7 +54,19 @@ class StallGoingLive(unittest.TestCase):
         (config.STATE / "agentkit-install-pending").touch()
         self.assertIn(f"has not gone live at {self.new[:12]} for 1d;", self.stall(landed + DAY)[0][2])
         with patch.object(update, "upgrading", return_value=True):
-            self.assertEqual(self.stall(landed + DAY), [])
+            self.assertEqual(self.stall(landed + DAY), [(f"live:{self.new}", "the stall of ak going live", None)])
+
+    def test_an_install_a_pass_left_owed_is_dated_from_that_pass(self):
+        now = self.landed() + DAY
+        check = config.STATE / update.LIVE / f"{self.new}-{now - 600}"
+        check.mkdir(parents=True)
+        (check / "exit").write_text("0\n")
+        os.utime(check / "exit", (now - 120,) * 2)
+        (self.root / "broken").touch()
+        for _ in range(2):          # the second tick finds HEAD at the commit the pass moved it to
+            update.go_live(lambda line: None, now=now)
+        self.assertEqual(git(self.clone, "rev-parse", "HEAD"), self.new)
+        self.assertEqual(self.stall(now), [(f"live:{self.new}", "the stall of ak going live", None)])
 
 
 if __name__ == "__main__":
