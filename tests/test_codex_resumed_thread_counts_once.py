@@ -198,6 +198,19 @@ class CodexTokens(unittest.TestCase):
             db.execute("INSERT INTO runs (run_id, reviewer_tokens) VALUES ('fix-api',1000)")
         self.assertEqual(history.get("fix-api")["reviewer_tokens"], 1000)
 
+    def test_recount_on_read_preserves_an_old_databases_schema(self):
+        for number, counts in enumerate(TOTALS, 1):
+            self.turn(number, counts)
+        with closing(sqlite3.connect(history.path())) as db, db:
+            db.execute("CREATE TABLE runs (run_id TEXT, executor_tokens INTEGER, reviewer_tokens INTEGER)")
+            db.execute("INSERT INTO runs VALUES ('fix-api', 456, ?)", (sum(map(sum, TOTALS)),))
+            schema = db.execute("SELECT sql FROM sqlite_master").fetchall()
+        self.assertEqual(history.get("fix-api"),
+                         {"run_id": "fix-api", "executor_tokens": 456,
+                          "reviewer_tokens": 2115892 + 8723})
+        with closing(sqlite3.connect(history.path())) as db:
+            self.assertEqual(db.execute("SELECT sql FROM sqlite_master").fetchall(), schema)
+
 
 if __name__ == "__main__":
     unittest.main()

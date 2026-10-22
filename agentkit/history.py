@@ -173,15 +173,16 @@ def _connect(*, readonly=False):
             if name not in have:
                 connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
     if connection.execute("PRAGMA user_version").fetchone()[0] < 2:
-        _recount_tokens(connection)
-        connection.execute("PRAGMA user_version=2")
-        connection.commit()
+        _apply_token_recounts(connection, _recount_tokens(connection))
     return connection
 
 
 def _recount_tokens(connection):
-    """Repair a recorded prefix of kept turns, leaving unmatched totals alone."""
+    """Yield repairs to recorded prefixes of kept turns, leaving unmatched totals alone."""
     from .harness import reported_tokens, turn_token_counts
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
+    if not {"executor_tokens", "reviewer_tokens"} <= columns:
+        return
     rows = connection.execute("SELECT run_id, executor_tokens, reviewer_tokens FROM runs").fetchall()
     for run_id, executor, reviewer in rows:
         recorded = {"executor": executor, "reviewer": reviewer}
@@ -204,9 +205,31 @@ def _recount_tokens(connection):
                 matched[role] = corrected[role]
         for role, amount in matched.items():
             if amount != recorded[role]:
-                connection.execute(
-                    f"UPDATE runs SET {role}_tokens=? WHERE run_id=?",
-                    (amount, run_id))
+                yield role, amount, run_id
+
+
+def _apply_token_recounts(connection, repairs):
+    for role, amount, run_id in repairs:
+        connection.execute(f"UPDATE runs SET {role}_tokens=? WHERE run_id=?", (amount, run_id))
+    connection.execute("PRAGMA user_version=2")
+    connection.commit()
+
+
+def _ensure_tokens_recounted():
+    """Recount on a read only when a repair is proven, without migrating unrelated schema."""
+    try:
+        if not path().exists():
+            return
+        with _writing():
+            with contextlib.closing(_connect(readonly=True)) as connection:
+                if connection.execute("PRAGMA user_version").fetchone()[0] >= 2:
+                    return
+                repairs = list(_recount_tokens(connection))
+            if repairs:
+                with contextlib.closing(sqlite3.connect(path(), timeout=2)) as connection:
+                    _apply_token_recounts(connection, repairs)
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        pass
 
 
 @contextlib.contextmanager
@@ -688,7 +711,7 @@ def sample_rss(run_id, pid=None, *, log=None):
 
 def get(run_id):
     """Return one row as a plain mapping for machine-readable run status."""
-    _ensure_migrated()
+    _ensure_tokens_recounted()
     try:
         with _LOCK:
             connection = _connect(readonly=True)
@@ -711,8 +734,6 @@ def _ensure_migrated():
     the read that asked goes on to fail soft as it always has.
     """
     try:
-        if not path().exists():
-            return
         with _writing():
             _connect().close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
@@ -788,7 +809,7 @@ def rules_size(repo):
 
 def ended_runs(since, until):
     """Real runs with a finish date in the inclusive range, read as plain mappings."""
-    _ensure_migrated()
+    _ensure_tokens_recounted()
     try:
         with _LOCK:
             connection = _connect(readonly=True)
