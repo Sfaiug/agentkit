@@ -59,6 +59,8 @@ class Stage:
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
         home.env.update(OFFLINE)
+        # a collection on record from just now: a due one would sweep the host's /tmp
+        home.write(".agentkit/state/gc.json", {"started_at": time.time()})
         cls.rig = Rig(home, "widgets", files={"api.py": API})
         GitHub(home).grant(cls.rig.slug, "WRITE")
         akconfig.write(home, ["opus", "astra"])
