@@ -10,16 +10,19 @@ printed there and paged nowhere, and the seat works on.
 Black-box: the program `AK_BIN` names opens each seat from a person's terminal
 (tests/fixtures/akterm.py), paging tests/fixtures/sink.py; `codex` is
 tests/fixtures/codex-remote-fake.py, Codex's app server and remote TUI with no device paired,
-which writes down each pairing it is asked for.  The seat's wrapper names its pane through the
-socket path tmux gave it, so this Home's tmux takes a socket path inside the Home's own
-directory, and the seat's call to its provider meets a loopback port that refuses it.
+which writes down each pairing it is asked for.  The seat names itself to its provider over
+HTTPS; that call meets a loopback proxy whose stand-in provider, trusted through SSL_CERT_FILE,
+accepts it, so the seat goes on to read the connected status where pairing would begin.
 """
 
 import json
 import os
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import shlex
-import socket
+import ssl
+import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 import unittest
@@ -33,27 +36,6 @@ from fixtures.sink import Sink
 PAIR = Path(AK).resolve().parents[1] / "tools" / "codex-seat.py"   # beside the program
 CODE = "Pairing code: ACME-1234\n"      # the stand-in's manual code
 OPEN = ("--model", "astra", "--workers", "astra")     # the shipped config's Codex model
-# The Home's own guard, but a socket path inside this Home's directory goes through.
-TMUX = """#!/bin/sh
-skip=
-for a do
-  if [ -n "$skip" ]; then
-    if [ "$skip" = S ]; then
-      case $a in {dir}/*) ;; *) echo "tmux: not this Home's server" >&2; exit 2 ;; esac
-    fi
-    skip=; continue
-  fi
-  case $a in
-    -S) skip=S ;;
-    -S*) echo "tmux: not this Home's server" >&2; exit 2 ;;
-    -[cfLT]) skip=1 ;;
-    -*) ;;
-    *) break ;;
-  esac
-done
-export TMUX_TMPDIR={dir}
-exec {real} "$@"
-"""
 
 
 def running(pid):
@@ -72,6 +54,33 @@ def until(test, what, bound=30):
         time.sleep(0.05)
 
 
+class Provider(BaseHTTPRequestHandler):
+    """A proxy that opens every tunnel onto the stand-in provider, which accepts each call and
+    writes it down: the seat names itself to the provider before it reads the connected status."""
+
+    def do_CONNECT(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.flush()
+        self.request = self.connection = self.server.tls.wrap_socket(self.connection,
+                                                                     server_side=True)
+        self.setup()
+        self.close_connection = False    # the tunnel's request comes next
+
+    def do_PATCH(self):
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        self.server.calls.append((self.command, self.path, body))
+        self.send_response(200)
+        self.send_header("Content-Length", "2")
+        self.end_headers()
+        self.wfile.write(b"{}")
+
+    do_DELETE = do_PATCH
+
+    def log_message(self, *_args):
+        pass
+
+
 class CodexHost:
     """A Home whose `codex` is the stand-in, logged in, with a sink for pages."""
 
@@ -81,20 +90,26 @@ class CodexHost:
         cls.addClassCleanup(home.close)
         cls.sink = Sink(home)
         cls.addClassCleanup(cls.sink.close)
-        home.fake("tmux", TMUX.replace("{dir}", shlex.quote(str(home.tmux_dir)))
-                  .replace("{real}", shlex.quote(REAL_TMUX)))
         home.fake("codex", "#!/bin/sh\nexec " + shlex.join(
             [sys.executable, str(FIXTURES / "codex-remote-fake.py")]) + ' "$@"\n')
         home.write(".codex/auth.json", {"tokens": {"access_token": "acme-token",
                                                    "account_id": "acme-account"}})
-        # bound and never listening: every connection to it is refused, and none leaves the host
-        cls.refuser = socket.socket()
-        cls.addClassCleanup(cls.refuser.close)
-        cls.refuser.bind(("127.0.0.1", 0))
-        proxy = f"http://127.0.0.1:{cls.refuser.getsockname()[1]}"
+        cert, key = home.path / "provider.pem", home.path / "provider.key"
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+                        "-subj", "/CN=chatgpt.com", "-addext", "subjectAltName=DNS:chatgpt.com",
+                        "-keyout", key, "-out", cert], check=True, capture_output=True)
+        cls.provider = ThreadingHTTPServer(("127.0.0.1", 0), Provider)
+        cls.provider.tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        cls.provider.tls.load_cert_chain(cert, key)
+        cls.provider.calls = []
+        threading.Thread(target=cls.provider.serve_forever, daemon=True).start()
+        cls.addClassCleanup(cls.provider.server_close)
+        cls.addClassCleanup(cls.provider.shutdown)
+        proxy = f"http://127.0.0.1:{cls.provider.server_port}"
         home.env.update({"FAKE_CODEX_REPO": str(REPO), "FAKE_THREAD": "acme-thread",
                          "FAKE_HOLD": "1", "FAKE_PAIRING": "1",
-                         "https_proxy": proxy, "HTTPS_PROXY": proxy})
+                         "https_proxy": proxy, "HTTPS_PROXY": proxy,
+                         "SSL_CERT_FILE": str(cert)})
 
     @classmethod
     def found(cls, name):
@@ -103,13 +118,16 @@ class CodexHost:
 
     @classmethod
     def open_seat(cls, *args):
-        """`ak orch` typed in a person's terminal, once its Codex is up and the seat has read
-        whether a device is paired: where a pairing alert would start."""
+        """`ak orch` typed in a person's terminal, once its Codex is up and the seat has named
+        itself to the provider and read its connected status: where a pairing alert would start.
+        Each status read is named before its connection closes, and the provider accepts each."""
         for mark in cls.found("fake-tui.json") + cls.found("fake-monitor-closed"):
             mark.unlink()
+        named = len(cls.provider.calls)
         terminal = Terminal(cls.home, "orch", *args)
-        until(lambda: cls.found("fake-tui.json") and cls.found("fake-monitor-closed"),
-              f"saw `ak orch {' '.join(args)}` start Codex and read its remote status")
+        until(lambda: cls.found("fake-tui.json") and cls.found("fake-monitor-closed")
+              and len(cls.provider.calls) > named,
+              f"saw `ak orch {' '.join(args)}` start Codex, name its seat and read its status")
         return terminal
 
     def pairings(self):
