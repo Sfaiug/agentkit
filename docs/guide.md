@@ -351,6 +351,12 @@ tick's log names the login and what it still ran, and nobody is paged. ak's own 
 seats live in `agentkit.slice`, never in a login. A login still in use, a client, and a host ak
 was never installed on are left alone.
 
+A git that fails on a lock file another git left (`Unable to create '….lock': File exists.`) is
+run again once that lock is gone, wherever ak runs it: the tick's own, a run's, a seat checkout's
+and a plan check's. ak removes the lock git named only when no git runs anywhere on the host and
+no process holds it, in a process table it could read whole, waiting up to ten seconds for such a
+moment (`gitlock.WAIT`), and says `ak: removed <lock>, left by a git that has ended`.
+
 A merged run's worktree and local branch go with the merge. A stop takes both at once, or with `--keep` the checkout
 after seven days. A failed, blocked or errored checkout goes when its seat has been told or after seven days, unless a
 resume can take it; its local branch stays until the 30-day removal, because a run that never pushed holds its only copy

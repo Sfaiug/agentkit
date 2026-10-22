@@ -47,7 +47,7 @@ from contextlib import ExitStack, closing, contextmanager, redirect_stderr, redi
 from datetime import datetime
 from pathlib import Path
 
-from . import aside_editor, command_help, config, gitcall, guard, host, motion, plan, retention, staffing, terminal, transitions, update, usage
+from . import aside_editor, command_help, config, gitcall, gitlock, guard, host, motion, plan, retention, staffing, terminal, transitions, update, usage
 from . import record as run_record
 from .harness import LAUNCHER, load as harness_plugin
 
@@ -1670,8 +1670,8 @@ def git_in(path, *args, env=None):
     clean = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
     clean["GIT_CEILING_DIRECTORIES"] = os.fsdecode(os.path.dirname(os.path.abspath(path)))
     try:
-        proc = subprocess.run(["git", *args], cwd=path, capture_output=True,
-                              stdin=subprocess.DEVNULL, timeout=30, env={**clean, **(env or {})})
+        proc = gitlock.run(["git", *args], cwd=path, capture_output=True,
+                           stdin=subprocess.DEVNULL, timeout=30, env={**clean, **(env or {})})
     except (OSError, subprocess.TimeoutExpired):
         return None, b""
     return proc.returncode, proc.stdout

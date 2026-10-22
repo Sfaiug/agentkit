@@ -25,7 +25,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import command_help, config, terminal
+from . import command_help, config, gitlock, terminal
 
 CHECK_LIMIT = 600    # an unfinished check proves nothing
 # an eye line, from before every line had a check, reads done: how a change looks is the
@@ -249,9 +249,9 @@ def default_branch(repo, at=None):
 
     def git(*args, cwd=repo):
         try:
-            result = subprocess.run(["git", "-C", str(cwd), "-c", "core.hooksPath=/dev/null", *args],
-                                    env=env, stdin=subprocess.DEVNULL, capture_output=True,
-                                    text=True, errors="replace", timeout=60)
+            result = gitlock.run(["git", "-C", str(cwd), "-c", "core.hooksPath=/dev/null", *args],
+                                 env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                                 text=True, errors="replace", timeout=60)
         except subprocess.TimeoutExpired:
             raise config.Error(f"cannot check {repo.name}'s default branch: git did not finish") from None
         if result.returncode:

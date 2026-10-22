@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from . import config, guard, record as run_record, sentences, task as taskfile, worker
+from . import config, gitlock, guard, record as run_record, sentences, task as taskfile, worker
 
 
 # what a test run, a build or an editor drops next to the work, and no reviewer should ever see
@@ -164,10 +164,10 @@ def tool_run(cmd, cwd=None, timeout=None, env=None):
         try:
             call = {name: value for name, value in {**tool_env(), **(env or {})}.items()
                     if value is not None}
-            proc = subprocess.run(cmd, cwd=None if cwd is None else str(cwd), capture_output=True,
-                                  encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
-                                  timeout=timeout, env=merge_config(
-                                      cmd[:start], cwd, call, timeout) if merges else call)
+            proc = gitlock.run(cmd, cwd=None if cwd is None else str(cwd), capture_output=True,
+                               encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
+                               timeout=timeout, env=merge_config(
+                                   cmd[:start], cwd, call, timeout) if merges else call)
             break
         except subprocess.TimeoutExpired:
             if attempt or not retry:

@@ -36,7 +36,7 @@ import tempfile
 import time
 from datetime import datetime
 
-from . import command_help, config, host, orch, retention, worker
+from . import command_help, config, gitlock, host, orch, retention, worker
 from .harness import load as harness_plugin
 
 VERSION = re.compile(r"\d+\.\d+\.\d+[^\s()]*")
@@ -486,9 +486,9 @@ def behind(timeout=START_WAIT):
 def _git(*args, timeout=60):
     """One git command in that checkout: its exit code and output, 1 when it could not run."""
     try:
-        proc = subprocess.run(["git", "-C", str(agentkit_dir()), *args], capture_output=True,
-                              encoding="utf-8", errors="replace", timeout=timeout,
-                              env={**config.child_env(), **PINS})
+        proc = gitlock.run(["git", "-C", str(agentkit_dir()), *args], capture_output=True,
+                           encoding="utf-8", errors="replace", timeout=timeout,
+                           env={**config.child_env(), **PINS})
     except (OSError, subprocess.TimeoutExpired):
         return 1, ""
     return proc.returncode, proc.stdout.strip()
@@ -577,8 +577,8 @@ def update_agentkit(progress=None, pull=True):
                 pending.touch()
             say(f"update: $ {shlex.join(cmd)}")
             try:
-                proc = subprocess.run(cmd, capture_output=True, encoding="utf-8", errors="replace",
-                                      timeout=STEP_CAP, env={**config.child_env(), **PINS})
+                proc = gitlock.run(cmd, capture_output=True, encoding="utf-8", errors="replace",
+                                   timeout=STEP_CAP, env={**config.child_env(), **PINS})
             except (OSError, subprocess.TimeoutExpired) as exc:
                 say(f"update: {exc}")
                 return 1
