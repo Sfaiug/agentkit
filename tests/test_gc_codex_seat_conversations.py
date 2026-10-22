@@ -1,5 +1,6 @@
 """A Codex seat's thread is ended 30 days after its last write: by `codex delete` on the seat's
-own home while the seat is open, as a file once its home is gone, and its seat folder with it.
+own home while the seat is open, as a file once its home is gone, and its seat folder with its
+last rollout or its home, whichever goes last.
 
 Offline: HOME, PATH's `codex` and /proc are the fixture's.  The fake `codex delete` records the
 home and database it runs on and its arguments, and removes the rollout under that home.
@@ -7,6 +8,7 @@ home and database it runs on and its arguments, and removes the rollout under th
 
 import os
 from pathlib import Path
+import runpy
 import time
 import unittest
 from unittest.mock import patch
@@ -81,6 +83,25 @@ class GcCodexSeats(Sandbox):
         self.assertFalse(old.exists())
         self.assertTrue(kept.exists())
         self.assertFalse(self.calls.exists())
+
+    def test_a_seat_home_reached_through_a_link_keeps_its_threads(self):
+        elsewhere = self.root / "elsewhere"
+        elsewhere.mkdir()
+        home = codex.remote_home(CLOSED)
+        home.symlink_to(elsewhere, target_is_directory=True)
+        old = self.rollout(codex.seat_conversations(CLOSED) / "sessions", 1, 31 * DAY)
+        gc.gc(lambda _: None)
+        self.assertTrue(old.exists())
+        self.assertFalse(self.calls.exists())
+
+    def test_a_seat_closing_after_its_last_thread_went_takes_its_folder(self):
+        self.rollout(codex.seat_conversations(OPEN) / "sessions", 1, 31 * DAY)
+        (codex.seat_conversations(OPEN) / "archived_sessions").mkdir()
+        gc.gc(lambda _: None)
+        self.assertTrue(codex.seat_conversations(OPEN).exists())
+        seat = runpy.run_path(str(Path(__file__).resolve().parents[1] / "tools/codex-seat.py"))
+        seat["remove_home"](self.open_home)
+        self.assertFalse(self.open_home.exists() or codex.seat_conversations(OPEN).exists())
 
 
 if __name__ == "__main__":

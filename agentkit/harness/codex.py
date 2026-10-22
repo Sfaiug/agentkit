@@ -599,27 +599,37 @@ def conversation_stores():
 def end_conversation(path, ends):
     """`codex delete`, which takes a thread's rollout and what Codex indexed of it at once, run
     as Codex runs on the home that indexes it, whatever home and database the caller selected:
-    ~/.codex, or an open seat's own (tools/codex-seat.py `connected`).  Nothing indexes a closed
-    seat's thread, so its rollout goes alone, and its seat's folder with its last one."""
+    ~/.codex, or an open seat's own (tools/codex-seat.py `connected`), never one reached through
+    a link.  Nothing indexes a closed seat's thread, so its rollout goes alone."""
+    from .. import retention
     path = Path(path)
     match = ROLLOUT.fullmatch(path.name)
     if not match:
         return
     folder = path.parents[4]
-    home = remote_home(folder.name) if seat_conversations(folder.name) == folder else None
+    remote = folder.name if seat_conversations(folder.name) == folder else None
+    home = remote and remote_home(remote)
     if not ends():
         return
-    if home is None or home.is_dir():
+    if remote is None or retention.safe(home):
         env = {key: value for key, value in os.environ.items() if key != "CODEX_SQLITE_HOME"}
         env["CODEX_HOME"] = str(home or folder)
         database = ["-c", "sqlite_home=" + json.dumps(str(home))] if home else []
         subprocess.run([config.harness_binary("codex") or "codex", *database, "delete", "--force",
                         match[1]], stdin=subprocess.DEVNULL, capture_output=True, timeout=60,
                        env=env, check=True)
+    elif not os.path.lexists(home):
+        path.unlink()
+        drop_closed_seat(remote)
+
+
+def drop_closed_seat(remote):
+    """Every empty folder of a seat whose home is gone, bottom up, so its own goes once it holds
+    no rollout: nothing indexes or reads it any more.  Asked as the home goes and as each of its
+    rollouts does."""
+    if os.path.lexists(remote_home(remote)):
         return
-    path.unlink()
-    # bottom up, so a folder emptied of its last rollout goes, and one still holding any stays
-    for directory, _, _ in os.walk(folder, topdown=False):
+    for directory, _, _ in os.walk(seat_conversations(remote), topdown=False):
         with contextlib.suppress(OSError):
             os.rmdir(directory)
 
