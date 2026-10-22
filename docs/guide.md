@@ -353,7 +353,7 @@ was never installed on are left alone.
 
 A git whose own error line says it failed on a lock another git left (`Unable to create '….lock': File exists.`) is
 run again once that lock is gone, wherever ak runs it: the tick's own, a run's, a seat checkout's
-and a plan check's. ak removes the lock git named only when no git runs anywhere on the host and
+and a plan check's. ak removes the lock git named only when it lies in a git directory, no git runs anywhere on the host and
 no process holds it, in a process table it could read whole, waiting up to ten seconds for such a
 moment (`gitlock.WAIT`), and says `ak: removed <lock>, left by a git that has ended`.
 

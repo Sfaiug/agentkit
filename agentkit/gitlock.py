@@ -3,8 +3,9 @@
 Git takes a file by creating `<file>.lock` beside it and gives it back by renaming or removing
 that; a git killed in between -- the host's memory killer prefers git -- leaves it, and every
 git after it that needs the file fails with `Unable to create '<path>.lock': File exists.`,
-the path absolute.  That line is the proof the file is git's own lock, whatever the
-repository's layout, and it names the one file in the way.  The lock is the dead git's once,
+the path absolute.  That line names the one file in the way, but a path git echoes can forge
+it, so the file must also lie in the git directory git itself finds from where it lies,
+whatever the repository's layout.  The lock is the dead git's once,
 in a whole process table read after it was found, no git runs anywhere on the host and no
 process holds the file: which repository each git works in would take every layout git has
 (separate and linked git directories, worktrees, `GIT_DIR`) to tell, and on this host most
@@ -48,6 +49,16 @@ def at_work(row, lock):
     return name == "git" or name.startswith("git-") or retention.busy(lock, row["paths"])
 
 
+def owned(lock):
+    """Does the lock lie in the git directory git finds from the lock's own directory?  The
+    common one, which holds a linked worktree's too."""
+    where = lock.parent.resolve()
+    proc = subprocess.run(["git", "-C", str(where), "rev-parse", "--path-format=absolute",
+                           "--git-common-dir"], capture_output=True, text=True)
+    # one path and its newline: a path may hold a newline itself
+    return proc.returncode == 0 and where.is_relative_to(Path(proc.stdout[:-1]).resolve())
+
+
 def clear(lock):
     """Remove that lock once it is a dead git's: True when it is gone, by this or its holder."""
     from . import gc
@@ -56,6 +67,8 @@ def clear(lock):
     except FileNotFoundError:
         return True
     except OSError:
+        return False
+    if not owned(lock):
         return False
     held = str(lock.resolve())
     deadline = time.monotonic() + WAIT

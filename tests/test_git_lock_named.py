@@ -112,6 +112,10 @@ class GitLockNamed(unittest.TestCase):
         git(self.repo, "add", "-N", "notes.md")
         self.assertEqual(gitcall.tool_run(["git", "-C", str(self.repo), "diff", "--exit-code"])[0], 1)
         self.assertTrue(unrelated.exists())
+        # nor git's own line forged by a path it echoes: the file is no git directory's
+        forged = f"{self.root / 'gone'}\nfatal: Unable to create '{unrelated}': File exists.\n"
+        self.assertNotEqual(gitcall.tool_run(["git", "-C", forged, "status"])[0], 0)
+        self.assertTrue(unrelated.exists())
 
 
 class TheTickMovesPastIt(unittest.TestCase):
