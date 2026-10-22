@@ -82,6 +82,8 @@ class Silence(unittest.TestCase):
         with patch.object(worker.time, "monotonic", side_effect=clock):
             ok, text = gate.run_done_when(commands, self.root, self.root / "donewhen.log",
                                          set(), log=logs.append)
+        self.assertEqual(logs.pop(0), "suite runs here: command is not sent to the suite helper "
+                                     "(does not name AK_SHARD)")
         return ok, text, logs
 
     def adapter(self, body):

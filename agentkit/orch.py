@@ -25,6 +25,7 @@ import atexit
 import difflib
 import fcntl
 import fnmatch
+import io
 import json
 import math
 import os
@@ -42,7 +43,7 @@ import threading
 import time
 import uuid
 from collections import Counter
-from contextlib import ExitStack, closing, contextmanager
+from contextlib import ExitStack, closing, contextmanager, redirect_stderr, redirect_stdout
 from datetime import datetime
 from pathlib import Path
 
@@ -62,8 +63,8 @@ SOCKET = "agentkit"        # the toolkit's own tmux server, never the user's def
 CONTROL = "_ak"            # the Go port's hidden control session there: never a seat, never swept
 JOBS = "-jobs"             # appended to it: the server the background jobs run on
 SLICE = "agentkit.slice"   # the user systemd slice every agent process is started inside
-SEATS_SLICE = "agentkit-seats.slice"  # interactive sessions keep the default weight
-RUNS_SLICE = "agentkit-runs.slice"    # detached runs are deliberately below sessions
+SEATS_SLICE = "agentkit-seats.slice"  # seats yield CPU and I/O to runs
+RUNS_SLICE = "agentkit-runs.slice"    # the lander takes priority within the runs
 NO_SLICE = "no slice (no user systemd manager)"   # ... on a host that has no manager to ask
 SLICE_WAIT = 30            # how long `systemd-run` has to say whether it took a unit
 NO_SUCH_UNIT = 5           # what `systemctl` answers about a unit it was never given
@@ -955,6 +956,11 @@ def slice_cgroup():
                            for depth in range(len(pieces))])
 
 
+def run_slice_cgroup():
+    """CPU readings for runs and their lander exclude seats in the sibling slice."""
+    return slice_cgroup() / run_slice_name()
+
+
 def slice_ceiling():
     """The task ceiling the drop-ins set, or None where nothing sets one.
 
@@ -1084,8 +1090,10 @@ def tmux_env(client=False):
     return dict(os.environ) if client else {k: v for k, v in os.environ.items() if k != "TMUX"}
 
 
-def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shim=False):
-    """(exit code, output) of one tmux command; 127 when there is no tmux to ask.
+def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shim=False,
+             rows=False):
+    """(exit code, output) of one tmux command; 127 when there is no tmux to ask.  The output is
+    stripped, unless `rows` keeps a capture's leading blank rows, where each row's place counts.
 
     `unit` names the transient scope a command that starts a server runs in, so that the
     server -- and every pane it ever opens -- lives in agentkit's slice.  Where the scope
@@ -1117,8 +1125,10 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shi
         # the command's name, never its words: send-keys carries what the owner typed
         return 124, f"tmux did not answer {next(iter(args), '')} within {timeout:g} s"
     if proc.returncode != 0 and argv != plain:
-        return tmux_out(*args, socket=socket, client=client, timeout=timeout, path_shim=path_shim)
-    return proc.returncode, (proc.stdout + proc.stderr).strip()
+        return tmux_out(*args, socket=socket, client=client, timeout=timeout, path_shim=path_shim,
+                        rows=rows)
+    out = proc.stdout + proc.stderr
+    return proc.returncode, out.rstrip() if rows else out.strip()
 
 
 def tmux_literal(word):
@@ -2250,7 +2260,7 @@ def attach(name, log=print, wait=False, session=None):
 
 
 def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand_over=True,
-           account=None):
+           account=None, still=None):
     """Put the orchestrator back in a seat whose process is gone, and hand the terminal over.
 
     Two ways in, and the same ownership check either way. A seat tmux is still holding -- the
@@ -2269,6 +2279,7 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
 
     `account` reopens even a live pane on that subscription, without changing its selection
     or surrendering its conversation. Ordinary resumes keep the account already recorded.
+    `still` is `_start_harness`'s.
     """
     name = config.resolve_session(name)
     record = (config.session_records() if detached else records()).get(name) or {}
@@ -2321,7 +2332,7 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     if dry_run:
         print(shlex.join(cmd))
         return 0
-    launch(name, orchestrator, cwd, cmd, conversation, session)
+    launch(name, orchestrator, cwd, cmd, conversation, session, still)
     config.update_session(name, account=account)
     if not hand_over:
         # its own conversation only where the harness has opened it: an id nothing wrote
@@ -2423,7 +2434,7 @@ LAUNCH_KEYS = ("conversation", "resumable", "id_source", "before", "codex_launch
                "codex_history", "opencode_launch", "session_title", "title_sync")
 
 
-def launch(name, model, cwd, cmd, conversation, session=None):
+def launch(name, model, cwd, cmd, conversation, session=None, still=None):
     """Put the harness in the seat, and write down the conversation it was launched with.
 
     `session` is an exited pane to respawn.  What a launch owns is the harness's to write
@@ -2461,11 +2472,18 @@ def launch(name, model, cwd, cmd, conversation, session=None):
             # runs.  Moved aside and linked back, never read, removed and written: the running
             # harness's hooks publish by rename without this lock, and a fact one lands meanwhile
             # is the one kept.
-            try:
-                facts.replace(last)
-            except FileNotFoundError:
-                last.unlink(missing_ok=True)    # a launch killed past its move left one
-            _start_harness(name, model, cwd, cmd, session, started=lambda: up.append(True))
+            def aside():
+                try:
+                    facts.replace(last)
+                except FileNotFoundError:
+                    last.unlink(missing_ok=True)    # a launch killed past its move left one
+                return True
+
+            if not (still and session):
+                aside()
+            # a live harness replaced unasked is last looked at with its own facts in place
+            _start_harness(name, model, cwd, cmd, session, lambda: up.append(True),
+                           still and session and (lambda pane: still(pane) and aside()))
         except BaseException:
             if up:
                 plugin.retire(before)   # only the setup after the new harness's start failed
@@ -2502,28 +2520,62 @@ def launch(name, model, cwd, cmd, conversation, session=None):
                      usage_wait=None, usage_refusal=None)
 
 
-def _start_harness(name, model, cwd, cmd, session, started=lambda: None):
+# Seconds a restart keeps a pane's keys off at most: tmux gives them back itself, should ak die
+# or stall past it, and unsets FROZEN_OPTION, so a respawn that late is refused.
+FROZEN_MOST = 10
+FROZEN_OPTION = "@ak_frozen"
+
+
+def harness_pane(name, server):
+    """The pane our launch created, even if another window is active; if it was removed, the
+    session's current pane, as older launches used."""
+    rc, pane = tmux_out("show-options", "-qv", "-t", f"={name}:", PANE_OPTION, socket=server)
+    if rc == 0 and re.fullmatch(r"%[0-9]+", pane):
+        rc, owner = tmux_out("display-message", "-p", "-t", pane, "#{session_name}",
+                             socket=server)
+        if rc == 0 and owner == name:
+            return pane
+    return f"={name}:"
+
+
+def _start_harness(name, model, cwd, cmd, session, started=lambda: None, still=None):
     """The harness in the seat: respawned in its exited pane, or a new session.  `started` is
-    called once it runs, before the setup after it that can still fail."""
+    called once it runs, before the setup after it that can still fail.
+
+    `still`, for a live harness replaced unasked, is asked of the pane once the respawn is
+    ready, with that pane taking no keys until the new harness runs: what it saw is all the old
+    one holds.  False leaves that harness as it is, and raises config.Error."""
     if session:
-        # Keep the launched pane even if another window is active. If it was removed,
-        # respawn the session's current pane as older launches did, and record that one.
         server = seat_socket(session)
-        rc, pane = tmux_out("show-options", "-qv", "-t", f"={name}:", PANE_OPTION, socket=server)
-        target = pane if rc == 0 and re.fullmatch(r"%[0-9]+", pane) else f"={name}:"
-        if target == pane:
-            rc, owner = tmux_out("display-message", "-p", "-t", pane, "#{session_name}",
-                                 socket=server)
-            if rc or owner != name:
-                target = f"={name}:"
+        target = harness_pane(name, server)
         values = seat_env(name, server)
+        command = seat_command(name, cmd, server)
+        thaw = ("set-option", "-pu", "-t", target, FROZEN_OPTION, ";",
+                "select-pane", "-e", "-t", target)
+        if still:
+            # Keys pressed from here on reach no harness, so none is lost in the old one's
+            # composer as it is killed: dropped as on any restart, until the new one runs.
+            frozen = tmux_out("set-option", "-p", "-t", target, FROZEN_OPTION, "1", ";",
+                              "select-pane", "-d", "-t", target, ";", "run-shell", "-b", "-d",
+                              str(FROZEN_MOST), "-C",
+                              " ".join(w if w == ";" else shlex.quote(w) for w in thaw),
+                              socket=server)[0] == 0
+            if not (frozen and still(target)):
+                tmux_out(*thaw, socket=server)
+                config.seat_file("launch", name).unlink(missing_ok=True)
+                raise config.Error(f"{name} changed as its harness was to be replaced; kept")
         # One command list: a failed respawn keeps the old tty, and a new wrapper's
-        # publishing client cannot run before the old name is removed.
-        rc, out = tmux_out("respawn-pane", "-k", "-t", target, *pane_env(values),
-                           seat_command(name, cmd, server), ";", "set-option", "-pu",
-                           "-t", target, INPUT_TTY_OPTION, socket=server, path_shim=True,
-                           timeout=5)
+        # publishing client cannot run before the old name is removed.  A frozen pane's list
+        # stops at its first command once the freeze has run out: keys may have reached it.
+        rc, out = tmux_out(*(("show-options", "-pv", "-t", target, FROZEN_OPTION, ";")
+                             if still else ()),
+                           "respawn-pane", "-k", "-t", target, *pane_env(values), command,
+                           ";", "set-option", "-pu", "-t", target, INPUT_TTY_OPTION,
+                           *((";", *thaw) if still else ()), socket=server,
+                           path_shim=True, timeout=5)
         if rc != 0:
+            if still:
+                tmux_out(*thaw, socket=server)
             config.seat_file("launch", name).unlink(missing_ok=True)
             raise config.Error(f"cannot resume the session {name}: {out}")
         started()
@@ -3533,10 +3585,11 @@ def session_owned_files(name):
 def cmd_stop(argv):
     """Stop a seat and everything it runs; stop it again and it is gone.
 
-    The first stop ends the seat and keeps it: every run it launched is stopped the way `ak
-    run stop` stops one, each run's checkout and local branch go with it, the tabs the seat or
-    its runs opened close, and the tmux session goes -- under the seat's own typing lock, so a
-    line being typed into it finishes first.
+    The first stop ends the seat and keeps it: the tmux session goes -- under the seat's own
+    typing lock, so a line being typed into it finishes first -- and then every run it launched
+    is stopped the way `ak run stop` stops one, each run's checkout and local branch go with it,
+    and the tabs the seat or its runs opened close.  The seat goes first so every menu has it
+    stopped while its runs go, each up to STALL_KILL_WAIT inside kill_tree.
     Its record and state files stay, the stop mark in the seat file, so its row keeps its
     number a week, reading `idle` (`listing`, `ghost`, `watch.session_state`): the number
     reopens the conversation where it stopped, and a
@@ -3559,20 +3612,12 @@ def cmd_stop(argv):
     # Stopping the session this runs in -- the overlay's `x`, or `ak orch stop` from the seat
     # itself -- hangs this very process up halfway through, and the menu redraws the moment
     # the attach drops: so the mark is written before the kill, with SIGHUP ignored across
-    # both; only the print at the end may still die on the dead pane, after everything it
-    # reports is already true.
+    # it and all that follows, which says nothing: a print to the dead pane would end it.
     old = signal.signal(signal.SIGHUP, signal.SIG_IGN)
-    removed = False
+    removed = gone_with = False
     warn = lambda line: print(line, file=sys.stderr)
     try:
         from . import stop
-        # Unfinished runs stop before the lock: each one costs up to STALL_KILL_WAIT
-        # inside kill_tree, and nothing it touches is the seat's state. The peek is
-        # best effort -- the lock below decides authoritatively -- so a name nobody
-        # answers to stops nothing before it is refused.
-        if find(name) is not None or name in records():
-            stop.stop_owned_runs(name)
-            notify.forget_card(name)   # before the lock too: a slow Discord holds up no tick
         # A stop and automatic boot recovery must agree on whether this seat exists.
         with watch.state_lock():
             session = find(name)
@@ -3585,7 +3630,6 @@ def cmd_stop(argv):
                 forget_seat(name, record, warn)
                 removed = True
             else:
-                stop.release_session(name)
                 # Under the seat's typing lock, the one a rename takes: a line under way
                 # finishes into this seat before it closes, and one waiting finds it closed.
                 with notify.session_lock(name):
@@ -3602,17 +3646,28 @@ def cmd_stop(argv):
                                            socket=seat_socket(session))
                         if rc != 0:
                             raise config.Error(f"could not stop the session {name}: {out}")
+                        gone_with = config.current_session() == name
                         from . import statusbar   # here, not at the top: its module imports this one
                         statusbar.retell(session)   # no other bar names or counts it any more
-        if not removed:
-            watch.forget(name)   # its stall record and open question go with the owner's stop
-            if not record:
-                # tmux alone held it: no record to keep, no number to reopen it
-                forget_seat(name, {}, warn)
-                removed = True
+        with ExitStack() as quiet:
+            if gone_with:
+                quiet.enter_context(redirect_stdout(io.StringIO()))
+                quiet.enter_context(redirect_stderr(io.StringIO()))
+            # outside the lock: nothing a run's stop touches is the seat's state, and a slow
+            # Discord holds up no tick
+            if removed:
+                stop.stop_owned_runs(name)
+            else:
+                watch.forget(name)   # its stall record and open question go with the owner's stop
+                stop.release_session(name)
+                if not record:
+                    # tmux alone held it: no record to keep, no number to reopen it
+                    forget_seat(name, {}, warn)
+                    removed = True
+            notify.forget_card(name)
+            print(f"removed {name}" if removed else f"stopped {name}; its number reopens it")
     finally:
         signal.signal(signal.SIGHUP, old)
-    print(f"removed {name}" if removed else f"stopped {name}; its number reopens it")
     return 0
 
 
@@ -4096,10 +4151,11 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
     status`, and the old transcript -- is marked for the tick, which types it after the
     new TUI is listening through the confirmed send, the way a reopened seat's line goes.
     The record names the new model before the harness is up, so no redress draws the old
-    one after it. A draft or a question on the screen, which a respawn would lose, refuses
-    the move, and so does a login on credits without `credits`; a refusal, and a restart that
-    fails, leave the seat as they found it and say so in one line. What to say under the rows,
-    or "".
+    one after it. Nothing on its screen refuses the move: the owner moving it knows what is
+    there, and their unsent text goes on into the new composer (`watch.carry_draft`), or the
+    move is refused where it cannot be kept; a login on credits without `credits` refuses it
+    too. A refusal, and a restart that fails, leave the seat as they found it and say so in
+    one line. What to say under the rows, or "".
     """
     from . import watch   # here, not at the top: watch imports this module
     providers = usage.collect(cfg) if providers is None else providers
@@ -4111,16 +4167,11 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
     old_model = record["orchestrator"]
     if old_model == model:
         return ""
-    # Its screen and hooks as they are now: a recorded reading can be a prompt or a draft behind,
-    # and a capture that failed is no evidence that nothing is on its screen.
+    # Its screen and hooks as they are now: a recorded reading can be a prompt or a draft behind.
     session = find(name)
     pane = (watch.pane_text(session)
             if session and not any(session.get(key) for key in CLOSED) else None)
-    if pane is not None and not pane.strip():
-        return f"{name} stays on {old_model}: its screen could not be read"
-    live = watch.look_at(session, cfg=cfg, pane=pane)[1] if pane else {}
-    if live.get("state") in ("draft", "asking"):
-        return f"{name} stays on {old_model} while a draft or a question is on its screen"
+    live = watch.look_at(session, cfg=cfg, pane=pane)[1] if pane and pane.strip() else {}
     new_harness = config.model(cfg, model)["harness"]
     try:
         old_harness = config.model(cfg, old_model)["harness"]
@@ -4145,19 +4196,32 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
         moved = True          # its model is gone: no provider to stay home on
     chosen = {"orchestrator": model, "account": account,
               **({"home_account": account} if moved else {})}
-    # Under what every redress and look reads the record under, till the new harness is up: a
-    # look before it would follow the old model's last answer back (watch.follow_model).
-    with watch.announcing(name):
-        try:
-            config.update_session(name, **chosen)
-        except OSError as exc:
-            return f"session: {_one_line(exc)}"
-        waited = watch.seat_read(name).get("usage_wait")   # a turn its usage cut off goes on
-        try:
-            launch(name, model, cwd, cmd, conversation, session)
-            failed = None
-        except (config.Error, OSError) as exc:
-            failed = exc
+    from . import notify
+    # the owner's text lifted, the harness respawned and any line it is owed marked in one hold
+    # of the seat's lock, so no tick hands the text back to the harness going or before that line
+    with notify.session_lock(name):
+        if pane and not watch.carry_draft(session, old_harness, pane, new_harness, cfg):
+            return f"{name} stays on {old_model}: the text in its input field could not be kept"
+        # Under what every redress and look reads the record under, till the new harness is up: a
+        # look before it would follow the old model's last answer back (watch.follow_model).
+        with watch.announcing(name):
+            try:
+                config.update_session(name, **chosen)
+            except OSError as exc:
+                return f"session: {_one_line(exc)}"
+            waited = watch.seat_read(name).get("usage_wait")   # a turn its usage cut off goes on
+            try:
+                launch(name, model, cwd, cmd, conversation, session)
+                failed = None
+            except (config.Error, OSError) as exc:
+                failed = exc
+        line = None if failed else (
+            handover_text(name, old_model, transcript) if not kept else watch.MIDTURN_LINE
+            if watch._turn_in_flight(new_harness, live)[0] or (waited or {}).get("continue")
+            else None)
+        if line:
+            watch.seat_write(name, midturn={"boot": watch.boot_id(), "at": time.time(),
+                                            "name": name, "line": line})
     if failed:
         try:
             config.update_session(name, **{key: record.get(key) for key in chosen})
@@ -4166,16 +4230,10 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
         except (config.Error, OSError, ValueError):
             pass    # the note below already says the restart failed
         return _one_line(failed)
-    if kept:
-        if watch._turn_in_flight(new_harness, live)[0] or (waited or {}).get("continue"):
-            watch.seat_write(name, midturn={"boot": watch.boot_id(), "at": time.time(),
-                                            "name": name, "line": watch.MIDTURN_LINE})
-        return ""
-    if old_harness:
-        harness_plugin(old_harness).forget(record)
-    watch.forget(name)    # a new conversation: no latch of the old one's survives it
-    watch.seat_write(name, midturn={"boot": watch.boot_id(), "at": time.time(), "name": name,
-                                    "line": handover_text(name, old_model, transcript)})
+    if not kept:
+        if old_harness:
+            harness_plugin(old_harness).forget(record)
+        watch.forget(name)    # a new conversation: no latch of the old one's survives it
     return ""
 
 

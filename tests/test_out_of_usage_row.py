@@ -78,15 +78,18 @@ class OutOfUsageRow(Sandbox):
         # turn could have drawn, and the wait is the fact
         self.assertEqual(self.decide({"state": "working", "began": 9000})["word"], "out of usage")
 
-    def test_an_unsent_draft_under_the_refused_turn_joins_its_reason(self):
+    def test_an_unsent_draft_under_the_refused_turn_is_marked_beside_it(self):
         # the refused turn's UserPromptSubmit has no Stop: its hook still says working
         watch.seat_write(SEAT, usage_wait={"reason": SPENT, "until": 90000, "since": 9500})
         found = self.decide({"state": "draft", "evidence": "Fix the login redirect",
                              "began": 9000, "hooked": "working", "hooked_at": 9000})
-        self.assertEqual((found["word"], found["unsent"]),
-                         ("out of usage", "unsent: Fix the login redirect"))
+        self.assertEqual((found["word"], found["reason"], found["unsent"]),
+                         ("out of usage", SPENT, "Fix the login redirect"))
+        row = terminal.plain(menu.last_column("out of usage", 0, 0, 40, unsent=found["unsent"],
+                                              back=found["resumes_at"]))
+        self.assertRegex(row, r"^back .*\d\d:\d\d . unsent$")
 
-    def test_a_failed_move_to_another_account_is_his(self):
+    def test_a_failed_move_to_another_account_needs_the_owner(self):
         failed = "anthropic account reopen failed: no such file"
         watch.seat_write(SEAT, usage_wait={"reason": failed, "since": 9500})
         found = self.decide()
@@ -112,9 +115,9 @@ class OutOfUsageRow(Sandbox):
         self.assertEqual(terminal.state_text("out of usage"), "◌ out of usage")
         self.assertEqual(terminal.STATE_STYLES["out of usage"][2], RED)
         back = today_at(19, 20)
-        self.assertEqual(terminal.plain(menu.last_column("out of usage", SPENT, 3, 8, back=back)),
+        self.assertEqual(terminal.plain(menu.last_column("out of usage", 3, 8, back=back)),
                          "back 19:20")
-        bar = menu.last_column("out of usage", SPENT, 3, 8, narrow=True, tmux=True, back=back)
+        bar = menu.last_column("out of usage", 3, 8, narrow=True, tmux=True, back=back)
         self.assertEqual(bar, f"#[fg=#{RED}]back 19:20#[default]")
         tomorrow = back + 86400
         self.assertEqual(menu.back_at(tomorrow, now=back),

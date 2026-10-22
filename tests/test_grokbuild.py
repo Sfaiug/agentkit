@@ -846,8 +846,8 @@ class Wiring(GrokSandbox):
         self.assertEqual(first.returncode, 0, first.stderr)
         self.assertIn("wrote seat-state hooks", first.stdout)
         wanted = json.loads(target.read_text())
-        # every event the manifest gives a meaning, and only those
-        self.assertEqual(set(wanted["hooks"]),
+        # every event the manifest gives a meaning, and the question's gate beside them
+        self.assertEqual(set(wanted["hooks"]) - {"PreToolUse"},
                          {event["name"] for event in config.manifest("grokbuild")["hooks"]["event"]})
         stop = wanted["hooks"]["Stop"][0]["hooks"]
         self.assertEqual([entry["command"] for entry in stop],
@@ -862,6 +862,20 @@ class Wiring(GrokSandbox):
         self.assertIn("backed up", third.stdout)
         self.assertEqual(len(list((self.grok_home / "hooks").glob("agentkit.json.bak-*"))), 1)
         self.assertEqual(json.loads(target.read_text()), wanted)
+
+
+    def test_a_finished_seat_s_question_is_refused_before_its_card(self):
+        self.assertEqual(self.adapter("hooks").returncode, 0)
+        wanted = json.loads((self.grok_home / "hooks/agentkit.json").read_text())
+        self.assertEqual(wanted["hooks"]["PreToolUse"], [
+            {"matcher": "ask_user_question",
+             "hooks": [{"type": "command", "command": f"bash {REPO}/hooks/orchestrator-stop.sh"}]}])
+        (self.state / "plan-atoll.md").write_text("- [x] the parser parses\n")
+        proc = subprocess.run(["bash", str(REPO / "hooks/orchestrator-stop.sh")],
+                              input=(FIX / "grok-hook-ask.json").read_text(),
+                              capture_output=True, text=True, env=self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["hookSpecificOutput"]["permissionDecision"], "deny")
 
 
 class SpentBalance(GrokSandbox):

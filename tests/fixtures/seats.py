@@ -23,6 +23,12 @@ PANE = "%7"     # the receiving seat's pane, which a line's reads and keys go to
 PROMPT = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text(encoding="utf-8")
 
 
+def cursor_row(pane):
+    """The row an OpenCode pane keeps its cursor on while keys go to its composer: the last row
+    of that composer's box (`watch.off_composer`)."""
+    return str(max(row for row, text in enumerate(pane.splitlines()) if text.lstrip()[:1] == "┃"))
+
+
 class Seats(unittest.TestCase):
     """Two seats in a temporary HOME, the receiving seat's pane and tmux faked."""
 
@@ -69,6 +75,10 @@ class Seats(unittest.TestCase):
         self.assertIn(target, (f"={self.seat['name']}:", PANE))
         if args[0] == "display-message" and args[-1].startswith("#{pane_tty}"):
             return 1, "no tty in this screen fixture"
+        if args[-1] == "#{cursor_y}":
+            return 0, cursor_row(self.pane)
+        if args[0] == "capture-pane":
+            return 0, self.pane
         self.assertEqual(args[0], "send-keys")
         if "-l" in args:
             self.typed.append(args[-1])

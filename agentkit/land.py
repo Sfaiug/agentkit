@@ -602,16 +602,21 @@ def _landing_checks(directory, state, scratch, tip):
 
 
 def _check_tests(directory, state, scratch, tree, suite, piece, tests, log):
-    """Whether just `tests` of `suite`'s `piece` pass on `scratch`, run alone, as a red is
-    narrowed: a pass, each named as run (`gate.run_suite(only=)`), moves the narrowing deeper
-    and answers for nothing else.  Anything else proves nothing -- a test a later member added
-    is not there -- so that stack gets its whole check, on its checkout as it was."""
+    """The stack's answer from just `tests` of `suite`'s `piece`, or {} if inconclusive.
+    A pass, each named as run, moves the narrowing deeper and answers for nothing else;
+    a confirmed failure moves it earlier.  Anything else proves nothing -- a test a later
+    member added is not there -- so that stack gets its whole check on its original checkout.
+    """
     from . import run
     head = run.git(scratch, "rev-parse", "HEAD")
-    ok = _check(directory, state, scratch, [suite], directory / f"lander-{tree}-tests.log",
-                log, shard=piece, only=list(tests))[0]
+    log_path = directory / f"lander-{tree}-tests.log"
+    ok, text, red, again = _check(directory, state, scratch, [suite], log_path,
+                                  log, suite=suite, shard=piece, only=list(tests))
     _put_back(scratch, head)
-    return ok
+    if ok:
+        return {"land": tree}
+    return {"fix": {"line": prompts.first_failure(text), "log": str(log_path),
+                    "piece": red, "tests": again}} if again else {}
 
 
 def _check_tree(directory, state, scratch, tree, checks, log, suite):
@@ -756,11 +761,14 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                               evidence.get("code"))
 
             def answer_tree(index, checks, check, tests=None):
-                if tests is not None:
-                    tests_alone[index, tests] = check.result()
-                    return
-                tree, own = stacks[index][3:]
                 answer = check.result()
+                if tests is not None:
+                    tests_alone[index, tests] = "land" in answer
+                    if "fix" not in answer:
+                        return
+                    # A confirmed failed part makes the stack's planned check red.
+                    checks = commands(index)
+                tree, own = stacks[index][3:]
                 if "land" in answer:
                     cover(index, checks, tree)
                 else:
@@ -839,7 +847,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                             if red_index is not None:
                                 # Where its suite piece named the tests that failed again alone,
                                 # each step runs just those first, from the deepest stack they
-                                # passed in; a stack they do not pass in gets its whole check.
+                                # passed in; a confirmed failure narrows earlier, and only an
+                                # inconclusive run gets its whole check.
                                 failing = answers[tuple(stacks[red_index][3:])]
                                 narrowing = tuple(failing["fix"].get("tests") or ()) or None
                                 low = max([low] + [index for (index, tests), ok

@@ -23,6 +23,7 @@ from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"        # the main checkout as the record names it; never opened
 RUN_ID = "20260101-0900-flaky-fixture"
+HERE = "suite runs here: command is not sent to the suite helper (does not name AK_SHARD)"
 
 
 class FlakyRerun(unittest.TestCase):
@@ -90,7 +91,8 @@ class FlakyRerun(unittest.TestCase):
         self.assertEqual(saved.read_text(), "starting\n\nFAIL: too slow under load\n")
         self.assertEqual(prompts.done_when_counts(text, [cmd, "true"]), (2, 2))
         self.assertEqual(prompts.failing_checks(text), [])
-        self.assertEqual(logs, [f"done-when: flaky: {cmd} failed, then passed on its re-run"])
+        self.assertEqual(logs, [HERE, HERE,
+                               f"done-when: flaky: {cmd} failed, then passed on its re-run", HERE])
         self.assertFalse(self.followups.parent.exists())
 
     def test_a_failure_above_a_long_shared_tail_still_names_it(self):
@@ -177,7 +179,7 @@ class FlakyRerun(unittest.TestCase):
         self.assertEqual(self.count(), 2)
         self.assertEqual(text, f"$ {cmd}\n[exit 1]\nFAIL: still broken")
         self.assertEqual(prompts.failing_checks(text), [[cmd, "FAIL: still broken"]])
-        self.assertEqual(logs, [])
+        self.assertEqual(logs, [HERE, HERE])
         self.assertFalse(self.followups.exists())
 
     def test_a_pass_runs_once(self):
@@ -186,7 +188,7 @@ class FlakyRerun(unittest.TestCase):
         self.assertTrue(ok, text)
         self.assertEqual(self.count(), 1)
         self.assertEqual(text, f"$ {cmd}\n[exit 0]\nfine")
-        self.assertEqual(logs, [])
+        self.assertEqual(logs, [HERE])
         self.assertFalse(self.followups.exists())
 
     def test_only_the_red_piece_runs_again_and_keeps_its_own_evidence(self):

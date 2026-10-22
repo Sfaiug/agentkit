@@ -156,7 +156,7 @@ def ways_out(state, run_dir):
 
 
 def cmd_clean(argv):
-    if len(argv) != 1:
+    if len(argv) != 1 or Path(argv[0]).name != argv[0] or argv[0] in (".", ".."):
         raise config.Error("usage: ak run clean <runid>")
     run_dir = config.RUNS / argv[0]
     if not (run_dir / "run.json").exists():
@@ -194,33 +194,17 @@ def marker_pids(run_id):
 def stop_owned_runs(name):
     """Stop every unfinished run this seat launched, the way `ak run stop` stops one.
 
-    The first half of a seat stop, run before the seat's lock: each run costs up
-    to STALL_KILL_WAIT inside kill_tree, and nothing it touches is the seat's
-    state. A run that refuses is named and left; the seat still ends.
+    The last half of a seat stop, run once the seat has ended, outside its lock:
+    each run costs up to STALL_KILL_WAIT inside kill_tree, and nothing it touches
+    is the seat's state. A run that refuses is named and left; the seat has ended.
     """
-    try:
-        dirs = run_record.run_dirs()
-    except OSError:
-        return
-    for run_dir in dirs:
+    for run_dir in transitions.seat_runs(name):
         try:
-            state = run_record.read_state(run_dir)
-        except (OSError, ValueError):
-            continue
-        if not state:
-            continue
-        try:
-            if transitions.launched_session(state) != name:
-                continue
-        except config.Error:
-            continue
-        if state.get("state") not in run_record.ENDED or leases.parked(state):
-            try:
-                cmd_stop([run_dir.name])
-            except config.Error as exc:
-                print(f"could not stop {run_dir.name}: {exc}")
-            except (OSError, ValueError, KeyError, TypeError):
-                print(f"could not stop {run_dir.name}")
+            cmd_stop([run_dir.name])
+        except config.Error as exc:
+            print(f"could not stop {run_dir.name}: {exc}")
+        except (OSError, ValueError, KeyError, TypeError):
+            print(f"could not stop {run_dir.name}")
 
 
 def release_session(name):

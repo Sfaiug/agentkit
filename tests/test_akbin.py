@@ -59,9 +59,17 @@ class Runner(unittest.TestCase):
 
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
     def test_tmux_is_real_and_only_this_homes_own(self):
+        own = self.home.tmux_dir / f"tmux-{os.getuid()}" / SOCKET
+        # links inside the socket directory that lead out of it
+        (self.home.tmux_dir / "out").symlink_to("/tmp", target_is_directory=True)
+        (self.home.tmux_dir / "linked.sock").symlink_to("/tmp/elsewhere")
         for flags in (["-S", "/tmp/elsewhere"], ["-2S/tmp/elsewhere"], ["-2uS", "/tmp/elsewhere"],
                       ["-2f", "/dev/null", "-S", "/tmp/elsewhere"], ["-L", "../../elsewhere"],
-                      ["-uL../../elsewhere"]):
+                      ["-uL../../elsewhere"], ["-S", f"{own}/../../../elsewhere"],
+                      ["-S", str(own), "-S", "/tmp/elsewhere"],
+                      ["-S", f"{self.home.tmux_dir}/out/elsewhere"],
+                      ["-S", f"{self.home.tmux_dir}/linked.sock"], ["-S", f"{own}\n"],
+                      ["-S", str(own.with_name("other"))]):
             refused = self.home.run("tmux", *flags, "list-sessions")
             self.assertEqual(refused.code, 2, (flags, refused.err))
         kept = self.home.run("tmux", "-f/dev/null", "-L", "Sx", "-uLS", "list-sessions")
@@ -70,6 +78,9 @@ class Runner(unittest.TestCase):
                                 "sleep 600", env={"TMUX": "/tmp/elsewhere,1,0"})
         self.assertEqual(started.code, 0, started.err)
         self.assertEqual(self.home.tmux("has-session", "-t", "=acme").code, 0)
+        # a seat's pane asks its own server by the path tmux gives it
+        asked = self.home.run("tmux", "-S", str(own), "has-session", "-t", "=acme")
+        self.assertEqual(asked.code, 0, asked.err)
         pid = int(self.home.tmux("display-message", "-p", "-t", "=acme", "#{pid}").out)
         self.home.close()
         with self.assertRaises(ProcessLookupError):

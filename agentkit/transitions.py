@@ -646,6 +646,29 @@ def first_queued(state):
     return state.get("first_queued_at") or state.get("queued_at") or state.get("started_at") or 0
 
 
+def seat_runs(name):
+    """Every run that seat launched which stopping it stops (`stop.stop_owned_runs`), each one
+    `ak run stop` takes: one not ended, an `error` still waiting on its owner or on the tick's
+    retry, and one stopped to wait on an older run's change (`leases.parked`)."""
+    from . import leases
+    try:
+        dirs = run_record.run_dirs()
+    except OSError:
+        return []
+    found = []
+    for run_dir in dirs:
+        try:
+            state = run_record.read_state(run_dir)
+            word = state and state.get("state")
+            if (state and launched_session(state) == name
+                    and (word not in run_record.ENDED or leases.parked(state)
+                         or word == "error" and (unfinished(state) or going(state)))):
+                found.append(run_dir)
+        except (OSError, ValueError, config.Error):
+            continue
+    return found
+
+
 def launched_session(state, resolved=None):
     """The seat this run was launched from, by its name now, or None: it was launched from none.
 

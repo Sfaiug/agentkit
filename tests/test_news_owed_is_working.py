@@ -33,13 +33,13 @@ class NewsOwedIsWorking(Sandbox):
         found = watch.session_state(SEAT, now=10000, session={"name": SEAT}, records=list(records),
                                     live=dict(live), harness="claude", auth_out={}, gh_out={},
                                     token_out=None, previous={})
-        return found["word"], found["reason"]
+        return found["word"], found["reason"], found.get("unsent", "")
 
     def test_a_wait_over_and_not_yet_told_is_working(self):
         watch.seat_write(SEAT, wait={"on": "r7", "kind": "run", "at": 9000,
                                      "over": "run r7 ended PASS, merged"})
         self.assertEqual(self.decide(), (
-            "working", "telling it its wait on r7 is over · unsent: and add these posts"))
+            "working", "telling it its wait on r7 is over", "and add these posts"))
         self.assertEqual(self.decide(PROMPT)[0], "working")
 
     def test_an_ending_nobody_heard_is_working(self):
@@ -47,8 +47,7 @@ class NewsOwedIsWorking(Sandbox):
                   "merged": True, "handback_pending": True, "started_at": 8000,
                   "finished_at": 9500}
         self.assertEqual(self.decide(records=[(Path("r7"), merged)]),
-                         ("working",
-                          "telling it how run r7 ended · unsent: and add these posts"))
+                         ("working", "telling it how run r7 ended", "and add these posts"))
 
     def test_a_screen_nobody_can_read_keeps_the_owners_word(self):
         watch.seat_write(SEAT, wait={"on": "r7", "kind": "run", "at": 9000,
@@ -65,7 +64,7 @@ class NewsOwedIsWorking(Sandbox):
         heard = {"run_id": "r7", "launched_session": SEAT, "state": "pass", "verdict": "PASS",
                  "merged": True, "handed_back": 9600, "started_at": 8000, "finished_at": 9500}
         self.assertEqual(self.decide(dict(PROMPT, began=9700), records=[(Path("r7"), heard)]),
-                         ("needs you", "stopped with work open: the parser reads both schemas"))
+                         ("needs you", "stopped with work open: the parser reads both schemas", ""))
 
 
 if __name__ == "__main__":

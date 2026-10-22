@@ -24,6 +24,13 @@ REPO = Path(__file__).resolve().parents[1]
 SCOPE = ("--", ".", ":!tests/", ":!*.md")
 
 RULES = [
+    # Lifecycle reads belong to the lightweight reader, so a completed tool never needs
+    # the screen watcher. The two reads formerly in watch.py have moved here together.
+    {"name": "lifecycle fact interpretation",
+     "flags": (),
+     "pattern": r'fact\.get\("event"\)|hook_facts_path\([^)]*\)\.read_text',
+     "home": ("agentkit/lifecycle.py",),
+     "max": 0},
     # The old wrapper owned four blocking transfer/drain sites. One relay now
     # owns both directions, so another injector cannot reintroduce their cycle.
     {"name": "terminal relay",
@@ -81,7 +88,7 @@ RULES = [
      "pattern": "claude|codex|muse|opencode|grok|grokbuild|antigravity|gemini|anthropic|openai"
                 "|xai|mimo|[\"']meta[\"']|[\"']google[\"']",
      "home": ("adapters/", "agentkit/harness/", "config.default.toml"),
-     "max": 188},
+     "max": 187},
     # What a refusal from a provider looks like is the harness's to say (adapters/*.toml,
     # its plugin): a copy in the loop or the watcher is a second classifier to keep in step.
     # Every provider word counts, in code or comment, but none of ak's own names: the
@@ -212,7 +219,7 @@ RULES = [
 # (the owner's yes, 15 Oct 2026, set at their size of 16 Oct).  A line added makes room: a rule
 # turned into a check, what one area needs moved to a comment at that code, or what is stale
 # deleted.  No task raises a max; the owner raises one by merging that change by hand.
-WORDS = {"AGENTS.md": 3361, "orchestrator.md": 2176}
+WORDS = {"AGENTS.md": 2977, "orchestrator.md": 2176}
 
 
 def outside(rule):

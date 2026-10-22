@@ -7,7 +7,7 @@ A harness that needs Python puts it in `agentkit/harness/<name>.py` and implemen
 hooks it has something to say about -- `claude.py` the transcript it writes, `codex.py` the
 launch receipt its thread is proven by, `grokbuild.py` the session directory it opens,
 `muse.py` its launcher build, the snapshot an upgrade is put back from, its own usage probe
-and the session store its tokens and messages are in,
+the session store its tokens and messages are in and the sessions gc ends,
 `opencode.py` the receipt its seat plugin writes its session into and the endpoint that says
 how a model is paid,
 `antigravity.py` the database each of its conversations is.  A script its adapter runs on its
@@ -209,6 +209,26 @@ def moment(at):
     return at
 
 
+def token_family(paths, roots, metadata):
+    """Find descendants from small session headers, never scanning other sessions' messages."""
+    children, found, pending = {}, {}, list(roots)
+    for path in paths:
+        try:
+            with path.open("rb") as source:
+                session, parent = metadata(json.loads(source.readline()))
+            found[session] = path
+            children.setdefault(parent, []).append(session)
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+            continue
+    seen = set()
+    while pending:
+        session = pending.pop()
+        if session not in seen:
+            seen.add(session)
+            pending.extend(children.get(session, ()))
+    return [found[session] for session in seen if session in found]
+
+
 def user_message(at, text):
     """Keep the recorded text and time, never inventing either for a notice."""
     if not isinstance(text, str) or not text:
@@ -238,17 +258,17 @@ def config_entries():
 
 def conversation_stores():
     """Where each harness that never ends a conversation itself keeps them, as [{"harness": its
-    name, "root": the folder, "pattern": the glob of one conversation's file}], from every
-    plugin that keeps any.  `ak gc` ends one nobody wrote to for 30 days, as Claude Code ends
-    its own."""
-    return [{"harness": module.__name__.rpartition(".")[2], **module.conversation_store()}
-            for module in _plugins("conversation_store")]
+    name, "root": a folder, "pattern": the glob under it, at its depth, of one conversation's
+    file or folder}], from every plugin that keeps any, each in as many folders as it keeps.
+    `ak gc` ends one nobody wrote to for 30 days, as Claude Code ends its own."""
+    return [{"harness": module.__name__.rpartition(".")[2], **store}
+            for module in _plugins("conversation_stores") for store in module.conversation_stores()]
 
 
-def end_conversation(harness, path):
+def end_conversation(harness, path, ends):
     """End the conversation that file keeps, the harness's own way, with whatever it indexed
-    of it."""
-    _module(harness).end_conversation(path)
+    of it, only if `ends(*its other parts)` holds once nothing of it can change before it goes."""
+    _module(harness).end_conversation(path, ends)
 
 
 @functools.cache
@@ -637,7 +657,17 @@ class Harness:
         hook = self._hook("register_mcp")
         return hook(servers) if hook else None
 
-    # --- what one headless turn spent ----------------------------------------
+    # --- what seats and headless turns spent ---------------------------------
+
+    def seat_token_sources(self, record):
+        """Usage logs for this seat and its children; None means no reader is available."""
+        hook = self._hook("seat_token_sources")
+        return hook(record) if hook else None
+
+    def seat_token_usage(self, entry, cursor):
+        """One log entry's (time, unique event id, tokens), or None; cursor survives readings."""
+        hook = self._hook("seat_token_usage")
+        return hook(entry, cursor) if hook else None
 
     def record_turn(self, out, state_dir, account):
         """Import this harness's reports after the box closes, without exposing ak's records."""

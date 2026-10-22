@@ -32,9 +32,9 @@ class Phone(screen.Screen):
         # a catalog id 35 cells wide no config entry names: beside the harness column the
         # first line would cut it, so the harness gives way and every label reads whole
         self.store([
-            screen.row("claude", "claude-opus-5-5", "xhigh", 100, 100, 100, cost=4000),
+            screen.row("claude", "claude-opus-5-5", "xhigh", 100, 100, 100, cost=4),
             screen.row("opencode", "opencode/nemotron-3.5-super-vl-free", None, None, 50.71,
-                       51.79, cost=100)])
+                       51.79, cost=0.1)])
         with patch.object(terminal, "height", return_value=40):
             text = self.screens([Key("char", "r"), Key("esc"), Key("esc")], width=40)
         shown = text.split("models · fix-api")[1].split("agentkit · config")[0]

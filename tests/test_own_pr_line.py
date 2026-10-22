@@ -1,5 +1,15 @@
 """Own PRs share the landing line: independently green changes cannot land a red stack.
 
+Owner rule, 1 Oct, 2 Oct, 3 Oct, 4 Oct, 7 Oct, 13 Oct, 14 Oct, 16 Oct 2026: "The orchestrator
+builds, by the who-does-the-work cases in `orchestrator.md`; marked executors take only independent
+pieces sharing no file with its work, and ak moves no work for quota. Every change lands through
+the one path, the orchestrator's own included: review rounds, its tests and the landing line; only
+a diff of documents alone skips review. A behaviour change needs a test that fails on the old code,
+which ak proves where it can and never fails a round for. A FAIL is fixed by a fresh fixer session
+on the model that wrote the PR, never by the seat, whose conversation is the owner's." Held here
+with tests/test_own_pr_fixer.py, tests/test_regression_fails_before.py, tests/test_followup_runs.py
+and tests/test_review_own_pr.py.
+
 Offline: real Git and the declared fixture suite, fake GitHub, reviewers and seats.
 """
 
@@ -235,7 +245,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
 
     def test_wording_skips_review_only_when_every_file_reads_back_as_text(self):
         for name, setup in (("a name git mangles", lambda: (
-                                self.repo / ".gitattributes").write_text("*.md diff\n")),
+                                self.repo / ".gitattributes").write_text("*.txt diff\n")),
                             ("a linked AGENTS.md", lambda: (
                                 (self.repo / "docs").mkdir(),
                                 run.git(self.repo, "mv", "AGENTS.md", "docs/rules.md"),
@@ -247,7 +257,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
                 directory, url = self.own_pr("README", 1)
                 if name == "a name git mangles":
                     (self.repo / "docs").mkdir()
-                    (self.repo / "docs/binary\r.md").write_bytes(b"words\0binary\n")
+                    (self.repo / "docs/binary\r.txt").write_bytes(b"words\0binary\n")
                 else:
                     (self.repo / "docs/rules.md").write_text("---\nusers: none\ntests: true\n---\n")
                 self.pushed(url, name)
