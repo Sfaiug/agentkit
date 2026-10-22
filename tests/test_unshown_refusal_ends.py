@@ -1,9 +1,9 @@
 """A refusal no meter showed ends an hour after it was made.
 
-Such a refusal names no time and no meter of its account reads 100%, so `mark_exhausted` parks
-the account until the soonest window resets -- a week's, where no 5-hour window is reported.
-A window with room did not refuse, so its reset is no deadline: the account comes back after
-`DRY_FOR` and is refused again if it truly has nothing.  A refusal a meter showed keeps its
+Such a refusal names no time and no meter of its account reads 100%; the soonest window to
+reset can be a week's, where no 5-hour window is reported.  A window with room did not refuse,
+so its reset is no deadline: the account comes back after `DRY_FOR` and is refused again if it
+truly has nothing.  A refusal a meter showed, or one that named its own time, keeps its
 deadline.
 
 Fake meters in a temporary HOME: nothing here reaches a real usage endpoint or a real
@@ -97,26 +97,13 @@ class UnshownRefusalEnds(unittest.TestCase):
         (self.assertNotIn if parked else self.assertIn)("one", order)
 
     def test_a_refusal_beside_a_week_with_room_ends_an_hour_on(self):
-        until = usage.mark_exhausted(self.cfg, "alpha")
-        self.assertEqual(until, self.week_ends)     # the soonest window it reports
+        self.assertEqual(usage.mark_exhausted(self.cfg, "alpha"), NOW + usage.DRY_FOR)
         providers = self.read_at(NOW + usage.DRY_FOR - 1)
         self.assert_parked(providers, True)
         self.assertEqual(providers["alpha"]["exhausted_until"], NOW + usage.DRY_FOR)
         providers = self.read_at(NOW + usage.DRY_FOR)
         self.assert_parked(providers, False)
         self.assertNotIn("exhausted_until", providers["alpha"])
-
-    def test_a_mark_an_older_ak_left_days_ago_is_gone_at_the_next_read(self):
-        # as written before a mark named its meter: no `exhausted_by` at all
-        usage.collect(self.cfg)
-        cache = config.STATE / "usage.json"
-        blob = json.loads(cache.read_text())
-        blob["providers"]["alpha"].update(
-            exhausted=True, exhausted_until=self.week_ends, exhausted_at=NOW - 2 * 86400,
-            exhausted_ends={"weekly": self.week_ends})
-        blob["fetched_at"] = NOW
-        cache.write_text(json.dumps(blob))
-        self.assert_parked(usage.collect(self.cfg), False)
 
     def test_a_refusal_a_meter_showed_keeps_its_deadline(self):
         self.meters["alpha"] = self.week(used=100)
