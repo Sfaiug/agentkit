@@ -24,7 +24,8 @@ is a word, which acts by the turn's role as its prompt's first line names it:
 
 or a dict of what to do, in this order: `write` {path: text} (a relative path is in the
 workspace), `sh` (a command run there), `commit` (a message for all of it), `hand_in` (a list
-of argument lists for `ak hand-in`), `final` (final.md's text), `session` (the id handed back:
+of argument lists for `ak hand-in`), `final` (final.md's text, where `{in N}` is the moment N
+seconds after the turn, as a refusal names when to come back), `session` (the id handed back:
 the one resumed, else `sid-<harness>-<n>`), `exit` (0).  A hand-in goes through the ak build
 under test, the one AK_BIN names.  Every other verb answers as `answer` set it, or as a harness
 that is logged in with no meter to read.
@@ -51,6 +52,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 
 REPO = Path(__file__).resolve().parents[2]
 IDENTITY = {"GIT_AUTHOR_NAME": "acme", "GIT_AUTHOR_EMAIL": "acme@example.com",
@@ -207,7 +209,10 @@ def turn(fake, ak, call, model, effort, workspace, prompt, out, session=None):
                               text=True)
         call["hand_ins"].append({"argv": argv, "code": done.returncode, "out": done.stdout,
                                  "err": done.stderr})
-    (out / "final.md").write_text(todo["final"] + "\n" if todo.get("final") else "")
+    # counted from the turn: a moment fixed before the run could pass before a slow run gets here
+    final = re.sub(r"\{in (\d+)\}", lambda m: time.strftime(
+        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + int(m[1]))), todo.get("final", ""))
+    (out / "final.md").write_text(final + "\n" if final else "")
     return todo.get("exit", 0)
 
 
