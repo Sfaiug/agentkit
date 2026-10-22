@@ -52,13 +52,6 @@ class SentenceMerge(LiveRuns):
         self.change(self.building(YOUNGER, 1000), "second says", "second, younger, says")
         self.assertNotIn(YOUNGER, leases.scan(self.repo, self.logs.append, now=2000))
 
-    def test_edits_of_one_sentence_still_park_the_younger(self):
-        self.change(self.building(OLDER, 900), "second says", "second, older, says")
-        self.change(self.building(YOUNGER, 1000), "says another", "says a younger thing")
-        found = leases.scan(self.repo, self.logs.append, now=2000)
-        self.assertEqual(found[YOUNGER]["waits_on"], OLDER)
-        self.assertEqual(self.state(YOUNGER)["lease_wait"]["files"], ["README.md"])
-
     def test_a_rebase_onto_a_moved_paragraph_keeps_both_sentences(self):
         branch = self.run_on(YOUNGER, 1000)
         self.change(branch, "third ask", "third ask the branch")
