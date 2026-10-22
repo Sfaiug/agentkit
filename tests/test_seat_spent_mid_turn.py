@@ -30,7 +30,7 @@ class SpentMidTurn(SpentSeat):
         self.pane = REFUSED
         self.tick()
         self.assertEqual(self.account(), "second")
-        self.assertEqual(self.go_on(), [watch.ACCOUNT_LINE])
+        self.assertEqual(self.went_on(), ([], watch.ACCOUNT_LINE))
         self.assertNotEqual(self.answer()["word"], "idle")
 
     def test_a_turn_wrapped_up_at_home_moves_though_the_meters_still_read_room(self):
@@ -38,7 +38,7 @@ class SpentMidTurn(SpentSeat):
         self.wrapped()
         self.tick()
         self.assertEqual(self.account(), "second")
-        self.assertEqual(self.go_on(), [watch.ACCOUNT_LINE])
+        self.assertEqual(self.went_on(), ([], watch.ACCOUNT_LINE))
 
     def test_a_wrapped_up_turn_with_no_other_account_waits_and_goes_on_at_its_reset(self):
         self.cfg["providers"]["anthropic"].pop("accounts")
@@ -53,7 +53,7 @@ class SpentMidTurn(SpentSeat):
         self.meters(0, 0, single=True)
         self.tick()
         self.assertEqual(len(self.commands), 1)     # its conversation, resumed where it stopped
-        self.assertEqual(self.go_on(), [watch.ACCOUNT_LINE])
+        self.assertEqual(self.went_on(), ([], watch.ACCOUNT_LINE))
 
     def test_the_owners_unsent_text_goes_on_with_the_seat(self):
         self.meters(20, 20)
