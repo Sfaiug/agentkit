@@ -2579,7 +2579,8 @@ def settle_pr_round(lp, url, info):
                 state.pop("waiting_on", None)
                 state.update(state="pass" if state["verdict"] == "PASS" else "fail",
                              finished_at=time.time())
-            state.pop("landing_fix", None)      # this verdict is the landing fix's
+            if not state.get("own_pr_wait"):
+                state.pop("landing_fix", None)  # a new landing red still owes its fixer
             lp.write()
             write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
             return state

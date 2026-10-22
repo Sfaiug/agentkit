@@ -449,6 +449,31 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         self.assertEqual(len(self.checks), checks + 1)
         self.assertEqual(len(self.reviews), 2)
 
+    def test_a_red_before_joining_gets_a_landing_fix_without_spending_a_round(self):
+        directory, url = self.own_pr("second", 1)
+        self.advance(**{"first.txt": "first\n"})
+
+        def fixed(cfg, directory, url, state, opts, log):
+            self.assertTrue(state["landing_fix"])
+            self.assertEqual(state["landing_reds"], 1)
+            self.assertNotIn("waiting_on", state)
+            self.assertFalse(land.line(self.turn))
+            self.push_fix(url, rename=True)
+            state["delivery_sha"] = self.prs[url]["head"]
+            record.save_state(directory, state)
+            return True
+
+        with patch.object(run, "fix_own_pr", side_effect=fixed) as fixer:
+            state = self.review(directory, url)
+        fixer.assert_called_once()
+        self.assertEqual(state["state"], "waiting")
+        self.assertEqual(len(state["round_summaries"]), 1)
+        self.assertEqual(len(self.reviews), 2)
+        checks = len(self.checks)
+        land.check_line(self.turn)
+        self.assertTrue(self.review(directory, url)["merged"])
+        self.assertEqual(len(self.checks), checks)
+
     def test_a_changed_target_keeps_its_place_and_checks_the_new_tree(self):
         directory, url = self.own_pr("first", 1)
         state = self.review(directory, url)
