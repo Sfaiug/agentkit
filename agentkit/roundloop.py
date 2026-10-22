@@ -750,6 +750,23 @@ def how_to_integrate(lp):
     return "merge" if merges else "rebase"
 
 
+def follow_target(lp):
+    """Move the run's base to the newest target commit its branch took in, once a round's worker
+    turns are over: a worker that rebased onto a newer tip, or merged it in, would otherwise hand
+    in the target's moves since the launch as its own lines, to the first review's size, the
+    reviewer's diff and the prose it adds (a 73-line change counted 655).  A target git cannot
+    read, or a fork point not past the base, keeps it."""
+    if lp.scratch or not lp.upstream:
+        return
+    code, fork = gitcall.git_out(lp.wt, "merge-base", "HEAD", lp.upstream)
+    fork = fork.strip()
+    if code != 0 or not fork or fork == lp.base_sha:
+        return
+    if gitcall.git_out(lp.wt, "merge-base", "--is-ancestor", lp.base_sha, fork)[0] == 0:
+        lp.log(f"base: the branch took in {lp.upstream} up to {fork[:12]}")
+        set_base(lp, fork)
+
+
 def set_base(lp, tip):
     """Keep the integrated tip for the diff and suite, even if another fetch moves the ref."""
     tip = gitcall.git(lp.wt, "rev-parse", f"{tip}^{{commit}}")
@@ -1556,6 +1573,7 @@ def resume_review(lp, verified=None):
     # fixer turn came before it is not known here -- but the next round has to be able to
     # compare against it
     same_failure(lp, ok, dw_log, compare=False)
+    follow_target(lp)
     first_review_ceiling(lp)
     return review(lp, pending["summary"], ok, dw_log,
                   pending.get("reason", "Resume the unfinished review."),
@@ -1660,6 +1678,7 @@ def rounds(lp, execv=None):
                 ok, dw_log = verify_work(lp)
                 lp.log(f"done-when after fix: {'all passed' if ok else 'still FAILING'}")
         same_failure(lp, ok, dw_log)
+        follow_target(lp)
         first_review_ceiling(lp)
         if review(lp, summary, ok, dw_log, "Re-review after fixes." if lp.rnd > 1 else "") == "PASS":
             return
