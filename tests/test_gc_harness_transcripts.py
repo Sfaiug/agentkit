@@ -2,14 +2,17 @@
 
 Offline: HOME, PATH's `codex` and /proc are the fixture's.  The fake `codex delete` records the
 database it would use and its arguments, and removes the rollout from its home the way the real
-one does, with what it indexed.
+one does, with what it indexed.  Muse's store is laid out as 1.4.11 lays it out: a folder per
+session, views cached beside them, and a row per session in session-index.db.
 """
 
+import contextlib
 import os
 from pathlib import Path
 import time
 import unittest
 from unittest.mock import patch
+import sqlite3
 
 from fixtures.sandbox import Sandbox
 from agentkit import gc, orch, retention
@@ -41,6 +44,13 @@ class GcConversations(Sandbox):
                               'find "$home/sessions" -name "rollout-*-$3.jsonl" -delete\n')
         self.codex.chmod(0o755)
         self.stack.enter_context(patch.dict(os.environ, {"PATH": f"{bin_dir}:{os.environ['PATH']}"}))
+        os.environ.pop("XDG_DATA_HOME", None)
+        self.muse = Path.home() / ".local/share/muse/sessions"
+        self.muse.mkdir(parents=True)
+        self.index = self.muse.parent / "session-index.db"
+        with contextlib.closing(sqlite3.connect(self.index)) as db, db:
+            db.execute("CREATE TABLE sessions (session_id TEXT PRIMARY KEY, session_dir TEXT,"
+                       " session_log_path TEXT UNIQUE)")
 
     def rollout(self, n, age):
         path = (Path.home() / ".codex/sessions/2026/09/03"
@@ -49,6 +59,24 @@ class GcConversations(Sandbox):
         path.write_text('{"type":"session_meta"}\n')
         os.utime(path, (time.time() - age, time.time() - age))
         return path
+
+    def session(self, n, age):
+        folder = self.muse / "2026/09/03" / THREAD.format(n)
+        view = self.muse / ".msp-view-v1" / folder.name
+        for directory in (folder / "subagent", view):
+            directory.mkdir(parents=True)
+        for path in (folder / "session.jsonl", folder / "subagent/session.jsonl", view / "HEAD.json"):
+            path.write_text("{}\n")
+        for path in (folder / "subagent/session.jsonl", folder / "session.jsonl", view / "HEAD.json"):
+            os.utime(path, (time.time() - age, time.time() - age))
+        with contextlib.closing(sqlite3.connect(self.index)) as db, db:
+            db.execute("INSERT INTO sessions VALUES (?, ?, ?)",
+                       (folder.name, str(folder), str(folder / "session.jsonl")))
+        return folder
+
+    def indexed(self):
+        with contextlib.closing(sqlite3.connect(self.index)) as db:
+            return {row[0] for row in db.execute("SELECT session_id FROM sessions")}
 
     def holds(self, path):
         proc = self.proc / "1000"
@@ -77,6 +105,62 @@ class GcConversations(Sandbox):
         self.assertTrue(recent.exists() and held.exists())
         self.assertEqual(self.calls.read_text(),
                          f"{Path.home() / '.codex'} delete --force {THREAD.format(1)}\n")
+
+    def test_a_muse_session_untouched_for_thirty_days_goes_with_what_muse_indexed_of_it(self):
+        old, recent, written, held = (self.session(n, age) for n, age in
+                                      ((1, 31 * DAY), (2, 29 * DAY), (3, 31 * DAY), (4, 40 * DAY)))
+        os.utime(written / "subagent/session.jsonl", (time.time() - DAY, time.time() - DAY))
+        self.holds(held / "session.jsonl")
+        self.assertEqual(self.planned(), {str(old)})
+        gc.gc(lambda _: None)
+        self.assertFalse(old.exists() or (self.muse / ".msp-view-v1" / old.name).exists())
+        self.assertEqual(self.indexed(), {recent.name, written.name, held.name})
+        self.assertTrue(recent.exists() and written.exists() and held.exists())
+
+    def test_a_muse_index_that_cannot_be_opened_keeps_every_session(self):
+        old = self.session(1, 31 * DAY)
+        self.index.unlink()
+        said = []
+        gc.gc(said.append)
+        self.assertTrue(old.exists() and (self.muse / ".msp-view-v1" / old.name).exists())
+        self.assertFalse(self.index.exists())
+        self.assertEqual(sum("session index" in line for line in said), 1)
+
+    def test_a_muse_view_held_or_reached_through_a_link_keeps_its_session(self):
+        held, linked = self.session(1, 31 * DAY), self.session(2, 31 * DAY)
+        self.holds(self.muse / ".msp-view-v1" / held.name / "HEAD.json")
+        elsewhere = Path.home() / "elsewhere"
+        elsewhere.mkdir()
+        (self.muse / ".msp-view-v1" / linked.name).rename(elsewhere / linked.name)
+        (self.muse / ".msp-view-v2").symlink_to(elsewhere)
+        gc.gc(lambda _: None)
+        self.assertTrue(held.exists() and linked.exists()
+                        and (elsewhere / linked.name / "HEAD.json").exists())
+        self.assertTrue((self.muse / ".msp-view-v1" / held.name / "HEAD.json").exists())
+        self.assertEqual(self.indexed(), {held.name, linked.name})
+
+    def test_what_muse_writes_while_gc_waits_on_the_index_is_judged_with_the_session(self):
+        old = self.session(1, 31 * DAY)
+        view = self.muse / ".msp-view-v2" / old.name
+        connect = sqlite3.connect
+
+        def gc_while(write):
+            class Muse(sqlite3.Connection):
+                def execute(self, sql, *args):
+                    if sql == "BEGIN IMMEDIATE":     # Muse writes while it holds the index
+                        write()
+                    return super().execute(sql, *args)
+
+            with patch.object(sqlite3, "connect", lambda *a, **kw: connect(*a, **kw, factory=Muse)):
+                gc.gc(lambda _: None)
+
+        gc_while(lambda: (old / "session.jsonl").write_text("{}\n{}\n"))
+        self.assertTrue(old.exists() and (self.muse / ".msp-view-v1" / old.name).exists())
+        self.assertEqual(self.indexed(), {old.name})
+        os.utime(old / "session.jsonl", (time.time() - 31 * DAY, time.time() - 31 * DAY))
+        gc_while(lambda: view.mkdir(parents=True))
+        self.assertFalse(old.exists() or view.exists())
+        self.assertEqual(self.indexed(), set())
 
     def test_a_process_whose_handles_cannot_be_read_keeps_every_one(self):
         old = self.rollout(1, 31 * DAY)
