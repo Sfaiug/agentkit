@@ -100,7 +100,7 @@ class DryRun(unittest.TestCase):
         self.assertEqual([call for call in self.home.calls("gamma-cli") if call != ["--version"]],
                          [])
 
-    def test_a_checkout_behind_its_origin_would_fast_forward_and_stays_on_its_commit(self):
+    def test_a_checkout_behind_its_origin_would_move_forward_and_stays_on_its_commit(self):
         akconfig.write(self.home, {"echo": "echo"})
         rig = Rig(self.home, "agentkit")
         checkout = self.home.path / "agentkit"
@@ -114,7 +114,7 @@ class DryRun(unittest.TestCase):
         said = [line for line in lines if line.startswith("update: agentkit")]
         self.assertEqual(len(said), 1, lines)
         self.assertTrue(said[0].startswith(f"update: agentkit {short}"), said)
-        self.assertIn("would fast-forward", said[0])
+        self.assertIn("would move forward", said[0])
         self.assertEqual(git("rev-parse", "HEAD"), head)
         self.assertNotEqual(rig.head(), head)
         self.assertEqual(git("status", "--porcelain"), "")
