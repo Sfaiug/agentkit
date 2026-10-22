@@ -20,7 +20,7 @@ SUMMARY_POINTS = 3    # ... and tasks over this many numbered goal points, by me
 # The repositories the smoke and e2e suites clone: their runs are tests, never work to learn from.
 SANDBOX_REPOS = ("agentkit-smoke", "agentkit-e2e")
 # The condition every statistic reads rows under: no stopped run and no suite's (`suite_run`).
-# Other values stay as written, except duplicated Codex tokens repaired by `_recount_tokens`.
+# Other values stay as written, except duplicated thread tokens repaired by `_recount_tokens`.
 REAL_WORK = "COALESCE(final_state,'') != 'stopped' AND NOT suite_run(run_id, repo)"
 STEP_COLUMNS = {"executor": "executor_seconds", "done-when": "done_when_seconds",
                 "reviewer": "reviewer_seconds", "merge": "merge_seconds"}
@@ -181,16 +181,15 @@ def _connect(*, readonly=False):
 
 def _recount_tokens(connection):
     """Repair a recorded prefix of kept turns, leaving unmatched totals alone."""
-    from .harness import reported_tokens
-    from .harness.codex import token_counts
+    from .harness import reported_tokens, turn_token_counts
     rows = connection.execute("SELECT run_id, executor_tokens, reviewer_tokens FROM runs").fetchall()
     for run_id, executor, reviewer in rows:
         recorded = {"executor": executor, "reviewer": reviewer}
         raw, corrected, matched = dict.fromkeys(recorded, 0), dict.fromkeys(recorded, 0), {}
         run_dir = config.RUNS / run_id
-        codex = {path: (total, spent) for path, total, spent in token_counts(run_dir)}
+        counts = turn_token_counts(run_dir)
         for path in event_paths(run_dir):
-            total, spent = codex.get(path, (None, None))
+            total, spent = counts.get(path, (None, None))
             if total is None:
                 total = spent = reported_tokens(path.parent)
             if total is None:

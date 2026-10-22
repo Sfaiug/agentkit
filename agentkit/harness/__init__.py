@@ -261,6 +261,12 @@ def reported_tokens(out):
     return total
 
 
+def turn_token_counts(run_dir):
+    """Kept event files mapped to (reported usage, turn spend) by their harness."""
+    return {path: (total, spent) for module in _plugins("token_counts")
+            for path, total, spent in module.token_counts(run_dir)}
+
+
 def config_entries():
     """Where each harness keeps the trust and MCP entries agentkit writes for it, as
     [{"file": its config, read as JSON or TOML by its suffix, "trust": the table of trusted
