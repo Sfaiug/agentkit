@@ -82,7 +82,7 @@ class NewsMotion(Sandbox):
         for target, name, fake in (
                 (orch, "listing", lambda: [{"name": name, "repo": str(repo), "path": str(repo),
                                             "created": 0} for name in self.words]),
-                (menu, "run_records", list),
+                (menu, "run_records", lambda **_kw: []),
                 (menu, "seat_row_state", row_state),
                 (menu, "seat_progress", lambda name: self.tasks.get(name, (0, 0))),
                 (orch, "job_notices", lambda: [self.notices.pop()] if self.notices else []),
