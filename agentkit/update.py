@@ -564,12 +564,14 @@ def update_agentkit(progress=None, pull=True):
                 and _git("merge-base", "--is-ancestor", head, moving)[0] == 0):
             # git moves HEAD last, so the files of a move that never got it there may be
             # anywhere between the two commits, some half written; nothing tells them from
-            # anybody's edits since, so the stash keeps them all, and the move ends where it went
+            # anybody's edits since, so the stash keeps them all, and the move ends where it went;
+            # what the stash leaves (a repository nested in it) the reset could delete, so stays
             say(f"update: agentkit: finishing the move to {moving[:12]} that was cut off, "
                 f"what {directory} held kept in `git stash list`")
             if (_git("stash", "push", "--include-untracked", "--quiet", "-m",
                      f"ak: held when its move to {moving[:12]} was cut off", timeout=STEP_CAP)[0]
-                    or _git("reset", "--hard", "--quiet", moving, timeout=STEP_CAP)[0]):
+                    or not left_as_is()
+                    and _git("reset", "--hard", "--quiet", moving, timeout=STEP_CAP)[0]):
                 say(f"update: agentkit: the move to {moving[:12]} could not be finished yet")
                 return 1
         why = left_as_is()
