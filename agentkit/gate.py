@@ -836,8 +836,8 @@ def whole_checks_that_fit(command=None):
     return pinned or derived_heavy_limit()
 
 
-def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
-    """Wait for and hold one host-wide heavy-suite turn; None when no turn is taken."""
+def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, wait=True):
+    """Hold host-wide heavy-suite turns; with `wait=False`, take only turns free now."""
     record = context if context is not None else (run_record.read_state(run_dir) or {}
                                                 if run_dir else {})
     repo = record.get("repo")
@@ -912,6 +912,9 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
             for fh in slot:
                 fcntl.flock(fh, fcntl.LOCK_UN)
             slot = []
+            if not wait:
+                files.close()
+                return None
             began = time.monotonic()
             counted = (time.time(), began)
             said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
@@ -1002,7 +1005,7 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
     A check running while this thread already holds a turn takes no second one.
     A command naming AK_SHARD reserves all the pieces live headroom fits, each a turn,
     using its repository's measured cost when available; this count is always derived.
-    A suite the helper has room for (`helper.start`) takes a turn only for pieces it hands back.
+    A suite the helper has room for (`helper.start`) also takes the local turns free now.
     """
     if (getattr(_GATE_HELD, "hold", None) is not None or getattr(_GATE_HELD, "away", None)
             or getattr(_GATE_HELD, "here", None)):
@@ -1016,10 +1019,9 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
             log(f"suite runs here: {here}")
     _GATE_HELD.away, _GATE_HELD.here = away, here
     try:
-        _GATE_HELD.home = lambda: _acquire_gate_turn(run_dir, log_path, log, command, cwd,
-                                                     context=context)
-        if away is None:
-            _GATE_HELD.hold = _GATE_HELD.home()
+        _GATE_HELD.home = lambda wait=True: _acquire_gate_turn(run_dir, log_path, log, command,
+                                                             cwd, context=context, wait=wait)
+        _GATE_HELD.hold = _GATE_HELD.home(wait=away is None)
         yield
     finally:
         current, _GATE_HELD.hold = getattr(_GATE_HELD, "hold", None), None
@@ -1319,8 +1321,11 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         hold = getattr(_GATE_HELD, "hold", None)
         away = getattr(_GATE_HELD, "away", None)
         path, cpu, mem = suite_cost(command, cwd, run_dir)
-        count = away.count if away else len(hold.slots) if hold else derived_heavy_limit(
-            running=0, job_cpus=cpu, job_mem_mb=mem, unit=True)
+        count = len(hold.slots) if hold else 0
+        if away:
+            count += away.count
+        elif not hold:
+            count = derived_heavy_limit(running=0, job_cpus=cpu, job_mem_mb=mem, unit=True)
         env = suite_env()    # the piece threads do not inherit this thread's held turn
         deadline = time.monotonic() + limit
         cancel, writing = threading.Event(), threading.Lock()
@@ -1330,6 +1335,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         silence = kwargs.pop("silence", None)
         silenced = set()    # the pieces whose first go silence stopped, each to go again
         home_reason = getattr(_GATE_HELD, "here", None) or (
+            "free heavy suite turns" if away else
             "command is not sent to the suite helper (suite already holds a local turn)")
         home_reasons = {}
 
@@ -1390,11 +1396,12 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 if left <= 0:
                     cancel.set()
                     return worker.TIMEOUT, piece, True, []
+                there = away if away and int(shard.split("/")[0]) <= away.count else None
                 if log is not None:
                     reason = home_reason if first else home_reasons.get(shard) or (
                         "command is not sent to the suite helper (piece retry)")
                     with writing:
-                        log(f"AK_SHARD={label} on {away.alias}" if away else
+                        log(f"AK_SHARD={label} on {there.alias}" if there else
                             f"AK_SHARD={label} runs here: {reason}")
                 stream, tests = Output(), []
                 own = {**env, "AK_SHARD": shard if only is None else "1/1"}
@@ -1402,11 +1409,11 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     # A stop ends this piece's own processes, never a sibling's that runs on.
                     own[worker.RUN_MARKER] += f"/piece-{shard.replace('/', '-')}"
                 try:
-                    here = {} if away else {"cpu": measure.cpu, "quiet": measure.quiet,
-                                            "only": only, "failed": tests}
-                    code, _, killed = (worker.limited if away else worker.boxed)(
-                        helper.piece(away, shard, PINNED_PIECE.format(shlex.quote(command)))
-                        if away else ["bash", "-c", command],
+                    here = {} if there else {"cpu": measure.cpu, "quiet": measure.quiet,
+                                             "only": only, "failed": tests}
+                    code, _, killed = (worker.limited if there else worker.boxed)(
+                        helper.piece(there, shard, PINNED_PIECE.format(shlex.quote(command)))
+                        if there else ["bash", "-c", command],
                         left, cwd=str(cwd), activity=Path(piece.name), output=stream,
                         env=own, abort=abort,
                         on_timeout=stopped, silence=silence if first else later or silence,
@@ -1431,13 +1438,13 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             if not away and not any(killed or code == SUITE_BUSY for code, _, killed, _ in results):
                 measure.save(path, count)
             again = [index for index, (code, _, killed, _) in enumerate(results)
-                     if away and code and not killed and not cancel.is_set()]
+                     if away and index < away.count and code and not killed and not cancel.is_set()]
             helped, away = away, None
             if helped and log is not None:
                 home_reasons.update((f"{index + 1}/{count}",
                                      f"helper {helped.alias} {helper.failure(code)}")
-                                    for index, (code, *_) in enumerate(results) if code)
-            if helped and any(code == helper.SHORT for code, *_ in results):
+                                    for index, (code, *_) in enumerate(results[:helped.count]) if code)
+            if helped and any(code == helper.SHORT for code, *_ in results[:helped.count]):
                 least = helper.short(helped)
                 if log is not None:
                     log(f"the suite helper's VMs of {helped.memory_mb} MiB ran out of memory: "
@@ -1448,7 +1455,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     if results[index][0] == helper.LOST:
                         log(f"the suite helper lost AK_SHARD={index + 1}/{count}; it runs here")
                 if not any(code or killed for code, _, killed, _ in results):
-                    log(f"every piece passed on the suite helper {helped.alias}")
+                    log(f"every piece passed on the suite helper {helped.alias}"
+                        f"{' and this host' if count > helped.count else ''}")
             if again or helped and silenced and not cancel.is_set():
                 # What the helper lost, failed, ran out of memory for or stopped runs again
                 # here, on this host's own turns; a stopped piece alone, below.
@@ -1464,12 +1472,13 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         shutil.copyfile(results[index][1].name, kept)
                         log(f"WARN AK_SHARD={index + 1}/{count} failed on the suite helper; "
                             f"what it printed there: {kept}")
-                began = time.monotonic()
-                hold = _GATE_HELD.hold = _GATE_HELD.home()
-                queued = time.monotonic() - began    # as busy_turn's: no ceiling is charged
-                deadline += queued
-                if on_wait is not None:
-                    on_wait(queued)
+                if hold is None:
+                    began = time.monotonic()
+                    hold = _GATE_HELD.hold = _GATE_HELD.home()
+                    queued = time.monotonic() - began    # as busy_turn's: no ceiling is charged
+                    deadline += queued
+                    if on_wait is not None:
+                        on_wait(queued)
                 env = suite_env()
                 if again:
                     attempts(again, len(hold.slots) if hold else len(again))
