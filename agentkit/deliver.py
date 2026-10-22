@@ -795,6 +795,7 @@ def check_before_line(lp, upstream):
     gate.clear_landing_wait(lp.run_dir)
     lp.state["landing"] = True
     lp.write()
+    landing._code()    # evidence belongs to the checker that started this attempt
     try:
         while True:
             if "fix" in (lp.state.get("waiting_on") or {}):

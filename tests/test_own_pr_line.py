@@ -26,7 +26,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, deliver, gc, gitcall, hand_in, handback, land, record, run, turns, watch, worker, worktrees
+from agentkit import config, deliver, gate, gc, gitcall, hand_in, handback, land, record, run, turns, watch, worker, worktrees
 from fixtures.hand_in import submitting
 from test_lander import LanderFixture, climb_ladder
 
@@ -71,7 +71,8 @@ class OwnPrLineFixture(LanderFixture):
         return True
 
     def check(self, cmds, cwd, log_path, *args, **kw):
-        self.checks.append((list(cmds), str(cwd), str(log_path)))
+        if cmds:
+            self.checks.append((list(cmds), str(cwd), str(log_path)))
         return self.gate_run(cmds, cwd, log_path, *args, **kw)
 
     def reviewer(self, _cfg, _name, body, _wt, out, *_args, **_kw):
@@ -224,8 +225,6 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         self.commit("fixture removes the finding and leaves wording")
         run.git(self.repo, "push", "origin", self.prs[url]["branch"])
         self.prs[url]["head"] = run.git(self.repo, "rev-parse", "HEAD")
-        self.review(directory, url)
-        land.check_line(self.turn)
         with patch.object(run, "fix_own_pr", return_value=False):
             state = self.review(directory, url)
         self.assertEqual(state["verdict"], "FAIL")
@@ -268,11 +267,15 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
                 self.assertFalse(state["review"].get("skipped", False))
                 self.assertEqual(len(self.reviews), 1)
 
-    def test_review_round_starts_no_suite(self):
+    def test_suite_starts_after_the_review_passes(self):
         directory, url = self.own_pr("first", 1)
-        with patch.object(gitcall, "gh", return_value=(0, "")):
+        def check(*args, **kw):
+            self.assertEqual(len(self.reviews), 1, "the suite started before review")
+            return self.check(*args, **kw)
+        with patch.object(gitcall, "gh", return_value=(0, "")), \
+                patch.object(gate, "run_done_when", side_effect=check):
             state = self.review(directory, url)
-        self.assertEqual(self.checks, [], "a review round ran the landing suite")
+        self.assertEqual(len(self.checks), 1)
         self.assertEqual(state["state"], "waiting")
         self.assertIsNone(state["review"]["done_when"])
         self.assertNotIn("final_check", state)
@@ -288,14 +291,15 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
             self.assertFalse((wt / "first.txt").exists() and (wt / "second.txt").exists())
             self.assertEqual(state["state"], "waiting")
             self.assertEqual(state["waiting_on"]["line"], self.turn.name)
+        checks = len(self.checks)
         self.advance()
         land.check_line(self.turn)
         self.assertIn("land", self.wait(first))
         self.assertIn("fix", self.wait(second))
-        self.assertEqual(len(self.checks), 2)
+        self.assertEqual(len(self.checks), checks + 2)
         passed = self.review(first, first_url)
         self.assertTrue(passed["merged"])
-        self.assertEqual(len(self.checks), 2, "delivery repeated the suite")
+        self.assertEqual(len(self.checks), checks + 2, "delivery repeated the suite")
         self.assertEqual(len(self.reviews), 2, "delivery repeated the review")
         self.assertEqual(self.merges[0][1], run.git(Path(passed["worktree"]), "rev-parse", "HEAD"))
         self.assertNotEqual(self.merges[0][1], passed["round_summaries"][0]["head_sha"])
@@ -371,7 +375,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         self.assertLessEqual(len(gitcall.git_bytes(self.remote, "show", "main:AGENTS.md")), limit)
 
     def test_a_change_past_the_ceiling_only_behind_a_failed_one_lands_alone(self):
-        rules = "---\nusers: none\ntests: test ! -f broken.txt\n---\n" + "".join(
+        rules = "---\nusers: none\ntests: test ! -f probe.txt || test ! -f broken.txt\n---\n" + "".join(
             f"rule {i}: acme.\n" for i in range(10))
         self.on_main(lambda: (self.repo / "AGENTS.md").write_text(rules), "acme rules")
         limit = len(rules.encode()) + 30
@@ -386,6 +390,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
                 self.pushed(url, "a longer rule")
                 self.assertEqual(self.review(directory, url)["state"], "waiting")
                 prs.append(directory)
+            self.advance(**{"probe.txt": "probe the combined rules\n"})
             land.check_line(self.turn)
         first, second = prs
         self.assertIn("test ! -f broken.txt", self.wait(first)["fix"]["line"])
@@ -437,7 +442,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(len(state["round_summaries"]), 1)
         self.assertIn("Landing failed", self.reviews[-1])
-        self.assertEqual(len(self.checks), checks, "the seat's next review ran a suite")
+        self.assertEqual(len(self.checks), checks + 1, "the fixed tree needs its check before joining")
         land.check_line(self.turn)
         state = self.review(directory, url)
         self.assertTrue(state["merged"])
@@ -465,6 +470,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         self.review(directory, url)
         self.advance()
         land.check_line(self.turn)
+        checks = len(self.checks)
         self.push_fix(url)
         newest = self.prs[url]["head"]
         state = self.review(directory, url)
@@ -472,24 +478,25 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         self.assertEqual(state["head_sha"], newest)
         self.assertEqual(run.git(self.remote, "rev-parse", self.prs[url]["branch"]), newest)
         self.assertEqual(len(self.reviews), 2)
-        self.assertEqual(len(self.checks), 1)
+        self.assertEqual(len(self.checks), checks + 1)
         self.assertEqual(self.merges, [])
 
     def test_a_head_pushed_while_waiting_for_the_lander_is_reviewed_before_any_check(self):
         directory, url = self.own_pr("first", 1)
         self.review(directory, url)
+        checks = len(self.checks)
         self.advance()
         self.push_fix(url)
         newest = self.prs[url]["head"]
         land.check_line(self.turn)
-        self.assertEqual(self.checks, [], "the line checked a head nobody will land")
+        self.assertEqual(len(self.checks), checks, "the line checked a head nobody will land")
         self.assertIn(newest[:12], self.wait(directory)["fix"]["line"])
         state = self.review(directory, url)
         self.assertEqual(state["head_sha"], newest)
         self.assertEqual(len(self.reviews), 2)
         land.check_line(self.turn)
         self.assertTrue(self.review(directory, url)["merged"])
-        self.assertEqual(len(self.checks), 1)
+        self.assertEqual(len(self.checks), checks + 1)
 
     def test_a_wording_pr_rejoining_after_a_target_move_is_not_a_moved_head(self):
         # its delivery rebased it locally; GitHub still holds the head it was reviewed at
@@ -511,6 +518,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         self.review(directory, url)
         self.advance()
         land.check_line(self.turn)
+        checks = len(self.checks)
         git_out = run.git_out
 
         def race(cwd, *args, **kw):
@@ -523,13 +531,14 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
                 self.review(directory, url)
         self.assertEqual(run.git(self.remote, "rev-parse", self.prs[url]["branch"]), self.prs[url]["head"])
         self.assertEqual(self.merges, [])
-        self.assertEqual(len(self.checks), 1)
+        self.assertEqual(len(self.checks), checks)
 
     def test_a_push_that_outlives_its_receipt_resumes_without_another_suite(self):
         directory, url = self.own_pr("first", 1)
         self.review(directory, url)
         self.advance()
         land.check_line(self.turn)
+        checks = len(self.checks)
         git_out = run.git_out
 
         def killed(cwd, *args, **kw):
@@ -543,7 +552,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
             with self.assertRaises(InterruptedError):
                 self.review(directory, url)
         self.assertTrue(self.review(directory, url)["merged"])
-        self.assertEqual(len(self.checks), 1)
+        self.assertEqual(len(self.checks), checks)
         self.assertEqual(len(self.reviews), 1)
 
     def test_a_failed_required_check_gets_a_fix_round(self):

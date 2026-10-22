@@ -1,10 +1,12 @@
 """A reviewed run checks its rebased tree before joining; that pass answers the lander. Offline."""
 
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
 import copy
 import os
 from pathlib import Path
 import sys
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -56,7 +58,7 @@ class SuiteBeforeLine(Sandbox):
     @contextmanager
     def heavy_turn(self, directory, log_path, log, command=None, cwd=None, **_kw):
         self.turns.append((directory, command))
-        self.assertEqual(directory, self.directory)
+        self.assertEqual(directory.parent, config.RUNS)
         self.assertEqual(command, SUITE)
         self.assertTrue(record.read_state(directory)["landing"])
         yield
@@ -68,7 +70,7 @@ class SuiteBeforeLine(Sandbox):
         self.assertTrue(kw["heavy"])
         self.assertTrue(roundloop.integrated(cwd, self.tip))
         self.assertEqual((cwd / "target.txt").read_text(), "new target\n")
-        self.assertFalse(land.line(self.turn))
+        self.assertFalse(any(directory == kw["run_dir"] for directory, _ in land.line(self.turn)))
         self.assertTrue(self.turns)
         tree = run.git(cwd, "rev-parse", "HEAD^{tree}")
         self.assertNotEqual(tree, self.reviewed["tree_sha"])
@@ -147,6 +149,34 @@ class SuiteBeforeLine(Sandbox):
         self.assertIn("line", self.lp.state["waiting_on"])
         self.assertEqual(self.lp.state["landing_reds"], 1)
         self.assertEqual(len(self.lp.state["round_summaries"]), 1)
+
+    def test_runs_check_beside_each_other_and_keep_both_trees(self):
+        wt = self.root / "other-wt"
+        run.git(self.wt, "worktree", "add", "-b", "ak/other", str(wt), self.reviewed["head_sha"])
+        (wt / "other.txt").write_text("independent work\n")
+        run.git(wt, "add", ".")
+        run.git(wt, "commit", "-m", "other work")
+        directory = config.RUNS / "other"
+        directory.mkdir()
+        (directory / "task.md").write_text((self.directory / "task.md").read_text())
+        state = copy.deepcopy(self.lp.state)
+        state.update(run_id=directory.name, branch="ak/other", worktree=str(wt))
+        state["review"].update(gitcall.commit_identity(wt))
+        lp = run.Loop(self.cfg, directory, state, {}, lambda _: None, wt, "body", ["true"], "context")
+        lp.write()
+        together = threading.Barrier(2)
+
+        @contextmanager
+        def enter(*args, **kw):
+            with self.heavy_turn(*args, **kw):
+                together.wait(10)
+                yield
+
+        with patch.object(gate, "gate_turn", side_effect=enter), ThreadPoolExecutor(2) as pool:
+            results = [pool.submit(deliver.merge, member) for member in (self.lp, lp)]
+            self.assertEqual([result.result(timeout=30) for result in results], [False, False])
+        self.assertEqual(len(self.checks), 2)
+        self.assertEqual(set(land._trees(self.turn)[1]), set(self.checks))
 
 
 if __name__ == "__main__":
