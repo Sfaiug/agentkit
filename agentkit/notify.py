@@ -37,6 +37,7 @@ import os
 import secrets
 import stat
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -372,14 +373,27 @@ def worker_blocked(kind, dry_run=False):
 # --- the two shapes ---------------------------------------------------------
 
 
+class _Held(threading.local):
+    def __init__(self):
+        self.names = set()      # the seats whose lock this thread holds
+
+
+_HELD = _Held()
+
+
 @contextmanager
 def session_lock(session, wait=True):
     """Serialize repeat checks, posts, acknowledgement and project votes across concurrent ak processes.
 
     `wait=False` is for a caller that must never wait on it -- a harness hook, which a delivery
     holding this lock may be typing the prompt for: it gets None at once while another has it.
+    A thread waiting for one it holds already holds it on, as a switch lifts a seat's text and
+    respawns it in one hold.
     """
     config.ensure_dirs()
+    if wait and config.resolve_session(session) in _HELD.names:
+        yield config.resolve_session(session)
+        return
     while True:
         session = config.resolve_session(session)
         with config.notify_path(session).with_suffix(".lock").open("a") as fh:
@@ -391,7 +405,11 @@ def session_lock(session, wait=True):
             try:
                 if config.resolve_session(session) != session:
                     continue       # a rename won while this writer waited for the lock
-                yield session
+                _HELD.names.add(session)
+                try:
+                    yield session
+                finally:
+                    _HELD.names.discard(session)
                 return
             finally:
                 fcntl.flock(fh, fcntl.LOCK_UN)
