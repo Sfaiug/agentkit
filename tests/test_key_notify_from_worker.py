@@ -5,9 +5,10 @@ a question from it would page the owner about a seat that never asked, so `ak no
 run's worker (`AK_RUN_ROLE=worker`, handed down to everything the worker starts) records no
 question and no card, says why on stdout and in the run's own log, and succeeds, before the
 question's shape is judged: a worker asks nothing, well or badly put.  A tick in that
-environment writes no seat's card either.  Black-box: the program `AK_BIN` names runs from
-outside through tests/fixtures/akbin.py, beside seats of tests/fixtures/akseat.py, paging
-tests/fixtures/sink.py.
+environment writes no seat's card and queues no page either; it runs in `home.tick()`'s box, whose
+loopback is its own, so its outbox is what shows a page.  Black-box: the program `AK_BIN` names
+runs from outside through tests/fixtures/akbin.py, beside seats of tests/fixtures/akseat.py,
+paging tests/fixtures/sink.py.
 """
 
 import json
@@ -17,7 +18,7 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.sink import Sink
 
@@ -73,18 +74,17 @@ class AWorkersNotify(unittest.TestCase):
         self.assertIsNone(state(self.home, "notify-fix-api.json"))
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "needs tmux and a bwrap able to box a tick")
 class AWorkersTick(unittest.TestCase):
     def test_a_worker_s_tick_writes_no_card_where_the_owner_s_tick_writes_one(self):
-        with Home() as home, Sink(home) as sink:
+        with Home() as home:
             Seat(home, "acme", screen="claude-question-pane.txt")
-            done = home.ak("watch", env={"AK_RUN_ROLE": "worker"})
+            done = home.tick(env={"AK_RUN_ROLE": "worker"})
             self.assertEqual(done.code, 0, done.err)
             self.assertEqual(list((home.path / ".agentkit/state").glob("card-*.json")), [])
             self.assertEqual(events(home, "acme"), [])
-            self.assertEqual(sink.requests, [])
             # the same seat, read by a tick nobody's worker runs, is carded
-            done = home.ak("watch")
+            done = home.tick()
             self.assertEqual(done.code, 0, done.err)
             self.assertEqual(state(home, "card-acme.json")["word"], "needs you")
 
