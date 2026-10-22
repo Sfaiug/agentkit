@@ -4539,9 +4539,18 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         if refusal:
             observed = {"line": line, "at": now, "handled": True}
             seat_write(name, usage_refusal=observed)
+        # A turn begun since the wait and not refused is the owner's, answered by its account:
+        # no limit cut it, so it is never continued, reopened under or typed into.
+        flight, began = _turn_in_flight(harness, live)
+        own_turn = (flight and not refusal and waiting is not None
+                    and isinstance(began, (int, float)) and began > waiting["since"])
         continuing = bool((waiting or {}).get("continue") or refusal
-                          or _turn_in_flight(harness, live)[0] or limit_ended(harness, name))
+                          or flight and not own_turn or limit_ended(harness, name))
         if target is not None:
+            if own_turn:
+                if target == current:
+                    seat_write(name, usage_wait=None, usage_refusal=observed or None)
+                return True       # a move to another account waits for that turn's end
             try:
                 if owned:
                     _resume_on(cfg, name, log, target, continuing)
