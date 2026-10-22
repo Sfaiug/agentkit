@@ -503,7 +503,7 @@ def red_piece(cmds, marks, pieces, suite, ok):
 
 
 def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=None,
-           only=None):
+           only=None, artifacts=None):
     """(whether the checks passed, their output, the red piece of `suite` as `red_piece` reads
     it, the tests that piece named that failed again alone on the pinned commit, or None); with
     `shard` every command runs as that one piece alone, on one turn, and with `only` just those
@@ -520,7 +520,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
     marks, pieces, confirmed = [], {}, {}
     with gate.gate_turn(run_dir, log_path, log, sharded, scratch, context=context):
         ok, text = gate.run_done_when(
-            cmds, scratch, log_path, set(),
+            cmds, scratch, log_path, set() if artifacts is None else artifacts,
             3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
             silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True,
             marks=marks, shard=shard, pieces=pieces, only=only, confirmed=confirmed,
@@ -636,10 +636,10 @@ def _check_tests(directory, state, scratch, tree, suite, piece, tests, log):
                     "piece": red, "tests": again}} if again else {}
 
 
-def _check_tree(directory, state, scratch, tree, checks, log, suite):
+def _check_tree(directory, state, scratch, tree, checks, log, suite, *, artifacts=None):
     log_path = directory / f"lander-{tree}.log"
     ok, text, red, tests = _check(directory, state, scratch, list(checks), log_path, log,
-                                  suite=suite)
+                                  suite=suite, artifacts=artifacts)
     return {"land": tree} if ok else {"fix": {"line": prompts.first_failure(text), "log": str(log_path),
                                               "piece": red, **({"tests": tests} if tests else {})}}
 

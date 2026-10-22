@@ -178,6 +178,19 @@ class SuiteBeforeLine(Sandbox):
         self.assertEqual(len(self.checks), 2)
         self.assertEqual(set(land._trees(self.turn)[1]), set(self.checks))
 
+    def test_suite_output_stays_out_of_later_fixer_commits(self):
+        def check(cmds, cwd, log_path, artifacts, *args, **kw):
+            answer = self.check(cmds, cwd, log_path, artifacts, *args, **kw)
+            if SUITE in cmds:
+                (cwd / "acme-build.out").write_text("generated\n")
+                artifacts.add("acme-build.out")
+            return answer
+
+        with patch.object(gate, "run_done_when", side_effect=check):
+            self.assertFalse(deliver.merge(self.lp))
+        self.assertIn("acme-build.out", record.read_state(self.directory)["artifacts"])
+        self.assertNotIn("acme-build.out", gitcall.committable_paths(self.wt, self.lp.artifacts)[0])
+
 
 if __name__ == "__main__":
     unittest.main()

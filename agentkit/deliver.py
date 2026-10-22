@@ -809,7 +809,8 @@ def check_before_line(lp, upstream):
             tree = gitcall.git(lp.wt, "rev-parse", "HEAD^{tree}")
             checks = landing._landing_checks(lp.run_dir, lp.state, lp.wt, lp.base_sha)
             suite = gitcall.declared_suite(lp.wt, ref=lp.base_sha)
-            answer = landing._check_tree(lp.run_dir, lp.state, lp.wt, tree, checks, lp.log, suite)
+            answer = landing._check_tree(lp.run_dir, lp.state, lp.wt, tree, checks, lp.log, suite,
+                                         artifacts=lp.artifacts)
             if "land" in answer:
                 landing.note(turn_path(lp, upstream), [tree], lp.run_dir.name, checks=checks)
                 return True
