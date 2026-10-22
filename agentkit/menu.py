@@ -3031,7 +3031,6 @@ def models_body(cfg, held, grid, at, column, picks, reading):
     room, utf = terminal.layout_width(), terminal.utf8()
     arrows, full, empty = ("‹ {} ›", "■", "□") if utf else ("< {} >", "#", "-")
     lines, places = [], {}
-    heads = [terminal.cells(head) for head in orch.ROLE_HEADS]
     said = []
     for role, head in zip(matrix.ROLES, orch.ROLE_HEADS):
         rows = picks.get(role) or []
@@ -3048,6 +3047,8 @@ def models_body(cfg, held, grid, at, column, picks, reading):
     kept = list(range(5))             # on a narrow screen the rows as good give way, then the cost
     while len(kept) > 3 and sum(widths[n] + 2 for n in kept) > room:
         kept.pop()
+    # what room is left is the name's, cut where even three columns do not fit
+    widths[1] = max(1, min(widths[1], room - sum(widths[n] + 2 for n in kept if n != 1) - 2))
     for role, part in zip(matrix.ROLES, said):
         here = ("role", role)
         places[len(lines)] = (here, [])
@@ -3145,10 +3146,11 @@ def models_screen(cfg, session, selected, providers):
     the recommendation as `c` says it (take_advice): the seat's executors and reviewers
     become the recommended rows' models at their efforts, the orchestrator only said.
     """
-    fetch, held = Fetch(lambda: matrix.refresh(cfg)), {}
+    fetch, held, models = Fetch(lambda: matrix.refresh(cfg)), {}, {}
     here, column, top, note, title = ("role", next(iter(matrix.ROLES))), 0, 0, "", f"models · {session}"
     clock = motion.Clock(page=True)
     while True:
+        chosen = models.get((here, column))     # the model highlighted, kept through a new layout
         reading = fetch is not None and fetch.is_alive()
         if fetch is not None and not reading:
             try:
@@ -3166,8 +3168,12 @@ def models_screen(cfg, session, selected, providers):
                                            column, picks, reading)
         rows = list(dict.fromkeys(row for row, _ in places.values()))
         sides = {row: [cell[2] for cell in cells] for row, cells in places.values()}
+        here, column = next((at for at, model in models.items() if model == chosen),
+                            (here if here in rows else rows[0], column))
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top, note, keys,
                                              marks=0, clock=clock, fetched=lambda: fetch.began if fetch and fetch.is_alive() else None)
+        if clicked is not None:
+            column = clicked          # the side clicked or pointed at
         if here[0] == "pair" and column not in sides[here]:
             column = sides[here][0]    # onto a line whose other side is a heading or nothing
         if act is None:
@@ -3183,8 +3189,6 @@ def models_screen(cfg, session, selected, providers):
             last = places[next(line for line, (row, _) in places.items() if row == KNOB)][1][0]
             note = config_within(cfg, -1 if act == 0 else 1 if act == last[1] - last[0] else 0)
         elif here[0] == "pair":
-            if clicked is not None:
-                column = clicked
             if act in ("left", "right"):
                 column = next((side for side in sides[here] if side != column), column)
             elif act in ("enter", " ") or isinstance(act, int):
@@ -3705,7 +3709,10 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                  else "label" if column < 0 else "mark")
         keys = (CONFIG_KEYS[where][0 if terminal.utf8() else 1]
                 + (f"   {ADVICE_KEY}" if selected and session else "") + "   esc back")
-        moves = []
+        # each meter's cells, on the lines over the page counted back from it, washing in and out
+        moves = [(line - len(over), ("sub", number), number == lit,
+                  motion.washing([(column, text, rest)], colour(cfg, subs[number - 1][0])))
+                 for number, took in spans.items() for line, column, text, rest in took]
         body, places = config_body(cfg, None if terminal.away() else here, column,
                                    selected, providers, moves, subs, lit)
         moves += [(line, here, None, motion.glowing(body[line]))     # a row just added glows
