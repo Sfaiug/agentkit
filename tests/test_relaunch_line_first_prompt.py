@@ -87,15 +87,16 @@ class FirstPrompt(SeatMove):
         self.tick()
         self.assertEqual(self.typed, [mark["line"]])
 
-    def test_a_first_prompt_that_never_came_is_typed_once_its_passes_are_spent(self):
+    def test_a_first_prompt_no_hook_stamps_is_never_typed_again(self):
         self.mid_turn()
         self.move("fable")
-        for _ in range(watch.MIDTURN_TRIES):
+        for _ in range(watch.MIDTURN_TRIES - 1):
             self.tick()
-        self.assertEqual(self.typed, [])
+        self.assertIsNotNone(watch.seat_read(SEAT).get("midturn"))
         self.tick()
-        self.assertEqual(self.typed, [watch.MIDTURN_LINE])
         self.assertIsNone(watch.seat_read(SEAT).get("midturn"))
+        self.tick()
+        self.assertEqual(self.typed, [])
 
     def test_a_seat_moved_to_another_subscription_opens_on_the_account_line(self):
         with patch.object(orch, "resume", return_value="resumed") as resume:

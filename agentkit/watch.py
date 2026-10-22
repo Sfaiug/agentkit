@@ -604,9 +604,9 @@ def continue_turns(cfg, log, accounts=False):
     lock too: nothing running, asked or typed there.
     A seat renamed since loses its mark: its harness stamps prompts under the name it was
     started with.
-    A line the relaunch gave its harness as its first prompt is never typed while that prompt
-    can still come: the mark comes off once it has, and only where none came in
-    MIDTURN_TRIES passes is the line typed, as any other is.
+    A line the relaunch gave its harness as its first prompt is never typed: a harness without
+    prompt hooks stamps none, and typing it again would start a second turn.  Its mark holds
+    till the prompt is stamped, or for MIDTURN_TRIES passes.
     """
     boot = boot_id()
     for name in config.session_records():
@@ -616,12 +616,13 @@ def continue_turns(cfg, log, accounts=False):
         at = mark.get("at") if isinstance(mark.get("at"), (int, float)) else 0
         line = mark.get("line") or MIDTURN_LINE
         session = orch.find(name) if mark.get("boot") == boot else None
-        waited = mark.get("tries") or 0
-        if (session and not session.get("exited") and mark.get("launched")
-                and not prompted_since(name, at) and waited < MIDTURN_TRIES):
-            replace_midturn(name, mark, {**mark, "tries": waited + 1})
-            continue
-        if session and not session.get("exited"):
+        if mark.get("launched"):
+            waited = (mark.get("tries") or 0) + 1
+            if (session and not session.get("exited") and not prompted_since(name, at)
+                    and waited < MIDTURN_TRIES):
+                replace_midturn(name, mark, {**mark, "tries": waited})
+                continue
+        elif session and not session.get("exited"):
             wait = at + INBOX_WARMUP - time.time()
             if wait > 0:
                 time.sleep(min(wait, INBOX_WARMUP))   # the TUI has to be listening first

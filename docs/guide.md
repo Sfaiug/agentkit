@@ -327,8 +327,7 @@ any finished one; a resume of it begun before the stop stands down. After a rebo
 back Claude and Codex seats with proven conversations that still owe work, once per boot, but none you closed: one
 that died in a turn or asking you, or with an open plan line, an undecided or going run of its own or an unanswered
 question; the rest stay down and reopen with their number. Runs resume as before. The tick tells one that died
-mid-turn to continue it, as a run is, over at most three ticks, so it reads `working`, unless you prompted or renamed it --
-a seat whose harness takes a first prompt (`[launch] first_prompt`) opens on that line, as one moved to another subscription or model opens on its own, and nothing is typed unless no prompt came of it in three ticks --
+mid-turn to continue it, as a run is, over at most three ticks, so it reads `working`, unless you prompted or renamed it,
 and tells one that was asking you, in a turn or not, by its question on screen or its own unanswered `ak notify needs`,
 to ask it again once it rests at its prompt with nothing running, asked or typed there.
 
@@ -443,7 +442,7 @@ time, with its cheapest turn (`haiku`, one word, no tools, no saved conversation
 `interactive` is where the rulebook goes: a launch has written the file already, in its own process, and names it in `$AGENTKIT_RULEBOOK`; without one, `python3 tools/rulebook.py "$AGENTKIT_SESSION"` writes it and prints its path (`rb=${AGENTKIT_RULEBOOK:-$(python3 …)}`),
 and the command line hands it to the harness, adding no instructions of its own, so an orchestrator behaves one way
 whatever runs it. Anything else the launch writes goes beside that path, so a dry run's is thrown away with it. What a harness must check before its pane is replaced is its plugin's `checked`: the launch runs it in its own process and tells the adapter in the environment, so `interactive` starts no Python for it (Claude's settings, `$AGENTKIT_CLAUDE_CHECKED`). A
-variable the seat's launch sets goes under `[launch] seat_env`, and the core drops it from child environments. A harness that takes a first prompt on its command line, for a new conversation and a resumed one alike, gets the text of a non-empty `$AGENTKIT_FIRST_PROMPT` there as one single-quoted word, and its manifest says `[launch] first_prompt = true`; any other adapter ignores the variable. A relaunch's line goes in as that first prompt where the manifest says so (`orch.takes_line`), nothing typed. What the
+variable the seat's launch sets goes under `[launch] seat_env`, and the core drops it from child environments. A harness that takes a first prompt on its command line, for a new conversation and a resumed one alike, gets the text of a non-empty `$AGENTKIT_FIRST_PROMPT` there as one single-quoted word, and its manifest says `[launch] first_prompt = true`; any other adapter ignores the variable. What the
 harness runs as besides its `[update] version` program, such as Muse's `muse-bin-<build>`, is named under `[launch] programs`: a tmux session made by hand is a seat only while one of those runs in it.
 
 The manifest names `[worker] state`, the directories keeping its login and sessions (empty if none), and `logins`, credential files and locks that may be lent as symlinks: their targets allow refresh too. Paths accept `~/`, `$VARIABLE` and `${VARIABLE:-default}`; an unset or empty variable with no default skips that path. Include its environment overrides, account directories and shared session stores; ak creates missing state directories and linked login files or locks before the turn. Everything else is data: `[check]` (contract model and effort), `[update]` (version, upgrade, revert, latest commands), `[usage]` flags,
