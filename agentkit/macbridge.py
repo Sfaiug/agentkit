@@ -83,7 +83,7 @@ def fetch_one(value, timeout):
     missing = root / "inbox" / f"{ident}.missing"
     ready = root / "inbox" / f".{ident}.ready"
     error = root / "inbox" / f".{ident}.error"
-    delivered = False
+    delivered = None
     try:
         temp.write_text(json.dumps({"path": path, "basename": basename(path)}) + "\n")
         temp.replace(request)
@@ -95,7 +95,7 @@ def fetch_one(value, timeout):
             # .missing is also a legal file extension. The Mac publishes a receipt first
             # for that case, so even an empty file can be distinguished from a failure.
             if dest.is_file() and (dest != missing or ready.exists()):
-                delivered = True
+                delivered = dest
                 return str(dest)
             if missing.exists():
                 raise config.Error(f"the Mac no longer has that file: {path}")
@@ -111,7 +111,7 @@ def fetch_one(value, timeout):
         ready.unlink(missing_ok=True)
         error.unlink(missing_ok=True)
         # A delivered file may itself be named <ident>.missing.
-        if not delivered:
+        if missing != delivered:
             missing.unlink(missing_ok=True)
 
 
