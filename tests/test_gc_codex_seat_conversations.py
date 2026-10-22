@@ -103,6 +103,13 @@ class GcCodexSeats(Sandbox):
         seat["remove_home"](self.open_home)
         self.assertFalse(self.open_home.exists() or codex.seat_conversations(OPEN).exists())
 
+    def test_a_seat_folder_reached_through_a_link_keeps_what_it_leads_to(self):
+        kept = self.root / "elsewhere/empty"
+        kept.mkdir(parents=True)
+        codex.seat_conversations(CLOSED).symlink_to(kept.parent, target_is_directory=True)
+        codex.drop_closed_seat(CLOSED)
+        self.assertTrue(kept.is_dir())
+
 
 if __name__ == "__main__":
     unittest.main()

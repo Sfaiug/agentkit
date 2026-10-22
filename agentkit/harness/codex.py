@@ -626,10 +626,12 @@ def end_conversation(path, ends):
 def drop_closed_seat(remote):
     """Every empty folder of a seat whose home is gone, bottom up, so its own goes once it holds
     no rollout: nothing indexes or reads it any more.  Asked as the home goes and as each of its
-    rollouts does."""
-    if os.path.lexists(remote_home(remote)):
+    rollouts does.  Never one reached through a link, whose folders are somebody else's."""
+    from .. import retention
+    folder = seat_conversations(remote)
+    if os.path.lexists(remote_home(remote)) or not retention.safe(folder):
         return
-    for directory, _, _ in os.walk(seat_conversations(remote), topdown=False):
+    for directory, _, _ in os.walk(folder, topdown=False):
         with contextlib.suppress(OSError):
             os.rmdir(directory)
 
