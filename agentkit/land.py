@@ -362,6 +362,7 @@ def check_line(turn, log=lambda _: None):
                 continue
             if target is None:
                 repo = Path(state.get("worktree") or state["repo"])
+                gitcall.no_auto_gc(repo)
                 # The repository's machine-side settings, as a run's own checks get them.
                 os.environ.update(config.repo_env(Path(state["repo"])))
                 upstream = state.get("target") or state["base"]

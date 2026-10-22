@@ -52,7 +52,7 @@ class NewSeatsMarks(Sandbox):
 
     def test_a_flip_is_the_defaults_and_no_seat_changes(self):
         drawn = self.screen("enter")            # the first model's orchestrator mark: fable's
-        self.assertIn("agentkit · config · new seats", drawn)
+        self.assertIn("For new seats", drawn)       # terminal.plain: one space
         self.screen("right", "down", "down", "down", "enter")    # spark builds
         defaults = config.load()["defaults"]
         self.assertEqual((defaults["orchestrator"], defaults["workers"]),
