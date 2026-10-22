@@ -107,7 +107,7 @@ class GcCodexSeats(Sandbox):
         kept = self.root / "elsewhere/empty"
         kept.mkdir(parents=True)
         codex.seat_conversations(CLOSED).symlink_to(kept.parent, target_is_directory=True)
-        codex.drop_closed_seat(CLOSED)
+        codex.drop_closed_seat(codex.remote_home(CLOSED))
         self.assertTrue(kept.is_dir())
 
 

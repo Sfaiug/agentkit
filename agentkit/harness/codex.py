@@ -620,16 +620,17 @@ def end_conversation(path, ends):
                        env=env, check=True)
     elif not os.path.lexists(home):
         path.unlink()
-        drop_closed_seat(remote)
+        drop_closed_seat(home)
 
 
-def drop_closed_seat(remote):
-    """Every empty folder of a seat whose home is gone, bottom up, so its own goes once it holds
-    no rollout: nothing indexes or reads it any more.  Asked as the home goes and as each of its
-    rollouts does.  Never one reached through a link, whose folders are somebody else's."""
+def drop_closed_seat(home):
+    """Every empty folder of the seat whose home (`remote_home`) is gone, bottom up, so its own
+    goes once it holds no rollout: nothing indexes or reads it any more.  Asked as the home goes
+    and as each of its rollouts does.  Never one reached through a link, whose folders are
+    somebody else's."""
     from .. import retention
-    folder = seat_conversations(remote)
-    if os.path.lexists(remote_home(remote)) or not retention.safe(folder):
+    folder = seat_conversations(home.name.removeprefix(remote_home("").name))
+    if os.path.lexists(home) or not retention.safe(folder):
         return
     for directory, _, _ in os.walk(folder, topdown=False):
         with contextlib.suppress(OSError):

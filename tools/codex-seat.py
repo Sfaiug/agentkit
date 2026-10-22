@@ -249,7 +249,7 @@ def remove_home(home):
         remote_request(entry["auth"], environment, "DELETE")
         close_pairing(environment, "Closed")
     shutil.rmtree(home, ignore_errors=True)
-    drop_closed_seat(home.name.removeprefix("codex-remote-"))
+    drop_closed_seat(home)
     home.with_suffix(".forgotten").unlink(missing_ok=True)
     home.with_suffix(".lock").unlink(missing_ok=True)
 
