@@ -342,7 +342,7 @@ def held(launched, payload):
     blocks = record.get("blocks")
     blocks = blocks + 1 if isinstance(blocks, int) and not isinstance(blocks, bool) else 1
     if blocks > LIMIT:
-        if not undecided and not asked:
+        if not ends and not undecided:
             asked_owner(seat, last_message(payload))
         return ""    # the third stop stands: the owner is paged with what the seat is stuck on
     latched(latch, {**record, "session": launched, "turn": turn, "blocks": blocks})
