@@ -47,6 +47,7 @@ from urllib.parse import urlsplit
 from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, host, notify,
                orch, seat_tokens, staffing, statusbar, transitions, turns, update, usage, worker)
 from . import record as run_record
+from . import terminal as terminal_mod
 from .harness import LIMITED, SPENT, says
 from .lifecycle import LIVE, facts as hook_facts, state as hook_state
 
@@ -2365,7 +2366,6 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     """
     from . import menu as menu_mod    # here, not at the top: the menu imports this module
     from . import run as run_mod
-    from . import terminal as terminal_mod
     at = time.time() if now is None else now
     if session is None:
         session = next((s for s in orch.listing(reconcile=False) if s["name"] == name),
@@ -3284,6 +3284,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     withholding that Enter would leave a draft the caller cannot recover, or let a retry
     append the same text to itself.
     """
+    text = terminal_mod.plain(text, spaced=True)    # a typed escape or newline is a key, not text
     try:
         seat = dict(session, name=config.resolve_session(session["name"]))
     except (config.Error, OSError):
@@ -3927,6 +3928,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     answer, which only the owner's own prompt gives (`notify.progress`).
     """
     session = pinned(session)
+    text = terminal_mod.plain(text, spaced=True)    # as `type_checked` types it: marks match
     mark = {"line": text, "seat": session.get("created")}
     if isinstance(typed, dict) and typed.get("pane") and typed == dict(mark, pane=typed["pane"]):
         return _line_left(dict(session, pane=typed["pane"]), text, log, cfg, stale)
