@@ -156,7 +156,7 @@ def ways_out(state, run_dir):
 
 
 def cmd_clean(argv):
-    if len(argv) != 1:
+    if len(argv) != 1 or Path(argv[0]).name != argv[0] or argv[0] in (".", ".."):
         raise config.Error("usage: ak run clean <runid>")
     run_dir = config.RUNS / argv[0]
     if not (run_dir / "run.json").exists():
