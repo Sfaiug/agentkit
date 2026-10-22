@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, history, record, roundloop, run, task as taskfile, turns
+from agentkit import config, gate, history, record, roundloop, run, task as taskfile, turns
 
 
 class BaseFollowsWorkerRebase(Sandbox):
@@ -32,9 +32,10 @@ class BaseFollowsWorkerRebase(Sandbox):
         self.git("checkout", "-qb", "fix-api")
         self.write({"api.py": "a\nb\n"}, "Change")
         # another change lands on the target after the launch, larger than a first review takes
+        # and with prose a branch may not add
         self.git("checkout", "-q", "main")
-        self.write({"other.py": "".join(f"o{k} = {k}\n" for k in range(taskfile.MAX_PR_LINES))},
-                   "Elsewhere")
+        self.write({"other.py": "".join(f"o{k} = {k}\n" for k in range(taskfile.MAX_PR_LINES)),
+                    "notes.md": "target text\n"}, "Elsewhere")
         self.tip = self.git("rev-parse", "HEAD")
         self.git("update-ref", "refs/remotes/origin/main", self.tip)
         self.git("checkout", "-q", "fix-api")
@@ -63,17 +64,19 @@ class BaseFollowsWorkerRebase(Sandbox):
                       "# Fix the API", ["true"], "Do the task.")
 
         def build(*_args):
+            lp.round_dir.mkdir(parents=True, exist_ok=True)
             self.git(*integrate)
             (self.repo / "new.py").write_text("n = 1\n")
             return "built"
         with patch.object(roundloop, "execute", side_effect=build), \
                 patch.object(run, "pickup_new_code", return_value=None), \
-                patch.object(roundloop, "verify_work", return_value=(True, "$ true\n[exit 0]")), \
+                patch.object(gate, "run_done_when", return_value=(True, "$ true\n[exit 0]")), \
                 patch.object(roundloop, "review", return_value="PASS") as review:
             try:
                 run.rounds(lp)
             except turns.Blocked as blocked:
                 self.fail(f"the target's own lines were counted as the branch's: {blocked}")
+        self.assertTrue(review.call_args.args[2], review.call_args.args[3])
         return review.call_count, lp.state, history.get(run_id)["first_review_lines"]
 
     def test_a_branch_rebased_onto_a_newer_tip_counts_only_its_own_lines(self):
