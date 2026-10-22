@@ -240,9 +240,11 @@ class LanderLifecycle(unittest.TestCase):
             return {directory: {"land": "tree"}}
 
         with (patch.object(run, "fetch"), patch.object(run, "git", return_value="target"),
+              patch.object(land.gitcall, "no_auto_gc") as prepare,
               patch.object(land, "_check_members", side_effect=stop),
               patch.object(watch, "launch_resume") as wake):
             land.check_line(self.turn)
+        prepare.assert_called_once_with(self.root / "acme")
         self.assertEqual(record.read_state(directory)["state"], "stopped")
         self.assertEqual(land.line(self.turn), [])
         wake.assert_not_called()
