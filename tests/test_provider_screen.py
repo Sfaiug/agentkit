@@ -84,8 +84,7 @@ provider = "anthropic"
 mode = "subscription"
 """
 SHIPPED = tomllib.loads((REPO / "config.default.toml").read_text())
-# `c` from a heading, new seats' marks over the efforts
-MATRIX, ADD = "agentkit · config · new seats", "agentkit · config · add a provider"
+MATRIX, ADD = "agentkit · config", "agentkit · config · add a provider"
 KEYS = {"row": "  ↑↓ move   ⏎ open   esc back", "add": "  ↑↓ move   ⏎ add   esc back",
         "choose": "  ↑↓ move   ⏎ choose   esc back", "ask": "  esc back"}
 GIVE, TAKE = "\x1b[?1049l", "\x1b[?1049h"
@@ -117,7 +116,7 @@ def open_meter(screen, name):
     """↑ onto `name`'s meter over the page, ↓ back if past it: the screen with it lit."""
     lines = screen.frame()
     for key in [UP] * 20 + [DOWN] * 10:
-        if lines[headings(lines) - 1].strip().startswith(name + "  "):
+        if lines[headings(lines) - 2].strip().startswith(name + "  "):    # over the For line
             screen.case.assertEqual(lines[-1], KEYS["row"])
             return lines
         lines = screen.press(key)
@@ -227,8 +226,8 @@ class ProviderScreen(unittest.TestCase):
         screen = Screen(self, child=CHILD)
         before = screen.path.read_bytes()
         # ↑ past the first model lights the last meter, its line under the meters
-        lines = screen.press(UP, lambda lines: lines[headings(lines) - 1].strip())
-        name = lines[headings(lines) - 1].split()[0]
+        lines = screen.press(UP, lambda lines: lines[headings(lines) - 2].strip())
+        name = lines[headings(lines) - 2].split()[0]
         self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   esc back")
         # `− remove` is all it offers, so it asks at once, and Enter keeps
         asked = screen.press(ENTER, lambda lines: lines[-1] == KEYS["ask"])
