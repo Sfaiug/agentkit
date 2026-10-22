@@ -1020,7 +1020,10 @@ def keep_current(log, now=None):
     `background`, one at a time.  A failed gate has put the harness back and said so; that
     release is started again once `RETRY_AFTER` has passed since its last start, and a newer
     one at once. Its second red gate is handed back once until its gates pass, retrying
-    delivery on later ticks while no seat can receive it.
+    delivery on later ticks while no seat can receive it.  A checkout that is somebody's work
+    (`left_as_is`) holds it, unstarted, until an ask finds it main again: its gates test that
+    checkout, and refused a half-moved ~/agentkit, a red that reverted a harness for nothing it
+    did.
     """
     if agentkit_dir().resolve() != config.REPO:
         return
@@ -1062,9 +1065,14 @@ def keep_current(log, now=None):
         # behind: both name a release, and the installed one is the lower
         go = bool(installed) and _downgrade(newest, installed) and (
             entry.get("tried") != newest or now - entry.get("started", 0) >= RETRY_AFTER)
-        asked[name] = {**entry, "asked": now, **({"tried": newest, "started": now} if go else {})}
+        held = go and left_as_is()
+        asked[name] = {**entry, "asked": now,
+                       **({"tried": newest, "started": now} if go and not held else {})}
         record.write_text(json.dumps(asked))
-        if go:
+        if held:
+            log(f"{name} {_release(installed)} is behind {newest}: upgraded once "
+                f"{agentkit_dir()} is main as origin left it, not {held}: its gates test it")
+        elif go:
             log(f"{name} {_release(installed)} is behind {newest}: upgrading it in the background")
             start(name)
             return
