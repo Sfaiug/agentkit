@@ -65,7 +65,7 @@ def slot_order(state):
             state.get("run_id") or "")
 
 
-CPU_PRESSURE_LIMIT = 40   # ak's own processes are stalled on CPU nearly half the time
+CPU_PRESSURE_LIMIT = 40   # runs are stalled on CPU nearly half the time
 MEMORY_PRESSURE_LIMIT = 10   # ... on memory a tenth of it: pages back from swap stall far less
 
 
@@ -84,6 +84,10 @@ def _pct(value):
     return "?" if value is None else f"{value:g}%"
 
 
+def _run_readings():
+    return host.host_readings(slice_dir=orch.slice_cgroup, cpu_dir=orch.run_slice_cgroup)
+
+
 def host_status_line():
     """The host-admission header at the top of human ``ak run status`` output.
 
@@ -91,9 +95,9 @@ def host_status_line():
     an explicit `max_gates` pins them or the slice's headroom derives them.  A
     positive `max_runs` is a gate like the other two, so the first line names it:
     `at most 4 runs at once`.  A pinned `max_load` keeps the old load wording;
-    otherwise the CPU gate is the slice's own pressure.
+    otherwise the CPU gate is the runs slice's pressure.
     """
-    readings = host.host_readings(slice_dir=orch.slice_cgroup)
+    readings = _run_readings()
     minimum, maximum = resource_limits(readings)
     cpus = host._reading(readings, "cpus", "nproc") or 1
     gates = []
@@ -106,9 +110,9 @@ def host_status_line():
                     "a run is admitted (host memory and load gates off)")
         signal = f"load {_load(host._reading(readings, 'load', 'load1'))}"
     else:
-        gates.append(f"ak cpu ≤ {CPU_PRESSURE_LIMIT}%")
+        gates.append(f"runs cpu ≤ {CPU_PRESSURE_LIMIT}%")
         admitted = "a run is admitted while " + " and ".join(gates)
-        signal = f"ak cpu {_pct(host._reading(readings, 'slice_cpu_pressure'))}"
+        signal = f"runs cpu {_pct(host._reading(readings, 'slice_cpu_pressure'))}"
     try:
         limit = config.max_runs()
     except config.Error:
@@ -243,14 +247,14 @@ def slot_note(state):
 
 
 def _slice_cpu_reason(readings):
-    """(reason, kind) while ak's own slice is CPU-saturated, else (None, None).
+    """(reason, kind) while the runs slice is CPU-saturated, else (None, None).
 
     Unreadable fails open with the rest: a host that cannot answer must not
     queue every run forever.
     """
     pressure = host._reading(readings, "slice_cpu_pressure")
     if pressure is not None and pressure > CPU_PRESSURE_LIMIT:
-        return (f"waiting for ak's CPU · pressure {pressure:g}%, "
+        return (f"waiting for runs' CPU · pressure {pressure:g}%, "
                 f"limit {CPU_PRESSURE_LIMIT}%", "cpu")
     return None, None
 
@@ -292,7 +296,7 @@ def _wait_reason(readings, minimum, maximum, frozen=0):
 
 def _host_admits(state, readings, is_first):
     """The host gates and two steady polls: False, the wait written on `state`, while one holds."""
-    readings = host.host_readings(slice_dir=orch.slice_cgroup) if readings is None else readings
+    readings = _run_readings() if readings is None else readings
     minimum, maximum = resource_limits(readings)
     if is_first:
         maximum = 0
@@ -307,7 +311,7 @@ def _host_admits(state, readings, is_first):
             frozen = frozen_runs(state)
         reason, kind = _wait_reason(readings, minimum, maximum, frozen)
     else:
-        # The slice's own pressure gates now; the host load goes unread.
+        # Seats yield to runs, so only the runs slice's pressure gates CPU.
         reason, kind = _wait_reason(readings, minimum, 0)
         if reason is None and not is_first:
             reason, kind = _slice_cpu_reason(readings)
@@ -334,7 +338,7 @@ def _host_admits(state, readings, is_first):
             pressure = host._reading(readings, "slice_cpu_pressure")
             state["slot_wait_reason"] = (
                 f"waiting for steady readings · {host._g(free)} G free, "
-                f"ak cpu pressure {_pct(pressure)}")
+                f"runs cpu pressure {_pct(pressure)}")
         return False
     return True
 
@@ -760,10 +764,10 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
                         job_mem_mb=HEAVY_MEM_MB, *, unit=False):
     """Running suites plus how many more the live headroom fits; at least one.
 
-    The slice's idle cores over one suite's 0.7, and its free memory over 0.4 GB,
+    The runs slice's idle cores over one suite's 0.7, and free memory over 0.4 GB,
     whichever fits fewer.  Headroom already excludes running suites, so add
     them once; a saturated slice starts one only when none run.  Both come
-    off the slice's own cgroup -- its CPU room and the slice's memory headroom --
+    from the runs' CPU room and the parent slice's shared memory headroom,
     which a shell beside the slice reads like a worker inside it; the host's CPU
     use outside the slice takes from the cores the slice may use.  Where
     no slice answers, the host's idle cores and free memory stand in.  An
@@ -775,7 +779,7 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     if running is None:
         running = _heavy_running()
     if readings is None:
-        readings = host.host_readings(slice_dir=orch.slice_cgroup)
+        readings = _run_readings()
     cpu_quota = host._reading(readings, "slice_cpu_quota")
     cpus = host._reading(readings, "cpus", "nproc")
     used = host._reading(readings, "slice_cpu_used")
@@ -868,9 +872,9 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                     log(f"done-when: {exc} · the heavy suite takes a derived turn")
                 pinned = None
             # CPU sampling sleeps; locking free slots across it would count them as running.
-            readings = host.host_readings(slice_dir=orch.slice_cgroup) if pinned is None else None
+            readings = _run_readings() if pinned is None else None
             # At the top CPU weight (the line's checker) the use lower-weighted runs hold is its own.
-            kept = host.kept_cpu(orch.slice_cgroup()) if pinned is None else None
+            kept = host.kept_cpu(orch.run_slice_cgroup()) if pinned is None else None
             if kept is not None:
                 readings = {**readings, "slice_cpu_used": kept}
             total = max(1, _heavy_max_existing() + 1, len(slots))
