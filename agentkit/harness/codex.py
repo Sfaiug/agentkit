@@ -51,6 +51,44 @@ BEGIN = "# --- agentkit browser bridge: managed by `ak browser mcp-register` ---
 END = "# --- end agentkit browser bridge ---"
 
 
+def token_counts(run_dir):
+    """Kept Codex turns as (events file, thread total, turn spend), in reporting order."""
+    from .. import history
+
+    previous = {}
+    for path in history.event_paths(run_dir):
+        thread = None
+        try:
+            with path.open(errors="replace") as source:
+                for line in source:
+                    try:
+                        event = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(event, dict) and event.get("type") == "thread.started":
+                        thread = event.get("thread_id")
+                        break
+        except OSError:
+            continue
+        if not isinstance(thread, str) or not thread:
+            continue
+        total = history.event_tokens(path)
+        if total is not None:
+            spent = max(0, total - previous.get(thread, 0))
+            previous[thread] = total
+            yield path, total, spent
+
+
+def tokens(out):
+    """Codex reports the thread's running total; only its increase belongs to this turn."""
+    from .. import history
+    events = Path(out) / "events.jsonl"
+    for path, _, spent in token_counts(events.parent.parent.parent):
+        if path == events:
+            return spent
+    return history.event_tokens(events)
+
+
 def seat_conversations(remote):
     """Where the seat of that remote id keeps its conversations: under the usual ~/.codex, where
     adapters/codex.sh keeps every login's, so the place is the same whichever login the seat
