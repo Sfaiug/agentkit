@@ -698,9 +698,9 @@ def _ensure_migrated():
     database that cannot be migrated -- read-only, missing -- is left alone, and
     the read that asked goes on to fail soft as it always has.
     """
-    if not path().exists():
-        return
     try:
+        if not path().exists():
+            return
         with _writing():
             _connect().close()
     except (OSError, sqlite3.Error, TypeError, ValueError):

@@ -1,5 +1,6 @@
 """Offline: Codex's running thread totals buy each token once, including old history."""
 
+from contextlib import closing
 import json
 import os
 from pathlib import Path
@@ -105,7 +106,7 @@ class CodexTokens(unittest.TestCase):
             self.turn(number, counts)
         # Mixed harnesses in one role: only the proven duplication may be removed.
         old = sum(sum(counts) for counts in TOTALS) + 123
-        with sqlite3.connect(history.path()) as db:
+        with closing(sqlite3.connect(history.path())) as db, db:
             db.execute(history.SCHEMA)
             db.execute("PRAGMA user_version=1")
             for name in ("fix-api", "logs-gone"):
