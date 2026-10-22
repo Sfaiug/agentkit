@@ -1378,8 +1378,7 @@ def detail(cfg, info, room, now=None):
     if word == "out of usage":
         provider = provider_name(cfg, info["runs_on"][0]) if info.get("runs_on") else "Its model"
         when = back_at(info.get("back"))
-        said = (f"{provider} has no usage left until {when}." if when else said) + (
-            "" if info.get("go_on") else " No other model has any now.")
+        said = f"{provider} has no usage left until {when}." if when else said
     if said or word in ("needs you", "done", "out of usage"):
         return unsent + terminal.wrap(said, room)
     tasks = info.get("tasks") or []
@@ -1397,15 +1396,16 @@ GAP = "   "                       # between them, on a line both fit
 
 def choice_lines(info, room):
     """The choices under a seat out of usage's row (`detail`), with the keyboard or the pointer
-    on it: `✓ Wait for 19:20`, what happens unasked, and where a model has usage now,
+    on it, where another provider has usage now: `✓ Wait for 19:20`, what happens unasked, and
     `⇄ Go on now with gpt-6.1-sol`, which moves the seat and its conversation there.  Each drawn
     line in `room` cells, as its (text, choice) parts: both on one line where they fit, else
     each on lines of its own wrapped at words, so none runs past the edge of the screen and
-    away from where a click finds it (`choice_cells`).  [] for any other row."""
-    if info.get("word") != "out of usage" or not back_at(info.get("back")):
+    away from where a click finds it (`choice_cells`).  [] without an alternative or for any
+    other row."""
+    if (info.get("word") != "out of usage" or not info.get("go_on")
+            or not back_at(info.get("back"))):
         return []
-    said = [(choice_text(choice, info), choice) for choice in (WAIT, GO_ON)
-            if choice == WAIT or info.get("go_on")]
+    said = [(choice_text(choice, info), choice) for choice in (WAIT, GO_ON)]
     if terminal.cells(GAP.join(text for text, _ in said)) <= room:
         return [said]
     return [[(piece, choice)] for text, choice in said for piece in terminal.wrap(text, room)]

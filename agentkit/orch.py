@@ -169,11 +169,13 @@ def choose(cfg, providers):
 
 def going_on(cfg, current, providers):
     """The model a seat out of usage on `current` goes on with now, or None: the first in
-    `in_order`, other than `current`, whose harness is here and that has a window left -- none
+    `in_order` on another provider, whose harness is here and that has a window left -- none
     the move would refuse as spent (`_switch_plan`), and none on credits, which cost money a
     click to go on now never spends unasked (`switch_orchestrator`'s `credits`)."""
+    provider = config.model(cfg, current)["provider"]
     return next((name for name in in_order(cfg)
-                 if name != current and config.harness_present(config.model(cfg, name)["harness"])
+                 if config.model(cfg, name)["provider"] != provider
+                 and config.harness_present(config.model(cfg, name)["harness"])
                  and not usage.model_spent(cfg, name, providers)[0]
                  and not usage.spent_meter(cfg, name, providers)
                  and not usage.on_credits(cfg, name, providers)), None)
