@@ -3011,9 +3011,9 @@ def models_columns(grid, two):
             for n in range(max(len(left), len(right)))]
 
 
-def models_body(cfg, held, grid, at, column, picks, reading):
+def models_body(cfg, held, grid, at, picks, reading):
     """The models screen's lines, where its rows sit on them, {line: (row, cells)}, and the
-    model on each side of a line, {(row, side): (harness, model)}.
+    model on each side of a line, {(row, side): ("model", harness, model)}.
 
     A line per role: its head, the recommended row (`picks`, matrix.recommended) under the
     configured model `r` takes it as (takes), by its full name, its quality, what a task of
@@ -3024,8 +3024,9 @@ def models_body(cfg, held, grid, at, column, picks, reading):
     screen the rows as good give way first, then the cost): its mark, filled where it is
     assessed (matrix.assessed), its full name where the config runs it (config.model_name) or
     its id, and the id after a full name, dim, cut to the room its column leaves.  Under them how many are marked and when the
-    boards were last read, or that they are being read.  `at` is the highlighted row and
-    `column` its side; `cells` are the knob's text, arrows and all, and each model's, for a
+    boards were last read, or that they are being read.  `at` is the highlighted role or
+    knob, or the highlighted model as the grid's cell, ("model", harness, model), so the
+    highlight stays on its model wherever a layout puts it; `cells` are the knob's text, arrows and all, and each model's, for a
     click, counted from 1 as the terminal counts.
     """
     room, utf = terminal.layout_width(), terminal.utf8()
@@ -3089,17 +3090,17 @@ def models_body(cfg, held, grid, at, column, picks, reading):
                 label, said = labels[cell[1:]]
                 mark = full if cell[1:] in marks else empty
                 text = terminal.cut(f"{mark} {label}", wide)
-                text = terminal.styled(text, "reverse") if (at, column) == (("pair", number), side) else text
+                text = terminal.styled(text, "reverse") if at == cell else text
                 rest = wide - terminal.cells(text) - 2
                 texts.append(text + ("  " + terminal.styled(terminal.cut(said, rest), "dim")
                                      if said and rest > 0 else ""))
                 # to the next column or the screen's edge, so the pointer past a short name is on it
                 cells.append((start + 1, start + wide + 1 if two and not side else room, side))
-                models[("pair", number), side] = cell[1:]
+                models[("pair", number), side] = cell
         if cells:
             places[len(lines)] = (("pair", number), cells)
         line = "  " + terminal.pad(texts[0], wide) + ("  " + texts[1] if texts[1] else "")
-        lines.append(terminal.highlight(line.rstrip()) if at == ("pair", number) else line.rstrip())
+        lines.append(terminal.highlight(line.rstrip()) if at in pair else line.rstrip())
     lines.append("")
     when = min((board["fetched_at"] for board in (held.get("boards") or {}).values()
                 if board.get("fetched_at")), default=None)
@@ -3151,7 +3152,8 @@ def models_screen(cfg, session, selected, providers):
     here, column, top, note, title = ("role", next(iter(matrix.ROLES))), 0, 0, "", f"models · {session}"
     clock = motion.Clock(page=True)
     while True:
-        chosen = models.get((here, column))     # the model highlighted, kept through a new layout
+        # the model highlighted, drawn and kept wherever a new layout puts it
+        chosen = models.get((here, column))
         reading = fetch is not None and fetch.is_alive()
         if fetch is not None and not reading:
             try:
@@ -3165,8 +3167,9 @@ def models_screen(cfg, session, selected, providers):
         where = "knob" if here == KNOB else "pair" if here[0] == "pair" else "role"
         keys = (MODELS_KEYS["model" if where == "pair" else where][0 if terminal.utf8() else 1]
                 + f"   {MODELS_TAKE}   esc back")
-        body, places, models = models_body(cfg, held, grid, None if terminal.away() else here,
-                                           column, picks, reading)
+        body, places, models = models_body(cfg, held, grid,
+                                           None if terminal.away() else chosen or here,
+                                           picks, reading)
         rows = list(dict.fromkeys(row for row, _ in places.values()))
         sides = {row: [cell[2] for cell in cells] for row, cells in places.values()}
         here, column = next((at for at, model in models.items() if model == chosen),
@@ -3193,7 +3196,7 @@ def models_screen(cfg, session, selected, providers):
             if act in ("left", "right"):
                 column = next((side for side in sides[here] if side != column), column)
             elif act in ("enter", " ") or isinstance(act, int):
-                note = config_assess(cfg, *models[here, column])
+                note = config_assess(cfg, *models[here, column][1:])
 
 
 def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=None, subs=(),

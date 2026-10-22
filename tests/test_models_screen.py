@@ -205,6 +205,23 @@ class ModelsScreen(Screen):
         self.assertEqual(matrix.assessed(config.load()),
                          matrix.assessed(self.cfg) - {("grokbuild", "grok-4.6")})
 
+    def test_a_resize_to_one_column_draws_the_highlight_on_its_model(self):
+        drawn, narrowed = io.StringIO(), []
+
+        def keys():   # mimo-pro, on the right of opus at 100 cells, then 40: under spark's harness
+            yield from self.keys(*[Key("down")] * 4, Key("right"))
+            terminal.layout_width.return_value = 40
+            narrowed.append(drawn.tell())
+            yield from (Key("resize"), Key("char", " "), Key("esc"), Key("esc"))
+        with patch.object(terminal, "read_key", side_effect=keys()), redirect_stdout(drawn), \
+                patch.object(terminal, "layout_width", return_value=100):
+            menu.show_config(False, Keyboard(), "fix-api")
+        lit = [line for line in map(terminal.plain, drawn.getvalue()[narrowed[0]:].splitlines())
+               if line.startswith("›")]
+        self.assertTrue(lit and "mimo-pro" in lit[0], lit)
+        self.assertEqual(matrix.assessed(config.load()),
+                         matrix.assessed(self.cfg) | {("opencode", "mimo-pro")})
+
     def test_a_long_recommended_name_is_cut_to_a_phone(self):
         long_id = "acme/" + "long-model-name-" * 4
         self.cfg["models"]["opus"]["model"] = long_id
