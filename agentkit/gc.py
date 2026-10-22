@@ -808,6 +808,70 @@ def gc_due():
     return not (type(at) in (int, float) and now - GC_INTERVAL < at <= now)
 
 
+def git_busy_paths():
+    """A fresh reading of repository users, including writers reached through absolute paths."""
+    states = [record.read_state(directory) or {} for directory in record.run_dirs()]
+    seats = [seat for seat in orch.sessions() if not seat.get("exited")]
+    # Only this user's processes can be ak's. Unknown ones cannot prove a repository idle.
+    processes, hidden = proc_snapshot.collect(
+        proc for proc in retention.process_dirs() if proc.stat().st_uid == os.getuid())
+    if hidden:
+        return None
+    # Entry-point arguments identify the program, not the repository it works on.
+    paths = {path for pid, row in processes.items() if pid != os.getpid()
+             for path in (row["cwd"], *row.get("open_paths", set(row["paths"]) - set(row["args"])))}
+    for state in states:
+        line = (state.get("waiting_on") or {}).get("line")
+        lander = land.passes(config.RUNS / line) if line else {}
+        if retention.writer_active(state) or retention.writer_active(lander):
+            paths.update(state[key] for key in ("repo", "worktree") if state.get(key))
+    paths.update(seat["path"] for seat in seats if seat.get("path"))
+    return paths
+
+
+def git_housekeeping(log):
+    """Collect idle repositories in the foreground; busy ones wait only until the next tick."""
+    states = [record.read_state(directory) or {} for directory in record.run_dirs()]
+    seats = [seat for seat in orch.sessions() if not seat.get("exited")]
+    repos = {*orch.checkouts(), *(Path(state["repo"]) for state in states if state.get("repo")),
+             *(Path(seat["path"]) for seat in seats if seat.get("path"))}
+    seen = set()
+    for repo in sorted(repos):
+        dirs = orch.git_dirs(repo)
+        if not dirs or dirs[0] in seen:
+            continue
+        common = dirs[0]
+        seen.add(common)
+        try:
+            gitcall.no_auto_gc(repo)
+            with gitcall.repository_lock(repo, exclusive=True):
+                mark, now = common / "ak-gc", time.time()
+                try:
+                    at = float(mark.read_text())
+                except (OSError, ValueError):
+                    at = None
+                if at is not None and now - GC_INTERVAL < at <= now:
+                    continue
+                paths = git_busy_paths()
+                code, listed = orch.git_in(repo, "worktree", "list", "--porcelain", "-z")
+                trees = [Path(os.fsdecode(field[9:])) for field in listed.split(b"\0")
+                         if field.startswith(b"worktree ")]
+                if code or not trees or any(retention.busy(tree, paths) for tree in trees):
+                    continue
+                # Mark attempts too: a failed gc must not run on every three-minute tick.
+                mark.write_text(f"{now}\n")
+                result = subprocess.run(["git", "-C", str(repo), "gc"], stdin=subprocess.DEVNULL,
+                                        capture_output=True,
+                                        env={key: value for key, value in config.child_env().items()
+                                             if not key.startswith("GIT_")})
+                log(f"git gc: {repo}" if result.returncode == 0
+                    else f"WARN git gc failed in {repo} (exit {result.returncode})")
+        except BlockingIOError:
+            continue
+        except (OSError, config.Error) as exc:
+            log(f"WARN git gc could not run in {repo}: {exc}")
+
+
 def schedule_gc(log):
     """Keep filesystem scans off the menu and health tick; concurrent workers share a lock."""
     # Do not repeatedly spawn a collector on platforms/filesystems where its read-only
