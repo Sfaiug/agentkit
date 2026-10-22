@@ -95,7 +95,7 @@ class ChangeInsideFiles(unittest.TestCase):
         cls.addClassCleanup(cls.home.close)
         rig = Rig(cls.home, "widgets")
         cls.done, cls.run_dir, cls.state, _ = launch(
-            cls.home, rig, wrote("src/a.txt", "docs/guide/b.md", "lib/c.txt"),
+            cls.home, rig, wrote("src/a.txt", "docs/guide/b.txt", "lib/c.txt"),
             {"files": SPECS}, "--no-merge", done_when=("test -f src/a.txt",))
 
     def test_the_round_passes_with_no_path_named(self):
@@ -115,7 +115,7 @@ class ChangeBothSides(unittest.TestCase):
         cls.addClassCleanup(cls.home.close)
         rig = Rig(cls.home, "widgets")
         cls.done, cls.run_dir, cls.state, _ = launch(
-            cls.home, rig, wrote("src/a.txt", "z.txt", "docs/b.md", "lib/c.txt.bak",
+            cls.home, rig, wrote("src/a.txt", "z.txt", "docs/b.txt", "lib/c.txt.bak",
                                  "lib/c.txt"), {"files": SPECS, "rounds": 1}, "--no-merge",
             done_when=("test -f src/a.txt",))
 
