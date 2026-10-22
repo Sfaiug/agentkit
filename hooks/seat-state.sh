@@ -48,12 +48,8 @@ watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None, sys.st
 }
 
 seat_state() {
-  local payload=$1 jq=$2 owner=$3 said=$4 seat event kind text ts dir tmp row next hop write
+  local payload=$1 jq=$2 owner=$3 said=$4 ts=$5 seat event kind text dir row next hop write
   seat=${AGENTKIT_SESSION:-}
-  [[ -n $seat ]] || return 0
-  [[ ${AK_RUN_ROLE:-} != worker ]] || return 0
-  # the seat's name is one component of a path here as it is everywhere else
-  case "$seat" in */*|.|..|"") return 0 ;; esac
 
   event=$("$jq" -r '.hook_event_name // empty' <<<"$payload" 2>/dev/null) || return 0
   [[ -n $event ]] || return 0
@@ -64,7 +60,9 @@ seat_state() {
       --hook "$PPID" <<<"$payload" || true
   fi
   [[ $event != SessionStart ]] || return 0
-  ts=$(/usr/bin/env python3 -c 'import time; print(time.time())' 2>/dev/null) || ts=$(/bin/date +%s)
+  if [[ -z $ts ]]; then
+    ts=$(/usr/bin/env python3 -c 'import time; print(time.time())' 2>/dev/null) || ts=$(/bin/date +%s)
+  fi
   # A Stop that hands over the background work in flight -- Claude Code's, Grok Build's -- is
   # written down by hooks/orchestrator-stop.sh, which runs beside this and is the one that knows
   # whether the turn ended there.  Written here too, it would read as the turn over until that
@@ -132,15 +130,6 @@ config.record_hook_fact(row, fact, kept)
 config.record_hook_fact(row, fact, kept)
 ' "${BASH_SOURCE[0]}" "$row" "$seat" "$event" "$kind" "$text" "$ts"
 
-  # A new prompt is a new turn: hooks/orchestrator-stop.sh judges that turn against this
-  # moment, and the two blocks it is allowed start again from zero here.
-  if [[ $event = UserPromptSubmit ]]; then
-    tmp="$dir/stop-$seat.json.tmp.$$"
-    "$jq" -n --arg session "$seat" --argjson turn "$ts" \
-      '{session: $session, turn: $turn, blocks: 0}' \
-      >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
-    /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
-  fi
   # The owner's word answers an older question, once the background look checks its pane --
   # and, for a prompt, the seat's conversation (`notify.answer_written`).  The launch name still
   # resolves after a rename; main leaves harness bookkeeping alone.
@@ -153,7 +142,10 @@ config.record_hook_fact(row, fact, kept)
 
 main() {
   umask 077
-  local payload=$1 jq event owner=true said=''
+  local payload=$1 jq event owner=true said='' ts='' seat=${AGENTKIT_SESSION:-} dir tmp
+  [[ ${AK_RUN_ROLE:-} != worker ]] || return 0
+  # The seat's name is one component of a path here as it is everywhere else.
+  case "$seat" in */*|.|..|"") return 0 ;; esac
   jq=$(command -v jq) || return 0
   event=$("$jq" -r '.hook_event_name // "Stop"' <<<"$payload" 2>/dev/null) || event=Stop
   # A sub-agent's own turn is not the seat's: written down, it would be a turn that never ends,
@@ -171,8 +163,18 @@ main() {
       <<<"$payload" >/dev/null 2>&1; then
     owner=false
   fi
-  # Capture the questions before seat_state starts the look that marks them answered.
+  # Record the turn before optional context imports or I/O can fail or time out. Keep the
+  # question fact standing until its context has been read: the watcher can answer it as soon
+  # as the prompt fact appears, even before this hook starts its own background look.
   if [[ $event = UserPromptSubmit ]]; then
+    ts=$(/usr/bin/env python3 -c 'import time; print(time.time())' 2>/dev/null) || ts=$(/bin/date +%s)
+    dir="$HOME/.agentkit/state"
+    /bin/mkdir -p -- "$dir" || return 0
+    tmp="$dir/stop-$seat.json.tmp.$$"
+    "$jq" -n --arg session "$seat" --argjson turn "$ts" \
+      '{session: $session, turn: $turn, blocks: 0}' \
+      >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
+    /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
     said=$("$jq" -r '[(.prompt // empty), (.message // empty)] | map(strings)
                      | first // ""' <<<"$payload" 2>/dev/null) || said=''
     news "$payload" "$owner" "$said"
@@ -185,7 +187,7 @@ main() {
       <<<"$payload" 2>/dev/null); then
     owner=false
   fi
-  seat_state "$payload" "$jq" "$owner" "$said" >/dev/null 2>&1
+  seat_state "$payload" "$jq" "$owner" "$said" "$ts" >/dev/null 2>&1
   # SessionStart first captures the conversation its harness vouches for.
   if [[ $event = SessionStart ]]; then
     news "$payload" "$owner" "$said"
