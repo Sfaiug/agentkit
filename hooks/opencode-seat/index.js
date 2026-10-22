@@ -13,11 +13,16 @@
 // What it reports, translated to the one protocol hooks/seat-state.sh speaks for every
 // harness (adapters/opencode.toml maps the names to states):
 //   session.inbox.enqueued where the item is a user message -> UserPromptSubmit, with its text
-//   session.execution.{succeeded,failed,interrupted}        -> Stop, with the session id
+//   session.execution.{succeeded,failed}                   -> Stop, with the session id
+//   session.execution.interrupted                         -> Interrupt, with the session id
 //   permission.asked                                         -> PermissionRequest, with the
 //     action as the kind (a seat opened with --auto is never asked, but the fact is wired
 //     for one opened without it)
 // session.renamed also restores ak's title below; deltas and config updates are ignored.
+//
+// And before the `question` tool opens its dialog, the gate hooks/orchestrator-stop.sh is asked
+// whether a finished seat's question is refused (`stop.question_refused`), as a PreToolUse hook
+// asks it: the reason it gives is thrown, which 2.1.1 hands the model as the tool's error.
 //
 // And the session the seat is talking in, for the seat to come back to: where a prompt goes in,
 // its id is written into this launch's receipt, the directory agentkit/harness/opencode.py
@@ -32,6 +37,8 @@ import { fileURLToPath } from "node:url";
 
 // The hook beside this plugin in the checkout, whatever directory the seat runs from.
 const SEAT_STATE = fileURLToPath(new URL("../seat-state.sh", import.meta.url));
+// The end-of-turn gate, which also answers whether the seat may ask.
+const GATE = fileURLToPath(new URL("../orchestrator-stop.sh", import.meta.url));
 // This launch's receipt, or none where the seat was not opened by agentkit.
 const RECEIPT = process.env.AGENTKIT_OPENCODE_RECEIPT || "";
 
@@ -45,6 +52,22 @@ function send(payload) {
       stdio: ["pipe", "ignore", "ignore"], timeout: 5000 });
   } catch {
     // The hook left before its fact arrived; nothing here re-sends one.
+  }
+}
+
+// Why the seat's question goes nowhere, or null where it may ask: the gate's PreToolUse answer,
+// in PreToolUse's spelling.  A gate that cannot answer lets the question through.
+export function refusal() {
+  try {
+    const run = spawnSync(GATE, [], {
+      input: JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "question" }),
+      encoding: "utf8", stdio: ["pipe", "pipe", "ignore"], timeout: 10000 });
+    const answer = JSON.parse(run.stdout || "null")?.hookSpecificOutput;
+    return answer?.permissionDecision === "deny"
+      && typeof answer.permissionDecisionReason === "string"
+      ? answer.permissionDecisionReason : null;
+  } catch {
+    return null;
   }
 }
 
@@ -150,8 +173,7 @@ async function own(ctx, sessionID) {
   }
 }
 
-// The fact one OpenCode event becomes, or null when the event is not one of the three
-// the seat reports.
+// The fact one OpenCode event becomes, or null when the seat does not report it.
 export function seatFact(event) {
   if (event === null || typeof event !== "object") return null;
   const data = event.data;
@@ -167,7 +189,8 @@ export function seatFact(event) {
     || event.type === "session.execution.failed"
     || event.type === "session.execution.interrupted")
     && typeof data.sessionID === "string") {
-    return { hook_event_name: "Stop", session_id: data.sessionID };
+    return { hook_event_name: event.type === "session.execution.interrupted" ? "Interrupt" : "Stop",
+      session_id: data.sessionID };
   }
   if (event.type === "permission.asked" && typeof data.action === "string") {
     const resources = Array.isArray(data.resources)
@@ -183,6 +206,14 @@ export default {
   async setup(ctx) {
     console.log("[agentkit.seat] reporting seat-state facts to hooks/seat-state.sh");
     const controller = new AbortController();
+    // A version with no tool hook asks as it always did.
+    const gate = Promise.resolve()
+      .then(() => ctx.tool.hook("execute.before", (call) => {
+        if (call?.tool !== "question") return;
+        const reason = refusal();
+        if (reason) throw new Error(reason);
+      }))
+      .catch(() => null);
     const syncTitle = titleSync(ctx);
     const timer = setInterval(syncTitle, 1000);
     timer.unref();
@@ -220,6 +251,10 @@ export default {
         // The stream ended, the server with it; the cleanup below runs on unload.
       }
     })();
-    return () => { clearInterval(timer); controller.abort(); };
+    return () => {
+      clearInterval(timer);
+      controller.abort();
+      gate.then((hook) => hook?.dispose?.()).catch(() => {});
+    };
   },
 };

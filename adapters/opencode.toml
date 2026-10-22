@@ -72,9 +72,9 @@ asking = "hooks"
 at_prompt = "hooks"
 
 # The names the seat plugin sends, translated from OpenCode 2.0.13's own event stream:
-# session.inbox.enqueued arrives as UserPromptSubmit, session.execution.{succeeded,failed,
-# interrupted} as Stop, and permission.asked as PermissionRequest.  The translation lives in
-# the plugin so that hooks/seat-state.sh keeps its one protocol for every harness.
+# session.inbox.enqueued arrives as UserPromptSubmit, session.execution.{succeeded,failed}
+# as Stop, session.execution.interrupted as Interrupt, and permission.asked as PermissionRequest.
+# The plugin translates them so hooks/seat-state.sh keeps its one protocol for every harness.
 [[hooks.event]]
 name = "UserPromptSubmit"
 state = "working"
@@ -82,6 +82,11 @@ state = "working"
 [[hooks.event]]
 name = "Stop"
 state = "at_prompt"
+
+[[hooks.event]]
+name = "Interrupt"
+state = "at_prompt"
+interrupt = true
 
 [[hooks.event]]
 name = "PermissionRequest"

@@ -1,6 +1,6 @@
 # Title
 
-<!-- One behaviour per task: at most 400 added lines with its tests, or ak refuses it with `split it`. -->
+<!-- One behaviour per task: at most 300 added lines with its tests, or ak refuses it with `split it`. -->
 ## Goal
 The outcome this task must achieve.
 1. First checkable point.

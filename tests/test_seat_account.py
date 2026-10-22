@@ -157,7 +157,8 @@ class SeatAccount(unittest.TestCase):
                          self.root / ".claude/projects")
         watch.continue_turns(self.cfg, self.logs.append, accounts=True)
         watch.continue_turns(self.cfg, self.logs.append, accounts=True)
-        self.assertEqual(self.typed, [watch.ACCOUNT_LINE])
+        # it opened on the line, Claude Code taking a first prompt: nothing is typed
+        self.assertEqual((self.typed, cmd[-1]), ([], watch.ACCOUNT_LINE))
         self.tick()
         self.assertEqual(len(self.commands), 1)
 
@@ -777,6 +778,8 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.assertEqual(self.commands, [])
 
     def test_account_continue_waits_for_a_draft_and_never_claims_a_fresh_resume(self):
+        # a harness that takes no first prompt has its line typed
+        self.stack.enter_context(patch.object(orch, "takes_line", return_value=False))
         self.pane = "Usage limit reached"
         with patch.object(orch, "resume", return_value="fresh"):
             self.tick()

@@ -997,8 +997,10 @@ def rewritten(line):
     """
     start = line.find('command="')
     if start < 0:
-        # options are joined by commas, and whitespace ends them before the key type
-        bare = line.lstrip().startswith(("ssh-", "ecdsa-", "sk-"))
+        # options are joined by commas, and whitespace ends them before the key type, so
+        # leading indentation would end ours before the line's own
+        line = line.lstrip()
+        bare = line.startswith(("ssh-", "ecdsa-", "sk-"))
         return f'command="{forced}"' + (" " if bare else ",") + line
     i, end = start + len('command="'), None
     while i < len(line):

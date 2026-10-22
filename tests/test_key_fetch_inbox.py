@@ -110,6 +110,14 @@ class Fetch(unittest.TestCase):
         self.assertEqual(done.out, f"{copy}\n")
         self.assertEqual(self.left("inbox"), [copy.name])
 
+    def test_a_gone_file_whose_own_name_ends_in_missing_leaves_no_mark(self):
+        done, _ = self.fetch(lambda inbox, ident: publish(inbox, f"{ident}.missing"),
+                             "/Users/acme/notes.missing")
+        self.assertEqual((done.code, done.out, done.err),
+                         (1, "", "ak fetch: the Mac no longer has that file: "
+                                 "/Users/acme/notes.missing\n"))
+        self.assertEqual(self.left("inbox"), [])
+
     def test_a_fetch_nobody_answers_gives_up_at_its_timeout_and_leaves_no_request(self):
         done = self.home.ak("fetch", GONE, env={"AK_FETCH_TIMEOUT": "0"})
         self.assertEqual((done.code, done.out, done.err), (1, "", NO_ANSWER))

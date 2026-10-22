@@ -100,6 +100,9 @@ class Recommends(Sandbox):
         self.assertEqual((record["workers"], record["reviewers"]), (["fable"], ["astra"]))
 
     def test_an_unconfigured_recommendation_is_said_and_nothing_changes(self):
+        # marked for the assessment, configured or not
+        self.cfg["assess"] = {"claude": ["claude-sonnet-4-6"], "codex": ["gpt-6-nano", "gpt-6-astra"]}
+        config.save(self.cfg)
         self.store([row("claude", "claude-sonnet-4-6", "max", execute=100), row("codex", "gpt-6-nano", "max", review=100)])
         text = self.screen([Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])
         self.assertIn("nothing to take: the recommended rows are not configured models", text)

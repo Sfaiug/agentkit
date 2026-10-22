@@ -3,7 +3,7 @@
 # the host checkout's tree and origin branch (/in/heads), its harness programs as stand-ins,
 # then offline the command. The repository's history is /mirror's, borrowed, not copied.
 shard=$1 branch=$2 default=$3 programs=$4 command=$5
-fail() { echo "ak helper: $*" >&2; exit 255; }
+fail() { echo "ak helper: $*" >&2; exit 253; }
 read -r tree base </in/heads
 git init -q --bare ${default:+-b "$default"} /home/ak/origin.git &&
   echo /mirror/objects >/home/ak/origin.git/objects/info/alternates &&

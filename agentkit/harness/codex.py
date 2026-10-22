@@ -51,6 +51,44 @@ BEGIN = "# --- agentkit browser bridge: managed by `ak browser mcp-register` ---
 END = "# --- end agentkit browser bridge ---"
 
 
+def token_counts(run_dir):
+    """Kept Codex turns as (events file, thread total, turn spend), in reporting order."""
+    from .. import history
+
+    previous = {}
+    for path in history.event_paths(run_dir):
+        thread = None
+        try:
+            with path.open(errors="replace") as source:
+                for line in source:
+                    try:
+                        event = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(event, dict) and event.get("type") == "thread.started":
+                        thread = event.get("thread_id")
+                        break
+        except OSError:
+            continue
+        if not isinstance(thread, str) or not thread:
+            continue
+        total = history.event_tokens(path)
+        if total is not None:
+            spent = max(0, total - previous.get(thread, 0))
+            previous[thread] = total
+            yield path, total, spent
+
+
+def tokens(out):
+    """Codex reports the thread's running total; only its increase belongs to this turn."""
+    from .. import history
+    events = Path(out) / "events.jsonl"
+    for path, _, spent in token_counts(events.parent.parent.parent):
+        if path == events:
+            return spent
+    return history.event_tokens(events)
+
+
 def seat_conversations(remote):
     """Where the seat of that remote id keeps its conversations: under the usual ~/.codex, where
     adapters/codex.sh keeps every login's, so the place is the same whichever login the seat
@@ -549,20 +587,54 @@ ROLLOUT = re.compile(r"rollout-.+-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\
 
 def conversation_stores():
     """~/.codex/sessions/YYYY/MM/DD, where Codex keeps every thread's rollout and never removes
-    one.  An account's home links its own here; a seat's thread lives apart, with the seat."""
-    return [{"root": Path.home() / ".codex" / "sessions", "pattern": "*/*/*/rollout-*.jsonl"}]
+    one, and each seat's sessions and archived_sessions, kept apart (`seat_conversations`).  An
+    account's home links its own to the first."""
+    seats = sorted(seat_conversations("*").parent.glob("*/"))
+    return [{"root": root, "pattern": "*/*/*/rollout-*.jsonl"}
+            for root in (Path.home() / ".codex" / "sessions",
+                         *(seat / name for seat in seats
+                           for name in ("sessions", "archived_sessions")))]
 
 
 def end_conversation(path, ends):
     """`codex delete`, which takes a thread's rollout and what Codex indexed of it at once, run
-    on the home `conversation_stores` scans, whatever home and database the caller selected."""
-    match = ROLLOUT.fullmatch(Path(path).name)
-    if match and ends():
+    as Codex runs on the home that indexes it, whatever home and database the caller selected:
+    ~/.codex, or an open seat's own (tools/codex-seat.py `connected`), never one reached through
+    a link.  Nothing indexes a closed seat's thread, so its rollout goes alone."""
+    from .. import retention
+    path = Path(path)
+    match = ROLLOUT.fullmatch(path.name)
+    if not match:
+        return
+    folder = path.parents[4]
+    remote = folder.name if seat_conversations(folder.name) == folder else None
+    home = remote and remote_home(remote)
+    if not ends():
+        return
+    if remote is None or retention.safe(home):
         env = {key: value for key, value in os.environ.items() if key != "CODEX_SQLITE_HOME"}
-        env["CODEX_HOME"] = str(conversation_stores()[0]["root"].parent)
-        subprocess.run([config.harness_binary("codex") or "codex", "delete", "--force", match[1]],
-                       stdin=subprocess.DEVNULL, capture_output=True, timeout=60, env=env,
-                       check=True)
+        env["CODEX_HOME"] = str(home or folder)
+        database = ["-c", "sqlite_home=" + json.dumps(str(home))] if home else []
+        subprocess.run([config.harness_binary("codex") or "codex", *database, "delete", "--force",
+                        match[1]], stdin=subprocess.DEVNULL, capture_output=True, timeout=60,
+                       env=env, check=True)
+    elif not os.path.lexists(home):
+        path.unlink()
+        drop_closed_seat(home)
+
+
+def drop_closed_seat(home):
+    """Every empty folder of the seat whose home (`remote_home`) is gone, bottom up, so its own
+    goes once it holds no rollout: nothing indexes or reads it any more.  Asked as the home goes
+    and as each of its rollouts does.  Never one reached through a link, whose folders are
+    somebody else's."""
+    from .. import retention
+    folder = seat_conversations(home.name.removeprefix(remote_home("").name))
+    if os.path.lexists(home) or not retention.safe(folder):
+        return
+    for directory, _, _ in os.walk(folder, topdown=False):
+        with contextlib.suppress(OSError):
+            os.rmdir(directory)
 
 
 def config_entries():

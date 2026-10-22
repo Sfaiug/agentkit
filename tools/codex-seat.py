@@ -23,8 +23,8 @@ import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentkit import config
-from agentkit.harness.codex import (first_prompt, main, pairing_home, remote_home,
-                                    seat_conversations)
+from agentkit.harness.codex import (drop_closed_seat, first_prompt, main, pairing_home,
+                                    remote_home, seat_conversations)
 
 
 CONVERSATIONS = ("sessions", "archived_sessions")
@@ -249,6 +249,7 @@ def remove_home(home):
         remote_request(entry["auth"], environment, "DELETE")
         close_pairing(environment, "Closed")
     shutil.rmtree(home, ignore_errors=True)
+    drop_closed_seat(home)
     home.with_suffix(".forgotten").unlink(missing_ok=True)
     home.with_suffix(".lock").unlink(missing_ok=True)
 

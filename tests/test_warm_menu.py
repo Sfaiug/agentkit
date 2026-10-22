@@ -28,7 +28,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import warm
 
 WARM = REPO / "agentkit" / "warm.py"
-KEYS = b"stop this session"   # on the overlay's key line: its menu is up
+KEYS = b" leave"   # the end of the key line: the menu is drawn
 
 
 class Home:

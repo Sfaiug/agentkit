@@ -1,13 +1,16 @@
-"""Grok Build's shared settings, launcher-issued conversation and pinned session title."""
+"""Grok Build's shared settings, launcher-issued conversation, pinned session title and
+the sessions nobody wrote to for 30 days."""
 
 import fcntl
 import json
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import tomllib
 from urllib.parse import quote
 
+from .. import config
 from . import LAUNCHER
 
 
@@ -180,3 +183,30 @@ def session_title(record):
         return title if isinstance(title, str) and title.strip() else ""
     except (OSError, ValueError, AttributeError):
         return None
+
+
+def conversation_stores():
+    """Each login home's own sessions folder, a folder per session under its url-encoded cwd:
+    Grok ends none unless its owner sets `storage.cleanup_ttl_days`.  An account's home links
+    its sessions to ~/.grok's unless Grok made the folder first; a linked one is scanned there."""
+    from .. import gc
+    # tmp_listdir, not glob: planning leaves HOME's atime alone.
+    homes = [Path.home() / name for name in (".grok", *(name for name in gc.tmp_listdir(Path.home())
+                                                        if name.startswith(".grok-")))]
+    return [{"root": home / "sessions", "pattern": "*/*/"} for home in homes
+            if not (home / "sessions").is_symlink()]
+
+
+def end_conversation(path, ends):
+    """`grok sessions delete`, which takes the session's folder and its session_search.sqlite
+    row, run on the home that keeps it.  In 1.0.46 it needs no leader, login or answer, and
+    takes none of the session's .lock files, so there is no lock to hold first; a session it
+    cannot read it reports missing and exits 0, so a folder still there is a failure too."""
+    folder = Path(path)
+    if not ends():
+        return
+    subprocess.run([config.harness_binary("grok") or "grok", "sessions", "delete", folder.name],
+                   stdin=subprocess.DEVNULL, capture_output=True, timeout=60,
+                   env={**os.environ, "GROK_HOME": str(folder.parents[2])}, check=True)
+    if folder.exists():
+        raise OSError(f"grok sessions delete left {folder}")

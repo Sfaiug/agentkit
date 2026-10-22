@@ -118,7 +118,8 @@ class PageComesUp(Sandbox):
         output = io.StringIO()
         with patch.object(terminal, "taken", return_value=True), \
                 patch.object(terminal, "read_key", side_effect=read_key), \
-                patch.object(menu, "close_seat"), redirect_stdout(output):
+                patch.object(menu, "teardown", return_value=[sys.executable, "-c", ""]), \
+                redirect_stdout(output):
             menu.show_past({"fixture": True}, seats, keyboard=Mock())
         back = output.getvalue().rsplit("\033[H", 1)[-1]
         self.assertTrue(back.startswith("\033[Kagentkit · past sessions"), repr(back[:120]))

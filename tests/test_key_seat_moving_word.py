@@ -3,46 +3,25 @@
 AGENTS.md's `working` covers a turn, its runs, a wait and a retry: a run waiting for its
 provider's window to refill, an error the tick retries on its stamp, a run in line to land
 however long the line takes, and the seat's own `ak wait`.  Each moves on by itself, so paging
-the owner for it would be noise.  The same facts with nothing to move them, an exhausted run
+the owner for it would be noise.  The seat's own subscription spent reads a word of its own, `out
+of usage`, with when it comes back.  The same facts with nothing to move them, an exhausted run
 nobody resumes, an error the tick may no longer retry, a move to another account that failed,
 are the owner's: `needs you`.  Runs and the seat's live state are records under ~/.agentkit
 as ak leaves them.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, and this test fails against `/bin/false`.
 """
 
-import shlex
 import sys
 import time
 from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import REAL_TMUX, SOCKET, Home
+from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akseat import Seat
 
 DAY = 86400
 PR = "https://github.com/acme/widgets/pull/7"
-PROMPT = Path(__file__).resolve().parent / "fixtures" / "claude-prompt-pane.txt"
-
-
-def seat_at_prompt(home, name):
-    """A Claude seat as ak's launch leaves it, its pane showing the prompt: its record, and a
-    session on ak's tmux server marked as a seat's."""
-    cwd = home.path / "code" / name
-    cwd.mkdir(parents=True)
-    home.write(f".agentkit/state/session-{name}.json", {
-        "orchestrator": "opus", "workers": ["opus"], "cwd": str(cwd),
-        "created": int(time.time()) - 600, "conversation": f"conv-{name}",
-        "id_source": "launcher", "resumable": True, "session_title": name})
-    done = home.tmux("-f", "/dev/null", "new-session", "-d", "-s", name, "-x", "120", "-y", "40",
-                     "-c", str(cwd), "-e", f"AGENTKIT_SESSION={name}",
-                     "-e", f"AGENTKIT_TMUX_SOCKET={SOCKET}", "-P", "-F", "#{pane_id}",
-                     f"cat {shlex.quote(str(PROMPT))}; exec sleep 3600")
-    assert done.code == 0, done.err
-    target = f"={name}:"
-    done = home.tmux("set-option", "-t", target, "@ak_orch", "1", ";",
-                     "set-option", "-t", target, "@ak_harness_pane", done.out.strip(), ";",
-                     "set-option", "-t", target, "remain-on-exit", "on")
-    assert done.code == 0, done.err
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -55,7 +34,7 @@ class MovingWord(unittest.TestCase):
     def run_of(self, run_id, ended_ago, **state):
         """A seat at its prompt and one run it launched, ended `ended_ago` seconds back."""
         seat = run_id.split("-", 2)[2]
-        seat_at_prompt(self.home, seat)
+        Seat(self.home, seat)
         self.home.write(f".agentkit/runs/{run_id}/run.json", {
             "run_id": run_id, "title": f"Task {seat}", "launched_session": seat,
             "started_at": time.time() - ended_ago - 3600,
@@ -64,7 +43,7 @@ class MovingWord(unittest.TestCase):
 
     def live(self, seat, **state):
         """A seat at its prompt and its live state as the tick left it."""
-        seat_at_prompt(self.home, seat)
+        Seat(self.home, seat)
         self.home.write(f".agentkit/state/seat-{seat}.json", state)
 
     def why(self, seat):
@@ -117,6 +96,12 @@ class MovingWord(unittest.TestCase):
     def test_a_turn_ended_on_ak_wait_reads_working_on_what_it_waits_for(self):
         self.live("kappa", wait={"kind": "pr", "on": PR, "at": time.time() - 60})
         self.assertEqual(self.why("kappa"), ("working", f"waiting on {PR}"))
+
+    def test_a_spent_window_ak_resumes_reads_out_of_usage_and_says_until_when(self):
+        until = "anthropic out of usage until 2026-10-21 09:00"
+        self.live("omega", usage_wait={"reason": until, "until": time.time() + 3600,
+                                       "since": time.time() - 60, "continue": True})
+        self.assertEqual(self.why("omega"), ("out of usage", until))
 
     def test_a_move_to_another_account_that_failed_needs_you(self):
         failed = "anthropic account reopen failed: no login for beta"
