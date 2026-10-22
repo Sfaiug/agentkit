@@ -94,6 +94,7 @@ class LiveCheckInSlice(Sandbox):
         self.live.write_text(f"{shlex.quote(sys.executable)} -c {shlex.quote(probe)}\n")
         self.stack.enter_context(patch.object(config, "REPO", self.repo))
         self.stack.enter_context(patch.object(update, "agentkit_dir", return_value=self.repo))
+        self.stack.enter_context(patch.object(update.gitcall, "no_auto_gc"))
         self.children = []
         self.stack.enter_context(patch.object(subprocess, "Popen", side_effect=self.spawn))
         self.addCleanup(self.reap)
