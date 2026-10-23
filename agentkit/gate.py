@@ -1665,14 +1665,11 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     piece.seek(0)
                     failed, how = piece.read(), f"was stopped after {silence / 60:g} min of silence"
                     code, piece, killed, tests = attempt(shard)
-                if index - 1 in named and code != SUITE_BUSY:
-                    # Its tests ran alone here: passing, their failure was the helper's own.
-                    there = named[index - 1][0]
+                decides = index - 1 in named    # its tests the helper named, run alone here
+                if decides:
+                    there, only = named[index - 1]
                     there.seek(0)
                     failed, how = there.read(), f"failed on the suite helper {helped.alias}"
-                    alone = "its failed tests failed again here, run alone"
-                    if code and confirmed is not None:
-                        confirmed[shard] = tests
                 while not killed and not cancel.is_set():
                     if code == SUITE_BUSY:
                         queued = busy_turn(run_dir, activity, log, command, cwd)
@@ -1686,13 +1683,16 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     elif only is not None:
                         # Failing again alone, the tests the piece named confirm it red in a
                         # fraction of its time; passing, the whole piece decides, as a failure
-                        # can need the tests that ran before it.
+                        # can need the tests that ran before it -- but for a failure only the
+                        # helper saw, which they show a flake.
                         alone = ("its failed tests failed again, run alone" if code else
                                  "its failed tests passed run alone: the failure needs the "
                                  "tests that ran before them")
                         if code:
                             if confirmed is not None:
                                 confirmed[shard] = tests
+                            break
+                        if decides:
                             break
                         only = None
                     elif not code:
@@ -1703,7 +1703,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         only = tests or None
                     else:
                         break
-                    code, piece, killed, tests = attempt(shard, only)
+                    code, piece, killed, tests = attempt(shard, only, ran=[] if decides else None)
                 if failed is not None and code == 0:
                     piece.seek(0)
                     flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,

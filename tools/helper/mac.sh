@@ -124,7 +124,7 @@ run)       # KEY IMAGE NAME CPUS MEMORY_MB REPO, then piece.sh's arguments
   on_power || exit 251
   # The piece names its failed tests in /out (piece.sh), which `failed` reads once it ends.
   out="$D/$name.out"
-  [ -d "$D" ] && [ -d "$M" ] && mkdir -p -m 777 "$out" || exit 253
+  [ -d "$D" ] && [ -d "$M" ] && rm -rf "$out" && mkdir -m 777 "$out" || exit 253
   session=$PPID
   until [ "$session" -le 1 ] || ps -o comm= -p "$session" | grep -q sshd; do
     session=$(ps -o ppid= -p "$session" | tr -d ' ')
