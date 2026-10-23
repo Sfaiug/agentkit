@@ -2,13 +2,13 @@
 
 An expired login is one of the few things that page the owner, and signing in again is all the
 owner should have to do: the tick asks the harness's `auth` verb, and the moment it says yes the
-run goes on in the same worktree, the same round and the same conversation, and nobody hears
-of it until it ends.  While the login is still out the run stays parked; if its worktree went
+run goes on in the same worktree, the same round and the same conversation, and nobody hears of
+it until it ends.  While the login is still out the run stays parked; if its worktree went
 meanwhile, it cannot go on where it stopped and becomes an interruption instead of waiting for a
-login it no longer needs.  The same holds for the turn that resolves a conflict while the run delivers: it
-waits for the login, then resolves and lands.  Black-box: the program `AK_BIN` names runs from
-outside through tests/fixtures/akbin.py, its turns on a fake harness from fakeadapter.py whose
-`auth` verb the test logs out and back in, from a seat of akseat.py, paging
+login it no longer needs.  The same holds for the turn that resolves a conflict while the run
+delivers: it waits for the login, then resolves and lands.  Black-box: the program `AK_BIN`
+names runs from outside through tests/fixtures/akbin.py, its turns on a fake harness from
+fakeadapter.py whose `auth` verb the test logs out and back in, from a seat of akseat.py, paging
 tests/fixtures/sink.py, delivering to the GitHub of fakegh.py; each tick runs in the box
 `home.tick()` builds.
 """
