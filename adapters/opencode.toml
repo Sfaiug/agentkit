@@ -107,6 +107,9 @@ enforce = "nudge"
 # model line reads `Build auto · mimo-v2.6-pro MiMo · high`.  The dialog that replaces it is
 # chrome too; the asking rule below matches first, so it never reads as a prompt.
 composer = '[┃╹].*'
+# Ctrl-X then E hands the composer to $VISUAL, ak's editor (2.0.32), in one write: it drops a
+# Ctrl-X typed alone while it opens a new session
+editor = ["C-x", "e"]
 # It keeps the terminal cursor in that box while keys go there and moves it into a dialog it
 # opens over the transcript -- its models, commands, sessions, themes -- whose search takes what
 # is typed and whose Enter picks a row (2.0.32)
@@ -194,7 +197,7 @@ signatures = [
 ]
 
 # OpenCode runs any provider it can log in to, which its adapter's `providers` verb lists:
-# `+ add a provider` offers OpenCode under this name, then each of them to log in to.
+# `+ add a subscription` offers OpenCode under this name, then each of them to log in to.
 [providers]
 label = "OpenCode"
 

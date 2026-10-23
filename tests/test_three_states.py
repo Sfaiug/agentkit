@@ -308,14 +308,16 @@ class ThreeStates(Sandbox):
         self.assertEqual((found["word"], found["reason"]),
                          ("needs you", "Claude needs your permission to use Bash"))
 
-    def test_g_a_question_it_asked_is_his_while_its_runs_and_turn_go_on(self):
-        # it asks, then gets on with the work that does not wait on the answer: a run going
-        # and a turn in flight say nothing about whether he was asked
+    def test_g_a_question_it_asked_is_his_while_its_runs_go_on_once_its_turn_stops(self):
+        # it asks, then gets on with the work that does not wait on the answer: a turn in
+        # flight works without him, and a run going says nothing about whether he was asked
         self.receipt("20260101-0900-first", state="running", finished_at=None,
                      started_at=NOW - 900, title="Rebuild the dashboard filters")
         self.fact("UserPromptSubmit", at=NOW - 720)
         self.assertEqual(self.decide()["word"], "working")
         notify.record("atoll", "needs", "Which of the two schemas should it read?")
+        self.assertEqual(self.decide()["word"], "working")
+        self.fact("Stop", at=NOW - 600)
         found = self.decide()
         self.assertEqual((found["word"], found["reason"]),
                          ("needs you", "Which of the two schemas should it read?"))

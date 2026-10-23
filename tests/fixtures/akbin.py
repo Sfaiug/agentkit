@@ -21,6 +21,8 @@ may send another way.
 
 `home.tick()` runs one `ak watch` in a box (`boxable()` says whether bubblewrap can build
 one here) and waits out what it detached there, so nothing of it outlives the test.
+A test whose ticks act on processes it started, which that box cannot see, ends with
+`rerun_boxed()` before `unittest.main()`: the whole file then runs in one such box, `BOXED`.
 """
 
 from collections import namedtuple
@@ -65,6 +67,25 @@ def boxable():
     """Whether bubblewrap can build `home.tick()`'s box here."""
     return bool(shutil.which("bwrap")) and subprocess.run(
         [*_BOX, "--", "true"], capture_output=True, timeout=60).returncode == 0
+
+
+def _binds(*paths):
+    """What keeps those of `paths` under /tmp in the box, whose own /tmp hides the host's."""
+    return [arg for path in sorted(map(str, paths), key=len)
+            if Path(path).is_relative_to("/tmp") for arg in ("--bind", path, path)]
+
+
+BOXED = "AKBIN_BOXED" in os.environ
+
+
+def rerun_boxed():
+    """Run this test file again in one box of `home.tick()`'s kind, every Home and ak of it
+    inside, and exit with its status; inside one, or where bwrap cannot build one, return."""
+    if BOXED or not boxable():
+        return
+    sys.exit(subprocess.call([*_BOX, *_binds(REPO, Path(AK).resolve().parent), "--setenv",
+                              "AKBIN_BOXED", "1", "--", sys.executable,
+                              os.path.abspath(sys.argv[0]), *sys.argv[1:]]))
 
 
 def owner(pid):
@@ -265,23 +286,21 @@ class Home:
         port = sink.port if sink.hostname == "127.0.0.1" else None
         way = self.tmux_dir / "sink.sock"     # a socket's path must fit in 104 bytes
         listener = socket.create_server(str(way), family=socket.AF_UNIX)
-        _relay(listener, socket.AF_INET, ("127.0.0.1", port))
+        relay = _relay(listener, socket.AF_INET, ("127.0.0.1", port))
         try:
             return self.run(*self.box(_BOX), sys.executable, "-I", Path(__file__).resolve(),
                             str(port or ""), str(way), AK, "watch", env=env)
         finally:
             listener.shutdown(socket.SHUT_RDWR)     # wakes its `accept`, as `close` would not
             listener.close()
+            relay.join()
             way.unlink()
 
     def box(self, box=_FILES):
         """bwrap's words putting a command in `box`, by default one whose /tmp holds only this
         Home and the program, on the host's network and processes so pages reach the test's
         sink and what it starts can outlive it; `boxable()` says whether bwrap can here."""
-        keep = {self.root, self.tmux_dir, REPO, Path(AK).resolve().parent}
-        binds = [arg for path in sorted(map(str, keep), key=len)
-                 if Path(path).is_relative_to("/tmp") for arg in ("--bind", path, path)]
-        return [*box, *binds, "--"]
+        return [*box, *_binds(*{self.root, self.tmux_dir, REPO, Path(AK).resolve().parent}), "--"]
 
     def spawn(self, *args, env=None, cwd=None, boxed=False):
         """Start the program and leave it running, its output in `home.log(...)`; `close` ends
@@ -333,7 +352,8 @@ def _end(proc):
 
 
 def _relay(listener, family, address):
-    """Carry each connection `listener` takes to `address`, both ways, until it ends."""
+    """Carry each connection `listener` takes to `address`, both ways, until it ends; the
+    thread returned takes them until `listener` is shut down."""
     def pipe(source, sink):
         try:
             while data := source.recv(65536):
@@ -352,7 +372,9 @@ def _relay(listener, family, address):
             for ends in ((near, far), (far, near)):
                 threading.Thread(target=pipe, args=ends, daemon=True).start()
 
-    threading.Thread(target=serve, daemon=True).start()
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    return thread
 
 
 def _last(port, way, *program):

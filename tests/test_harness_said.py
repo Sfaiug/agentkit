@@ -73,7 +73,9 @@ class Said(unittest.TestCase):
         for name, (fixture, record, conversation, path) in stores.items():
             with self.subTest(name):
                 plugin = harness.load(name)
-                self.assertIsNone(plugin.said(record, CWD, conversation), "before its store is")
+                # Claude Code writes a conversation's transcript at its first word: none yet is []
+                self.assertEqual(plugin.said(record, CWD, conversation),
+                                 [] if name == "claude" else None, "before its store is")
                 self.place(fixture, path)
                 self.assertEqual(plugin.said(record, CWD, conversation), SAID)
 

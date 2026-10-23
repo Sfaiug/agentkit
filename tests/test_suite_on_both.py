@@ -21,7 +21,13 @@ from agentkit import config, gate, helper, host, worker
 class Turn:
     def __init__(self, count):
         self.slots = [None] * count
-        self.released = False
+        self.pieces, self.waited, self.released = count, False, False
+
+    def take(self, stopped):
+        return True
+
+    def give(self, slot):
+        pass
 
     def alone(self):
         self.slots = self.slots[:1]

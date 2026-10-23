@@ -130,6 +130,20 @@ class CodexQuestionCards(Sandbox):
         self.assertTrue(notify.answer_written(SEAT, at=10007))
         self.assertEqual(questions.pending(SEAT), TEXTS[1:])
 
+    def test_a_reply_on_the_latest_card_answers_every_copy_kept_before_it(self):
+        self.ask()
+        self.stopped()
+        self.repeat()
+        latest = dict(CALL, tool_use_id='call-last', tool_input={'questions': ASKS[:1]})
+        with patch.object(notify.time, 'time', return_value=10004):
+            self.assertIsNone(codex.ask(latest))
+        self.add('response_item', {'type': 'function_call', 'name': 'request_user_input_async',
+                 'call_id': 'call-last', 'arguments': json.dumps(latest['tool_input'])}, 10004)
+        self.reply(0, at=10005, call='call-last')
+        self.assertTrue(notify.answer_written(SEAT, at=10006))
+        self.stopped()
+        self.assertEqual(questions.pending(SEAT), TEXTS[1:])
+
     def test_stop_does_not_replace_a_new_cards_identity_with_an_older_kept_one(self):
         self.ask()
         with notify.session_lock(SEAT):

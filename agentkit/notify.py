@@ -486,6 +486,10 @@ def answered(session, at, typed=None, replies=None):
     """
     from . import watch    # here, not at the top: watch imports this module
     with session_lock(session) as session:
+        # a standing question asked again, kept back under a newer card, is that card's now,
+        # as its turn's end will record it (`_said`)
+        renewed = {question_key(q["text"]): q.get("id")
+                   for q in watch.questions_kept(watch.seat_read(session).get("unasked"))}
         partial = (watch.answered_kept(session, replies, typed or at)
                    if replies is not None else False)
         ask_kept(session, ended=True)
@@ -496,7 +500,7 @@ def answered(session, at, typed=None, replies=None):
             return
         if replies is not None and previous:
             keys = set(replies)
-            ids = previous.get("question_ids") or {}
+            ids = {**(previous.get("question_ids") or {}), **renewed}
             dates = previous.get("question_times") or previous.get("asked_at") or {}
             matched = [q for q in questions(previous) if ids.get(question_key(q)) in keys
                        and dates.get(question_key(q), previous["time"]) < (typed or at)]
@@ -929,6 +933,7 @@ def _dropped(event, session, log=print):
 
 def retry_pending(dry_run=False, log=print):
     """The existing watcher drains the outbox even when GitHub or the original seat is gone."""
+    from . import watch
     for path in sorted(outbox().glob("*.json")):
         try:
             event = _read_event(path.stem)
@@ -942,6 +947,9 @@ def retry_pending(dry_run=False, log=print):
             session = config.resolve_session(event["session"]) if event["session"] else None
             with session_lock(session) if session else nullcontext(session) as session, outbox_lock():
                 event = _read_event(path.stem)
+                if (session and event.get("episode") and event["kind"] == "needs"
+                        and watch.session_state(session)["word"] == "working"):
+                    continue    # its question stands through independent work: the stop sends it
                 if _dropped(event, session, log):
                     continue
                 _attempt(event)
@@ -1263,7 +1271,10 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                     began = max(began, asked)
             # a done covers the seat's verified work now
             completion = _completion(name) if word == "done" else None
-            if card.get("word") != word or (
+            # A needs you whose question still stands keeps its episode through a turn a run's
+            # result opens: the same question, asked again at that turn's stop, is no news.
+            kept = card.get("word") == "needs you" and word == "working" and asked is not None
+            if card.get("word") != word and not kept or (
                     word == "done" and completion and card.get("completed") and card.get("sent")
                     and card.get("completed") != completion):
                 _retire(card)

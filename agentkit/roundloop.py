@@ -1515,7 +1515,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
 def landing_fixer(lp, text, name):
     """Give any landing fixer the line's red output and remember its completed turn."""
     wait = lp.state.get("waiting_on") or {}
-    failure = wait.get("fix") if wait.get("line") else None
+    failure = wait.get("fix")
     if failure and name != "final-fixer":
         # An unrelated conflict or light check must not hide the lander's failure.
         output = Path(failure["log"]).read_text(errors="replace")

@@ -48,7 +48,7 @@ from . import (aside_editor, browser, command_help, config, gc, gitcall, handbac
                orch, seat_tokens, staffing, statusbar, transitions, turns, update, usage, worker)
 from . import record as run_record
 from . import terminal as terminal_mod
-from .harness import LIMITED, SPENT, says
+from .harness import LIMITED, SPENT, entries, says
 from .lifecycle import LIVE, facts as hook_facts, state as hook_state
 
 INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is typed into
@@ -61,6 +61,9 @@ ASKED_LINE = ("The host restarted while your question to the owner was still ope
 # ... and one whose turn its usage cut off, on an account with usage again, this or another
 ACCOUNT_LINE = ("Your turn was cut off when its usage ran out, and there is usage again. "
                 "Continue that turn and finish it; do not start over.")
+# ... and one moved mid-turn to a model of another harness: its rulebook hands the turn on
+MOVED_LINE = ("This seat moved to you in the middle of a turn. Continue that turn from where "
+              "the conversation your instructions point you to leaves it; do not start over.")
 CONTINUE_LINE = "continue"
 MIDTURN_TRIES = 3       # passes that may type it before a seat is left at its prompt
 MARKER = "agentkit review of"
@@ -678,7 +681,8 @@ def finish_own_lines(cfg, log):
         key = resume.get("key") if isinstance(resume, dict) else None
         mark = seat_read(name).get("midturn")
         marked = (mark.get("line") or MIDTURN_LINE) if isinstance(mark, dict) else None
-        for line in (marked, ACCOUNT_LINE, MIDTURN_LINE, ASKED_LINE, CONTINUE_LINE, key):
+        for line in (marked, ACCOUNT_LINE, MIDTURN_LINE, MOVED_LINE, ASKED_LINE, CONTINUE_LINE,
+                     key):
             def alone(held):
                 return composer_holds(held, session, line, cfg, exact=True) == "line"
 
@@ -2132,15 +2136,15 @@ def keeps_back(name):
     It asks during its own turn, and may work on: until that turn ends its screen shows no
     question and it waits for nobody.  So it does on every harness ak knows the seat to run,
     the same way: where hooks report the turn's end a look follows at once, and where only
-    the screen shows it ak's next look finds it (`ask_kept_back`) -- unless a question of its
-    own already stands unanswered: the owner is asked already, and a newer one is asked beside
-    it (`notify._said`).
+    the screen shows it ak's next look finds it (`ask_kept_back`).  One asked while an older
+    question stands -- in a turn a run's result opened -- waits too, and is asked beside it
+    then (`notify._said`).
     """
     try:
         harness = seat_model(config.load(), name)[0]
     except config.Error:
         return False
-    return bool(harness) and not owner_question(notify.last(name))
+    return bool(harness)
 
 
 def questions_kept(unasked):
@@ -2209,13 +2213,15 @@ def kept_asked(name, kept):
 
 
 def answered_kept(name, replies, at):
-    """A native card reply answers only its questions, including before the turn ends."""
+    """A native card reply answers only its questions, including before the turn ends: its own
+    card's copy, and every copy of a question whose latest card it is."""
     with seat_lock(name):
         data = seat_read(name)
         kept = questions_kept(data.get("unasked"))
         keys = set(replies)
-        remaining = [q for q in kept if not (q.get("at", at) < at
-                     and q.get("id") in keys)]
+        latest = {notify.question_key(q["text"]): q.get("id") for q in kept}
+        remaining = [q for q in kept if not (q.get("at", at) < at and (
+                     q.get("id") in keys or latest[notify.question_key(q["text"])] in keys))]
         if remaining != kept:
             _seat_put(name, data, {"unasked": _kept(remaining)})
             return True
@@ -2318,7 +2324,7 @@ def plan_progress(name):
     return (sum(not plan.is_open(line) for line in lines), len(lines))
 
 
-def unsent(name, harness, found, session):
+def unsent(name, harness, found, session, cfg=None):
     """Typed text nobody sent at a quiet prompt once nobody is in the seat to see it, else "".
     Text in the composer never changes the word (owner, 14 Oct 2026): the seat the owner left
     reads what its runs and its turn say, and its row still marks what they never sent.  Three
@@ -2329,6 +2335,10 @@ def unsent(name, harness, found, session):
     if (not harness or any(session.get(key) for key in orch.CLOSED) or session.get("attached")
             or found.get("state") != "draft"
             or not (seat_read(name).get("usage_wait") or _composer_open(harness, found))):
+        return ""
+    # what ak typed there, whole, is its own to send (`composer_holds`), not the owner's
+    last = next(reversed([*entries(config.seat_file("input", name))]), None)
+    if last and composer_holds(name, session, str(last.get("text")), cfg, exact=True) == "line":
         return ""
     return " ".join(str(found.get("evidence") or "").split())
 
@@ -2355,8 +2365,9 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * a worker token dies within a fortnight or is dead -- every session says so, on any
       harness, because any seat's next turn on it can be the one that fails;
     * a question on its screen is him even during a turn, and so is one it asked with `ak
-      notify needs` that nothing has answered (its own, from the end of the turn it asked
-      in: `keeps_back`); so is a move to another account that failed, whatever its runs do;
+      notify needs` that nothing has answered, from the end of the turn it asked in
+      (`keeps_back`) whenever no later turn runs; so is a move to another account that
+      failed, whatever its runs do;
     * a run it launched is unfinished and resumes itself, so the seat is working;
     * a harness turn is in flight, so the seat is working (a turn past three hours says so
       in its reason and keeps the word) -- parked run or not;
@@ -2435,7 +2446,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
                            else previous.get("word_since", answer["since"]))
     elif previous.get("word") is not None:
         answer["since"] = at
-    draft = "" if card else unsent(name, harness, live, session)
+    draft = "" if card else unsent(name, harness, live, session, cfg)
     if draft:
         answer["unsent"] = draft
     return answer
@@ -2519,8 +2530,16 @@ def hook_look(launched, answered_at=None, said="", prompt=False):
     else:
         notify.answer_written(name)
     cfg = config.load()
+    harness, provider = seat_model(cfg, name)
+    # A turn its harness says failed settles its account before its word is told, as the tick
+    # does: a spent subscription moves now, not at the next tick, and never reads `working`.
+    # It is looked at first, as the tick looks: an older reading may still say it is asking.
+    if hook_state(harness, hook_facts(name))[1] in marked_events(harness, "failed"):
+        with announcing(name):
+            pane = pane_text(session)
+            look_at(session, cfg=cfg, pane=pane)
+        seat_account(cfg, session, harness, provider, pane, False, lambda _: None)
     answer = announce_state(session, cfg=cfg, look=True, number=number)
-    harness = seat_model(cfg, name)[0]
     if stop_enforced(harness):
         from . import menu as menu_mod
         # A completion is already an event, not a suspected stall. The wrapper supplies
@@ -2678,11 +2697,13 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         asked = " ".join(str(found.get("evidence") or "").split())
         return {"word": "needs you", "reason": asked or "waiting for you",
                 "since": found.get("began"), "question": True}
-    # ... and so is a question it asked with `ak notify needs` that nothing has answered: it
-    # asks, then gets on with the work that does not wait on the answer, so neither its runs
-    # nor its turn going says he was not asked.  A seat nobody is in names its number below,
-    # and a watcher's own alert about the seat waits for its prompt (rung 5).
-    if not gone and owner_question(last):
+    # ... and so is a question it asked with `ak notify needs` that nothing has answered, once
+    # the turn it stood through has stopped: its runs going say nothing of it, but a turn a
+    # run's result opened works without him until it stops on the question again (2b).  A
+    # seat nobody is in names its number below, and a watcher's own alert about the seat
+    # waits for its prompt (rung 5).
+    if not gone and owner_question(last) and (
+            not harness or waiting or _composer_open(harness, found)):
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
                 "since": last.get("time"), "question": True}
     # ... and so is a move to another account that failed: no wait ends it by itself, so
@@ -3543,7 +3564,8 @@ def composer_holds(name, session, line, cfg=None, *, exact=False):
     and another's top goes above the read; or the harness's fold of a line longer than `[screen]
     folds_over`.  What the owner types goes in at its end, so none of these is a line with the
     owner's words beside it, and a one-row draft that only ends the way the line does is the
-    owner's.
+    owner's.  It is also a composer read whole holding that line joined in order with the
+    others ak typed there last (`_joined`): a line drawn late joins the next.
     `exact` requires the whole composer to be read and hold the full line: a cropped or
     scrolled composer, suffix or paste fold is no proof without a delivery mark.
     """
@@ -3568,7 +3590,22 @@ def composer_holds(name, session, line, cfg=None, *, exact=False):
             len(rows) > 1 and whole.endswith(held)
             or folded and chrome["folded"].fullmatch(held))):
         return "line"
-    return "other"
+    # lines drawn joined are ak's only off a composer read whole: owner text can sit above a crop
+    read = re.sub(r"\s+", "", "".join(
+        (rows if exact else _composer_rows(harness, pane, exact=True)) or ()))
+    return "line" if read and whole in _joined(name, read) else "other"
+
+
+def _joined(name, held):
+    """The lines ak typed into that seat last, whitespace aside, that the composer text `held`
+    is all of joined in order, else none: a harness that draws a line late joins it to the next
+    one ak types there, and both are still ak's to send (22 Oct 2026)."""
+    typed = [re.sub(r"\s+", "", str(sent.get("text"))) for sent in entries(
+        config.seat_file("input", name))]
+    lines = []
+    while typed and len("".join(lines)) < len(held):
+        lines.insert(0, typed.pop())
+    return lines if "".join(lines) == held else []
 
 
 def _composer_parts(chrome, raws, rows, at, stop):

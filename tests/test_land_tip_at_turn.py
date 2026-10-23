@@ -1,4 +1,4 @@
-"""The lander checks a member on the target tip, and a changed tree rejoins.
+"""Runs check before joining; the lander rechecks a changed target tree.
 
 Offline: real throwaway git repos under a temp dir with a bare `origin`, fake
 done-when commands that record what they saw, and a temporary HOME. No network,
@@ -126,7 +126,7 @@ class LandTipAtTurn(unittest.TestCase):
             self.assertLess(time.monotonic(), deadline, f"timed out waiting for {what}")
             time.sleep(0.02)
 
-    def test_target_moving_while_suite_waits_rejoins_then_checks_the_delivered_tree(self):
+    def test_target_moving_while_pre_line_suite_waits_checks_the_delivered_tree(self):
         remote, owner = make_origin(self.root)
         lp = make_run(self.root, remote, "acme",
                       [f"echo \"every $(git rev-parse HEAD) $(cat tip.txt)\" >> {self.counter}  # once",
@@ -157,7 +157,7 @@ class LandTipAtTurn(unittest.TestCase):
         thread.start()
         try:
             self.until(waiting.is_set,
-                       "the lander to wait for a heavy turn")
+                       "the pre-line suite to wait for a heavy turn")
             self.assertEqual(self.counter.read_text(), "")
             # A disjoint target move still changes the commit the suite must check.
             commit(owner, "tip.txt", "tip-two")
@@ -167,14 +167,14 @@ class LandTipAtTurn(unittest.TestCase):
             fcntl.flock(holder, fcntl.LOCK_UN)
         thread.join(60)
         self.assertFalse(thread.is_alive(), "the landing never finished")
-        self.assertEqual(results["landed"], False)
-        self.assertTrue(landing(lp, lambda: True))
+        self.assertIs(results["landed"], True)
         head = run.git(lp.wt, "rev-parse", "HEAD")
         rc, _ = run.git_out(lp.wt, "merge-base", "--is-ancestor", tip_two, "HEAD")
         self.assertEqual(rc, 0)
         rows = [line.split() for line in self.counter.read_text().splitlines()]
         self.assertEqual([row[0] for row in rows], ["every", "once", "every", "once"])
-        self.assertEqual(rows[0][2], "tip-one")   # the scratch checkout was pinned before the move
+        self.assertEqual(rows[0][2], "tip-one")   # the pre-line check was pinned before the move
+        self.assertEqual(rows[2][2], "tip-two")
         self.assertEqual(lp.state["final_check"]["tree_sha"],
                          run.git(lp.wt, "rev-parse", "HEAD^{tree}"))
         self.assertEqual(lp.state["final_check"]["sha"], head)
@@ -242,7 +242,9 @@ class LandTipAtTurn(unittest.TestCase):
         self.assertIsNone(seen.get("held"))
         self.assertTrue(seen.get("free"))
         state = record.read_state(lp.run_dir)
-        self.assertNotIn("waiting_on", state)
+        self.assertEqual(state["state"], "waiting")
+        self.assertEqual(state["waiting_on"]["ref"], "origin/main")
+        self.assertNotIn("line", state["waiting_on"])
         self.assertIn("did not finish", state["merge_note"])
 
 
