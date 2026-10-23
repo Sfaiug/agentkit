@@ -5,8 +5,10 @@ holds only if tests/fixtures/fakeadapter.py reads each turn's role off the promp
 as told inside ak's worker box, and keeps a log of every call.
 """
 
+from datetime import datetime, timezone
 import sys
 from pathlib import Path
+import time
 import tomllib
 import unittest
 
@@ -57,6 +59,15 @@ class FakeAdapter(unittest.TestCase):
         self.assertEqual((self.home.root / "out-3/final.md").read_text(), "")
         self.assertEqual([run["step"] for run in fake.runs()][1:], ["silent", "silent", "pass"])
         self.assertEqual(fake.n, 4)
+
+    def test_a_final_names_a_moment_counted_from_its_own_turn(self):
+        fake = fakeadapter.install(self.home, claude={"final": "Try again at {in 60}."})["claude"]
+        before = time.time()
+        self.home.run(str(fake.script), "run", "m", "low", str(self.rig.path), str(self.prompt),
+                      str(self.home.root / "out"))
+        named = (self.home.root / "out/final.md").read_text()
+        at = datetime.strptime(named, "Try again at %Y-%m-%dT%H:%M:%SZ.\n")
+        self.assertGreaterEqual(at.replace(tzinfo=timezone.utc).timestamp(), int(before) + 60)
 
     def test_other_verbs_answer_as_set_and_a_fresh_install_forgets_its_calls(self):
         fake = fakeadapter.install(self.home, codex="pass")["codex"]
