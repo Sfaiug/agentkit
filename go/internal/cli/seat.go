@@ -66,6 +66,7 @@ func validateHandIn(args []string) string {
 	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(nil, int(^uint(0)>>1))
 	var turn struct {
 		Kind string `json:"kind"`
 		Role string `json:"role"`
