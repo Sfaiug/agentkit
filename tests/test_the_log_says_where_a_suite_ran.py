@@ -69,7 +69,7 @@ case $5 in''')
 
     def test_probe_and_prepare_codes_each_say_why_in_the_lander_log(self):
         reasons = {255: "did not answer (asleep or away)", 251: "is on battery",
-                   252: "is busy", 253: "could not prepare or run the container",
+                   252: "has no room", 253: "could not prepare or run the container",
                    17: "failed (exit 17)"}
         for verb in ("probe", "prepare"):
             for code, reason in reasons.items():
@@ -79,16 +79,16 @@ case $5 in''')
             (self.fake / f"exit-{verb}").unlink()
 
     def test_no_room_names_the_spare_cpus_and_memory(self):
-        for cpus, memory in ((1, 1048576), (6, 10)):
+        for cpus, memory in ((1, 524288), (6, 10)):
             with self.subTest(cpus=cpus, memory=memory):
                 self.response("probe", 0,
-                              f"cpus {cpus}\nload 0\nmemory_mb {memory}\nfree_percent 100\n")
+                              f"cpus {cpus}\nload 0\nroom_mb {memory}\n")
                 self.assert_here(self.check(),
                                  f"helper acme-mac has no room ({cpus} spare CPUs and "
-                                 f"{memory / 2:g} MiB)")
+                                 f"{memory} MiB)")
 
     def test_timeout_or_unreadable_readings_explains_the_fallback(self):
-        for reply in ("", "cpus unknown\n", "cpus 6\nload 0\nmemory_mb NaN\nfree_percent 50\n"):
+        for reply in ("", "cpus unknown\n", "cpus 6\nload 0\nroom_mb NaN\n"):
             with self.subTest(reply=reply):
                 self.response("probe", 0, reply)
                 self.assert_here(self.check(), "helper acme-mac did not answer (asleep or away)")
@@ -103,7 +103,7 @@ case $5 in''')
 
     def test_each_piece_returned_by_the_helper_names_its_reason_here(self):
         for code, reason in ((255, "did not answer (asleep or away)"), (251, "is on battery"),
-                             (252, "is busy"), (253, "could not prepare or run the container"),
+                             (252, "has no room"), (253, "could not prepare or run the container"),
                              (1, "failed (exit 1)"), (254, "ran out of memory")):
             with self.subTest(code=code):
                 (self.fake / "code-2").write_text(str(code))

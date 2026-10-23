@@ -42,7 +42,7 @@ verb, *args = words[words.index("mac.sh") + 1:]
 with open(KEPT + "/calls.jsonl", "a") as log:
     log.write(json.dumps([verb, *args[:3]]) + "\\n")
 if verb == "probe":
-    print("cpus 64\\nload 0\\nmemory_mb 1048576\\nfree_percent 100")
+    print("cpus 64\\nload 0\\nroom_mb 524288")
 elif verb == "prepare":
     open(f"{KEPT}/{args[0]}.tar", "wb").write(sys.stdin.buffer.read())
     sys.exit(255)

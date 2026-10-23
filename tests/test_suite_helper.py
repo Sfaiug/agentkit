@@ -31,7 +31,7 @@ here=$(dirname "$0")
 eval "set -- $2"
 echo "$5" >>"$here/calls"
 case $5 in
-probe) printf 'cpus 6\nload 0\nmemory_mb 1048576\nfree_percent 100\n' ;;
+probe) printf 'cpus 6\nload 0\nroom_mb 524288\n' ;;
 prepare) echo "$7" >>"$here/images"; cat >"$here/parcel.tar" ;;
 run) [ -e "$here/code-${12%/*}" ] && { echo "acme broke ${12}"; exit "$(cat "$here/code-${12%/*}")"; }
   echo "helper ran ${12}"; AK_SHARD=${12} exec bash -c "${16}" ;;
@@ -40,8 +40,9 @@ esac
 
 # The Mac's own tools, for tools/helper/mac.sh run here: on its charger for the first
 # $FAKE_AC_CALLS readings; a build takes half a second, and `container builder stop` breaks any
-# build still running; a VM comes up a second after `container run`, noting any VM up already, and
-# runs until stopped. Linux's `flock` takes `lockf`'s place.
+# build still running; a VM comes up a second after `container run` and runs until stopped,
+# listed beside the owner's own VM and an ended one, holding half the memory it was given.
+# Linux's `flock` takes `lockf`'s place.
 MAC_TOOLS = {
     "pmset": 'n=$(( $(cat "$FAKE/readings" 2>/dev/null || echo 0) + 1 )); echo $n >"$FAKE/readings"\n'
              '[ $n -le "$FAKE_AC_CALLS" ] && echo "Now drawing from \'AC Power\'" ||'
@@ -50,7 +51,11 @@ MAC_TOOLS = {
               ' hw.memsize) echo 17179869184;; esac',
     "memory_pressure": 'echo "System-wide memory free percentage: 50%"',
     "caffeinate": 'shift; exec "$@"',
-    "container": 'case "$1 $2" in "system "*) [ ! -e "$FAKE/system-broken" ];;\n'
+    "container": 'vms() { { echo "acme-db 4096 running"; echo "ak-ended 4096 stopped"\n'
+                 '  for vm in "$FAKE"/vm-*; do mb=$(cat "$vm" 2>/dev/null) && echo "${vm##*/vm-} $mb running"\n'
+                 '  done; } | jq -R -s \'split("\\n")[:-1] | map(split(" ")\'\\\n'
+                 '\' | {id: .[0], mb: (.[1] | tonumber), state: .[2]})\'; }\n'
+                 'case "$1 $2" in "system "*) [ ! -e "$FAKE/system-broken" ];;\n'
                  '"builder "*) rm -f "$FAKE"/building-*;;\n'
                  '"image inspect") [ -e "$FAKE/has-${3##*/}" ];;\n'
                  '"build "*) touch "$FAKE/has-debian:trixie-slim" "$FAKE/building-$5"; sleep 0.5\n'
@@ -61,8 +66,12 @@ MAC_TOOLS = {
                  '"image delete") echo "$3" >>"$FAKE/deleted"; rm -f "$FAKE/has-${3##*/}";;\n'
                  '"ls --all") [ ! -e "$FAKE/ls-broken" ] || exit 1; echo "ID IMAGE OS"\n'
                  '  cat "$FAKE/listed" 2>/dev/null; :;;\n'
-                 '"run "*) while [ "$1" != --name ]; do shift; done\n'
-                 '  sleep 1; ls "$FAKE" | grep "^vm-" >>"$FAKE/overlap"; touch "$FAKE/vm-$2"\n'
+                 '"list --all") vms | jq \'map({configuration: {id, resources:\'\\\n'
+                 '\' {memoryInBytes: (.mb * 1048576)}}, status: {state}})\';;\n'
+                 '"stats --no-stream") vms | jq \'map(select(.state == "running")\'\\\n'
+                 '\' | {id, memoryUsageBytes: (.mb * 524288)})\';;\n'
+                 '"run "*) while [ "$1" != --name ]; do [ "$1" != --memory ] || mb=${2%m}; shift; done\n'
+                 '  sleep 1; echo "$mb" >"$FAKE/.vm-$2"; mv "$FAKE/.vm-$2" "$FAKE/vm-$2"\n'
                  '  while [ -e "$FAKE/vm-$2" ]; do sleep 0.1; done;;\n'
                  '"stop "*) rm "$FAKE/vm-$2";; esac',
     "ssh": 'umask 077; exec bash -c "$2"',    # the strictest umask a Mac's shell may have
@@ -173,11 +182,11 @@ class SuiteHelper(unittest.TestCase):
         text, warned = self.check({2: helper.SHORT})
         self.assertIn("--- AK_SHARD=2/3 ---\n[exit 0]\npiece 2/3", text)
         self.assertEqual((len(self.turns), warned), (1, []))
-        # three VMs shared half of 1 TiB; the next ones each get what two would have had
+        # each VM had twice a piece's 410 MiB; the next ones each get twice as much
         self.assertEqual([path.read_text() for path in config.STATE.glob("helper-memory-*")],
-                         [f"{524288 // 3 * 3 // 2}\n"])
-        self.assertIn("helper ran 2/2", self.check({})[0])
-        self.assertEqual((self.fake / "calls").read_text().split().count("run"), 2)
+                         ["1640\n"])
+        self.check({})
+        self.assertIn("suite on acme-mac: 3 pieces, 2 CPUs and 1640 MiB each", self.logs)
 
     def test_a_vm_that_ran_out_of_memory_counts_when_a_sibling_runs_out_of_time(self):
         def limited(argv, _left, on_timeout, **_kw):
@@ -190,7 +199,7 @@ class SuiteHelper(unittest.TestCase):
             gate.run_suite(SUITE, 30, cwd=self.repo, activity=self.root / "live.log",
                            output=io.BytesIO())
         self.assertEqual([path.read_text() for path in config.STATE.glob("helper-memory-*")],
-                         [f"{524288 // 3 * 3 // 2}\n"])
+                         ["1640\n"])
 
     def test_suites_that_ran_out_of_memory_at_once_never_lower_the_floor(self):
         away = helper.Away("acme-mac", "k", "acme", "img", 3, 2, 1000, "", "", "")
@@ -207,7 +216,7 @@ class SuiteHelper(unittest.TestCase):
         with patch.object(helper, "_least", side_effect=least):
             helper.short(away)
             newer.join()
-        self.assertEqual(read("acme"), 3000)
+        self.assertEqual(read("acme"), 4000)
 
     def test_a_piece_that_changes_its_checkout_there_fails_there(self):
         (self.repo / "tracked").write_text("committed\n")
@@ -317,27 +326,22 @@ class HelperMac(unittest.TestCase):
                                              for line in header.splitlines() if line[:1] == b"-"]
         return code, needs
 
-    def test_probe_leaves_load_half_the_free_memory_battery_and_a_held_mac(self):
-        # 10 CPUs less a load of 1; half of 8 GiB free.
-        self.assertEqual(helper.room("acme-mac", 1.0, 500), ((4, 2, 1024), ""))
+    def test_probe_leaves_load_half_the_free_memory_and_battery(self):
+        # 10 CPUs less a load of 1; half of 8 GiB free; each VM twice its piece's memory
+        self.assertEqual(helper.room("acme-mac", 1.0, 500), ((4, 2, 1000), ""))
         # a small piece still gets two CPUs: 9 spare make 4 VMs, not 9 of one CPU
-        self.assertEqual(helper.room("acme-mac", 1.0, 100), ((4, 2, 1024), ""))
+        self.assertEqual(helper.room("acme-mac", 1.0, 100), ((4, 2, 200), ""))
         self.assertEqual(helper.room("acme-mac", 1.0, 2100),
                          (None, "has no room (9 spare CPUs and 4096 MiB)"))
         # VMs a suite of the repository ran out of memory in: fewer, larger ones
-        self.assertEqual(helper.room("acme-mac", 1.0, 500, 1500), ((2, 4, 2048), ""))
+        self.assertEqual(helper.room("acme-mac", 1.0, 500, 1500), ((2, 4, 1500), ""))
         (self.fake / "system-broken").touch()
         self.assertEqual(helper._remote("acme-mac", "probe", text=True).returncode, helper.BROKEN)
         (self.fake / "system-broken").unlink()
-        (self.root / "other").mkdir(parents=True)
-        (self.root / "other" / "held").touch()
-        self.assertEqual(helper.room("acme-mac", 1.0, 500), (None, "is busy"))
-        os.utime(self.root / "other" / "held", (time.time() - 600,) * 2)
-        self.assertIsNotNone(helper.room("acme-mac", 1.0, 500)[0])
         os.environ["FAKE_AC_CALLS"] = "0"
         self.assertEqual(helper.room("acme-mac", 1.0, 500), (None, "is on battery"))
 
-    def test_one_suite_holds_the_mac_and_only_its_own_old_image_goes(self):
+    def test_suites_prepare_beside_one_another_and_only_their_own_old_image_goes(self):
         prepare = lambda key: self.prepare(key)[0]
         # a failed build keeps the helper's old image and drops the base it fetched
         (self.fake / "broken").touch()
@@ -350,8 +354,6 @@ class HelperMac(unittest.TestCase):
         self.assertEqual((self.root / "first/context/setup.sh").stat().st_mode & 0o777, 0o755)
         self.assertEqual((self.fake / "deleted").read_text(),
                          "ak-helper:old\ndocker.io/library/debian:trixie-slim\n")
-        # it holds the Mac; a second suite still prepares, and its pieces wait
-        self.assertEqual(helper.room("acme-mac", 1.0, 500), (None, "is busy"))
         self.assertEqual(prepare("second"), 0)
         for key in ("first", "second"):
             helper.finish(helper.Away("acme-mac", key, *[None] * 8))
@@ -450,32 +452,6 @@ class HelperMac(unittest.TestCase):
                 helper.finish(away)
                 self.git("-C", str(self.repo), "commit", "-q", "--allow-empty", "-m", "merged")
                 self.git("-C", str(self.repo), "update-ref", "refs/remotes/origin/main", "HEAD")
-
-    def test_a_piece_waits_while_another_suite_holds_the_mac(self):
-        (self.root / "mirrors" / "acme").mkdir(parents=True)
-
-        def start(key):
-            (self.root / key).mkdir(parents=True)
-            (self.root / key / "held").touch()    # its claim, as `prepare` leaves it
-            return subprocess.Popen(helper._remote("acme-mac", "run", key, "ak-helper:new",
-                                                   f"ak-{key}", 1, 512, "acme"),
-                                    stdout=subprocess.DEVNULL)
-
-        def up(name):
-            deadline = time.monotonic() + 30
-            while not (self.fake / name).exists():
-                self.assertLess(time.monotonic(), deadline, f"{name} never came up")
-                time.sleep(0.1)
-            return self.fake / name
-
-        first = start("first")
-        up("vm-ak-first")
-        second = start("second")
-        time.sleep(3)   # the second VM would be up beside the first by now, were it let
-        up("vm-ak-first").unlink()
-        up("vm-ak-second").unlink()
-        self.assertEqual((first.wait(30), second.wait(30)), (0, 0))
-        self.assertEqual((self.fake / "overlap").read_text(), "")
 
     def test_a_vm_that_comes_up_after_its_charger_went_stops(self):
         for path in ("key", "mirrors/acme"):
