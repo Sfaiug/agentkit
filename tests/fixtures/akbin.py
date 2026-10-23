@@ -326,16 +326,21 @@ def relay(listener, family, address):
         except OSError:
             pass
 
+    def carry(near):
+        with near, socket.socket(family) as far:
+            far.connect(address)
+            back = threading.Thread(target=pump, args=(far, near), daemon=True)
+            back.start()
+            pump(near, far)
+            back.join()
+
     def serve():
         while True:
             try:
                 near = listener.accept()[0]
             except OSError:
                 return
-            far = socket.socket(family)
-            far.connect(address)
-            for source, target in ((near, far), (far, near)):
-                threading.Thread(target=pump, args=(source, target), daemon=True).start()
+            threading.Thread(target=carry, args=(near,), daemon=True).start()
 
     threading.Thread(target=serve, daemon=True).start()
 
