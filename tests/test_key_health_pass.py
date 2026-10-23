@@ -6,8 +6,8 @@ commit in AK_MERGE_SHA.  A pass marks the run live and types nothing into its se
 is recorded with its output and tried again on later ticks; one still failing three hours after
 the merge is no longer run and waits to be handed back to the seat to fix the target.  None of
 it pages the owner.  Black-box: the program `AK_BIN` names runs from outside through
-tests/fixtures/akbin.py, on a project from gitrig.py, the GitHub of fakegh.py, a seat from
-akseat.py and the webhook of sink.py.
+tests/fixtures/akbin.py, each tick in the box `home.tick()` builds, on a project from gitrig.py,
+the GitHub of fakegh.py, a seat from akseat.py and the webhook of sink.py.
 """
 
 import json
@@ -17,7 +17,7 @@ import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import Home
+from fixtures.akbin import boxable, Home
 from fixtures.akseat import Seat
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
@@ -31,6 +31,7 @@ PR = "https://github.com/acme/app/pull/7"
 RUN = "20261020-1200-fix-api"
 
 
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class Merged(unittest.TestCase):
     """A Home with project app merged by run RUN `age` seconds ago from seat acme, its checks
     green; `record` adds to or replaces the run's record, and None leaves a field out."""
@@ -66,7 +67,7 @@ class Merged(unittest.TestCase):
     @classmethod
     def tick(cls):
         (cls.home.path / "probe").unlink(missing_ok=True)
-        done = cls.home.ak("watch")
+        done = cls.home.tick()
         assert done.code == 0, done.out + done.err
         return done
 

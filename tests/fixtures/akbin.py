@@ -20,7 +20,8 @@ may send another way.
         assert done.code == 0, done.err
 
 `home.tick()` runs one `ak watch` in a box (`boxable()` says whether bubblewrap can build
-one here) and waits out what it detached there, so nothing of it outlives the test.
+one here) and waits out what it detached there, so nothing of it outlives the test; a sink of
+sink.py stays reachable from inside it.
 """
 
 from collections import namedtuple
@@ -31,10 +32,13 @@ from pathlib import Path
 import shlex
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+from urllib.parse import urlsplit
 
 REPO = Path(__file__).resolve().parents[2]
 _NAMED = Path(os.environ.get("AK_BIN") or "bin/ak")
@@ -53,8 +57,13 @@ Done = namedtuple("Done", "code out err")
 
 # A tick's last breath in its box: what it detached is waited out before the box goes.
 _LAST = r"""
-import os, subprocess, sys, time
-code = subprocess.call(sys.argv[1:])
+import os, socket, subprocess, sys, time
+tests, relay, port, *command = sys.argv[1:]
+if relay:
+    sys.path.insert(0, tests)
+    from fixtures.akbin import _relay
+    _relay(socket.create_server(("127.0.0.1", int(port))), relay)
+code = subprocess.call(command)
 deadline = time.monotonic() + 60
 while time.monotonic() < deadline:
     if not [p for p in os.listdir("/proc") if p.isdigit() and int(p) not in (1, os.getpid())]:
@@ -64,6 +73,38 @@ sys.exit("the tick left processes running")
 """
 _BOX = ("bwrap", "--dev-bind", "/", "/", "--unshare-net", "--unshare-pid", "--proc", "/proc",
         "--tmpfs", "/tmp")
+
+
+def _relay(listener, reach):
+    """Serve `listener` in the background, piping each connection both ways to a new one to
+    `reach`: a port on loopback, or a socket file."""
+    def connect():
+        if isinstance(reach, int):
+            return socket.create_connection(("127.0.0.1", reach))
+        far = socket.socket(socket.AF_UNIX)
+        far.connect(reach)
+        return far
+
+    def pipe(src, dst):
+        try:
+            while data := src.recv(65536):
+                dst.sendall(data)
+            dst.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+
+    def serve():
+        while True:
+            near = listener.accept()[0]
+            try:
+                far = connect()
+            except OSError:
+                near.close()
+                continue
+            for src, dst in ((near, far), (far, near)):
+                threading.Thread(target=pipe, args=(src, dst), daemon=True).start()
+
+    threading.Thread(target=serve, daemon=True).start()
 
 
 @functools.cache
@@ -253,11 +294,22 @@ class Home:
     def tick(self, env=None):
         """One `ak watch`, boxed: a tick asks the public boards and the shared browser on
         loopback, so it gets a loopback of its own, and its collection sweeps /tmp, so it gets
-        one holding only this Home and the program."""
+        one holding only this Home and the program.  The sink's port is open in the box too,
+        piped through a socket file in this Home to the sink outside."""
         keep = {self.root, self.tmux_dir, REPO, Path(AK).resolve().parent}
         binds = [arg for path in sorted(map(str, keep), key=len)
                  if Path(path).is_relative_to("/tmp") for arg in ("--bind", path, path)]
-        return self.run(*_BOX, *binds, "--", sys.executable, "-c", _LAST, AK, "watch", env=env)
+        relay, port = "", 0
+        sink = urlsplit(self._env(env).get("AK_NOTIFY_SINK", ""))
+        if sink.scheme == "http" and sink.hostname == "127.0.0.1":
+            port, relay = sink.port, str(self.root / f"sink-{sink.port}.sock")
+            if not os.path.exists(relay):
+                listener = socket.socket(socket.AF_UNIX)
+                listener.bind(relay)
+                listener.listen()
+                _relay(listener, port)
+        return self.run(*_BOX, *binds, "--", sys.executable, "-c", _LAST, str(REPO / "tests"),
+                        relay, str(port), AK, "watch", env=env)
 
     def spawn(self, *args, env=None, cwd=None):
         """Start the program and leave it running, its output in `home.log(...)`; `close` ends
