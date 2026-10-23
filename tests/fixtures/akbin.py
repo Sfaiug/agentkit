@@ -271,7 +271,8 @@ class Home:
         it.  `boxed` gives it the /tmp of `box`."""
         name = f"spawn-{len(self._spawned) + 1}"
         with self.log(f"{name}.out").open("w") as out, self.log(f"{name}.err").open("w") as err:
-            proc = subprocess.Popen([*(self.box() if boxed else ()), AK, *args], stdin=subprocess.DEVNULL, stdout=out, stderr=err,
+            proc = subprocess.Popen([*(self.box() if boxed else ()), AK, *args],
+                                    stdin=subprocess.DEVNULL, stdout=out, stderr=err,
                                     cwd=cwd or self.path, env=self._env(env),
                                     start_new_session=True)
         self._spawned.append(proc)
