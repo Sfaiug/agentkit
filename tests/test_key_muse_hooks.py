@@ -34,29 +34,6 @@ QUESTION, REMINDED, ANSWERED, STOPPED, ESCAPED, _APPROVAL = (
 ASKED = "Which colour should the acme banner use?"    # the question muse-question-pane.txt shows
 HOOKED = {"Stop", "Notification", "PostToolBatch", "Interrupt"}
 
-# The Home's tmux takes no socket path and forgets TMUX: either could name any server on the
-# machine.  A seat's harness and its hooks reach their pane's server by both, as under any tmux,
-# so here they may, for this Home's own servers and no other.
-TMUX = """#!/bin/sh
-refuse() {{ echo "tmux: a socket outside this test's Home" >&2; exit 2; }}
-skip=
-for a do
-  case $skip in
-    S) case $a in {dir}/*) skip=; continue ;; *) refuse ;; esac ;;
-    1) skip=; continue ;;
-  esac
-  case $a in
-    -S) skip=S ;;
-    -S*) case $a in -S{dir}/*) ;; *) refuse ;; esac ;;
-    -[cfLT]) skip=1 ;;
-    -*) ;;
-    *) break ;;
-  esac
-done
-case ${{TMUX-}} in {dir}/*) ;; *) unset TMUX TMUX_PANE ;; esac
-export TMUX_TMPDIR={dir}
-exec {real} "$@"
-"""
 # muse: the schema this test gives it, and a TUI, the one call made on a terminal, that keeps the
 # line it was started with and shows Muse asking its own question.  Anything else (ak's usage
 # probe) fails, as offline.
@@ -90,8 +67,6 @@ class MuseHooks(unittest.TestCase):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
         root = cls.home.root
-        cls.home.fake("tmux", TMUX.format(dir=shlex.quote(str(cls.home.tmux_dir)),
-                                          real=shlex.quote(REAL_TMUX)))
         cls.home.fake("muse", MUSE.format(root=shlex.quote(str(root)),
                                           python=shlex.quote(sys.executable),
                                           pane=shlex.quote(str(PANE))))

@@ -77,9 +77,10 @@ LOG = "#!/bin/sh\n{python} -c 'import json, sys; print(json.dumps(sys.argv[1:]))
 REFUSE = LOG + 'echo "{name}: not scripted in this test" >&2\nexit 1\n'
 # A socket path could name any server on the machine, as could a socket name holding a slash
 # (`-L ../../tmux-1000/agentkit` walks out of TMUX_TMPDIR), and TMUX or TMUX_PANE the caller's
-# own.  The one path let through is the Home's own server's, as tmux gives it to a seat's pane,
-# matched as a string: no spelling of a path is judged by where it leads.  Its flags are read as
-# tmux's getopt reads them: bundled, a value attached or in the next word.
+# own.  The one path let through is the Home's own server's, as tmux gives it to a seat's pane
+# (in TMUX, up to its first comma), matched as a string: no spelling of a path is judged by where
+# it leads.  Its flags are read as tmux's getopt reads them: bundled, a value attached or in the
+# next word.
 TMUX = LOG + """refuse() {{ echo "tmux: a test's tmux takes no socket path but its own" >&2; exit 2; }}
 value() {{
   case $1 in
@@ -99,7 +100,7 @@ for a do
     esac
   done
 done
-unset TMUX TMUX_PANE
+case ${{TMUX-}} in {own},*) ;; *) unset TMUX TMUX_PANE ;; esac
 export TMUX_TMPDIR={tmpdir}
 exec {real} "$@"
 """
