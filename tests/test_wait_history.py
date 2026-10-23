@@ -111,6 +111,7 @@ class WaitHistory(unittest.TestCase):
                 (time, "monotonic", {"side_effect": lambda: self.clock[0]}),
                 (run, "git", {"side_effect": git}), (gitcall, "git", {"side_effect": git}),
                 (run, "git_out", {"side_effect": git_out}), (gitcall, "git_out", {"side_effect": git_out}),
+                (gitcall, "no_auto_gc", {}),
                 (run, "fetch", {}), (gitcall, "fetch", {}), (delivery, "require_review_pass", {}),
                 (turns, "stop_run_tree", {}), (roundloop, "set_base", {}),
                 (roundloop, "how_to_integrate", {"return_value": "rebase"}),
