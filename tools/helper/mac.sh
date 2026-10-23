@@ -139,8 +139,6 @@ run)       # KEY IMAGE NAME CPUS MEMORY_MB REPO, then piece.sh's arguments
     --read-only-path NONE --no-dns --cpus "$cpus" --memory "${memory}m" --name "$name" \
     --volume "$D:/in:ro" --volume "$M:/mirror:ro" "$image" /bin/bash /in/piece.sh "$@" &
   vm=$!
-  until running "$name" || ! kill -0 "$vm" 2>/dev/null; do sleep 0.2; done
-  : >"$flag"
   # The VM stops once ak's ssh session ends or the Mac leaves its charger; the stop is repeated
   # until `container run` ends, so a VM that comes up after the first stop stops too.
   ( lost=253
@@ -150,6 +148,9 @@ run)       # KEY IMAGE NAME CPUS MEMORY_MB REPO, then piece.sh's arguments
     done
     echo "$lost" >"$D/$name.lost"
     while ps -p "$vm"; do container stop "$name"; sleep 1; done ) >/dev/null 2>&1 &
+  # The next VM is weighed once this one runs, or has ended: stopped while starting, it ends.
+  until running "$name" || ! kill -0 "$vm" 2>/dev/null; do sleep 0.2; done
+  : >"$flag"
   wait "$vm"
   code=$?
   kill $! 2>/dev/null; wait $! 2>/dev/null

@@ -40,7 +40,8 @@ esac
 
 # The Mac's own tools, for tools/helper/mac.sh run here: on its charger for the first
 # $FAKE_AC_CALLS readings; a build takes half a second, and `container builder stop` breaks any
-# build still running; a VM comes up a second after `container run` and runs until stopped,
+# build still running; a VM comes up a second after `container run`, or only after a stop while
+# $FAKE/stalls, and runs until stopped,
 # listed beside the owner's own VM and an ended one, holding half the memory it was given.
 # Linux's `flock` takes `lockf`'s place.
 MAC_TOOLS = {
@@ -71,9 +72,10 @@ MAC_TOOLS = {
                  '"stats --no-stream") vms | jq \'map(select(.state == "running")\'\\\n'
                  '\' | {id, memoryUsageBytes: (.mb * 524288)})\';;\n'
                  '"run "*) while [ "$1" != --name ]; do [ "$1" != --memory ] || mb=${2%m}; shift; done\n'
-                 '  sleep 1; echo "$mb" >"$FAKE/.vm-$2"; mv "$FAKE/.vm-$2" "$FAKE/vm-$2"\n'
+                 '  sleep 1; while [ -e "$FAKE/stalls" ]; do sleep 0.1; done\n'
+                 '  echo "$mb" >"$FAKE/.vm-$2"; mv "$FAKE/.vm-$2" "$FAKE/vm-$2"\n'
                  '  while [ -e "$FAKE/vm-$2" ]; do sleep 0.1; done;;\n'
-                 '"stop "*) rm "$FAKE/vm-$2";; esac',
+                 '"stop "*) rm -f "$FAKE/stalls"; rm "$FAKE/vm-$2";; esac',
     "ssh": 'umask 077; exec bash -c "$2"',    # the strictest umask a Mac's shell may have
     "lockf": '[ "$1" != -k ] || shift; exec flock "$@"',
 }
@@ -453,9 +455,10 @@ class HelperMac(unittest.TestCase):
                 self.git("-C", str(self.repo), "commit", "-q", "--allow-empty", "-m", "merged")
                 self.git("-C", str(self.repo), "update-ref", "refs/remotes/origin/main", "HEAD")
 
-    def test_a_vm_that_comes_up_after_its_charger_went_stops(self):
+    def test_a_vm_still_starting_or_up_after_its_charger_went_stops(self):
         for path in ("key", "mirrors/acme"):
             (self.root / path).mkdir(parents=True)
+        (self.fake / "stalls").touch()
         os.environ["FAKE_AC_CALLS"] = "1"
         run = helper._remote("acme-mac", "run", "key", "ak-helper:new", "ak-key-1-2", 1, 512,
                              "acme", timeout=30)
