@@ -1831,7 +1831,9 @@ def record_result(run_dir, state, log=None, cfg=None):
 
     The full report when there is a worktree to report on, else the reason and the relaunch:
     before a worktree exists there is no diff, no rounds and no delivery, so the file carries
-    the title, no verdict, why the run stopped, and `ak run <task.md>` to try again.  Never
+    the title, no verdict, why the run stopped, and the command to try again: `ak run <task.md>`,
+    or `ak run --review-pr <url>` for a review, whose task file launched alone builds a change of
+    its own titled after the review.  Never
     itself a reason a stop goes unreported: whatever goes wrong writing the full report, the
     file still says what happened and what to do about it, and the caller still notifies.
     """
@@ -1844,12 +1846,14 @@ def record_result(run_dir, state, log=None, cfg=None):
         suffix = f"\n\n(the full result could not be written: {exc})"
     else:
         suffix = ""
+    again = (f"ak run --review-pr {state['review_pr']}" if state.get("review_pr")
+             else f"ak run {run_dir / 'task.md'}")
     try:
         save_result(run_dir,
             f"# {transitions.delivery(state, transitions.report_config(cfg))} — {state.get('title') or run_dir.name}\n\n"
             f"VERDICT: {state.get('verdict') or 'none'}\n\n## Why this run stopped\n\n"
             f"{state.get('error') or 'no reason was recorded'}\n\n"
-            f"relaunch: ak run {run_dir / 'task.md'}{suffix}\n\n{followup_report(state)}")
+            f"relaunch: {again}{suffix}\n\n{followup_report(state)}")
     except OSError:
         pass
     else:
