@@ -138,7 +138,11 @@ def check(cfg, root, snapshot, host_home, harness=None):
     passed = failed = skipped = calls = installed = 0
 
     def report(kind, name, message):
-        print(f"{kind}  3 {name}: {message}", flush=True)
+        label = f"3 {name}".strip()
+        print(f"{kind}  {label}: {message}", flush=True)
+        if os.environ.get("AK_LIVE_FAILED") and kind in ("FAIL", "SKIP"):
+            with open(os.environ["AK_LIVE_FAILED"] + (".spent" if kind == "SKIP" else ""), "a") as out:
+                out.write(label + "\n")
 
     for name in names:
         try:
@@ -225,7 +229,7 @@ def check(cfg, root, snapshot, host_home, harness=None):
             report("FAIL", name, str(exc))
             failed += 1
     if not installed:
-        print("FAIL  3: no harness here is installed with its login; the check needs one", flush=True)
+        report("FAIL", "", "no harness here is installed with its login; the check needs one")
         failed += 1
     return passed, failed, skipped, calls
 

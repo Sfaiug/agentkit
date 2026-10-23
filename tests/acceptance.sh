@@ -13,7 +13,13 @@ export AK_NOTIFY_SINK AK_NOTIFY_SINK_LOG
 NPASS=0 NFAIL=0 NSKIP=0 NMETER=0 NHOST=0 NSPENT=0 NCALL=0
 ok() { printf 'PASS  %s\n' "$*"; NPASS=$((NPASS + 1)); }
 ok_call() { ok "$@"; NCALL=$((NCALL + 1)); }   # a passed check that completed a real model call
-no() { printf 'FAIL  %s\n' "$*"; NFAIL=$((NFAIL + 1)); }
+failed_label() {
+  if [ -n "${AK_LIVE_FAILED:-}" ]; then
+    local labels=${1%%[ :]*} label
+    for label in ${labels//\// }; do printf '%s\n' "$label" >>"$AK_LIVE_FAILED${2:-}"; done
+  fi
+}
+no() { printf 'FAIL  %s\n' "$*"; NFAIL=$((NFAIL + 1)); failed_label "$*"; }
 # A live provider meter that answers 429, 5xx or nothing at all is the provider
 # throttling the host's probes, not the checkout under test: the check skips, and the
 # gate counts that skip as a pass rather than as coverage that was not exercised.
@@ -28,7 +34,8 @@ skip() {
     *"not on this host"*)
       printf 'SKIP  %s\n' "$*"; NPASS=$((NPASS + 1)); NHOST=$((NHOST + 1)) ;;
     *)
-      printf 'SKIP  %s\n' "$*"; NSKIP=$((NSKIP + 1)) ;;
+      printf 'SKIP  %s\n' "$*"; NSKIP=$((NSKIP + 1))
+      [ "${AGENTKIT_ACCEPTANCE_REQUIRED:-0}" != 1 ] || failed_label "$*" ;;
   esac
 }
 skip_checks() {
@@ -41,7 +48,10 @@ skip_checks() {
 # also completed a real model call (`ok_call`); with none, they are skips like any other.
 skip_spent_checks() {   # skip_spent_checks <check labels> <why>
   local labels=$1 label; shift
-  for label in ${labels//\// }; do printf 'SKIP  %s: %s\n' "$label" "$*"; NSPENT=$((NSPENT + 1)); done
+  for label in ${labels//\// }; do
+    printf 'SKIP  %s: %s\n' "$label" "$*"; NSPENT=$((NSPENT + 1))
+    failed_label "$label" .spent
+  done
 }
 meter_unavailable() {   # meter_unavailable <usage.json> <provider...>: the first matching error, or 1
   # Only the named providers' errors count: a bystander's timed-out probe beside the
@@ -75,6 +85,15 @@ finish() {
   fi
   local nskip=$NSKIP spent=0 meter=""
   if [ "$NCALL" != 0 ]; then spent=$NSPENT; else nskip=$((nskip + NSPENT)); fi
+  if [ -n "${AK_LIVE_FAILED:-}" ] && [ -f "$AK_LIVE_FAILED.spent" ]; then
+    if [ "$NCALL" = 0 ] && [ "${AGENTKIT_ACCEPTANCE_REQUIRED:-0}" = 1 ]; then
+      cat "$AK_LIVE_FAILED.spent" >>"$AK_LIVE_FAILED"
+    fi
+    rm -f -- "$AK_LIVE_FAILED.spent"
+  fi
+  if [ -n "${AK_LIVE_FAILED_FINAL:-}" ]; then
+    mv -- "$AK_LIVE_FAILED" "$AK_LIVE_FAILED_FINAL"
+  fi
   echo "$((NPASS + spent)) passed, $NFAIL failed, $nskip skipped"
   if [ "$NMETER" = 1 ]; then
     meter="; 1 provider-meter skip counted as passed"

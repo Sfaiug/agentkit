@@ -508,8 +508,8 @@ def kill_group(proc, run_id=None):
         kill_marked(run_id, exact=True)
 
 
-def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=None,
-            abort=None, stop=None, quiet=None, **kwargs):
+def limited(cmd, limit, *, silence=None, activity=None, heartbeats=(), output=None,
+            on_timeout=None, abort=None, stop=None, quiet=None, **kwargs):
     """Run a process group until it exits, goes silent, reaches an optional ceiling, or
     says something that means it will never finish.
 
@@ -531,6 +531,10 @@ def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=
     for one that keeps emitting events -- or never emits another -- is the whole of what
     this is here to stop.  It must be cheap and must not raise.
 
+    `heartbeats` are the `type`s of JSON lines that only say a tool is still running: with any,
+    only a whole line of another kind counts as activity, so a hung tool call heartbeating
+    away still goes silent.
+
     `stop(process, grace)` can own TERM/KILL cleanup when a wrapper encloses the command.
     `quiet`, a list, gets the longest the command went without writing to `activity`, in
     seconds, its start and end included, where the watchdog let it run to its end.
@@ -549,7 +553,34 @@ def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=
         except (OSError, TypeError):
             return None
 
-    previous = written()
+    at, rest, said = 0, b"", 0
+
+    def heard():
+        """What `written` says, or with heartbeats the count of whole lines that are not one."""
+        nonlocal at, rest, said
+        if not heartbeats:
+            return written()
+        try:
+            with open(activity, "rb") as fh:
+                if fh.seek(0, os.SEEK_END) < at:
+                    at, rest = 0, b""                   # rewritten from its start
+                fh.seek(at)
+                lines = (rest + fh.read()).split(b"\n")
+                at = fh.tell()
+        except (OSError, TypeError):
+            return said
+        rest = lines.pop()
+        said += sum(1 for line in lines if line.strip() and not heartbeat(line))
+        return said
+
+    def heartbeat(line):
+        try:
+            event = json.loads(line)
+        except ValueError:
+            return False
+        return isinstance(event, dict) and event.get("type") in heartbeats
+
+    previous = heard()
     started = time.monotonic()
     # Only an environment this call handed the child names a run to clean up.  Nothing
     # passed, or a dict that still carries this process's own marker, means the child
@@ -576,7 +607,7 @@ def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=
         last, seen, longest = started, previous, 0
         while not finished.is_set():
             now = time.monotonic()
-            current = written()
+            current = heard()
             if current != seen:
                 longest = max(longest, now - last)
                 last, seen = now, current
@@ -722,7 +753,8 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
 
     A Claude turn is also given BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS at the
     done-when ceiling so the harness default need not force a command into the background.
-    This does not bypass the event-silence watchdog during a foreground tool call. Codex
+    This does not bypass the event-silence watchdog during a foreground tool call: the
+    `[worker] heartbeats` a harness streams while a tool blocks are not activity. Codex
     and Muse expose no equivalent knob (their shell timeout is per tool call, chosen by the model),
     so their environment is unchanged.
 
@@ -787,6 +819,7 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
                      hidden=config.unswitched_files(entry["harness"], turn_env)) as (cmd, turn_env, spawn), \
             own.open("wb") as err:
         code, _, killed = limited(cmd, None, silence=limit, activity=out_dir / "events.jsonl",
+                                  heartbeats=paths.get("heartbeats", ()),
                                   abort=lambda: watching(out_dir),
                                   env=turn_env, stderr=err, **spawn)
     if not killed:
