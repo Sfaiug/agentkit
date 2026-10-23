@@ -12,7 +12,8 @@ title carry the word, and no seat at work pages the owner.
 
 Black-box: Claude's hooks as ak's adapter registers them, fired as Claude fires them
 (tests/fixtures/hookdrive.py), in seats of tests/fixtures/akseat.py showing captures of real
-Claude Code screens, paging tests/fixtures/sink.py; this test fails against `/bin/false`.
+Claude Code screens, paging tests/fixtures/sink.py, its one tick in `home.tick()`'s box, off the
+host's network and /tmp; this test fails against `/bin/false`.
 """
 
 import json
@@ -22,7 +23,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, boxable, Home
 from fixtures.akseat import Seat
 from fixtures.hookdrive import Hooks, transcript
 from fixtures.sink import Sink
@@ -53,7 +54,7 @@ GLYPH = {"working": "● working", "needs you": "! needs you", "idle": "○ idle
 COMPOSER = "  authority: screen  rule: prompt.composer"
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class HookWords(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -71,7 +72,7 @@ class HookWords(unittest.TestCase):
                                            "transcript_path": said, "cwd": str(seat.cwd)},
                                    seat=name, pane=seat)
                 assert fired.code == 0, f"{name} {event}: {fired.err}"
-        watched = home.ak("watch")
+        watched = home.tick()
         assert watched.code == 0, watched.err
         state = home.path / ".agentkit" / "state"
         cls.records = {name: json.loads((state / f"seat-{name}.json").read_text())
@@ -152,6 +153,10 @@ class HookWords(unittest.TestCase):
         for page in self.sink.pages():
             for name in working:
                 self.assertNotIn(f"· {name}", str(page))
+        # the boxed tick cannot reach the sink: a page it sent waits in the outbox
+        outbox = self.home.path / ".agentkit/state/notification-outbox"
+        paged = {json.loads(path.read_text()).get("session") for path in outbox.glob("*.json")}
+        self.assertFalse(paged & set(working))
 
 
 if __name__ == "__main__":

@@ -6,45 +6,32 @@ call them back to a question already settled.  So the page is retired unsent, an
 sends it, while one whose question still stands keeps waiting for its retry.  Black-box: the
 program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, before seats of
 tests/fixtures/akseat.py whose hooks fire as Claude fires them (tests/fixtures/hookdrive.py),
-paging tests/fixtures/sink.py, which answers every page 503.
+paging tests/fixtures/sink.py, which answers every page 503; each tick runs in `home.tick()`'s
+box, off the host's network and /tmp.
 """
 
 import json
-import socket
 import sys
 import time
 from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, boxable, Home
 from fixtures.akseat import Seat
 from fixtures.hookdrive import Hooks
 from fixtures.sink import Sink
 from fixtures import akconfig
 
 OVER = ("disabled", "the question it asked is over")
-PROXIES = ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
 
 
-def offline(home):
-    """A tick asks the public model boards over HTTP itself, not through a tool on PATH: every
-    proxy an HTTP client honours names a loopback port nobody listens on, and only the sink, on
-    loopback, is reached directly."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
-    home.env.update(dict.fromkeys(PROXIES, f"http://127.0.0.1:{port}"),
-                    no_proxy="127.0.0.1,localhost", NO_PROXY="127.0.0.1,localhost")
-
-
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class PageOfAQuestionOver(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
-        offline(cls.home)
         akconfig.write(cls.home, ["opus"])    # with no audit seat for a tick to open
         cls.sink = Sink(cls.home)
         cls.addClassCleanup(cls.sink.close)
@@ -69,7 +56,7 @@ class PageOfAQuestionOver(unittest.TestCase):
         self.assertEqual(self.page(seat), ("pending", "HTTP 503"))
 
     def tick(self):
-        done = self.home.ak("watch")
+        done = self.home.tick()
         self.assertEqual(done.code, 0, done.err)
 
     def test_a_page_whose_question_stands_waits_and_once_answered_is_never_sent(self):
