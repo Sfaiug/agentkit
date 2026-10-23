@@ -139,6 +139,5 @@ class GitHubDown(Merges):
         self.assertEqual(self.lines("acme"), [told("ci", "app", 7)])
 
 
-
 if __name__ == "__main__":
     unittest.main()
