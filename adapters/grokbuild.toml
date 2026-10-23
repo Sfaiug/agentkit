@@ -1,4 +1,5 @@
 # Grok Build: the TUI's own flags, its own error words, and its own hook events.
+# Paired with adapters/grokbuild.sh; the format is the adapter contract in `config.adapter`.
 # The captures behind the screen rules are tests/fixtures/grok*-pane.txt; the trust dialog's
 # words are the executable's own strings (1.0.40), because no fresh folder on this host was
 # still untrusted enough to paint it.  Every other string here was seen on the wire.

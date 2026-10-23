@@ -31,8 +31,8 @@ ROOMY = json.dumps({"free_mb": 8192, "mem_total_mb": 16384, "load": 0, "cpus": 4
 # The Home's notify sink marks every run a test suite's, which ak never records: these runs go
 # without it, as the owner's, and with no webhook configured nothing is posted anywhere.
 OWNERS = {"AK_NOTIFY_SINK": None}
-# A turn's event log is in its <out>, the fifth argument after `run` (docs/guide.md, "Adding a
-# harness"); the wrapped fake's own turn runs first, untouched.
+# A turn's event log is in its <out>, the fifth argument after `run` (`config.adapter`);
+# the wrapped fake's own turn runs first, untouched.
 REPORTING = """#!/bin/sh
 {turn} "$@"
 code=$?
