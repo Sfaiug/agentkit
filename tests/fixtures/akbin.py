@@ -20,7 +20,8 @@ may send another way.
         assert done.code == 0, done.err
 
 `home.tick()` runs one `ak watch` in a box (`boxable()` says whether bubblewrap can build
-one here) and waits out what it detached there, so nothing of it outlives the test.
+one here) and waits out what it detached there, so nothing of it outlives the test.  Inside,
+127.0.0.1:`port` reaches the test's server listening on `home.loopback(port)`.
 """
 
 from collections import namedtuple
@@ -51,10 +52,28 @@ REFUSED = ("gh", "ssh", "curl", "systemctl", "systemd-run", "loginctl", "journal
 
 Done = namedtuple("Done", "code out err")
 
-# A tick's last breath in its box: what it detached is waited out before the box goes.
+# A tick's last breath in its box: each loopback port a test serves, from `home.loopback`, is
+# relayed to its socket, and what the tick detached is waited out before the box goes.
 _LAST = r"""
-import os, subprocess, sys, time
-code = subprocess.call(sys.argv[1:])
+import os, socket, subprocess, sys, threading, time
+split = sys.argv.index("--")
+def pipe(source, sink):
+    try:
+        while data := source.recv(65536):
+            sink.sendall(data)
+        sink.shutdown(socket.SHUT_WR)
+    except OSError:
+        pass
+def relay(listener, path):
+    while True:
+        near, far = listener.accept()[0], socket.socket(socket.AF_UNIX)
+        far.connect(path)
+        for ends in ((near, far), (far, near)):
+            threading.Thread(target=pipe, args=ends, daemon=True).start()
+for path in sys.argv[1:split]:
+    listener = socket.create_server(("127.0.0.1", int(path.rsplit("-", 1)[1])))
+    threading.Thread(target=relay, args=(listener, path), daemon=True).start()
+code = subprocess.call(sys.argv[split + 1:])
 deadline = time.monotonic() + 60
 while time.monotonic() < deadline:
     if not [p for p in os.listdir("/proc") if p.isdigit() and int(p) not in (1, os.getpid())]:
@@ -257,7 +276,14 @@ class Home:
         keep = {self.root, self.tmux_dir, REPO, Path(AK).resolve().parent}
         binds = [arg for path in sorted(map(str, keep), key=len)
                  if Path(path).is_relative_to("/tmp") for arg in ("--bind", path, path)]
-        return self.run(*_BOX, *binds, "--", sys.executable, "-c", _LAST, AK, "watch", env=env)
+        ports = map(str, sorted(self.tmux_dir.glob("port-*")))
+        return self.run(*_BOX, *binds, "--", sys.executable, "-c", _LAST, *ports, "--", AK,
+                        "watch", env=env)
+
+    def loopback(self, port):
+        """The socket a server of the test listens on for `home.tick()` to reach it at
+        127.0.0.1:`port` from inside its box, as long as the socket is there."""
+        return self.tmux_dir / f"port-{port}"
 
     def spawn(self, *args, env=None, cwd=None):
         """Start the program and leave it running, its output in `home.log(...)`; `close` ends

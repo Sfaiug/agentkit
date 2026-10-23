@@ -4,7 +4,7 @@ A done page tells the owner the whole finished job is ready to look at, once.  T
 to work and back to its prompt with nothing new in its plan is the same job and pages nothing
 more; a line it finishes since is new work and pages once more, the card then covering both.
 The seat's word reads `done`, with the finished line as its reason.  Black-box: the program
-`AK_BIN` names runs from outside through tests/fixtures/akbin.py, before a seat of
+`AK_BIN` names runs boxed ticks from outside through tests/fixtures/akbin.py, before a seat of
 tests/fixtures/akseat.py on the fixture harness tests/fixtures/adapters/echo.toml, paging
 tests/fixtures/sink.py.
 """
@@ -15,7 +15,7 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.sink import Sink
 from fixtures import akconfig
@@ -26,7 +26,7 @@ WORKING = "thinking...\nesc to interrupt\n\n❯ \n? for shortcuts\n"
 PAGE = "✅ Done · acme"
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class DonePagesOncePerCompletion(unittest.TestCase):
     def setUp(self):
         self.home = Home()
@@ -45,7 +45,7 @@ class DonePagesOncePerCompletion(unittest.TestCase):
 
     def tick(self, seat, screen):
         seat.show(screen)
-        done = self.home.ak("watch")
+        done = self.home.tick()
         self.assertEqual(done.code, 0, done.err)
         return self.sink.pages()
 

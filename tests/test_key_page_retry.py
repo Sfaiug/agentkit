@@ -5,41 +5,30 @@ The owner hears of a question only through the page: when the webhook is down th
 the outbox and goes out once it is due, the same page, with no second one beside it; a webhook
 that refuses what it was sent would refuse it again, so asking again only hammers it; and a rate
 limit says how long to wait, which ak keeps without ever waiting past its own longest step.
-Black-box: the program `AK_BIN` names runs `ak watch` from outside through
+Black-box: the program `AK_BIN` names runs a boxed `ak watch` from outside through
 tests/fixtures/akbin.py, beside the record of a seat of tests/fixtures/akseat.py, paging
 tests/fixtures/sink.py.
 """
 
 import json
-import socket
 import sys
 from pathlib import Path
 import time
 import unittest
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.sink import Sink
 
 PAGE = {"username": "agentkit", "content": "🙋 Needs you · acme",
         "allowed_mentions": {"parse": []}}
-PROXIES = ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
 
 
-def asking(home, *servers):
-    """A Home whose next tick pages about seat acme, and reaches no server but `servers`."""
+def asking(home):
+    """A Home whose next tick pages about seat acme."""
     akconfig.write(home, ["opus"])      # the audit off: a tick opens no seat of its own
-    # The tick asks the public boards and the host's browser itself: every proxy names a
-    # loopback port nobody listens on, and only the test's own servers are reached past them.
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
-    home.env.update(dict.fromkeys(PROXIES, f"http://127.0.0.1:{port}"))
-    passed = ",".join(urlsplit(server.url).netloc for server in servers)
-    home.env.update(no_proxy=passed, NO_PROXY=passed)
     # A seat that closed with its question standing, its card held back by a tick five minutes
     # ago: nobody is in it, so its minute has passed.  A live seat's minute counts from its tmux
     # session's last activity, which no test can date back.
@@ -67,18 +56,18 @@ def schedule(home, event, at):
                {**event, "next_attempt": at})
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class ARefusedPage(unittest.TestCase):
     def setUp(self):
         self.home = Home()
         self.addCleanup(self.home.close)
         self.sink = Sink(self.home)
         self.addCleanup(self.sink.close)
-        asking(self.home, self.sink)
+        asking(self.home)
 
     def tick(self):
         """One tick, and the clock once it is over."""
-        done = self.home.ak("watch")
+        done = self.home.tick()
         self.assertEqual(done.code, 0, done.err)
         return time.time()
 
@@ -122,7 +111,7 @@ class ARefusedPage(unittest.TestCase):
         self.assertEqual((self.event()["status"], self.event()["attempts"]), ("blocked", 1))
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class ARateLimit(unittest.TestCase):
     def test_its_wait_is_kept_never_under_a_minute_and_never_over_an_hour(self):
         # the header's seconds, Discord's own in the body, and a wait shorter than the backoff
@@ -132,8 +121,8 @@ class ARateLimit(unittest.TestCase):
         for headers, body, wait in cases:
             with self.subTest(headers=headers, body=body), Home() as home, Sink(home) as sink:
                 sink.script((429, headers, body))
-                asking(home, sink)
-                done = home.ak("watch")
+                asking(home)
+                done = home.tick()
                 self.assertEqual(done.code, 0, done.err)
                 after = time.time()
                 event = page_event(home)
