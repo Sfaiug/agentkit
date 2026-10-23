@@ -3,11 +3,12 @@ and merge one at a time, in that order.
 
 Two runs on one project pass review, the second while the first is merging.  The project's
 `tests:` suite prints the commits under the tree it runs on, so what it printed shows how each
-change was tested: the second stacked on the first, before the first has landed.  The GitHub
-here holds every `pr merge` until the test lets it go, and while the first is held the second,
-passed and tested, starts none: one merge per repository is a correctness lock, not capacity,
-as a merge beside another could land a tree no suite ran.  The second then merges rebased onto
-the first.  Black-box: the program `AK_BIN` names runs from outside through
+change was tested: each alone before joining, then the second stacked on the first before
+the first has landed.  The GitHub here holds every `pr merge` until the test lets it go, and
+while the first is held the second, passed and tested, starts none: one merge per repository
+is a correctness lock, not capacity, as a merge beside another could land a tree no suite ran.
+The second then merges rebased onto the first.  Black-box: the program `AK_BIN` names runs from
+outside through
 tests/fixtures/akbin.py, against the bare origin of gitrig.py and the GitHub of fakegh.py,
 with scripted harnesses from fakeadapter.py.
 """
@@ -48,16 +49,6 @@ exit $code
 """
 
 
-def second_waits(directory):
-    """A review that hands in at once the first time it runs, and after that only once the
-    first change's merge has begun."""
-    place = quote(str(directory))
-    return {"sh": f"mkdir {place}/reviewed 2>/dev/null || {{ i=0; "
-                  f"while [ ! -e {place}/merges.log ] && [ $i -lt 2400 ]; "
-                  "do sleep 0.05; i=$((i+1)); done; }",
-            "final": "Handed in.", "hand_in": [["done"]]}
-
-
 class LandingTrain(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -69,19 +60,17 @@ class LandingTrain(unittest.TestCase):
         cls.gh = GitHub(home)
         cls.gh.grant(cls.rig.slug, "WRITE")      # enough to push and merge without a fork
         akconfig.write(home, ["opus", "astra"])
-        fakes = fakeadapter.install(home, claude=WORK, codex="pass")
-        fakes["codex"].behave(second_waits(fakes["codex"].dir))
+        fakeadapter.install(home, claude=WORK, codex="pass")
         github = (home.bin / "gh").rename(home.root / "github.sh")
-        # The merge log is where a review turn can read it too.
-        cls.merges, go = fakes["codex"].dir / "merges.log", home.root / "go"
+        cls.merges, go = home.root / "merges.log", home.root / "go"
         home.fake("gh", HOLD.format(log=quote(str(cls.merges)), go=quote(str(go)),
                                     gh=quote(str(github))))
-        cls.runs = [home.spawn("run", str(taskfile.write(home, cls.rig.path, title,
-                                                         done_when=("ls *.txt",))))
-                    for title in ("Fix api", "Fix ui")]
-        # The second review waits for the first merge, so the second change joins the line
-        # once the first's check is over, and is checked as it joins.
-        cls.stacked = (cls.until(lambda: cls.merged_log()) and cls.until(
+        tasks = [str(taskfile.write(home, cls.rig.path, title, done_when=("ls *.txt",)))
+                 for title in ("Fix api", "Fix ui")]
+        cls.runs = [home.spawn("run", tasks[0])]
+        started = cls.until(cls.merged_log)
+        cls.runs.append(home.spawn("run", tasks[1]))
+        cls.stacked = (started and cls.until(
             lambda: any(line.count("add ") == 2 for line in cls.saw()), bound=60))
         # The second merge is given time to start beside the first; it must not.
         cls.until(lambda: len(cls.merged_log()) > 1, bound=5)
@@ -154,6 +143,7 @@ class LandingTrain(unittest.TestCase):
         first, second = map(self.added, self.order())
         # The first change is its own commit beneath the second: it had not merged yet.
         self.assertEqual(set(self.saw()), {f"add {first}|init|",
+                                           f"add {second}|init|",
                                            f"add {second}|add {first}|init|"})
 
     def test_a_second_merge_never_starts_while_the_first_is_merging(self):

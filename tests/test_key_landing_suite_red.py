@@ -3,8 +3,8 @@
 The `tests:` suite in a repository's AGENTS.md runs only at landing, on the commit about to be
 merged, after the work already passed review.  When it fails there, the run does not end FAIL
 and does not merge red work: the executor is handed the suite's failing output in a fixer
-turn that spends no task round, a fresh review judges the fixed work, the run rejoins the
-landing line, and the suite runs again on the fixed commit, which is the one merged.
+turn that spends no task round, a fresh review judges the fixed work, and the suite runs again
+on the fixed commit before the run joins the landing line and merges it.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py,
 against the bare origin of gitrig.py and the GitHub of fakegh.py, with scripted harnesses
 from fakeadapter.py.
@@ -92,10 +92,14 @@ class LandingSuiteRed(unittest.TestCase):
         self.assertNotEqual(first, second)
         self.assertEqual(self.state["review"]["head_sha"], second)
 
-    def test_the_run_rejoins_the_line_once_the_fix_passed_review(self):
-        log = (self.run_dir / "log.txt").read_text().splitlines()
-        self.assertTrue(any(line.endswith("rejoins the line: landing fixes passed review")
-                            for line in log), log)
+    def test_the_line_has_passed_evidence_for_the_fixed_tree_and_none_for_the_red_tree(self):
+        first, _files = self.review(1)
+        fixed, _files = self.review(2)
+        path, = self.run_dir.parent.glob(".merge-*.green")
+        trees = json.loads(path.read_text())["trees"]
+        self.assertNotIn(self.rig.git("rev-parse", f"{first}^{{tree}}"), trees)
+        tree = self.rig.git("rev-parse", f"{fixed}^{{tree}}")
+        self.assertEqual(trees[tree]["tested"], tree)
 
     def test_the_suite_reruns_green_on_the_fixed_commit_and_that_commit_is_merged(self):
         reviewed, _files = self.review(2)

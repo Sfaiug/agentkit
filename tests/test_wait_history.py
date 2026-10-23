@@ -113,6 +113,7 @@ class WaitHistory(unittest.TestCase):
                 (run, "git_out", {"side_effect": git_out}), (gitcall, "git_out", {"side_effect": git_out}),
                 (gitcall, "no_auto_gc", {}),
                 (run, "fetch", {}), (gitcall, "fetch", {}), (delivery, "require_review_pass", {}),
+                (delivery, "check_before_line", {"return_value": True}),
                 (turns, "stop_run_tree", {}), (roundloop, "set_base", {}),
                 (roundloop, "how_to_integrate", {"return_value": "rebase"}),
                 (roundloop, "passed_review_head", {"return_value": "reviewed"}),

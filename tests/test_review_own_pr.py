@@ -122,6 +122,8 @@ class OwnPr(unittest.TestCase):
             patch.object(run, "viewer_login", return_value=LOGIN),
             *self.checkout_patches(),
             patch.object(run, "make_worktree", return_value=(self.wt, "ak/pr-7")),
+            # This fake checkout has no target tree for the pre-line suite to verify.
+            patch.object(deliver, "check_before_line", return_value=True),
             patch.object(gitcall, "declared", return_value=None),
             patch.object(run, "exclude_junk", return_value=None),
             patch.object(gc, "disk_pressure", return_value=False),

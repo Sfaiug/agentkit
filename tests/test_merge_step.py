@@ -694,10 +694,9 @@ class MergeStep(unittest.TestCase):
                 patch.object(roundloop, "execute", return_value="## Summary\nUnresolved."), \
                 patch.object(run, "stop_run_tree"), \
                 patch.object(run, "rights", return_value=("acme/widget", "WRITE")):
-            self.assertEqual(run.cmd_merge([run_dir.name]), 0)
-            lp.state = record.read_state(run_dir)
-            self.assertFalse(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
+            self.assertEqual(run.cmd_merge([run_dir.name]), 1)
         self.assertEqual(record.read_state(run_dir)["state"], "waiting")
+        self.assertEqual(record.read_state(run_dir)["waiting_on"]["ref"], "origin/main")
         self.assertTrue((run_dir / "result.md").read_text().startswith("# WAITING:"))
 
     def test_cmd_merge_finding_the_pr_merged_records_the_health_it_declared(self):

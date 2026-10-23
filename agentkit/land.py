@@ -77,30 +77,33 @@ def note(turn, trees, leader, *, checks=(), tested=None, at=None, code=None, red
     separately from target probes awaiting their repair.  A pass a later one of the same tree
     replaces stays on record as its code's (`passed`), as it still proves that code passed the
     line.  Evidence kept again from an earlier pass (`at`) keeps that pass's code."""
-    path, kept = _trees(turn)
-    failed = {} if red_stacks == {} else _trees(turn, "red_stacks")[1]
-    repairs = _trees(turn, "red")[1]
-    passes = _trees(turn, "passed")[1]
-    for old in (kept[tree] for tree in trees if kept.get(tree, {}).get("code")):
-        passes[old["code"]] = {"at": max(old["at"], passes.get(old["code"], {}).get("at", 0))}
-    checked_at = time.time() if at is None else at
-    kept.update({tree: {"at": checked_at, "tested": tested or tree, "leader": leader,
-                        "checks": list(checks), "code": _code() if at is None else code}
-                 for tree in trees})
-    for tree, entry in (red or {}).items():
-        if entry is None:
-            repairs.pop(tree, None)     # the target's tip passed the piece again
-        else:
-            repairs[tree] = entry
-            kept.pop(tree, None)     # a target found red holds no earlier pass
-    failed.update({tree: {"at": time.time(), **fix, "checks": list(checks), "code": _code()}
-                   for tree, fix in (red_stacks or {}).items()})
-    for tree in trees:
-        failed.pop(tree, None)
-    fresh = path.with_name(path.name + ".new")
-    fresh.write_text(json.dumps({"trees": kept, "red": repairs,
-                                "red_stacks": failed, "passed": passes}))
-    fresh.replace(path)
+    # Runs check beside the lander and each other; only the evidence write is serialized.
+    with turn.with_suffix(".green.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        path, kept = _trees(turn)
+        failed = {} if red_stacks == {} else _trees(turn, "red_stacks")[1]
+        repairs = _trees(turn, "red")[1]
+        passes = _trees(turn, "passed")[1]
+        for old in (kept[tree] for tree in trees if kept.get(tree, {}).get("code")):
+            passes[old["code"]] = {"at": max(old["at"], passes.get(old["code"], {}).get("at", 0))}
+        checked_at = time.time() if at is None else at
+        kept.update({tree: {"at": checked_at, "tested": tested or tree, "leader": leader,
+                            "checks": list(checks), "code": _code() if at is None else code}
+                     for tree in trees})
+        for tree, entry in (red or {}).items():
+            if entry is None:
+                repairs.pop(tree, None)     # the target's tip passed the piece again
+            else:
+                repairs[tree] = entry
+                kept.pop(tree, None)     # a target found red holds no earlier pass
+        failed.update({tree: {"at": time.time(), **fix, "checks": list(checks), "code": _code()}
+                       for tree, fix in (red_stacks or {}).items()})
+        for tree in trees:
+            failed.pop(tree, None)
+        fresh = path.with_name(path.name + ".new")
+        fresh.write_text(json.dumps({"trees": kept, "red": repairs,
+                                    "red_stacks": failed, "passed": passes}))
+        fresh.replace(path)
 
 
 @contextmanager
@@ -501,7 +504,7 @@ def red_piece(cmds, marks, pieces, suite, ok):
 
 
 def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=None,
-           only=None):
+           only=None, artifacts=None):
     """(whether the checks passed, their output, the red piece of `suite` as `red_piece` reads
     it, the tests that piece named that failed again alone on the pinned commit, or None); with
     `shard` every command runs as that one piece alone, on one turn, and with `only` just those
@@ -509,17 +512,20 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
     from . import gate, run
     identity = gitcall.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
-    # The checker takes a heavy turn without marking any member's record.
-    context = {"repo": state["repo"], "run_id": directory.name, "landing": True,
-               "since": state["waiting_on"]["joined"], "line": state["waiting_on"]["line"]}
+    # The line's checker marks no member's record; a run checking before joining owns its wait.
+    wait = state.get("waiting_on") or {}
+    context = ({"repo": state["repo"], "run_id": directory.name, "landing": True,
+                "since": wait["joined"], "line": wait["line"]} if wait.get("line") else None)
+    run_dir = None if context else directory
     sharded = None if shard else next((cmd for cmd in cmds if gate.names_shard(cmd)), None)
     marks, pieces, confirmed = [], {}, {}
-    with gate.gate_turn(None, log_path, log, sharded, scratch, context=context):
+    with gate.gate_turn(run_dir, log_path, log, sharded, scratch, context=context):
         ok, text = gate.run_done_when(
-            cmds, scratch, log_path, set(),
+            cmds, scratch, log_path, set() if artifacts is None else artifacts,
             3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
             silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True,
-            marks=marks, shard=shard, pieces=pieces, only=only, confirmed=confirmed)
+            marks=marks, shard=shard, pieces=pieces, only=only, confirmed=confirmed,
+            run_dir=run_dir)
     if (not clean or gitcall.commit_identity(scratch) != identity
             or run.git_out(scratch, "diff", "--quiet", "HEAD")[0]):
         ok = False
@@ -631,10 +637,10 @@ def _check_tests(directory, state, scratch, tree, suite, piece, tests, log):
                     "piece": red, "tests": again}} if again else {}
 
 
-def _check_tree(directory, state, scratch, tree, checks, log, suite):
+def _check_tree(directory, state, scratch, tree, checks, log, suite, *, artifacts=None):
     log_path = directory / f"lander-{tree}.log"
     ok, text, red, tests = _check(directory, state, scratch, list(checks), log_path, log,
-                                  suite=suite)
+                                  suite=suite, artifacts=artifacts)
     return {"land": tree} if ok else {"fix": {"line": prompts.first_failure(text), "log": str(log_path),
                                               "piece": red, **({"tests": tests} if tests else {})}}
 

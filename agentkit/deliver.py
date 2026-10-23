@@ -779,12 +779,47 @@ def join_line(lp, upstream, deliver):
     if (lp.state.get("waiting_on") or {}).get("line"):
         return land_from_line(lp, upstream, deliver)
     require_review_pass(lp)
+    if not check_before_line(lp, upstream):
+        return False
     lp.state.update(state="waiting", waiting_on={"line": turn_path(lp, upstream).name,
                                                "joined": time.time()},
                     error="waiting for the lander", finished_at=None)
     lp.state.pop("recovery_pending", None)
     lp.write()
     return False
+
+
+def check_before_line(lp, upstream):
+    """Only a tree that passed the landing checks gets a place in the line."""
+    from . import gate  # here, not at the top: it reaches run
+    gate.clear_landing_wait(lp.run_dir)
+    lp.state["landing"] = True
+    lp.write()
+    landing._code()    # evidence belongs to the checker that started this attempt
+    try:
+        while True:
+            if "fix" in (lp.state.get("waiting_on") or {}):
+                if not fix_landing(lp, upstream):
+                    return False
+                lp.state.pop("waiting_on", None)
+                lp.write()
+            if not roundloop.integrate(lp, upstream):
+                return False
+            require_review_pass(lp)
+            tree = gitcall.git(lp.wt, "rev-parse", "HEAD^{tree}")
+            checks = landing._landing_checks(lp.run_dir, lp.state, lp.wt, lp.base_sha)
+            suite = gitcall.declared_suite(lp.wt, ref=lp.base_sha)
+            answer = landing._check_tree(lp.run_dir, lp.state, lp.wt, tree, checks, lp.log, suite,
+                                         artifacts=lp.artifacts)
+            if "land" in answer:
+                landing.note(turn_path(lp, upstream), [tree], lp.run_dir.name, checks=checks)
+                return True
+            lp.state["waiting_on"] = answer
+            lp.write()
+    finally:
+        lp.state.pop("landing", None)
+        gate.clear_landing_wait(lp.run_dir)
+        lp.write()
 
 
 def release_line(run_dir, log):
@@ -885,6 +920,14 @@ def land_from_line(lp, upstream, deliver):
             landing.start_line(turn, lp.log)
     if "fix" not in wait:
         return rejoin_line(lp, upstream, "waiting for the lander")
+    if not fix_landing(lp, upstream):
+        return False
+    return rejoin_line(lp, upstream, "landing fixes passed review")
+
+
+def fix_landing(lp, upstream):
+    """Repair a red before or in the line, with the same count and review path."""
+    wait = lp.state["waiting_on"]
     failure = wait["fix"]
     if lp.state.get("review_pr"):
         # a head the seat pushed past its review is new work, reviewed as a round: no landing red
@@ -917,7 +960,7 @@ def land_from_line(lp, upstream, deliver):
             lp.state.pop("waiting_on", None)
             lp.write()
             return False
-    return rejoin_line(lp, upstream, "landing fixes passed review")
+    return True
 
 
 def land(lp, upstream, verify, deliver, execv=None):

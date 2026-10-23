@@ -93,6 +93,9 @@ class FetchRefRace(unittest.TestCase):
             lp.state.update(merged=True) or True))
         config.ensure_dirs()
         self.lp = self.passed_run()
+        # These failures belong to a parked member, after its pre-line verification.
+        deliver.join_line(self.lp, "origin/main", lambda: True)
+        self.assertIn("line", self.lp.state["waiting_on"])
 
     def passed_run(self):
         """A run of a bare origin whose ak/fix-api passed review and is ready to land."""
@@ -111,6 +114,7 @@ class FetchRefRace(unittest.TestCase):
         run_dir = config.RUNS / "fix-api"
         run_dir.mkdir(parents=True)
         (run_dir / "log.txt").touch()
+        (run_dir / "task.md").write_text("# Fix API\n\n## Done when\n```bash\ntrue\n```\n")
         head = run.git(wt, "rev-parse", "HEAD")
         tree = run.git(wt, "rev-parse", "HEAD^{tree}")
         cfg = config.load()
