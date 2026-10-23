@@ -31,7 +31,7 @@ under test, the one AK_BIN names.  Every other verb answers as `answer` set it, 
 that is logged in with no meter to read.
 
 Each harness's Adapter: `n` counts its `run` calls, `runs()` and `calls(verb)` read its log,
-`behave(*steps)` scripts its next turns, `answer(verb, out, code)` sets what another verb
+`behave(*steps)` scripts its next turns, `answer(verb, out, code, given)` sets what another verb
 prints, and `dir`, `script` and `manifest` are its files.  A file in `dir` is one a turn and
 the test both see, such as a release a step's `sh` waits for.
 
@@ -96,10 +96,11 @@ class Adapter:
         """Script the turns from the next `run` call on."""
         self._put("beh", json.dumps({"from": self.n, "steps": list(steps)}))
 
-    def answer(self, verb, out, code=0):
-        """What a verb other than `run` prints, and its exit status, from now on."""
+    def answer(self, verb, out, code=0, given=()):
+        """What a verb other than `run` prints, and its exit status, from now on: for its calls
+        whose arguments end in `given`, every call when it is empty."""
         answers = self._json("answers") or {}
-        self._put("answers", json.dumps({**answers, verb: [out, code]}))
+        self._put("answers", json.dumps({**answers, " ".join([verb, *given]): [out, code]}))
 
     @property
     def n(self):
@@ -163,8 +164,11 @@ def main(directory, harness, ak, verb="", *args):
     call = {"verb": verb, "argv": list(args), "cwd": os.getcwd(),
             "env": {k: v for k, v in os.environ.items() if k.startswith(("AK_", "AGENTKIT_"))}}
     if verb != "run":
-        out, code = (fake._json("answers") or {}).get(verb) or [
-            ANSWERS.get(verb, f"fake {harness}: {verb}"), 0]
+        # the answer set for the most of the arguments this call ends in
+        answers = fake._json("answers") or {}
+        out, code = next((answers[key] for key in (" ".join([verb, *args[i:]])
+                                                   for i in range(len(args) + 1))
+                          if key in answers), [ANSWERS.get(verb, f"fake {harness}: {verb}"), 0])
         print(out)
     else:
         code = turn(fake, ak, call, *args)
