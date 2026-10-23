@@ -106,6 +106,19 @@ class LiveHandBackNamesFailures(unittest.TestCase):
         self.assertIn(SUMMARY, line)
         self.assertIn("[exit 1]", line)
 
+    def test_standing_faults_name_each_label_s_own_line(self):
+        (self.check / "failed").write_text("3 acme\n3\n4b\n")
+        (self.check / "output").write_text("\n".join([
+            "FAIL  3 acme: refused",
+            "FAIL  3: no harness here is installed with its login; the check needs one",
+            "FAIL  4/4b ak run: exit=1", *ENDING]) + "\n")
+        update.live_hand_back(COMMIT, self.check, 1, self.logs.append, standing=True)
+        line = self.deliver.call_args.args[3]
+        self.assertIn("FAIL  3: no harness here is installed with its login; the check needs one"
+                      " / FAIL  3 acme: refused", line)
+        self.assertEqual(line.count("FAIL  3 acme: refused"), 1)
+        self.assertIn("FAIL  4/4b ak run: exit=1", line)
+
 
 if __name__ == "__main__":
     unittest.main()

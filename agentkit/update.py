@@ -969,11 +969,13 @@ def live_hand_back(commit, check, code, log, hand=True, *, standing=False):
         lines = _live_excerpt(said)
         if standing:
             labels = sorted(_live_failed(check))
-            lines = [next((line for line in said.splitlines()
-                           if line.startswith(("FAIL  ", "SKIP  ")) and (
-                               line[6:].startswith(f"{label}:") or
-                               label in line[6:].split(":", 1)[0].split(" ", 1)[0].split("/"))),
-                          f"{label}: no failure line recorded")[:LIVE_REPORT_CAP // len(labels)]
+            verdicts = [line for line in said.splitlines() if line.startswith(("FAIL  ", "SKIP  "))]
+            # A label's own line names it whole (`3:` is not `3 acme:`); only a label with none
+            # is looked for among first words, as `4/4b ak run:` names both 4 and 4b.
+            lines = [(next((line for line in verdicts if line[6:].startswith(f"{label}:")), None)
+                      or next((line for line in verdicts
+                               if label in line[6:].split(":", 1)[0].split(" ", 1)[0].split("/")),
+                              f"{label}: no failure line recorded"))[:LIVE_REPORT_CAP // len(labels)]
                      for label in labels]
         lines += [] if code is not None else ["[stopped before it finished]"]
         log(f"WARN tests/live.sh has standing faults at {commit[:12]}:" if standing else
