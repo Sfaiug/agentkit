@@ -4408,7 +4408,7 @@ def config_page(name, page):
     while True:
         rows, note = page()
         if not opened:                # a pick removed the last row: the highlight on the new last
-            here = ("row", max(0, min(here[1], len(rows) - 1)))
+            here = ("row", min(here[1], len(rows) - 1))
         drawn = [(("row", number), label, value) for number, (label, value, _) in enumerate(rows)]
         if opened:
             drawn[opened[0] + 1:opened[0] + 1] = [(("row", opened[0], number), None, value)
@@ -4426,7 +4426,7 @@ def config_page(name, page):
             if not opened:
                 return
             here, opened = ("row", opened[0]), None
-        elif act not in ("enter", "space") or not rows:
+        elif act not in ("enter", "space"):
             continue
         elif len(here) == 3:
             said = listed[here[2]][1]() or ""
