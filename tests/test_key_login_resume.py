@@ -2,14 +2,15 @@
 
 An expired login is one of the few things that page the owner, and signing in again is all the
 owner should have to do: the tick asks the harness's `auth` verb, and the moment it says yes the
-run goes on in the same worktree, the same round and the same conversation, with no word to
-anybody.  While the login is still out the run stays parked; if its worktree went meanwhile, it
-cannot go on where it stopped and becomes an interruption instead of waiting for a login it no
-longer needs.  The same holds for the turn that resolves a conflict while the run delivers: it
+run goes on in the same worktree, the same round and the same conversation, and nobody hears
+of it until it ends.  While the login is still out the run stays parked; if its worktree went
+meanwhile, it cannot go on where it stopped and becomes an interruption instead of waiting for a
+login it no longer needs.  The same holds for the turn that resolves a conflict while the run delivers: it
 waits for the login, then resolves and lands.  Black-box: the program `AK_BIN` names runs from
 outside through tests/fixtures/akbin.py, its turns on a fake harness from fakeadapter.py whose
 `auth` verb the test logs out and back in, from a seat of akseat.py, paging
-tests/fixtures/sink.py, delivering to the GitHub of fakegh.py.
+tests/fixtures/sink.py, delivering to the GitHub of fakegh.py; each tick runs in the box
+`home.tick()` builds.
 """
 
 import json
@@ -22,7 +23,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
@@ -57,6 +58,14 @@ def park(home, seat=None):
     return claude, taskfile.only_run(home), done.code
 
 
+def pages(home):
+    """Every page the program has sent or still owes, as (seat, kind): a boxed tick has no
+    loopback to reach the sink on, so what it pages waits in the outbox."""
+    found = (json.loads(path.read_text())
+             for path in (home.path / ".agentkit/state/notification-outbox").glob("*.json"))
+    return sorted((event.get("session"), event.get("kind")) for event in found)
+
+
 def record(run_dir):
     return json.loads((run_dir / "run.json").read_text())
 
@@ -71,6 +80,7 @@ def wait_ended(run_dir, bound=60, states=("waiting_login", "queued", "running"))
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class LoginBack(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -81,16 +91,16 @@ class LoginBack(unittest.TestCase):
         cls.seat = Seat(cls.home, "acme")
         cls.claude, cls.run_dir, cls.code = park(cls.home, seat="acme")
         cls.parked = record(cls.run_dir)
-        cls.out_tick = cls.home.ak("watch")
+        cls.out_tick = cls.home.tick()
         cls.after_out = record(cls.run_dir)
         cls.turns_while_out = cls.claude.n
         cls.claude.answer("auth", LOGGED_IN, 0)
-        cls.dry = cls.home.ak("watch", "--dry-run")
+        cls.dry = cls.home.ak("watch", "--dry-run")    # skips the passes the box is for
         cls.after_dry = record(cls.run_dir)
         cls.turns_after_dry = cls.claude.n
-        cls.pages_before = cls.sink.pages()
-        cls.back_tick = cls.home.ak("watch")
-        cls.typed_by_resume = cls.seat.lines()
+        cls.pages_before = pages(cls.home)
+        cls.back_tick = cls.home.tick()
+        cls.typed_to_seat = cls.seat.lines()
         cls.ended = wait_ended(cls.run_dir)
 
     def test_while_the_login_is_out_the_run_stays_parked_and_no_turn_runs(self):
@@ -129,13 +139,16 @@ class LoginBack(unittest.TestCase):
         tree = self.home.run("git", "-C", worktree, "ls-tree", "--name-only", "HEAD")
         self.assertIn("retry.txt", tree.out.split())
 
-    def test_the_resume_pages_nobody_and_types_nothing_into_the_seat(self):
+    def test_the_resume_pages_nobody_and_tells_the_seat_only_how_the_run_ended(self):
         # the one page is the expired login's own, sent before the owner signed in
-        self.assertEqual(self.pages_before, ["🙋 Needs you · acme"])
-        self.assertEqual(self.sink.pages(), self.pages_before)
-        self.assertEqual(self.typed_by_resume, [])
+        self.assertEqual(self.pages_before, [("acme", "needs")])
+        self.assertEqual(pages(self.home), self.pages_before)
+        # the boxed tick outlives the run it resumed, so the run's ending is all the seat got
+        told, = self.typed_to_seat
+        self.assertTrue(told.startswith(f"run {self.run_dir.name} finished PASS"), told)
 
 
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class WorktreeGone(unittest.TestCase):
     def test_a_login_back_with_its_worktree_gone_is_an_interruption_not_a_resume(self):
         home = offline_home()
@@ -146,7 +159,7 @@ class WorktreeGone(unittest.TestCase):
         shutil.rmtree(worktree)
         claude.answer("auth", LOGGED_IN, 0)
         for _ in range(2):    # and a later tick does not take it up again
-            done = home.ak("watch")
+            done = home.tick()
             self.assertEqual(done.code, 0, done.err)
             state = record(run_dir)
             self.assertEqual(state["state"], "interrupted")
@@ -155,6 +168,7 @@ class WorktreeGone(unittest.TestCase):
         self.assertEqual(claude.n, 1)
 
 
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class ConflictFixer(unittest.TestCase):
     def test_a_conflict_fixer_whose_login_expired_waits_for_it_then_resolves_and_lands(self):
         home = offline_home()
@@ -187,12 +201,12 @@ class ConflictFixer(unittest.TestCase):
         self.assertEqual([summary["verdict"] for summary in parked["round_summaries"]], ["PASS"])
         self.assertEqual([turn["role"] for turn in claude.runs()], ["executor"])
         claude.answer("auth", LOGGED_IN, 0)
-        self.assertIn(run_dir.name, home.ak("watch").out)
+        self.assertIn(run_dir.name, home.tick().out)
         for _ in range(10):    # the resumed run rejoins the line of runs landing on main
             state = wait_ended(run_dir, states=("waiting_login", "running"))
             if state["state"] != "waiting":
                 break
-            home.ak("watch")
+            home.tick()
         self.assertEqual((state["state"], state["merged"]), ("pass", True))
         fixer = claude.runs()[1]
         _model, _effort, workspace, _prompt, out, *session = fixer["argv"]
