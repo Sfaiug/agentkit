@@ -4,7 +4,7 @@ models first, and a seat opened from a pipe without `--model` is asked who orche
 A person starts most seats from this row, and the owner's rule is that a new seat keeps the
 orchestrator question so they can switch models freely: the row makes the seat with the last
 creation's models and hands its harness the conversation it records, the picker shows each
-marked model with its roles, harness and effort, and a pipe is asked a line at a time.
+marked model under its harness with its roles and effort, and a pipe is asked a line at a time.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, its
 menu on a terminal of tests/fixtures/akterm.py, its harnesses tests/fixtures/fakeadapter.py's
 and tests/fixtures/adapters/echo.sh, and this test fails against `/bin/false`.
@@ -101,10 +101,10 @@ class NewRow(unittest.TestCase):
         screen = self.menu.wait(PICKER_KEYS)
         self.assertTrue(rows(screen)[0].startswith("agentkit · new session"), screen)
         self.assertIn("               orch  builds  reviews", rows(screen))
-        self.assertEqual(under(screen, "Claude"),
-                         "› Fable 5.1    [●]     ■        ■     claude · xhigh")
-        self.assertEqual(under(screen, "ChatGPT"),
-                         "  GPT-6-Astra   ○      ■        ■     codex · high")
+        self.assertEqual(under(screen, "Claude Code"),
+                         "› Fable 5.1    [●]     ■        ■     xhigh")
+        self.assertEqual(under(screen, "Codex"),
+                         "  GPT-6-Astra   ○      ■        ■     high")
         self.menu.keys("Escape")
         screen = self.menu.wait(ROW_KEYS)
         self.assertTrue(any(BORN.fullmatch(line) for line in rows(screen)), screen)
@@ -117,8 +117,8 @@ class NewRow(unittest.TestCase):
         self.menu.wait(PICKER_KEYS)
         self.menu.keys("Right", "Down", "Space")    # astra no longer builds
         screen = self.menu.wait("[□]")
-        self.assertEqual(under(screen, "ChatGPT"),
-                         "› GPT-6-Astra   ○     [□]       ■     codex · high")
+        self.assertEqual(under(screen, "Codex"),
+                         "› GPT-6-Astra   ○     [□]       ■     high")
         self.menu.keys("Enter")
         record = self.opened("fix-api")
         self.assertEqual((record["orchestrator"], record["workers"], record["reviewers"]),
