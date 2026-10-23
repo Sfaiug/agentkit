@@ -213,11 +213,27 @@ def short(away):
     return least
 
 
+def _vm(away, shard):
+    return f"ak-{away.key}-{shard.replace('/', '-')}"
+
+
 def piece(away, shard, command):
     """The argv of one piece on the helper: it exits as the piece did, or a helper failure."""
-    return _remote(away.alias, "run", away.key, away.image,
-                   f"ak-{away.key}-{shard.replace('/', '-')}", away.cpus, away.memory_mb,
-                   away.repo, shard, away.branch, away.default, away.programs, command)
+    return _remote(away.alias, "run", away.key, away.image, _vm(away, shard), away.cpus,
+                   away.memory_mb, away.repo, shard, away.branch, away.default, away.programs,
+                   command)
+
+
+def failed(away, shard):
+    """The tests the ended piece of `shard` named as failed there (`AK_FAILED`), from the file
+    piece.sh gives it, never from what it printed; none where the helper does not answer."""
+    try:
+        reply = _remote(away.alias, "failed", away.key, _vm(away, shard), text=True,
+                        errors="replace", timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return [] if reply.returncode else list(dict.fromkeys(
+        line.strip() for line in reply.stdout.splitlines() if line.strip()))
 
 
 def finish(away):
