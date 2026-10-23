@@ -215,6 +215,21 @@ class RunRecords(Sandbox):
             menu.run_records()
         read.assert_not_called()
 
+    def test_uncached_reads_leave_persistent_caches_untouched(self):
+        live = self.runs(3)
+        for warm in (False, True):
+            with self.subTest(warm=warm):
+                if warm:
+                    menu.run_records()
+                for name in ("run-records.jsonl", "run-records.lock", "run-records.tmp"):
+                    (config.STATE / name).write_text("[]\n")
+                write(live, state="running", round=2 if warm else 1)
+                before = {path.name: path.read_bytes() for path in config.STATE.iterdir()
+                          if path.is_file()}
+                self.assertEqual(menu.run_records(cache=False), full())
+                self.assertEqual({path.name: path.read_bytes() for path in config.STATE.iterdir()
+                                  if path.is_file()}, before)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

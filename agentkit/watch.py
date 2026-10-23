@@ -535,7 +535,7 @@ def resume_after_boot(cfg, dry_run=False, log=print):
         attempted = recovery.get("attempted", []) if recovery.get("id") == boot else []
         present = {seat["name"] for seat in orch.sessions()}
         try:
-            records = menu_mod.run_records()
+            records = menu_mod.run_records(cache=not dry_run)
         except (config.Error, OSError, ValueError):
             records = []
         index, now = transitions.supersession_index(records), time.time()
@@ -4618,7 +4618,7 @@ def health(cfg, state, dry_run, log):
     # one pass over run.json serves every live seat; a failed read is None, never a seat
     # with no runs
     try:
-        records = menu_mod.run_records()
+        records = menu_mod.run_records(cache=not dry_run)
     except (config.Error, OSError, ValueError):
         records = None
     # What each seat's runs are parked on, oldest first: the harness, when it parked and what
@@ -7419,6 +7419,7 @@ def local_passes(state, dry_run, log):
         # A seat that died under its running runs comes back, after its endings were announced
         # to it.
         ("the seat revival pass did not run", lambda: revive_seats(config.load(), log), False),
+        ("git housekeeping did not finish", lambda: gc.git_housekeeping(log), False),
         # Expensive collection runs detached; malformed retention metadata cannot stop a tick.
         ("retention pass did not finish", lambda: gc.schedule_gc(log), False),
         ("retention pass did not finish", orch.stamp, False),
