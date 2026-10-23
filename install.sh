@@ -552,7 +552,7 @@ fi
 # sources are the startup flags, a session replay and an in-session reconfigure;
 # --trust-workspace says outright that it does not save trust; and the settings surface
 # (~/.config/muse/settings.json) has no approval, sandbox or trust key. The adapter's own
-# --yolo is the whole story -- see docs/guide.md.
+# --yolo is the whole story.
 [ "$ROLE" != server ] || echo "yolo: muse has no config-level yolo (muse 1.0.2); the adapter's --yolo covers it"
 # Muse's launcher checks its channel hourly and replaces the binary in the background unless
 # MUSE_NO_AUTO_UPDATE=1 is in the environment. The adapter sets it for headless runs and in

@@ -446,20 +446,20 @@ def load():
 
 
 def offered(cfg):
-    """Every model the config offers, each under its provider: each one can orchestrate, and
+    """Every model the config offers, each under its harness: each one can orchestrate, and
     each can work.
 
-    A `[models.*]` entry is offered once its provider has a `[providers.*]` table; one whose
-    provider has none stays in the file and out of every choice.  Every list of models reads
-    this order -- a provider where its first model is in the file, its models in file order
-    under it -- so a model added last still sits with its provider's others on every screen.
+    A `[models.*]` entry is offered once it names a harness and its provider has a
+    `[providers.*]` table; any other stays in the file and out of every choice.  Every list of models reads
+    this order -- a harness where its first model is in the file, its models in file order
+    under it -- so a model added last still sits with its harness's others on every screen.
     """
     names = [name for name, entry in cfg["models"].items()
-             if isinstance(entry, dict) and isinstance(entry.get("provider"), str)
-             and entry["provider"] in cfg["providers"]]
-    providers = dict.fromkeys(cfg["models"][name]["provider"] for name in names)
-    return [name for provider in providers for name in names
-            if cfg["models"][name]["provider"] == provider]
+             if isinstance(entry, dict) and isinstance(entry.get("harness"), str)
+             and isinstance(entry.get("provider"), str) and entry["provider"] in cfg["providers"]]
+    harnesses = dict.fromkeys(cfg["models"][name]["harness"] for name in names)
+    return [name for harness in harnesses for name in names
+            if cfg["models"][name]["harness"] == harness]
 
 
 def remove_provider(cfg, name):
@@ -1369,6 +1369,55 @@ def role_groups(cfg, workers=None, reviewers=None):
 
 
 def adapter(harness):
+    """adapters/<harness>.sh, the script that runs one harness: the adapter contract.
+
+    A harness is that script, adapters/<harness>.toml beside it (`manifest`), a `[models.<name>]`
+    naming it and its `[providers.<name>]`; Python it needs goes in agentkit/harness/<harness>.py.
+    tests/fixtures/adapters/echo.sh and echo.toml are a working pair, and $AGENTKIT_ADAPTER_DIR
+    names another directory of adapters, which is how the offline suites run with no model.
+
+    It has three duties: hand the worker the prompt as written, let it close its turn with
+    `ak hand-in done`, and return `final.md` and a `session_id` a second turn resumes; ak ends
+    whatever a turn leaves running.  `python3 tests/check_harness_contract.py [harness]` proves
+    them on each harness installed with a login, at the model and effort its `[check]` names.
+    The verbs:
+
+    run <model> <effort> <workspace> <prompt> <out> [<session>]
+        one headless turn; the prompt goes from its file or stdin, never as one argument, which
+        Linux caps at 128 KiB; writes final.md (the turn's last message), session_id,
+        stderr.log and events.jsonl.
+    interactive <model> <effort> [<session> [new]]
+        the seat's command line, with the harness's own bypass flag.  It hands the harness the
+        rulebook $AGENTKIT_RULEBOOK names, else the file `python3 tools/rulebook.py
+        "$AGENTKIT_SESSION"` writes and prints, adding no instructions of its own, so an
+        orchestrator behaves one way whatever runs it; anything else it writes goes beside that
+        file.  With `[launch] first_prompt = true` it puts a non-empty $AGENTKIT_FIRST_PROMPT
+        on that line as one single-quoted word, for a new conversation and a resumed one alike.
+    usage
+        one JSON object of meters, `error` set rather than a non-zero exit, and `credits`, the
+        bought credits left where the provider has them, in `currency` where they are money.
+    auth [seat]
+        one line and never a network call: exit 0 with a token, ending `; logged in as <who>`
+        where it can tell, or 1 with why not.
+    models
+        an `id<TAB>label<TAB>efforts` line per model, efforts strongest last, `none` for one
+        that runs at no effort, empty where the harness does not say; `[catalog]` stands in for
+        a harness that lists none, fails, or takes ten seconds.
+    hooks / install / login [again]
+        install its lifecycle hooks idempotently; install it and log in on a fresh box, `again`
+        signing in afresh over a login that still stands.
+    login-end
+        one JSON object: `email`, and `ends`, the epoch second the login stops serving, or null.
+    providers
+        a harness that runs any provider it can log in to: an `id<TAB>name<TAB>mode` line each,
+        those it can run first with `subscription` or `payg`, the rest with no mode.
+    reset-status / reset
+        optional, where the provider hands out usage-limit resets.
+
+    `usage`, `auth` and `login` are told the providers they answer for in $AGENTKIT_PROVIDER,
+    space-separated; a harness that runs one provider may ignore it.  Each manifest table is
+    explained at the code that reads it.
+    """
     root = Path(os.environ.get(ADAPTER_DIR_ENV) or REPO / "adapters").expanduser()
     path = root / f"{harness}.sh"
     if not path.exists():
@@ -1455,6 +1504,25 @@ def manifests():
             continue
         for path in paths:
             yield path.stem, manifest(path.stem)
+
+
+def harness_name(harness):
+    """What a screen calls that harness: its manifest's `name`, else its id."""
+    try:
+        name = manifest(harness).get("name")
+    except Error:
+        name = None
+    return name if isinstance(name, str) and name else harness
+
+
+def harness_colour(harness):
+    """What a screen draws that harness's name in: its manifest's `colour`, `#RRGGBB`, else
+    None."""
+    try:
+        own = manifest(harness).get("colour")
+    except Error:
+        own = None
+    return own if isinstance(own, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", own) else None
 
 
 def instruction_ceiling():

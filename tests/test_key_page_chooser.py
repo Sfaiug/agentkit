@@ -5,9 +5,9 @@ word and the seat, once, after a minute in which nobody typed into it, so a glan
 that just asked costs no page.  The chooser is left for the owner: ak presses nothing in it.
 The minute counts from the seat's last activity on tmux, which starts with the session and
 cannot be set back, so this file waits that one minute for the page.  Black-box: the program
-`AK_BIN` names runs from outside through tests/fixtures/akbin.py, each tick boxed and reaching
-only the sink's port of the test's loopback, before a seat of tests/fixtures/akseat.py on the
-fixture harness tests/fixtures/adapters/echo.toml, paging tests/fixtures/sink.py.
+`AK_BIN` names runs from outside through tests/fixtures/akbin.py, each tick boxed, before a seat
+of tests/fixtures/akseat.py on the fixture harness tests/fixtures/adapters/echo.toml, paging
+tests/fixtures/sink.py.
 """
 
 import json
@@ -40,7 +40,7 @@ class AChooserOnScreen(unittest.TestCase):
         return json.loads((self.home.path / ".agentkit/state" / name).read_text())
 
     def tick(self):
-        done = self.home.tick(reach=[self.sink.port])
+        done = self.home.tick()
         self.assertEqual(done.code, 0, done.err)
 
     def tick_until_paged(self, bound=180):

@@ -81,6 +81,13 @@ class Runner(unittest.TestCase):
         # a seat's pane asks its own server by the path tmux gives it
         asked = self.home.run("tmux", "-S", str(own), "has-session", "-t", "=acme")
         self.assertEqual(asked.code, 0, asked.err)
+        asked = self.home.run("tmux", "has-session", "-t", "=acme", env={"TMUX": f"{own},1,0"})
+        self.assertEqual(asked.code, 0, asked.err)
+        self.assertEqual(self.home.tmux("new-session", "-d", "-s", "beta", "sleep 600",
+                                        server="other").code, 0)
+        forgot = self.home.run("tmux", "has-session", "-t", "=beta",
+                               env={"TMUX": f"{own.with_name('other')},1,0"})
+        self.assertNotEqual(forgot.code, 0)
         pid = int(self.home.tmux("display-message", "-p", "-t", "=acme", "#{pid}").out)
         self.home.close()
         with self.assertRaises(ProcessLookupError):

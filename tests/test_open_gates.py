@@ -926,7 +926,7 @@ gh() {
 
     def test_no_personal_account_name_remains(self):
         banned = owner()
-        paths = list((REPO / "tests").iterdir()) + [REPO / "install.sh", REPO / "docs/guide.md"]
+        paths = list((REPO / "tests").iterdir()) + [REPO / "install.sh"]
         for path in sorted(paths):
             if path.is_file():
                 with self.subTest(path=path.name):

@@ -40,8 +40,7 @@ class Sink:
         self.home, self._was = home, home.env.get("AK_NOTIFY_SINK")
         self._requests, self._replies, self._lock = [], [], threading.Lock()
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _handler(self))
-        self.port = self._server.server_port
-        self.url = f"http://127.0.0.1:{self.port}{path}"
+        self.url = f"http://127.0.0.1:{self._server.server_port}{path}"
         threading.Thread(target=self._server.serve_forever, daemon=True).start()
         home.env["AK_NOTIFY_SINK"] = self.url
 
