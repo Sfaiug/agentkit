@@ -21,15 +21,13 @@ with its wait is one line:
         assert refused.query["wait"] == "true"
         assert sink.pages() == ["🙋 Needs you · acme"]
 
-`url` is where it listens, for `home.tick()`'s box too: `path` may carry a query,
-`Sink(home, "/hook?thread_id=7")`.
+`url` is where it listens: `path` may carry a query, `Sink(home, "/hook?thread_id=7")`.
 `close`, or leaving `with`, stops it and gives the Home back the sink it had.
 """
 
 from collections import namedtuple
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
-from socketserver import ThreadingUnixStreamServer
 import threading
 import time
 from urllib.parse import parse_qsl, urlsplit
@@ -43,11 +41,7 @@ class Sink:
         self._requests, self._replies, self._lock = [], [], threading.Lock()
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _handler(self))
         self.url = f"http://127.0.0.1:{self._server.server_port}{path}"
-        # the same server on the socket a boxed tick's loopback is relayed to
-        self._boxed = ThreadingUnixStreamServer(home.serve(self._server.server_port),
-                                                _handler(self))
-        for server in (self._server, self._boxed):
-            threading.Thread(target=server.serve_forever, daemon=True).start()
+        threading.Thread(target=self._server.serve_forever, daemon=True).start()
         home.env["AK_NOTIFY_SINK"] = self.url
 
     def __enter__(self):
@@ -59,9 +53,8 @@ class Sink:
     def close(self):
         if self._server is None:
             return
-        for server in (self._server, self._boxed):
-            server.shutdown()
-            server.server_close()
+        self._server.shutdown()
+        self._server.server_close()
         self._server = None
         if self._was is None:
             self.home.env.pop("AK_NOTIFY_SINK", None)
