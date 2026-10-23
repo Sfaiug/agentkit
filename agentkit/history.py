@@ -145,17 +145,21 @@ def path():
     return config.HOME / "history.db"
 
 
-def _connect(*, readonly=False):
-    database = path()
-    if readonly:
-        connection = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)
-        connection.create_function("suite_run", 2, suite_run)     # what REAL_WORK reads by
-        return connection
-    connection = sqlite3.connect(database, timeout=2)
+def _writable():
+    connection = sqlite3.connect(path(), timeout=2)
     # Readers take no lock of ours (`_writing`), and in the default journal mode a read held
     # past sqlite's wait made a write give up; in WAL a reader never blocks the writer.
     # Persistent in the file, so this is a no-op after the first write.
     connection.execute("PRAGMA journal_mode=WAL")
+    return connection
+
+
+def _connect(*, readonly=False):
+    if readonly:
+        connection = sqlite3.connect(path().resolve().as_uri() + "?mode=ro", uri=True, timeout=2)
+        connection.create_function("suite_run", 2, suite_run)     # what REAL_WORK reads by
+        return connection
+    connection = _writable()
     connection.execute(KEPT_SCHEMA)
     # Read before `runs` is made, in the statement that writes it, so two first connects agree;
     # committed at once, as the tables below are made outside a transaction.
@@ -230,7 +234,7 @@ def _ensure_tokens_recounted():
                     return
                 repairs = list(_recount_tokens(connection))
             if repairs:
-                with contextlib.closing(sqlite3.connect(path(), timeout=2)) as connection:
+                with contextlib.closing(_writable()) as connection:
                     _apply_token_recounts(connection, repairs)
     except (OSError, sqlite3.Error, TypeError, ValueError):
         pass
