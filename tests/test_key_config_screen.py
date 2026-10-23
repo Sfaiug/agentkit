@@ -1,5 +1,6 @@
-"""`c` on the menu opens the config screen for the highlighted seat, laid out as a matrix of its
-roles and each model's effort, and marking a role there rewrites the seat's record at once.
+"""`c` on the menu opens the config screen for the highlighted seat, named over its headings and
+laid out as a matrix of its roles and each model's effort, and marking a role there rewrites the
+seat's record at once.
 
 The config screen is where a person changes which models a seat orchestrates, builds and
 reviews with, so a person must read the same rows, marks and keys there, and a mark must land
@@ -31,6 +32,7 @@ ROWS = ["Claude",
         "",
         "  + add a model",
         "  + add a provider",
+        "  Subscriptions",
         "  Discord       not connected",
         # models by their full names, the line wrapped at a word under its value
         "  Weekly audit  off · orch Fable 5.1 · builds Fable 5.1, GPT-6-Astra · reviews Fable 5.1,",
@@ -93,8 +95,10 @@ class ConfigScreen(unittest.TestCase):
 
     def test_c_opens_the_highlighted_seats_matrix_under_provider_headings(self):
         shown = lines(self.opened)
-        self.assertTrue(shown[0].startswith("agentkit · config · atoll-ask "), shown[0])
-        self.assertGreater(shown.index(HEADS), 2, "the usage grid comes over the heads")
+        self.assertEqual(shown[0].split()[:3], ["agentkit", "·", "config"], shown[0])
+        # whom the marks are for, the highlighted seat, is said over the heads
+        self.assertEqual(shown[shown.index(HEADS) - 1], "  For  atoll-ask")
+        self.assertGreater(shown.index(HEADS), 3, "the usage grid comes over the heads")
         self.assertEqual(block(self.opened)[1:len(ROWS) + 1], ROWS)
         # agentkit's build is read under the rows, whatever it is
         self.assertTrue(block(self.opened)[len(ROWS) + 1].startswith("  Version "), self.opened)
