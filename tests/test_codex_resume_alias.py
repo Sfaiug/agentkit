@@ -19,10 +19,14 @@ class CodexResumeAlias(Sandbox):
         event = {'hook_event_name': 'SessionStart', 'session_id': 'acme-thread',
                  'transcript_path': str(linked), 'cwd': str(self.root), 'source': 'startup'}
         codex.capture(receipt, event)
+        codex.capture(receipt, dict(event, source='compact'))
+        self.assertEqual(codex.conversation(config.session_records()['acme']), 'acme-thread')
         receipt = codex.prepare('acme', self.root, 'acme-thread')
         codex.capture(receipt, dict(event, transcript_path=str(original), source='resume'))
         linked.unlink()
         record = config.session_records()['acme']
+        self.assertEqual(codex.conversation(record), 'acme-thread')
+        codex.capture(receipt, dict(event, transcript_path=str(original), source='compact'))
         self.assertEqual(codex.conversation(record), 'acme-thread')
         other = self.root / 'another.jsonl'
         other.write_text(original.read_text())
