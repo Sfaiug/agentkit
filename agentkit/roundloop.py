@@ -582,11 +582,13 @@ def verify_work(lp, cmds=None):
 
 
 def round_suite(lp):
-    """The target's `tests:` suite where this run lands through it and it names `AK_CHANGED`,
-    which opts it into every round (`affected_suite`); else None."""
+    """The target's current `tests:` suite where this run lands and it names `AK_CHANGED`,
+    which opts it into every round (`affected_suite`); else None.  Read off the target each
+    time, as a sibling can change the line mid-run."""
     from . import gate  # here, not at the top: gate reaches run
-    suite = lp.upstream and gitcall.declared_suite(lp.wt, lp.target)
-    return suite if suite and suite in lp.once and gate.names_changed(suite) else None
+    landing = lp.upstream and not lp.state.get("no_merge")
+    suite = landing and gitcall.declared_suite(lp.wt, lp.target)
+    return suite if suite and gate.names_changed(suite) else None
 
 
 def affected_suite(lp):
