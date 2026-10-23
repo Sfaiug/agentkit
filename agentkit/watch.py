@@ -2524,11 +2524,9 @@ def hook_look(launched, answered_at=None, said="", prompt=False):
         notify.answer_written(name)
     cfg = config.load()
     harness, provider = seat_model(cfg, name)
-    # A turn that ended on an error settles its account before its word is told, as the tick
+    # A turn its harness says failed settles its account before its word is told, as the tick
     # does: a spent subscription moves now, not at the next tick, and never reads `working`.
-    with announcing(name):
-        found = look_at(session, cfg=cfg)[1]
-    if found.get("stall"):
+    if hook_state(harness, hook_facts(name))[1] in marked_events(harness, "failed"):
         seat_account(cfg, session, harness, provider, pane_text(session), False, lambda _: None)
     answer = announce_state(session, cfg=cfg, look=True, number=number)
     if stop_enforced(harness):

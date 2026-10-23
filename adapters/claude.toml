@@ -77,10 +77,12 @@ name = "Stop"
 state = "at_prompt"
 
 # A turn that fails on an API error, a spent usage limit among them, ends with StopFailure in
-# place of Stop (2.1.305): the turn is over all the same.
+# place of Stop (2.1.305): the turn is over, and `failed` has its look settle the seat's
+# account first (`watch.hook_look`).
 [[hooks.event]]
 name = "StopFailure"
 state = "at_prompt"
+failed = true
 
 # A question, a plan or a tool's permission prompt fires PermissionRequest as it is drawn
 # (2.1.292); its notice six seconds later adds nothing to the question written down.
