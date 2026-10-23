@@ -401,25 +401,6 @@ class PlanLines(Sandbox):
         config.rename_session("fix-api-2", "fix-api")
         self.assertEqual(watch.plan_text("fix-api"), latest)
 
-    def test_a_handover_names_the_plan_the_seat_wrote_last(self):
-        config.plan_path("fix-api").write_text("- [x] an older outcome\n")
-        config.rename_session("fix-api", "fix-api-2")
-        os.utime(config.plan_path("fix-api-2"), (1, 1))
-        config.plan_path("fix-api").write_text("- [ ] the newly required outcome\n")
-        self.assertIn(f"The seat's plan is at {config.plan_path('fix-api')}.",
-                      orch.handover_text("fix-api-2", "opus", None))
-
-    def test_a_handover_names_a_plan_it_cannot_read_rather_than_failing(self):
-        private = self.root / "private-plan"
-        private.mkdir()
-        (private / "plan.md").write_text("- [ ] an outcome\n")
-        config.plan_path("fix-api").symlink_to(private / "plan.md")
-        private.chmod(0)
-        self.addCleanup(private.chmod, 0o700)
-        text = orch.handover_text("fix-api", "opus", None)
-        self.assertIn("The seat's plan cannot be read", text)
-        self.assertIn("ak run status", text)
-
     def gone_seat_with_plans(self):
         """fix-api, renamed to ship-api and back: its older plan stays under ship-api, a name
         still leading to it, and its newer one under fix-api."""

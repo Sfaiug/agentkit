@@ -81,11 +81,12 @@ class FirstPrompt(SeatMove):
         self.assertIsNone(watch.seat_read(SEAT).get("midturn"))
 
     def test_a_harness_that_takes_no_first_prompt_has_its_line_typed_as_before(self):
+        self.mid_turn()
         self.assertEqual(self.move("astra"), "")
         mark = watch.seat_read(SEAT)["midturn"]
         self.assertNotIn("launched", mark)
         self.tick()
-        self.assertEqual(self.typed, [mark["line"]])
+        self.assertEqual(self.typed, [watch.MOVED_LINE])
 
     def test_a_first_prompt_no_hook_stamps_is_never_typed_again(self):
         self.mid_turn()
