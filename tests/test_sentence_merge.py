@@ -114,17 +114,17 @@ class SentenceMerge(LiveRuns):
                          "data.dat: merge: union\nREADME.md: merge: union\n")
 
     def test_the_attributes_lookup_runs_under_the_call_s_timeout(self):
-        calls, real = [], subprocess.run
+        calls, real = [], gitcall.run_capped
 
         def recording(cmd, **kwargs):
             calls.append((cmd, kwargs.get("timeout")))
             return real(cmd, **kwargs)
 
-        with patch.object(gitcall.subprocess, "run", side_effect=recording):
+        with patch.object(gitcall, "run_capped", side_effect=recording):
             gitcall.git_out(self.repo, "merge-tree", "--write-tree", "HEAD", "HEAD")
         self.assertEqual([cmd[3:] for cmd, _ in calls][0], ["config", "--path", "--get", "core.attributesFile"])
         self.assertEqual({timeout for _, timeout in calls}, {gitcall.TOOL_CAP})
-        with patch.object(gitcall.subprocess, "run",
+        with patch.object(gitcall, "run_capped",
                           side_effect=subprocess.TimeoutExpired("git", gitcall.TOOL_CAP)), \
                 self.assertRaises(gitcall.Stopped):
             gitcall.git_out(self.repo, "rebase", "main")
