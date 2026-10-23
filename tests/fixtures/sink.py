@@ -21,9 +21,6 @@ with its wait is one line:
         assert refused.query["wait"] == "true"
         assert sink.pages() == ["🙋 Needs you · acme"]
 
-It also listens on a socket file in `home.loopback`, so a tick in `home.tick()`'s box, whose
-loopback is its own, reaches it at the same `url`.
-
 `url` is where it listens: `path` may carry a query, `Sink(home, "/hook?thread_id=7")`.
 `close`, or leaving `with`, stops it and gives the Home back the sink it had.
 """
@@ -31,7 +28,6 @@ loopback is its own, reaches it at the same `url`.
 from collections import namedtuple
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
-import socketserver
 import threading
 import time
 from urllib.parse import parse_qsl, urlsplit
@@ -45,14 +41,8 @@ class Sink:
         self._requests, self._replies, self._lock = [], [], threading.Lock()
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _handler(self))
         self.url = f"http://127.0.0.1:{self._server.server_port}{path}"
-        port = self._server.server_port
-        # in the tmux directory: a socket's path must fit in 104 bytes, and the box binds it
-        self._file = home.tmux_dir / f"sink-{port}"
-        self._boxed = _FileServer(str(self._file), _handler(self))
-        for server in (self._server, self._boxed):
-            threading.Thread(target=server.serve_forever, daemon=True).start()
+        threading.Thread(target=self._server.serve_forever, daemon=True).start()
         home.env["AK_NOTIFY_SINK"] = self.url
-        home.loopback[port] = str(self._file)
 
     def __enter__(self):
         return self
@@ -63,11 +53,8 @@ class Sink:
     def close(self):
         if self._server is None:
             return
-        self.home.loopback.pop(self._server.server_port, None)
-        for server in (self._server, self._boxed):
-            server.shutdown()
-            server.server_close()
-        self._file.unlink(missing_ok=True)
+        self._server.shutdown()
+        self._server.server_close()
         self._server = None
         if self._was is None:
             self.home.env.pop("AK_NOTIFY_SINK", None)
@@ -118,10 +105,6 @@ class Sink:
         status, headers, answer = (*((reply,) if isinstance(reply, int) else reply),
                                    None, None)[:3]
         return status, headers or {}, answer
-
-
-class _FileServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
-    daemon_threads = True
 
 
 def _body(handler):
