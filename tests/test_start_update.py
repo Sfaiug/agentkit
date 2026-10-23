@@ -38,7 +38,7 @@ touch "$d/install.finished"
 '''
 GATED_GIT = '''#!/bin/sh
 case "$3" in
-  ls-remote|fetch|merge)
+  ls-remote|fetch|worktree)
     touch "$HOME/$3.started"
     while [ -e "$HOME/$3.hold" ]; do sleep 0.01; done
     [ ! -e "$HOME/$3.fail" ] || { echo "fixture $3 failed" >&2; exit 7; }
@@ -218,7 +218,7 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
             (tools / name).write_text(body)
             (tools / name).chmod(0o755)
         self.env["PATH"] = str(tools) + os.pathsep + self.env["PATH"]
-        for step in ("ls-remote", "fetch", "merge", "install"):
+        for step in ("ls-remote", "fetch", "worktree", "install"):
             (self.root / f"{step}.hold").touch()
         self.addCleanup(self.finish_updates)
 
@@ -275,7 +275,7 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
         screen.key(b"\x1b[B", "<draw old tidy-docs>")     # origin is still being asked
         self.release("ls-remote")
         for step, done, key, seat in (("fetch", 0, b"\x1b[B", "web-portal"),
-                                      ("merge", 1, b"\x1b[A", "tidy-docs"),
+                                      ("worktree", 1, b"\x1b[A", "tidy-docs"),
                                       ("install", 2, b"\x1b[B", "web-portal")):
             self.wait_for(lambda: (self.root / f"{step}.started").exists())
             rule = "━" * (30 * done) + "─" * (90 - 30 * done)
@@ -296,7 +296,7 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
         screen.leave()
 
     def test_a_typed_name_survives_until_esc_returns_to_the_main_screen(self):
-        self.release("ls-remote", "fetch", "merge")
+        self.release("ls-remote", "fetch", "worktree")
         screen = self.opened()
         self.wait_for(lambda: (self.root / "install.started").exists())
         screen.key(b"\x1b[B", "<draw old tidy-docs>")
@@ -323,7 +323,7 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
         screen.leave()
         self.assertTrue(running(self.updaters()[0]))
         self.assertEqual((self.git(self.clone, "rev-parse", "HEAD"), self.installs()), (self.first, 0))
-        self.release("fetch", "merge", "install")
+        self.release("fetch", "worktree", "install")
         self.wait_for(lambda: not running(self.updaters()[0]))
         self.assertTrue((self.root / "install.finished").exists())
         self.assertEqual((self.git(self.clone, "rev-parse", "HEAD"), self.installs()), (self.new, 1))
@@ -339,7 +339,7 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
         self.wait_for(lambda: not running(self.updaters()[0]))
         self.assertEqual((self.git(self.clone, "rev-parse", "HEAD"), self.installs()), (self.first, 0))
         failed.unlink()
-        self.release("merge", "install")
+        self.release("worktree", "install")
         again = self.opened()
         again.when("<draw new fix-api>")
         self.assertEqual(self.installs(), 1)
@@ -356,7 +356,7 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
         screen.when("<draw old fix-api>", after=screen.text().encode().index(b"fixture fetch failed"))
         screen.leave()
         failed.unlink()
-        self.release("merge", "install")
+        self.release("worktree", "install")
         again = self.opened()
         again.when("<draw new fix-api>")
         self.assertEqual(self.installs(), 1)
@@ -418,7 +418,7 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
         self.release("ssh")
         self.assertEqual(screen.proc.wait(10), 0, screen.text())
         self.assertTrue(running(self.updaters()[0]))
-        self.release("ls-remote", "fetch", "merge", "install")
+        self.release("ls-remote", "fetch", "worktree", "install")
         self.wait_for(lambda: not running(self.updaters()[0]))
         self.assertEqual(self.installs(), 1)
         del self.env["START_CLIENT"]

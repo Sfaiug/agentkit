@@ -21,7 +21,9 @@ from pathlib import Path
 from .akbin import AK
 
 SERVER = "agentkit-term"
-CONF = "set -g status off\nset -g default-terminal xterm-256color\n"   # every row is the program's
+# Every row is the program's.  The server outlives its last terminal, so the next one never
+# meets it on its way out ("server exited unexpectedly"); the Home's close ends it.
+CONF = "set -g status off\nset -g default-terminal xterm-256color\nset -g exit-empty off\n"
 # The program's exit status goes to a file, and the pane then stays as the program left it:
 # tmux's own `remain-on-exit` scrolls the screen a line to say the pane is dead.  The shell
 # outlives a Ctrl-C that ends the program, whose SIGINT stays its default; the program gets ak's
