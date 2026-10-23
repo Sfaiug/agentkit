@@ -48,7 +48,7 @@ from . import (aside_editor, browser, command_help, config, gc, gitcall, handbac
                orch, seat_tokens, staffing, statusbar, transitions, turns, update, usage, worker)
 from . import record as run_record
 from . import terminal as terminal_mod
-from .harness import LIMITED, SPENT, says
+from .harness import LIMITED, SPENT, entries, says
 from .lifecycle import LIVE, facts as hook_facts, state as hook_state
 
 INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is typed into
@@ -2324,7 +2324,7 @@ def plan_progress(name):
     return (sum(not plan.is_open(line) for line in lines), len(lines))
 
 
-def unsent(name, harness, found, session):
+def unsent(name, harness, found, session, cfg=None):
     """Typed text nobody sent at a quiet prompt once nobody is in the seat to see it, else "".
     Text in the composer never changes the word (owner, 14 Oct 2026): the seat the owner left
     reads what its runs and its turn say, and its row still marks what they never sent.  Three
@@ -2335,6 +2335,10 @@ def unsent(name, harness, found, session):
     if (not harness or any(session.get(key) for key in orch.CLOSED) or session.get("attached")
             or found.get("state") != "draft"
             or not (seat_read(name).get("usage_wait") or _composer_open(harness, found))):
+        return ""
+    # what ak typed there, whole, is its own to send (`composer_holds`), not the owner's
+    last = next(reversed([*entries(config.seat_file("input", name))]), None)
+    if last and composer_holds(name, session, str(last.get("text")), cfg, exact=True) == "line":
         return ""
     return " ".join(str(found.get("evidence") or "").split())
 
@@ -2442,7 +2446,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
                            else previous.get("word_since", answer["since"]))
     elif previous.get("word") is not None:
         answer["since"] = at
-    draft = "" if card else unsent(name, harness, live, session)
+    draft = "" if card else unsent(name, harness, live, session, cfg)
     if draft:
         answer["unsent"] = draft
     return answer
@@ -3560,7 +3564,8 @@ def composer_holds(name, session, line, cfg=None, *, exact=False):
     and another's top goes above the read; or the harness's fold of a line longer than `[screen]
     folds_over`.  What the owner types goes in at its end, so none of these is a line with the
     owner's words beside it, and a one-row draft that only ends the way the line does is the
-    owner's.
+    owner's.  It is also a composer read whole holding that line joined in order with the
+    others ak typed there last (`_joined`): a line drawn late joins the next.
     `exact` requires the whole composer to be read and hold the full line: a cropped or
     scrolled composer, suffix or paste fold is no proof without a delivery mark.
     """
@@ -3585,7 +3590,22 @@ def composer_holds(name, session, line, cfg=None, *, exact=False):
             len(rows) > 1 and whole.endswith(held)
             or folded and chrome["folded"].fullmatch(held))):
         return "line"
-    return "other"
+    # lines drawn joined are ak's only off a composer read whole: owner text can sit above a crop
+    read = re.sub(r"\s+", "", "".join(
+        (rows if exact else _composer_rows(harness, pane, exact=True)) or ()))
+    return "line" if read and whole in _joined(name, read) else "other"
+
+
+def _joined(name, held):
+    """The lines ak typed into that seat last, whitespace aside, that the composer text `held`
+    is all of joined in order, else none: a harness that draws a line late joins it to the next
+    one ak types there, and both are still ak's to send (22 Oct 2026)."""
+    typed = [re.sub(r"\s+", "", str(sent.get("text"))) for sent in entries(
+        config.seat_file("input", name))]
+    lines = []
+    while typed and len("".join(lines)) < len(held):
+        lines.insert(0, typed.pop())
+    return lines if "".join(lines) == held else []
 
 
 def _composer_parts(chrome, raws, rows, at, stop):
