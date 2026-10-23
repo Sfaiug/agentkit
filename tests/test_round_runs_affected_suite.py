@@ -109,19 +109,23 @@ class AffectedRed(Round, unittest.TestCase):
         cls.thread.start()
         cls.addClassCleanup(cls.thread.join)
 
+    def fixer(self):
+        return (self.run_dir / "round-1" / "fixer" / "prompt.md").read_text()
+
     def test_the_suite_sees_exactly_the_change_s_paths_on_the_tree_merged_onto_the_target(self):
-        said = self.checks()
-        changed = next(line for line in said.splitlines() if line.startswith("changed: "))
-        self.assertEqual(changed.split()[1:], ["retry.txt", "tests/widget", "widget.txt"])
-        tree = next(line for line in said.splitlines() if line.startswith("tree: "))
-        self.assertIn("sibling.txt", tree.split())
-        self.assertIn("retry.txt", tree.split())
-        self.assertIn(f"onto origin/main at {self.sibling[:12]}", said)
+        # the fix put tests/widget back as the target has it: no longer a path the change edits
+        for said, paths in ((self.fixer(), ["retry.txt", "tests/widget", "widget.txt"]),
+                            (self.checks(), ["retry.txt", "widget.txt"])):
+            lines = said.splitlines()
+            self.assertEqual(next(l for l in lines if l.startswith("changed: ")).split()[1:], paths)
+            tree = next(line for line in lines if line.startswith("tree: ")).split()
+            self.assertIn("sibling.txt", tree)
+            self.assertIn("retry.txt", tree)
+            self.assertIn(f"onto origin/main at {self.sibling[:12]}", said)
 
     def test_a_red_goes_back_to_the_executor_in_the_same_run(self):
         self.assertEqual(self.roles(), ["executor", "fixer"])
-        prompt = (self.run_dir / "round-1" / "fixer" / "prompt.md").read_text()
-        self.assertIn("FAILED widget", prompt)
+        self.assertIn("FAILED widget", self.fixer())
         self.assertNotIn("FAILED", self.checks())
         self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
         self.assertEqual((self.state["state"], self.state["merged"]), ("pass", True))
