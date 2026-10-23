@@ -240,7 +240,7 @@ class AddModel(unittest.TestCase):
         lines = step(screen, ENTER, "effort")
         self.assertEqual(listed(lines), [["low"], ["high"]])
         lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
-        self.assertIn("Gemini", lines)
+        self.assertIn("Antigravity", lines)
         saved = screen.saved()
         self.assertTrue(on(lines, saved, "gemini-pro"), lines)
         self.assertEqual(saved["models"]["gemini-pro"],
