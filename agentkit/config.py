@@ -66,10 +66,11 @@ RUN_DEFAULTS = {"max_runs": 0}
 CONFIG_NAME = "config.toml"                # the one config file, under HOME: never in the checkout
 DEFAULT_CONFIG_NAME = "config.default.toml"   # ... whose shipped default install.sh copies there
 # Everything ak keeps at the top of HOME.  Anything else there is a session's own, and the
-# collector removes it a week after its last change.
-OWN = ("agentkit.git", "bin", CONFIG_NAME, "env", "history.db", "history.db-journal", "history.lock",
-       "history.log", "jobs", "macbridge", "rules.md", "runs", "secrets", "state", "tasks", "tmp",
-       "versions", "work", "wt")
+# collector removes it a week after its last change.  history.db-journal stays: one left by a
+# writer that crashed before history.db turned WAL is what puts its file back.
+OWN = ("agentkit.git", "bin", CONFIG_NAME, "env", "history.db", "history.db-journal", "history.db-wal",
+       "history.db-shm", "history.lock", "history.log", "jobs", "macbridge", "rules.md", "runs", "secrets",
+       "state", "tasks", "tmp", "versions", "work", "wt")
 EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultra")   # the effort words for a
                                # harness whose adapter manifest names none of its own
 CATALOG_TTL = 60               # seconds a harness's model list is reused before it is asked again

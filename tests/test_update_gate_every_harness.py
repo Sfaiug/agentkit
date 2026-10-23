@@ -126,14 +126,38 @@ class EveryHarness(unittest.TestCase):
         runs = self.fixture / f"{harness}.runs"
         return runs.read_text().splitlines() if runs.exists() else []
 
+    def test_live_contract_uses_selected_model(self):
+        path = self.home / ".agentkit/config.toml"
+        path.parent.mkdir()
+        path.write_text('[defaults]\norchestrator = "chosen"\nworkers = ["chosen"]\n'
+                        '[models.unused]\nharness = "opencode"\nmodel = "unused/paid"\n'
+                        'effort = "none"\nprovider = "unused"\n'
+                        '[models.chosen]\nharness = "opencode"\nmodel = "acme/flash-free"\n'
+                        'effort = "max"\nprovider = "acme"\n'
+                        '[providers.unused]\nmode = "subscription"\n'
+                        '[providers.acme]\nmode = "free"\n')
+        # Even the initial login probe must ask only about the chosen provider.
+        (self.adapters / "opencode.sh").write_text(ADAPTER.replace(
+            'auth) read', 'auth) [ "${AGENTKIT_PROVIDER:-}" = acme ] || '
+            '{ echo "fixture: wrong provider"; exit 1; }; read'))
+        result = self.gate({"opencode": "0 fixture: logged in"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("CHECK  3 opencode: acme/flash-free at max", result.stdout)
+        self.assertIn("PASS  3 opencode: wrote the file, handed in done", result.stdout)
+        self.assertEqual(self.turns("opencode"), ["acme/flash-free max"] * 2)
+
     def test_every_harness_with_a_login_makes_the_same_two_turns(self):
         result = self.gate(LOGGED_IN)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        shipped = tomllib.loads((REPO / "config.default.toml").read_text())
         for harness, manifest in MANIFESTS.items():
             with self.subTest(harness=harness):
-                model, effort = (manifest["check"][k] for k in ("model", "effort"))
+                expected = (next(entry for entry in shipped["models"].values()
+                                 if entry["harness"] == harness)
+                            if manifest.get("providers") else manifest["check"])
+                model, effort = (expected[k] for k in ("model", "effort"))
                 self.assertIn(model, manifest["catalog"])
-                self.assertEqual(effort, manifest["catalog"][model]["efforts"][0])
+                self.assertIn(effort, manifest["catalog"][model]["efforts"])
                 self.assertIn(f"PASS  3 {harness}: wrote the file, handed in done", result.stdout)
                 self.assertEqual(self.turns(harness), [f"{model} {effort}"] * 2)
                 prompt = (self.fixture / f"{harness}.prompts").read_text()

@@ -175,9 +175,9 @@ class RemoveSubscription(unittest.TestCase):
         screen.press(ENTER, lambda lines: "  Remove Claude II?" in lines)
         screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
         self.assertEqual(screen.saved()["providers"]["anthropic"]["accounts"], ["default"])
-        # the usual login's meter, the one left, is the last provider's: it stays
+        # the usual login's meter, the one left, over the For row, is the last provider's: it stays
         before = screen.path.read_bytes()
-        screen.press(UP + ENTER, lambda lines: "the config needs one provider" in lines[-3])
+        screen.press(UP * 2 + ENTER, lambda lines: "the config needs one provider" in lines[-3])
         self.assertEqual(screen.path.read_bytes(), before)
         screen.leave()
 

@@ -41,7 +41,8 @@ CHILD = r"""
 import json, os, subprocess, sys
 sys.path.insert(0, os.environ["CLOSE_REPO"])
 from pathlib import Path
-from agentkit import config, menu, orch
+from agentkit import config, menu, motion, orch
+motion.FADE = 0     # each page as drawn from its first frame: test_page_comes_up.py's
 
 SEATS = Path(os.environ["CLOSE_SEATS"])        # {name: word}, in the listing's order
 STOPPED = "stopped"      # a seat the owner stopped: an `idle` row with `closed` set on it

@@ -342,10 +342,11 @@ smoke_home() {
   # Borrow credential files by link, never a copy and never a directory: hooks, settings,
   # trust and caches are local.
   local path source target caller_config caller_data caller_claude caller_codex caller_grok
-  local caller_opencode caller_gh caller_account
+  local caller_opencode caller_gh caller_account caller_state
   SMOKE_CALLER_HOME=$HOME
   caller_config=${XDG_CONFIG_HOME:-$HOME/.config}
   caller_data=${XDG_DATA_HOME:-$HOME/.local/share}
+  caller_state=${XDG_STATE_HOME:-$HOME/.local/state}
   caller_claude=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
   caller_codex=${CODEX_HOME:-$HOME/.codex}
   caller_grok=${GROK_HOME:-$HOME/.grok}
@@ -383,8 +384,11 @@ smoke_home() {
   fi
   # Claude needs its account and MCP fields; Git needs its credential helper. Copies let
   # both update their config locally. OpenCode can store its static API key in its config.
+  # Its service receipt authenticates catalog probes without a second server fighting for
+  # the host's port. A copy keeps a sandbox update from replacing the host's receipt.
   for path in "$caller_account:.claude.json" "$SMOKE_CALLER_HOME/.gitconfig:.gitconfig" \
               "$caller_gh/config.yml:.config/gh/config.yml" \
+              "$caller_state/opencode/service.json:.local/state/opencode/service.json" \
               "$caller_opencode:.config/opencode/opencode.json"; do
     source=${path%:*}; target="$HOME/${path##*:}"
     smoke_source "$source" || continue
@@ -408,6 +412,33 @@ smoke_home() {
     [ ! -f "$SMOKE_CALLER_HOME/.agentkit/state/$path" ] ||
       cp -p "$SMOKE_CALLER_HOME/.agentkit/state/$path" "$HOME/.agentkit/state/$path"
   done
+  # A multi-provider harness must use the caller's choice, not require an unused subscription.
+  # Keep the suite's aliases and default login; all config writes stay in this HOME.
+  PYTHONPATH="$REPO/tests:$REPO" SMOKE_CALLER_HOME="$SMOKE_CALLER_HOME" python3 - <<'PY' || exit 1
+import os
+from pathlib import Path
+from unittest.mock import patch
+from agentkit import config
+from check_harness_contract import selected_model
+cfg = config.load()
+try:
+    with patch.object(config, "HOME", Path(os.environ["SMOKE_CALLER_HOME"]) / ".agentkit"):
+        caller = config.load()
+except config.Error:
+    caller = cfg   # A broken caller config cannot choose models for the sandbox.
+models, providers = dict(cfg["models"]), dict(cfg["providers"])
+for name, entry in models.items():
+    selected = selected_model(caller, entry["harness"])
+    if selected:
+        models[name] = selected
+        provider = selected["provider"]
+        providers[provider] = {key: value for key, value in caller["providers"][provider].items()
+                               if key not in ("accounts", "usage_model", "usage_effort")}
+needed = {entry["provider"] for entry in models.values()}
+providers = {name: entry for name, entry in providers.items() if name in needed}
+if models != cfg["models"] or providers != cfg["providers"]:
+    config.save({**cfg, "models": models, "providers": providers})
+PY
   # The sandbox runs the caller's harness installs, so the host's install or revert of one is
   # a swap here too: link its record live, one the host may have yet to write.
   ln -s -- "$SMOKE_CALLER_HOME/.agentkit/state/harness-swaps.json" \
