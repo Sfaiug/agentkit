@@ -48,7 +48,7 @@ class ReplacementRounds(unittest.TestCase):
         akconfig.write(cls.home, ["opus", "astra"])
         cls.fakes = fakeadapter.install(cls.home, claude="pass", codex=FIND)
         Seat(cls.home, "acme", cwd=cls.rig.path, alive=False,
-             record={"workers": ["opus", "astra"]})
+             record={"workers": ["opus", "astra"]}, planned=True)
         failed = cls.open_pr("fix-api", "api.py", FAILED)
         done, _, state = cls.review(failed)
         assert (done.code, state["state"], len(state["round_summaries"])) == (1, "fail", 3), (

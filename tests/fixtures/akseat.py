@@ -29,15 +29,18 @@ FIXTURES = Path(__file__).resolve().parent
 PANE = FIXTURES / "akpane.py"
 # Colours and titles a screen's capture holds: the pane draws them, and they take no cell.
 ESCAPE = re.compile(r"\x1b(?:\[[0-9;:?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))")
+# An open line of a seat's plan, which a seat's own run launch needs: it names no checkout, so
+# no check ever ticks it.
+PLAN_LINE = "- [ ] The work is done · check: `false` · acme · written 2026-10-23 09:00"
 
 
 class Seat:
     """`model` names a [models.*] entry of the Home's config; `record` adds to or replaces the
-    record's fields; `alive=False` leaves only the record, as a seat tmux lost.  The pane is
-    the size the screen was captured at."""
+    record's fields; `alive=False` leaves only the record, as a seat tmux lost; `planned=True`
+    gives its plan PLAN_LINE.  The pane is the size the screen was captured at."""
 
     def __init__(self, home, name="acme", *, model="opus", screen="claude-prompt-pane.txt",
-                 cwd=None, record=None, alive=True, composer="❯"):
+                 cwd=None, record=None, alive=True, composer="❯", planned=False):
         self.home, self.name, self.composer = home, name, composer
         self.cwd = Path(cwd or home.path / "code" / name)
         self.cwd.mkdir(parents=True, exist_ok=True)
@@ -49,6 +52,8 @@ class Seat:
                        "id_source": "launcher", "resumable": True, "session_title": name,
                        **(record or {})}
         home.write(f".agentkit/state/session-{name}.json", self.record)
+        if planned:
+            home.write(f".agentkit/state/plan-{name}.md", PLAN_LINE + "\n")
         self.pane = None
         self.screen = self._text(screen)
         self.screen_file.write_text(self.screen, encoding="utf-8")

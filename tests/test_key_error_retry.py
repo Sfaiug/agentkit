@@ -71,7 +71,8 @@ class ErrorRetried(unittest.TestCase):
         offline(home)
         rig = Rig(home, "widgets")
         akconfig.write(home, ["opus"])
-        Seat(home, "acme")      # the tick takes up only an ending whose seat is still there
+        # the tick takes up only an ending whose seat is still there
+        Seat(home, "acme", planned=True)
         holding, released = home.root / "adapters" / "held", home.root / "adapters" / "release"
         held = {"sh": f"touch '{holding}'; while [ ! -f '{released}' ]; do sleep 0.1; done",
                 "final": "Handed in.", "hand_in": [["done"]]}

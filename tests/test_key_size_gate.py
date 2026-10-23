@@ -158,7 +158,7 @@ class SeatPullRequest(unittest.TestCase):
         cls.gh = GitHub(cls.home)
         akconfig.write(cls.home, ["opus", "astra"])
         fakes = fakeadapter.install(cls.home, claude="pass", codex="pass")
-        Seat(cls.home, "acme", model="opus", cwd=cls.rig.path, alive=False)
+        Seat(cls.home, "acme", model="opus", cwd=cls.rig.path, alive=False, planned=True)
         cls.reviews = {}
         for branch, count in (("big-change", 50), ("fit-change", 49)):
             cls.rig.branch(branch, {f"{branch}.txt": rows(count)})

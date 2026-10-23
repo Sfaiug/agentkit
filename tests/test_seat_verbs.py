@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, job, run
+from agentkit import config, job, plan, run
 
 AK_MAIN = runpy.run_path(str(REPO / "bin/ak"))["main"]
 SEAT = "fix-api"
@@ -43,6 +43,9 @@ class SeatVerbs(unittest.TestCase):
             "AGENTKIT_RUN_DIR": "", "AK_RUN_ROLE": ""}))
         config.ensure_dirs()
         config.save_session(config.load(), SEAT, "opus", ["opus"], {"reviewers": ["astra"]})
+        # a seat launches only with an open line in its plan
+        plan.write(SEAT, [plan.compose("Fix the api", "check: `false`", "acme", False,
+                                       "2026-10-23 09:00", None)])
         self.prepare = stack.enter_context(patch.object(run, "prepare"))
         self.drive = stack.enter_context(patch.object(run, "drive", return_value=0))
         self.job_loop = stack.enter_context(patch.object(job, "run_job_loop", return_value=0))

@@ -68,7 +68,8 @@ class Stage:
         cls.fakes = fakeadapter.install(home, claude=claude(marks),
                                         codex=codex(marks) if callable(codex) else codex)
         if seat:
-            Seat(home, "acme", cwd=cls.rig.path, record={"workers": ["opus", "astra"]})
+            Seat(home, "acme", cwd=cls.rig.path, record={"workers": ["opus", "astra"]},
+                 planned=True)
         cls.env = {"AGENTKIT_SESSION": "acme"} if seat else {}
         cls.runs, cls.loops = [], {}
 
