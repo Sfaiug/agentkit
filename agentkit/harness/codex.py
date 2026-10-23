@@ -539,14 +539,14 @@ def ask(event):
     if event["tool_name"] != QUESTION_TOOL:
         return None
     questions = (event.get("tool_input") or {}).get("questions")
-    texts = [question_line(item) for item in questions
+    texts = [(index, question_line(item)) for index, item in enumerate(questions)
              if isinstance(item, dict)] if isinstance(questions, list) else []
     try:
-        for text in texts or [""]:
+        for _, text in texts or [(None, "")]:
             notify.asks_first(text)
         with contextlib.redirect_stdout(sys.stderr):
             failed = any(notify.shaped("needs", text.strip(), question_id=question_id(
-                event.get("tool_use_id"), index)) for index, text in enumerate(texts))
+                event.get("tool_use_id"), index)) for index, text in texts)
     except config.Error as exc:
         # Codex adds its own period after the reason
         return {"decision": "block",

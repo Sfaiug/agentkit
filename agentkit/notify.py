@@ -1457,8 +1457,11 @@ def _said(name, kind, text, event_id=None, at=None, said_at=None, question_times
                 seen.add(words)
                 asked.append(question)
             dated[words] = time.time() if at is None else at
-            said_dates[words] = (question_times or {}).get(words, dated[words])
-            ids[words] = (question_ids or {}).get(words)
+            original = (question_times or {}).get(words, dated[words])
+            # A delayed Stop can bring an older copy of a question already repeated.
+            if question_times is None or original > said_dates.get(words, -math.inf):
+                said_dates[words] = original
+                ids[words] = (question_ids or {}).get(words)
         text = ALSO.join(asked)
         if len(asked) > 1:
             extra["questions"] = asked

@@ -25,7 +25,9 @@ class CodexQuestionCards(Sandbox):
         super().setUp()
         config.save_session(self.cfg, SEAT, 'astra', ['astra'], {'cwd': str(self.root)})
         self.stack.enter_context(patch.dict(os.environ, {'AGENTKIT_SESSION': SEAT,
-                                                       'AK_RUN_ROLE': ''}))
+                               'AK_RUN_ROLE': '', 'AK_NOTIFY_SINK': 'off',
+                               'AGENTKIT_DISCORD_WEBHOOK': 'off'}))
+        self.stack.enter_context(patch.object(orch, 'tmux_out', return_value=(0, '')))
         self.path = self.root / 'rollout.jsonl'
         self.path.touch()
         self.stack.enter_context(patch.object(codex, 'transcript', return_value=str(self.path)))
@@ -99,7 +101,7 @@ class CodexQuestionCards(Sandbox):
         self.reply(0)
         self.assertTrue(notify.answer_written(SEAT))
         with patch.object(notify.time, 'time', return_value=10003):
-            watch.keep(SEAT, TEXTS[0])
+            self.assertIsNone(codex.ask(CALL))
         self.assertFalse(notify.answer_written(SEAT))
         self.assertEqual(set(questions.pending(SEAT)), set(TEXTS))
 
@@ -127,6 +129,20 @@ class CodexQuestionCards(Sandbox):
         self.reply(0, at=10006, call='call-new')
         self.assertTrue(notify.answer_written(SEAT, at=10007))
         self.assertEqual(questions.pending(SEAT), TEXTS[1:])
+
+    def test_stop_does_not_replace_a_new_cards_identity_with_an_older_kept_one(self):
+        self.ask()
+        with notify.session_lock(SEAT):
+            notify._said(SEAT, 'needs', 'Ship the sample?', at=10002)
+        self.repeat()
+        with patch.object(notify.time, 'time', return_value=10005):
+            self.stopped()
+        self.reply(0, at=10004)
+        self.assertFalse(notify.answer_written(SEAT, at=10006))
+        self.assertIn(TEXTS[0], questions.pending(SEAT))
+        self.reply(0, at=10007, call='call-new')
+        self.assertTrue(notify.answer_written(SEAT, at=10008))
+        self.assertNotIn(TEXTS[0], questions.pending(SEAT))
 
     def test_a_later_question_does_not_hide_an_earlier_questions_native_answer(self):
         self.ask()
