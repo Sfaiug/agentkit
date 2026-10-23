@@ -946,6 +946,9 @@ def retry_pending(dry_run=False, log=print):
             session = config.resolve_session(event["session"]) if event["session"] else None
             with session_lock(session) if session else nullcontext(session) as session, outbox_lock():
                 event = _read_event(path.stem)
+                card = _card_read(session) if session else {}
+                if card.get("held") and event.get("episode") == card.get("episode"):
+                    continue    # its question stands through independent work (`transition`)
                 if _dropped(event, session, log):
                     continue
                 _attempt(event)
@@ -1280,6 +1283,10 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                 if seat is not None and any(seat.get(key) for key in orch.CLOSED):
                     # a seat nobody is in began its word when it went, whichever tick reads it
                     card["began"] = min(since, _went_at(name))
+                _card_write(name, card)
+            if bool(card.get("held")) != kept:
+                # a delivery still queued waits for the word to come back (`retry_pending`)
+                card["held"] = kept
                 _card_write(name, card)
             if began is not None and not card.get("sent") and card.get("began") != began:
                 card["began"] = began

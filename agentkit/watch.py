@@ -2213,13 +2213,15 @@ def kept_asked(name, kept):
 
 
 def answered_kept(name, replies, at):
-    """A native card reply answers only its questions, including before the turn ends."""
+    """A native card reply answers only its questions, including before the turn ends: its own
+    card's copy, and every copy of a question whose latest card it is."""
     with seat_lock(name):
         data = seat_read(name)
         kept = questions_kept(data.get("unasked"))
         keys = set(replies)
-        remaining = [q for q in kept if not (q.get("at", at) < at
-                     and q.get("id") in keys)]
+        latest = {notify.question_key(q["text"]): q.get("id") for q in kept}
+        remaining = [q for q in kept if not (q.get("at", at) < at and (
+                     q.get("id") in keys or latest[notify.question_key(q["text"])] in keys))]
         if remaining != kept:
             _seat_put(name, data, {"unasked": _kept(remaining)})
             return True
