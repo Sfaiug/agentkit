@@ -115,9 +115,10 @@ class AddOpenCodeProvider(unittest.TestCase):
         self.assertIn("  model   Comet 2 · Zeta Cloud", lines)
         self.assertEqual(listed(lines), [["none"]])
         lines = screen.press(ENTER, lambda lines: title(lines) == MATRIX)
-        # by the name OpenCode gives it, on its meter and over its models
+        # by the name OpenCode gives it on its meter, its model under OpenCode
         self.assertEqual(providers(lines), ["Claude", "Zeta Cloud"])
-        self.assertIn("Zeta Cloud", [line.strip() for line in lines])
+        shown = [line.strip() for line in lines]
+        self.assertTrue(shown[shown.index("OpenCode") + 1].startswith("comet-2"), lines)
         saved = screen.saved()
         # priced by OpenCode: pay as you go, used only once every subscription runs ahead
         self.assertEqual(saved["providers"]["zeta"], {"mode": "payg", "name": "Zeta Cloud"})
