@@ -286,13 +286,14 @@ class Home:
         port = sink.port if sink.hostname == "127.0.0.1" else None
         way = self.tmux_dir / "sink.sock"     # a socket's path must fit in 104 bytes
         listener = socket.create_server(str(way), family=socket.AF_UNIX)
-        _relay(listener, socket.AF_INET, ("127.0.0.1", port))
+        relay = _relay(listener, socket.AF_INET, ("127.0.0.1", port))
         try:
             return self.run(*self.box(_BOX), sys.executable, "-I", Path(__file__).resolve(),
                             str(port or ""), str(way), AK, "watch", env=env)
         finally:
             listener.shutdown(socket.SHUT_RDWR)     # wakes its `accept`, as `close` would not
             listener.close()
+            relay.join()
             way.unlink()
 
     def box(self, box=_FILES):
@@ -351,7 +352,8 @@ def _end(proc):
 
 
 def _relay(listener, family, address):
-    """Carry each connection `listener` takes to `address`, both ways, until it ends."""
+    """Carry each connection `listener` takes to `address`, both ways, until it ends; the
+    thread returned takes them until `listener` is shut down."""
     def pipe(source, sink):
         try:
             while data := source.recv(65536):
@@ -370,7 +372,9 @@ def _relay(listener, family, address):
             for ends in ((near, far), (far, near)):
                 threading.Thread(target=pipe, args=ends, daemon=True).start()
 
-    threading.Thread(target=serve, daemon=True).start()
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    return thread
 
 
 def _last(port, way, *program):
