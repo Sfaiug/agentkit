@@ -98,6 +98,19 @@ class HandsOver(SeatMove):
         self.move_on("fable")
         self.assertEqual(self.handover(), handover)
 
+    def test_renamed_it_keeps_the_file_its_running_rulebook_names(self):
+        self.move("astra")
+        handover = self.handover()
+        config.rename_session(SEAT, "acme-api")
+        self.assertEqual(self.handover(), handover)        # under the name it was launched with
+        self.said["codex"] = [{"who": "user", "text": "And for a deleted one?"}]
+        with patch.object(Harness, "conversation", new=lambda *_a: "thread-of-astra"):
+            orch.switch_orchestrator(self.cfg, "acme-api", "fable", providers={})
+        moved = config.seat_file("handover", "acme-api")
+        self.assertIn(str(moved), config.rulebook_path("acme-api").read_text())
+        self.assertLess(moved.read_text().index(ANSWERED["text"]),
+                        moved.read_text().index("And for a deleted one?"))
+
     def test_a_harness_that_reads_nothing_back_hands_on_its_transcript(self):
         self.said.pop("claude")
         with patch.object(Harness, "transcript", return_value="/tmp/acme/transcript.jsonl"):

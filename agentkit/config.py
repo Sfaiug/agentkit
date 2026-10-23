@@ -1268,7 +1268,14 @@ def rename_session(old, new):
     # the seat had, the newest one winning.
     for kind in SEAT_FILES.keys() - {"session", "rulebook", "stop", "launch"}:
         was, now = seat_file(kind, old), seat_file(kind, new)
-        if was.exists() and not (target == old and now.exists()):
+        if kind == "handover" and was.exists():
+            # the rulebook it runs on names it under the old name, and a move only adds to it:
+            # both names lead to it, the newest whole
+            linked = now.with_name(f"{now.name}.{os.getpid()}.tmp")
+            linked.unlink(missing_ok=True)
+            os.link(was, linked)
+            linked.replace(now)
+        elif was.exists() and not (target == old and now.exists()):
             was.replace(now)
 
 
