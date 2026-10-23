@@ -37,8 +37,7 @@ CHILD = r"""
 import json, os, sys
 sys.path.insert(0, os.environ["MATRIX_REPO"])
 from contextlib import closing
-from agentkit import config, menu, motion, orch, terminal, update, usage
-motion.FADE = 0     # each page as drawn from its first frame: test_page_comes_up.py's
+from agentkit import config, menu, orch, terminal, update, usage
 
 EFFORTS = {"claude-haiku-4-5": ["none"],
            "claude-opus-5-5": ["low", "medium", "high", "xhigh", "max"]}
@@ -57,6 +56,14 @@ orch.switch_orchestrator = lambda cfg, name, model, providers=None: (
 with closing(terminal.Keyboard()) as keyboard:
     menu.show_config(False, keyboard, session)
 print("<left>", flush=True)
+"""
+# Run before every child's own code: each page as drawn from its first frame, so the frame read
+# after a key is the page it drew, not the menu's next idle redraw (test_page_comes_up.py's).
+FADELESS = """
+import os, sys
+sys.path.insert(0, os.environ["MATRIX_REPO"])
+from agentkit import motion
+motion.FADE = 0
 """
 HAIKU = """
 [models.haiku]
@@ -95,7 +102,7 @@ class Screen:
                           "LC_ALL": "C.UTF-8", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
                           "MATRIX_REPO": str(REPO), "MATRIX_SESSION": session or "",
                           "MATRIX_WORKERS": json.dumps(list(workers)), **(env or {})})
-        self.proc = subprocess.Popen([sys.executable, "-c", child], stdin=self.slave,
+        self.proc = subprocess.Popen([sys.executable, "-c", FADELESS + child], stdin=self.slave,
                                      stdout=self.slave, stderr=self.slave, env=child_env,
                                      start_new_session=True)
         self.output, self.lock = b"", threading.Lock()
