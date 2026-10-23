@@ -295,14 +295,14 @@ class Home:
         """One `ak watch`, boxed: a tick asks the public boards and the shared browser on
         loopback, so it gets a loopback of its own, and its collection sweeps /tmp, so it gets
         one holding only this Home and the program.  The sink's port is open in the box too,
-        piped through a socket file in this Home to the sink outside."""
+        piped to the sink outside through a socket file in the short tmux directory."""
         keep = {self.root, self.tmux_dir, REPO, Path(AK).resolve().parent}
         binds = [arg for path in sorted(map(str, keep), key=len)
                  if Path(path).is_relative_to("/tmp") for arg in ("--bind", path, path)]
         relay, port = "", 0
         sink = urlsplit(self._env(env).get("AK_NOTIFY_SINK", ""))
         if sink.scheme == "http" and sink.hostname == "127.0.0.1":
-            port, relay = sink.port, str(self.root / f"sink-{sink.port}.sock")
+            port, relay = sink.port, str(self.tmux_dir / f"sink-{sink.port}.sock")
             if not os.path.exists(relay):
                 listener = socket.socket(socket.AF_UNIX)
                 listener.bind(relay)
