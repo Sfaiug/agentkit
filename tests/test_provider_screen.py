@@ -270,8 +270,8 @@ class ProviderScreen(unittest.TestCase):
     def test_a_meter_is_reached_and_asks_to_remove_its_provider(self):
         screen = Screen(self, child=CHILD)
         before = screen.path.read_bytes()
-        # ↑ past the first model lights the last meter, its line under the meters
-        lines = screen.press(UP, lambda lines: lines[headings(lines) - 2].strip())
+        # ↑ past the first model and the For row lights the last meter, its line under the meters
+        lines = screen.press(UP * 2, lambda lines: lines[headings(lines) - 2].strip())
         name = lines[headings(lines) - 2].split()[0]
         self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   esc back")
         # `− remove` is all it offers, so it asks at once, and Enter keeps
@@ -293,7 +293,7 @@ class ProviderScreen(unittest.TestCase):
                  'effort = "high"\nprovider = "claude"\n\n[providers.claude]\nmode = "payg"\n')
         screen = Screen(self, child=CHILD, text=ONE + house)
         self.assertEqual(providers(screen.frame()), ["Claude", "Claude"])
-        screen.press(UP + ENTER, lambda lines: "  Remove Claude and its models?" in lines)
+        screen.press(UP * 2 + ENTER, lambda lines: "  Remove Claude and its models?" in lines)
         screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
         saved = screen.saved()
         self.assertEqual(list(saved["providers"]), ["anthropic"])
