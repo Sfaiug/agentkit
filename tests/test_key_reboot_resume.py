@@ -8,9 +8,10 @@ owner closed stays closed whatever it owes, and only a seat whose conversation i
 back.  The tick tells a reboot by the kernel's boot id against the one watch.json holds, so an
 install's first tick is none, and it claims each seat before reopening it, so a pass cut off
 midway never reopens one twice on that boot.  Black-box: the program `AK_BIN` names runs from
-outside through tests/fixtures/akbin.py, each seat the record tmux lost (tests/fixtures/akseat.py)
-with Claude's hooks fired as Claude fires them (tests/fixtures/hookdrive.py), and what came back
-is the sessions on ak's tmux server; this test fails against `/bin/false`.
+outside through tests/fixtures/akbin.py, each tick in its box, each seat the record tmux lost
+(tests/fixtures/akseat.py) with Claude's hooks fired as Claude fires them
+(tests/fixtures/hookdrive.py), and what came back is the sessions on ak's tmux server; this test
+fails against `/bin/false`.
 """
 
 import json
@@ -21,7 +22,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.hookdrive import Hooks
 
@@ -30,12 +31,19 @@ BOOT = BOOT_FILE.read_text().strip() if BOOT_FILE.is_file() else None
 OPEN_LINE = "- [ ] the parser parses · check: `false` · acme · written 2026-10-17 09:00\n"
 QUESTION = "Which branch should fix-api land on?"
 PERMISSION = {"tool_name": "Bash", "tool_input": {"command": "make deploy"}}
+OWN = "notes"   # the owner's own session on ak's tmux server, no seat
 
 
 def home_for_seats():
     """A Home whose ak runs only Claude and opens no audit seat of its own."""
     home = Home()
     akconfig.write(home, ["opus"])
+    # a collection on record from just now: one due would outlive the tick's box
+    home.write(".agentkit/state/gc.json", {"started_at": time.time()})
+    # The owner's own session keeps ak's tmux server up outside the box: a seat a tick
+    # reopened is still there to see once the tick has ended.
+    done = home.tmux("-f", "/dev/null", "new-session", "-d", "-s", OWN, "sleep 3600")
+    assert done.code == 0, done.err
     # The public boards are asked once a day: asked just now, a tick here reaches none of them.
     home.write(".agentkit/state/boards.json",
                {board: {"asked_at": time.time(), "error": "not asked in a test"}
@@ -60,14 +68,20 @@ def last_boot(home, **recorded):
 
 def sessions(home):
     """The seats on ak's tmux server now, by name."""
-    return sorted(home.tmux("list-sessions", "-F", "#{session_name}").out.split())
+    return sorted(set(home.tmux("list-sessions", "-F", "#{session_name}").out.split()) - {OWN})
+
+
+def close_seats(home):
+    """Every seat a tick reopened gone again, as tmux loses it, on the same boot."""
+    for name in sessions(home):
+        home.tmux("kill-session", "-t", f"={name}")
 
 
 def reboot_lines(done):
     return [line for line in done.out.splitlines() if " after reboot" in line]
 
 
-@unittest.skipUnless(REAL_TMUX and BOOT, "needs tmux and a kernel boot id")
+@unittest.skipUnless(REAL_TMUX and BOOT and boxable(), "needs tmux, a kernel boot id and bwrap")
 class AfterAReboot(unittest.TestCase):
     OWING = ["asking", "midturn", "planned", "question"]
 
@@ -93,11 +107,10 @@ class AfterAReboot(unittest.TestCase):
         cls.before = watch_state(home)
         cls.dry = home.ak("watch", "--dry-run")
         cls.dry_sessions, cls.dry_state = sessions(home), watch_state(home)
-        cls.tick = home.ak("watch")
+        cls.tick = home.tick()
         cls.sessions, cls.state = sessions(home), watch_state(home)
-        # every seat it reopened is gone again, on the same boot
-        home.tmux("kill-server")
-        cls.again = home.ak("watch")
+        close_seats(home)
+        cls.again = home.tick()
         cls.again_sessions = sessions(home)
 
     def test_a_dry_run_names_each_seat_it_would_reopen_and_changes_nothing(self):
@@ -132,7 +145,7 @@ class AfterAReboot(unittest.TestCase):
         self.assertEqual(reboot_lines(self.again), [])
 
 
-@unittest.skipUnless(REAL_TMUX and BOOT, "needs tmux and a kernel boot id")
+@unittest.skipUnless(REAL_TMUX and BOOT and boxable(), "needs tmux, a kernel boot id and bwrap")
 class OnAFreshInstall(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -147,7 +160,7 @@ class OnAFreshInstall(unittest.TestCase):
         (home.path / ".agentkit/state/watch.json").unlink(missing_ok=True)   # never ticked
         cls.dry = home.ak("watch", "--dry-run")
         cls.dry_state = watch_state(home) or {}
-        cls.tick = home.ak("watch")
+        cls.tick = home.tick()
         cls.sessions, cls.state = sessions(home), watch_state(home)
 
     def test_a_dry_run_records_no_boot(self):
@@ -163,7 +176,7 @@ class OnAFreshInstall(unittest.TestCase):
         self.assertNotIn("boot_resume", self.state)
 
 
-@unittest.skipUnless(REAL_TMUX and BOOT, "needs tmux and a kernel boot id")
+@unittest.skipUnless(REAL_TMUX and BOOT and boxable(), "needs tmux, a kernel boot id and bwrap")
 class AfterAPassCutOff(unittest.TestCase):
     """watch.json as a pass left it that died after claiming `acme`, or one on the boot before."""
 
@@ -175,11 +188,11 @@ class AfterAPassCutOff(unittest.TestCase):
             Seat(home, name, alive=False)
             owing_plan(home, name)
         last_boot(home, boot_resume={"id": BOOT, "attempted": ["acme"]})
-        cls.cut = home.ak("watch")
+        cls.cut = home.tick()
         cls.cut_sessions, cls.cut_state = sessions(home), watch_state(home)
-        home.tmux("kill-server")
+        close_seats(home)
         last_boot(home, boot_resume={"id": "before", "attempted": ["acme", "beta"]})
-        cls.older = home.ak("watch")
+        cls.older = home.tick()
         cls.older_sessions, cls.older_state = sessions(home), watch_state(home)
 
     def test_a_seat_this_boot_already_tried_is_not_tried_again(self):
