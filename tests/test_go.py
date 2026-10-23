@@ -20,8 +20,8 @@ class Go(unittest.TestCase):
         return result.stdout
 
     def test_formatted_vetted_tested_and_built(self):
-        if not shutil.which("go"):
-            self.skipTest("go is not installed: Go 1.23 or newer builds go/")
+        # Never a skip: the landing suite counts a skipped case as passed.
+        self.assertTrue(shutil.which("go"), "go is not installed: Go 1.23 or newer builds go/")
         # gofmt ships beside go, which PATH may reach only through a link.
         gofmt = Path(shutil.which("go")).resolve().with_name("gofmt")
         self.assertEqual(self.check(gofmt, "-l", "."), "", "gofmt -w these files")
