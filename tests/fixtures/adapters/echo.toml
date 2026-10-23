@@ -1,5 +1,5 @@
 # tests/fixtures/adapters/echo.toml -- the screen, the update and the usage of a fourth harness.
-# Paired with echo.sh; the format is the adapter contract in docs/guide.md, "Adding a harness".
+# Paired with echo.sh; the format is the adapter contract in `config.adapter`.
 # Everything agentkit does with this harness it does from here: there is no agentkit/harness/
 # echo.py, so every Python hook is the default one.
 version = 1
