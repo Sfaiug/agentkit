@@ -17,15 +17,20 @@ claim() { touch "$ROOT/$1/$2" && ! held "$1" || { rm -f "$ROOT/$1/$2"; return 1;
 # the kernel drops when its holder dies; suites preparing at once share the Mac by these locks.
 locked() { lockf -k "$1" bash -c "$(declare -f)"'
   "$@"' mac.sh "${@:2}"; }
+# bare: image references as `container image ls` names them; `container ls` and FROM may not.
+bare() { sed -e 's,^docker\.io/library/,,' -e 's,^docker\.io/,,'; }
 # drop: deletes the images named on stdin, but those a suite here prepared and has not finished
-# with or a container uses. Under the build lock, so a suite either is named here already or
-# finds its image gone and builds it.
+# with or a container uses; none while the containers are unknown. Under the build lock, so a
+# suite either is named here already or finds its image gone and builds it.
 drop() {
-  keep=$({ cat "$ROOT"/*/image/name; container ls --all | awk 'NR > 1 {print $2}'; } 2>/dev/null)
+  vms=$(container ls --all 2>/dev/null) || return 0
+  keep=$({ cat "$ROOT"/*/image/name 2>/dev/null; printf '%s\n' "$vms" | awk 'NR > 1 {print $2}'; } |
+    bare)
   while read -r old; do
-    [ -z "$old" ] || printf '%s\n' "$keep" | grep -qxF -e "$old" ||
+    [ -z "$old" ] || printf '%s\n' "$keep" | grep -qxF -e "$(printf '%s\n' "$old" | bare)" ||
       container image delete "$old" >/dev/null 2>&1
   done
+  return 0
 }
 # images KEY IMAGE, under the build lock, as any build's end stops the builder of all: the
 # suite's image, built unless the Mac has it. A repository's history unused (`known`) for a week
