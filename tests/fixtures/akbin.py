@@ -31,9 +31,11 @@ from pathlib import Path
 import shlex
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 REPO = Path(__file__).resolve().parents[2]
@@ -53,8 +55,12 @@ Done = namedtuple("Done", "code out err")
 
 # A tick's last breath in its box: what it detached is waited out before the box goes.
 _LAST = r"""
-import os, subprocess, sys, time
-code = subprocess.call(sys.argv[1:])
+import json, os, socket, subprocess, sys, time
+sys.path.insert(0, sys.argv[1])
+from fixtures.akbin import carry
+for port, path in json.loads(sys.argv[2]):
+    carry(socket.create_server(("127.0.0.1", port)), socket.AF_UNIX, path)
+code = subprocess.call(sys.argv[3:])
 deadline = time.monotonic() + 60
 while time.monotonic() < deadline:
     if not [p for p in os.listdir("/proc") if p.isdigit() and int(p) not in (1, os.getpid())]:
@@ -250,14 +256,31 @@ class Home:
                     os.close(fd)
         return Done(proc.returncode, out, err)
 
-    def tick(self, env=None):
+    def tick(self, env=None, reach=()):
         """One `ak watch`, boxed: a tick asks the public boards and the shared browser on
         loopback, so it gets a loopback of its own, and its collection sweeps /tmp, so it gets
-        one holding only this Home and the program."""
+        one holding only this Home and the program.  `reach` names the ports of the test's own
+        loopback the tick still reaches at the same number there, a `Sink`'s among them."""
         keep = {self.root, self.tmux_dir, REPO, Path(AK).resolve().parent}
         binds = [arg for path in sorted(map(str, keep), key=len)
                  if Path(path).is_relative_to("/tmp") for arg in ("--bind", path, path)]
-        return self.run(*_BOX, *binds, "--", sys.executable, "-c", _LAST, AK, "watch", env=env)
+        doors = []
+        for port in reach:
+            door = socket.socket(socket.AF_UNIX)
+            door.bind(str(self.tmux_dir / f"reach-{port}"))
+            door.listen()
+            carry(door, socket.AF_INET, ("127.0.0.1", port))
+            doors.append(door)
+        try:
+            return self.run(*_BOX, *binds, "--", sys.executable, "-c", _LAST,
+                            str(REPO / "tests"),
+                            json.dumps([[port, str(self.tmux_dir / f"reach-{port}")]
+                                        for port in reach]), AK, "watch", env=env)
+        finally:
+            for door in doors:
+                door.shutdown(socket.SHUT_RDWR)     # wakes its accept, which close alone would not
+                door.close()
+                os.unlink(door.getsockname())
 
     def spawn(self, *args, env=None, cwd=None):
         """Start the program and leave it running, its output in `home.log(...)`; `close` ends
@@ -280,6 +303,31 @@ class Home:
         """This Home's environment with `extra` over it; a None value removes the variable."""
         merged = {**self.env, **(extra or {})}
         return {key: value for key, value in merged.items() if value is not None}
+
+
+def carry(server, family, address):
+    """Join each connection `server` accepts to a new one to `address`, both ways, until `server`
+    is shut: a port carried across the box's wall."""
+    def accept():
+        while True:
+            try:
+                near, _ = server.accept()
+            except OSError:
+                return
+            far = socket.socket(family)
+            far.connect(address)
+            for src, dst in ((near, far), (far, near)):
+                threading.Thread(target=_pour, args=(src, dst), daemon=True).start()
+    threading.Thread(target=accept, daemon=True).start()
+
+
+def _pour(src, dst):
+    try:
+        while data := src.recv(65536):
+            dst.sendall(data)
+        dst.shutdown(socket.SHUT_WR)
+    except OSError:
+        pass
 
 
 def _wait_gone(pid, bound=30):

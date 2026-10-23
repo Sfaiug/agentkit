@@ -5,9 +5,9 @@ word and the seat, once, after a minute in which nobody typed into it, so a glan
 that just asked costs no page.  The chooser is left for the owner: ak presses nothing in it.
 The minute counts from the seat's last activity on tmux, which starts with the session and
 cannot be set back, so this file waits that one minute for the page.  Black-box: the program
-`AK_BIN` names runs from outside through tests/fixtures/akbin.py, before a seat of
-tests/fixtures/akseat.py on the fixture harness tests/fixtures/adapters/echo.toml, paging
-tests/fixtures/sink.py.
+`AK_BIN` names runs from outside through tests/fixtures/akbin.py, each tick boxed and reaching
+only the sink's port of the test's loopback, before a seat of tests/fixtures/akseat.py on the
+fixture harness tests/fixtures/adapters/echo.toml, paging tests/fixtures/sink.py.
 """
 
 import json
@@ -17,7 +17,7 @@ import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.sink import Sink
 from fixtures import akconfig
@@ -26,7 +26,7 @@ ADAPTERS = Path(__file__).resolve().parent / "fixtures" / "adapters"
 CHOOSER = "Pick one\n1. yes\n2. no\npress enter to choose\n"
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class AChooserOnScreen(unittest.TestCase):
     def setUp(self):
         self.home = Home()
@@ -40,7 +40,7 @@ class AChooserOnScreen(unittest.TestCase):
         return json.loads((self.home.path / ".agentkit/state" / name).read_text())
 
     def tick(self):
-        done = self.home.ak("watch")
+        done = self.home.tick(reach=[self.sink.port])
         self.assertEqual(done.code, 0, done.err)
 
     def tick_until_paged(self, bound=180):
