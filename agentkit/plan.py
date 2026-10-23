@@ -25,7 +25,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import command_help, config, terminal
+from . import command_help, config, gitcall, terminal
 
 CHECK_LIMIT = 600    # an unfinished check proves nothing
 # an eye line, from before every line had a check, reads done: how a change looks is the
@@ -258,6 +258,7 @@ def default_branch(repo, at=None):
             raise config.Error(f"cannot check {repo.name}'s default branch: {result.stderr.strip()}")
         return result.stdout.strip()
 
+    gitcall.no_auto_gc(repo)
     git("fetch", "-q", "origin")
     git("remote", "set-head", "origin", "--auto")
     base = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
