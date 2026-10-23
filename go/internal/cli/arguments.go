@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"agentkit/internal/commandhelp"
 )
 
 var lineBreak = regexp.MustCompile(`\r\n|[\n\r\v\f\x1c-\x1e\x{85}\x{2028}\x{2029}]`)
@@ -45,7 +47,7 @@ func parse(args, values, flags []string, unknownUsage string) (arguments, string
 		case contains(flags, arg):
 			parsed.flags[arg] = true
 		case strings.HasPrefix(arg, "-"):
-			return parsed, fmt.Sprintf("unknown flag %s; %s", repr(arg), unknownUsage)
+			return parsed, fmt.Sprintf("unknown flag %s; %s", commandhelp.Quote(arg), unknownUsage)
 		default:
 			parsed.words = append(parsed.words, arg)
 		}

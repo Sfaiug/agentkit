@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"agentkit/internal/config"
 )
@@ -187,11 +188,10 @@ func checkedSite(site, root, quote string, hasQuote bool) error {
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || !isFile(path) {
 		return fmt.Errorf("name a file that exists inside this checkout")
 	}
-	data, err := os.ReadFile(path)
+	content, err := readText(path)
 	if err != nil {
 		return err
 	}
-	content := strings.ToValidUTF8(string(data), "\ufffd")
 	lines := len(splitLines(content))
 	line, err := strconv.Atoi(site[colon+1:])
 	if err != nil || line < 1 || line > lines {
@@ -201,4 +201,25 @@ func checkedSite(site, root, quote string, hasQuote bool) error {
 		return fmt.Errorf("use a quote found verbatim in the named file")
 	}
 	return nil
+}
+
+// Quotes use Python's text view: universal newlines and one replacement per
+// decoding error, including an incomplete UTF-8 prefix as a single error.
+func readText(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	var text strings.Builder
+	for len(data) > 0 {
+		r, size := utf8.DecodeRune(data)
+		if r == utf8.RuneError && size == 1 {
+			for size < len(data) && !utf8.FullRune(data[:size+1]) {
+				size++
+			}
+		}
+		text.WriteRune(r)
+		data = data[size:]
+	}
+	return strings.ReplaceAll(strings.ReplaceAll(text.String(), "\r\n", "\n"), "\r", "\n"), nil
 }

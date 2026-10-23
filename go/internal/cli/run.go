@@ -30,8 +30,11 @@ func validateRun(args []string) string {
 	if problem != "" {
 		return problem
 	}
-	seat := os.Getenv("AGENTKIT_SESSION")
-	if seat != "" && os.Getenv("AGENTKIT_RUN_DIR") == "" && isFile(filepath.Join(config.Home(), "state", "session-"+seat+".json")) {
+	_, session, err := config.CurrentSession()
+	if err != nil {
+		return err.Error()
+	}
+	if session != nil && os.Getenv("AGENTKIT_RUN_DIR") == "" {
 		var given []string
 		for _, flag := range []string{"--exec", "--review", "--anyway", "--first"} {
 			if parsed.values[flag] != "" || parsed.flags[flag] {
@@ -48,7 +51,7 @@ func validateRun(args []string) string {
 			return "usage: ak run --review-pr <url> [--review MODEL] [--first] [--bg]: no task file, no executor, no rounds"
 		}
 		if !pullURL.MatchString(url) {
-			return fmt.Sprintf("--review-pr needs a GitHub PR URL (got %s)", repr(url))
+			return fmt.Sprintf("--review-pr needs a GitHub PR URL (got %s)", commandhelp.Quote(url))
 		}
 	} else if len(parsed.words) == 0 {
 		return runUsage
@@ -56,7 +59,7 @@ func validateRun(args []string) string {
 	for _, flag := range []string{"--rounds", "--parallel"} {
 		if value, ok := parsed.values[flag]; ok {
 			if !positive(value) {
-				return fmt.Sprintf("%s must be a positive integer (got %s)", flag, repr(value))
+				return fmt.Sprintf("%s must be a positive integer (got %s)", flag, commandhelp.Quote(value))
 			}
 			if flag == "--rounds" {
 				if problem := rounds(value); problem != "" {
