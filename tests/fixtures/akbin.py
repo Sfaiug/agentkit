@@ -264,23 +264,21 @@ class Home:
         keep = {self.root, self.tmux_dir, REPO, Path(AK).resolve().parent}
         binds = [arg for path in sorted(map(str, keep), key=len)
                  if Path(path).is_relative_to("/tmp") for arg in ("--bind", path, path)]
-        doors = []
-        for port in reach:
-            door = socket.socket(socket.AF_UNIX)
-            door.bind(str(self.tmux_dir / f"reach-{port}"))
-            door.listen()
-            carry(door, socket.AF_INET, ("127.0.0.1", port))
-            doors.append(door)
+        doors = {port: str(self.tmux_dir / f"reach-{port}") for port in reach}
+        servers = []
+        for port, path in doors.items():
+            servers.append(socket.socket(socket.AF_UNIX))
+            servers[-1].bind(path)
+            servers[-1].listen()
+            carry(servers[-1], socket.AF_INET, ("127.0.0.1", port))
         try:
-            return self.run(*_BOX, *binds, "--", sys.executable, "-c", _LAST,
-                            str(REPO / "tests"),
-                            json.dumps([[port, str(self.tmux_dir / f"reach-{port}")]
-                                        for port in reach]), AK, "watch", env=env)
+            return self.run(*_BOX, *binds, "--", sys.executable, "-c", _LAST, str(REPO / "tests"),
+                            json.dumps(list(doors.items())), AK, "watch", env=env)
         finally:
-            for door in doors:
-                door.shutdown(socket.SHUT_RDWR)     # wakes its accept, which close alone would not
-                door.close()
-                os.unlink(door.getsockname())
+            for server, path in zip(servers, doors.values()):
+                server.shutdown(socket.SHUT_RDWR)   # wakes its accept, which close alone would not
+                server.close()
+                os.unlink(path)
 
     def spawn(self, *args, env=None, cwd=None):
         """Start the program and leave it running, its output in `home.log(...)`; `close` ends
@@ -322,12 +320,15 @@ def carry(server, family, address):
 
 
 def _pour(src, dst):
+    """Copy `src` into `dst` until it ends; each socket is read by one pour, which closes it."""
     try:
         while data := src.recv(65536):
             dst.sendall(data)
         dst.shutdown(socket.SHUT_WR)
     except OSError:
         pass
+    finally:
+        src.close()
 
 
 def _wait_gone(pid, bound=30):
