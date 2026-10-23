@@ -70,7 +70,16 @@ func validateHandIn(args []string) string {
 		Kind string `json:"kind"`
 		Role string `json:"role"`
 	}
-	if !scanner.Scan() || json.Unmarshal(scanner.Bytes(), &turn) != nil || turn.Kind != "turn" {
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return "cannot hand in this record: " + err.Error()
+		}
+		return "the worker turn's record file is invalid; ask the loop to retry"
+	}
+	if err := json.Unmarshal(scanner.Bytes(), &turn); err != nil {
+		return "cannot hand in this record: " + err.Error()
+	}
+	if turn.Kind != "turn" {
 		return "the worker turn's record file is invalid; ask the loop to retry"
 	}
 	for scanner.Scan() {
