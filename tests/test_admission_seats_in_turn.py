@@ -101,6 +101,37 @@ class AdmissionSeatsInTurn(unittest.TestCase):
         self.assertEqual(admitted, expected)
         self.assertEqual(gate.slot_queue()[5], {})
 
+    def test_stopping_a_waiter_does_not_consume_its_seats_turn(self):
+        self.queued("acme-1", 1, "acme")
+        self.queued("acme-2", 2, "acme")
+        self.queued("fix-api-1", 3, "fix-api")
+        with patch.object(host, "host_readings", return_value={**READINGS, "free_mb": 0}):
+            self.assertFalse(self.claim("acme-1"))
+        state = self.state("acme-1")
+        state.update(state="stopped", slot_waiting=False)
+        record.save_state(config.RUNS / "acme-1", state)
+        self.assert_order(["acme-2", "fix-api-1"])
+        self.assertFalse(self.claim("acme-2"))  # first healthy poll
+        self.assertEqual(gate.slot_note(self.state("fix-api-1")),
+                         "waiting for a slot · 1 ahead")
+        self.assertTrue(self.claim("acme-2"))
+
+    def test_stopping_a_later_waiter_releases_only_its_unspent_turn(self):
+        for number in range(1, 4):
+            self.queued(f"acme-{number}", number, "acme")
+        for number in range(1, 3):
+            self.queued(f"fix-api-{number}", number + 3, "fix-api")
+        for name in ("acme-1", "fix-api-1"):
+            self.assertFalse(self.claim(name))
+            self.assertTrue(self.claim(name))
+            state = self.state(name)
+            state["state"] = "pass"
+            record.save_state(config.RUNS / name, state)
+        state = self.state("acme-2")
+        state.update(state="stopped", slot_waiting=False)
+        record.save_state(config.RUNS / "acme-2", state)
+        self.assert_order(["acme-3", "fix-api-2"])
+
     def test_each_rank_is_fifo_and_restarts_keep_their_first_queue_time(self):
         self.queued("acme-2", 5, "acme")
         self.queued("acme-1", 100, "acme", first_queued_at=2)
