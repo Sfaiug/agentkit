@@ -20,7 +20,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.sink import Sink
 
@@ -50,7 +50,7 @@ def title(home, seat):
     return home.tmux("show-options", "-v", "-t", f"={seat}:", "set-titles-string").out
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class AnIdleSeat(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -61,7 +61,7 @@ class AnIdleSeat(unittest.TestCase):
         offline(cls.home, cls.sink)
         akconfig.write(cls.home, ["opus"])      # the audit off: a tick opens no seat of its own
         Seat(cls.home, "acme", screen="claude-prompt-pane.txt")
-        cls.tick = cls.home.ak("watch")
+        cls.tick = cls.home.ak("watch", boxed=True)
 
     def test_a_seat_at_its_prompt_with_nothing_owed_reads_idle_with_no_reason(self):
         self.assertEqual(self.tick.code, 0, self.tick.err)
@@ -76,7 +76,7 @@ class AnIdleSeat(unittest.TestCase):
         self.assertEqual(self.sink.requests, [])
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class FailingProbes(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -93,7 +93,7 @@ class FailingProbes(unittest.TestCase):
                                            "effort": "low"}})
         Seat(cls.home, "acme", model="echo", screen=PROMPT)
         Seat(cls.home, "beta", model="echo", screen=LOGGED_OUT)
-        cls.done = [cls.home.ak("usage"), cls.home.ak("watch"), cls.home.ak("watch")]
+        cls.done = [cls.home.ak("usage"), *(cls.home.ak("watch", boxed=True) for _ in "12")]
 
     def test_the_meters_the_login_s_end_and_the_seat_s_login_were_each_read(self):
         for done in self.done:

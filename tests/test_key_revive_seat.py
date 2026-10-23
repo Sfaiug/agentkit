@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import PANE, Seat
 from fixtures.gitrig import Rig
 from fixtures.sink import Sink
@@ -48,7 +48,7 @@ def going(test, home, seat, *, opens):
     test.fake = fakeadapter.install(home, claude=hold)["claude"]
     test.fake.answer("interactive", *opens)
     loop = home.spawn("run", str(taskfile.write(home, rig.path)), "--no-merge",
-                      env={"AGENTKIT_SESSION": seat.name})
+                      env={"AGENTKIT_SESSION": seat.name}, boxed=True)
     deadline = time.monotonic() + 60
     while not held.exists():
         assert loop.poll() is None, home.log("spawn-1.err").read_text()
@@ -71,7 +71,7 @@ def dead(home, name):
     return home.tmux("display-message", "-p", "-t", f"={name}:", "#{pane_dead}").out.strip()
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class SeatRevived(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -92,9 +92,9 @@ class SeatRevived(unittest.TestCase):
         for death in range(2):
             if death:
                 # a tick that sees it live: the next death is a new one
-                cls.ticks.append(home.ak("watch"))
+                cls.ticks.append(home.ak("watch", boxed=True))
             end(home, "acme")
-            cls.ticks.append(home.ak("watch"))
+            cls.ticks.append(home.ak("watch", boxed=True))
             cls.after.append(dead(home, "acme"))
             cls.told.append(seat.wait_lines(death + 1)[death:])
         cls.opened = cls.fake.calls("interactive")
@@ -123,7 +123,7 @@ class SeatRevived(unittest.TestCase):
         self.assertEqual(self.sink.pages(), [])
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class SeatNotReopened(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -133,7 +133,7 @@ class SeatNotReopened(unittest.TestCase):
         cls.addClassCleanup(cls.sink.close)
         # tmux lost the seat, and its harness gives no command to open it with
         going(cls, home, Seat(home, "acme", alive=False), opens=["", 1])
-        cls.ticks = [home.ak("watch"), home.ak("watch")]
+        cls.ticks = [home.ak("watch", boxed=True), home.ak("watch", boxed=True)]
         cls.opened = cls.fake.calls("interactive")
 
     def test_every_tick_exits_zero(self):
