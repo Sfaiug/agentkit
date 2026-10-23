@@ -22,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
@@ -140,6 +141,55 @@ class GateTolerance(unittest.TestCase):
     def probes(self, harness):
         count = self.root / f"{harness}.count"
         return count.read_text().split() if count.exists() else []
+
+    def test_opencode_catalog_uses_the_borrowed_service_connection(self):
+        caller = self.root / "caller"
+        state = caller / "state with spaces"
+        receipt = state / "opencode/service.json"
+        receipt.parent.mkdir(parents=True)
+        data = json.dumps({"url": "http://127.0.0.1:12345", "password": "fixture-password"})
+        receipt.write_text(data)
+        setup = SMOKE[SMOKE.index("smoke_share_probes() {"):SMOKE.index("smoke_sync_logins() {")]
+        result = self.shell(setup + "\nsmoke_home\n", HOME=str(caller), XDG_STATE_HOME=str(state))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        borrowed = self.root / "home/.local/state/opencode/service.json"
+        self.assertTrue(borrowed.is_file())
+        self.assertEqual(borrowed.read_text(), data)
+        self.assertFalse(borrowed.is_symlink())
+        borrowed.write_text("updated locally")
+        self.assertEqual(receipt.read_text(), data)
+
+    def test_live_models_stay_in_sandbox(self):
+        caller = self.root / "caller"
+        source = caller / ".agentkit/config.toml"
+        source.parent.mkdir(parents=True)
+        text = ('max_gates = 99\n[defaults]\norchestrator = "chosen"\nworkers = ["chosen"]\n'
+                '[models.unused]\nharness = "opencode"\nmodel = "unused/paid"\n'
+                'effort = "none"\nprovider = "unused"\n'
+                '[models.chosen]\nharness = "opencode"\nmodel = "acme/flash-free"\n'
+                'effort = "max"\nprovider = "acme"\n'
+                '[providers.unused]\nmode = "subscription"\n'
+                '[providers.acme]\nmode = "free"\naccounts = ["default", "second"]\n'
+                'usage_model = "chosen"\nusage_effort = "low"\n')
+        source.write_text(text)
+        (self.adapters / "opencode.toml").write_text((REPO / "adapters/opencode.toml").read_text())
+        setup = SMOKE[SMOKE.index("smoke_share_probes() {"):SMOKE.index("smoke_sync_logins() {")]
+        result = self.shell(setup + "\nsmoke_home\n", HOME=str(caller))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        target = self.home / ".agentkit/config.toml"
+        sandbox = tomllib.loads(target.read_text())
+        chosen = [entry for entry in sandbox["models"].values() if entry["harness"] == "opencode"]
+        self.assertEqual(chosen, [{"harness": "opencode", "model": "acme/flash-free",
+                                  "effort": "max", "provider": "acme"}])
+        self.assertEqual(sandbox["providers"]["acme"], {"mode": "free"})
+        self.assertNotIn("mimo", sandbox["providers"])
+        self.assertNotIn("unused", sandbox["providers"])
+        self.assertNotIn("max_gates", sandbox)
+        shipped = tomllib.loads((REPO / "config.default.toml").read_text())
+        self.assertEqual(sandbox["models"]["opus"], shipped["models"]["opus"])
+        self.assertFalse(target.is_symlink())
+        target.write_text("updated locally")
+        self.assertEqual(source.read_text(), text)
 
     def share(self, caller):
         """The suite's own setup: link this sandbox at a caller HOME standing in for

@@ -19,13 +19,24 @@ from agentkit import config, hand_in, run, turns, usage, worker
 from check4_pair import providers
 
 
-def unavailable(harness, seat=False):
+def selected_model(cfg, harness):
+    """A multi-provider harness must check the chosen provider, model and effort together."""
+    if not config.manifest(harness).get("providers"):
+        return None
+    defaults = cfg["defaults"]
+    names = dict.fromkeys([defaults["orchestrator"], *defaults["workers"],
+                           *defaults.get("reviewers", []), *config.offered(cfg)])
+    return next((config.model(cfg, name) for name in names if name in cfg["models"]
+                 and cfg["models"][name].get("harness") == harness), None)
+
+
+def unavailable(harness, seat=False, provider=None):
     """Missing binary/login is not coverage; a broken saved login fails."""
     manifest = config.manifest(harness)
     binary = manifest.get("update", {}).get("version", [harness])[0]
     if not config.harness_binary(binary):
         return f"{binary} is not installed", False
-    authenticated, why = worker.auth_ok(harness, seat=seat)
+    authenticated, why = worker.auth_ok(harness, seat=seat, provider=provider)
     if authenticated is not False:
         return "", False
     missing = re.match(r"^\S+: no (OAuth credentials in |provider key in )?(.+?)"
@@ -146,13 +157,14 @@ def check(cfg, root, snapshot, host_home, harness=None):
 
     for name in names:
         try:
-            why, broken = unavailable(name)
+            selected = selected_model(cfg, name)
+            why, broken = unavailable(name, provider=selected["provider"] if selected else None)
             if why:
                 report("FAIL" if broken else "NOT CHECKED", name, why)
                 failed += int(broken)
                 continue
             installed += 1
-            block = config.manifest(name).get("check", {})
+            block = selected or config.manifest(name).get("check", {})
             if any(not isinstance(block.get(k), str) or not block[k].strip()
                    for k in ("model", "effort")) or block["model"] == config.DEFAULT_MODEL:
                 raise config.Error("adapter .toml needs [check] with an explicit model and effort")

@@ -396,12 +396,11 @@ git config --global user.name sandbox
                 (caller / '.agentkit/state' / name).write_text(json.dumps(meter))
             fixture = root / 'repo'
             fixture.mkdir()
-            for name in ('agentkit', 'adapters', 'tools', 'hooks'):
+            for name in ('agentkit', 'adapters', 'tools', 'hooks', 'tests'):
                 (fixture / name).symlink_to(REPO / name)
             (fixture / 'config.default.toml').write_text(shipped)
-            # Every Python in the extracted checks refuses even an attempted caller read, but
-            # smoke_share_probes' own (the one given SMOKE_CALLER_HOME): it looks up only which
-            # login each host probe file tracks, never what the sandbox runs with.
+            # Only setup receives SMOKE_CALLER_HOME to borrow live model choices and probe
+            # logins. Every Python in the extracted checks must read the sandbox's config.
             (fixture / 'sitecustomize.py').write_text('''import os, sys
 def guard(event, args):
     if (event == 'open' and args[0] == os.environ['FORBIDDEN_CONFIG']
