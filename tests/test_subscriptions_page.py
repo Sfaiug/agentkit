@@ -95,9 +95,13 @@ class SubscriptionsPage(Sandbox):
         self.assertEqual(self.drive(*["down"] * last, "enter", "enter", "down", "enter", "esc"),
                          [self.rows[last]])
 
-    def test_a_page_with_no_subscription_reads_enter_as_nothing(self):
+    def test_a_page_with_no_subscription_still_adds_one(self):
+        added = []
         self.stack.enter_context(patch.object(menu, "usage_rows", return_value=[]))
-        self.assertEqual(self.drive("enter", "down", "enter"), [])
+        self.stack.enter_context(patch.object(menu, "config_add_provider",
+                                              side_effect=lambda *_a: added.append(1)))
+        self.assertEqual(self.drive("enter"), [])
+        self.assertEqual(added, [1])
 
 
 if __name__ == "__main__":
