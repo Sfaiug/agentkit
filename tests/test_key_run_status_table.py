@@ -17,7 +17,6 @@ names runs from outside through tests/fixtures/akbin.py and akterm.py; this test
 """
 
 import json
-import os
 from pathlib import Path
 import re
 import subprocess
@@ -26,7 +25,7 @@ import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, owner
 from fixtures.akterm import SERVER, Terminal
 
 HOUR, DAY = 3600, 86400
@@ -183,17 +182,6 @@ class Table(unittest.TestCase):
 
     def test_at_40_columns_a_state_line_too_long_for_one_line_takes_two(self):
         self.assertTable(40, FORTY)
-
-
-def owner(pid):
-    """The process identity `ak run` records for itself: the boot, and the process's start."""
-    stat = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-    btime = next(int(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines()
-                 if line.startswith("btime "))
-    ticks = int(stat[19])
-    return {"pid": pid, "process_identity": {
-        "boot": Path("/proc/sys/kernel/random/boot_id").read_text().strip(), "ticks": ticks,
-        "started_at": btime + ticks / os.sysconf("SC_CLK_TCK")}}
 
 
 class Order(unittest.TestCase):

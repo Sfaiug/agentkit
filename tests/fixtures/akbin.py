@@ -73,6 +73,17 @@ def boxable():
         [*_BOX, "--", "true"], capture_output=True, timeout=60).returncode == 0
 
 
+def owner(pid):
+    """The process identity `ak run` records for itself: the boot, and the process's start."""
+    stat = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+    btime = next(int(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines()
+                 if line.startswith("btime "))
+    ticks = int(stat[19])
+    return {"pid": pid, "process_identity": {
+        "boot": Path("/proc/sys/kernel/random/boot_id").read_text().strip(), "ticks": ticks,
+        "started_at": btime + ticks / os.sysconf("SC_CLK_TCK")}}
+
+
 LOG = "#!/bin/sh\n{python} -c 'import json, sys; print(json.dumps(sys.argv[1:]))' \"$@\" >>{log}\n"
 REFUSE = LOG + 'echo "{name}: not scripted in this test" >&2\nexit 1\n'
 # A socket path could name any server on the machine, as could a socket name holding a slash
