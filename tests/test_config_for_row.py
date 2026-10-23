@@ -47,9 +47,9 @@ class ForRow(Sandbox):
         return [scope for at, scope in enumerate(named) if not at or scope != named[at - 1]]
 
     def test_it_turns_between_the_seat_it_opened_on_and_new_seats(self):
-        # ↑ from the first model is the row; ←, → and Enter turn it, round the ends
-        self.assertEqual(self.screen("up", "right", "left", "enter", session="fix-api"),
-                         ["fix-api", "new seats", "fix-api", "new seats"])
+        # ↑ from the first model is the row; ←, →, Enter and space turn it, round the ends
+        self.assertEqual(self.screen("up", "right", "left", "enter", "space", session="fix-api"),
+                         ["fix-api", "new seats", "fix-api", "new seats", "fix-api"])
         self.assertEqual(self.screen("up", "right", "enter"), ["new seats"])    # on a heading
 
     def test_a_flip_is_for_whom_the_row_names_asking_nothing(self):

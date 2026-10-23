@@ -3698,7 +3698,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     a click flips one (session_mark), the orchestrator moving the seat at once, the roles saved
     to the record for the runs it launches next, the mark filling or emptying over two frames
     and one refused shaking (motion.toggled).  The For row over them turns, ← back and →,
-    Enter or a click on, between `session` and new seats: their marks are [defaults], what the
+    Enter, space or a click on its name on, between `session` and new seats: their marks are [defaults], what the
     next `n` starts from (defaults_mark), no open seat changing.
     ↑/↓, k/j and the wheel move between rows and ←/→ between columns, the effort's too.  Enter
     or space on an effort steps it up, from its highest round to its lowest, as a click on its
