@@ -149,18 +149,20 @@ def merge_config(git, cwd, env, timeout):
 
 
 def run_capped(cmd, timeout, **popen):
-    """subprocess.run's captured call, except that one past `timeout` gets SIGTERM, and SIGKILL
-    only after TOOL_GRACE.  Both go through the Popen holding the child, so neither reaches its
-    pid once it is reaped."""
+    """subprocess.run's captured call, except that one stopped -- past `timeout`, or interrupted
+    -- gets SIGTERM, and SIGKILL only after TOOL_GRACE.  Both go through the Popen holding the
+    child, so neither reaches its pid once it is reaped."""
     with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **popen) as proc:
         try:
             out, err = proc.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
+        except BaseException:
             proc.terminate()
             try:
                 proc.wait(TOOL_GRACE)
             except subprocess.TimeoutExpired:
-                proc.kill()
+                pass
+            finally:
+                proc.kill()     # also when a second interrupt cuts the grace short
             raise
     return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
 
