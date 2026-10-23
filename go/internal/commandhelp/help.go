@@ -1,0 +1,288 @@
+// Package commandhelp holds the command line's public words, shared by help and refusals.
+package commandhelp
+
+import (
+	"fmt"
+	"strings"
+)
+
+type entry struct {
+	usage, description, example string
+}
+
+var Verbs = []string{"usage", "models", "worker", "run", "notify", "wait", "orch", "attach", "update", "watch", "browser", "fetch", "macbridge", "doctor", "hand-in", "plan"}
+var public = []string{"run", "plan", "notify", "wait", "usage", "models", "browser", "fetch"}
+var internal = []string{"orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor"}
+
+// Keep the shadow command's text in step with agentkit/command_help.py until the switch.
+var entries = map[string]entry{
+	"models": {
+		"usage: ak models [--json] [--refresh]",
+		"Score every model and effort per role from the public boards and recommend one per\nrole: Artificial Analysis, Arena and LiveBench, each asked once a day; --refresh\nasks now, --json prints the scored rows, the recommendation and when each board\nwas asked and answered, or its error.",
+		"ak models",
+	},
+	"usage": {
+		"usage: ak usage [--json]",
+		"Show provider usage and worker pick order.",
+		"ak usage --json",
+	},
+	"worker": {
+		"usage: ak worker MODEL TASK [--workspace DIR] [--out DIR] [--session ID]\n       [--role executor|reviewer|fixer|reviewer-pr|executor-scratch|fixer-scratch|reviewer-scratch]",
+		"Run one headless model turn from a task or prompt file.",
+		"ak worker MODEL task.md --role reviewer",
+	},
+	"hand-in": {
+		"usage: ak hand-in finding PATH:LINE \"WHAT\" \"WHY IT MATTERS\" (--run COMMAND | --quote LINES)\n       ak hand-in follow-up PATH:LINE \"WHAT\" \"WHY IT MATTERS\" (--run COMMAND | --quote LINES) [--before PROOF]\n       ak hand-in dispute PATH:LINE \"WHY IT IS WRONG\" (--run COMMAND | --quote LINES)\n       ak hand-in done\n       ak hand-in blocked \"WHY\"\n       ak hand-in not-needed \"WHY\"",
+		"Hand in review evidence or close a worker turn.\nThe loop names AK_HAND_IN; outside a turn this command is refused.\nPaths and lines must exist in the checkout; a quote must occur in that file.\n--run executes in the checkout and records bounded output excerpts and the exit status.\nA finding's command must fail while the defect exists; ak re-runs it on commit and base.\nA follow-up from before the task has --before, naming the base or an ancestor commit, or verbatim lines in its file at base; its command must fail on base.\nA follow-up of this change has no --before; its --run must fail now and on the reviewed commit.\nUnproven follow-ups are dropped into Notes.\nA follow-up's --run is one line without backticks or this checkout's path.\nOnly a fixer may dispute a blocking finding handed to its turn; its command must exit 0.\nak gives the next reviewer the dispute and its own proof output beside the finding.\nHand the finding in again to uphold it; otherwise it is dropped into result.md's Disputes.\ndone closes any turn; in a review, any blocking finding means FAIL, otherwise PASS.\nExecutors and fixers use blocked when the task cannot be done as written, or\nnot-needed when a fix run's first turn finds the defect gone or already being fixed.\nReview turns refuse blocked and not-needed; other turns refuse finding and follow-up.\nA closing record refuses later records.",
+		"ak hand-in finding api.py:12 \"Wrong result\" \"Breaks callers\" --quote \"return None\"",
+	},
+	"hand-in finding": {
+		"usage: ak hand-in finding PATH:LINE \"WHAT\" \"WHY IT MATTERS\" (--run COMMAND | --quote LINES)",
+		"Hand in a finding for ak to weigh, with a failing command or quoted evidence.",
+		"ak hand-in finding api.py:12 \"Wrong result\" \"Breaks callers\" --run \"python3 reproduce.py\"",
+	},
+	"hand-in follow-up": {
+		"usage: ak hand-in follow-up PATH:LINE \"WHAT\" \"WHY IT MATTERS\" (--run COMMAND | --quote LINES) [--before PROOF]",
+		"Hand in a defect that cannot fail this review: one that existed before the task (--before proves it),\nor a smaller one of this change that need not hold it (no --before; --run must fail now).\nIts command becomes the check of a line in the owning session's plan, deferred once a fix run of its own has it.",
+		"ak hand-in follow-up api.py:12 \"Wrong result\" \"Breaks callers\" --run \"python3 reproduce.py\" --before \"return None\"",
+	},
+	"hand-in dispute": {
+		"usage: ak hand-in dispute PATH:LINE \"WHY IT IS WRONG\" (--run COMMAND | --quote LINES)",
+		"Dispute a blocking finding handed to this fixer, with a passing command or quoted evidence.",
+		"ak hand-in dispute api.py:12 \"The result is correct\" --run \"python3 check_result.py\"",
+	},
+	"hand-in done": {
+		"usage: ak hand-in done",
+		"Close this worker turn; a review derives its verdict.",
+		"ak hand-in done",
+	},
+	"hand-in blocked": {
+		"usage: ak hand-in blocked \"WHY\"",
+		"End an executor or fixer run whose task cannot be done as written.",
+		"ak hand-in blocked \"The task requires an unavailable file\"",
+	},
+	"hand-in not-needed": {
+		"usage: ak hand-in not-needed \"WHY\"",
+		"End a fix run on its first turn if its defect is gone or already being fixed.",
+		"ak hand-in not-needed \"The target already fixes empty input\"",
+	},
+	"run": {
+		"usage: ak run TASK [TASK ...] [--rounds N] [--exec MODEL] [--review MODEL]\n              [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N]\n       ak run --review-pr URL [--review MODEL] [--first] [--no-merge] [--bg]\n       ak run status [ID] [--history] [--why] [--plain] [--json]\n       ak run resume ID [--rounds N] [--bg]\n       ak run stop ID [--keep]\n       ak run merge ID | ak run clean ID | ak run gc [--dry-run]",
+		"Execute, verify, review, push, open a PR and merge.\n--rounds sets the round limit, at most 3 (default: task rounds or 3).\n--anyway starts even when a run in the same repository looks already under way;\na task over 3 rounds is refused regardless.\n--no-worktree uses the repo's current branch; --no-merge keeps work local.\n--bg detaches and prints a launch receipt, run ID and result path.\n--first admits the run ahead of every queued run without it, skipping the count cap and the CPU gate; a heavy suite turn still goes by wait.\nFrom a seat, --exec, --review, --anyway and --first are refused: ak picks the models,\ndecides what goes first and refuses a second run of a change under way.\nSeveral task files run as one job of independent pieces; --parallel caps it.\nmax_runs caps the count when positive; 0 leaves host memory and ak's CPU pressure as the gates\n(config.toml or AK_MAX_RUNS).\n--review-pr reviews a GitHub PR, without an executor: the seat's own merges on\nPASS with green checks, anyone else's asks the inbox.\nTask fields: repo, base, target, from, merge (squash|merge|rebase), rounds, after.",
+		"ak run task.md --bg",
+	},
+	"run status": {
+		"usage: ak run status [ID] [--history] [--why] [--plain] [--json]",
+		"Show current work and result paths; --history includes older runs.",
+		"ak run status --history --json",
+	},
+	"run resume": {
+		"usage: ak run resume ID [--rounds N] [--bg]",
+		"Resume interrupted or exhausted work; --rounds raises the round limit, at most 3.",
+		"ak run resume RUN_ID --rounds 3 --bg",
+	},
+	"run merge": {
+		"usage: ak run merge ID",
+		"Retry delivery of a finished PASS; reverify if integration changes its commit.",
+		"ak run merge RUN_ID",
+	},
+	"run stop": {
+		"usage: ak run stop ID [--keep]",
+		"Stop a run or a whole job deliberately; --keep keeps its worktree and branch for a from: relaunch.",
+		"ak run stop RUN_ID",
+	},
+	"run clean": {
+		"usage: ak run clean ID",
+		"Remove a run's worktree.",
+		"ak run clean RUN_ID",
+	},
+	"run gc": {
+		"usage: ak run gc [--dry-run]",
+		"Collect inactive temporary state and old merged checkouts; --dry-run only plans.",
+		"ak run gc --dry-run",
+	},
+	"orch": {
+		"usage: ak orch [NAME] [--model MODEL] [--workers A,B] [--dry-run]\n       ak orch list [--why] | ak orch why NAME\n       ak orch stop NAME | ak orch rename [--auto] [OLD] NEW\n       ak orch project [SEAT] CHECKOUT | ak orch rules CODE",
+		"Start or attach to a named orchestrator session; a new one opens only from a terminal.\n--dry-run prints the launch plan.",
+		"ak orch parser-fix",
+	},
+	"orch rules": {
+		"usage: ak orch rules CODE",
+		"Say this seat's conversation read the changed rulebook its prompt named,\nwith the code that prompt gave: its prompts stop naming it until it changes.",
+		"ak orch rules 3f2a9c81d0e4",
+	},
+	"orch list": {
+		"usage: ak orch list [--why]",
+		"List orchestrator sessions and their selections;\n--why adds what decided each seat's state, on what evidence, and since when.",
+		"ak orch list --why",
+	},
+	"orch why": {
+		"usage: ak orch why NAME",
+		"Explain one seat's state: the authority, the rule or hook event,\nthe evidence line and when that state began.",
+		"ak orch why parser-fix",
+	},
+	"orch stop": {
+		"usage: ak orch stop NAME",
+		"Stop a session and keep it, its number reopening it; stop it again to remove it.",
+		"ak orch stop parser-fix",
+	},
+	"orch rename": {
+		"usage: ak orch rename [--auto] [OLD] NEW",
+		"Rename a session; omit OLD to rename the session this runs in.\n--auto names only an unnamed seat; an already named seat is left alone.",
+		"ak orch rename parser-fix parser-review",
+	},
+	"orch project": {
+		"usage: ak orch project [SEAT] CHECKOUT",
+		"File a seat under a checkout by name or path; omit SEAT for this session.\nOnly known checkouts are accepted; it stays there until it is filed again.\nThen lists what the project's other sessions have in flight: their open\nplan lines and the files their going runs change.",
+		"ak orch project acme",
+	},
+	"notify": {
+		"usage: ak notify needs \"QUESTION\" [--session NAME] [--dry-run]\n       ak notify --check",
+		"Record a needs-you question.\n--session and --dry-run apply to needs; --check checks without posting.",
+		"ak notify needs \"Which branch?\" --session parser-fix --dry-run",
+	},
+	"notify needs": {
+		"usage: ak notify needs \"QUESTION\" [--session NAME] [--dry-run]",
+		"Ask for a blocking decision: the question first, context after it.\n--dry-run prints the payload without posting.",
+		"ak notify needs \"Which branch?\" --session parser-fix --dry-run",
+	},
+	"wait": {
+		"usage: ak wait PR_URL|RUN_ID",
+		"End this turn waiting on that pull request or run; ak wakes you with one line\nwhen it merges, closes or ends. One already over is refused. Never a session.",
+		"ak wait https://github.com/acme/api/pull/12",
+	},
+	"plan": {
+		"usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' | ak plan check N 'COMMAND'",
+		"This session's plan: each line an outcome with the check that proves it.\nadd runs the check on the project's default branch and refuses one that passes,\ndoes not finish or holds the project's checkout path (it runs in a clean one);\ncheck N puts your own test in place of line N's check, such as a review\nfollow-up's probe; it must fail on the commit the line names, where its check failed.\nListing ticks each check line that now passes on its project's default branch;\nwith every line ticked, the session's work is done.",
+		"ak plan add \"each session sees its project\" --check 'python3 tests/test_x.py'",
+	},
+	"update": {
+		"usage: ak update [--dry-run]",
+		"Upgrade harnesses and verify with acceptance gates; --dry-run prints the plan.",
+		"ak update --dry-run",
+	},
+	"watch": {
+		"usage: ak watch [--dry-run]",
+		"Check PRs and stalled sessions; --dry-run lists what a tick would do.",
+		"ak watch --dry-run",
+	},
+	"browser": {
+		"usage: ak browser <status|login|mcp-register|install>",
+		"Inspect the shared browser, sign in, register MCP tools, or install the stack.",
+		"ak browser status",
+	},
+	"browser status": {
+		"usage: ak browser status",
+		"Show units, CDP, open tabs, the desktop and the noVNC URL.",
+		"ak browser status",
+	},
+	"browser login": {
+		"usage: ak browser login",
+		"Show the noVNC URL and password to sign a site in by hand.",
+		"ak browser login",
+	},
+	"browser mcp-register": {
+		"usage: ak browser mcp-register",
+		"Register browser and desktop MCP servers with every harness that can take them.",
+		"ak browser mcp-register",
+	},
+	"browser install": {
+		"usage: ak browser install",
+		"Install the stack if absent; verify an existing installation.",
+		"ak browser install",
+	},
+	"doctor": {
+		"usage: ak doctor",
+		"Show the slice the agents run in, the state of the tick, and any model\nset to an effort it does not take, which it names and never changes.\nSays `no slice` where the machine has no user systemd manager.",
+		"ak doctor",
+	},
+	"attach": {
+		"usage: ak attach [--client] [--overlay] [--dry-run]",
+		"Open the session menu (also: ak). --client stays on this host;\n--overlay opens the menu inside a seat; --dry-run prints planned actions.",
+		"ak attach --client",
+	},
+	"fetch": {
+		"usage: ak fetch PATH [PATH ...] | ak fetch --serve",
+		"Copy requested Mac files to this host; --serve handles the Mac bridge connection.\nUse -- before paths to request a file named -h or --help.",
+		"ak fetch /Users/me/Desktop/report.pdf",
+	},
+	"macbridge": {
+		"usage: ak macbridge [--reader]",
+		"macOS only: forward requested files to the server over SSH.\n--reader starts a detached reader under this terminal app for dropped files.",
+		"ak macbridge",
+	},
+}
+
+var purposes = map[string]string{
+	"run":       "execute a task file to a merged PR",
+	"plan":      "show or write this session's checked plan",
+	"orch":      "open a seat",
+	"worker":    "run one headless model turn from a task or prompt file",
+	"hand-in":   "hand in review evidence or close a worker turn",
+	"attach":    "the menu",
+	"usage":     "show provider usage and worker pick order",
+	"models":    "score every model and effort per role from the public boards, recommend one per role",
+	"browser":   "inspect the shared browser, sign in, register MCP tools, or install the stack",
+	"update":    "upgrade harnesses and verify with acceptance gates",
+	"watch":     "check PRs and stalled sessions",
+	"doctor":    "show the slice, the tick, and any model set to an effort it does not take",
+	"notify":    "record a needs-you question",
+	"wait":      "end this turn waiting on a pull request or run",
+	"fetch":     "copy requested Mac files to this host",
+	"macbridge": "macOS only: forward requested files to the server over SSH",
+}
+
+func Known(command string) bool {
+	_, ok := entries[command]
+	return ok
+}
+
+func Usage(command string) string {
+	return entries[command].usage
+}
+
+func purpose(command string) string {
+	if text, ok := purposes[command]; ok {
+		return text
+	}
+	return strings.SplitN(entries[command].description, "\n", 2)[0]
+}
+
+func Render(command string, dim func(string) string) string {
+	if command == "" {
+		lines := []string{"usage: ak [command]", "", fmt.Sprintf("  %-7s  %s", "ak", purpose("attach"))}
+		for _, name := range public {
+			lines = append(lines, fmt.Sprintf("  %-7s  %s", name, purpose(name)))
+		}
+		lines = append(lines, "", dim("internal:  "+strings.Join(internal, "  ")), "")
+		return strings.Join(lines, "\n") + "\nUse -h or --help after any command.\nExample: ak run task.md --bg\n"
+	}
+	entry := entries[command]
+	description := entry.description
+	first, rest, _ := strings.Cut(description, "\n")
+	sentence := func(text string) string { return strings.ToLower(strings.TrimRight(strings.TrimSpace(text), ".")) }
+	if sentence(first) == sentence(purpose(command)) {
+		description = rest
+	}
+	body := purpose(command) + "\n\n" + entry.usage
+	if description != "" {
+		body += "\n\n" + description
+	}
+	return body + "\n\nExample: " + entry.example + "\n"
+}
+
+// Help stops at -- and only the first argument can choose a nested entry.
+func Help(command string, args []string) (string, bool) {
+	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
+		if arg == "-h" || arg == "--help" {
+			if len(args) > 0 && Known(command+" "+args[0]) {
+				command += " " + args[0]
+			}
+			return command, true
+		}
+	}
+	return "", false
+}
