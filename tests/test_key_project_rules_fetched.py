@@ -13,19 +13,17 @@ another clone, and the tick runs in a network of its own with nothing but loopba
 """
 
 import re
-import shutil
 import sys
 from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import AK, REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.gitrig import Rig
 from fixtures.hookdrive import Hooks
 
-BOX = shutil.which("bwrap")
 RULES = "# widgets\n\nKeep the API stable.\n"
 ADDED = "Never break the CLI."
 CONVERSATIONS = {"acme": "7d3c1e2a-5b4f-4a6e-8c9d-0e1f2a3b4c5d",
@@ -33,7 +31,7 @@ CONVERSATIONS = {"acme": "7d3c1e2a-5b4f-4a6e-8c9d-0e1f2a3b4c5d",
 CODE = re.compile(r"`ak orch rules ([0-9a-f]{12})`")
 
 
-@unittest.skipUnless(REAL_TMUX and BOX, "no tmux, or no bubblewrap to keep the tick offline")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class ProjectRulesFetched(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -61,8 +59,7 @@ class ProjectRulesFetched(unittest.TestCase):
         cls.git("-C", str(elsewhere), "commit", "-qam", "Add a rule")
         cls.git("-C", str(elsewhere), "push", "-q", "origin", "main")
         cls.unfetched = cls.prompt("acme")
-        cls.tick = home.run(BOX, "--dev-bind", "/", "/", "--unshare-user", "--unshare-net",
-                            "--die-with-parent", AK, "watch", timeout=300)
+        cls.tick = home.tick()
         cls.told = {seat: cls.prompt(seat) for seat in CONVERSATIONS}
 
     @classmethod
