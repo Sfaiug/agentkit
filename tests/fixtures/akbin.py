@@ -250,14 +250,16 @@ class Home:
                     os.close(fd)
         return Done(proc.returncode, out, err)
 
-    def tick(self, env=None):
+    def tick(self, env=None, loopback=False):
         """One `ak watch`, boxed: a tick asks the public boards and the shared browser on
         loopback, so it gets a loopback of its own, and its collection sweeps /tmp, so it gets
-        one holding only this Home and the program."""
+        one holding only this Home and the program.  `loopback` keeps the test's own, for a
+        fake listening there; the test then turns the tick's other requests away itself."""
         keep = {self.root, self.tmux_dir, REPO, Path(AK).resolve().parent}
         binds = [arg for path in sorted(map(str, keep), key=len)
                  if Path(path).is_relative_to("/tmp") for arg in ("--bind", path, path)]
-        return self.run(*_BOX, *binds, "--", sys.executable, "-c", _LAST, AK, "watch", env=env)
+        box = [arg for arg in _BOX if not (loopback and arg == "--unshare-net")]
+        return self.run(*box, *binds, "--", sys.executable, "-c", _LAST, AK, "watch", env=env)
 
     def spawn(self, *args, env=None, cwd=None):
         """Start the program and leave it running, its output in `home.log(...)`; `close` ends

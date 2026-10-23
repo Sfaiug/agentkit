@@ -8,8 +8,8 @@ alone (`Needs you · claude worker token`), while every seat keeps its own word.
 date is its file's: claude's lives a year from the day `~/.agentkit/secrets/claude_oauth_token`
 was written, and a new file date is read at once.  The owner's day is the Home's zone, so a
 zone where the date is another stands for another day.  Black-box: the program `AK_BIN` names
-runs from outside through tests/fixtures/akbin.py, with a seat from akseat.py, the ak screen in
-a terminal of akterm.py and the pages at the webhook of sink.py.
+runs from outside through tests/fixtures/akbin.py, each tick in its box, with a seat from
+akseat.py, the ak screen in a terminal of akterm.py and the pages at the webhook of sink.py.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 from fixtures.sink import Sink
@@ -30,7 +30,8 @@ from fixtures.sink import Sink
 DAY = 86400
 PAGE = "🙋 Needs you · claude worker token"
 # Bound and never listening, so every connection to it is refused: a tick also reads the public
-# model boards and the host's shared browser, and through this proxy it reaches neither.
+# model boards and the host's shared browser, and through this proxy it reaches neither, while
+# its box keeps the loopback the sink listens on.
 _REFUSER = socket.socket()
 _REFUSER.bind(("127.0.0.1", 0))
 REFUSED = f"http://127.0.0.1:{_REFUSER.getsockname()[1]}"
@@ -40,7 +41,7 @@ def tick(home):
     sink = urlsplit(home.env.get("AK_NOTIFY_SINK") or "").netloc
     proxies = {name: REFUSED for name in ("http_proxy", "https_proxy", "HTTP_PROXY",
                                          "HTTPS_PROXY")}
-    done = home.ak("watch", env={**proxies, "no_proxy": sink, "NO_PROXY": sink})
+    done = home.tick(env={**proxies, "no_proxy": sink, "NO_PROXY": sink}, loopback=True)
     assert done.code == 0, done.out + done.err
 
 
@@ -49,7 +50,7 @@ def zone(hours):
     return f"Etc/GMT{-hours:+d}"
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class WorkerToken(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
