@@ -25,9 +25,9 @@ from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
 HEADS = "               orch  builds  reviews  effort"
-ROWS = ["Claude",
+ROWS = ["Claude Code",
         "› Fable 5.1    [●]     □        □     ▰▰▰▰▱   xhigh",
-        "ChatGPT",
+        "Codex",
         "  GPT-6-Astra   ○      ■        ■     ▰▰▰▱▱▱  high",
         "",
         "  + add a model",
@@ -93,7 +93,7 @@ class ConfigScreen(unittest.TestCase):
     def record(self):
         return json.loads(self.record_path.read_text())
 
-    def test_c_opens_the_highlighted_seats_matrix_under_provider_headings(self):
+    def test_c_opens_the_highlighted_seats_matrix_under_harness_headings(self):
         shown = lines(self.opened)
         self.assertEqual(shown[0].split()[:3], ["agentkit", "·", "config"], shown[0])
         # whom the marks are for, the highlighted seat, is said over the heads
