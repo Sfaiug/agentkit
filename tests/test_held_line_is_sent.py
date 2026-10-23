@@ -77,6 +77,26 @@ class HeldLineIsSent(Seats):
                 shown = self.unsent()
                 self.assertTrue(shown and " ".join("".join(texts).split()).startswith(shown))
 
+    def test_owner_text_above_a_cropped_composer_keeps_aks_lines_back(self):
+        parts = [f"acme notice segment {at:02d}." for at in range(13)]
+        first, second = "".join(parts[:6]), "".join(parts[6:])
+        self.keys, marks = [], []
+        for line in (first, second):
+            self.assertFalse(self.type(line, receipt=marks.append))
+        self.pane = self.base.replace(self.empty, "❯ " + OWNER + "\n" + "\n".join(parts) + "\n")
+        self.assertFalse(self.type(first, typed=marks[0]))
+        self.assertEqual(self.keys, [])
+
+    def test_owner_drafts_ak_only_matches_in_part_still_show_unsent(self):
+        for earlier, draft in ((watch.ACCOUNT_LINE, "Continue that turn and finish it;\n  do not "
+                                                    "start over."),
+                               ("acme result " * 90, "[Pasted text #2]")):
+            with self.subTest(draft=draft[:12]):
+                self.pane, self.keys = self.base, []
+                self.assertFalse(self.type(earlier))
+                self.draw(draft)
+                self.assertEqual(self.unsent(), " ".join(draft.split()))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

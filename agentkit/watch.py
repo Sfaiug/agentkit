@@ -2336,9 +2336,9 @@ def unsent(name, harness, found, session, cfg=None):
             or found.get("state") != "draft"
             or not (seat_read(name).get("usage_wait") or _composer_open(harness, found))):
         return ""
-    # what ak typed there is its own to send (`composer_holds`), not the owner's
+    # what ak typed there, whole, is its own to send (`composer_holds`), not the owner's
     last = next(reversed([*entries(config.seat_file("input", name))]), None)
-    if last and composer_holds(name, session, str(last.get("text")), cfg) == "line":
+    if last and composer_holds(name, session, str(last.get("text")), cfg, exact=True) == "line":
         return ""
     return " ".join(str(found.get("evidence") or "").split())
 
@@ -3564,8 +3564,8 @@ def composer_holds(name, session, line, cfg=None, *, exact=False):
     and another's top goes above the read; or the harness's fold of a line longer than `[screen]
     folds_over`.  What the owner types goes in at its end, so none of these is a line with the
     owner's words beside it, and a one-row draft that only ends the way the line does is the
-    owner's.  It is also the whole composer holding that line joined in order with the others
-    ak typed there last (`_joined`): a line drawn late joins the next.
+    owner's.  It is also a composer read whole holding that line joined in order with the
+    others ak typed there last (`_joined`): a line drawn late joins the next.
     `exact` requires the whole composer to be read and hold the full line: a cropped or
     scrolled composer, suffix or paste fold is no proof without a delivery mark.
     """
@@ -3586,11 +3586,14 @@ def composer_holds(name, session, line, cfg=None, *, exact=False):
     held, whole = re.sub(r"\s+", "", "".join(rows or ())), re.sub(r"\s+", "", line)
     folded = (chrome["folded"] is not None and chrome["folds_over"] is not None
               and len(line) > chrome["folds_over"])
-    if held and (held == whole or whole in _joined(name, held) or not exact and (
+    if held and (held == whole or not exact and (
             len(rows) > 1 and whole.endswith(held)
             or folded and chrome["folded"].fullmatch(held))):
         return "line"
-    return "other"
+    # lines drawn joined are ak's only off a composer read whole: owner text can sit above a crop
+    read = re.sub(r"\s+", "", "".join(
+        (rows if exact else _composer_rows(harness, pane, exact=True)) or ()))
+    return "line" if read and whole in _joined(name, read) else "other"
 
 
 def _joined(name, held):
