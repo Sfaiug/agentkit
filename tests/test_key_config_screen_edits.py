@@ -17,6 +17,7 @@ record and its pane; this test fails against `/bin/false`.  The terminal has no 
 import json
 import sys
 from pathlib import Path
+import time
 import tomllib
 import unittest
 
@@ -96,6 +97,13 @@ class ConfigScreenEdits(unittest.TestCase):
         self.assertEqual(tomllib.loads(text), expected)
 
     def test_another_model_s_orchestrator_mark_moves_the_seat_at_once_asking_nothing(self):
+        # the command it opens astra with leaves the pane it runs in, writing nothing on it: a
+        # Codex pane's text would be its composer's
+        ran = self.fakes["codex"].dir / "astra-pane"
+        ran.unlink(missing_ok=True)
+        self.fakes["codex"].answer("interactive", f"sh -c 'echo $TMUX_PANE >{ran}; exec sleep 600'")
+        # as Codex's adapter does: its TUI takes no conversation id of ak's making
+        self.fakes["codex"].answer("interactive", "", 3, given=["new"])
         self.term.keys("j")
         self.term.wait(lambda screen: "› GPT-6-Astra  [○]     ■        ■     ▰▰▰▱▱▱  high"
                        in rows(screen))
@@ -106,11 +114,15 @@ class ConfigScreenEdits(unittest.TestCase):
         self.assertEqual(key_line(screen), MARK_KEYS)
         now = json.loads(self.record.read_text())
         self.assertEqual((now["orchestrator"], now["workers"]), ("astra", ["astra"]))
-        # Codex's TUI takes no id of ak's making, so it opens with none once it refuses one
-        offered, opened = [call["argv"] for call in self.fakes["codex"].calls("interactive")][-2:]
-        self.assertEqual((offered[:2], offered[3:], opened),
-                         (["gpt-6-astra", "high"], ["new"], ["gpt-6-astra", "high"]))
-        self.assertEqual(self.home.tmux("has-session", "-t", f"={SEAT}").code, 0)
+        # the seat's pane runs what Codex's adapter says opens astra, in place of Fable's harness
+        deadline = time.monotonic() + 30
+        while not (ran.exists() and ran.read_text().endswith("\n")):    # written whole
+            self.assertLess(time.monotonic(), deadline, "the seat never ran astra's harness")
+            time.sleep(0.2)
+        pane = self.home.tmux("display-message", "-p", "-t", f"={SEAT}:", "#{pane_id}").out
+        self.assertEqual(ran.read_text().strip(), pane.strip())
+        self.assertEqual(self.fakes["codex"].calls("interactive")[-1]["argv"][:2],
+                         ["gpt-6-astra", "high"])
         self.assertEqual(tomllib.loads(self.config.read_text()), self.given)
         # back on Fable, as the other cases find the seat
         self.term.keys("k", "Enter")

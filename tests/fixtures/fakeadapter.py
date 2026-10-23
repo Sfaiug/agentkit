@@ -28,11 +28,10 @@ of argument lists for `ak hand-in`), `final` (final.md's text, where `{in N}` is
 seconds after the turn, as a refusal names when to come back), `session` (the id handed back:
 the one resumed, else `sid-<harness>-<n>`), `exit` (0).  A hand-in goes through the ak build
 under test, the one AK_BIN names.  Every other verb answers as `answer` set it, or as a harness
-that is logged in with no meter to read, except that `interactive` refuses an id for a new
-conversation (exit 3) where the shipped adapter does, as Codex's TUI takes none.
+that is logged in with no meter to read.
 
 Each harness's Adapter: `n` counts its `run` calls, `runs()` and `calls(verb)` read its log,
-`behave(*steps)` scripts its next turns, `answer(verb, out, code)` sets what another verb
+`behave(*steps)` scripts its next turns, `answer(verb, out, code, given)` sets what another verb
 prints, and `dir`, `script` and `manifest` are its files.  A file in `dir` is one a turn and
 the test both see, such as a release a step's `sh` waits for.
 
@@ -82,8 +81,6 @@ WORDS = {"work": {**_every(WORK), "reviewer": PASS}, "pass": _every(PASS),
          "silent": _every({}),
          "flaky": _every({"final": 'API Error: 500 {"type":"error"}', "exit": 1}),
          "dead": _every({"final": "You have hit your usage limit.", "exit": 1})}
-# How a shipped adapter refuses a conversation id of ak's making for a TUI that takes none.
-NEW_ID_REFUSED = '[ "${4:-}" = new ] && {'
 ANSWERS = {"usage": '{"meters": [], "error": "unknown: fake"}', "auth": "the fake needs no login",
            "interactive": "sleep 600", "login-end": '{"email": null, "ends": null}',
            "models": ""}
@@ -99,10 +96,11 @@ class Adapter:
         """Script the turns from the next `run` call on."""
         self._put("beh", json.dumps({"from": self.n, "steps": list(steps)}))
 
-    def answer(self, verb, out, code=0):
-        """What a verb other than `run` prints, and its exit status, from now on."""
-        answers = self._json("answers") or {}
-        self._put("answers", json.dumps({**answers, verb: [out, code]}))
+    def answer(self, verb, out, code=0, given=()):
+        """What a verb other than `run` prints, and its exit status, from now on: for its calls
+        whose arguments end in `given`, every call when it is empty."""
+        answers = self._json("answers") or []
+        self._put("answers", json.dumps([*answers, [verb, list(given), out, code]]))
 
     @property
     def n(self):
@@ -165,14 +163,12 @@ def main(directory, harness, ak, verb="", *args):
     fake = Adapter(Path(directory), harness)
     call = {"verb": verb, "argv": list(args), "cwd": os.getcwd(),
             "env": {k: v for k, v in os.environ.items() if k.startswith(("AK_", "AGENTKIT_"))}}
-    shipped = REPO / "adapters" / f"{harness}.sh"
-    if (verb == "interactive" and args[3:4] == ("new",) and shipped.is_file()
-            and NEW_ID_REFUSED in shipped.read_text()):
-        print(f"{harness}.sh interactive: the TUI cannot be given a thread id", file=sys.stderr)
-        code = 3
-    elif verb != "run":
-        out, code = (fake._json("answers") or {}).get(verb) or [
-            ANSWERS.get(verb, f"fake {harness}: {verb}"), 0]
+    if verb != "run":
+        # the newest answer that fits this call
+        out, code = next((answer[2:] for answer in reversed(fake._json("answers") or [])
+                          if answer[0] == verb
+                          and list(args[len(args) - len(answer[1]):]) == answer[1]),
+                         [ANSWERS.get(verb, f"fake {harness}: {verb}"), 0])
         print(out)
     else:
         code = turn(fake, ak, call, *args)
