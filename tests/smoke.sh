@@ -342,10 +342,11 @@ smoke_home() {
   # Borrow credential files by link, never a copy and never a directory: hooks, settings,
   # trust and caches are local.
   local path source target caller_config caller_data caller_claude caller_codex caller_grok
-  local caller_opencode caller_gh caller_account
+  local caller_opencode caller_gh caller_account caller_state
   SMOKE_CALLER_HOME=$HOME
   caller_config=${XDG_CONFIG_HOME:-$HOME/.config}
   caller_data=${XDG_DATA_HOME:-$HOME/.local/share}
+  caller_state=${XDG_STATE_HOME:-$HOME/.local/state}
   caller_claude=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
   caller_codex=${CODEX_HOME:-$HOME/.codex}
   caller_grok=${GROK_HOME:-$HOME/.grok}
@@ -383,8 +384,11 @@ smoke_home() {
   fi
   # Claude needs its account and MCP fields; Git needs its credential helper. Copies let
   # both update their config locally. OpenCode can store its static API key in its config.
+  # Its service receipt authenticates catalog probes without a second server fighting for
+  # the host's port. A copy keeps a sandbox update from replacing the host's receipt.
   for path in "$caller_account:.claude.json" "$SMOKE_CALLER_HOME/.gitconfig:.gitconfig" \
               "$caller_gh/config.yml:.config/gh/config.yml" \
+              "$caller_state/opencode/service.json:.local/state/opencode/service.json" \
               "$caller_opencode:.config/opencode/opencode.json"; do
     source=${path%:*}; target="$HOME/${path##*:}"
     smoke_source "$source" || continue

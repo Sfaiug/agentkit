@@ -141,6 +141,23 @@ class GateTolerance(unittest.TestCase):
         count = self.root / f"{harness}.count"
         return count.read_text().split() if count.exists() else []
 
+    def test_opencode_catalog_uses_the_borrowed_service_connection(self):
+        caller = self.root / "caller"
+        state = caller / "state with spaces"
+        receipt = state / "opencode/service.json"
+        receipt.parent.mkdir(parents=True)
+        data = json.dumps({"url": "http://127.0.0.1:12345", "password": "fixture-password"})
+        receipt.write_text(data)
+        setup = SMOKE[SMOKE.index("smoke_share_probes() {"):SMOKE.index("smoke_sync_logins() {")]
+        result = self.shell(setup + "\nsmoke_home\n", HOME=str(caller), XDG_STATE_HOME=str(state))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        borrowed = self.root / "home/.local/state/opencode/service.json"
+        self.assertTrue(borrowed.is_file())
+        self.assertEqual(borrowed.read_text(), data)
+        self.assertFalse(borrowed.is_symlink())
+        borrowed.write_text("updated locally")
+        self.assertEqual(receipt.read_text(), data)
+
     def share(self, caller):
         """The suite's own setup: link this sandbox at a caller HOME standing in for
         the host. The caller HOME is set the way smoke.sh sets it, as a plain shell
