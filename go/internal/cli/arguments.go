@@ -4,8 +4,26 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
+
+var lineBreak = regexp.MustCompile(`\r\n|[\n\r\v\f\x1c-\x1e\x{85}\x{2028}\x{2029}]`)
+
+func splitLines(text string) []string {
+	if text == "" {
+		return nil
+	}
+	lines := lineBreak.Split(text, -1)
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+func oneCommand(command string) bool {
+	return len(splitLines(strings.TrimSpace(command))) == 1 && !strings.Contains(command, "`")
+}
 
 type arguments struct {
 	values map[string]string
