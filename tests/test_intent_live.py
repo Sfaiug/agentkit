@@ -44,7 +44,7 @@ class IntentLive(Sandbox):
                      ("r-after", "fix-api", NOW - HOUR)]
         for target, name, value in ((orch, "seat_plugin", lambda record, **_kw: Harness()),
                                     (config, "session_records", lambda: self.seats),
-                                    (menu, "run_records", lambda: [
+                                    (menu, "run_records", lambda **_kw: [
                                         (Path(run), {"launched_session": seat, "started_at": at})
                                         for run, seat, at in self.runs]),
                                     (scoreboard, "_git", lambda *args, **kw: None),
