@@ -2,13 +2,13 @@
 
 `Sink(home)` listens on 127.0.0.1 and points the Home's `AK_NOTIFY_SINK` at itself, the variable
 that outranks any webhook a config or secret names, so every page the program sends lands here
-and none can reach a person, from a boxed `home.tick()` too.  It keeps each request it is sent,
-oldest first, as a `Request`: its method, its path and its query apart, its headers by lowercased
-name (HTTP's names have no case, and each client spells them its own way), its body, and that
-body read as JSON (None when it is not).  It answers as `script` says, in order, and after that
-with 200 and a message id, as a webhook does: `{"id": "1001"}` for the first request it takes.
-A scripted reply is a status, or (status, headers, body) with a JSON or text body, so a refusal,
-an outage or a rate limit with its wait is one line:
+and none can reach a person.  It keeps each request it is sent, oldest first, as a `Request`:
+its method, its path and its query apart, its headers by lowercased name (HTTP's names have no
+case, and each client spells them its own way), its body, and that body read as JSON (None when
+it is not).  It answers as `script` says, in order, and after that with 200 and a message id, as
+a webhook does: `{"id": "1001"}` for the first request it takes.  A scripted reply is a status,
+or (status, headers, body) with a JSON or text body, so a refusal, an outage or a rate limit
+with its wait is one line:
 
     from fixtures.akbin import Home
     from fixtures.akseat import Seat
@@ -28,8 +28,6 @@ an outage or a rate limit with its wait is one line:
 from collections import namedtuple
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
-from pathlib import Path
-from socketserver import ThreadingUnixStreamServer
 import threading
 import time
 from urllib.parse import parse_qsl, urlsplit
@@ -43,11 +41,7 @@ class Sink:
         self._requests, self._replies, self._lock = [], [], threading.Lock()
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _handler(self))
         self.url = f"http://127.0.0.1:{self._server.server_port}{path}"
-        self._boxed = ThreadingUnixStreamServer(str(home.loopback(self._server.server_port)),
-                                                _handler(self))
-        self._boxed.daemon_threads = True
-        for server in (self._server, self._boxed):
-            threading.Thread(target=server.serve_forever, daemon=True).start()
+        threading.Thread(target=self._server.serve_forever, daemon=True).start()
         home.env["AK_NOTIFY_SINK"] = self.url
 
     def __enter__(self):
@@ -59,10 +53,8 @@ class Sink:
     def close(self):
         if self._server is None:
             return
-        for server in (self._server, self._boxed):
-            server.shutdown()
-            server.server_close()
-        Path(self._boxed.server_address).unlink(missing_ok=True)
+        self._server.shutdown()
+        self._server.server_close()
         self._server = None
         if self._was is None:
             self.home.env.pop("AK_NOTIFY_SINK", None)

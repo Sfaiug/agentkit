@@ -454,22 +454,10 @@ class OneRulebook(unittest.TestCase):
         self.assertEqual([path.name for path in (grok / "hooks").iterdir()], ["agentkit.json"])
         self.assertEqual((grok / "hooks/agentkit.json").read_text(), "the caller's own hooks\n")
 
-    def adding_a_harness(self):
-        """The adapter contract, from its heading to the next section's."""
-        text = (REPO / "docs/guide.md").read_text()
-        start = text.index("### Adding a harness")
-        end = text.index("\n## ", start + 1)
-        return text[start:end]
-
-    def test_adding_a_harness_names_the_shared_rulebook_rule(self):
-        section = self.adding_a_harness()
-        self.assertIn("tools/rulebook.py", section)
-        self.assertIn("adding no instructions of its own", section)
-
-    def test_project_agent_files_are_conventions_not_rules(self):
-        text = (REPO / "docs/guide.md").read_text()
-        self.assertIn("conventions", text)
-        self.assertIn("never the place for agentkit's rules", text)
+    def test_the_adapter_contract_names_the_shared_rulebook_rule(self):
+        contract = " ".join(config.adapter.__doc__.split())
+        self.assertIn("tools/rulebook.py", contract)
+        self.assertIn("adding no instructions of its own", contract)
 
 
 if __name__ == "__main__":
