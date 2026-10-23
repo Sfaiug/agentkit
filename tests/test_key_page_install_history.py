@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 import time
 import unittest
+from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
@@ -48,8 +49,8 @@ def installed(home, ago):
 class Paging(unittest.TestCase):
     def home(self, *replies):
         """A Home whose ticks reach the sink and nothing else: the tick asks the public model
-        boards over HTTP itself, so every proxy names a loopback port nobody listens on, and
-        loopback, where the sink is, goes direct."""
+        boards and the host's browser over HTTP itself, so every proxy names a loopback port
+        nobody listens on, and only the sink goes direct."""
         home = Home()
         self.addCleanup(home.close)
         sink = Sink(home)
@@ -59,8 +60,11 @@ class Paging(unittest.TestCase):
             probe.bind(("127.0.0.1", 0))
             port = probe.getsockname()[1]
         home.env.update(dict.fromkeys(PROXIES, f"http://127.0.0.1:{port}"))
-        home.env.update(no_proxy="127.0.0.1", NO_PROXY="127.0.0.1")
+        passed = urlsplit(sink.url).netloc
+        home.env.update(no_proxy=passed, NO_PROXY=passed)
         akconfig.write(home, ["opus"])      # the audit off: a tick opens no seat of its own
+        # a collection on record from just now: a due one sweeps the host's own /tmp
+        home.write(".agentkit/state/gc.json", {"started_at": time.time()})
         return home, sink
 
     def tick(self, home):

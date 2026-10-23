@@ -31,6 +31,8 @@ PROXIES = ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY"
 def asking(home, *servers):
     """A Home whose next tick pages about seat acme, and reaches no server but `servers`."""
     akconfig.write(home, ["opus"])      # the audit off: a tick opens no seat of its own
+    # a collection on record from just now: a due one sweeps the host's own /tmp
+    home.write(".agentkit/state/gc.json", {"started_at": time.time()})
     # The tick asks the public boards and the host's browser itself: every proxy names a
     # loopback port nobody listens on, and only the test's own servers are reached past them.
     with socket.socket() as probe:
