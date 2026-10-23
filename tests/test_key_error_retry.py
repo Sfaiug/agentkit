@@ -11,11 +11,11 @@ scripted harnesses from fakeadapter.py, each tick in the box `home.tick()` build
 case's error is a real one, git's own lock left behind in the run's checkout.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 import socket
 import sys
 from pathlib import Path
-import threading
 import time
 import unittest
 
@@ -91,12 +91,12 @@ class ErrorRetried(unittest.TestCase):
         cls.due(retries=6)
         # the box outlives the tick until the run it resumed ends, so the hold is seen beside it
         cls.before = time.time()
-        tick = threading.Thread(target=lambda: cls.ticks.append(home.tick()))
-        tick.start()
-        cls.held = until(run_dir, lambda _: holding.exists(), "resumed it again")
-        cls.after = time.time()
-        released.touch()
-        tick.join()
+        with ThreadPoolExecutor(1) as pool:
+            tick = pool.submit(home.tick)
+            cls.held = until(run_dir, lambda _: holding.exists(), "resumed it again")
+            cls.after = time.time()
+            released.touch()
+            cls.ticks.append(tick.result())
         cls.landed = record(run_dir)
 
     @classmethod
@@ -119,6 +119,7 @@ class ErrorRetried(unittest.TestCase):
 
     def test_a_due_retry_resumes_the_run_and_its_next_error_waits_on_the_next_rung(self):
         self.assertEqual(self.again["state"], "error")
+        self.assertGreater(self.again["finished_at"], self.born["finished_at"])
         self.assertEqual(self.again["error_retries"], 1)
         self.assertAlmostEqual(self.again["error_retry_at"] - self.again["finished_at"], 300,
                                delta=1)
