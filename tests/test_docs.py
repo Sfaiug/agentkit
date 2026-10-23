@@ -1,6 +1,6 @@
 """The docs say what the product is, in the fewest words.
 
-README.md and docs/guide.md are free of every word for a state or a remedy that no
+README.md and docs/cli-design.md are free of every word for a state or a remedy that no
 longer exists, and `ak --help` fits one screen. Offline: files and rendered text.
 """
 
@@ -16,7 +16,6 @@ sys.path.insert(0, str(REPO))
 from agentkit import command_help  # noqa: E402
 
 README = REPO / "README.md"
-GUIDE = REPO / "docs/guide.md"
 DESIGN = REPO / "docs/cli-design.md"
 # States, remedies and screens that are gone: a doc that names one describes an older product.
 # The last is the personal account name, built without writing it, as test_open_gates builds it.
@@ -40,10 +39,6 @@ class Docs(unittest.TestCase):
         text = README.read_text()
         self.assertEqual(text.count(CLONE), 1, "README.md lacks the one real install line")
         self.assert_current(README, text.replace(CLONE, ""))
-
-    def test_guide_is_current(self):
-        self.assert_current(GUIDE)
-        self.assertTrue(GUIDE.read_text().startswith("# How agentkit works\n"))
 
     def test_design_doc_names_no_removed_state_word(self):
         self.assert_current(DESIGN)

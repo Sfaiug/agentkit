@@ -44,7 +44,8 @@ class NoPython(Sandbox):
 
     def test_the_document_is_whole_for_any_other_model_with_its_none_beside_it(self):
         self.assertEqual(self.document("acme/big", "high"),
-                         {"model": "acme/big#high", "agents": {"build": {"system": RULES}},
+                         {"model": "acme/big#high",
+                          "agents": {"build": {"model": "acme/big#high", "system": RULES}},
                           "plugins": [str(REPO / "hooks/opencode-seat")],
                           "provider": {"acme": {"models": {"big": {"variants": {"none": {}}}}}}})
 
@@ -53,7 +54,8 @@ class NoPython(Sandbox):
                     "high": {"extraBody": {"thinking": {"type": "enabled"}}}}
         self.assertEqual(
             self.document("mimo/mimo-v2.6-pro", "high"),
-            {"model": "mimo/mimo-v2.6-pro#high", "agents": {"build": {"system": RULES}},
+            {"model": "mimo/mimo-v2.6-pro#high",
+             "agents": {"build": {"model": "mimo/mimo-v2.6-pro#high", "system": RULES}},
              "plugins": [str(REPO / "hooks/opencode-seat")],
              "provider": {"mimo": {"models": {"mimo-v2.6-pro": {"variants": thinking}}}}})
 
