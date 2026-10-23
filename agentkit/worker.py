@@ -724,7 +724,7 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     done-when ceiling so the harness default need not force a command into the background.
     This does not bypass the event-silence watchdog during a foreground tool call. Codex
     and Muse expose no equivalent knob (their shell timeout is per tool call, chosen by the model),
-    so their environment is unchanged; see docs/guide.md.
+    so their environment is unchanged.
 
     A turn whose event stream stays silent for `limit` seconds is killed with everything
     it spawned and comes back as TIMEOUT with `killed`. There is no total turn limit.
