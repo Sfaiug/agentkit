@@ -593,8 +593,8 @@ def affected_suite(lp):
     target's tip alone (`AK_ONLY`) is the target's, not the change's: it passes, and says which.
     """
     from . import gate, leases  # here, not at the top: gate reaches run
-    suite = next((cmd for cmd in lp.once if gate.names_changed(cmd)), None)
-    if not suite or not lp.upstream:
+    suite = lp.upstream and next((cmd for cmd in lp.once if gate.names_changed(cmd)), None)
+    if not suite:
         return True, ""
     if gitcall.fetch(lp.wt, "origin", lp.upstream.removeprefix("origin/"))[0]:
         lp.log(f"WARN cannot fetch {lp.upstream}: the suite meets it as last fetched")
