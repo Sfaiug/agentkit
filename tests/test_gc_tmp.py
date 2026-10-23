@@ -314,6 +314,13 @@ class GcTmp(Sandbox):
         self.assertTrue(scratch.is_dir())
         self.hidden.assert_not_called()
 
+    def test_repository_activity_keeps_open_arguments_without_counting_the_entry_point(self):
+        code, held = self.root / "agentkit/bin/ak", self.root / "acme/.git/index"
+        self.process(args=["python", str(code), str(held)], opened=[held], pid=99999999)
+        paths = gc.git_busy_paths()
+        self.assertIn(str(held), paths)
+        self.assertNotIn(str(code), paths)
+
     def test_privileged_helper_is_read_only_bounded_and_refusal_keeps_files(self):
         proc = self.process(uid=os.getuid() + 1)
         rows, _ = proc_snapshot.collect([proc])
