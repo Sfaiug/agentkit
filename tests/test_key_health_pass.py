@@ -41,6 +41,9 @@ class Merged(unittest.TestCase):
     def setUpClass(cls):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
+        # a break past its hours is a stall the audit seat would open for; that is its own key
+        config = cls.home.path / ".agentkit" / "config.toml"
+        config.write_text(config.read_text() + "\n[audit]\non = false\n")
         cls.sink = Sink(cls.home)
         cls.addClassCleanup(cls.sink.close)
         cls.rig = Rig(cls.home, "app", files={"AGENTS.md": f"---\nhealth: {HEALTH}\n---\n"})
