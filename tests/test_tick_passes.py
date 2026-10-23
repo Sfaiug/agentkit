@@ -48,6 +48,7 @@ PASSES = (
     (watch, "tell_audit", "the weekly audit pass did not run", False),
     (notify, "tick_cards", "the card transition pass did not run", False),
     (watch, "revive_seats", "the seat revival pass did not run", False),
+    (gc, "git_housekeeping", "git housekeeping did not finish", False),
     (gc, "schedule_gc", "retention pass did not finish", False),
     (orch, "stamp", "retention pass did not finish", False),
     (orch, "sweep", "retention pass did not finish", False),
