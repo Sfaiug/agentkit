@@ -74,28 +74,36 @@ func serve(in io.Reader, out, errOut io.Writer) int {
 		select {
 		case _, open := <-beats:
 			if !open {
-				return 0
+				// A line already being written may have reached the Mac: settle it first.
+				if sending == "" {
+					return 0
+				}
+				beats, connected = nil, false
+				continue
 			}
 			connected = true
 			quiet.Reset(silence)
 		case <-quiet.C:
+			// A write still blocked after the Mac fell silent never reached it; its request stays queued.
 			return 0
 		case err := <-sent:
-			if err != nil {
+			sending = ""
+			if err != nil || beats == nil {
 				return 0
 			}
-			// Only a whole line hands the request off; a failed write leaves it for the next connection.
-			os.Remove(sending)
-			sending = ""
 		case <-tick.C:
 		}
 		if connected && sending == "" {
 			var line string
 			if sending, line = next(filepath.Join(root, "requests"), errOut); sending != "" {
-				go func() {
+				go func(request string) {
+					// Only a whole line hands the request off; a failed write leaves it for the next connection.
 					_, err := io.WriteString(out, line)
+					if err == nil {
+						os.Remove(request)
+					}
 					sent <- err
-				}()
+				}(sending)
 			}
 		}
 	}

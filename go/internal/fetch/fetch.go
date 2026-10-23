@@ -89,7 +89,7 @@ func normalize(value string) (string, string) {
 		return "", invalidPath
 	}
 	if _, err := os.Stat(config.Expand(value)); err == nil {
-		return config.Expand(value), ""
+		return value, ""
 	}
 	value = strings.TrimSpace(value)
 	if len(value) > 1 && value[0] == value[len(value)-1] && (value[0] == '\'' || value[0] == '"') {
@@ -108,18 +108,20 @@ func normalize(value string) (string, string) {
 	if value == "" || strings.ContainsAny(value, "\x00\r\n\t") {
 		return "", invalidPath
 	}
-	return config.Expand(value), ""
+	return value, ""
 }
 
 func one(value string, wait float64) (string, error) {
-	found, problem := normalize(value)
+	typed, problem := normalize(value)
 	if problem != "" {
 		return "", errors.New(problem)
 	}
-	if _, err := os.Stat(found); err == nil {
-		return filepath.Abs(found)
+	if local := config.Expand(typed); exists(local) {
+		return filepath.Abs(local)
 	}
-	return ask(found, wait)
+	// The Mac reads the path as its own: host path cleaning would turn its slashes into
+	// Windows ones or drop a `..` after a symlink, and its `~` is the Mac's home.
+	return ask(typed, wait)
 }
 
 // bridge makes the folders the bridge exchanges files in, the owner's alone, and returns its root.
