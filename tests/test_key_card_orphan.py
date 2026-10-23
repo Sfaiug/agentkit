@@ -6,8 +6,7 @@ webhook for it is called off, so the owner is never sent to a seat that is not t
 session by that name with no agent in it holds no seat either.  A seat tmux lost but whose
 record is kept, and a live one, keep theirs.  Black-box: the program `AK_BIN` names runs from
 outside through tests/fixtures/akbin.py, beside seats of tests/fixtures/akseat.py, paging
-tests/fixtures/sink.py; the tick runs in `home.tick()`'s box, so it reaches neither the host's
-loopback nor the sink, and a page it tried to send would stay owed, never called off.
+tests/fixtures/sink.py.
 """
 
 import json
@@ -81,6 +80,7 @@ class ATickClosesTheCardsOfGoneSeats(unittest.TestCase):
         outbox = self.home.path / ".agentkit/state/notification-outbox"
         event, = (json.loads(path.read_text()) for path in outbox.glob("*.json"))
         self.assertEqual((event["session"], event["status"]), ("fix-api", "disabled"))
+        self.assertEqual(len(self.sink.requests), 1)    # only the one the webhook refused
 
     def test_a_seat_tmux_lost_with_its_record_kept_and_a_live_seat_keep_their_cards(self):
         for seat in ("beta", "acme"):

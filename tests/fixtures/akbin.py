@@ -20,7 +20,8 @@ may send another way.
         assert done.code == 0, done.err
 
 `home.tick()` runs one `ak watch` in a box (`boxable()` says whether bubblewrap can build
-one here) and waits out what it detached there, so nothing of it outlives the test.
+one here) and waits out what it detached there, so nothing of it outlives the test.  The box's
+loopback holds only the Home's sink (tests/fixtures/sink.py), when it has one.
 """
 
 from collections import namedtuple
@@ -31,10 +32,13 @@ from pathlib import Path
 import shlex
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+from urllib.parse import urlsplit
 
 REPO = Path(__file__).resolve().parents[2]
 _NAMED = Path(os.environ.get("AK_BIN") or "bin/ak")
@@ -51,10 +55,16 @@ REFUSED = ("gh", "ssh", "curl", "systemctl", "systemd-run", "loginctl", "journal
 
 Done = namedtuple("Done", "code out err")
 
-# A tick's last breath in its box: what it detached is waited out before the box goes.
+# A tick's last breath in its box: the Home's sink, if any, is relayed in to its own port on
+# the box's loopback, and what the tick detached is waited out before the box goes.
 _LAST = r"""
-import os, subprocess, sys, time
-code = subprocess.call(sys.argv[1:])
+import os, socket, subprocess, sys, time
+sys.path.insert(0, sys.argv[1])
+from fixtures.akbin import _relay
+port, outside = sys.argv[2:4]
+if port:
+    _relay(socket.create_server(("127.0.0.1", int(port))), socket.AF_UNIX, outside)
+code = subprocess.call(sys.argv[4:])
 deadline = time.monotonic() + 60
 while time.monotonic() < deadline:
     if not [p for p in os.listdir("/proc") if p.isdigit() and int(p) not in (1, os.getpid())]:
@@ -252,12 +262,23 @@ class Home:
 
     def tick(self, env=None):
         """One `ak watch`, boxed: a tick asks the public boards and the shared browser on
-        loopback, so it gets a loopback of its own, and its collection sweeps /tmp, so it gets
-        one holding only this Home and the program."""
+        loopback, so it gets a loopback of its own, reaching only the Home's sink through a
+        socket in the Home, and its collection sweeps /tmp, so it gets one holding only this
+        Home and the program."""
         keep = {self.root, self.tmux_dir, REPO, Path(AK).resolve().parent}
         binds = [arg for path in sorted(map(str, keep), key=len)
                  if Path(path).is_relative_to("/tmp") for arg in ("--bind", path, path)]
-        return self.run(*_BOX, *binds, "--", sys.executable, "-c", _LAST, AK, "watch", env=env)
+        sink = urlsplit(self._env(env).get("AK_NOTIFY_SINK", ""))
+        port = str(sink.port) if sink.hostname == "127.0.0.1" else ""
+        outside = self.tmux_dir / "sink.sock"
+        with socket.socket(socket.AF_UNIX) as listener:
+            if port:
+                outside.unlink(missing_ok=True)    # an earlier tick's
+                listener.bind(str(outside))
+                listener.listen()
+                _relay(listener, socket.AF_INET, ("127.0.0.1", int(port)))
+            return self.run(*_BOX, *binds, "--", sys.executable, "-c", _LAST,
+                            str(REPO / "tests"), port, str(outside), AK, "watch", env=env)
 
     def spawn(self, *args, env=None, cwd=None):
         """Start the program and leave it running, its output in `home.log(...)`; `close` ends
@@ -280,6 +301,36 @@ class Home:
         """This Home's environment with `extra` over it; a None value removes the variable."""
         merged = {**self.env, **(extra or {})}
         return {key: value for key, value in merged.items() if value is not None}
+
+
+def _relay(listener, family, address):
+    """Answer each connection `listener` takes with one to `address`, bytes both ways, until
+    the listener closes."""
+    def accept():
+        while True:
+            try:
+                near, _ = listener.accept()
+            except OSError:
+                return
+            far = socket.socket(family)
+            try:
+                far.connect(address)
+            except OSError:
+                near.close()
+                continue
+            for src, dst in ((near, far), (far, near)):
+                threading.Thread(target=_copy, args=(src, dst), daemon=True).start()
+    threading.Thread(target=accept, daemon=True).start()
+
+
+def _copy(src, dst):
+    """One direction of a relayed connection, its end passed on as the end of writing."""
+    try:
+        while data := src.recv(65536):
+            dst.sendall(data)
+        dst.shutdown(socket.SHUT_WR)
+    except OSError:
+        pass
 
 
 def _wait_gone(pid, bound=30):
