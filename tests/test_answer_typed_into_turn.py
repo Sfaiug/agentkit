@@ -127,8 +127,9 @@ class AnswerTypedIntoTurn(Sandbox):
             return [{"at": 1200.0, "text": "Use v2."}]
         self.harness.user_messages = read_messages
         self.tick_at(1300.0)
-        self.assertIn(second, notify.last(SEAT)["text"])
-        self.assertNotIn("answered_at", notify.last(SEAT))
+        # kept back for its own turn's end, which their message came before
+        self.assertEqual([q["text"] for q in watch.questions_kept(
+            watch.seat_read(SEAT).get("unasked"))], [second])
         self.assertEqual(self.logs, [])
 
     def test_a_question_still_kept_back_waits_for_the_look_that_asks_it(self):

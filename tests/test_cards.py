@@ -71,6 +71,7 @@ class Cards(unittest.TestCase):
     def test_new_needs_episode_sends_again(self):
         notify.record("seat", "needs", "First", time=100)
         self.transition("seat", self.answer("needs you", 100), now=200)
+        notify.answered("seat", 240)    # unanswered, it keeps its card through the turn
         self.transition("seat", self.answer("working", 250), now=250)
         notify.record("seat", "needs", "Second", time=300)
         self.transition("seat", self.answer("needs you", 300), now=360)
@@ -277,6 +278,7 @@ class Cards(unittest.TestCase):
             self.assertEqual(json.loads(config.card_path("gone").read_text())["began"],
                              now - 7200)
             # A word that begins after the install is news as ever.
+            notify.answered("seat", now)
             self.transition("seat", self.answer("working", now), now=now)
             self.transition("seat", self.answer("needs you", now), now=now + notify.CARD_WAIT)
         self.assertEqual([post["content"] for post in self.posts],
