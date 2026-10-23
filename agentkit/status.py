@@ -617,7 +617,7 @@ def cmd_status(argv):
     receipts = [(d, jobs.read_job(d)) for d in jobs.job_dirs()]
     receipts = [(d, job) for d, job in receipts if job and isinstance(job.get("tasks"), list)]
     # A seat reads its own work after a compaction or a resume, not the whole host's;
-    # `ak orch project` lists everyone's, and any run still shows by its id.
+    # `ak orch list` tallies every seat's, and any run still shows by its id.
     seat = None if wanted else config.current_session()
     if seat:
         # a job names the seat it was launched from `seat`; it resolves as a run's does
@@ -668,6 +668,9 @@ def cmd_status(argv):
         # The header reads the live host, so it prints only once the target
         # resolved: an unknown id errors without any host inspection.
         print(gate.host_status_line())
+        if seat:
+            # an empty answer here is this seat's, never the host's
+            print(f"seat {seat}'s runs only; ak orch list shows every seat's")
     found, hidden = [], 0
     records = [(directory, run_record.read_state(directory)) for directory in dirs]
     if seat:
