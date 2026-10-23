@@ -1,6 +1,6 @@
 ---
 users: none
-tests: export AK_SHARD AGENTKIT_ACCEPTANCE_REQUIRED=1; offline() { unshare --user --map-current-user --net --keep-caps sh -c 'ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' - "$@"; }; offline true 2>/dev/null || offline() { "$@"; }; offline bash -c 'python3 tests/landing.py'
+tests: export AK_SHARD AGENTKIT_ACCEPTANCE_REQUIRED=1; offline() { unshare --user --map-current-user --net --keep-caps sh -c 'ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' - "$@"; }; offline true 2>/dev/null || { echo "landing: cannot build the offline sandbox (unshare --user --net); the suite runs only inside it" >&2; exit 1; }; offline bash -c 'python3 tests/landing.py'
 ---
 # agentkit, for an agent working on it
 
@@ -20,8 +20,9 @@ This section changes only with the owner's yes. Every other line has one home, a
 ## Working here
 
 - Python 3.11 standard library and bash. Python takes no dependency, ever.
+- Go in `go/` (`tests/test_go.py`): the standard library and vendored modules, built offline for Linux, Mac and Windows.
 - One test file per behaviour: `python3 tests/test_<name>.py`, run straight, no runner.
-- The `tests:` gate (`tests/landing.py`) runs `bash tests/smoke.sh` beside `tests/every_file.py` (remaining `tests/test_*.py`; see its docstring). `AK_SHARD=k/N` selects both parts' k-th share (1-based); unset or `1/1` runs all. It refuses Python 3.11 cannot parse, f-strings aside, so `python3.11 -m py_compile` what you touch holding one like `f"{data["key"]}"`. `AGENTKIT_ACCEPTANCE_REQUIRED=1` makes skips fail; supported network namespaces allow only loopback.
+- The `tests:` gate (`tests/landing.py`) runs `bash tests/smoke.sh` beside `tests/every_file.py` (remaining `tests/test_*.py`; see its docstring). `AK_SHARD=k/N` selects both parts' k-th share (1-based); unset or `1/1` runs all. It refuses Python 3.11 cannot parse, f-strings aside, so `python3.11 -m py_compile` what you touch holding one like `f"{data["key"]}"`. `AGENTKIT_ACCEPTANCE_REQUIRED=1` makes skips fail; it runs only where a network namespace allows just loopback.
 - Match the file's style.
 - `README.md` holds only what ak is, installation and starting.
 - `orchestrator.md` is the rulebook agentkit sessions launch with, not one for here.
