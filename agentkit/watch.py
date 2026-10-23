@@ -2136,15 +2136,15 @@ def keeps_back(name):
     It asks during its own turn, and may work on: until that turn ends its screen shows no
     question and it waits for nobody.  So it does on every harness ak knows the seat to run,
     the same way: where hooks report the turn's end a look follows at once, and where only
-    the screen shows it ak's next look finds it (`ask_kept_back`) -- unless a question of its
-    own already stands unanswered: the owner is asked already, and a newer one is asked beside
-    it (`notify._said`).
+    the screen shows it ak's next look finds it (`ask_kept_back`).  One asked while an older
+    question stands -- in a turn a run's result opened -- waits too, and is asked beside it
+    then (`notify._said`).
     """
     try:
         harness = seat_model(config.load(), name)[0]
     except config.Error:
         return False
-    return bool(harness) and not owner_question(notify.last(name))
+    return bool(harness)
 
 
 def questions_kept(unasked):
@@ -2213,13 +2213,15 @@ def kept_asked(name, kept):
 
 
 def answered_kept(name, replies, at):
-    """A native card reply answers only its questions, including before the turn ends."""
+    """A native card reply answers only its questions, including before the turn ends: its own
+    card's copy, and every copy of a question whose latest card it is."""
     with seat_lock(name):
         data = seat_read(name)
         kept = questions_kept(data.get("unasked"))
         keys = set(replies)
-        remaining = [q for q in kept if not (q.get("at", at) < at
-                     and q.get("id") in keys)]
+        latest = {notify.question_key(q["text"]): q.get("id") for q in kept}
+        remaining = [q for q in kept if not (q.get("at", at) < at and (
+                     q.get("id") in keys or latest[notify.question_key(q["text"])] in keys))]
         if remaining != kept:
             _seat_put(name, data, {"unasked": _kept(remaining)})
             return True
@@ -2359,8 +2361,9 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * a worker token dies within a fortnight or is dead -- every session says so, on any
       harness, because any seat's next turn on it can be the one that fails;
     * a question on its screen is him even during a turn, and so is one it asked with `ak
-      notify needs` that nothing has answered (its own, from the end of the turn it asked
-      in: `keeps_back`); so is a move to another account that failed, whatever its runs do;
+      notify needs` that nothing has answered, from the end of the turn it asked in
+      (`keeps_back`) whenever no later turn runs; so is a move to another account that
+      failed, whatever its runs do;
     * a run it launched is unfinished and resumes itself, so the seat is working;
     * a harness turn is in flight, so the seat is working (a turn past three hours says so
       in its reason and keeps the word) -- parked run or not;
@@ -2690,11 +2693,13 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         asked = " ".join(str(found.get("evidence") or "").split())
         return {"word": "needs you", "reason": asked or "waiting for you",
                 "since": found.get("began"), "question": True}
-    # ... and so is a question it asked with `ak notify needs` that nothing has answered: it
-    # asks, then gets on with the work that does not wait on the answer, so neither its runs
-    # nor its turn going says he was not asked.  A seat nobody is in names its number below,
-    # and a watcher's own alert about the seat waits for its prompt (rung 5).
-    if not gone and owner_question(last):
+    # ... and so is a question it asked with `ak notify needs` that nothing has answered, once
+    # the turn it stood through has stopped: its runs going say nothing of it, but a turn a
+    # run's result opened works without him until it stops on the question again (2b).  A
+    # seat nobody is in names its number below, and a watcher's own alert about the seat
+    # waits for its prompt (rung 5).
+    if not gone and owner_question(last) and (
+            not harness or waiting or _composer_open(harness, found)):
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
                 "since": last.get("time"), "question": True}
     # ... and so is a move to another account that failed: no wait ends it by itself, so

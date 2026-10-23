@@ -3,8 +3,8 @@
 A seat asks, works on, and may ask again before its owner is back.  A newer question used to
 take the earlier one's place, so the seat's line showed only the last, and the one before it was
 lost to the owner while the seat still waited on its answer.  Now a question asked while others
-stand unanswered is asked beside them, at once or at the end of the turn that kept it back, in
-the order asked, each once: the line reads them all, the card stays the one card, and the
+stand unanswered is asked beside them at the end of the turn that kept it back, in the order
+asked, each once: the line reads them all, the card stays the one card, and the
 owner's one prompt answers them.  After his answer a new question stands alone.
 """
 
@@ -66,22 +66,24 @@ class OpenQuestions(Sandbox):
         self.assertEqual(notify.last(SEAT)["text"], FIRST + " Also: " + SECOND)
         self.assertEqual(self.kept(), [])
 
-    def test_a_question_asked_while_one_stands_is_asked_beside_it(self):
+    def test_a_question_asked_while_one_stands_is_asked_beside_it_at_its_turns_end(self):
         self.asked_for_it(FIRST)
         self.asks(SECOND)
-        self.assertEqual(self.kept(), [])
+        self.assertEqual(self.kept(), [SECOND])
+        self.assertEqual(notify.last(SEAT)["text"], FIRST)
+        self.turn_ends()
         self.assertEqual(notify.last(SEAT)["text"], FIRST + " Also: " + SECOND)
         self.assertEqual(self.posts, ["🙋 Needs you · " + SEAT])     # still the one card
 
-    def test_one_kept_back_joins_one_asked_at_once_at_its_turns_end(self):
+    def test_those_kept_back_join_one_asked_at_once_at_their_turns_end(self):
         self.asks(FIRST)                    # kept back for this turn's end
         self.asked_for_it(MERGE)
-        self.asks(SECOND)                   # asked at once: the owner is asked already
-        self.assertEqual(notify.last(SEAT)["text"], MERGE + " Also: " + SECOND)
-        self.assertEqual(self.kept(), [FIRST])
+        self.asks(SECOND)                   # kept too, though the owner is asked already
+        self.assertEqual(notify.last(SEAT)["text"], MERGE)
+        self.assertEqual(self.kept(), [FIRST, SECOND])
         self.turn_ends()
         self.assertEqual(notify.last(SEAT)["text"],
-                         MERGE + " Also: " + SECOND + " Also: " + FIRST)
+                         MERGE + " Also: " + FIRST + " Also: " + SECOND)
         self.assertEqual(self.kept(), [])
 
     def test_the_same_question_twice_is_asked_once(self):
@@ -115,6 +117,7 @@ class OpenQuestions(Sandbox):
         self.asked_for_it(FIRST)
         with patch.object(notify.time, "time", return_value=10002):
             self.asks(SECOND)
+            self.turn_ends()
         notify.answered(SEAT, 10001)
         self.assertEqual(notify.last(SEAT)["text"], FIRST + " Also: " + SECOND)
 

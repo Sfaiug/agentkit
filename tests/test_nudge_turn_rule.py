@@ -304,9 +304,9 @@ class NudgeTurnRule(Sandbox):
                 self.assertEqual(notify.last(SEAT)["text"], question)
                 self.assertEqual(self.sent, [])
 
-    def test_i_a_line_typed_where_the_turn_ended_leaves_the_question_his(self):
+    def test_i_a_line_typed_where_the_turn_ended_asks_the_question_first(self):
         """A run ending at the quiet prompt types its hand-back before any tick looks: a kept
-        question is asked by the typer first, so the turn the line opens leaves it his."""
+        question is asked by the typer first, so the turn the line opens leaves it standing."""
         question = "Which account should I use?"
         for harness in HARNESSES:
             with self.subTest(harness=harness):
@@ -318,9 +318,8 @@ class NudgeTurnRule(Sandbox):
                 self.assertTrue(watch.type_at_prompt(
                     self.seat, "run acme-parser finished PASS merged.", lambda line: None,
                     cfg=self.cfg))
-                answer = watch.announce_state(dict(self.seat), cfg=self.cfg, look=True,
-                                              auth_out={}, gh_out={}, token_out={})
-                self.assertEqual((answer["word"], answer["reason"]), ("needs you", question))
+                self.assertEqual(notify.last(self.seat["name"])["text"], question)
+                self.assertFalse(notify.resolved(notify.last(self.seat["name"])))
 
 if __name__ == "__main__":
     unittest.main()
