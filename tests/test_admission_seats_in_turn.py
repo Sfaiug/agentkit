@@ -132,6 +132,52 @@ class AdmissionSeatsInTurn(unittest.TestCase):
         record.save_state(config.RUNS / "acme-2", state)
         self.assert_order(["acme-3", "fix-api-2"])
 
+    def test_a_drained_priority_queue_starts_a_fresh_batch(self):
+        green = {"waiting_on": {"land": "tree"}}
+        for number in range(1, 3):
+            self.queued(f"acme-old-{number}", number, "acme", **green)
+        self.queued("fresh", 3, "docs")
+        for number in range(1, 3):
+            name = f"acme-old-{number}"
+            self.assertTrue(self.claim(name))
+            state = self.state(name)
+            state["state"] = "pass"
+            record.save_state(config.RUNS / name, state)
+        self.queued("acme-new", 4, "acme", **green)
+        self.queued("fix-api-new-1", 5, "fix-api", **green)
+        self.queued("fix-api-new-2", 6, "fix-api", **green)
+        self.assert_order(["acme-new", "fix-api-new-1", "fix-api-new-2", "fresh"])
+        self.assertFalse(self.claim("fix-api-new-1"))
+        self.assertEqual(gate.slot_note(self.state("fix-api-new-1")),
+                         "waiting for a slot · 1 ahead")
+
+    def test_a_seats_new_batch_has_no_debt_while_peers_still_wait(self):
+        green = {"waiting_on": {"land": "tree"}}
+        self.queued("acme-old", 1, "acme", **green)
+        self.queued("fix-api-1", 2, "fix-api", **green)
+        self.queued("fix-api-2", 3, "fix-api", **green)
+        self.assertTrue(self.claim("acme-old"))
+        state = self.state("acme-old")
+        state["state"] = "pass"
+        record.save_state(config.RUNS / "acme-old", state)
+        self.queued("acme-new", 4, "acme", **green)
+        self.assert_order(["fix-api-1", "acme-new", "fix-api-2"])
+
+    def test_a_cancelled_batch_has_no_debt_even_before_the_next_poll(self):
+        green = {"waiting_on": {"land": "tree"}}
+        for number in range(1, 3):
+            self.queued(f"acme-old-{number}", number, "acme", **green)
+            self.queued(f"fix-api-{number}", number + 2, "fix-api", **green)
+        self.assertTrue(self.claim("acme-old-1"))
+        state = self.state("acme-old-1")
+        state["state"] = "pass"
+        record.save_state(config.RUNS / "acme-old-1", state)
+        state = self.state("acme-old-2")
+        state.update(state="stopped", slot_waiting=False)
+        record.save_state(config.RUNS / "acme-old-2", state)
+        self.queued("acme-new", 5, "acme", **green)
+        self.assert_order(["fix-api-1", "acme-new", "fix-api-2"])
+
     def test_each_rank_is_fifo_and_restarts_keep_their_first_queue_time(self):
         self.queued("acme-2", 5, "acme")
         self.queued("acme-1", 100, "acme", first_queued_at=2)

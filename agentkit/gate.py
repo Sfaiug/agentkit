@@ -68,7 +68,7 @@ def slot_order(state):
 def _slot_seat(state):
     seat = state.get("launched_session") or ""
     # A run launched from no seat must not share a turn with a seat named after that run.
-    return seat, "" if seat else state.get("run_id") or ""
+    return (*slot_order(state)[:3], seat, "" if seat else state.get("run_id") or "")
 
 
 CPU_PRESSURE_LIMIT = 40   # runs are stalled on CPU nearly half the time
@@ -156,53 +156,66 @@ def slot_counts(state, *, remember=False):
             running += 1
         elif other.get("state") == "queued" and other.get("slot_waiting"):
             waiting.append(other)
-    seats, orders = slot_queue()[5].copy(), []
+    previous, batches = slot_queue()[5], {}
+    for other in waiting:
+        batches.setdefault(_slot_seat(other), []).append(other.get("run_id") or "")
+    turns = {}
+    for seat, pending in batches.items():
+        count, before = previous.get(seat, (0, []))
+        turns[seat] = (count if set(pending).intersection(before) else 0, pending)
+    seats, orders = {seat: turn[0] for seat, turn in turns.items()}, []
     for other in sorted(waiting, key=slot_order):
         order = slot_order(other)
-        seat = (*order[:3], *_slot_seat(other))
+        seat = _slot_seat(other)
         rank = seats.get(seat, 0)
         seats[seat] = rank + 1
         orders.append((*order[:3], rank, *order[3:]))
     queue = [order[-1] for order in sorted(orders)]
     ahead = queue.index(state.get("run_id") or "")
     if remember:
-        _save_queue(running, queue)
+        _save_queue(running, queue, turns=turns)
     return running, ahead, queue[:ahead] + queue[ahead + 1:]
 
 
-def _save_queue(running, queue, let_in=None):
+def _save_queue(running, queue, let_in=None, turns=None):
     """Under slot_lock: the queue as this poll decided it, for the waiters behind its first,
     since when that first has waited there while polled (`first_in_line`), and how long the last
     20 firsts waited there before they were let in (`let_in`, the state this poll lets in), kept
     across gaps in the polling."""
     path, now = config.RUNS / ".slots.queue", time.time()
     waits, saved = first_in_line(now), slot_queue()
-    took, turns = saved[4:]
-    # Only admissions consume turns; stopping a waiter leaves its seat's next run first.
+    took = saved[4]
+    turns = saved[5] if turns is None else turns
+    # Only admissions consume turns, and only while that seat's batch still has waiters.
     if let_in:
-        seat = (*slot_order(let_in)[:3], *_slot_seat(let_in))
-        turns[seat] = turns.get(seat, 0) + 1
+        seat = _slot_seat(let_in)
+        count, pending = turns.get(seat, (0, []))
+        turns[seat] = (count + 1, pending)
     if waits and let_in and let_in.get("run_id") == waits[0]:
         took = [*took, now - waits[1]][-20:]
     since = waits[1] if waits and queue[:1] == [waits[0]] else now
+    remaining = set(queue)
+    turns = {seat: (count, [run_id for run_id in pending if run_id in remaining])
+             for seat, (count, pending) in turns.items()}
     temp = path.with_name(".slots.queue.tmp")
     temp.write_text(json.dumps({"at": now, "running": running, "queue": queue, "since": since,
                                 "took": took,
-                                "turns": [[*seat, count] for seat, count in turns.items()]
-                                         if queue else []}))
+                                "turns": [[*seat, count, pending]
+                                          for seat, (count, pending) in turns.items() if pending]}))
     temp.replace(path)
 
 
 def slot_queue():
     """(when, live slot owners, waiting run ids first in line first, since when that first has
-    waited there, the waits there of the last firsts let in, admitted turns by seat) as the
-    last poll left them."""
+    waited there, the waits there of the last firsts let in, admitted turns and remaining
+    waiters by seat) as the last poll left them."""
     try:
         saved = json.loads((config.RUNS / ".slots.queue").read_text())
         return (float(saved["at"]), int(saved["running"]),
                 [str(run_id) for run_id in saved["queue"]], float(saved.get("since") or 0),
                 [float(wait) for wait in saved.get("took") or []],
-                {tuple(turn[:-1]): int(turn[-1]) for turn in saved.get("turns", [])})
+                {tuple(turn[:-2]): (int(turn[-2]), tuple(turn[-1]))
+                 for turn in saved.get("turns", []) if len(turn) == 7})
     except (OSError, ValueError, KeyError, TypeError):
         return 0.0, 0, [], 0.0, [], {}
 
