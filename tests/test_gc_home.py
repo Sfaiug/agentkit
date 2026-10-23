@@ -65,7 +65,8 @@ class GcHome(Sandbox):
         backup = self.made(config.HOME / "rules.md-20260929")
         own = [self.made(config.HOME / name / "x") if name in ("bin", "tasks") else
                self.made(config.HOME / name) for name in ("bin", "rules.md", "history.db",
-                                                         "history.db-wal", "history.lock", "tasks")]
+                                                         "history.db-journal", "history.db-wal",
+                                                         "history.lock", "tasks")]
         self.now += 6 * DAY
         self.made(config.HOME / "handover" / "today.md")
         self.now += 2 * DAY
