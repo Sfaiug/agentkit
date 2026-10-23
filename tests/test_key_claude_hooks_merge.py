@@ -25,8 +25,8 @@ from fixtures.akbin import AK, Done, Home
 ROOT = Path(os.environ.get("AK_ROOT") or Path(AK).resolve().parents[1])
 SEAT_STATE = f"bash {ROOT}/hooks/seat-state.sh"
 STOP_RULE = f"bash {ROOT}/hooks/orchestrator-stop.sh"
-STATED = ("SessionStart", "UserPromptSubmit", "Stop", "Notification", "PermissionRequest",
-          "PostToolUse", "PreCompact", "PostCompact")
+STATED = ("SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "Notification",
+          "PermissionRequest", "PostToolUse", "PreCompact", "PostCompact")
 
 MINE = {"hooks": [{"type": "command", "command": "bash /x/mine.sh"}]}
 # Spaced as a person types it, so a copy that rewrote the file would not be byte-equal.
