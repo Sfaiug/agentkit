@@ -152,6 +152,10 @@ def _connect(*, readonly=False):
         connection.create_function("suite_run", 2, suite_run)     # what REAL_WORK reads by
         return connection
     connection = sqlite3.connect(database, timeout=2)
+    # Readers take no lock of ours (`_writing`), and in the default journal mode a read held
+    # past sqlite's wait made a write give up; in WAL a reader never blocks the writer.
+    # Persistent in the file, so this is a no-op after the first write.
+    connection.execute("PRAGMA journal_mode=WAL")
     connection.execute(KEPT_SCHEMA)
     # Read before `runs` is made, in the statement that writes it, so two first connects agree;
     # committed at once, as the tables below are made outside a transaction.
