@@ -55,6 +55,13 @@ class CodexQuestionCards(Sandbox):
         with notify.session_lock(SEAT):
             notify.ask_kept(SEAT)
 
+    def repeat(self):
+        repeated = dict(CALL, tool_use_id='call-new', tool_input={'questions': ASKS[:1]})
+        with patch.object(notify.time, 'time', return_value=10003):
+            self.assertIsNone(codex.ask(repeated))
+        self.add('response_item', {'type': 'function_call', 'name': 'request_user_input_async',
+                 'call_id': 'call-new', 'arguments': json.dumps(repeated['tool_input'])}, 10003)
+
     def test_native_cards_are_allowed_and_each_question_survives_acceptance_and_stop(self):
         self.ask()
         self.add('response_item', {'type': 'function_call_output', 'call_id': 'call-acme',
@@ -95,6 +102,31 @@ class CodexQuestionCards(Sandbox):
             watch.keep(SEAT, TEXTS[0])
         self.assertFalse(notify.answer_written(SEAT))
         self.assertEqual(set(questions.pending(SEAT)), set(TEXTS))
+
+    def test_a_late_reply_answers_only_its_original_card_before_and_after_stop(self):
+        self.ask()
+        self.repeat()
+        self.reply(0, at=10004)
+        self.assertTrue(notify.answer_written(SEAT, at=10005))
+        self.assertEqual(set(questions.pending(SEAT)), set(TEXTS))
+        with patch.object(notify.time, 'time', return_value=10006):
+            self.stopped()
+        self.assertFalse(notify.answer_written(SEAT, at=10007))
+        self.assertEqual(set(questions.pending(SEAT)), set(TEXTS))
+        self.reply(0, at=10008, call='call-new')
+        self.assertTrue(notify.answer_written(SEAT, at=10009))
+        self.assertEqual(questions.pending(SEAT), TEXTS[1:])
+
+    def test_a_late_reply_does_not_answer_a_repeated_standing_question(self):
+        self.ask()
+        self.stopped()
+        self.repeat()
+        self.reply(0, at=10004)
+        self.assertFalse(notify.answer_written(SEAT, at=10005))
+        self.assertEqual(questions.pending(SEAT), TEXTS)
+        self.reply(0, at=10006, call='call-new')
+        self.assertTrue(notify.answer_written(SEAT, at=10007))
+        self.assertEqual(questions.pending(SEAT), TEXTS[1:])
 
     def test_a_later_question_does_not_hide_an_earlier_questions_native_answer(self):
         self.ask()

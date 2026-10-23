@@ -276,8 +276,9 @@ def user_messages(record, cwd, conversation):
                     try:
                         tool, call, index = json.loads(reply["questionItemId"])
                         if (tool == QUESTION_TOOL and type(index) is int and index >= 0
+                                and index < len(calls[call])
                                 and isinstance(reply.get("answer"), str) and reply["answer"].strip()):
-                            kept["replies"].append(question_line(calls[call][index]))
+                            kept["replies"].append(question_id(call, index))
                     except (KeyError, IndexError, TypeError, ValueError):
                         continue
             yield kept
@@ -544,7 +545,8 @@ def ask(event):
         for text in texts or [""]:
             notify.asks_first(text)
         with contextlib.redirect_stdout(sys.stderr):
-            failed = any(notify.shaped("needs", text.strip()) for text in texts)
+            failed = any(notify.shaped("needs", text.strip(), question_id=question_id(
+                event.get("tool_use_id"), index)) for index, text in enumerate(texts))
     except config.Error as exc:
         # Codex adds its own period after the reason
         return {"decision": "block",
@@ -567,6 +569,11 @@ def answered(event):
         return False
     from .. import lifecycle
     return lifecycle.state("codex", lifecycle.facts(name))[0] == "asking"
+
+
+def question_id(call, index):
+    """The card's identity survives repeated wording and the turn's end."""
+    return json.dumps([QUESTION_TOOL, call, index])
 
 
 def question_line(item):

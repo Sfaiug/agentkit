@@ -2152,7 +2152,8 @@ def questions_kept(unasked):
     listed = unasked.get("questions")
     if not isinstance(listed, list):
         listed = [unasked]
-    return [{"text": q["text"], **{key: q[key] for key in ("at", "ended") if _stamp(q.get(key)) is not None}}
+    return [{"text": q["text"], "id": q.get("id"),
+             **{key: q[key] for key in ("at", "ended") if _stamp(q.get(key)) is not None}}
             for q in listed if isinstance(q, dict) and isinstance(q.get("text"), str)]
 
 
@@ -2162,13 +2163,14 @@ def _kept(questions):
             "questions": questions} if questions else None
 
 
-def keep(name, text):
+def keep(name, text, question_id=None):
     """Keep that question back for its turn's end, after those the seat kept already: a turn
     that asks twice asks both once it ends.  The seat's newer word ends its `ak wait` here."""
     try:
         with seat_lock(name):
             data = seat_read(name)
-            kept = [*questions_kept(data.get("unasked")), {"text": text, "at": time.time()}]
+            kept = [*questions_kept(data.get("unasked")),
+                    {"text": text, "at": time.time(), "id": question_id}]
             _seat_put(name, data, {"unasked": _kept(kept), "wait": None})
     except (OSError, config.Error) as exc:
         print(f"WARN could not record what {name} is doing: {exc}", file=sys.stderr)
@@ -2211,9 +2213,9 @@ def answered_kept(name, replies, at):
     with seat_lock(name):
         data = seat_read(name)
         kept = questions_kept(data.get("unasked"))
-        keys = {notify.question_key(text) for text in replies}
+        keys = set(replies)
         remaining = [q for q in kept if not (q.get("at", at) < at
-                     and notify.question_key(q["text"]) in keys)]
+                     and q.get("id") in keys)]
         if remaining != kept:
             _seat_put(name, data, {"unasked": _kept(remaining)})
             return True

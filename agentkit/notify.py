@@ -495,19 +495,22 @@ def answered(session, at, typed=None, replies=None):
         if previous and previous.get("watcher") is True:
             return
         if replies is not None and previous:
-            keys = {question_key(text) for text in replies}
+            keys = set(replies)
+            ids = previous.get("question_ids") or {}
             dates = previous.get("question_times") or previous.get("asked_at") or {}
-            matched = [q for q in questions(previous) if question_key(q) in keys
+            matched = [q for q in questions(previous) if ids.get(question_key(q)) in keys
                        and dates.get(question_key(q), previous["time"]) < (typed or at)]
             if not matched:
                 return partial
             remaining = [q for q in questions(previous) if q not in matched]
             if remaining:
+                matched_keys = {question_key(q) for q in matched}
                 waited({"asked_at": {k: v for k, v in (previous.get("asked_at") or {}).items()
-                                    if k in {question_key(q) for q in matched}}}, at)
-                previous.update(text=ALSO.join(remaining), questions=remaining,
-                                asked_at={k: v for k, v in (previous.get("asked_at") or {}).items()
-                                          if k not in {question_key(q) for q in matched}})
+                                    if k in matched_keys}}, at)
+                previous.update(text=ALSO.join(remaining), questions=remaining)
+                for field in ("asked_at", "question_times", "question_ids"):
+                    previous[field] = {k: v for k, v in (previous.get(field) or {}).items()
+                                       if k not in matched_keys}
                 record(session, previous["kind"], previous["text"],
                        **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
                 return True
@@ -1357,16 +1360,16 @@ def asks_first(text):
                            "goes after it")
 
 
-def keep_back(name, text):
+def keep_back(name, text, question_id=None):
     """Keep the seat's question back for its turn's end, after any it kept already, in the
     seat's record, which `ask_kept` asks once that turn has ended.  The seat's newer word ends its `ak wait` here as `shaped`
     does.  No notice lock is taken, so the stop hook keeps one without waiting on it."""
     from . import watch
     asks_first(text)
-    watch.keep(name, text)
+    watch.keep(name, text, question_id=question_id)
 
 
-def shaped(kind, text, paths=(), session=None, dry_run=False, event_id=None):
+def shaped(kind, text, paths=(), session=None, dry_run=False, event_id=None, question_id=None):
     """Record the question, then evaluate the transition latch.
 
     A question the seat itself asks waits for its turn's end where `watch.keeps_back` says so:
@@ -1387,10 +1390,11 @@ def shaped(kind, text, paths=(), session=None, dry_run=False, event_id=None):
     try:
         own = name == config.current_session()      # the seat's own word
         if kind == "needs" and own and event_id is None and watch.keeps_back(name):
-            keep_back(name, text)
+            keep_back(name, text, question_id=question_id)
             return 0
         with session_lock(name) as name:
-            previous = _said(name, kind, text, event_id)
+            previous = _said(name, kind, text, event_id,
+                             question_ids={question_key(text): question_id})
             if event_id is None:
                 # the seat's newer word ends its `ak wait`; a question it kept back waits for
                 # its own turn's end, and is asked beside this one then (`ask_kept`)
@@ -1416,7 +1420,8 @@ def shaped(kind, text, paths=(), session=None, dry_run=False, event_id=None):
         return 1
 
 
-def _said(name, kind, text, event_id=None, at=None, said_at=None, question_times=None):
+def _said(name, kind, text, event_id=None, at=None, said_at=None, question_times=None,
+          question_ids=None):
     """Record what that session said, under its notice lock, which the caller holds; the
     notice it replaced, or None.  A watcher's repeated event re-records nothing, nor does its
     alert while the seat's own question stands unanswered.  A question -- `text` one, or the
@@ -1445,6 +1450,7 @@ def _said(name, kind, text, event_id=None, at=None, said_at=None, question_times
         asked, seen = list(standing), {question_key(q) for q in standing}
         dated = dict(previous.get("asked_at") or {}) if standing else {}
         said_dates = dict(previous.get("question_times") or dated) if standing else {}
+        ids = dict(previous.get("question_ids") or {}) if standing else {}
         for question in [text] if isinstance(text, str) else text:
             words = question_key(question)
             if words not in seen:
@@ -1452,6 +1458,7 @@ def _said(name, kind, text, event_id=None, at=None, said_at=None, question_times
                 asked.append(question)
             dated[words] = time.time() if at is None else at
             said_dates[words] = (question_times or {}).get(words, dated[words])
+            ids[words] = (question_ids or {}).get(words)
         text = ALSO.join(asked)
         if len(asked) > 1:
             extra["questions"] = asked
@@ -1459,6 +1466,7 @@ def _said(name, kind, text, event_id=None, at=None, said_at=None, question_times
             fresh = len(asked) - len(standing)
             extra["asked_at"] = dated
             extra["question_times"] = said_dates
+            extra["question_ids"] = ids
         if said_at is not None:
             extra["said_at"] = max([said_at, *([spoken_at(previous)] if standing else [])])
     earlier = previous and previous.get("answered_at", previous.get("earlier_answer_at"))
@@ -1567,7 +1575,8 @@ def ask_kept(name, ended=False):
     _said(name, "needs", [question["text"] for question in kept],
           at=None if None in stamps else max(stamps),
           said_at=None if None in spoken else max(spoken),
-          question_times={question_key(q["text"]): q["at"] for q in kept if "at" in q})
+          question_times={question_key(q["text"]): q["at"] for q in kept if "at" in q},
+          question_ids={question_key(q["text"]): q.get("id") for q in kept})
     watch.kept_asked(name, kept)
     return True
 
