@@ -61,6 +61,9 @@ ASKED_LINE = ("The host restarted while your question to the owner was still ope
 # ... and one whose turn its usage cut off, on an account with usage again, this or another
 ACCOUNT_LINE = ("Your turn was cut off when its usage ran out, and there is usage again. "
                 "Continue that turn and finish it; do not start over.")
+# ... and one moved mid-turn to a model of another harness: its rulebook hands the turn on
+MOVED_LINE = ("This seat moved to you in the middle of a turn. Continue that turn from where "
+              "the conversation your instructions point you to leaves it; do not start over.")
 CONTINUE_LINE = "continue"
 MIDTURN_TRIES = 3       # passes that may type it before a seat is left at its prompt
 MARKER = "agentkit review of"
@@ -678,7 +681,8 @@ def finish_own_lines(cfg, log):
         key = resume.get("key") if isinstance(resume, dict) else None
         mark = seat_read(name).get("midturn")
         marked = (mark.get("line") or MIDTURN_LINE) if isinstance(mark, dict) else None
-        for line in (marked, ACCOUNT_LINE, MIDTURN_LINE, ASKED_LINE, CONTINUE_LINE, key):
+        for line in (marked, ACCOUNT_LINE, MIDTURN_LINE, MOVED_LINE, ASKED_LINE, CONTINUE_LINE,
+                     key):
             def alone(held):
                 return composer_holds(held, session, line, cfg, exact=True) == "line"
 
@@ -2519,8 +2523,16 @@ def hook_look(launched, answered_at=None, said="", prompt=False):
     else:
         notify.answer_written(name)
     cfg = config.load()
+    harness, provider = seat_model(cfg, name)
+    # A turn its harness says failed settles its account before its word is told, as the tick
+    # does: a spent subscription moves now, not at the next tick, and never reads `working`.
+    # It is looked at first, as the tick looks: an older reading may still say it is asking.
+    if hook_state(harness, hook_facts(name))[1] in marked_events(harness, "failed"):
+        with announcing(name):
+            pane = pane_text(session)
+            look_at(session, cfg=cfg, pane=pane)
+        seat_account(cfg, session, harness, provider, pane, False, lambda _: None)
     answer = announce_state(session, cfg=cfg, look=True, number=number)
-    harness = seat_model(cfg, name)[0]
     if stop_enforced(harness):
         from . import menu as menu_mod
         # A completion is already an event, not a suspected stall. The wrapper supplies

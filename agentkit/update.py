@@ -16,8 +16,8 @@ this host has are upgraded, and by `ak update` none while a session is working; 
 upgrades one that is behind its latest release in the background, sessions or not (see
 `keep_current`), and no two upgrades ever run at once.  Agentkit itself moves after the
 harnesses either way, and the three-minute tick moves it on its own, in both cases only to a
-commit whose `tests/live.sh` passed where it has one (`live_target`), and never while a harness
-upgrade runs: its gates test one agentkit commit from start to end.
+commit whose `tests/live.sh` has no regression where it has one (`live_target`), and never while
+a harness upgrade runs: its gates test one agentkit commit from start to end.
 """
 
 from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
@@ -68,6 +68,7 @@ HARNESS_GATES = "harness-gates"  # under config.STATE: one failure episode per h
 LIVE_RUN = r'''import os, signal, subprocess, sys, time
 check, repo, commit, cap, grace = sys.argv[1:]
 os.chdir(check)
+os.environ["AK_LIVE_FAILED"] = f"{check}/failed"
 holder = subprocess.Popen(["sleep", "99999999"], process_group=0)
 with open("output.tmp", "w") as out:
     script = subprocess.Popen(["sh", "-c", 'git -C "$0" worktree add --quiet --detach "$1" "$2" '
@@ -692,7 +693,7 @@ def live_checks():
     """Every check of tests/live.sh, oldest first: (started, commit, directory).
 
     The tick makes the directory, named for both, and `stopped` and `handed` in it; the
-    check's own `LIVE_RUN` writes `output` and `exit`.
+    check's own `LIVE_RUN` writes `output` and `exit`, and its suite writes `failed` labels.
     """
     found = []
     for check in (config.STATE / LIVE).glob("*-*"):
@@ -742,16 +743,35 @@ def _handed(check):
         return None
 
 
+def _live_failed(check):
+    try:
+        return set((check / "failed").read_text().splitlines()) - {""}
+    except (OSError, UnicodeError):
+        return set()
+
+
+def _live_passed(check, started):
+    code = _exit(check, started)
+    # `baseline` records the tick's comparison of immutable results, before either is pruned.
+    return code == 0 or (code is not None and bool(_live_failed(check))
+                        and (check / "baseline").exists())
+
+
+def _live_ended(check, code):
+    return (float((check / "stopped").read_text()) if code is None
+            else (check / "exit").stat().st_mtime)
+
+
 def live_target():
     """The commit a move of ~/agentkit goes to, or "" while there is none.
 
     origin/main when the checkout has it already, when it has no `tests/live.sh`, or when a
-    check of it passed; else the newest commit between the checkout and it whose check passed,
+    check of it passed or failed only where HEAD also failed; else the newest such commit,
     so what moves is exactly what passed, however far origin/main has gone on since.
     """
     tip = _git("rev-parse", "--verify", "--quiet", "origin/main")[1]
     passed = {commit for started, commit, check in live_checks()
-              if not _alive(check, started, time.time()) and _exit(check, started) == 0}
+              if not _alive(check, started, time.time()) and _live_passed(check, started)}
     if (not tip or tip in passed or _git("cat-file", "-e", f"{tip}:tests/live.sh")[0]
             or not _git("merge-base", "--is-ancestor", tip, "HEAD")[0]):
         return tip
@@ -770,7 +790,7 @@ def owed_live(now):
     passed = {}
     for started, commit, check in live_checks():
         try:
-            if not _alive(check, started, now) and _exit(check, started) == 0:
+            if not _alive(check, started, now) and _live_passed(check, started):
                 passed[commit] = min(passed.get(commit, now), (check / "exit").stat().st_mtime)
         except OSError:
             continue
@@ -798,26 +818,33 @@ def live_tick(log, now, fetched):
     check no later check passed is handed back (`live_hand_back`), wherever main went since,
     once it is the second red in a row (a first red is only logged and waits for its retry),
     unless an older one's notice was typed or told already.
+    A red tip first checks HEAD, reusing a result ended since the tip check began. Only failed
+    labels shared with that result can pass the tip; those standing faults are handed back
+    without holding the move. The comparison stays with the tip result in `baseline`.
     Offline, no check starts: what was fetched last may be what origin has since moved on from.
     """
     from . import watch     # here, not at the top: watch imports this module
     tip = _git("rev-parse", "--verify", "--quiet", "origin/main")[1] if fetched else ""
+    head = _git("rev-parse", "HEAD")[1]
     had, running, pruned, done = {}, False, False, []
     for started, commit, check in live_checks():
         if commit not in had:
             had[commit] = not _git("merge-base", "--is-ancestor", commit, "HEAD")[0]
+        baseline = commit == head and tip != head
+        notice = _handed(check)
+        notice = notice and (check / "baseline").exists() and not notice["told"]
         capped, alive = now >= started + SMOKE_CAP, _alive(check, started, now)
-        stop = (not had[commit] and not (check / "stopped").exists()
+        stop = ((not had[commit] or baseline) and not (check / "stopped").exists()
                 and (capped if alive else _exit(check, started) is None))
         if stop:
             _put(check / "stopped", f"{now}\n")
-        if (alive or stop) and (capped or had[commit]):
+        if (alive or stop) and (capped or (had[commit] and not baseline)):
             # its runner, told to, ends its group within one grace and writes its exit in the next
             worker.kill_marked(str(check), grace=2 * worker.MARK_KILL_GRACE)
             alive = _alive(check, started, now)
         if alive:
             running = True
-        elif had[commit]:
+        elif had[commit] and not (baseline or notice):
             # a pass dates the install it leaves owed (owed_live), so it stays until that passes
             if not (config.STATE / "agentkit-install-pending").exists():
                 shutil.rmtree(check, ignore_errors=True)
@@ -826,11 +853,36 @@ def live_tick(log, now, fetched):
             done.append((started, commit, check, _exit(check, started)))   # read once it ended
     if pruned:
         _git("worktree", "prune")
+    mine = [(started, check, code) for started, commit, check, code in done if commit == tip]
+    base = []
+    if mine and mine[-1][2] != 0:
+        started, check, code = mine[-1]
+        base = [(s, c, rc) for s, commit, c, rc in done if commit == head
+                and _live_ended(c, rc) >= started]
+        if base and code is not None and base[-1][2] not in (None, 0):
+            s, other, rc = base[-1]
+            # Upgrades between the two checks make them incomparable, even after a revert.
+            try:
+                same = not any(began <= max(_live_ended(check, code), _live_ended(other, rc))
+                               and (ended or began + STEP_CAP) > min(started, s)
+                               for _, began, ended in json.loads((config.STATE / SWAPS).read_text()))
+            except FileNotFoundError:
+                same = True
+            except (OSError, ValueError, TypeError):
+                same = False
+            failed = _live_failed(check)
+            if same and failed and failed <= _live_failed(other):
+                _put(check / "baseline", other.name + "\n")
+    needs_base = mine and not base and not _git("cat-file", "-e", f"{head}:tests/live.sh")[0]
     episode = None      # a pass ends what was red before it; one typed or told stands until then
     reds = 0            # red checks in a row since the last pass, whichever commits they checked
-    for _, commit, check, code in done:
+    for started, commit, check, code in done:
+        if commit == head and not (check / "baseline").exists():
+            continue
         record = _handed(episode[1]) if episode else None
-        if code == 0:
+        if _live_passed(check, started):
+            if code != 0:
+                live_hand_back(commit, check, code, log, standing=True)
             episode, reds = None, 0
             continue
         reds += 1
@@ -839,17 +891,18 @@ def live_tick(log, now, fetched):
     if episode:
         # A first red is logged and waits for its retry: the gate makes real model calls, and
         # one provider blip is not main broken.  The second red in a row goes to a seat.
-        live_hand_back(*episode, log, hand=reds > 1)
-    mine = [(started, check, code) for started, commit, check, code in done if commit == tip]
-    if (running or not tip or any(code == 0 for _, _, code in mine)
+        live_hand_back(*episode, log, hand=reds > 1 and (episode[0] != tip or not needs_base))
+    if (running or not tip or any(_live_passed(check, started) for started, check, _ in mine)
             or _git("merge-base", "--is-ancestor", tip, "HEAD")[0] != 1
             or _git("cat-file", "-e", f"{tip}:tests/live.sh")[0]):
         return
     if mine:
         started, check, code = mine[-1]
-        ended = (float((check / "stopped").read_text()) if code is None
-                 else (check / "exit").stat().st_mtime)
-        if now < ended + watch.RETRY_BACKOFF[min(len(mine), len(watch.RETRY_BACKOFF)) - 1]:
+        if needs_base:
+            tip = head
+        ended = _live_ended(check, code)
+        if tip != head and now < ended + watch.RETRY_BACKOFF[
+                min(len(mine), len(watch.RETRY_BACKOFF)) - 1]:
             return
     gitcall.no_auto_gc(agentkit_dir())
     log(f"checking agentkit at {tip[:12]} with tests/live.sh before it goes live")
@@ -896,7 +949,7 @@ def _live_excerpt(said):
     return lines
 
 
-def live_hand_back(commit, check, code, log, hand=True):
+def live_hand_back(commit, check, code, log, hand=True, *, standing=False):
     """Hand that red check of that commit back to fix, once, with its failures and summary;
     with `hand` false it is only logged, as a first red waiting for its retry is.
 
@@ -905,7 +958,8 @@ def live_hand_back(commit, check, code, log, hand=True):
     and `told` once it has.
     """
     record = _handed(check)
-    if record is None:
+    if record is None or (standing and not record.get("standing")
+                          and not (record["typed"] or record["told"])):
         output = check / "output"
         try:    # one that never finished has only what it was writing
             said = (output if output.exists() else check / "output.tmp").read_text(
@@ -913,13 +967,25 @@ def live_hand_back(commit, check, code, log, hand=True):
         except OSError:
             said = ""
         lines = _live_excerpt(said)
+        if standing:
+            labels = sorted(_live_failed(check))
+            lines = [next((line for line in said.splitlines()
+                           if line.startswith(("FAIL  ", "SKIP  ")) and (
+                               line[6:].startswith(f"{label}:") or
+                               label in line[6:].split(":", 1)[0].split(" ", 1)[0].split("/"))),
+                          f"{label}: no failure line recorded")[:LIVE_REPORT_CAP // len(labels)]
+                     for label in labels]
         lines += [] if code is not None else ["[stopped before it finished]"]
-        log(f"WARN agentkit stays as it is: tests/live.sh failed at {commit[:12]}:")
+        log(f"WARN tests/live.sh has standing faults at {commit[:12]}:" if standing else
+            f"WARN agentkit stays as it is: tests/live.sh failed at {commit[:12]}:")
         for line in lines:
             log(f"  {line}")
-        record = dict(line=f"tests/live.sh failed on agentkit's main at {commit[:12]}, so this host "
-                           f"stays on the agentkit it runs: {' / '.join(lines)}. Fix main.",
-                      typed=None, told=False)
+        record = dict(line=(f"tests/live.sh has standing faults on agentkit's main at {commit[:12]}, "
+                            f"also failed on the running install: {' / '.join(lines)}. Fix the standing faults."
+                            if standing else
+                           f"tests/live.sh failed on agentkit's main at {commit[:12]}, so this host "
+                           f"stays on the agentkit it runs: {' / '.join(lines)}. Fix main."),
+                      typed=None, told=False, standing=standing)
         _put(check / "handed", json.dumps(record))
     if hand and _gate_hand_back(check, record, log):
         log(f"handed agentkit's failed tests/live.sh at {commit[:12]} back to fix")

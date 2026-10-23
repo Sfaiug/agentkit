@@ -808,13 +808,23 @@ def gc_due():
     return not (type(at) in (int, float) and now - GC_INTERVAL < at <= now)
 
 
+def own_process_dirs():
+    """This user's /proc entries.  One that exits between the listing and its stat is simply
+    gone: a busy host always has one, and letting it escape skipped every collection."""
+    for proc in retention.process_dirs():
+        try:
+            if proc.stat().st_uid == os.getuid():
+                yield proc
+        except FileNotFoundError:
+            continue
+
+
 def git_busy_paths():
     """A fresh reading of repository users, including writers reached through absolute paths."""
     states = [record.read_state(directory) or {} for directory in record.run_dirs()]
     seats = [seat for seat in orch.sessions() if not seat.get("exited")]
     # Only this user's processes can be ak's. Unknown ones cannot prove a repository idle.
-    processes, hidden = proc_snapshot.collect(
-        proc for proc in retention.process_dirs() if proc.stat().st_uid == os.getuid())
+    processes, hidden = proc_snapshot.collect(own_process_dirs())
     if hidden:
         return None
     # Entry-point arguments identify the program, not the repository it works on.

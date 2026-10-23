@@ -74,7 +74,7 @@ class SwitchCarriesDraft(EditorSeat):
         with patch.object(watch, "asking", return_value=True):
             self.assertTrue(self.switched())
         self.show(DRAFT)
-        self.assertTrue(self.switched(to="opencode"))
+        self.assertTrue(self.switched(to="acme"))     # a harness with no manifest
         self.assertEqual((self.keys, self.buffers), ([], {}))
 
 

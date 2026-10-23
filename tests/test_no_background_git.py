@@ -246,6 +246,20 @@ class NoBackgroundGit(Sandbox):
         self.inventory.side_effect = lambda *_: ({}, [])
         self.assertIn(f"git gc: {self.repo}", self.tick())
 
+    def test_a_process_that_exits_during_the_inventory_is_no_reason_to_skip(self):
+        class Gone(type(Path())):
+            def stat(self, **_kw):
+                raise FileNotFoundError(2, "No such file or directory", str(self))
+
+        def inventory(procs):
+            self.assertEqual(list(procs), [])
+            return {}, []
+
+        self.inventory.side_effect = inventory
+        with patch.object(gc.retention, "process_dirs", return_value=[Gone("/proc/99999998")]):
+            self.assertIn(f"git gc: {self.repo}", self.tick())
+        self.assertNotIn("could not run", "\n".join(self.logs))
+
     def test_a_failed_collection_waits_a_day_and_does_not_stop_other_repositories(self):
         other = self.repository(config.CODE / "widgets")
         real_run = subprocess.run
