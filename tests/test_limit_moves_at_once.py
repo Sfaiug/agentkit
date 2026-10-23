@@ -34,12 +34,15 @@ class LimitMovesAtOnce(unittest.TestCase):
         config.record_hook_fact(NAME, {"session": NAME, "event": event, "kind": "", "text": "",
                                        "at": self.now}, lambda _: False)
 
-    def stop_failure(self):
-        """The owner's answer set the seat working; two seconds on its turn failed on the limit,
-        and the look its StopFailure starts ran.  Each word that look told, with the
-        subscription the seat was on as it was told."""
+    def stop_failure(self, before="PostToolUse", pane="❯"):
+        """The seat was looked at on `pane` after `before`, the owner's answer by default; two
+        seconds on its turn failed on the limit, and the look its StopFailure starts ran.  What
+        that earlier look read, and each word the last one told, with the subscription the seat
+        was on as it was told."""
         os.environ.update(TMUX="/tmp/acme-socket,1,0", TMUX_PANE="%1")
-        self.fact("PostToolUse")
+        self.fact(before)
+        watch.live_state(self.seat, "claude", pane=pane, cfg=self.cfg)
+        before = watch.seat_read(NAME)["state"]
         self.now += 2
         self.pane = f"● {LIMIT}\n❯"
         # the error Claude Code records as its conversation's last event
@@ -50,10 +53,10 @@ class LimitMovesAtOnce(unittest.TestCase):
                           side_effect=lambda _session, answer, **_kw: told.append(
                               (answer["word"], config.session_records()[NAME]["account"]))):
             watch.hook_look(NAME)
-        return told
+        return before, told
 
     def test_a_turn_ended_on_the_limit_moves_to_a_subscription_with_room_in_its_look(self):
-        told = self.stop_failure()
+        _, told = self.stop_failure()
         self.assertEqual(config.session_records()[NAME]["account"], "second")
         self.assertEqual(len(self.commands), 1)
         self.assertIn("AGENTKIT_ACCOUNT=second", self.commands[0])
@@ -62,9 +65,18 @@ class LimitMovesAtOnce(unittest.TestCase):
         self.tick()
         self.assertEqual(len(self.commands), 1)
 
+    def test_a_tool_permission_granted_before_the_limit_does_not_hold_the_move(self):
+        # a granted permission fires no hook: only the look after the failure sees it gone
+        before, told = self.stop_failure(
+            before="PermissionRequest",
+            pane="Do you want to proceed?\n❯ 1. Yes\n  2. No\nEsc to cancel · Tab to amend")
+        self.assertEqual(before, "asking")
+        self.assertEqual(config.session_records()[NAME]["account"], "second")
+        self.assertEqual([account for _, account in told], ["second"])
+
     def test_with_no_room_it_reads_out_of_usage_from_that_look(self):
         self.meters(100, 100)
-        told = self.stop_failure()
+        _, told = self.stop_failure()
         self.assertEqual(told, [("out of usage", "default")])
         self.assertEqual(watch.seat_read(NAME)["word"], "out of usage")
         self.assertEqual(self.commands, [])
