@@ -234,9 +234,10 @@ interactive)
   # jq writes the document, the rulebook read as one string: a Python started for it was more
   # than half of what a launch waited on this adapter.  ASCII out, as that Python wrote it, so
   # the command line stays plain whatever the rulebook says.
+  # The root model is a catalog default; build keeps this launch's model and variant.
   content=$(jq -acRs --arg model "$tagged" --arg plugin "$REPO/hooks/opencode-seat" \
       --argjson more "$(turn_variants "$1")" \
-      '{model: $model, agents: {build: {system: .}}, plugins: [$plugin]} + $more' <"$rb") || {
+      '{model: $model, agents: {build: {model: $model, system: .}}, plugins: [$plugin]} + $more' <"$rb") || {
     echo "opencode.sh interactive: no rulebook for this seat" >&2; exit 2; }
   rules=$(printf 'OPENCODE_CONFIG_CONTENT=%q ' "$content")
   # The seat's first message, when its launch carries one, goes in as the TUI's `--prompt`:

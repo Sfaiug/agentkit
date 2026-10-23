@@ -22,7 +22,7 @@ only while its run holds its lines (`holds`: going, and not waiting on a person 
 provider window), is to land and its checkout is there; a record
 whose pair no longer collides, or whose holder is gone, is cleared on the next scan.
 Lines, never declared paths or whole files: declared paths are guesses, a hold on a whole file
-stalls the files most changes share (half of all pull requests edit a guide), and about 6% of
+stalls the files most changes share, and about 6% of
 concurrent pairs touch the same lines (13 Oct 2026).
 """
 
