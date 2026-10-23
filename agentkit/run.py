@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import (box, command_help, config, gate, gc, gitcall, history, host, job as jobs,
-               land as landing, orch, record as run_record, status, stop, task as taskfile,
+               land as landing, orch, plan, record as run_record, status, stop, task as taskfile,
                turns, usage, watch, worker, worktrees)
 from .deliver import (GITHUB_RETRIES, MERGE_METHODS, PICKUP_HELD, do_merge, end_on_dependency,
     finish_blocked, join_line, land, merge, merge_own_pr, own_pr_heads, pr_head,
@@ -667,9 +667,11 @@ def pickup_while_queued(run_dir, execv=None, current=None):
 def seat_refusal(opts, flags):
     """Why a seat's launch is refused: a seat names no model, no place in the queue and no
     second run of a change under way, since ak picks the models, decides what goes first and
-    refuses the rival itself.  A seat is a recorded session (`config.session_records`);
-    a shell naming none is no seat, and outside a seat the flags stand.  So do a queued child's,
-    which `spawn_bg` starts under the seat's name: they are ak's own pick (a job's rerun on the
+    refuses the rival itself; and it launches only while its plan has an open line, since the
+    plan is what its bar counts and what a review of its pull request checks against
+    (`prompts.plan_context`).  A seat is a recorded session (`config.session_records`);
+    a shell naming none is no seat, and outside a seat neither holds.  Nor in a queued child,
+    which `spawn_bg` starts under the seat's name: it is ak's own pick (a job's rerun on the
     next executor) or the seat's launch, judged at its parsing."""
     if not from_seat():
         return None
@@ -678,6 +680,9 @@ def seat_refusal(opts, flags):
     if given:
         return (f"{', '.join(given)}: not a seat's; ak picks the models, decides what "
                 "goes first and refuses a second run of a change under way, so launch without")
+    if not plan.open_lines(config.current_session()):
+        return ("your plan has no open line, and the plan is what your bar counts: first run "
+                "ak plan add \"<outcome>\" --check '<command>'")
     return None
 
 
