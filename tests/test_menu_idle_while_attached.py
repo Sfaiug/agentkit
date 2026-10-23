@@ -45,7 +45,7 @@ class MenuIdleWhileAttached(Sandbox):
             listings.append(SEAT)
             return [{"name": SEAT, "closed": True}]     # stopped too, so `p` is a key
 
-        def run_records():
+        def run_records(**_kw):
             runs.append(SEAT)
             return []
 
@@ -106,7 +106,7 @@ class MenuIdleWhileAttached(Sandbox):
             listings.append(len(found))
             return list(found)
 
-        def run_records():
+        def run_records(**_kw):
             runs.append(len(found))
             return [(None, {"read": len(runs)})]     # which read a pass looks from
 

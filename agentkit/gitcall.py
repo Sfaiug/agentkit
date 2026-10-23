@@ -8,6 +8,7 @@ The run's child environment, depth and logger live here too, as every leaf start
 """
 
 import codecs
+import fcntl
 import hashlib
 import os
 import re
@@ -654,9 +655,12 @@ def main_checkout(repo):
     cannot read as a checkout -- gone, never one, or a git that never answered -- keys on
     itself: a turn's key is not worth stopping the run over.
     """
+    from . import update, versions
     code, out, _ = tool_run(["git", "-C", str(repo), "rev-parse", "--git-common-dir"])
-    common = out.strip() if code == 0 else ""
-    return (Path(repo) / common).resolve().parent if common else Path(repo)
+    common = (Path(repo) / out.strip()).resolve() if code == 0 and out.strip() else None
+    if common == versions.repository().resolve():
+        return update.agentkit_dir()     # ak's own: each version of ~/agentkit is a worktree of it
+    return common.parent if common else Path(repo)
 
 
 def leftover_junk(path):
@@ -902,14 +906,41 @@ def links(work):
 MAKING = "ak is making this checkout"
 
 
+@contextmanager
+def repository_lock(repo, *, exclusive=False):
+    # Lock the shared git directory itself: preparation waits for gc, and gc skips a
+    # preparation in progress. No lock file or checkout-specific identity can drift apart.
+    env = project_env(repo)
+    common = git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir", env=env)
+    directory = os.open(common, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(directory, fcntl.LOCK_EX | fcntl.LOCK_NB if exclusive else fcntl.LOCK_SH)
+        yield env
+    finally:
+        os.close(directory)
+
+
+def no_auto_gc(repo):
+    # Linked worktrees share this config: a turn's detached gc can lock all their HEADs,
+    # then leave those locks behind when the worker stops its leftover processes.
+    with repository_lock(repo) as env:
+        for key, value in (("gc.auto", "0"), ("maintenance.auto", "false")):
+            if git(repo, "config", "--local", "--get", key, check=False, env=env) != value:
+                git(repo, "config", "--local", "--replace-all", key, value, env=env)
+            if git(repo, "config", "--get", key, check=False, env=env) != value:
+                git(repo, "config", "--worktree", "--replace-all", key, value, env=env)
+
+
 def add_worktree(repo, path, *args, mark=None):
     """(exit code, output) of `git worktree add` making `path`, locked as `MAKING` until git
     has made it and, given `mark`, that file is in the checkout's own git directory."""
-    code, out = git_out(repo, "worktree", "add", "--lock", "--reason", MAKING, str(path), *args)
-    if code == 0:
-        if mark:
-            (Path(git(path, "rev-parse", "--absolute-git-dir")) / mark).touch()
-        code, out = git_out(repo, "worktree", "unlock", str(path))
+    with repository_lock(repo):
+        no_auto_gc(repo)
+        code, out = git_out(repo, "worktree", "add", "--lock", "--reason", MAKING, str(path), *args)
+        if code == 0:
+            if mark:
+                (Path(git(path, "rev-parse", "--absolute-git-dir")) / mark).touch()
+            code, out = git_out(repo, "worktree", "unlock", str(path))
     return code, out
 
 
