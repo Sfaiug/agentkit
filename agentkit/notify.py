@@ -486,6 +486,10 @@ def answered(session, at, typed=None, replies=None):
     """
     from . import watch    # here, not at the top: watch imports this module
     with session_lock(session) as session:
+        # a standing question asked again, kept back under a newer card, is that card's now,
+        # as its turn's end will record it (`_said`)
+        renewed = {question_key(q["text"]): q.get("id")
+                   for q in watch.questions_kept(watch.seat_read(session).get("unasked"))}
         partial = (watch.answered_kept(session, replies, typed or at)
                    if replies is not None else False)
         ask_kept(session, ended=True)
@@ -496,7 +500,7 @@ def answered(session, at, typed=None, replies=None):
             return
         if replies is not None and previous:
             keys = set(replies)
-            ids = previous.get("question_ids") or {}
+            ids = {**(previous.get("question_ids") or {}), **renewed}
             dates = previous.get("question_times") or previous.get("asked_at") or {}
             matched = [q for q in questions(previous) if ids.get(question_key(q)) in keys
                        and dates.get(question_key(q), previous["time"]) < (typed or at)]
