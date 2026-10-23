@@ -36,7 +36,7 @@ import tempfile
 import time
 from datetime import datetime
 
-from . import command_help, config, host, orch, retention, worker
+from . import command_help, config, gitcall, host, orch, retention, versions, worker
 from .harness import load as harness_plugin
 
 VERSION = re.compile(r"\d+\.\d+\.\d+[^\s()]*")
@@ -496,7 +496,9 @@ def _git(*args, timeout=60):
 
 def left_as_is():
     """Why ~/agentkit is somebody's work -- `dirty`, or on another branch -- or "" when it is
-    main as origin left it, which a fast-forward may move."""
+    main as origin left it, or a version ak swapped in (`versions`), which a move may swap."""
+    if versions.owned(agentkit_dir()):
+        return ""
     _, branch = _git("symbolic-ref", "--quiet", "--short", "HEAD")
     code, changes = _git("status", "--porcelain", "--untracked-files=normal")
     return (f"on {branch or 'a detached HEAD'}, not main" if branch != "main"
@@ -530,17 +532,18 @@ def startup():
 
 
 def update_agentkit(progress=None, pull=True):
-    """Fast-forward ~/agentkit and reinstall from it; the exit code.
+    """Move ~/agentkit forward and reinstall from it; the exit code.
 
-    A fast-forward of main only, never a merge: a checkout with its own commits, changes of
-    its own or another branch out is somebody's work, and is left as it is, saying so.
+    Forward on main only, the new version swapped in whole (`versions.switch`): a clone with
+    its own commits, changes of its own or another branch out is somebody's work, and is left
+    as it is, saying so.
     Everything both commands print is said out loud, because the menu shows the last lines
     of it; stdout is a pipe, so install.sh sees no tty and asks no questions.
     `progress(done, total)` hears of each step as it begins and of the last one's end: `ak`'s
     start fills the rule under its header from it, and the fetch is a step of its own, so the
-    rule moves through the network wait.  The fast-forward goes to `live_target`, and with none
+    rule moves through the network wait.  The move goes to `live_target`, and with none
     nothing moves or reinstalls.  `pull=False` only reinstalls what is checked out; a commit
-    fast-forwards to exactly it, already fetched.
+    moves to exactly it, already fetched.
     """
     config.ensure_dirs()
     with (config.TMP / MOVING).open("a") as lock:
@@ -558,19 +561,25 @@ def update_agentkit(progress=None, pull=True):
             say("update: agentkit: moves once the harness upgrade running now ends")
             return 0
         install = [str(directory / "install.sh")]
-        merge = ["git", "-C", str(directory), "merge", "--ff-only"]   # to a commit known later
-        steps = ([["git", "-C", str(directory), "fetch", "--quiet", "origin", "main"], merge]
-                 if pull is True else [merge] if pull else []) + [install]
+        swap = ["swap"]     # to a commit known later, by `versions.switch`: no command of its own
+        steps = ([["git", "-C", str(directory), "fetch", "--quiet", "origin", "main"], swap]
+                 if pull is True else [swap] if pull else []) + [install]
         pending = config.STATE / "agentkit-install-pending"
         for done, cmd in enumerate(steps):
             if progress:
                 progress(done, len(steps))
-            if cmd is merge:
+            if cmd is swap:
                 target = pull if isinstance(pull, str) else live_target()
                 if not target:
                     say("update: agentkit: origin/main moves here once its tests/live.sh passed")
                     return 0
-                cmd = [*merge, target]
+                say(f"update: {directory} goes to {target[:12]}")
+                pending.touch()     # a tick cut off once it is swapped in still owes the install
+                why = versions.switch(directory, target)
+                if why:
+                    say(f"update: {why}")
+                    return 1
+                continue
             if cmd is install:
                 # here until install.sh passes: the pull has already moved HEAD, so origin/main
                 # is no longer ahead of it, and only this tells the tick to run it again (go_live)
@@ -658,6 +667,7 @@ def go_live(log, now=None):
     """
     if agentkit_dir().resolve() != config.REPO:
         return
+    versions.finish(agentkit_dir())
     fetched = not _git("fetch", "--quiet", "origin", "main", timeout=FETCH_CAP)[0]
     live_tick(log, time.time() if now is None else now, fetched)
     target = live_target() if fetched else ""
@@ -733,7 +743,7 @@ def _handed(check):
 
 
 def live_target():
-    """The commit a fast-forward of ~/agentkit goes to, or "" while there is none.
+    """The commit a move of ~/agentkit goes to, or "" while there is none.
 
     origin/main when the checkout has it already, when it has no `tests/live.sh`, or when a
     check of it passed; else the newest commit between the checkout and it whose check passed,
@@ -841,6 +851,7 @@ def live_tick(log, now, fetched):
                  else (check / "exit").stat().st_mtime)
         if now < ended + watch.RETRY_BACKOFF[min(len(mine), len(watch.RETRY_BACKOFF)) - 1]:
             return
+    gitcall.no_auto_gc(agentkit_dir())
     log(f"checking agentkit at {tip[:12]} with tests/live.sh before it goes live")
     check = config.STATE / LIVE / f"{tip}-{int(now)}"
     check.mkdir(parents=True)
@@ -1157,7 +1168,7 @@ def main(argv):
             print(f"update: agentkit: skipped: {why}")
         else:
             print(f"update: agentkit {agentkit_version() or '?'}: "
-                  f"would fast-forward (`git merge --ff-only` + `install.sh`)")
+                  f"would move forward (the next version swapped in + `install.sh`)")
         return 0
 
     plan = [h for h in plan if h["name"] not in absent]
