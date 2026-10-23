@@ -84,16 +84,17 @@ class Cards(unittest.TestCase):
             sent.append(message)
             receipt.update(status="pending" if len(sent) == 1 else "delivered")
             return 0
-        clock = [200]
+        clock, seat = [200], [self.answer("needs you", 100)]
         notify.record("seat", "needs", "First", time=100)
         with patch.object(notify, "post", side_effect=post), \
-                patch.object(notify.time, "time", side_effect=lambda: clock[0]):
-            self.transition("seat", self.answer("needs you", 100), now=200)
-            clock[0] = 1000     # past its retry
-            self.transition("seat", self.answer("working", 1000), now=1000)
+                patch.object(notify.time, "time", side_effect=lambda: clock[0]), \
+                patch.object(watch, "session_state", side_effect=lambda *_a, **_k: seat[0]):
+            notify.transition("seat", now=200)
+            # its turn begins after the card pass, and the retry is due meanwhile
+            clock[0], seat[0] = 1000, self.answer("working", 1000)
             notify.retry_pending()
             self.assertEqual(len(sent), 1)
-            self.transition("seat", self.answer("needs you", 1100), now=1100)
+            seat[0] = self.answer("needs you", 1100)
             notify.retry_pending()
         self.assertEqual(len(sent), 2)
 
