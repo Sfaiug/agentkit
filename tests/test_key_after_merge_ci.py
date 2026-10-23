@@ -8,39 +8,27 @@ request's where the check names no page of its own.  Only the newest failing mer
 repository is told, and only once: a break already told holds back a later failing merge
 there, and a later merge that passed tells nothing.  An older merge tells nothing; a seat in a
 turn is told at its next prompt; a tick GitHub does not answer tells nothing, and the next one
-does.  None of it pages the owner.  The `health:` half of the same pass is
-tests/test_key_health_pass.py's.  Black-box: the program `AK_BIN` names runs from outside
-through tests/fixtures/akbin.py, on projects from gitrig.py, the GitHub of fakegh.py, seats
-from akseat.py and the webhook of sink.py.
+does.  None of it pages the owner.  Black-box: the program `AK_BIN` names runs from outside
+through tests/fixtures/akbin.py, each tick in the box `home.tick()` builds, on projects from
+gitrig.py, the GitHub of fakegh.py, seats from akseat.py and the webhook of sink.py.
 """
 
-import socket
 from pathlib import Path
 import sys
 import time
 import unittest
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, boxable, Home
 from fixtures.akseat import Seat
 from fixtures.fakegh import OFFLINE, GitHub
 from fixtures.gitrig import Rig
 from fixtures.sink import Sink
 
-# Bound and never listening, so every connection to it is refused: a tick also reads the public
-# model boards and the host's shared browser, and through this proxy it reaches neither.
-_REFUSER = socket.socket()
-_REFUSER.bind(("127.0.0.1", 0))
-REFUSED = f"http://127.0.0.1:{_REFUSER.getsockname()[1]}"
-
 
 def tick(home):
-    sink = urlsplit(home.env.get("AK_NOTIFY_SINK") or "").netloc
-    proxies = {name: REFUSED for name in ("http_proxy", "https_proxy", "HTTP_PROXY",
-                                         "HTTPS_PROXY")}
-    done = home.ak("watch", env={**proxies, "no_proxy": sink, "NO_PROXY": sink})
+    done = home.tick()
     assert done.code == 0, done.out + done.err
 
 
@@ -50,6 +38,7 @@ def told(check, repo, number):
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class Merges(unittest.TestCase):
     """A Home of projects, each with the seat that merged into it."""
 

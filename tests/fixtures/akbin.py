@@ -51,10 +51,32 @@ REFUSED = ("gh", "ssh", "curl", "systemctl", "systemd-run", "loginctl", "journal
 
 Done = namedtuple("Done", "code out err")
 
-# A tick's last breath in its box: what it detached is waited out before the box goes.
+# A tick's last breath in its box: what it detached is waited out before the box goes.  The
+# box's loopback is its own, so each of the test's servers in `home.loopback` is carried in from
+# its socket file to its port there.
 _LAST = r"""
-import os, subprocess, sys, time
-code = subprocess.call(sys.argv[1:])
+import json, os, socket, subprocess, sys, threading, time
+
+def pipe(source, target):
+    try:
+        while data := source.recv(65536):
+            target.sendall(data)
+        target.shutdown(socket.SHUT_WR)
+    except OSError:
+        pass    # the other end went first
+
+def carry(listener, path):
+    while True:
+        near, _ = listener.accept()
+        far = socket.socket(socket.AF_UNIX)
+        far.connect(path)
+        for ends in ((near, far), (far, near)):
+            threading.Thread(target=pipe, args=ends, daemon=True).start()
+
+for port, path in json.loads(sys.argv[1]).items():
+    listener = socket.create_server(("127.0.0.1", int(port)))
+    threading.Thread(target=carry, args=(listener, path), daemon=True).start()
+code = subprocess.call(sys.argv[2:])
 deadline = time.monotonic() + 60
 while time.monotonic() < deadline:
     if not [p for p in os.listdir("/proc") if p.isdigit() and int(p) not in (1, os.getpid())]:
@@ -116,6 +138,7 @@ class Home:
         # A socket's path must fit in 104 bytes, and TMPDIR may be deep inside a checkout.
         self.tmux_dir = Path(tempfile.mkdtemp(prefix="akt-", dir="/tmp")).resolve()
         self._spawned = []
+        self.loopback = {}      # port -> socket file of a test's server a tick's box reaches
         for directory in (self.path / ".agentkit" / "state", self.bin, self.root / "tmp",
                           self.root / "run", self.root / "logs"):
             directory.mkdir(parents=True)
@@ -253,11 +276,12 @@ class Home:
     def tick(self, env=None):
         """One `ak watch`, boxed: a tick asks the public boards and the shared browser on
         loopback, so it gets a loopback of its own, and its collection sweeps /tmp, so it gets
-        one holding only this Home and the program."""
+        one holding only this Home and the program; `home.loopback` is carried into it."""
         keep = {self.root, self.tmux_dir, REPO, Path(AK).resolve().parent}
         binds = [arg for path in sorted(map(str, keep), key=len)
                  if Path(path).is_relative_to("/tmp") for arg in ("--bind", path, path)]
-        return self.run(*_BOX, *binds, "--", sys.executable, "-c", _LAST, AK, "watch", env=env)
+        return self.run(*_BOX, *binds, "--", sys.executable, "-c", _LAST,
+                        json.dumps(self.loopback), AK, "watch", env=env)
 
     def spawn(self, *args, env=None, cwd=None):
         """Start the program and leave it running, its output in `home.log(...)`; `close` ends
