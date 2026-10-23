@@ -138,10 +138,10 @@ def host_status_line():
     return f"{first}\n{heavy}"
 
 
-def slot_counts(state):
+def slot_counts(state, *, remember=False):
     """Live slot owners, top-level receipts ahead of this one (including dead waiters), and
-    the other waiters' run ids in queue order."""
-    running, waiting = 0, []
+    the other waiters' run ids in queue order. Under slot_lock, `remember` saves their turns."""
+    running, waiting = 0, [state]
     for directory in run_record.run_dirs():
         other = run_record.read_state(directory) or {}
         if other.get("run_id") == state.get("run_id") or other.get("run_depth", 0):
@@ -149,38 +149,57 @@ def slot_counts(state):
         if other.get("state") == "running" and run_record.process_active(other):
             running += 1
         elif other.get("state") == "queued" and other.get("slot_waiting"):
-            waiting.append(slot_order(other))
-    waiting.sort()
-    mine = slot_order(state)
-    return running, sum(order < mine for order in waiting), [order[-1] for order in waiting]
+            waiting.append(other)
+    previous, seats, orders = slot_queue()[5], {}, {}
+    for other in sorted(waiting, key=slot_order):
+        order = slot_order(other)
+        seat = (order[:3], other.get("launched_session") or ("run", order[-1]))
+        before = previous.get(order[-1], ())
+        # Keep a waiter's turn as earlier runs leave; recounting from zero would let a
+        # busy seat's second run become its first again, ahead of another seat's first.
+        rank = before[3] if before[:3] + before[4:] == order else 0
+        rank = max(seats.get(seat, 0), rank)
+        seats[seat] = rank + 1
+        orders[order[-1]] = (*order[:3], rank, *order[3:])
+    queue = [order[-1] for order in sorted(orders.values())]
+    ahead = queue.index(state.get("run_id") or "")
+    if remember:
+        _save_queue(running, queue, orders=orders)
+    return running, ahead, queue[:ahead] + queue[ahead + 1:]
 
 
-def _save_queue(running, queue, let_in=None):
+def _save_queue(running, queue, let_in=None, orders=None):
     """Under slot_lock: the queue as this poll decided it, for the waiters behind its first,
     since when that first has waited there while polled (`first_in_line`), and how long the last
     20 firsts waited there before they were let in (`let_in`, the run this poll lets in), kept
     across gaps in the polling."""
     path, now = config.RUNS / ".slots.queue", time.time()
-    waits, took = first_in_line(now), slot_queue()[4]
+    waits, saved = first_in_line(now), slot_queue()
+    took = saved[4]
+    orders = saved[5] if orders is None else orders
     if waits and let_in == waits[0]:
         took = [*took, now - waits[1]][-20:]
     since = waits[1] if waits and queue[:1] == [waits[0]] else now
     temp = path.with_name(".slots.queue.tmp")
     temp.write_text(json.dumps({"at": now, "running": running, "queue": queue, "since": since,
-                                "took": took}))
+                                "took": took,
+                                "orders": {run_id: orders[run_id] for run_id in queue
+                                           if run_id in orders}}))
     temp.replace(path)
 
 
 def slot_queue():
     """(when, live slot owners, waiting run ids first in line first, since when that first has
-    waited there, the waits there of the last firsts let in) as the last poll left them."""
+    waited there, the waits there of the last firsts let in, waiting admission orders) as the
+    last poll left them."""
     try:
         saved = json.loads((config.RUNS / ".slots.queue").read_text())
         return (float(saved["at"]), int(saved["running"]),
                 [str(run_id) for run_id in saved["queue"]], float(saved.get("since") or 0),
-                [float(wait) for wait in saved.get("took") or []])
+                [float(wait) for wait in saved.get("took") or []],
+                {run_id: tuple(order) for run_id, order in saved.get("orders", {}).items()})
     except (OSError, ValueError, KeyError, TypeError):
-        return 0.0, 0, [], 0.0, []
+        return 0.0, 0, [], 0.0, [], {}
 
 
 def first_in_line(now):
@@ -189,7 +208,7 @@ def first_in_line(now):
     for `stuck`: its first polls every one, and once it is gone a waiter behind it within three
     (`behind_first`); after a gap, a new wait.  A poll newer than `now`, one that ran while the
     caller read, is the same wait."""
-    at, _, queue, since, took = slot_queue()
+    at, _, queue, since, took, _ = slot_queue()
     if queue and since and now - at < 4 * SLOT_POLL:
         return queue[0], since, len(queue) - 1, took
     return None
@@ -344,16 +363,15 @@ def _host_admits(state, readings, is_first):
 
 
 def claim_slot(state, limit, readings=None):
-    """Called under slot_lock: count, FIFO and two steady host polls decide admission."""
-    running, ahead, others = slot_counts(state)
+    """Called under slot_lock: count, seat turns and two steady host polls decide admission."""
     # AK_MAX_RUNS=0 is the test-suite escape hatch: it disables count and host gates together.
     ungated = os.environ.get("AK_MAX_RUNS") == "0"
+    running, ahead, others = slot_counts(state, remember=not (state.get("run_depth", 0) or ungated))
     if state.get("run_depth", 0) or ungated:
         state.update(state="running", slot_waiting=False, slot_started_at=time.time(),
                      **run_record.process_owner())
         state.pop("resume_from", None)
         return True
-    _save_queue(running, others[:ahead] + [state.get("run_id")] + others[ahead:])
     is_first = not slot_order(state)[0]
     if ahead or (limit and running >= limit and not is_first):
         state["slot_waited"] = True
