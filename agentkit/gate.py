@@ -1160,19 +1160,22 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
             helper.finish(away)
 
 
-def suite_env():
-    """A done-when command's environment, `AK_HEAVY_TURN=1` only while this thread holds a turn.
+def suite_env(changed=None):
+    """A done-when command's environment, `AK_HEAVY_TURN=1` only while this thread holds a turn,
+    and `AK_CHANGED` naming the file `changed` when given.
 
     A suite that queues behind a host-wide lock of its own would hold the turn for as long as
     another copy holds that lock; told it holds one, it says busy at once instead, exit
     `SUITE_BUSY`, and `busy_turn` gives the turn back.  Never inherited: a loop started below
-    a suite holds none of that suite's turn, nor its share or test lists.
+    a suite holds none of that suite's turn, nor its share, path or test lists.
     """
     env = gitcall.run_child_env()
-    for key in ("AK_HEAVY_TURN", "AK_SHARD", "AK_ONLY", "AK_FAILED", "AK_RAN"):
+    for key in ("AK_HEAVY_TURN", "AK_SHARD", "AK_ONLY", "AK_FAILED", "AK_RAN", "AK_CHANGED"):
         env.pop(key, None)
     if getattr(_GATE_HELD, "hold", None) is not None:
         env["AK_HEAVY_TURN"] = "1"
+    if changed is not None:
+        env["AK_CHANGED"] = str(changed)
     return env
 
 
@@ -1212,6 +1215,10 @@ def flaky_key(line):
 
 def names_shard(command):
     return re.search(r"\bAK_SHARD\b", command) is not None
+
+
+def names_changed(command):
+    return re.search(r"\bAK_CHANGED\b", command) is not None
 
 
 def suite_cost(command, cwd, run_dir):
@@ -1387,7 +1394,7 @@ def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed"):
 
 def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
               on_wait=None, measure=False, shard=None, pieces=None, later=None, only=None,
-              confirmed=None, **kwargs):
+              confirmed=None, changed=None, **kwargs):
     """One command, or all its opted-in pieces, with failed pieces retried alone.
 
     Callers keep one command and one outcome. Each piece has its own silence window;
@@ -1404,9 +1411,12 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     again, alone, after its siblings, which run on.
     `confirmed`, a dict, gets by share the tests a red piece named that failed again alone;
     with `shard` and `only`, those of them its run named both as run and as failed (`AK_FAILED`)
-    where it ended in a failing exit: one dead by a signal, its exit negative, repeats nothing.
+    where it ended in a failing exit: one dead by a signal, its exit negative, repeats nothing;
+    for a command not split, under `1/1`, those its failing run named as failed.
+    `changed`, a file of paths, is what `AK_CHANGED` names; a piece on the suite helper runs
+    without it, so whole.
     """
-    env = suite_env()
+    env = suite_env(changed)
     if shard is not None:
         label, share = ((shard, shard) if only is None else
                         (f"{shard}, its failed tests alone", "1/1"))
@@ -1437,10 +1447,13 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             if measured:
                 measured.sample()
             return aborting() if aborting else False
+        failed = None if confirmed is None else []
         result = worker.boxed(["bash", "-c", command], limit, cwd=str(cwd), activity=activity,
                               output=output, env=env, abort=abort,
                               cpu=measured.cpu if measured else None,
-                              quiet=measured.quiet if measured else None, **kwargs)
+                              quiet=measured.quiet if measured else None, failed=failed, **kwargs)
+        if failed is not None:
+            confirmed["1/1"] = failed if result[0] > 0 else []
         if measured and not result[2] and result[0] != SUITE_BUSY:
             measured.save(path, 1)
             measured.paced(path, 1)
@@ -1454,7 +1467,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             count += away.count
         elif not hold:
             count = derived_heavy_limit(running=0, job_cpus=cpu, job_mem_mb=mem, unit=True)
-        env = suite_env()    # the piece threads do not inherit this thread's held turn
+        env = suite_env(changed)    # the piece threads do not inherit this thread's held turn
         deadline = time.monotonic() + limit
         cancel, writing = threading.Event(), threading.Lock()
         last_shard = None
@@ -1616,7 +1629,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     deadline += queued
                     if on_wait is not None:
                         on_wait(queued)
-                env = suite_env()
+                env = suite_env(changed)
                 if again:
                     attempts(again)
             hold = getattr(_GATE_HELD, "hold", None)
@@ -1641,7 +1654,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         hold = getattr(_GATE_HELD, "hold", None)
                         if hold is not None:
                             hold.alone()
-                        env = suite_env()
+                        env = suite_env(changed)
                     elif only is not None:
                         # Failing again alone, the tests the piece named confirm it red in a
                         # fraction of its time; passing, the whole piece decides, as a failure
@@ -1725,7 +1738,7 @@ def _running_commands(pid):
 
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
                   run_dir=None, heavy=False, marks=None, shard=None, pieces=None, only=None,
-                  confirmed=None):
+                  confirmed=None, changed=None):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -1765,7 +1778,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     for each sharded command's pieces, by command then share (`run_suite`); `shard` runs
     every command as that one piece alone, a command like any other, its re-run included,
     and with `only` just those of its tests.  `confirmed`, a dict, gets by command what
-    `run_suite` confirms: the tests a red piece named that failed again alone.
+    `run_suite` confirms: the tests a red piece named that failed again alone.  `changed`, a
+    file of paths, is what `AK_CHANGED` names to every command.
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
@@ -1813,7 +1827,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         run_dir=run_dir, log=log, on_wait=waited, measure=heavy, shard=shard,
                         pieces=None if pieces is None else pieces.setdefault(cmd, {}),
                         only=only,
-                        confirmed=None if confirmed is None else confirmed.setdefault(cmd, {}))
+                        confirmed=None if confirmed is None else confirmed.setdefault(cmd, {}),
+                        changed=changed)
                     end = progress.tell()
                 if log is not None and run_dir is not None:
                     turns.memory_cap_note(run_dir, log)

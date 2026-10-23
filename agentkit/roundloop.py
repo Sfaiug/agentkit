@@ -551,6 +551,10 @@ def verify_work(lp, cmds=None):
     ok, text = gate.run_done_when(cmds, lp.wt, lp.round_dir / "donewhen.log", lp.artifacts,
                                   lp.done_when_limit, lp.log, silence=lp.turn_limit,
                                   run_dir=lp.run_dir)
+    suite_ok, suite_text = affected_suite(lp)
+    if suite_text:
+        ok &= suite_ok
+        text = f"{suite_text}\n\n{text}"
     if not lp.scratch and not lp.state.get("review_pr") and (
             not clean or gitcall.commit_identity(lp.wt) != lp.validation or
             gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
@@ -575,6 +579,63 @@ def verify_work(lp, cmds=None):
                 + text)
         (lp.round_dir / "donewhen.log").write_text(text)
     return ok, text
+
+
+def affected_suite(lp):
+    """(whether it passed, what it said) of the `# once` suite naming `AK_CHANGED`, which every
+    round runs besides the task's own checks; (True, "") where none names it.
+
+    The suite narrows itself to the tests the change can affect, from the file `AK_CHANGED`
+    names: the paths the change edits relative to the target, one per line.  It runs on HEAD
+    merged onto the target as just fetched, so a sibling merged since meets the change here
+    rather than in the landing line, in a clone of its own, on the heavy-suite turns and shares
+    a landing check takes.  A red whose failing tests (`AK_FAILED`) all fail again on the
+    target's tip alone (`AK_ONLY`) is the target's, not the change's: it passes, and says which.
+    """
+    from . import gate, leases  # here, not at the top: gate reaches run
+    suite = next((cmd for cmd in lp.once if gate.names_changed(cmd)), None)
+    if not suite or not lp.upstream:
+        return True, ""
+    if gitcall.fetch(lp.wt, "origin", lp.upstream.removeprefix("origin/"))[0]:
+        lp.log(f"WARN cannot fetch {lp.upstream}: the suite meets it as last fetched")
+    tip = gitcall.git(lp.wt, "rev-parse", f"{lp.upstream}^{{commit}}")
+    head = gitcall.git(lp.wt, "rev-parse", "HEAD")
+    where = f"{head[:12]} merged onto {lp.upstream} at {tip[:12]}"
+    with tempfile.TemporaryDirectory(dir=lp.run_dir) as tmp:
+        checkout, changed = Path(tmp) / "checkout", Path(tmp) / "changed"
+        gitcall.git(lp.wt, "clone", "--quiet", "--shared", "--no-checkout", str(lp.wt), str(checkout))
+        code, tree = gitcall.git_out(checkout, "merge-tree", "--write-tree", "--name-only", tip, head)
+        if code:
+            return False, f"$ {suite}\n[not run: {where} does not merge cleanly]\n{tree}"
+        merged = gitcall.git(checkout, "commit-tree", tree.splitlines()[0], "-p", tip, "-p", head,
+                             "-m", where, env=leases.STAMP)
+        gitcall.git(checkout, "checkout", "--quiet", "--detach", merged)
+        paths = [p for p in gitcall.git(checkout, "diff", "--name-only", "-z", "--no-renames",
+                                        tip, merged).split("\0") if p]
+        changed.write_text("".join(f"{path}\n" for path in paths))
+        pieces, confirmed = {}, {}
+        ok, text = gate.run_done_when([suite], checkout, lp.round_dir / "suite.log", set(),
+                                      lp.done_when_limit, lp.log, silence=lp.turn_limit,
+                                      run_dir=lp.run_dir, heavy=True, pieces=pieces,
+                                      confirmed=confirmed, changed=changed)
+        text = f"The `tests:` suite on {where}, AK_CHANGED listing its {len(paths)} paths:\n\n{text}"
+        named = confirmed.get(suite, {})
+        reds = [share for share, code in pieces.get(suite, {}).items() if code != 0] or ["1/1"]
+        failed = sorted({test for share in reds for test in named.get(share) or ()})
+        if ok or not all(named.get(share) for share in reds):
+            return ok, text
+        gitcall.git(checkout, "checkout", "--quiet", "--force", "--detach", tip)
+        gitcall.git(checkout, "clean", "-fdqx")
+        again = {}
+        gate.run_done_when([suite], checkout, lp.round_dir / "suite-target.log", set(),
+                           lp.done_when_limit, lp.log, silence=lp.turn_limit, run_dir=lp.run_dir,
+                           heavy=True, shard="1/1", only=failed, confirmed=again)
+    theirs = [test for test in failed if test in (again.get(suite) or {}).get("1/1", ())]
+    if not theirs:
+        return False, text
+    said = f"failing on {lp.upstream} at {tip[:12]} alone too, the target's own: {' '.join(theirs)}"
+    lp.log(f"done-when: the suite's tests {said}")
+    return theirs == failed, f"{text}\n\nTests {said}"
 
 
 def passed_review_head(state):
