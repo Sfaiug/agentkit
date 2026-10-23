@@ -412,6 +412,28 @@ smoke_home() {
     [ ! -f "$SMOKE_CALLER_HOME/.agentkit/state/$path" ] ||
       cp -p "$SMOKE_CALLER_HOME/.agentkit/state/$path" "$HOME/.agentkit/state/$path"
   done
+  # A multi-provider harness must use the caller's choice, not require an unused subscription.
+  # Keep the suite's aliases and default login; all config writes stay in this HOME.
+  PYTHONPATH="$REPO/tests:$REPO" python3 - "$SMOKE_CALLER_HOME" <<'PY' || exit 1
+import sys
+from pathlib import Path
+from unittest.mock import patch
+from agentkit import config
+from check_harness_contract import selected_model
+cfg = config.load()
+with patch.object(config, "HOME", Path(sys.argv[1]) / ".agentkit"):
+    caller = config.load()
+for name, entry in cfg["models"].items():
+    selected = selected_model(caller, entry["harness"])
+    if selected:
+        cfg["models"][name] = selected
+        provider = selected["provider"]
+        cfg["providers"][provider] = {key: value for key, value in caller["providers"][provider].items()
+                                      if key not in ("accounts", "usage_model", "usage_effort")}
+needed = {entry["provider"] for entry in cfg["models"].values()}
+cfg["providers"] = {name: entry for name, entry in cfg["providers"].items() if name in needed}
+config.save(cfg)
+PY
   # The sandbox runs the caller's harness installs, so the host's install or revert of one is
   # a swap here too: link its record live, one the host may have yet to write.
   ln -s -- "$SMOKE_CALLER_HOME/.agentkit/state/harness-swaps.json" \
