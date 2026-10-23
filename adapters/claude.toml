@@ -3,6 +3,8 @@
 # is the adapter contract in docs/guide.md, "Adding a harness".
 # Verified against Claude Code 2.1.263; see tests/fixtures/README.md for the captures.
 version = 1
+name = "Claude Code"
+colour = "#D97757"
 
 [check]
 model = "claude-haiku-4-5"
