@@ -52,7 +52,7 @@ class WorkerLoginExpired(unittest.TestCase):
     def answers_after_the_turn(self, line):
         # The fake's answers file, as Adapter.answer writes it: the turn changes what `auth`
         # says only after the launch was let through.
-        return {str(self.fake.dir / "codex.answers"): json.dumps([["auth", [], line, 1]])}
+        return {str(self.fake.dir / "codex.answers"): json.dumps({"auth": [line, 1]})}
 
     def test_an_auth_verb_saying_no_stops_the_worker_before_any_turn(self):
         self.fake.answer("auth", "token expired; run login", 1)

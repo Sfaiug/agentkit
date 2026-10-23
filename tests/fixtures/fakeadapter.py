@@ -99,8 +99,8 @@ class Adapter:
     def answer(self, verb, out, code=0, given=()):
         """What a verb other than `run` prints, and its exit status, from now on: for its calls
         whose arguments end in `given`, every call when it is empty."""
-        answers = self._json("answers") or []
-        self._put("answers", json.dumps([*answers, [verb, list(given), out, code]]))
+        answers = self._json("answers") or {}
+        self._put("answers", json.dumps({**answers, " ".join([verb, *given]): [out, code]}))
 
     @property
     def n(self):
@@ -164,11 +164,11 @@ def main(directory, harness, ak, verb="", *args):
     call = {"verb": verb, "argv": list(args), "cwd": os.getcwd(),
             "env": {k: v for k, v in os.environ.items() if k.startswith(("AK_", "AGENTKIT_"))}}
     if verb != "run":
-        # the newest answer that fits this call
-        out, code = next((answer[2:] for answer in reversed(fake._json("answers") or [])
-                          if answer[0] == verb
-                          and list(args[len(args) - len(answer[1]):]) == answer[1]),
-                         [ANSWERS.get(verb, f"fake {harness}: {verb}"), 0])
+        # the answer set for the most of the arguments this call ends in
+        answers = fake._json("answers") or {}
+        out, code = next((answers[key] for key in (" ".join([verb, *args[i:]])
+                                                   for i in range(len(args) + 1))
+                          if key in answers), [ANSWERS.get(verb, f"fake {harness}: {verb}"), 0])
         print(out)
     else:
         code = turn(fake, ak, call, *args)

@@ -157,9 +157,9 @@ class ConfigScreenEdits(unittest.TestCase):
                                                    for line in rows(screen)))
         lines = rows(screen)
         row = next(line for line in lines if line.startswith("› ") and line.endswith(cells))
-        # the new model sits with its provider's others, after them
-        self.assertEqual(lines.index("ChatGPT") - lines.index("Claude"), 3)
-        self.assertEqual(lines.index(row), lines.index("ChatGPT") - 1)
+        # the new model sits with its harness's others, after them
+        self.assertEqual(lines.index("Codex") - lines.index("Claude Code"), 3)
+        self.assertEqual(lines.index(row), lines.index("Codex") - 1)
         self.assertEqual(key_line(screen), MARK_KEYS)
         models = tomllib.loads(self.config.read_text())["models"]
         self.assertEqual(models["model-one"], {"harness": "claude", "model": "m1",
