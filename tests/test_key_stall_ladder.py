@@ -8,7 +8,9 @@ parks the run `stalled` and tells the seat that launched it, once.  A run silent
 left alone, and a dry run only says what a tick would do.  A run waiting for a slot whose
 process died is started again, still waiting.  Black-box: the program `AK_BIN` names runs from
 outside through tests/fixtures/akbin.py, its turns on a fake harness from fakeadapter.py that
-hangs, launched from a seat of akseat.py; silence is made by back-dating the run's files.
+hangs, launched from a seat of akseat.py; silence is made by back-dating the run's files.  The
+file runs whole in one box (`rerun_boxed`): its ticks kill and resume loops it started, and a
+tick collects /tmp and tidies the browser on loopback, so it gets a /tmp and a loopback of its own.
 """
 
 import json
@@ -21,19 +23,17 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import BOXED, REAL_TMUX, Home, rerun_boxed
 from fixtures.akseat import Seat
 from fixtures.gitrig import Rig
 
-HANG = {"sh": "sleep 600"}         # a turn that prints nothing and never ends
-OFFLINE = "http://127.0.0.1:9"    # a refused port: the tick's public-board reads stay on loopback
 
-
-def offline_home(**env):
-    home = Home()
-    home.env.update(https_proxy=OFFLINE, HTTPS_PROXY=OFFLINE, no_proxy="127.0.0.1,localhost",
-                    **env)
-    return home
+def hang(home):
+    """A turn that prints nothing and never ends, and the number of such turns gone silent: its
+    count goes up only after the turn's own first writes, which would end the silence made."""
+    entered = home.root / "adapters" / "entered"
+    return ({"sh": f"echo >>'{entered}'; exec sleep 600"},
+            lambda: len(entered.read_text().splitlines()) if entered.exists() else 0)
 
 
 def record(run_dir):
@@ -71,19 +71,20 @@ def tick(home, *args):
     return done
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and BOXED, "no tmux, or no bwrap able to box the test here")
 class Ladder(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.home = home = offline_home()
+        cls.home = home = Home()
         cls.addClassCleanup(home.close)
         rig = Rig(home, "widgets")
         akconfig.write(home, ["opus"])
         cls.seat = Seat(home, "acme")
-        claude = fakeadapter.install(home, claude=HANG)["claude"]
+        turn, silent = hang(home)
+        claude = fakeadapter.install(home, claude=turn)["claude"]
         loop = home.spawn("run", str(taskfile.write(home, rig.path, "Add retry file")),
                           "--no-merge", env={"AGENTKIT_SESSION": "acme"})
-        until("the first turn started", lambda: claude.n == 1, running=loop)
+        until("the first turn went silent", lambda: silent() == 1, running=loop)
         cls.run_dir = run_dir = taskfile.only_run(home)
         cls.addClassCleanup(home.ak, "run", "stop", run_dir.name)
         cls.launched = record(run_dir)
@@ -96,13 +97,13 @@ class Ladder(unittest.TestCase):
         silent_for(run_dir, 22)
         tick(home)
         cls.rung = [record(run_dir)]
-        until("the loop started another turn", lambda: claude.n == 2)
+        until("the loop's next turn went silent", lambda: silent() == 2)
         silent_for(run_dir, 22)
         tick(home)
         cls.rung.append(record(run_dir))
         until("the first loop ended", lambda: loop.poll() is not None)
         until("a new loop took the run", lambda: record(run_dir)["pid"] != cls.launched["pid"]
-              and claude.n == 3)
+              and silent() == 3)
         cls.resumed = record(run_dir)
         silent_for(run_dir, 22)
         tick(home)
@@ -160,14 +161,16 @@ class Ladder(unittest.TestCase):
         self.assertEqual(self.turns, 3)
 
 
+@unittest.skipUnless(BOXED, "no bwrap able to box the test here")
 class SlotWaiter(unittest.TestCase):
     def test_a_queued_run_whose_waiting_process_died_waits_again_in_a_new_one(self):
         # one run at a time, and the slot asked every second rather than every half minute
-        home = offline_home(AK_MAX_RUNS="1", AK_SLOT_POLL="1")
+        home = Home()
+        home.env.update(AK_MAX_RUNS="1", AK_SLOT_POLL="1")
         self.addCleanup(home.close)
         first, second = Rig(home, "widgets"), Rig(home, "gadgets")
         akconfig.write(home, ["opus"])
-        claude = fakeadapter.install(home, claude=HANG)["claude"]
+        claude = fakeadapter.install(home, claude=hang(home)[0])["claude"]
         holding = home.spawn("run", str(taskfile.write(home, first.path, "Add retry file")),
                              "--no-merge")
         until("the first run started", lambda: claude.n == 1, bound=120, running=holding)
@@ -198,4 +201,5 @@ class SlotWaiter(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    rerun_boxed()
     unittest.main()

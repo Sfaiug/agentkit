@@ -21,6 +21,8 @@ may send another way.
 
 `home.tick()` runs one `ak watch` in a box (`boxable()` says whether bubblewrap can build
 one here) and waits out what it detached there, so nothing of it outlives the test.
+A test whose ticks act on processes it started, which that box cannot see, ends with
+`rerun_boxed()` before `unittest.main()`: the whole file then runs in one such box, `BOXED`.
 """
 
 from collections import namedtuple
@@ -71,6 +73,25 @@ def boxable():
     """Whether bubblewrap can build `home.tick()`'s box here."""
     return bool(shutil.which("bwrap")) and subprocess.run(
         [*_BOX, "--", "true"], capture_output=True, timeout=60).returncode == 0
+
+
+def _binds(*paths):
+    """What keeps those of `paths` under /tmp in the box, whose own /tmp hides the host's."""
+    return [arg for path in sorted(map(str, paths), key=len)
+            if Path(path).is_relative_to("/tmp") for arg in ("--bind", path, path)]
+
+
+BOXED = "AKBIN_BOXED" in os.environ
+
+
+def rerun_boxed():
+    """Run this test file again in one box of `home.tick()`'s kind, every Home and ak of it
+    inside, and exit with its status; inside one, or where bwrap cannot build one, return."""
+    if BOXED or not boxable():
+        return
+    sys.exit(subprocess.call([*_BOX, *_binds(REPO, Path(AK).resolve().parent), "--setenv",
+                              "AKBIN_BOXED", "1", "--", sys.executable,
+                              os.path.abspath(sys.argv[0]), *sys.argv[1:]]))
 
 
 LOG = "#!/bin/sh\n{python} -c 'import json, sys; print(json.dumps(sys.argv[1:]))' \"$@\" >>{log}\n"
@@ -254,9 +275,7 @@ class Home:
         """One `ak watch`, boxed: a tick asks the public boards and the shared browser on
         loopback, so it gets a loopback of its own, and its collection sweeps /tmp, so it gets
         one holding only this Home and the program."""
-        keep = {self.root, self.tmux_dir, REPO, Path(AK).resolve().parent}
-        binds = [arg for path in sorted(map(str, keep), key=len)
-                 if Path(path).is_relative_to("/tmp") for arg in ("--bind", path, path)]
+        binds = _binds(*{self.root, self.tmux_dir, REPO, Path(AK).resolve().parent})
         return self.run(*_BOX, *binds, "--", sys.executable, "-c", _LAST, AK, "watch", env=env)
 
     def spawn(self, *args, env=None, cwd=None):
