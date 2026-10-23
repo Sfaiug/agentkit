@@ -86,10 +86,10 @@ class ConfigScreenEdits(unittest.TestCase):
     def test_enter_on_an_effort_steps_it_up_and_rewrites_config_toml_keeping_the_rest(self):
         self.fakes["claude"].answer("models", FABLE_LISTED)
         self.term.keys("Right", "Right", "Right")
-        self.term.wait(lambda screen: "› Fable 5.1     ●      □        □     ▰▰▰▰▱   [xhigh]"
+        self.term.wait(lambda screen: "› Fable 5.1     ●      □        □     ▰▰▰▰▱   xhigh"
                        in rows(screen))
         self.term.keys("Enter")
-        self.term.wait(lambda screen: "› Fable 5.1     ●      □        □     ▰▰▰▰▰   [max]"
+        self.term.wait(lambda screen: "› Fable 5.1     ●      □        □     ▰▰▰▰▰   max"
                        in rows(screen))
         text = self.config.read_text()
         self.assertTrue(text.startswith(HEADER), text)

@@ -3294,11 +3294,10 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                 kind = ("reverse" if at == ("model", name) and number == column else
                         "dim" if note or text in (marks[1], marks[3]) or builds and number == 1
                         else None)
-                if number == 3:   # the keys' effort is its word reversed, its cells before it,
-                    lead = leads[name]   # bracketed where there is no colour, as a mark is
+                if number == 3:   # the keys' effort is its word reversed, its cells before it
+                    lead = leads[name]
                     lead = terminal.styled(terminal.plain(lead, True), kind) if (
                         kind == "dim" and lead) else lead
-                    text = f"[{text}]" if kind == "reverse" and not terminal.colour_depth() else text
                     text = lead + (terminal.styled(text, kind) if kind else text)
                 line += "  " + (terminal.toggle(text, width, kind) if number < 3 else
                                 text + " " * (width - terminal.cells(text)))

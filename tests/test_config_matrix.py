@@ -16,7 +16,6 @@ test's own child.
 import fcntl
 import json
 import os
-import re
 from pathlib import Path
 import struct
 import subprocess
@@ -83,8 +82,7 @@ INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", 
 
 class Lines(list):
     """A drawn screen's lines as they show, and `lit`: (the line, its text) of the cell the keys
-    reverse -- bracket, without colour -- or None: the one place the screen says which cell is
-    at hand."""
+    reverse, or None: the one place the screen says which cell is at hand."""
     lit = None
 
 
@@ -167,9 +165,7 @@ class Screen:
                 raw = part.split("\x1b[J")[0].split("\n")[:-1]
                 lines = Lines(terminal.ANSI.sub("", line).rstrip("\r") for line in raw)
                 lines.lit = next(((number, line.split("\x1b[7m")[1].split("\x1b[")[0].strip())
-                                  for number, line in enumerate(raw) if "\x1b[7m" in line),
-                                 next(((number, cell.group(1)) for number, line in enumerate(lines)
-                                       for cell in [re.search(r"\[(\S+)\]", line)] if cell), None))
+                                  for number, line in enumerate(raw) if "\x1b[7m" in line), None)
                 if lines and "agentkit · config" in lines[0]:
                     return lines if where is None or where(lines) else None
             return None

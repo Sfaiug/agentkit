@@ -103,7 +103,7 @@ class ConfigScreen(unittest.TestCase):
 
     def test_the_key_line_stays_as_the_highlight_moves(self):
         self.term.keys("Right", "Right", "Right")
-        on_effort = self.term.wait("› Fable 5.1     ●      □        □     ▰▰▰▰▱   [xhigh]")
+        on_effort = self.term.wait("› Fable 5.1     ●      □        □     ▰▰▰▰▱   xhigh")
         self.assertEqual(key_line(on_effort), KEYS)
         self.term.keys("Down", "Down")
         on_row = self.term.wait("› + add a model")

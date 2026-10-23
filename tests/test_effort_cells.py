@@ -162,10 +162,11 @@ class EffortCells(unittest.TestCase):
         screen = Screen(self, env={"NO_COLOR": "1"})
         lines = screen.frame()
         self.assertEqual(row(lines, "opus")[1].split()[-2:], ["▰▰▰▰▱", "xhigh"])
-        lines = screen.press(DOWN + RIGHT * 3, lambda lines: on_effort(lines, "opus"))
-        self.assertEqual(row(lines, "opus")[1].split()[-1], "[xhigh]")   # no colour to reverse
+        # with no colour to reverse, the effort is the highlighted row's cell with no mark bracketed
+        screen.press(DOWN + RIGHT * 3, lambda lines: row(lines, "opus")[1].startswith("›")
+                     and "[" not in row(lines, "opus")[1])
         self.assertEqual(moved(screen, ENTER), [])
-        self.assertEqual(row(screen.frame(), "opus")[1].split()[-2:], ["▰▰▰▰▰", "[max]"])
+        self.assertEqual(row(screen.frame(), "opus")[1].split()[-2:], ["▰▰▰▰▰", "max"])
         screen.leave()
 
     def test_a_cell_takes_about_150_ms_and_the_light_about_600(self):
