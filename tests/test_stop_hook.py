@@ -177,7 +177,7 @@ class StopHook(unittest.TestCase):
         self.notified("done", self.turn + 1)        # an older install's: it reads as nothing
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
         self.notified("needs", self.turn + 1)
-        self.assertEqual(self.stop(), "")
+        self.assertEqual(self.stop(said="something"), "")
 
     def test_a_run_started_while_reading_the_plan_is_a_live_wait(self):
         (self.home / "sitecustomize.py").write_text(f'''import json, os, time
@@ -459,7 +459,7 @@ class StopNudge(unittest.TestCase):
         self.stack.enter_context(patch.object(orch, "records", return_value={}))
         self.stack.enter_context(patch.object(watch, "seat_model",
                                               lambda *_: (self.harness, "meta")))
-        self.stack.enter_context(patch.object(menu, "run_records", lambda: list(self.records)))
+        self.stack.enter_context(patch.object(menu, "run_records", lambda **_kw: list(self.records)))
         self.stack.enter_context(patch.object(notify, "progress", return_value=None))
         self.pane = BANNER
         self.stack.enter_context(patch.object(watch, "pane_text", lambda _: self.pane))

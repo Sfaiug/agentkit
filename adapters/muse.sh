@@ -204,7 +204,9 @@ interactive)
   }
   # --model/--reasoning-effort are only legal with --provider meta, so it is named here too;
   # the pane's own step goes first, so the program the line ends on is still muse itself
-  printf '%s%spython3 %q --harness muse -- env MUSE_NO_AUTO_UPDATE=1 MUSE_LAUNCHER_INSTALL=0 %smuse %s--yolo --provider meta --model %q --reasoning-effort %q%s\n' \
+  # Muse 1.4.11's --yolo also removes its question tool. Keep the same workspace access
+  # while letting a seat ask through its native card.
+  printf '%s%spython3 %q --harness muse -- env MUSE_NO_AUTO_UPDATE=1 MUSE_LAUNCHER_INSTALL=0 %smuse %s--trust-workspace --disable-approval --disable-sandbox --provider meta --model %q --reasoning-effort %q%s\n' \
       "$login" "$pane" "$REPO/tools/idle-compact.py" "$rules" "$resume" "$1" "$2" "${hooks:+ ${hooks% }}" ;;
 usage)
   # Recorded run quotas take precedence, even in a copied adapter without the probe helper.

@@ -144,11 +144,11 @@ class OutOfUsageRow(Sandbox):
         self.assertEqual([menu.choice_cells("  " + line, info, 12) for line in lines],
                          [[(3, 12, menu.WAIT)], [(3, 7, menu.WAIT)], [(3, 13, menu.GO_ON)],
                           [(3, 6, menu.GO_ON)], [(3, 13, menu.GO_ON)]])
-        # with no model that has usage, waiting is all there is, and the line says why
+        # without an alternative, the line only says when usage comes back
         info = self.info(go_on=None)
         self.assertEqual(menu.detail(cfg, info, 80),
-                         ["Claude has no usage left until 19:20. No other model has any now."])
-        self.assertEqual(terminal.ANSI.sub("", menu.choices(info, 80)[0]), "✓ Wait for 19:20")
+                         ["Claude has no usage left until 19:20."])
+        self.assertEqual(menu.choices(info, 80), [])
         self.assertEqual(menu.choices({"word": "working"}, 80), [])
 
     def test_going_on_takes_the_first_other_model_with_a_window(self):

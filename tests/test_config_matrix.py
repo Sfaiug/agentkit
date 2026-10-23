@@ -212,13 +212,15 @@ class Matrix(unittest.TestCase):
     def test_the_screen_is_the_models_under_their_providers_then_four_rows(self):
         screen = Screen(self)
         lines = screen.frame()
-        self.assertTrue(lines[0].startswith("agentkit · config · fix-api "), lines[0])
+        self.assertTrue(lines[0].startswith("agentkit · config "), lines[0])
+        # whom the marks are for, over their headings: the seat it was opened on
+        self.assertEqual(lines[headings(lines) - 1].split(), ["For", "fix-api"])
         self.assertEqual(lines[headings(lines)].split(), ["orch", "builds", "reviews", "effort"])
         # each subscription's meter over the models, as on the main screen, once
-        meters = " ".join(" ".join(lines[2:headings(lines)]).split())
+        meters = " ".join(" ".join(lines[2:headings(lines) - 1]).split())
         for name in ("Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"):
             self.assertEqual(meters.count(f"{name} — no reading yet"), 1, meters)
-        self.assertEqual(lines[headings(lines) - 1], "")
+        self.assertEqual(lines[headings(lines) - 2], "")
         body = "\n".join(lines)
         for heading in ("Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"):
             self.assertIn(f"\n{heading}\n", body)
@@ -230,6 +232,7 @@ class Matrix(unittest.TestCase):
         tail = [line.strip() for line in lines]
         self.assertIn("+ add a model", tail)
         self.assertIn("+ add a provider", tail)       # each subscription is its meter, above
+        self.assertIn("Subscriptions", tail)
         self.assertTrue(any(line.startswith("Discord") and line.endswith("not connected")
                             for line in tail), tail)
         # the build under the last row, nothing said of the highlighted model
@@ -246,8 +249,8 @@ class Matrix(unittest.TestCase):
         screen = Screen(self, session=None)
         before = screen.path.read_bytes()
         lines = screen.frame()
-        self.assertTrue(lines[0].startswith("agentkit · config · new seats "), lines[0])
-        self.assertEqual(lines[headings(lines)].split(), ["orch", "builds", "reviews", "effort"])
+        self.assertTrue(lines[0].startswith("agentkit · config "), lines[0])
+        self.assertEqual(lines[headings(lines) - 1].split(), ["For", "new", "seats"])
         self.assertEqual(row(lines, "opus")[1].split()[2:5], ["●", "■", "■"])
         self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ mark   esc back")
         lines = screen.press(RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
@@ -391,10 +394,10 @@ class Matrix(unittest.TestCase):
     def test_enter_on_discord_runs_its_step_and_version_is_no_stop(self):
         screen = Screen(self)
         lines = screen.frame()
-        # past every model, `+ add a model` and `+ add a provider`
+        # past every model, `+ add a model`, `+ add a provider` and `Subscriptions`
         models = lines[headings(lines) + 1:next(n for n, line in enumerate(lines)
                                                 if "+ add a model" in line)]
-        down = sum(1 for line in models if line.startswith(("  ", "›"))) + 2
+        down = sum(1 for line in models if line.startswith(("  ", "›"))) + 3
         lines = screen.press(DOWN * down, lambda lines: highlighted(lines).startswith("› Discord"))
         self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   esc back")
         mark = len(screen.text())
@@ -428,7 +431,7 @@ class Matrix(unittest.TestCase):
         self.assertIn("Version abc1234 · 2026-09-29", [line.strip() for line in lines])      # and on the last
         self.assertNotIn("at least one model reviews", "\n".join(lines))   # until the next key
         # Wait for selection: the row is already visible on the first Up redraw.
-        lines = screen.press(UP * 3, lambda lines: highlighted(lines) == "› + add a model")
+        lines = screen.press(UP * 4, lambda lines: highlighted(lines) == "› + add a model")
         self.assertEqual(highlighted(lines), "› + add a model")
         self.assertLessEqual(len(lines), 23)
         screen.leave()

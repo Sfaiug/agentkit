@@ -119,10 +119,10 @@ class Seat:
 
     def _text(self, screen):
         """A fixture's file name, a path, or the screen's text itself."""
-        if "\n" in screen:
+        if isinstance(screen, str) and "\n" in screen:
             return screen
-        path = Path(screen)
-        return (path if path.is_absolute() else FIXTURES / screen).read_text(encoding="utf-8")
+        # Joining an absolute path onto FIXTURES yields that path unchanged.
+        return (FIXTURES / screen).read_text(encoding="utf-8")
 
     def _settle(self, bound=30):
         """A pane draws a moment after it is told to; wait until its title says it has drawn
