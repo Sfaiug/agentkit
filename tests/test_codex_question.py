@@ -1,13 +1,4 @@
-"""A Codex seat's own question tool asks its owner through ak.
-
-Codex 0.160's newer models ask with `request_user_input_async`, which waits for nobody: the model
-hears `accepted` and works on, and Codex drops the question unanswered -- telling neither the
-model nor ak -- when anything is sent into the seat or the turn ends.  So the seat's PreToolUse
-hook asks it through ak, as the seat's own `ak notify needs` does: kept back for its turn's end,
-then `needs you` and a card until the owner answers.  The call is refused with what became of the
-question, so Codex holds no question of its own to drop, and with the question itself, which is
-how the owner reads it in the seat: Codex draws a refusal's reason there.
-"""
+"""A Codex seat records its questions while keeping the native cards available."""
 
 import io
 import json
@@ -48,14 +39,8 @@ class CodexQuestion(Sandbox):
         kept = watch.seat_read(SEAT).get("unasked")
         return kept["text"] if isinstance(kept, dict) else None
 
-    def test_the_question_is_aks_and_the_call_is_refused(self):
-        answer = self.hook(CALL)
-        self.assertEqual(answer["decision"], "block")
-        self.assertTrue(answer["reason"].startswith("ak asks the owner this for you"), answer)
-        self.assertIn(": " + TITLE + " Options: 1. Keep v1 · 2. Move to v2 Their answer",
-                      answer["reason"])
-        # Codex closes the reason with a period of its own
-        self.assertFalse(answer["reason"].endswith("."))
+    def test_the_question_is_recorded_and_its_native_card_is_allowed(self):
+        self.assertIsNone(self.hook(CALL))
         self.assertEqual(self.kept(), TITLE + " Options: 1. Keep v1 · 2. Move to v2")
 
     def test_a_question_ak_refuses_goes_back_to_the_model(self):
@@ -81,7 +66,7 @@ class CodexQuestion(Sandbox):
             self.assertIsNone(self.kept())
             self.assertNotEqual(watch.hook_state("codex", watch.hook_facts(SEAT))[0], "asking")
         with patch.object(notify, "owner_said", return_value=[done + 60]):
-            self.assertTrue(self.hook(CALL)["reason"].startswith("ak asks the owner this for you"))
+            self.assertIsNone(self.hook(CALL))
 
     def test_only_a_seats_question_is_taken(self):
         self.assertIsNone(self.hook(dict(CALL, tool_name="Bash")))
