@@ -3766,7 +3766,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                                             over=over, over_places=meters)
         if here == FOR_ROW and act in ("left", "right", "enter", "space"):
             scope = (scope + (-1 if act == "left" else 1)) % len(scopes)     # round the ends
-            selected, note = for_selected(cfg, scopes[scope])
+            named, selected, note = for_selected(cfg, scopes[scope])
+            scope = scopes.index(named)
             continue
         column = column if clicked is None or here == FOR_ROW else clicked
         if act is None:
@@ -4622,9 +4623,8 @@ def show_config(dry_run=False, keyboard=None, session=None):
             keyboard.give()
         pause(f"config: {exc}")
         return None
-    selected, note = for_selected(cfg, session or NEW_SEATS)
-    if selected is None and not note:     # a seat with no record has no models to give
-        session, selected = None, copy.deepcopy(cfg["defaults"])
+    scope, selected, note = for_selected(cfg, session or NEW_SEATS)
+    session = None if scope == NEW_SEATS else session
     try:                      # what a seat's flip is refused on, and spent; Esc while it is read
         providers = waited(lambda: usage.collect(cfg), "config",
                            keyboard=keyboard, doing=LEFT) if session and selected else {}
@@ -4644,15 +4644,16 @@ def show_config(dry_run=False, keyboard=None, session=None):
 
 
 def for_selected(cfg, scope):
-    """The marks `c` shows for the For row's `scope`, and what to say about them: [defaults]
-    for NEW_SEATS, else that seat's record -- None for one with none, and for one that will
-    not read, said so."""
-    if scope == NEW_SEATS:
-        return copy.deepcopy(cfg["defaults"]), ""
+    """Whom `c`'s marks are for when the For row names `scope`, the marks, and what to say
+    about them: a seat's record, None for one that will not read, said so; and [defaults] for
+    NEW_SEATS and for a seat with no record, which has no models to give."""
     try:
-        return config.load_session(cfg, scope, required=False), ""
+        selected = None if scope == NEW_SEATS else config.load_session(cfg, scope,
+                                                                       required=False)
     except config.Error as exc:
-        return None, f"{scope}'s roles are not shown: {exc}"
+        return scope, None, f"{scope}'s roles are not shown: {exc}"
+    return ((scope, selected, "") if selected is not None
+            else (NEW_SEATS, copy.deepcopy(cfg["defaults"]), ""))
 
 
 def defaults_mark(cfg, selected, model, column):
