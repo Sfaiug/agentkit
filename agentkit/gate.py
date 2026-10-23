@@ -1100,7 +1100,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
 
 
 @contextmanager
-def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
+def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, local=False):
     """One host-wide heavy-suite turn, held for as long as the list runs.
 
     Only the heavy suite -- the `# once` line, the repository's `tests:` suite --
@@ -1133,7 +1133,8 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
     A command naming AK_SHARD splits into as many pieces as the derived limit fits, using its
     repository's measured cost when available: it takes the turns free now, then those freed
     while it ranks first, one piece running on each (`_GateHold`).
-    A suite the helper has room for (`helper.start`) also takes the local turns free now.
+    A suite the helper has room for (`helper.start`) also takes the local turns free now;
+    a `local` one reads a file only this host holds, and never goes to the helper.
     """
     if (getattr(_GATE_HELD, "hold", None) is not None or getattr(_GATE_HELD, "away", None)
             or getattr(_GATE_HELD, "here", None)):
@@ -1141,8 +1142,9 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
         return
     away, here = None, None
     if command and cwd and names_shard(command):
-        away, here = helper.start(*suite_cost(command, cwd, run_dir)[1:], cwd,
-                                  log or (lambda line: None))
+        away, here = ((None, "the file AK_CHANGED names is on this host") if local else
+                      helper.start(*suite_cost(command, cwd, run_dir)[1:], cwd,
+                                   log or (lambda line: None)))
         if here and log is not None:
             log(f"suite runs here: {here}")
     _GATE_HELD.away, _GATE_HELD.here = away, here
@@ -1413,8 +1415,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     with `shard` and `only`, those of them its run named both as run and as failed (`AK_FAILED`)
     where it ended in a failing exit: one dead by a signal, its exit negative, repeats nothing;
     for a command not split, under `1/1`, those its failing run named as failed.
-    `changed`, a file of paths, is what `AK_CHANGED` names; a piece on the suite helper runs
-    without it, so whole.
+    `changed`, a file of paths, is what `AK_CHANGED` names; it keeps the pieces on this host.
     """
     env = suite_env(changed)
     if shard is not None:
@@ -1458,7 +1459,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             measured.save(path, 1)
             measured.paced(path, 1)
         return result
-    with gate_turn(run_dir, activity, log, command, cwd):
+    with gate_turn(run_dir, activity, log, command, cwd, local=changed is not None):
         hold = getattr(_GATE_HELD, "hold", None)
         away = getattr(_GATE_HELD, "away", None)
         path, cpu, mem = suite_cost(command, cwd, run_dir)
@@ -1796,7 +1797,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     # a command run as one piece is the one command it is: its output read and re-run as any
     split = names_shard if shard is None else lambda _: False
     suite = next((cmd for cmd in cmds if split(cmd)), None)
-    with gate_turn(run_dir, log_path, log, suite, cwd) if heavy or suite else nullcontext():
+    with (gate_turn(run_dir, log_path, log, suite, cwd, local=changed is not None)
+          if heavy or suite else nullcontext()):
         deadline = time.monotonic() + limit
         def waited(seconds):
             nonlocal deadline

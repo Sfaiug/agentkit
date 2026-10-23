@@ -182,8 +182,8 @@ def settled_gate(lp):
     round would take its own untouched checkout for one that changed under the gate.
     A repo run whose log never recorded one has no settled gate to adopt.
     """
-    if lp.state.get("step") == "done-when":
-        return None
+    if lp.state.get("step") == "done-when" or round_suite(lp):
+        return None     # the round's suite passes on more than exits: it runs again
     if turns.regression_script(lp.run_dir).is_file() and not lp.state.get("regression_checked"):
         return None
     path = lp.round_dir / "donewhen.log"
@@ -581,9 +581,17 @@ def verify_work(lp, cmds=None):
     return ok, text
 
 
+def round_suite(lp):
+    """The target's `tests:` suite where this run lands through it and it names `AK_CHANGED`,
+    which opts it into every round (`affected_suite`); else None."""
+    from . import gate  # here, not at the top: gate reaches run
+    suite = lp.upstream and gitcall.declared_suite(lp.wt, lp.target)
+    return suite if suite and suite in lp.once and gate.names_changed(suite) else None
+
+
 def affected_suite(lp):
-    """(whether it passed, what it said) of the `# once` suite naming `AK_CHANGED`, which every
-    round runs besides the task's own checks; (True, "") where none names it.
+    """(whether it passed, what it said) of the round's suite (`round_suite`), which every
+    round runs besides the task's own checks; (True, "") where there is none.
 
     The suite narrows itself to the tests the change can affect, from the file `AK_CHANGED`
     names: the paths the change edits relative to the target, one per line.  It runs on HEAD
@@ -593,7 +601,7 @@ def affected_suite(lp):
     target's tip alone (`AK_ONLY`) is the target's, not the change's: it passes, and says which.
     """
     from . import gate, leases  # here, not at the top: gate reaches run
-    suite = lp.upstream and next((cmd for cmd in lp.once if gate.names_changed(cmd)), None)
+    suite = round_suite(lp)
     if not suite:
         return True, ""
     if gitcall.fetch(lp.wt, "origin", lp.upstream.removeprefix("origin/"))[0]:
@@ -603,6 +611,13 @@ def affected_suite(lp):
     where = f"{head[:12]} merged onto {lp.upstream} at {tip[:12]}"
     with tempfile.TemporaryDirectory(dir=lp.run_dir) as tmp:
         checkout, changed = Path(tmp) / "checkout", Path(tmp) / "changed"
+
+        def moved(sha):
+            """Whether a run left the checkout off `sha` or edited what it tracks: then its
+            verdict is not that commit's, as `land._check` holds for the landing suite."""
+            return (gitcall.git(checkout, "rev-parse", "HEAD") != sha
+                    or gitcall.git_out(checkout, "diff", "--quiet", "HEAD")[0] != 0)
+
         gitcall.git(lp.wt, "clone", "--quiet", "--shared", "--no-checkout", str(lp.wt), str(checkout))
         code, tree = gitcall.git_out(checkout, "merge-tree", "--write-tree", "--name-only", tip, head)
         if code:
@@ -619,6 +634,8 @@ def affected_suite(lp):
                                       run_dir=lp.run_dir, heavy=True, pieces=pieces,
                                       confirmed=confirmed, changed=changed)
         text = f"The `tests:` suite on {where}, AK_CHANGED listing its {len(paths)} paths:\n\n{text}"
+        if moved(merged):
+            return False, f"{text}\n\nCheckout changed during the suite; it does not verify {where}."
         named = confirmed.get(suite, {})
         reds = [share for share, code in pieces.get(suite, {}).items() if code != 0] or ["1/1"]
         failed = sorted({test for share in reds for test in named.get(share) or ()})
@@ -630,6 +647,8 @@ def affected_suite(lp):
         gate.run_done_when([suite], checkout, lp.round_dir / "suite-target.log", set(),
                            lp.done_when_limit, lp.log, silence=lp.turn_limit, run_dir=lp.run_dir,
                            heavy=True, shard="1/1", only=failed, confirmed=again)
+        if moved(tip):
+            return False, text
     theirs = [test for test in failed if test in (again.get(suite) or {}).get("1/1", ())]
     if not theirs:
         return False, text
