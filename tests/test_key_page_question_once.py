@@ -6,12 +6,11 @@ question standing for a minute, it sends `🙋 Needs you · acme` and nothing th
 page is read on a phone or in a channel others see; the question stays in the seat and in the
 outbox's record.  The next tick sends nothing more: one question is one page, however many
 ticks see it standing.  Black-box: the program `AK_BIN` names runs from outside through
-tests/fixtures/akbin.py, before a seat of tests/fixtures/akseat.py, paging
+tests/fixtures/akbin.py, each tick boxed, before a seat of tests/fixtures/akseat.py, paging
 tests/fixtures/sink.py.
 """
 
 import json
-import socket
 import sys
 from pathlib import Path
 import time
@@ -19,7 +18,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.sink import Sink
 
@@ -32,19 +31,12 @@ def state(home, name):
     return json.loads(path.read_text()) if path.is_file() else None
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class QuestionPagedOnce(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        # The tick fetches the public model boards over https: a proxy that refuses every
-        # connection keeps it off the network, whichever build runs.
-        refused = socket.socket()
-        refused.bind(("127.0.0.1", 0))
-        cls.addClassCleanup(refused.close)
-        home.env["HTTPS_PROXY"] = home.env["https_proxy"] = (
-            f"http://127.0.0.1:{refused.getsockname()[1]}")
         cls.sink = Sink(home)
         cls.addClassCleanup(cls.sink.close)
         akconfig.write(home, ["opus"])
@@ -58,7 +50,7 @@ class QuestionPagedOnce(unittest.TestCase):
                     "time": time.time() - 300})
         cls.ticks = []
         for _ in range(2):
-            done = home.ak("watch")
+            done = home.tick()
             assert done.code == 0, done.out + done.err
             cls.ticks.append(cls.sink.requests)
 

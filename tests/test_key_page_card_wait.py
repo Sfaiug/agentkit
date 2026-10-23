@@ -6,11 +6,11 @@ the tick sends a question's page only once it has stood a minute, counted from w
 asked it, not from the tick that first saw it.  Two seats nobody has opened for a minute ask
 in the same tick, one 5 seconds ago and one 5 minutes ago: only the older is paged, and the
 newer's card waits unsent.  Black-box: the program `AK_BIN` names runs from outside through
-tests/fixtures/akbin.py, before seats of tests/fixtures/akseat.py, paging tests/fixtures/sink.py.
+tests/fixtures/akbin.py, its tick boxed, before seats of tests/fixtures/akseat.py, paging
+tests/fixtures/sink.py.
 """
 
 import json
-import socket
 import sys
 from pathlib import Path
 import time
@@ -18,7 +18,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.sink import Sink
 
@@ -32,19 +32,12 @@ def state(home, name):
     return json.loads(path.read_text()) if path.is_file() else None
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class CardWait(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        # The tick fetches the public model boards over https: a proxy that refuses every
-        # connection keeps it off the network, whichever build runs.
-        refused = socket.socket()
-        refused.bind(("127.0.0.1", 0))
-        cls.addClassCleanup(refused.close)
-        home.env["HTTPS_PROXY"] = home.env["https_proxy"] = (
-            f"http://127.0.0.1:{refused.getsockname()[1]}")
         cls.sink = Sink(home)
         cls.addClassCleanup(cls.sink.close)
         akconfig.write(home, ["opus"])
@@ -59,7 +52,7 @@ class CardWait(unittest.TestCase):
             home.write(f".agentkit/state/notify-{name}.json",
                        {"session": name, "kind": "needs", "text": QUESTION,
                         "time": time.time() - ago})
-        done = home.ak("watch")
+        done = home.tick()
         assert done.code == 0, done.out + done.err
 
     def test_a_question_asked_seconds_ago_is_not_paged_yet(self):
