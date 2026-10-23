@@ -1,8 +1,10 @@
 # adapters/codex.toml -- everything agentkit reads off a Codex seat's screen, and who has the
 # authority to say what that seat is doing.  Paired with adapters/codex.sh; the format is the
-# adapter contract in docs/guide.md, "Adding a harness".
+# adapter contract in `config.adapter`.
 # Verified against Codex 0.153.4; see tests/fixtures/README.md for the captures.
 version = 1
+name = "Codex"
+colour = "#FFFFFF"
 
 [check]
 model = "gpt-5.6-luna"
