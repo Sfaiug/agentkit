@@ -118,7 +118,14 @@ own_providers() {
       | [.[0].data[]? | select(.activation == "enabled") | .id | select(IN($named[]) | not)]' 2>/dev/null
 }
 
-own_login() { [ -n "${1:-}" ] && own_providers | jq -e --arg p "$1" 'index([$p])' >/dev/null 2>&1; }
+own_login() {
+  [ -n "${1:-}" ] || return 1
+  local own
+  own=$(own_providers) || return 2
+  # An unanswered catalog cannot tell whether a provider needs a login.
+  [ -n "$own" ] || return 2
+  jq -e --arg p "$1" 'index([$p])' <<<"$own" >/dev/null 2>&1
+}
 
 # A login for provider $1, or none needed: a key in the config, a saved one, OpenCode's own --
 # the service last, so a saved login answers even while the service does not.
@@ -537,6 +544,8 @@ auth)
     if [ $rc -eq 0 ]; then said="${said:+$said; }a key for ${p:-a provider} is configured in $CFG"
     elif store_key "$p"; then said="${said:+$said; }a login for ${p:-a provider} is saved in the auth store"
     elif own_login "$p"; then said="${said:+$said; }OpenCode runs $p with no login"
+    elif [ $? -eq 2 ]; then
+      echo "opencode: provider discovery unavailable${p:+ for $p}" >&2; exit 2
     elif [ $rc -eq 2 ]; then echo "opencode: $CFG cannot be read without jq" >&2; exit 2
     else echo "opencode: no login for ${p:-any provider}; run \`opencode auth login${p:+ $p}\`" >&2; exit 1
     fi

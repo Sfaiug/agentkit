@@ -43,6 +43,7 @@ STUB = """#!/usr/bin/env bash
 # service lists none before its plugins are active.  Every argv lands in $STUB_ARGV_LOG, and
 # run's OPENCODE_CONFIG_CONTENT in $STUB_ARGV_LOG.content.
 [ -n "${STUB_ARGV_LOG:-}" ] && printf '%s\\n' "$*" >>"$STUB_ARGV_LOG"
+[ "$1" = api ] && [ "${STUB_API_RC:-0}" -ne 0 ] && exit "$STUB_API_RC"
 case "$1 ${2:-}" in
   run*) [ -n "${STUB_ARGV_LOG:-}" ] && printf '%s\\n' "$OPENCODE_CONFIG_CONTENT" >"$STUB_ARGV_LOG.content"
         cat -- "$STUB_EVENTS"; exit "${STUB_RC:-0}" ;;
@@ -96,7 +97,8 @@ class OpenCode(unittest.TestCase):
         (self.bin / "opencode").chmod(0o755)
         # every verb here is asked about MiMo, as ak names the provider of a mimo/ model
         self.env = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin",
-                    "AGENTKIT_SESSION": "fakesession", "AGENTKIT_PROVIDER": "mimo"}
+                    "AGENTKIT_SESSION": "fakesession", "AGENTKIT_PROVIDER": "mimo",
+                    "STUB_PROVIDER_LIST": '{"data":[]}', "STUB_CONFIG_GET": "[]"}
         self.cfgdir = self.home / ".config" / "opencode"
         self.argv_log = self.root / "argv.log"
 
@@ -429,6 +431,13 @@ cat "$dir/bridge-eval"
         self.assertIn("no login for zeta", out["error"])
         self.assertNotIn("none", out)
 
+    def test_provider_discovery_failure_is_unknown(self):
+        for code in ("7", "124"):
+            proc = self.adapter("auth", env={"AGENTKIT_PROVIDER": "opencode", "STUB_API_RC": code})
+            self.assertEqual(proc.returncode, 2, (proc.stdout, proc.stderr))
+            self.assertIn("unavailable", proc.stderr)
+            self.assertNotIn("auth login", proc.stderr)
+
     def test_a_provider_opencode_runs_on_its_own_needs_no_login(self):
         # OpenCode enables its own free provider with no entry in any config document it merged
         # and no saved login; an entry alone enables one too, key or not, and is no login, in
@@ -442,10 +451,10 @@ cat "$dir/bridge-eval"
         for named, rc in (("opencode", 0), ("nova", 1), ("zeta", 1), ("opencode nova", 1)):
             proc = self.adapter("auth", env={**own, "AGENTKIT_PROVIDER": named})
             self.assertEqual(proc.returncode, rc, (named, proc.stdout, proc.stderr))
-        # a service that lists no config documents names no provider that needs none
+        # A service that did not answer cannot say whether a login is missing.
         proc = self.adapter("auth", env={**own, "STUB_CONFIG_GET": "",
                                          "AGENTKIT_PROVIDER": "opencode"})
-        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertEqual(proc.returncode, 2, proc.stdout)
         # the service's documents are the ones it started with, a turn's this environment's
         proc = self.adapter("auth", env={**own, "AGENTKIT_PROVIDER": "opencode",
                                          "STUB_STANDALONE_CONFIG_GET": json.dumps([{
