@@ -7,21 +7,21 @@ errors again waits longer and never restarts the ladder.  Without it a transient
 the run.  Only an ending the tick may take up is retried: one whose worktree is gone, one handed
 back, a day old or from a seat that is no more loses its stamp and waits for a person.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, with
-scripted harnesses from fakeadapter.py; the first case's error is a real one, git's own lock
-left behind in the run's checkout.
+scripted harnesses from fakeadapter.py, each tick in the box `home.tick()` builds; the first
+case's error is a real one, git's own lock left behind in the run's checkout.
 """
 
 import json
-import os
 import socket
 import sys
 from pathlib import Path
+import threading
 import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.gitrig import Rig
 
@@ -61,15 +61,8 @@ def until(run_dir, test, what, bound=60):
         time.sleep(0.1)
 
 
-def gone(pid):
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return True
-    return False
-
-
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class ErrorRetried(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -88,22 +81,23 @@ class ErrorRetried(unittest.TestCase):
         cls.run_dir = run_dir = taskfile.only_run(home)
         cls.born = record(run_dir)
         cls.due(retries=0)
-        cls.ticks = [home.ak("watch")]
-        # the lock is still there, so the resumed run errors again, and its loop ends
-        cls.again = until(run_dir, lambda state: state["state"] == "error" and state[
-            "finished_at"] > cls.born["finished_at"] and gone(state["pid"]), "errored again")
+        # the lock is still there, so the resumed run errors again before its box goes
+        cls.ticks = [home.tick()]
+        cls.again = record(run_dir)
         lock = home.run("git", "-C", cls.born["worktree"], "rev-parse", "--path-format=absolute",
                         "--git-path", "index.lock").out.strip()
         Path(lock).unlink()
         # six retries spent already: no rung of the ladder is left below an hour
         cls.due(retries=6)
+        # the box outlives the tick until the run it resumed ends, so the hold is seen beside it
         cls.before = time.time()
-        cls.ticks.append(home.ak("watch"))
-        cls.after = time.time()
+        tick = threading.Thread(target=lambda: cls.ticks.append(home.tick()))
+        tick.start()
         cls.held = until(run_dir, lambda _: holding.exists(), "resumed it again")
+        cls.after = time.time()
         released.touch()
-        cls.landed = until(run_dir, lambda state: state["state"] not in ("queued", "running"),
-                           "finished the resumed run")
+        tick.join()
+        cls.landed = record(run_dir)
 
     @classmethod
     def due(cls, retries):
@@ -143,6 +137,7 @@ class ErrorRetried(unittest.TestCase):
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class ErrorLeft(unittest.TestCase):
     """One tick over errored runs no retry is due for, or that the tick may not take up."""
 
@@ -163,7 +158,7 @@ class ErrorLeft(unittest.TestCase):
             "eta": cls.errored("eta", started_at=now - 3 * 86400, finished_at=now - 2 * 86400),
             "zeta": cls.errored("zeta", launched_session="omega")}
         cls.before = time.time()
-        cls.tick = home.ak("watch")
+        cls.tick = home.tick()
         cls.after = time.time()
 
     @classmethod
