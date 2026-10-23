@@ -446,20 +446,20 @@ def load():
 
 
 def offered(cfg):
-    """Every model the config offers, each under its provider: each one can orchestrate, and
+    """Every model the config offers, each under its harness: each one can orchestrate, and
     each can work.
 
-    A `[models.*]` entry is offered once its provider has a `[providers.*]` table; one whose
-    provider has none stays in the file and out of every choice.  Every list of models reads
-    this order -- a provider where its first model is in the file, its models in file order
-    under it -- so a model added last still sits with its provider's others on every screen.
+    A `[models.*]` entry is offered once it names a harness and its provider has a
+    `[providers.*]` table; any other stays in the file and out of every choice.  Every list of models reads
+    this order -- a harness where its first model is in the file, its models in file order
+    under it -- so a model added last still sits with its harness's others on every screen.
     """
     names = [name for name, entry in cfg["models"].items()
-             if isinstance(entry, dict) and isinstance(entry.get("provider"), str)
-             and entry["provider"] in cfg["providers"]]
-    providers = dict.fromkeys(cfg["models"][name]["provider"] for name in names)
-    return [name for provider in providers for name in names
-            if cfg["models"][name]["provider"] == provider]
+             if isinstance(entry, dict) and isinstance(entry.get("harness"), str)
+             and isinstance(entry.get("provider"), str) and entry["provider"] in cfg["providers"]]
+    harnesses = dict.fromkeys(cfg["models"][name]["harness"] for name in names)
+    return [name for harness in harnesses for name in names
+            if cfg["models"][name]["harness"] == harness]
 
 
 def remove_provider(cfg, name):
@@ -1455,6 +1455,25 @@ def manifests():
             continue
         for path in paths:
             yield path.stem, manifest(path.stem)
+
+
+def harness_name(harness):
+    """What a screen calls that harness: its manifest's `name`, else its id."""
+    try:
+        name = manifest(harness).get("name")
+    except Error:
+        name = None
+    return name if isinstance(name, str) and name else harness
+
+
+def harness_colour(harness):
+    """What a screen draws that harness's name in: its manifest's `colour`, `#RRGGBB`, else
+    None."""
+    try:
+        own = manifest(harness).get("colour")
+    except Error:
+        own = None
+    return own if isinstance(own, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", own) else None
 
 
 def instruction_ceiling():
