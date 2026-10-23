@@ -31,7 +31,6 @@ ROWS = ["Claude Code",
         "  GPT-6-Astra   ○      ■        ■     ▰▰▰▱▱▱  high",
         "",
         "  + add a model",
-        "  + add a provider",
         "  Subscriptions",
         "  Discord       not connected",
         # models by their full names, the line wrapped at a word under its value
