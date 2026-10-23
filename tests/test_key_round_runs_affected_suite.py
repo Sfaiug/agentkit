@@ -57,6 +57,7 @@ class Round:
     tests = {"widget": "ok\n", "gadget": "ok\n"}
     claude = codex = "work"
     front = None
+    done_when = ("test -f retry.txt",)
 
     @classmethod
     def setUpClass(cls):
@@ -68,7 +69,8 @@ class Round:
         GitHub(cls.home).grant(cls.rig.slug, "WRITE")
         akconfig.write(cls.home, ["opus", "astra"])
         cls.fakes = fakeadapter.install(cls.home, claude=cls.claude, codex=cls.codex)
-        task = taskfile.write(cls.home, cls.rig.path, front=cls.front)
+        task = taskfile.write(cls.home, cls.rig.path, front=cls.front,
+                              done_when=cls.done_when)
         cls.during()
         cls.done = cls.home.ak("run", str(task), timeout=300)
         cls.run_dir = taskfile.only_run(cls.home)
@@ -149,7 +151,10 @@ class TargetsOwnRed(Round, unittest.TestCase):
 
 
 class NotNarrowing(Round, unittest.TestCase):
+    """Only the target's `tests:` line opts in: a task's own `# once` line naming the variable
+    runs at landing alone."""
     suite = "sh suite.sh"
+    done_when = ("test -f retry.txt", 'test -z "$AK_CHANGED"  # once')
 
     def test_a_line_without_ak_changed_runs_nothing_extra_in_a_round(self):
         self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
