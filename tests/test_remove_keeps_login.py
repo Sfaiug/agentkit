@@ -119,7 +119,7 @@ class RemoveKeepsLogin(unittest.TestCase):
         _, offered = pick(screen, ENTER, ADD, 7)
         self.assertEqual(offered[0], "› OpenAI / Codex")
         self.assertEqual(offered[-2:], ["  Claude II", "  Use ChatGPT"])
-        screen.press(DOWN * 6 + ENTER, lambda lines: title(lines) == MATRIX and "ChatGPT" in lines)
+        screen.press(DOWN * 6 + ENTER, lambda lines: title(lines) == MATRIX and "Codex" in lines)
         self.assertEqual(verbs(home, "login"), [])
         saved = screen.saved()
         self.assertEqual(saved["providers"]["openai"], SHIPPED["providers"]["openai"])
@@ -138,7 +138,7 @@ class RemoveKeepsLogin(unittest.TestCase):
         _, offered = pick(screen, ENTER, ADD, 8)
         # the usual login by the row it had beside another: `Claude I`
         self.assertEqual(offered[-2:], ["  Use al@acme.test", "  Use Claude I"])
-        screen.press(DOWN * 6 + ENTER, lambda lines: title(lines) == MATRIX and "Claude" in lines)
+        screen.press(DOWN * 6 + ENTER, lambda lines: title(lines) == MATRIX and "Claude Code" in lines)
         self.assertEqual(screen.saved()["providers"]["anthropic"],
                          {**SHIPPED["providers"]["anthropic"], "accounts": ["a1"]})
         self.assertCountEqual(rows(home), ["Claude", "ChatGPT"])
