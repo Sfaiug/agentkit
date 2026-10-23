@@ -365,8 +365,8 @@ class HelperMac(unittest.TestCase):
         self.assertEqual((self.fake / "deleted").read_text(), "ak-helper:old\n")
 
     def test_an_image_a_listed_vm_may_use_stays(self):
-        # `container ls` names an image as docker.io's; no listing could be any image
-        (self.fake / "listed").write_text("vm docker.io/library/ak-helper:old linux\n")
+        # `container ls` names an image with its registry; no listing could be any image
+        (self.fake / "listed").write_text("vm registry.acme.test/library/ak-helper:old linux\n")
         self.assertEqual(self.prepare("listed")[0], 0)
         (self.fake / "has-ak-helper:new").unlink()
         (self.fake / "ls-broken").touch()
