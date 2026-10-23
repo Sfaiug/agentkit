@@ -1,5 +1,5 @@
 """`c`'s `Subscriptions` is a page of rows: each subscription, its list under it offering what its
-meter does.
+meter does, then `+ add a subscription`.
 
 The owner (20 Oct 2026): "in the config instead of having add model and add provider, it should
 instead be just provider options and settings".  In-process, in a temporary HOME: the page's key
@@ -39,7 +39,7 @@ class SubscriptionsPage(Sandbox):
         with patch.object(menu, "matrix_key", side_effect=matrix_key):
             menu.config_subscriptions(self.cfg, None)
         self.assertEqual([re.split(r"\s{2,}", line[2:])[0] for line in drawn[0]],
-                         self.rows)
+                         [*self.rows, "+ add a subscription"])
 
         def under(lines, at, count):      # the list drawn under row `at`, as it reads
             return [line[2:].strip() for line in lines[at + 1:at + 1 + count]]
@@ -95,9 +95,13 @@ class SubscriptionsPage(Sandbox):
         self.assertEqual(self.drive(*["down"] * last, "enter", "enter", "down", "enter", "esc"),
                          [self.rows[last]])
 
-    def test_a_page_with_no_subscription_reads_enter_as_nothing(self):
+    def test_a_page_with_no_subscription_still_adds_one(self):
+        added = []
         self.stack.enter_context(patch.object(menu, "usage_rows", return_value=[]))
-        self.assertEqual(self.drive("enter", "down", "enter"), [])
+        self.stack.enter_context(patch.object(menu, "config_add_provider",
+                                              side_effect=lambda *_a: added.append(1)))
+        self.assertEqual(self.drive("enter"), [])
+        self.assertEqual(added, [1])
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
-"""A login `− remove` took out of ak stays on disk and is offered again on `+ add`: `Use <who>`,
-<who> being who the adapter's `auth` says it is logged in as, else the name its usage row had.
+"""A login `− remove` took out of ak stays on disk and is offered again on `+ add a
+subscription`: `Use <who>`, <who> being who the adapter's `auth` says it is logged in as, else
+the name its usage row had.
 Picking it puts it back with no login -- a subscription into `accounts` under its old name, a
 provider as it ships -- and its usage row returns.  One whose `auth` fails is not offered.
 
@@ -19,8 +20,8 @@ from unittest import mock
 
 from test_add_subscription import CLAUDE, CODEX, rows
 from test_config_matrix import DOWN, ENTER, ESC, Screen
-from test_provider_screen import (ADD, GIVE, KEYS, MATRIX, ONE, SHIPPED, open_meter,
-                                  open_providers, pick, title)
+from test_provider_screen import (ADD, GIVE, KEYS, MATRIX, ONE, PAGE, SHIPPED, back, open_meter,
+                                  open_providers, pick, subscriptions, title)
 from agentkit import config, menu
 
 FAKE = r"""#!/usr/bin/env bash
@@ -76,7 +77,10 @@ def verbs(home, verb):
 
 
 def remove(screen, name):
-    """`− remove` on `name`'s meter and `Remove`, then back down to `+ add a provider`."""
+    """`− remove` on `name`'s meter, from the matrix or `Subscriptions`, and `Remove`, then
+    down `Subscriptions` to `+ add a subscription`."""
+    if title(screen.frame()) == PAGE:
+        back(screen)
     open_meter(screen, name)
     screen.press(ENTER, lambda lines: lines[-1] == KEYS["ask"])
     screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
@@ -95,7 +99,7 @@ class RemoveKeepsLogin(unittest.TestCase):
         _, offered = pick(screen, ENTER, ADD, 7)
         self.assertEqual(offered[-3:], ["  Claude III", "  ChatGPT II", "  Use bo@acme.test"])
         mark = len(screen.text())
-        screen.press(DOWN * 6 + ENTER, lambda lines: title(lines) == MATRIX)
+        screen.press(DOWN * 6 + ENTER, lambda lines: title(lines) == PAGE)
         self.assertEqual(verbs(home, "login"), [])
         self.assertNotIn(GIVE, screen.text()[mark:])                 # the terminal never left
         self.assertEqual(screen.saved()["providers"]["anthropic"]["accounts"],
@@ -103,9 +107,11 @@ class RemoveKeepsLogin(unittest.TestCase):
         self.assertEqual(rows(home), ["Claude I", "Claude II", "Claude III", "ChatGPT"])
         # back in ak, it is offered no more
         mark = len(screen.text())
+        open_providers(screen)
         pick(screen, ENTER, ADD, 6)
-        screen.press(ESC, lambda lines: title(lines) == MATRIX)
+        screen.press(ESC, lambda lines: title(lines) == PAGE)
         self.assertNotIn("Use ", screen.text()[mark:])
+        back(screen)
         screen.leave()
 
     def test_a_removed_provider_s_login_is_offered_by_its_row_s_name_and_comes_back_as_it_ships(
@@ -119,13 +125,15 @@ class RemoveKeepsLogin(unittest.TestCase):
         _, offered = pick(screen, ENTER, ADD, 7)
         self.assertEqual(offered[0], "› OpenAI / Codex")
         self.assertEqual(offered[-2:], ["  Claude II", "  Use ChatGPT"])
-        screen.press(DOWN * 6 + ENTER, lambda lines: title(lines) == MATRIX and "Codex" in lines)
+        screen.press(DOWN * 6 + ENTER,
+                     lambda lines: title(lines) == PAGE and "ChatGPT" in subscriptions(lines))
         self.assertEqual(verbs(home, "login"), [])
         saved = screen.saved()
         self.assertEqual(saved["providers"]["openai"], SHIPPED["providers"]["openai"])
         self.assertEqual(saved["models"]["astra"], {"harness": "codex", "model": "gpt-7",
                                                     "effort": "xhigh", "provider": "openai"})
         self.assertEqual(rows(home), ["Claude", "ChatGPT"])
+        back(screen)
         screen.leave()
 
     def test_a_subscription_whose_provider_went_after_it_comes_back_with_that_provider(self):
@@ -138,15 +146,18 @@ class RemoveKeepsLogin(unittest.TestCase):
         _, offered = pick(screen, ENTER, ADD, 8)
         # the usual login by the row it had beside another: `Claude I`
         self.assertEqual(offered[-2:], ["  Use al@acme.test", "  Use Claude I"])
-        screen.press(DOWN * 6 + ENTER, lambda lines: title(lines) == MATRIX and "Claude Code" in lines)
+        screen.press(DOWN * 6 + ENTER,
+                     lambda lines: title(lines) == PAGE and "Claude" in subscriptions(lines))
         self.assertEqual(screen.saved()["providers"]["anthropic"],
                          {**SHIPPED["providers"]["anthropic"], "accounts": ["a1"]})
         self.assertCountEqual(rows(home), ["Claude", "ChatGPT"])
+        open_providers(screen)
         _, offered = pick(screen, ENTER, ADD, 7)
         self.assertEqual(offered[-1], "  Use Claude I")
-        screen.press(DOWN * 6 + ENTER, lambda lines: title(lines) == MATRIX)
+        screen.press(DOWN * 6 + ENTER, lambda lines: title(lines) == PAGE)
         self.assertEqual(screen.saved()["providers"]["anthropic"]["accounts"], ["a1", "default"])
         self.assertEqual(verbs(home, "login"), [])
+        back(screen)
         screen.leave()
 
     def test_logins_that_share_a_name_are_each_offered_as_themselves(self):
@@ -167,9 +178,10 @@ class RemoveKeepsLogin(unittest.TestCase):
         self.assertEqual(offered[-4:], ["  Use Claude II", "  Use Claude II (2)",
                                         "  Use bo@acme.test (Claude II)",
                                         "  Use bo@acme.test (ChatGPT II)"])
-        screen.press(DOWN * 7 + ENTER, lambda lines: title(lines) == MATRIX)
+        screen.press(DOWN * 7 + ENTER, lambda lines: title(lines) == PAGE)
         self.assertEqual(screen.saved()["providers"]["anthropic"]["accounts"], ["default", "b2"])
         self.assertEqual(verbs(home, "login"), [])
+        back(screen)
         screen.leave()
 
     def test_a_kept_login_of_a_provider_with_no_model_left_is_offered_through_its_shipped_harness(
@@ -185,9 +197,10 @@ class RemoveKeepsLogin(unittest.TestCase):
         open_providers(screen)
         _, offered = pick(screen, ENTER, ADD, 7)
         self.assertEqual(offered[-1], "  Use cy@acme.test")
-        screen.press(DOWN * 6 + ENTER, lambda lines: title(lines) == MATRIX)
+        screen.press(DOWN * 6 + ENTER, lambda lines: title(lines) == PAGE)
         self.assertEqual(screen.saved()["providers"]["openai"]["accounts"], ["default", "c3"])
         self.assertEqual(verbs(home, "login"), [])
+        back(screen)
         screen.leave()
 
     def test_a_kept_login_whose_auth_fails_is_not_offered(self):
@@ -203,11 +216,12 @@ class RemoveKeepsLogin(unittest.TestCase):
         mark = len(screen.text())
         _, offered = pick(screen, ENTER, ADD, 6)
         self.assertEqual(offered[-1], "  Claude III")               # the fresh one, a new login
-        screen.press(ESC, lambda lines: title(lines) == MATRIX)
+        screen.press(ESC, lambda lines: title(lines) == PAGE)
         self.assertNotIn("Use ", screen.text()[mark:])
         self.assertEqual(verbs(home, "auth")[-2:], ["claude b2", "codex default"])    # asked
         for path in kept:
             self.assertTrue(path.exists(), path)
+        back(screen)
         screen.leave()
 
     def test_a_removed_provider_listed_only_through_its_host_harness_is_still_offered(self):

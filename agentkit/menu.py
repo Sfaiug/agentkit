@@ -2819,13 +2819,13 @@ def show_notices(messages):
 
 
 # The rows under the models, each running its own step.
-CONFIG_ROWS = ("+ add a model", "+ add a provider", "Subscriptions", "Discord", "Weekly audit")
+CONFIG_ROWS = ("+ add a model", "Subscriptions", "Discord", "Weekly audit")
 AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (config.audit)
 # What a subscription offers, its meter over `c`'s page and its row on `Subscriptions` alike, each
 # where it applies (subscription_acts), and without UTF-8.
 SUBSCRIPTION_ACTS = (("↻ spend a reset", "spend a reset"), ("− remove", "- remove"))
-# What `+ add a provider` offers each provider the shipped default has as: its company, and the
-# harness it runs on; any other is its name.  One shipped on a harness that runs any
+# What `+ add a subscription` offers each provider the shipped default has as: its company, and
+# the harness it runs on; any other is its name.  One shipped on a harness that runs any
 # provider (config.provider_hosts) is offered among that harness's own.
 COMPANIES = {"anthropic": "Anthropic / Claude Code", "openai": "OpenAI / Codex",
              "meta": "Meta / Muse", "xai": "xAI / Grok Build", "google": "Google / Antigravity"}
@@ -3235,7 +3235,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     A model `providers` read as spent is dim.  A model whose provider runs the subscription
     `lit`, from 1, of `subs` (`usage_rows`) has its label in that company's colour, which the
     clock washes in and out as `lit` comes and goes (motion.washing).  Then `+ add a model`,
-    `+ add a provider`, `Subscriptions`, `Discord` and `Weekly audit` with
+    `Subscriptions`, `Discord` and `Weekly audit` with
     their values. A row is `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
     the cell on it the keys act on, -1 its label.  `cells` are a model row's (first, last,
@@ -3322,7 +3322,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
             lines.append(terminal.highlight(line.rstrip()) if at == ("model", name)
                          else line.rstrip())
     lines.append("")
-    values = ("", "", "", discord_value(), audit_value(cfg))
+    values = ("", "", discord_value(), audit_value(cfg))
     # the values line up past the widest row that has one
     wide = max(terminal.cells(row) for row, value in zip(CONFIG_ROWS, values) if value)
     for row, value in zip(CONFIG_ROWS, values):
@@ -3705,12 +3705,11 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     opens the models screen (models_screen), every model against the boards, where `r` takes
     the recommendation.  Enter or a click
     on `+ add a model` opens its screen (config_add), and a model added there is the row
-    highlighted after it, `+ add a provider` its own (config_add_provider) and
-    `Subscriptions` its page (config_subscriptions).  ↑ past the
+    highlighted after it, and `Subscriptions` its page (config_subscriptions).  ↑ past the
     first model, and the pointer, reach
     the meters over the page: one is lit as the main screen lights it, its colour washing in
     over it and the labels of the models on it and out as it goes, and Enter or a click
-    opens what it offers (config_usage).  The row a model, a provider or a subscription was just
+    opens what it offers (config_usage).  The row a model was just
     added on glows (motion.glowing); on `Discord` its two
     secrets are typed on the same keys (config_discord).  agentkit's build, `version`, is read
     under the rows, dim, on every page.
@@ -3780,12 +3779,6 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             if act in ("enter", "space"):
                 note = config_usage(cfg, here[1])
         elif here == ("row", CONFIG_ROWS[1]):
-            if act in ("enter", "space"):
-                before = copy.deepcopy(cfg["providers"])
-                note = config_add_provider(cfg, keyboard)
-                if cfg["providers"] != before:  # a provider or a subscription just added
-                    clock.touch(here)
-        elif here == ("row", CONFIG_ROWS[2]):
             if act in ("enter", "space"):
                 config_subscriptions(cfg, keyboard)
         elif here[0] == "row":
@@ -3857,7 +3850,7 @@ def _marked(names):    # the names a model or effort runs under already, after a
 
 
 def _through_choices(cfg, harness, listed, screen):
-    """`add a provider`'s first list for `harness`, as OpenCode's own `/models` lists them:
+    """`add a subscription`'s first list for `harness`, as OpenCode's own `/models` lists them:
     every model its catalog lists (_offered) of a provider in `listed` with a mode, which it
     runs now, beside that provider's name; then each provider it lists with none, to log in
     to.  Each is ((harness, provider), the model, or None for a login) and the columns it
@@ -3927,7 +3920,7 @@ def config_add(cfg, keyboard=None, through=None):
     or None.
 
     With `through`, a harness that runs any provider it can log in to (config.provider_hosts),
-    `config · add a provider` instead, whose first list is every model it runs now, then every
+    `config · add a subscription` instead, whose first list is every model it runs now, then every
     provider it lists with no login (_through_choices).  One of those picked is logged in on
     `keyboard`'s terminal, given back for it, then asked for again, its first model
     highlighted once it has a mode.  The
@@ -3947,7 +3940,7 @@ def config_add(cfg, keyboard=None, through=None):
     picked, ats, top, note = [], [0], 0, ""   # (value, texts) of each step chosen; its highlight
     finding = None                    # typed after `/`: the open list shows only what holds it
     steps = ADD_STEPS[1:] if through else ADD_STEPS
-    title = (f"config · add a provider · {config.provider_hosts().get(through, through)}"
+    title = (f"config · add a subscription · {config.provider_hosts().get(through, through)}"
              if through else "config · add a model")
     screen = (title, lambda: add_body(picked, [], 0, steps)[0])
     listed = pending = None           # `through`'s providers, as (id, name, mode); one logged in
@@ -4142,7 +4135,7 @@ def _add_subscription(cfg, keyboard, provider, listed, picked, verbs=("login",))
 
 @terminal.clicks_its_own
 def config_add_provider(cfg, keyboard):
-    """`+ add a provider` on `c`: a provider the shipped default has and the config has not,
+    """`+ add a subscription` on `c`: a provider the shipped default has and the config has not,
     picked from a list, then put in the way it ships, so nothing is typed; or, listed after
     them as the name it will get (`ChatGPT II`, config.account_label), another subscription
     of a provider the config has, which is only logged in and listed (_add_subscription), where
@@ -4213,7 +4206,7 @@ def config_add_provider(cfg, keyboard):
     keys = ADD_KEYS["add"][0 if terminal.utf8() else 1] + "   esc back"
 
     def around():     # the screen the list is drawn on, drawn again on a resize
-        terminal.frame("config · add a provider",
+        terminal.frame("config · add a subscription",
                        [""] * (len(labels) + len(through) + len(more) + len(kept)), keys)
         return 3
     picked = terminal.choose([*labels, *through, *more, *kept], around=around)
@@ -4242,7 +4235,7 @@ def config_add_provider(cfg, keyboard):
     if failed:
         return failed
     try:
-        models = _offered(harness, "config · add a provider", provider=name)
+        models = _offered(harness, "config · add a subscription", provider=name)
     except Back:
         return ""                     # Esc while its catalog was asked: nothing added
     if not models:
@@ -4266,7 +4259,7 @@ def config_remove_provider(cfg, picked):
     picked and Esc keeping it.  config.remove_provider takes a provider's table, its models and their places
     in [defaults], and with its table goes its meter; a subscription leaves only the
     provider's `accounts`.  The last provider is refused without asking.  Either way no login
-    file goes: the login taken out is recorded (config.keep_login) for `+ add a provider` to
+    file goes: the login taken out is recorded (config.keep_login) for `+ add a subscription` to
     offer back.  What to say under the screen, or "".
     """
     (name, account, label), title = picked, f"config · {picked[2]}"
@@ -4353,7 +4346,7 @@ def config_usage(cfg, number):
 def config_subscriptions(cfg, keyboard):
     """`Subscriptions` on `c`: a row for each subscription, saying when its login ends where it
     soon does (login_notes) and the resets it holds, Enter opening what it offers under it
-    (subscription_acts)."""
+    (subscription_acts); then `+ add a subscription` (config_add_provider)."""
     def acts(number):     # `− remove`, last, highlighted: only a move or a click picks the spend
         offered = subscription_acts(cfg, number)
         return [(text, act, at == len(offered)) for at, (text, act) in enumerate(offered, 1)]
@@ -4364,7 +4357,8 @@ def config_subscriptions(cfg, keyboard):
                  (lambda number=number: acts(number), False))
                 for number, ((_, label, prov, _), ends)
                 in enumerate(zip(subs, login_notes(subs)), 1)]
-        return rows, ""
+        return [*rows, ("+ add a subscription", "",
+                        lambda _draw: config_add_provider(cfg, keyboard))], ""
     config_page("subscriptions", page)
 
 
@@ -4414,7 +4408,7 @@ def config_page(name, page):
     while True:
         rows, note = page()
         if not opened:                # a pick removed the last row: the highlight on the new last
-            here = ("row", max(0, min(here[1], len(rows) - 1)))
+            here = ("row", min(here[1], len(rows) - 1))
         drawn = [(("row", number), label, value) for number, (label, value, _) in enumerate(rows)]
         if opened:
             drawn[opened[0] + 1:opened[0] + 1] = [(("row", opened[0], number), None, value)
@@ -4432,7 +4426,7 @@ def config_page(name, page):
             if not opened:
                 return
             here, opened = ("row", opened[0]), None
-        elif act not in ("enter", "space") or not rows:
+        elif act not in ("enter", "space"):
             continue
         elif len(here) == 3:
             said = listed[here[2]][1]() or ""
@@ -4597,9 +4591,8 @@ def config_audit(cfg):
 def show_config(dry_run=False, keyboard=None, session=None):
     """`c`: every model in one matrix of `session`'s roles -- the seat highlighted on the main
     screen, read from its own record -- and the efforts, under each subscription's meter, then
-    `+ add a model`, `+ add a provider`, `Subscriptions`, `Discord` and `Weekly audit`,
-    agentkit's build under them, read with the menu's keyboard (config_matrix), so nothing is
-    typed.
+    `+ add a model`, `Subscriptions`, `Discord` and `Weekly audit`, agentkit's build under
+    them, read with the menu's keyboard (config_matrix), so nothing is typed.
     On a heading, with no seats, or for a seat with no record, the marks are new seats'
     ([defaults]); a record that will not read has the efforts alone, saying so under the rows:
     the screen that changes the models still opens.

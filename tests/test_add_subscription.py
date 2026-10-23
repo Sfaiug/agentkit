@@ -1,4 +1,4 @@
-"""Another subscription of a provider is added by `+ add a provider` on `c`, removed on its meter:
+"""Another subscription of a provider is added on `c`'s `Subscriptions`, removed on its meter:
 `+ add` lists one more of every provider the config has as the name it will get (`Claude II`),
 logs it in on the terminal under a fresh AGENTKIT_ACCOUNT and appends that name to the
 provider's `accounts`, `default` first when it listed none; a login that fails adds nothing.
@@ -19,8 +19,8 @@ from pathlib import Path
 from unittest import mock
 
 from test_config_matrix import DOWN, ENTER, UP, Screen
-from test_provider_screen import (ADD, KEYS, MATRIX, choices, open_meter, open_providers, pick,
-                                  title)
+from test_provider_screen import (ADD, KEYS, MATRIX, PAGE, back, choices, open_meter,
+                                  open_providers, pick, title)
 from agentkit import config, menu
 
 FAKE = r"""#!/usr/bin/env bash
@@ -99,7 +99,7 @@ class AddSubscription(unittest.TestCase):
         _, offered = pick(screen, ENTER, ADD, EVERY)
         self.assertEqual(offered[-1], "  Claude II")       # after the providers not added
         mark = len(screen.text())
-        screen.press(DOWN * (EVERY - 1) + ENTER, lambda lines: title(lines) == MATRIX)
+        screen.press(DOWN * (EVERY - 1) + ENTER, lambda lines: title(lines) == PAGE)
         [(harness, verb, account)] = [line.split() for line in
                                       (home / "verbs.log").read_text().splitlines()]
         self.assertEqual((harness, verb), ("claude", "login"))
@@ -109,14 +109,16 @@ class AddSubscription(unittest.TestCase):
                          {"mode": "subscription", "accounts": ["default", account]})
         self.assertEqual(rows(home), ["Claude I", "Claude II"])     # the name it was offered as
         # a list that has names gets one more, fresh, at its end, under the next number
+        open_providers(screen)
         _, offered = pick(screen, ENTER, ADD, EVERY)
         self.assertEqual(offered[-1], "  Claude III")
-        screen.press(DOWN * (EVERY - 1) + ENTER, lambda lines: title(lines) == MATRIX)
+        screen.press(DOWN * (EVERY - 1) + ENTER, lambda lines: title(lines) == PAGE)
         third = (home / "verbs.log").read_text().splitlines()[-1].split()[-1]
         self.assertNotIn(third, ("default", account))
         self.assertEqual(screen.saved()["providers"]["anthropic"]["accounts"],
                          ["default", account, third])
         self.assertEqual(rows(home), ["Claude I", "Claude II", "Claude III"])
+        back(screen)
         screen.leave()
 
     def test_a_login_that_fails_adds_nothing(self):
@@ -130,10 +132,11 @@ class AddSubscription(unittest.TestCase):
         mark = len(screen.text())
         os.write(screen.master, DOWN * (EVERY - 1) + ENTER)    # no screen until it is read
         screen.saw("<refused>", after=mark)
-        lines = screen.press(ENTER, lambda lines: title(lines) == MATRIX)   # read, then back
+        lines = screen.press(ENTER, lambda lines: title(lines) == PAGE)   # read, then back
         self.assertIn("codex login did not finish; ChatGPT II is not added", lines[-3])
         self.assertEqual(screen.path.read_bytes(), before)
         self.assertEqual(len((home / "verbs.log").read_text().split()), 3)
+        back(screen)
         screen.leave()
 
 
