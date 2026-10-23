@@ -4,6 +4,8 @@
 # Verified against agy 1.2.9, and its screen again against 1.3.5; see tests/fixtures/README.md
 # for the captures.
 version = 1
+name = "Antigravity"
+colour = "#203B9B"
 
 [check]
 model = "gemini-3.8-flash"
