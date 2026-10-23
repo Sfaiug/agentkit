@@ -21,7 +21,7 @@ from agentkit import config, orch, watch  # noqa: E402
 
 FIX = REPO / "tests/fixtures"
 SEAT = {"name": "acme", "created": 10, "legacy": False}
-WHERE = {"id": "%7", "tty": "/dev/null", "keys": ("C-x", "e")}
+WHERE = {"id": "%7", "tty": "/dev/null", "keys": ("C-x", "e"), "harness": "opencode"}
 
 
 class KeysGoWhereTheCursorIs(unittest.TestCase):

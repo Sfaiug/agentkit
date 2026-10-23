@@ -204,6 +204,11 @@ class LinePastOwnersText(EditorSeat):
                 self.tick()
                 self.assertEqual((self.keys, self.told()), (keys, False))
         held(f"{DRAFT} {PASTE}")        # for a new line
+        self.show(DRAFT)                # and a paste taken after its last read, before its key
+        with patch.object(watch, "kept_asked_first",
+                          side_effect=lambda *_a, **_kw: self.show(f"{DRAFT} {PASTE}")):
+            self.tick()
+        self.assertEqual((self.keys, self.told()), ([], False))
         self.show(DRAFT)
         with patch.object(watch, "_send_enter", return_value=False):
             self.tick()

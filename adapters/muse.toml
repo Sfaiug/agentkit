@@ -112,7 +112,7 @@ tray = '(?:main(?: · ↓ to select)?|[├└] .+)'
 # Ctrl-G hands the composer to $VISUAL, ak's editor
 editor = ["C-g"]
 # but a paste as its placeholder, which Muse sends alone once the editor returns: a composer that
-# may hold one, shown or above the rows read, opens no editor (`watch._editor_read`)
+# may hold one, shown or above the rows read, opens no editor (`watch._may_paste`)
 pasted = '\[Pasted\s+Content\s+\d+\s+chars\]'
 
 # Muse's picker: both choices and the key hint, in the last few lines with the hint newest.

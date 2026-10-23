@@ -768,7 +768,7 @@ def screen(harness):
              # the keys that hand its composer to $VISUAL, ak's editor (`seat_editor`)
              "editor": tuple(key for key in block.get("editor") or ()
                              if isinstance(key, str) and key),
-             # a paste it hands that editor as its placeholder alone (`_editor_read`)
+             # a paste it hands that editor as its placeholder alone (`_may_paste`)
              "pasted": _pattern(block.get("pasted"), path),
              "rules": [_rule(entry, path) for entry in data.get("rule") or ()]}
     _SCREEN[harness] = (data, built)
@@ -3793,8 +3793,9 @@ DRAFT_STILL = 120       # a seat whose terminal took no keys this long is not on
 
 
 def seat_editor(session, cfg=None):
-    """{"id", "tty", "keys"} of that seat's pane, whose editor `_edit` asks a step: a seat its
-    launch gave ak's, of a harness naming the keys that open it (`[screen] editor`), or None."""
+    """{"id", "tty", "keys", "harness"} of that seat's pane, whose editor `_edit` asks a step: a
+    seat its launch gave ak's, of a harness naming the keys that open it (`[screen] editor`), or
+    None."""
     try:
         harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
         keys = screen(harness)["editor"] if harness else ()
@@ -3804,18 +3805,20 @@ def seat_editor(session, cfg=None):
                              "#{pane_id}\t#{pane_pid}\t#{pane_tty}",
                              socket=orch.seat_socket(session)) if keys else (1, ""))
     pane, pid, tty = (out.split("\t") + ["", ""])[:3] if rc == 0 else ("", "", "")
-    return ({"id": pane, "tty": tty, "keys": keys}
+    return ({"id": pane, "tty": tty, "keys": keys, "harness": harness}
             if pane.startswith("%") and aside_editor.launched(pid, tty) else None)
 
 
 def _edit(session, where, mode, line=""):
     """Ask ak's editor for `line` or `back` with that line (`aside_editor`) and press the keys
     that open it: its answer, or None where it gives none within SENT_WAIT, or where no key
-    goes out as the pane's cursor is off its composer (`off_composer`).  The editor reads
+    goes out as the pane's cursor is off its composer (`off_composer`) or its composer, read
+    just before them, may hold a paste the editor would lose (`_may_paste`).  The editor reads
     the composer itself, which a screen can draw late or cropped.  The ask is taken back after,
     for the owner's own edit never to find -- one that keys went out for and that went
     unanswered turned to `none`, which an edit they open late leaves as it is."""
-    if off_composer(dict(session, pane=where["id"])):
+    bound = dict(session, pane=where["id"])
+    if off_composer(bound) or _may_paste(where["harness"], bound):
         return None
     server, pane, ask = orch.seat_socket(session), where["id"], aside_editor.request(mode, line)
     after = ("set-option", "-pu", "-t", pane, aside_editor.ASK)
@@ -3834,6 +3837,20 @@ def _edit(session, where, mode, line=""):
     finally:
         orch.tmux_out(*after, socket=server)
     return None
+
+
+def _may_paste(harness, session):
+    """Whether that seat's composer may hold a paste its harness hands its editor as a
+    placeholder and sends alone once the editor returns (`[screen] pasted`): one it shows, or
+    any draft not read whole, which may hold one above the rows it shows."""
+    pasted = screen(harness)["pasted"]
+    if pasted is None:
+        return False
+    pane = pane_text(session)
+    if composer_draft(harness, pane) == "":
+        return False
+    rows = _composer_rows(harness, pane, exact=True)
+    return rows is None or bool(pasted.search("\n".join(rows)))
 
 
 def _editor_kept(session):
@@ -3867,11 +3884,9 @@ def _editor_read(session, where, cfg=None):
     """That seat's screen as (harness, pane, live state) where it may be asked an editor step
     now, or None: none of its pane's input unread (`where`, `seat_editor`), read with no
     question or picker up (`[[rule]] picker`) -- the step's keys open the editor from a composer
-    alone, and a picker drawn on over what it puts there takes its Enter -- nor a composer that
-    may hold a paste the editor would lose (`_may_paste`).  Every step's first key is asked here,
-    on the screen as it is just before that key.  However recently its terminal took keys: text
-    given back goes only into a composer empty or holding the line alone, and the terminal takes
-    ak's own keys as it does the owner's."""
+    alone, and a picker drawn on over what it puts there takes its Enter.  However recently its
+    terminal took keys: text given back goes only into a composer empty or holding the line
+    alone, and the terminal takes ak's own keys as it does the owner's."""
     name = session["name"]
     try:
         harness = seat_model(config.load() if cfg is None else cfg, name)[0]
@@ -3882,19 +3897,7 @@ def _editor_read(session, where, cfg=None):
     except (config.Error, OSError):
         return None
     return ((harness, pane, found) if found.get("authority") and not asking(name, harness, pane)
-            and not picker and not _may_paste(harness, pane) and not pane_unread(session)
-            else None)
-
-
-def _may_paste(harness, pane):
-    """Whether that composer may hold a paste its harness hands its editor as a placeholder and
-    sends alone once the editor returns (`[screen] pasted`): one it shows, or any draft not read
-    whole, which may hold one above the rows it shows."""
-    pasted = screen(harness)["pasted"]
-    if pasted is None or composer_draft(harness, pane) == "":
-        return False
-    rows = _composer_rows(harness, pane, exact=True)
-    return rows is None or bool(pasted.search("\n".join(rows)))
+            and not picker and not pane_unread(session) else None)
 
 
 def drafts_back(cfg):
@@ -3986,13 +3989,11 @@ def carry_draft(session, harness, pane, to, cfg=None):
     merges.  Only through ak's editor, which reads a composer whole, and only to a harness
     (`to`) that opens it too: a screen draws a draft late, wrapped and cropped, and elsewhere
     the text goes with the old harness.  Under the seat's lock its caller holds over the
-    respawn too, so no tick hands the text back to the harness going: `pane` was captured before
-    it, so whether the key may go is read again there (`_editor_read`)."""
+    respawn too, so no tick hands the text back to the harness going."""
     # keys go out unless the composer reads empty, and never to a question: they could answer it
     where = (harness and screen(to).get("editor") and composer_draft(harness, pane) != ""
              and not asking(session["name"], harness, pane) and seat_editor(session, cfg))
-    return not where or (_editor_read(session, where, cfg) is not None
-                         and _edit(session, where, "line") in ("line", "unsent"))
+    return not where or _edit(session, where, "line") in ("line", "unsent")
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
