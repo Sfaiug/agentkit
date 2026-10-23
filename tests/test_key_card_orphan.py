@@ -6,7 +6,8 @@ webhook for it is called off, so the owner is never sent to a seat that is not t
 session by that name with no agent in it holds no seat either.  A seat tmux lost but whose
 record is kept, and a live one, keep theirs.  Black-box: the program `AK_BIN` names runs from
 outside through tests/fixtures/akbin.py, beside seats of tests/fixtures/akseat.py, paging
-tests/fixtures/sink.py.
+tests/fixtures/sink.py; the tick runs in `home.tick()`'s box, so it reaches neither the host's
+loopback nor the sink, and a page it tried to send would stay owed, never called off.
 """
 
 import json
@@ -16,7 +17,7 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.sink import Sink
 from fixtures import akconfig
@@ -28,7 +29,7 @@ def card(word, sent, ago=900):
             "sent": sent}
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class ATickClosesTheCardsOfGoneSeats(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -37,6 +38,8 @@ class ATickClosesTheCardsOfGoneSeats(unittest.TestCase):
         sink = cls.sink = Sink(home)
         cls.addClassCleanup(sink.close)
         akconfig.write(home, ["opus"])
+        # a collection on record from just now: one due would outlive the tick's box
+        home.write(".agentkit/state/gc.json", {"started_at": time.time()})
         # A page the webhook refused is owed, to be tried again, when its seat goes.
         sink.script(500)
         Seat(home, "fix-api")
@@ -54,7 +57,7 @@ class ATickClosesTheCardsOfGoneSeats(unittest.TestCase):
         cls.write_card("beta", card("needs you", True))
         Seat(home, "acme")
         cls.write_card("acme", card("needs you", True))
-        cls.ticked = home.ak("watch")
+        cls.ticked = home.tick()
 
     @classmethod
     def write_card(cls, seat, data):
@@ -78,7 +81,6 @@ class ATickClosesTheCardsOfGoneSeats(unittest.TestCase):
         outbox = self.home.path / ".agentkit/state/notification-outbox"
         event, = (json.loads(path.read_text()) for path in outbox.glob("*.json"))
         self.assertEqual((event["session"], event["status"]), ("fix-api", "disabled"))
-        self.assertEqual(len(self.sink.requests), 1)    # only the one the webhook refused
 
     def test_a_seat_tmux_lost_with_its_record_kept_and_a_live_seat_keep_their_cards(self):
         for seat in ("beta", "acme"):
