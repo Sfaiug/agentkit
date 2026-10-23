@@ -15,7 +15,7 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 	home := t.TempDir()
 	for key, value := range map[string]string{
 		"HOME": home, "USERPROFILE": home, "AGENTKIT_SESSION": "acme", "AGENTKIT_RUN_DIR": "",
-		"AK_RUN_DEPTH": "0", "AK_RUN_ROLE": "", "AK_FETCH_TIMEOUT": "0",
+		"AK_RUN_DEPTH": "0", "AK_RUN_ROLE": "",
 	} {
 		t.Setenv(key, value)
 	}
@@ -42,7 +42,6 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 		{"notify", "--check"}, {"notify", "needs", "Which branch?"},
 		{"wait", "https://github.com/acme/api/pull/12"}, {"update", "--dry-run"},
 		{"watch", "--dry-run"}, {"doctor"}, {"browser", "status"},
-		{"fetch", filepath.Join(home, "remote.pdf")}, {"fetch", "--serve"},
 	}
 	if runtime.GOOS == "darwin" {
 		calls = append(calls, []string{"macbridge", "--reader"})
