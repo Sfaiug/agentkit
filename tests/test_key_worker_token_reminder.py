@@ -13,12 +13,10 @@ akseat.py, the ak screen in a terminal of akterm.py and the pages at the webhook
 """
 
 from datetime import datetime, timedelta, timezone
-import socket
 from pathlib import Path
 import sys
 import time
 import unittest
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
@@ -29,19 +27,10 @@ from fixtures.sink import Sink
 
 DAY = 86400
 PAGE = "🙋 Needs you · claude worker token"
-# Bound and never listening, so every connection to it is refused: a tick also reads the public
-# model boards and the host's shared browser, and through this proxy it reaches neither, while
-# its box keeps the loopback the sink listens on.
-_REFUSER = socket.socket()
-_REFUSER.bind(("127.0.0.1", 0))
-REFUSED = f"http://127.0.0.1:{_REFUSER.getsockname()[1]}"
 
 
 def tick(home):
-    sink = urlsplit(home.env.get("AK_NOTIFY_SINK") or "").netloc
-    proxies = {name: REFUSED for name in ("http_proxy", "https_proxy", "HTTP_PROXY",
-                                         "HTTPS_PROXY")}
-    done = home.tick(env={**proxies, "no_proxy": sink, "NO_PROXY": sink}, loopback=True)
+    done = home.tick()
     assert done.code == 0, done.out + done.err
 
 
