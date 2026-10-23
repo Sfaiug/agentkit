@@ -125,6 +125,15 @@ func validateRunSubcommand(verb string, args []string) string {
 	if !runID(args[0]) {
 		return fmt.Sprintf("no such run: %s (looked in %s)", args[0], runs)
 	}
+	if verb == "status" || verb == "show" {
+		data, _ := os.ReadFile(filepath.Join(config.Home(), "jobs", args[0], "job.json"))
+		var job map[string]any
+		if json.Unmarshal(data, &job) == nil {
+			if _, ok := job["tasks"].([]any); ok {
+				return ""
+			}
+		}
+	}
 	record := filepath.Join(runs, args[0], "run.json")
 	data, err := os.ReadFile(record)
 	if verb == "merge" {

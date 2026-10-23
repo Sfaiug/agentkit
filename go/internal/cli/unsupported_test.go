@@ -21,6 +21,12 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 	}
 	task := filepath.Join(home, "task.md")
 	turn := filepath.Join(home, "hand-in.jsonl")
+	if err := os.MkdirAll(filepath.Join(home, ".agentkit"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".agentkit", "config.toml"), []byte(testConfig), 0600); err != nil {
+		t.Fatal(err)
+	}
 	for path, content := range map[string]string{task: "# fix-api\n\nReturn 404 for a missing user.\n", turn: `{"kind":"turn","role":"executor","workspace":".","context":"` + strings.Repeat("x", 70_000) + `"}` + "\n"} {
 		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 			t.Fatal(err)

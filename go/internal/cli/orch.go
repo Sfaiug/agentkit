@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"agentkit/internal/commandhelp"
+	"agentkit/internal/config"
 )
 
 const orchUsage = "usage: ak orch [name] [--model NAME] [--workers A,B] [--dry-run] | ak orch list [--why] | ak orch why NAME | ak orch stop <name> | ak orch rename [--auto] [OLD] NEW | ak orch project [<seat>] <checkout>"
@@ -72,6 +73,9 @@ func validateOrch(args []string) string {
 			}
 			name = true
 		}
+	}
+	if err := config.Check(); err != nil {
+		return err.Error()
 	}
 	return ""
 }

@@ -8,7 +8,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"unicode"
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
@@ -33,7 +32,7 @@ func Main(args []string, out, errOut io.Writer) int {
 		fmt.Fprint(out, commandhelp.Render("browser", func(text string) string { return text }))
 		return 2
 	}
-	if command == "run" && !runSubcommand(rest) {
+	if command == "run" && (!runSubcommand(rest) || rest[0] == "resume") {
 		raw := os.Getenv("AK_RUN_DEPTH")
 		if _, set := os.LookupEnv("AK_RUN_DEPTH"); !set {
 			raw = "0"
@@ -58,17 +57,23 @@ func Main(args []string, out, errOut io.Writer) int {
 		return 1
 	}
 	if command == "fetch" {
-		paths, ready := fetch.Local(rest)
-		if ready {
-			for _, path := range paths {
+		result := fetch.Local(rest)
+		if !result.Pending || len(result.Errors) > 0 {
+			for _, path := range result.Paths {
 				fmt.Fprintln(out, path)
+			}
+			for _, problem := range result.Errors {
+				fmt.Fprintln(errOut, "ak fetch: "+problem)
+			}
+			if len(result.Errors) > 0 {
+				return 1
 			}
 			return 0
 		}
 	}
 	// These commands read configuration before their first operation. Help and
 	// argument refusals above must remain usable even when that file is broken.
-	if command == "usage" || command == "models" || command == "worker" {
+	if command == "usage" || command == "models" {
 		if err := config.Check(); err != nil {
 			fmt.Fprintf(errOut, "ak %s: %s\n", command, err)
 			return 2
@@ -81,38 +86,7 @@ func Main(args []string, out, errOut io.Writer) int {
 	return 3
 }
 
-// Python's repr is part of the existing refusal text, including its choice of quotes.
-func repr(value string) string {
-	quote := '\''
-	if strings.ContainsRune(value, '\'') && !strings.ContainsRune(value, '"') {
-		quote = '"'
-	}
-	var out strings.Builder
-	out.WriteRune(quote)
-	for _, r := range value {
-		switch {
-		case r == quote || r == '\\':
-			out.WriteRune('\\')
-			out.WriteRune(r)
-		case r == '\n':
-			out.WriteString("\\n")
-		case r == '\r':
-			out.WriteString("\\r")
-		case r == '\t':
-			out.WriteString("\\t")
-		case unicode.IsPrint(r) && (r == ' ' || !unicode.IsSpace(r)):
-			out.WriteRune(r)
-		case r <= 0xff:
-			fmt.Fprintf(&out, "\\x%02x", r)
-		case r <= 0xffff:
-			fmt.Fprintf(&out, "\\u%04x", r)
-		default:
-			fmt.Fprintf(&out, "\\U%08x", r)
-		}
-	}
-	out.WriteRune(quote)
-	return out.String()
-}
+func repr(value string) string { return commandhelp.Quote(value) }
 
 func reprList(args []string) string {
 	values := make([]string, len(args))

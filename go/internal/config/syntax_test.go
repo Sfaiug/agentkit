@@ -11,6 +11,8 @@ func TestSyntax(t *testing.T) {
 		"x = '''many\nlines'''\n", "x = \"\"\"many\\\n  lines\"\"\"\n",
 		"x = 1979-05-27T07:32:00Z\ny = 1979-05-27 07:32:00\n",
 		"x = 0xCA_FE\ny = -1_000.2e+4\nz = +inf\n",
+		"[[models.acme.accounts]]\nname='one'\n[[models.acme.accounts]]\nname='two'\n",
+		"[a.b]\nx=1\n[a]\ny=2\n",
 	} {
 		if err := syntax(valid); err != nil {
 			t.Errorf("valid TOML %q: %v", valid, err)
@@ -20,6 +22,8 @@ func TestSyntax(t *testing.T) {
 		"garbage = = =\n", "x =", "x = nope", "x = 01", "x = [1,", "x = {one = 1,}",
 		"[models\nx = 1", "x = 'unterminated", "x = \"bad\\x41\"", "x = \"\\uD800\"",
 		"x = 'one\ntwo'", "x = 1 y = 2", "x = 1\x00", "x = 1\r", "x = \"\"\"bad\\  text\"\"\"",
+		"max_runs=1\nmax_runs=2\n", "[models.acme]\nx=1\n[models.acme]\ny=2\n",
+		"a.b=1\na.b=2\n", "x={a=1}\nx.b=2\n", "x={a=1,a=2}\n", "x=1\n[x]\ny=2\n",
 	} {
 		if err := syntax(invalid); err == nil {
 			t.Errorf("accepted invalid TOML %q", invalid)
