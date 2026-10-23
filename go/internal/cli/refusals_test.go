@@ -222,15 +222,20 @@ func TestHandInEvidenceRefusals(t *testing.T) {
 	assertCall(t, []string{"hand-in", "dispute", "task.md:1", "Correct", "--run", "false"}, 3, "", "ak hand-in dispute: not implemented in Go yet\n")
 }
 
-func TestStatusRecognizesJobs(t *testing.T) {
+func TestRunRecognizesJobs(t *testing.T) {
 	home := sandbox(t)
 	job := filepath.Join(home, ".agentkit", "jobs", "batch", "job.json")
 	write(t, job, `{"job_id":"batch","tasks":[],"state":"pass"}`)
-	for _, command := range []string{"status", "show"} {
+	for _, args := range [][]string{
+		{"run", "status", "batch", "--json"},
+		{"run", "show", "batch", "--json"},
+		{"run", "stop", "batch"},
+		{"run", "stop", "batch", "--keep"},
+	} {
 		suffix := ""
-		if command == "status" {
-			suffix = " status"
+		if args[1] != "show" {
+			suffix = " " + args[1]
 		}
-		assertCall(t, []string{"run", command, "batch", "--json"}, 3, "", "ak run"+suffix+": not implemented in Go yet\n")
+		assertCall(t, args, 3, "", "ak run"+suffix+": not implemented in Go yet\n")
 	}
 }
