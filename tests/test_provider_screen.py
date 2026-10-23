@@ -162,12 +162,12 @@ class ProviderScreen(unittest.TestCase):
         self.assertEqual(saved["models"]["grok"], {"harness": "grokbuild", "model": "grok-mystery",
                                                    "effort": "xhigh", "provider": "xai"})
         self.assertEqual(saved["defaults"], {"orchestrator": "opus", "workers": ["opus"]})
-        self.assertIn("Grok", lines)
+        self.assertIn("Grok Build", lines)               # its harness, over its model
         self.assertEqual(providers(lines), ["Claude", "Grok"])
         self.assertTrue(highlighted(lines).startswith("› + add a provider"))
         # a program already there is logged in and never installed
         pick(screen, ENTER, ADD, 6)
-        screen.press(ENTER, lambda lines: title(lines) == MATRIX and "ChatGPT" in lines)
+        screen.press(ENTER, lambda lines: title(lines) == MATRIX and "Codex" in lines)
         self.assertEqual((home / "verbs.log").read_text().split("\n")[2:], ["codex login", ""])
         saved = screen.saved()
         self.assertEqual(saved["providers"]["openai"], SHIPPED["providers"]["openai"])
@@ -180,7 +180,7 @@ class ProviderScreen(unittest.TestCase):
         screen = Screen(self, child=CHILD, text=ONE)
         open_providers(screen)
         pick(screen, ENTER, ADD, 6)
-        screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX and "Muse" in lines)
+        screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX and "Muse Code" in lines)
         saved = screen.saved()
         self.assertEqual(saved["providers"]["meta"], SHIPPED["providers"]["meta"])
         self.assertEqual(saved["models"]["spark"], {"harness": "muse", "model": "muse-spark-2",
@@ -285,7 +285,7 @@ class ProviderScreen(unittest.TestCase):
         open_meter(screen, "Claude")
         screen.press(ENTER, lambda lines: "  Remove Claude and its models?" in lines)
         lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
-        self.assertNotIn("Claude", lines)
+        self.assertNotIn("Claude Code", lines)
         for name in ("fable", "opus", "haiku"):
             self.assertFalse(any(line[2:].startswith(f"{name} ") for line in lines), name)
         self.assertEqual(providers(lines), ["ChatGPT", "Gemini", "Grok", "MiMo", "Muse"])
