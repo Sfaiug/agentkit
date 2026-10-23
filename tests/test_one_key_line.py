@@ -35,9 +35,8 @@ def spelled():
     for path in sorted((REPO / "agentkit").rglob("*.py")):
         tree = ast.parse(path.read_text())
         for top in tree.body:
-            if isinstance(top, ast.Expr) or path.name == "terminal.py" and isinstance(
-                    top, ast.Assign) and top.targets[0].id == "MOVE_KEYS":
-                continue          # a docstring, or the one home
+            if isinstance(top, ast.Expr):
+                continue          # the module's docstring
             docs = {id(node.body[0].value) for node in ast.walk(top)
                     if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and ast.get_docstring(node)}
             if any(isinstance(node, ast.Constant) and isinstance(node.value, str)
@@ -45,7 +44,7 @@ def spelled():
                    for node in ast.walk(top)):
                 name = getattr(top, "name", None) or top.targets[0].id
                 found.add(f"{path.relative_to(REPO / 'agentkit')} {name}")
-    return found
+    return found - {"terminal.py MOVE_KEYS"}   # the one home
 
 
 class OneKeyLine(unittest.TestCase):
@@ -67,7 +66,7 @@ class OneKeyLine(unittest.TestCase):
             stops[highlighted(lines)] = lines
         stops["Subscriptions' page"] = screen.press(
             ENTER, lambda lines: "subscriptions" in lines[0])
-        self.assertIn("› Models", [line.split("  ")[0] for line in stops])
+        self.assertIn("› + add a model", stops)
         self.assertEqual({where: lines[-1] for where, lines in stops.items()},
                          dict.fromkeys(stops, KEYS))
         screen.press(ESC, lambda lines: lines[0].rstrip().endswith("config")
