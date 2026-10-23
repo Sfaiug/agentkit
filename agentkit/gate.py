@@ -809,11 +809,12 @@ class _GateHold:
                 if self.more and self.growing.acquire(blocking=False):
                     try:
                         freed = self.more(self.slots)
+                        # Joined before the next grower asks: its `more` must count them as its own.
+                        with self.lock:
+                            self.slots += freed
+                            self.idle += freed
                     finally:
                         self.growing.release()
-                    with self.lock:
-                        self.slots += freed
-                        self.idle += freed
                     if freed:
                         continue
                 with self.lock:
