@@ -54,9 +54,10 @@ REFUSED = ("gh", "ssh", "curl", "systemctl", "systemd-run", "loginctl", "journal
 
 Done = namedtuple("Done", "code out err")
 
+# ak's collection sweeps /tmp: a /tmp of the box's own keeps the host's out of its reach.
+_FILES = ("bwrap", "--dev-bind", "/", "/", "--tmpfs", "/tmp")
 # A tick's box (`Home.tick`), where it runs this file's `_last`.
-_BOX = ("bwrap", "--dev-bind", "/", "/", "--unshare-net", "--unshare-pid", "--proc", "/proc",
-        "--tmpfs", "/tmp")
+_BOX = (*_FILES, "--unshare-net", "--unshare-pid", "--proc", "/proc")
 
 
 @functools.cache
@@ -64,6 +65,17 @@ def boxable():
     """Whether bubblewrap can build `home.tick()`'s box here."""
     return bool(shutil.which("bwrap")) and subprocess.run(
         [*_BOX, "--", "true"], capture_output=True, timeout=60).returncode == 0
+
+
+def owner(pid):
+    """The process identity `ak run` records for itself: the boot, and the process's start."""
+    stat = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+    btime = next(int(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines()
+                 if line.startswith("btime "))
+    ticks = int(stat[19])
+    return {"pid": pid, "process_identity": {
+        "boot": Path("/proc/sys/kernel/random/boot_id").read_text().strip(), "ticks": ticks,
+        "started_at": btime + ticks / os.sysconf("SC_CLK_TCK")}}
 
 
 LOG = "#!/bin/sh\n{python} -c 'import json, sys; print(json.dumps(sys.argv[1:]))' \"$@\" >>{log}\n"
@@ -214,9 +226,9 @@ class Home:
         return {str(path.relative_to(self.path)): path.read_bytes() if path.is_file() else None
                 for path in sorted(self.path.rglob("*"))}
 
-    def ak(self, *args, **kwargs):
-        """Run the program once; see `run`."""
-        return self.run(AK, *args, **kwargs)
+    def ak(self, *args, boxed=False, **kwargs):
+        """Run the program once; see `run`.  `boxed` gives it the /tmp of `box`."""
+        return self.run(*(self.box() if boxed else ()), AK, *args, **kwargs)
 
     def run(self, *argv, input=None, tty=False, env=None, cwd=None, timeout=120):
         """Run a command in this Home and wait for it.  `tty` puts a terminal on its stdin with
@@ -249,28 +261,35 @@ class Home:
         loopback, so it gets a loopback of its own, where only a sink on the host's is relayed
         (tests/fixtures/sink.py), and its collection sweeps /tmp, so it gets one holding only
         this Home and the program."""
-        keep = {self.root, self.tmux_dir, REPO, Path(AK).resolve().parent}
-        binds = [arg for path in sorted(map(str, keep), key=len)
-                 if Path(path).is_relative_to("/tmp") for arg in ("--bind", path, path)]
         sink = urlsplit(self._env(env).get("AK_NOTIFY_SINK", ""))
         port = sink.port if sink.hostname == "127.0.0.1" else None
         way = self.tmux_dir / "sink.sock"     # a socket's path must fit in 104 bytes
         listener = socket.create_server(str(way), family=socket.AF_UNIX)
         _relay(listener, socket.AF_INET, ("127.0.0.1", port))
         try:
-            return self.run(*_BOX, *binds, "--", sys.executable, "-I", Path(__file__).resolve(),
+            return self.run(*self.box(_BOX), sys.executable, "-I", Path(__file__).resolve(),
                             str(port or ""), str(way), AK, "watch", env=env)
         finally:
             listener.shutdown(socket.SHUT_RDWR)     # wakes its `accept`, as `close` would not
             listener.close()
             way.unlink()
 
-    def spawn(self, *args, env=None, cwd=None):
+    def box(self, box=_FILES):
+        """bwrap's words putting a command in `box`, by default one whose /tmp holds only this
+        Home and the program, on the host's network and processes so pages reach the test's
+        sink and what it starts can outlive it; `boxable()` says whether bwrap can here."""
+        keep = {self.root, self.tmux_dir, REPO, Path(AK).resolve().parent}
+        binds = [arg for path in sorted(map(str, keep), key=len)
+                 if Path(path).is_relative_to("/tmp") for arg in ("--bind", path, path)]
+        return [*box, *binds, "--"]
+
+    def spawn(self, *args, env=None, cwd=None, boxed=False):
         """Start the program and leave it running, its output in `home.log(...)`; `close` ends
-        it."""
+        it.  `boxed` gives it the /tmp of `box`."""
         name = f"spawn-{len(self._spawned) + 1}"
         with self.log(f"{name}.out").open("w") as out, self.log(f"{name}.err").open("w") as err:
-            proc = subprocess.Popen([AK, *args], stdin=subprocess.DEVNULL, stdout=out, stderr=err,
+            proc = subprocess.Popen([*(self.box() if boxed else ()), AK, *args],
+                                    stdin=subprocess.DEVNULL, stdout=out, stderr=err,
                                     cwd=cwd or self.path, env=self._env(env),
                                     start_new_session=True)
         self._spawned.append(proc)

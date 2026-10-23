@@ -555,6 +555,7 @@ class Harness:
 
         The plugin rejects its own synthetic input. The seat's typing receipts remove
         ak's input once each, leaving relayed owner replies and identical later prompts.
+        A native answer may include `replies`, the opaque ids of the questions it answers.
         """
         hook = self._hook("user_messages")
         if not hook:
