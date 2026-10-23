@@ -85,6 +85,8 @@ ROLES = {
                 "coding answers people pick, their length and formatting aside"),
                ("aa.deepsecBench", "share",
                 "reviewing files for bugs, each report judged a true or a false finding"),
+               # the index, not its hallucination rate: the rate's best was a model that
+               # answers nothing, so it rewarded ignorance
                ("aa.omniscience", "percent",
                 "right answers less wrong guesses, an admitted unknown counting neither")),
 }

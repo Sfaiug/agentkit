@@ -20,12 +20,10 @@ may send another way.
         assert done.code == 0, done.err
 
 `home.tick()` runs one `ak watch` in a box (`boxable()` says whether bubblewrap can build
-one here), its pages still reaching the Home's sink, and waits out what it detached there, so
-nothing of it outlives the test.
+one here) and waits out what it detached there, so nothing of it outlives the test.
 """
 
 from collections import namedtuple
-import contextlib
 import functools
 import json
 import os
@@ -56,24 +54,7 @@ REFUSED = ("gh", "ssh", "curl", "systemctl", "systemd-run", "loginctl", "journal
 
 Done = namedtuple("Done", "code out err")
 
-# A tick's last breath in its box: the sink's port answers on its loopback through the door
-# `home.tick()` opened, and what it detached is waited out before the box goes.
-_LAST = r"""
-import os, socket, subprocess, sys, time
-fixtures, door, *command = sys.argv[1:]
-if door:
-    sys.path.insert(0, fixtures)
-    from fixtures.akbin import relay
-    port, path = door.split(":", 1)
-    relay(socket.create_server(("127.0.0.1", int(port))), socket.AF_UNIX, path)
-code = subprocess.call(command)
-deadline = time.monotonic() + 60
-while time.monotonic() < deadline:
-    if not [p for p in os.listdir("/proc") if p.isdigit() and int(p) not in (1, os.getpid())]:
-        sys.exit(code)
-    time.sleep(0.1)
-sys.exit("the tick left processes running")
-"""
+# A tick's box (`Home.tick`), where it runs this file's `_last`.
 _BOX = ("bwrap", "--dev-bind", "/", "/", "--unshare-net", "--unshare-pid", "--proc", "/proc",
         "--tmpfs", "/tmp")
 
@@ -89,9 +70,10 @@ LOG = "#!/bin/sh\n{python} -c 'import json, sys; print(json.dumps(sys.argv[1:]))
 REFUSE = LOG + 'echo "{name}: not scripted in this test" >&2\nexit 1\n'
 # A socket path could name any server on the machine, as could a socket name holding a slash
 # (`-L ../../tmux-1000/agentkit` walks out of TMUX_TMPDIR), and TMUX or TMUX_PANE the caller's
-# own.  The one path let through is the Home's own server's, as tmux gives it to a seat's pane,
-# matched as a string: no spelling of a path is judged by where it leads.  Its flags are read as
-# tmux's getopt reads them: bundled, a value attached or in the next word.
+# own.  The one path let through is the Home's own server's, as tmux gives it to a seat's pane
+# (in TMUX, up to its first comma), matched as a string: no spelling of a path is judged by where
+# it leads.  Its flags are read as tmux's getopt reads them: bundled, a value attached or in the
+# next word.
 TMUX = LOG + """refuse() {{ echo "tmux: a test's tmux takes no socket path but its own" >&2; exit 2; }}
 value() {{
   case $1 in
@@ -111,7 +93,7 @@ for a do
     esac
   done
 done
-unset TMUX TMUX_PANE
+case ${{TMUX-}} in {own},*) ;; *) unset TMUX TMUX_PANE ;; esac
 export TMUX_TMPDIR={tmpdir}
 exec {real} "$@"
 """
@@ -264,33 +246,24 @@ class Home:
 
     def tick(self, env=None):
         """One `ak watch`, boxed: a tick asks the public boards and the shared browser on
-        loopback, so it gets a loopback of its own where only the sink `AK_NOTIFY_SINK` names
-        answers, through a unix socket, and its collection sweeps /tmp, so it gets one holding
-        only this Home and the program."""
+        loopback, so it gets a loopback of its own, where only a sink on the host's is relayed
+        (tests/fixtures/sink.py), and its collection sweeps /tmp, so it gets one holding only
+        this Home and the program."""
         keep = {self.root, self.tmux_dir, REPO, Path(AK).resolve().parent}
         binds = [arg for path in sorted(map(str, keep), key=len)
                  if Path(path).is_relative_to("/tmp") for arg in ("--bind", path, path)]
-        with self._door(self._env(env).get("AK_NOTIFY_SINK")) as door:
-            return self.run(*_BOX, *binds, "--", sys.executable, "-c", _LAST, str(REPO / "tests"),
-                            door, AK, "watch", env=env)
-
-    @contextlib.contextmanager
-    def _door(self, url):
-        """`PORT:PATH`, a unix socket in this Home carrying to the loopback sink at `url` while
-        it is open, or nothing when `url` names no loopback sink."""
-        sink, path = urlsplit(url or ""), self.root / "sink.sock"
-        if sink.hostname != "127.0.0.1":
-            yield ""
-            return
-        with socket.socket(socket.AF_UNIX) as listener:
-            listener.bind(str(path))
-            listener.listen()
-            relay(listener, socket.AF_INET, ("127.0.0.1", sink.port))
-            try:
-                yield f"{sink.port}:{path}"
-            finally:
-                listener.shutdown(socket.SHUT_RDWR)
-                path.unlink()
+        sink = urlsplit(self._env(env).get("AK_NOTIFY_SINK", ""))
+        port = sink.port if sink.hostname == "127.0.0.1" else None
+        way = self.tmux_dir / "sink.sock"     # a socket's path must fit in 104 bytes
+        listener = socket.create_server(str(way), family=socket.AF_UNIX)
+        _relay(listener, socket.AF_INET, ("127.0.0.1", port))
+        try:
+            return self.run(*_BOX, *binds, "--", sys.executable, "-I", Path(__file__).resolve(),
+                            str(port or ""), str(way), AK, "watch", env=env)
+        finally:
+            listener.shutdown(socket.SHUT_RDWR)     # wakes its `accept`, as `close` would not
+            listener.close()
+            way.unlink()
 
     def spawn(self, *args, env=None, cwd=None):
         """Start the program and leave it running, its output in `home.log(...)`; `close` ends
@@ -313,36 +286,6 @@ class Home:
         """This Home's environment with `extra` over it; a None value removes the variable."""
         merged = {**self.env, **(extra or {})}
         return {key: value for key, value in merged.items() if value is not None}
-
-
-def relay(listener, family, address):
-    """Carry every connection the listening `listener` takes to `address`, both ways, until it
-    shuts down."""
-    def pump(source, target):
-        try:
-            while data := source.recv(65536):
-                target.sendall(data)
-            target.shutdown(socket.SHUT_WR)
-        except OSError:
-            pass
-
-    def carry(near):
-        with near, socket.socket(family) as far:
-            far.connect(address)
-            back = threading.Thread(target=pump, args=(far, near), daemon=True)
-            back.start()
-            pump(near, far)
-            back.join()
-
-    def serve():
-        while True:
-            try:
-                near = listener.accept()[0]
-            except OSError:
-                return
-            threading.Thread(target=carry, args=(near,), daemon=True).start()
-
-    threading.Thread(target=serve, daemon=True).start()
 
 
 def _wait_gone(pid, bound=30):
@@ -368,3 +311,44 @@ def _end(proc):
     for pipe in (proc.stdin, proc.stdout, proc.stderr):
         if pipe:
             pipe.close()
+
+
+def _relay(listener, family, address):
+    """Carry each connection `listener` takes to `address`, both ways, until it ends."""
+    def pipe(source, sink):
+        try:
+            while data := source.recv(65536):
+                sink.sendall(data)
+            sink.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+
+    def serve():
+        while True:
+            try:
+                near, far = listener.accept()[0], socket.socket(family)
+                far.connect(address)
+            except OSError:     # the tick is over
+                return
+            for ends in ((near, far), (far, near)):
+                threading.Thread(target=pipe, args=ends, daemon=True).start()
+
+    threading.Thread(target=serve, daemon=True).start()
+
+
+def _last(port, way, *program):
+    """A tick's last breath in its box: the sink's port carried in from the socket at `way`, and
+    what the program detached waited out before the box goes."""
+    if port:
+        _relay(socket.create_server(("127.0.0.1", int(port))), socket.AF_UNIX, way)
+    code = subprocess.call(program)
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        if not [p for p in os.listdir("/proc") if p.isdigit() and int(p) not in (1, os.getpid())]:
+            sys.exit(code)
+        time.sleep(0.1)
+    sys.exit("the tick left processes running")
+
+
+if __name__ == "__main__":
+    _last(*sys.argv[1:])
