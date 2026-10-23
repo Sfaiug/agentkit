@@ -4071,28 +4071,25 @@ def role_mark(cfg, selected, name, column, providers):
         role: [peer for peer in group if peer != name] if name in group else [*group, name]})
 
 
-def handover(name, record, old_model, old_harness, owned):
-    """What a seat moving to another harness hands its next model, as the file its rulebook
-    points at (`config.seat_rulebook`): what the moves before handed on, then the conversation
-    it leaves as its harness reads it back (`said`), oldest first, or where that conversation's
-    raw transcript is when its harness reads none back.  None where it adds nothing: the seat
-    said nothing since it last moved, as a new seat moved before its first word.
+def handover(record, old_model, old_harness, owned):
+    """What a seat moving to another harness adds to its handover file, the one its rulebook
+    points at (`config.seat_rulebook`): the conversation it leaves as its harness reads it back
+    (`said`), or where that conversation's raw transcript is when its harness reads none back.
+    None where the seat said nothing since it last moved, as a new seat moved before its first
+    word.
     """
     plugin = harness_plugin(old_harness) if old_harness else None
     said = plugin.said(record, record.get("cwd"), owned) if plugin and owned else None
     if said is None:
         where = plugin.transcript(record, record.get("cwd"), owned) if plugin else None
-        said = [{"who": "model", "text": f"(Its raw transcript is at {where}.)" if where
-                 else "(It cannot be read here.)"}]
-    if not said:
+        told = (f"Its harness reads none of it back; its raw transcript is at {where}.\n\n"
+                if where else "It cannot be read here.\n\n")
+    elif not said:
         return None
-    try:
-        before = config.seat_file("handover", name).read_text(encoding="utf-8")
-    except (OSError, config.Error):
-        before = ""
-    told = "".join(f"**{'user' if turn['who'] == 'user' else old_model}:** {turn['text']}\n\n"
-                   for turn in said)
-    return f"{before}## Its conversation on {old_model}, until {time.strftime('%d %b %H:%M')}\n\n{told}"
+    else:
+        told = "".join(f"**{'user' if turn['who'] == 'user' else old_model}:** {turn['text']}\n\n"
+                       for turn in said)
+    return f"## Its conversation on {old_model}\n\n{told}"
 
 
 def _switch_plan(cfg, name, model, providers, credits=True):
@@ -4170,8 +4167,8 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
     on. Otherwise the record
     stays on the conversation the new launch owns, and the old harness's per-seat evidence
     goes with it. This is a new conversation under a saved name, so the watch state is reset
-    the way a created seat's is, and its rulebook ends with what the old one hands on
-    (`handover`), written before the launch writes the rulebook: nothing is typed for it.  A
+    the way a created seat's is, and what the old one said goes on the end of the file its
+    rulebook ends naming (`handover`), before the launch writes it: nothing is typed for it.  A
     turn it was in is told to go on, the line the new harness opens on (`watch.relaunched`).
     The record names the new model before the harness is up, so no redress draws the old
     one after it. Nothing on its screen refuses the move: the owner moving it knows what is
@@ -4212,10 +4209,9 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
     except FileNotFoundError:
         before = None
     try:
-        if not kept:
-            given = handover(name, record, old_model, old_harness, owned)
-            if given:
-                replace_file(handed, given.encode())
+        given = None if kept else handover(record, old_model, old_harness, owned)
+        if given:
+            replace_file(handed, (before or b"") + given.encode())
         ran_in = Path(record.get("cwd") or (session or {}).get("path") or "")
         cwd = ran_in if ran_in.is_dir() else seat_cwd()
         at = time.time()

@@ -3,11 +3,11 @@
 Picking another model in the `c` screen's orchestrator column moves the seat to it at
 once under the same name: the old harness process ends, the new one starts in the seat's
 directory, and the runs, plan file and record stay, with the new orchestrator in the
-record. The handover -- from which model, `ak plan`, `ak run status`, and the old
-conversation -- ends the new seat's rulebook, and nothing is typed for it; a turn it was
-in is typed on by the tick where its harness takes no first prompt. A model whose harness is not
-installed or not logged in, or whose meter is spent, is refused in one line with the
-seat as it was, as is a restart that fails.
+record. The new seat's rulebook ends on `ak plan`, `ak run status` and the file the old
+conversation is handed on in, and nothing is typed for it; a turn it was in is typed on by
+the tick where its harness takes no first prompt. A model whose harness is not installed or
+not logged in, or whose meter is spent, is refused in one line with the seat as it was, as
+is a restart that fails.
 
 Offline: a temporary HOME, fake harness adapters and binaries, a fake tmux, and no real
 process signalled. The seat listing is faked live or gone; the session records, plan
@@ -125,6 +125,12 @@ class Switch(Sandbox):
     def rulebook(self, name="fix-api"):
         return config.rulebook_path(name).read_text()
 
+    def handover(self, name="fix-api"):
+        """The file its rulebook names for what was said before the move."""
+        path = config.seat_file("handover", name)
+        self.assertIn(str(path), self.rulebook(name))
+        return path.read_text()
+
     def selected(self, name="fix-api"):
         record = config.load_session(self.cfg, name)
         found = {"orchestrator": record["orchestrator"], "workers": list(record["workers"])}
@@ -162,9 +168,10 @@ class Switch(Sandbox):
         # nothing typed, now or by the tick: the handover is in the rulebook it opened on
         self.assertEqual([args for args in self.calls if args[0] == "send-keys"], [])
         self.assertIsNone(watch.seat_read("fix-api").get("midturn"))
-        for part in ("This seat ran on opus", "ak plan", "ak run status",
-                     "**user:** what changed?\n\n**opus:** the endpoint"):
+        for part in ("ak plan", "ak run status"):
             self.assertIn(part, self.rulebook())
+        self.assertIn("## Its conversation on opus\n\n**user:** what changed?\n\n"
+                      "**opus:** the endpoint", self.handover())
 
     def test_a_seat_whose_orchestrators_model_was_removed_moves_to_another(self):
         config.remove_model(self.cfg, "opus")     # fix-api is still open on it
@@ -175,10 +182,10 @@ class Switch(Sandbox):
         respawns = [args for args in self.calls if args[0] == "respawn-pane"]
         self.assertEqual(len(respawns), 1)
         self.assertIn("fake-tui-codex", respawns[0][-1])
-        rulebook = self.rulebook()
-        self.assertIn("This seat ran on opus", rulebook)
-        self.assertIn("cannot be read here", rulebook)   # nothing says where the old one is kept
-        self.assertNotIn(self.transcript, rulebook)
+        handover = self.handover()
+        self.assertIn("## Its conversation on opus", handover)
+        self.assertIn("cannot be read here", handover)   # nothing says where the old one is kept
+        self.assertNotIn(self.transcript, handover)
 
     def test_the_tick_types_a_turn_on_after_the_warmup_where_no_first_prompt_carries_it(self):
         watch.seat_write("fix-api", state="at_prompt")
@@ -230,7 +237,7 @@ class Switch(Sandbox):
         respawns = [args for args in self.calls if args[0] == "respawn-pane"]
         self.assertEqual([args[args.index("-t") + 1] for args in respawns], ["=ship-api:"])
         self.assertEqual([args for args in self.calls if "new-session" in args], [])
-        self.assertIn("This seat ran on opus", self.rulebook("ship-api"))
+        self.assertIn("## Its conversation on opus", self.handover("ship-api"))
 
     def test_a_restart_that_fails_says_so_in_one_line_and_keeps_the_record(self):
         before = config.load_session(self.cfg, "fix-api")

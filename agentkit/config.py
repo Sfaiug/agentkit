@@ -1609,7 +1609,8 @@ def seat_rulebook(session, repo=None):
     """What `session`'s rulebook file holds when it opens now: `rulebook_text`, the AGENTS.md of
     the project it is filed under -- `repo`, else its record's -- as on that project's default
     branch: what its workers get, as its launch or the tick last fetched it
-    (`orch.fetch_project`); and an unnamed seat's instruction to name itself."""
+    (`orch.fetch_project`); an unnamed seat's instruction to name itself; and, last, where the
+    conversations it moved from are (`orch.handover`)."""
     from . import gitcall     # here, not at the top: gitcall imports this module
     record = session_records().get(session, {})
     repo = record.get("repo") if repo is None else repo
@@ -1619,16 +1620,16 @@ def seat_rulebook(session, repo=None):
         body = (f"{body.rstrip()}\n\n# The project's AGENTS.md\n\nThe rules of {Path(repo).name}, "
                 "the project this session is filed under, as on its default branch: its workers "
                 f"get the same.\n\n{project}\n")
-    handed = seat_file("handover", session)
-    if handed.is_file():
+    if record.get("unnamed"):
+        body = f"{body.rstrip()}\n\n{NAME_LINE}\n"
+    handed = seat_file("handover", session) if record else None    # only a seat moves
+    if handed and handed.is_file():
         # where, not what: a harness may take its rulebook as one argument, which Linux caps
         # at 128 KiB, and a conversation has no such bound
         body = (f"{body.rstrip()}\n\n# Where this seat's work stands\n\nThis seat moved to you "
                 "from another model under the same name. Its runs go on and report to you (`ak "
                 "run status`), and its plan is `ak plan`. What was said in its conversation so "
                 f"far, oldest first, is in {handed}: read its end before anything else.\n")
-    if record.get("unnamed"):
-        body = f"{body.rstrip()}\n\n{NAME_LINE}\n"
     return body
 
 

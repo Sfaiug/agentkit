@@ -1,10 +1,12 @@
-"""A seat moved to a model of another harness opens with its conversation so far in its rulebook,
-and nothing is typed for it.
+"""A seat moved to a model of another harness reads its conversation so far from a file its
+rulebook names, and nothing is typed for it.
 
 The move typed a handover -- from which model, a plan file, a transcript path -- into the new
 TUI while the owner may have been typing there, and that line carried nothing of what was said.
-Now the rulebook the new harness opens on ends with the conversation as the old harness reads it
-back (`said`), and only a turn it was in is told to go on.  `test_seat_move_keeps_conversation`'s
+Putting the conversation into the rulebook itself killed a Codex seat with E2BIG: Codex takes its
+rulebook as one argument, which Linux caps at 128 KiB.  Now each move appends the conversation as
+the old harness reads it back (`said`) to the seat's handover file, the rulebook's last section
+names that file, and only a turn it was in is told to go on.  `test_seat_move_keeps_conversation`'s
 stage.
 """
 
@@ -12,7 +14,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_seat_move_keeps_conversation import NOW, SEAT, SeatMove
+from test_seat_move_keeps_conversation import SEAT, SeatMove
 from agentkit import config, orch, watch
 from agentkit.harness import Harness
 
@@ -31,16 +33,26 @@ class HandsOver(SeatMove):
         command = orch.command.side_effect
         orch.command.side_effect = lambda *a, line=None, **kw: (self.lines.append(line)
                                                                  or command(*a, **kw))
+        self.handed = config.seat_file("handover", SEAT)
 
     def rulebook(self):
         return config.rulebook_path(SEAT).read_text()
 
-    def test_moved_to_another_harness_it_opens_with_what_was_said_and_nothing_is_typed(self):
+    def handover(self):
+        return self.handed.read_text()
+
+    def move_on(self, model):
+        """A move off the Codex seat, on the thread its launch hook would have reported."""
+        with patch.object(Harness, "conversation", new=lambda *_a: "thread-of-astra"):
+            return self.move(model)
+
+    def test_moved_to_another_harness_it_reads_what_was_said_and_nothing_is_typed(self):
         self.assertEqual(self.move("astra"), "")
-        rulebook = self.rulebook()
-        self.assertIn("This seat ran on opus", rulebook)
-        self.assertLess(rulebook.index(ASKED["text"]), rulebook.index(ANSWERED["text"]))
-        self.assertIn(f"**opus:** {ANSWERED['text']}", rulebook)
+        self.assertIn(str(self.handed), self.rulebook().rpartition("\n# ")[2])   # its last section
+        handover = self.handover()
+        self.assertIn("## Its conversation on opus", handover)
+        self.assertLess(handover.index(f"**user:** {ASKED['text']}"),
+                        handover.index(f"**opus:** {ANSWERED['text']}"))
         self.assertEqual({*self.lines}, {None})     # each command it was asked for
         self.assertIsNone(watch.seat_read(SEAT).get("midturn"))
 
@@ -50,69 +62,80 @@ class HandsOver(SeatMove):
                                        "at": time.time(), "kind": "", "text": ""})
         self.move("astra")
         self.assertEqual({*self.lines}, {watch.MOVED_LINE})
-        self.assertIn("handover at the end of your instructions", watch.MOVED_LINE)
 
-    def test_moved_on_again_it_hands_on_both_conversations(self):
+    def test_moved_on_again_it_keeps_the_first_conversation_ahead_of_the_second(self):
         self.move("astra")
         self.said["codex"] = [{"who": "user", "text": "And for a deleted one?"},
                               {"who": "model", "text": "410, as the spec says."}]
-        # the thread its Codex launch hook would have reported
-        with patch.object(Harness, "conversation", new=lambda *_a: "thread-of-astra"):
-            self.move("fable")
-        rulebook = self.rulebook()
-        self.assertIn("This seat ran on astra", rulebook)
-        self.assertLess(rulebook.index(ANSWERED["text"]), rulebook.index("**astra:** 410"))
+        self.move_on("fable")
+        handover = self.handover()
+        self.assertLess(handover.index(f"**opus:** {ANSWERED['text']}"),
+                        handover.index("## Its conversation on astra"))
+        self.assertLess(handover.index("## Its conversation on astra"),
+                        handover.index("**astra:** 410"))
+        self.assertIn(str(self.handed), self.rulebook())
 
-    def test_the_latest_messages_are_what_fits(self):
-        long = {"who": "model", "text": "Done. " * config.RULEBOOK_BYTES}
-        self.said["claude"] = [ASKED, long, {"who": "user", "text": "Ship it"}]
-        self.move("astra")
-        rulebook = self.rulebook()
-        self.assertNotIn(ASKED["text"], rulebook)
-        self.assertIn("its 2 earliest messages too", rulebook)
-        self.assertIn("**user:** Ship it", rulebook)
-
-    def test_its_rulebook_with_the_handover_fits_the_one_argument_codex_takes_it_in(self):
+    def test_its_rulebook_grows_by_the_same_paragraph_whatever_was_said(self):
         (config.HOME / "rules.md").write_text("Keep the endpoint compatible.\n" * 2500)
+        before = config.seat_rulebook(SEAT)
         self.said["claude"] = [{"who": "user", "text": "界" * 60000 + "Ship it"}]
         self.move("astra")
         rulebook = self.rulebook()
-        self.assertIn("Keep the endpoint compatible.", rulebook)
-        self.assertIn("界界Ship it", rulebook)                 # the end of what was said
-        self.assertLessEqual(len(rulebook.encode()), config.RULEBOOK_BYTES)
+        self.assertTrue(rulebook.startswith(before.rstrip()))
+        self.assertLess(len(rulebook.encode()) - len(before.encode()), 600)
+        self.assertIn("界界Ship it", self.handover())       # the end of what was said
 
     def test_a_seat_moved_before_its_first_word_hands_on_nothing(self):
         with patch.object(Harness, "said", new=SAID):     # Claude has written no transcript yet
             self.move("astra")
-        self.assertNotIn("This seat ran on", self.rulebook())
+        self.assertFalse(self.handed.exists())
+        self.assertNotIn(str(self.handed), self.rulebook())
+
+    def test_a_seat_that_said_nothing_since_it_last_moved_adds_nothing(self):
+        self.move("astra")
+        handover = self.handover()
+        self.said["codex"] = []
+        self.move_on("fable")
+        self.assertEqual(self.handover(), handover)
 
     def test_a_harness_that_reads_nothing_back_hands_on_its_transcript(self):
         self.said.pop("claude")
         with patch.object(Harness, "transcript", return_value="/tmp/acme/transcript.jsonl"):
             self.move("astra")
-        self.assertIn("raw transcript is at /tmp/acme/transcript.jsonl", self.rulebook())
+        self.assertIn("raw transcript is at /tmp/acme/transcript.jsonl", self.handover())
+
+    def test_a_conversation_nothing_can_read_is_noted_as_such(self):
+        self.said.pop("claude")
+        self.move("astra")
+        self.assertIn("## Its conversation on opus\n\nIt cannot be read here.", self.handover())
 
     def test_each_raw_transcript_is_handed_on_in_its_place(self):
         self.said.pop("claude")
         with patch.object(Harness, "transcript", return_value="/tmp/acme/first.jsonl"):
             self.move("astra")
         self.said["codex"] = [{"who": "user", "text": "And for a deleted one?"}]
-        with patch.object(Harness, "conversation", new=lambda *_a: "thread-of-astra"):
-            self.move("fable")
+        self.move_on("fable")
         with patch.object(Harness, "transcript", return_value="/tmp/acme/third.jsonl"):
             self.move("astra")
-        rulebook = self.rulebook()
-        self.assertLess(rulebook.index("/tmp/acme/first.jsonl"),
-                        rulebook.index("And for a deleted one?"))
-        self.assertLess(rulebook.index("And for a deleted one?"),
-                        rulebook.index("/tmp/acme/third.jsonl"))
+        handover = self.handover()
+        self.assertLess(handover.index("/tmp/acme/first.jsonl"),
+                        handover.index("And for a deleted one?"))
+        self.assertLess(handover.index("And for a deleted one?"),
+                        handover.index("/tmp/acme/third.jsonl"))
 
-    def test_a_move_that_fails_leaves_no_handover_behind(self):
+    def test_a_move_that_fails_leaves_the_file_as_it_was(self):
         self.refused = "no such pane"
         self.assertTrue(self.move("astra"))
-        self.assertFalse(config.seat_file("handover", SEAT).exists())
+        self.assertFalse(self.handed.exists())
         self.assertEqual(self.record()["orchestrator"], "opus")
-        self.assertEqual(NOW, orch.time.time())
+        self.refused = None
+        self.move("astra")
+        handover = self.handover()
+        self.said["codex"] = [{"who": "user", "text": "And for a deleted one?"}]
+        self.refused = "no such pane"
+        self.assertTrue(self.move_on("fable"))
+        self.assertEqual(self.handover(), handover)
+        self.assertEqual(self.record()["orchestrator"], "astra")
 
 
 def load_tests(loader, tests, pattern):

@@ -115,6 +115,12 @@ class SeatMove(Sandbox):
         path.write_text(json.dumps({"type": "user", "message": {"role": "user",
                                                                 "content": "Fix the api"}}) + "\n")
 
+    def handover(self):
+        """The file its rulebook names for what was said before the move."""
+        path = config.seat_file("handover", SEAT)
+        self.assertIn(str(path), config.rulebook_path(SEAT).read_text())
+        return path.read_text()
+
     def test_a_claude_seat_moved_to_another_claude_model_resumes_its_conversation(self):
         self.assertEqual(self.move("fable"), "")
         self.assertEqual(self.respawned, [["acme-tui", "fable", OWN]])   # resumed, not opened
@@ -128,7 +134,7 @@ class SeatMove(Sandbox):
         [cmd] = self.respawned
         self.assertEqual(cmd[-2:], ["acme-tui", "astra"])     # after its launch receipt's env
         self.assertEqual(self.record()["orchestrator"], "astra")
-        self.assertIn("This seat ran on opus", config.rulebook_path(SEAT).read_text())
+        self.assertIn("## Its conversation on opus", self.handover())
         self.assertIsNone(watch.seat_read(SEAT).get("midturn"))        # nothing typed
 
     def test_a_conversation_its_harness_cannot_resume_opens_fresh_with_the_handover(self):
@@ -138,7 +144,7 @@ class SeatMove(Sandbox):
         [cmd] = self.respawned
         self.assertEqual((cmd[:2], cmd[-1]), (["acme-tui", "fable"], "new"))
         self.assertNotEqual(cmd[2], OWN)
-        self.assertIn("This seat ran on opus", config.rulebook_path(SEAT).read_text())
+        self.assertIn("## Its conversation on opus", self.handover())
 
     def test_a_seat_moved_mid_turn_is_told_to_go_on(self):
         watch.seat_write(SEAT, state="at_prompt")     # its last reading, a prompt behind
