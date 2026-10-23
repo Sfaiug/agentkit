@@ -98,9 +98,11 @@ state = "at_prompt"
 name = "StopCancelled"
 state = "at_prompt"
 
+# `failed`: the turn ended on an error, so its look settles the seat's account first
 [[hooks.event]]
 name = "StopFailure"
 state = "at_prompt"
+failed = true
 
 [[hooks.event]]
 name = "Notification"

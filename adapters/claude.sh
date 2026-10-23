@@ -394,6 +394,7 @@ path, stamp, repo = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 EVENTS = {"SessionStart": ("seat-state.sh",),
           "UserPromptSubmit": ("seat-state.sh",),
           "Stop": ("seat-state.sh", "orchestrator-stop.sh"),
+          "StopFailure": ("seat-state.sh",),
           "Notification": ("seat-state.sh",),
           "PermissionRequest": ("seat-state.sh",),
           "PostToolUse": ("seat-state.sh",),

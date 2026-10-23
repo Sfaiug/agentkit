@@ -25,7 +25,8 @@ SETTINGS = ".claude/settings.json"
 STATE, STOP = "seat-state.sh", "orchestrator-stop.sh"
 # Each event's groups, in order: the hook scripts each runs, and the tools it is matched to.
 WIRED = {"SessionStart": [((STATE,), None)], "UserPromptSubmit": [((STATE,), None)],
-         "Stop": [((STATE,), None), ((STOP,), None)], "Notification": [((STATE,), None)],
+         "Stop": [((STATE,), None), ((STOP,), None)], "StopFailure": [((STATE,), None)],
+         "Notification": [((STATE,), None)],
          "PermissionRequest": [((STATE,), None)],
          "PostToolUse": [((STATE,), "AskUserQuestion|ExitPlanMode")],
          "PreCompact": [((STATE,), None)], "PostCompact": [((STATE,), None)],

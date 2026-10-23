@@ -1,9 +1,10 @@
-"""fixtures.seats' seat, launched with ak's editor: its tmux faked as a harness whose Ctrl-G hands
-its composer to the real agentkit/aside_editor.py, takes what that hands back at once and draws
-it a few reads late, and whose Enter sends what its composer holds, one composer for any pane
-ak names.  Whether it hears the key (`deaf`), the seat's launch, the panes of its session
-(PANE the one selected), unread input and when its terminal last took keys are the test's to
-set."""
+"""fixtures.seats' seat, launched with ak's editor: its tmux faked as the seat's harness, whose
+editor keys (`[screen] editor`) hand its composer to the real agentkit/aside_editor.py, which
+takes what that hands back at once and draws it a few reads late, and whose Enter sends what its
+composer holds, one composer for any pane ak names.  Whether it hears the keys (`deaf`), whether
+it drops a key written alone, as OpenCode opening a new session does (`opening`), the seat's
+launch, the panes of its session (PANE the one selected), unread input and when its terminal
+last took keys are the test's to set."""
 
 import os
 from unittest.mock import patch
@@ -17,7 +18,8 @@ class EditorSeat(Seats):
         super().setUp()
         self.keys, self.sent, self.buffers, self.ask, self.late = [], [], {}, None, 0
         self.opened = []        # the owner's own editor, opened where ak asked nothing
-        self.deaf, self.launched, self.tty, self.panes = False, True, self.root / "tty", [PANE]
+        self.deaf, self.opening, self.held = False, False, ()
+        self.launched, self.tty, self.panes = True, self.root / "tty", [PANE]
         self.unread = False
         self.tty.write_text("")
         for target, name, fake in ((aside_editor, "launched", lambda _pid, _tty: self.launched),
@@ -84,7 +86,8 @@ class EditorSeat(Seats):
             self.typed.append(args[-1])
             self.show(self.composer + args[-1])
         elif args[0] == "send-keys":
-            for key in args[args.index("-t") + 2:]:
+            keys = args[args.index("-t") + 2:]
+            for key in keys if len(keys) > 1 or not self.opening else ():
                 self.press(key, pane)
         else:
             return super().tmux(*args, **kwargs)
@@ -92,7 +95,10 @@ class EditorSeat(Seats):
 
     def press(self, key, pane=PANE):
         self.keys.append(key)
-        if key == "C-g" and not self.deaf:
+        opens = watch.screen(watch.seat_model(self.cfg, self.seat["name"])[0])["editor"]
+        held = (*self.held, key)
+        self.held = held if held != opens and held == opens[:len(held)] else ()
+        if held == opens and not self.deaf:
             path = self.root / "composer.md"
             path.write_text(self.composer)
             with patch.dict(os.environ, {"TMUX_PANE": pane}):

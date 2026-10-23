@@ -141,7 +141,10 @@ def answer(entry):
 
 def said(record, cwd, conversation):
     from . import turns
-    return turns(transcript(record, cwd, conversation), prompt, answer)
+    if not conversation or not record.get("cwd"):
+        return None
+    # a conversation nobody typed into has no file yet: it said nothing
+    return turns(transcript_path(record, conversation), prompt, answer) or []
 
 
 def user_messages(record, cwd, conversation):

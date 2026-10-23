@@ -19,9 +19,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 
-# Tests pin each piece of knowledge with fixtures, and the docs describe it to a reader: both
+# Python and Go tests pin knowledge with fixtures, and docs describe it to a reader: both
 # follow the code wherever it lives, so the rules count where the product itself keeps a copy.
-SCOPE = ("--", ".", ":!tests/", ":!*.md")
+SCOPE = ("--", ".", ":!tests/", ":!*_test.go", ":!*.md")
 
 RULES = [
     # Lifecycle reads belong to the lightweight reader, so a completed tool never needs
@@ -83,11 +83,13 @@ RULES = [
     # A harness is its adapter pair and its plugin, and a model is bound to its harness and
     # provider by one config.default.toml entry: every other copy of a name is harness
     # knowledge that adding, renaming or dropping a harness has to find and change.
+    # Go embeds a generated copy; TestEmbeddedDefault refuses any difference from the source.
     {"name": "harness and provider names",
      "flags": ("-i", "-w"),
      "pattern": "claude|codex|muse|opencode|grok|grokbuild|antigravity|gemini|anthropic|openai"
                 "|xai|mimo|[\"']meta[\"']|[\"']google[\"']",
-     "home": ("adapters/", "agentkit/harness/", "config.default.toml"),
+     "home": ("adapters/", "agentkit/harness/", "config.default.toml",
+              "go/internal/config/default.toml"),
      "max": 187},
     # What a refusal from a provider looks like is the harness's to say (adapters/*.toml,
     # its plugin): a copy in the loop or the watcher is a second classifier to keep in step.
@@ -137,15 +139,15 @@ RULES = [
                 r"|len\([\"'](session|notify|card|seat|hook|compact|stop|plan)-[\"']\)",
      "home": ("agentkit/config.py",),
      "max": 6},
-    # A rename leaves a pointer at the old name, and `config.resolve_session` follows it: a
-    # second walk of the chain is one more place to keep in step with how renames chain.
+    # A rename leaves a pointer at the old name; each implementation's config follows it.
+    # A walk outside config is one more place to keep in step with how renames chain.
     # The one left is seat-state.sh's jq walk.  OpenCode's own `session.renamed` event is no
     # pointer.
     {"name": "rename chain walks",
      "flags": (),
      "pattern": r"[\"']renamed[\"']|\.renamed([^A-Za-z0-9_]|$)",
      "names": r"session\.renamed",
-     "home": ("agentkit/config.py",),
+     "home": ("agentkit/config.py", "go/internal/config/session.go"),
      "max": 1},
     # The recorded ending of a turn has one decider. The native hook and the tick
     # supply their own evidence and census; parked-work and wait precedence stay in stop.py.
@@ -166,12 +168,12 @@ RULES = [
      "home": ("agentkit/task.py",),
      "max": 0},
     # A job's receipt has one home: every read, write, path or fingerprint of it -- gc's,
-    # status's, resume's and the menu's included -- asks job.py, so a line anywhere else that
+    # status's, resume's and the menu's included -- asks its job module, so a line elsewhere that
     # names its file, in code or in a comment, is a second idea of where a job keeps it.
     {"name": "job receipt",
      "flags": (),
      "pattern": r"job\.json",
-     "home": ("agentkit/job.py",),
+     "home": ("agentkit/job.py", "go/internal/job/"),
      "max": 0},
     # A run's state words are grouped once, in record.py (ACTIVE, FAILED, ENDED, GOING): a
     # literal group elsewhere is a second copy that a new state word would miss. install.sh
