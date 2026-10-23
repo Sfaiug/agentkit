@@ -6,9 +6,9 @@ in the seat it speaks for, keeps the question back in the seat's record, apart f
 notice: the seat reads, recovers and is typed into as its turn and runs say, no card goes out,
 and nothing typed meanwhile answers it.  The first fresh look that finds that turn ended -- a
 prompt, or a Stop on background work -- asks it, and from there it is the question it always
-was: `needs you` until his answer, whatever its runs do and whatever turn a hand-back opens
-meanwhile.  A question asked while one of the seat's own already stands is asked at once,
-beside it (tests/test_open_questions.py).
+was: `needs you` until his answer, whatever its runs do, but for a turn a hand-back opens
+meanwhile, which works without him until it stops on the question again.  A question asked
+during that turn waits for its stop too, beside the one standing (tests/test_questions_during_work.py).
 hooks/seat-state.sh and hooks/orchestrator-stop.sh run as the harness runs them, on their own
 JSON on stdin, in a temporary HOME, with card delivery and tmux faked.
 """
@@ -140,15 +140,15 @@ class QuestionWaitsForTheStop(Sandbox):
             answer = self.looked(PROMPT, self.stop(), [(config.RUNS / "acme-parser", run)])
         self.assertEqual(answer["word"], "needs you")
 
-    def test_a_turn_a_hand_back_opens_leaves_it_his_and_its_card_as_it_is(self):
+    def test_a_turn_a_hand_back_opens_works_and_leaves_its_card_as_it_is(self):
         self.hook("UserPromptSubmit", prompt="Build the acme parser.")
         self.asks()
         self.looked(PROMPT, self.stop())
         self.assertEqual(self.carded(notify.CARD_WAIT), [CARD])
         fact = self.hook("UserPromptSubmit", prompt="run acme-parser finished PASS merged.")
-        answer = self.looked(WORKING, fact, after=1000)
+        self.assertEqual(self.looked(WORKING, fact, after=1000)["word"], "working")
+        answer = self.looked(PROMPT, self.stop(), after=2000)
         self.assertEqual((answer["word"], answer["reason"]), ("needs you", QUESTION))
-        self.looked(PROMPT, self.stop(), after=2000)
         for later in (2001, 2000 + notify.CARD_WAIT, 5600):
             self.assertEqual(self.carded(later), [CARD])
         notify.answered(SEAT, NOW + 5000)                       # his prompt, and its turn
@@ -189,7 +189,7 @@ class QuestionWaitsForTheStop(Sandbox):
         answer = self.looked(PROMPT, fact)
         self.assertEqual((answer["word"], answer["reason"]), ("needs you", QUESTION))
 
-    def test_a_newer_question_is_asked_beside_one_that_stands_at_once(self):
+    def test_a_newer_question_waits_beside_one_that_stands_for_the_stop(self):
         """The owner is asked already: its card stays as it is and no second one follows."""
         self.hook("UserPromptSubmit", prompt="Build the acme parser.")
         self.asks()
@@ -197,10 +197,11 @@ class QuestionWaitsForTheStop(Sandbox):
         self.assertEqual(self.carded(notify.CARD_WAIT), [CARD])
         fact = self.hook("UserPromptSubmit", prompt="run acme-parser finished PASS merged.")
         self.asks("Ship v2 to acme today?")
-        answer = self.looked(WORKING, fact, after=1000)
+        self.assertEqual(self.looked(WORKING, fact, after=1000)["word"], "working")
+        answer = self.looked(PROMPT, self.stop(), after=2000)
         self.assertEqual((answer["word"], answer["reason"]),
                          ("needs you", QUESTION + " Also: Ship v2 to acme today?"))
-        self.assertEqual(self.carded(1000 + notify.CARD_WAIT), [CARD])
+        self.assertEqual(self.carded(2000 + notify.CARD_WAIT), [CARD])
 
     def test_both_of_two_questions_asked_in_one_turn_are_asked(self):
         self.hook("UserPromptSubmit", prompt="Build the acme parser.")
@@ -270,7 +271,8 @@ class QuestionWaitsForTheStop(Sandbox):
         self.assertEqual(notify.last(SEAT)["text"], QUESTION)
         self.assertIsNone(watch.seat_read(SEAT).get("unasked"))
         fact = self.hook("UserPromptSubmit", prompt="run acme-parser finished PASS merged.")
-        answer = self.looked(WORKING, fact, after=60)
+        self.assertEqual(self.looked(WORKING, fact, after=60)["word"], "working")
+        answer = self.looked(PROMPT, self.stop(), after=120)
         self.assertEqual((answer["word"], answer["reason"]), ("needs you", QUESTION))
 
     def test_an_enter_that_sends_a_line_left_in_the_composer_asks_it_first(self):

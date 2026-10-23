@@ -1263,7 +1263,10 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                     began = max(began, asked)
             # a done covers the seat's verified work now
             completion = _completion(name) if word == "done" else None
-            if card.get("word") != word or (
+            # A needs you whose question still stands keeps its episode through a turn a run's
+            # result opens: the same question, asked again at that turn's stop, is no news.
+            kept = card.get("word") == "needs you" and word == "working" and asked is not None
+            if card.get("word") != word and not kept or (
                     word == "done" and completion and card.get("completed") and card.get("sent")
                     and card.get("completed") != completion):
                 _retire(card)
