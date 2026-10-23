@@ -4228,8 +4228,9 @@ jq -e '.orchestrator == "astra"' "$NSH/.agentkit/state/session-smoke-shape-renam
 [ "$(HOME="$NSH" AGENTKIT_SESSION=smoke-shape ak usage --json 2>/dev/null | jq -c .pick_order)" = '["opus","spark"]' ] || RN=1
 HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK= AGENTKIT_SESSION=smoke-shape ak notify needs "still me?" >"$WORK/rename-notify.log" 2>&1 || RN=1
 [ ! -s "$WORK/rename-notify.log" ] || RN=1   # same needs-you episode across the rename: recorded, not reposted
-# asked beside check 21's question, which nobody answered
-jq -e '.text == "Which branch? Also: still me?"' "$NSH/.agentkit/state/notify-smoke-shape-renamed.json" >/dev/null 2>&1 || RN=1
+# kept for its turn's end beside check 21's question, which nobody answered
+jq -e '.text == "Which branch?"' "$NSH/.agentkit/state/notify-smoke-shape-renamed.json" >/dev/null 2>&1 || RN=1
+jq -e '.unasked.text == "still me?"' "$NSH/.agentkit/state/seat-smoke-shape-renamed.json" >/dev/null 2>&1 || RN=1
 HOME="$NSH" ak orch rename smoke-shape-renamed smoke-shape-final >"$WORK/rename2.log" 2>&1 || RN=1
 [ "$(HOME="$NSH" AGENTKIT_SESSION=smoke-shape ak usage --json 2>/dev/null | jq -c .pick_order)" = '["opus","spark"]' ] || RN=1
 HOME="$NSH" ak orch rename nosuch-seat other >"$WORK/rename-bad.log" 2>&1; [ "$?" = 2 ] || RN=1
