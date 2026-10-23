@@ -19,9 +19,9 @@ sys.path.insert(0, str(REPO))
 from agentkit import gitcall
 
 GIT = """#!/bin/sh
+trap '{on_term}' TERM
 echo $$ > "$FAKE_DIR/pid"
 touch "$FAKE_DIR/index.lock"
-trap '{on_term}' TERM
 while :; do sleep 0.05; done
 """
 
