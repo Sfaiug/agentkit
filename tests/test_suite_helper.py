@@ -39,8 +39,9 @@ esac
 """
 
 # The Mac's own tools, for tools/helper/mac.sh run here: on its charger for the first
-# $FAKE_AC_CALLS readings; a VM comes up a second after `container run`, noting any VM up
-# already, and runs until stopped.
+# $FAKE_AC_CALLS readings; a build takes half a second, and `container builder stop` breaks any
+# build still running; a VM comes up a second after `container run`, noting any VM up already, and
+# runs until stopped. Linux's `flock` takes `lockf`'s place.
 MAC_TOOLS = {
     "pmset": 'n=$(( $(cat "$FAKE/readings" 2>/dev/null || echo 0) + 1 )); echo $n >"$FAKE/readings"\n'
              '[ $n -le "$FAKE_AC_CALLS" ] && echo "Now drawing from \'AC Power\'" ||'
@@ -50,18 +51,20 @@ MAC_TOOLS = {
     "memory_pressure": 'echo "System-wide memory free percentage: 50%"',
     "caffeinate": 'shift; exec "$@"',
     "container": 'case "$1 $2" in "system "*) [ ! -e "$FAKE/system-broken" ];;\n'
-                 '"builder "*) exit 0;;\n'
+                 '"builder "*) rm -f "$FAKE"/building-*;;\n'
                  '"image inspect") [ -e "$FAKE/has-${3##*/}" ];;\n'
-                 '"build "*) touch "$FAKE/has-debian:trixie-slim"\n'
-                 '  [ ! -e "$FAKE/broken" ] && touch "$FAKE/has-ak-helper:new";;\n'
+                 '"build "*) touch "$FAKE/has-debian:trixie-slim" "$FAKE/building-$5"; sleep 0.5\n'
+                 '  rm "$FAKE/building-$5" && [ ! -e "$FAKE/broken" ] && touch "$FAKE/has-$5";;\n'
                  '"image ls") printf "NAME TAG DIGEST\\nak-helper new 1\\nak-helper old 2\\n'
-                 'acme-local unpublished 3\\nak-helper-other old 4\\n";;\n'
+                 'acme-local unpublished 3\\nak-helper-other old 4\\n"\n'
+                 '  ls "$FAKE" | sed -n "s/^has-\\(.*\\):\\(.*\\)/\\1 \\2 5/p";;\n'
                  '"image delete") echo "$3" >>"$FAKE/deleted"; rm -f "$FAKE/has-${3##*/}";;\n'
                  '"run "*) while [ "$1" != --name ]; do shift; done\n'
                  '  sleep 1; ls "$FAKE" | grep "^vm-" >>"$FAKE/overlap"; touch "$FAKE/vm-$2"\n'
                  '  while [ -e "$FAKE/vm-$2" ]; do sleep 0.1; done;;\n'
                  '"stop "*) rm "$FAKE/vm-$2";; esac',
     "ssh": 'umask 077; exec bash -c "$2"',    # the strictest umask a Mac's shell may have
+    "lockf": '[ "$1" != -k ] || shift; exec flock "$@"',
 }
 
 
@@ -345,8 +348,9 @@ class HelperMac(unittest.TestCase):
         self.assertEqual((self.root / "first/context/setup.sh").stat().st_mode & 0o777, 0o755)
         self.assertEqual((self.fake / "deleted").read_text(),
                          "ak-helper:old\ndocker.io/library/debian:trixie-slim\n")
+        # it holds the Mac; a second suite still prepares, and its pieces wait
         self.assertEqual(helper.room("acme-mac", 1.0, 500), (None, "is busy"))
-        self.assertEqual(prepare("second"), helper.BUSY)
+        self.assertEqual(prepare("second"), 0)
         for key in ("first", "second"):
             helper.finish(helper.Away("acme-mac", key, *[None] * 8))
         self.assertEqual(prepare("third"), 0)
@@ -380,12 +384,8 @@ class HelperMac(unittest.TestCase):
         self.assertEqual(suite("second"), [start])    # only the commit after what it has
         self.assertIsNone(suite("third"))              # nothing it lacks: no bundle
         # Another repository's history unused for a week goes, its image with it, at a third
-        # one's suite, though its one suite lost the claim; this one's stays from the moment a
-        # suite asks what it has.
-        (self.root / "rival").mkdir()
-        (self.root / "rival" / "held").touch()
-        self.assertEqual(self.prepare("lost", "other")[0], helper.BUSY)
-        shutil.rmtree(self.root / "rival")
+        # one's suite; this one's stays from the moment a suite asks what it has.
+        self.assertEqual(self.prepare("lost", "other")[0], 0)
         helper.finish(helper.Away("acme-mac", "lost", *[None] * 8))
         for path in (mirror, other):
             os.utime(path, (time.time() - 9 * 86400,) * 2)
@@ -393,7 +393,8 @@ class HelperMac(unittest.TestCase):
         self.assertEqual(self.prepare("between", "new")[0], 0)
         helper.finish(helper.Away("acme-mac", "between", *[None] * 8))
         self.assertIsNone(suite("fourth", known))
-        self.assertEqual(sorted(path.name for path in mirror.parent.iterdir()), ["acme", "new"])
+        self.assertEqual(sorted(path.name for path in mirror.parent.iterdir() if path.is_dir()),
+                         ["acme", "new"])
         self.assertEqual((self.fake / "deleted").read_text(), "ak-helper-other:old\n")
         # A suite's commits outlive a collection while it runs, though origin's branch left
         # them; once it finished, the next suite's collection drops them.
