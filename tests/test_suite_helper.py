@@ -59,6 +59,8 @@ MAC_TOOLS = {
                  'acme-local unpublished 3\\nak-helper-other old 4\\n"\n'
                  '  ls "$FAKE" | sed -n "s/^has-\\(.*\\):\\(.*\\)/\\1 \\2 5/p";;\n'
                  '"image delete") echo "$3" >>"$FAKE/deleted"; rm -f "$FAKE/has-${3##*/}";;\n'
+                 '"ls --all") [ ! -e "$FAKE/ls-broken" ] || exit 1; echo "ID IMAGE OS"\n'
+                 '  cat "$FAKE/listed" 2>/dev/null; :;;\n'
                  '"run "*) while [ "$1" != --name ]; do shift; done\n'
                  '  sleep 1; ls "$FAKE" | grep "^vm-" >>"$FAKE/overlap"; touch "$FAKE/vm-$2"\n'
                  '  while [ -e "$FAKE/vm-$2" ]; do sleep 0.1; done;;\n'
@@ -361,6 +363,16 @@ class HelperMac(unittest.TestCase):
         (self.fake / "deleted").unlink()
         self.assertEqual(prepare("fourth"), 0)
         self.assertEqual((self.fake / "deleted").read_text(), "ak-helper:old\n")
+
+    def test_an_image_a_listed_vm_may_use_stays(self):
+        # `container ls` names an image as docker.io's; no listing could be any image
+        (self.fake / "listed").write_text("vm docker.io/library/ak-helper:old linux\n")
+        self.assertEqual(self.prepare("listed")[0], 0)
+        (self.fake / "has-ak-helper:new").unlink()
+        (self.fake / "ls-broken").touch()
+        self.assertEqual(self.prepare("unknown")[0], 0)
+        self.assertEqual((self.fake / "deleted").read_text(),
+                         "docker.io/library/debian:trixie-slim\n")
 
     def test_a_suite_sends_only_the_history_the_mac_lacks(self):
         (self.fake / "has-ak-helper:new").touch()
