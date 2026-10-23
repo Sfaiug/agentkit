@@ -538,7 +538,7 @@ def resume_after_boot(cfg, dry_run=False, log=print):
         attempted = recovery.get("attempted", []) if recovery.get("id") == boot else []
         present = {seat["name"] for seat in orch.sessions()}
         try:
-            records = menu_mod.run_records()
+            records = menu_mod.run_records(cache=not dry_run)
         except (config.Error, OSError, ValueError):
             records = []
         index, now = transitions.supersession_index(records), time.time()
@@ -4622,7 +4622,7 @@ def health(cfg, state, dry_run, log):
     # one pass over run.json serves every live seat; a failed read is None, never a seat
     # with no runs
     try:
-        records = menu_mod.run_records()
+        records = menu_mod.run_records(cache=not dry_run)
     except (config.Error, OSError, ValueError):
         records = None
     # What each seat's runs are parked on, oldest first: the harness, when it parked and what
