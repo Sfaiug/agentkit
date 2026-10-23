@@ -21,7 +21,7 @@ import tomllib
 import unittest
 
 from test_config_matrix import (DOWN, ENTER, ESC, FULL, INHERITED, LEFT, REPO, RIGHT, UP,
-                                Screen, highlighted, row)
+                                KEYS as MATRIX_KEYS, Screen, highlighted, lit, row)
 from test_provider_screen import MATRIX
 from agentkit import terminal
 
@@ -86,8 +86,7 @@ provider = "anthropic"
 [providers.anthropic]
 mode = "subscription"
 """
-KEYS = {"label": "  ↑↓←→ move   ⏎ open   esc back",
-        "step": "  ↑↓ move   ←→ choose   esc back",
+KEYS = {"step": "  ↑↓ move   ←→ choose   esc back",
         "remove": "  ↑↓ move   ⏎ remove   esc back"}
 
 
@@ -106,7 +105,7 @@ def open_model(screen, keys, name):
     """`keys` in the matrix to reach `name`'s row, ← onto its label and Enter: its own screen,
     titled by the model's full name."""
     screen.frame()
-    lines = screen.press(keys + LEFT, lambda lines: lines[-1] == KEYS["label"])
+    lines = screen.press(keys + LEFT, lambda lines: lit(lines, name) == FULL[name])
     screen.case.assertIn(FULL[name], highlighted(lines))
     return screen.press(ENTER, lambda lines: title(lines) == f"agentkit · config · {FULL[name]}")
 
@@ -142,7 +141,7 @@ class ModelScreen(unittest.TestCase):
         self.assertEqual(screen.path.read_bytes(), before)
         lines = screen.press(ESC, lambda lines: title(lines) == MATRIX)
         self.assertEqual(highlighted(lines), row(lines, "haiku")[1])   # opus's, a Haiku now
-        self.assertEqual(lines[-1], KEYS["label"])
+        self.assertEqual(lines[-1], MATRIX_KEYS)
         screen.leave()
         self.assertEqual(screen.saved()["models"]["opus"]["model"], "claude-haiku-4-5")
 

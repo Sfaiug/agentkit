@@ -26,7 +26,7 @@ from agentkit import config, menu, terminal  # noqa: E402
 
 WEEK = 604800
 # the longest key line the menu draws: a stopped seat's `p past` on it, the keyboard its own
-LONG_KEYS = "↑↓ move   ⏎ open   n new   x stop   p past   c config   esc leave"
+LONG_KEYS = "↑↓←→ move   ⏎ choose   n new   x stop   p past   c config   esc leave"
 
 
 class UsageStaysOnTop(Sandbox):
@@ -52,7 +52,7 @@ class UsageStaysOnTop(Sandbox):
         with patch.object(terminal, "width", return_value=width), \
                 patch.object(terminal, "height", return_value=height), \
                 redirect_stdout(io.StringIO()) as out:
-            menu.draw(self.cfg, self.seats[:seats], keys or f"{menu.move_keys()}   {menu.KEYS}",
+            menu.draw(self.cfg, self.seats[:seats], keys or terminal.keys(menu.KEYS),
                       0, cursor, None if piped else drawn, look=False)
         return terminal.ANSI.sub("", out.getvalue().replace("\033[K", "")).split("\n")[:-1], drawn
 

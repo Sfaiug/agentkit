@@ -23,7 +23,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_config_matrix import DOWN, ENTER, EFFORT_KEYS, FULL, RIGHT, UP, Screen, row
+from test_config_matrix import DOWN, ENTER, FULL, RIGHT, UP, Screen, on_effort, row
 from agentkit import config, menu, motion, terminal
 
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
@@ -98,7 +98,7 @@ class EffortCells(unittest.TestCase):
                                                           "xhigh"])
         # its word still in the column the others' stand in
         self.assertEqual(row(lines, "haiku")[1].rindex(" "), row(lines, "fable")[1].rindex(" "))
-        screen.press(DOWN * 2 + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
+        screen.press(DOWN * 2 + RIGHT * 3, lambda lines: on_effort(lines, "haiku"))
         cells = moved(screen, ENTER)                    # onto none, its only effort
         lines = screen.frame()
         self.assertEqual(row(lines, "haiku")[1].split(),
@@ -109,7 +109,7 @@ class EffortCells(unittest.TestCase):
 
     def test_a_step_moves_the_cells_it_changes_in_turn_and_the_highest_shimmers_once(self):
         screen = Screen(self)
-        lines = screen.press(DOWN + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
+        lines = screen.press(DOWN + RIGHT * 3, lambda lines: on_effort(lines, "opus"))
         number, word, first = places(lines, "opus")
         # a click on its second cell, down from xhigh: its fourth cell, then its third, stay
         # full but dim and then stand open and dim
@@ -162,9 +162,10 @@ class EffortCells(unittest.TestCase):
         screen = Screen(self, env={"NO_COLOR": "1"})
         lines = screen.frame()
         self.assertEqual(row(lines, "opus")[1].split()[-2:], ["▰▰▰▰▱", "xhigh"])
-        screen.press(DOWN + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
+        lines = screen.press(DOWN + RIGHT * 3, lambda lines: on_effort(lines, "opus"))
+        self.assertEqual(row(lines, "opus")[1].split()[-1], "[xhigh]")   # no colour to reverse
         self.assertEqual(moved(screen, ENTER), [])
-        self.assertEqual(row(screen.frame(), "opus")[1].split()[-2:], ["▰▰▰▰▰", "max"])
+        self.assertEqual(row(screen.frame(), "opus")[1].split()[-2:], ["▰▰▰▰▰", "[max]"])
         screen.leave()
 
     def test_a_cell_takes_about_150_ms_and_the_light_about_600(self):

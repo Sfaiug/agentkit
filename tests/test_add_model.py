@@ -76,8 +76,7 @@ provider = "acme"
 mode = "payg"
 """
 ADD = "agentkit · config · add a model"
-KEYS = {"choose": "  ↑↓ move   ⏎ choose   esc back",
-        "add": "  ↑↓ move   ⏎ add   esc back"}
+KEYS = "  ↑↓←→ move   ⏎ choose   esc back"   # on every list, the last one adding
 
 
 def title(lines):
@@ -119,7 +118,7 @@ class AddModel(unittest.TestCase):
         self.assertEqual(lines[2], "  harness")
         self.assertEqual(listed(lines)[:2], [["claude", "Claude"], ["codex", "ChatGPT"]])
         self.assertEqual(highlighted(lines).split(), ["›", "claude", "Claude"])
-        self.assertEqual(lines[-1], KEYS["choose"])
+        self.assertEqual(lines[-1], KEYS)
         lines = step(screen, ENTER, "model")
         self.assertEqual(lines[2:4], ["  harness  claude · Claude", "  model"])
         # every model the catalog lists is a choice; the one run is marked
@@ -131,7 +130,7 @@ class AddModel(unittest.TestCase):
         self.assertEqual(lines[2:5], ["  harness  claude · Claude",
                                       "  model    Sonnet 5 · claude-sonnet-5", "  effort"])
         self.assertEqual(listed(lines), [["low"], ["medium"], ["high"]])
-        self.assertEqual(lines[-1], KEYS["add"])
+        self.assertEqual(lines[-1], KEYS)
         lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
         saved = screen.saved()
         self.assertTrue(on(lines, saved, "sonnet"), lines)
@@ -166,7 +165,7 @@ class AddModel(unittest.TestCase):
         self.assertIn("  model    Opus 5 · claude-opus-5", lines)
         lines = step(screen, ESC, "model")
         self.assertEqual(highlighted(lines).split()[:3], ["›", "Opus", "5"])
-        self.assertEqual(lines[-1], KEYS["choose"])
+        self.assertEqual(lines[-1], KEYS)
         lines = step(screen, ESC, "harness")
         self.assertEqual(highlighted(lines).split(), ["›", "claude", "Claude"])
         self.assertNotIn("  model", lines)

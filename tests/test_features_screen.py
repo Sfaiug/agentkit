@@ -259,7 +259,7 @@ class FeaturesScreen(unittest.TestCase):
         self.assertEqual(lines[2].split(), ["you", "everyone"])
         self.assertIn("Dark mode", highlighted(lines))
         self.assertEqual(marks(lines, "Dark mode"), ["○", "○"])
-        self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ flip   esc back")
+        self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ choose   esc back")
         # the project renames it meanwhile: the row drawn is the one `set` answers with
         rows = json.loads((menu.fake / "features.json").read_text())
         rows[0]["name"] = "Dark mode, renamed"

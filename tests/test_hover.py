@@ -372,7 +372,7 @@ class Screens(Sandbox):
 
     def test_a_list_and_a_question_move_their_highlight_onto_the_pointer(self):
         def around():
-            terminal.frame("config · add a subscription", [""] * 3, "↑↓ move   ⏎ add   esc back")
+            terminal.frame("config · add a subscription", [""] * 3, terminal.keys("esc back"))
             return 3
 
         choices = ["Claude", "ChatGPT", "Grok"]
@@ -428,7 +428,7 @@ class Screens(Sandbox):
 
     def test_header_motion_after_keyboard_navigation_clears_the_highlight(self):
         def around():
-            terminal.frame("config · add a subscription", [""] * 3, "↑↓ move   ⏎ add   esc back")
+            terminal.frame("config · add a subscription", [""] * 3, terminal.keys("esc back"))
             return 3
 
         screens = run(lambda: terminal.choose(["Claude", "ChatGPT", "Grok"], around=around),
@@ -498,7 +498,7 @@ class Screens(Sandbox):
 
         def screen():
             return menu.show_past({}, seats, keyboard=Mock())
-        col, row = at(run(screen, ESC)[1][0], "⏎ reopen")
+        col, row = at(run(screen, ESC)[1][0], "⏎ choose")
         run(screen, f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode(), ESC)
         self.assertEqual(opened.call_args_list, [call({}, seats[0], False)])
 

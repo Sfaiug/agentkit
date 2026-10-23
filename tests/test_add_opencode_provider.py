@@ -212,7 +212,7 @@ class AddOpenCodeProvider(unittest.TestCase):
         screen = Screen(self, child=CHILD, text=ONE, rows=9)
         before = screen.path.read_bytes()
         # a list longer than the screen says it can be found in
-        self.assertEqual(through(screen)[-1], "  ↑↓ move   ⏎ choose   / find   esc back")
+        self.assertEqual(through(screen)[-1], "  ↑↓←→ move   ⏎ choose   / find   esc back")
         lines = screen.press(b"/zz", lambda lines: "nothing here holds zz" in lines[-3])
         self.assertEqual(listed(lines), [])
         lines = screen.press(ESC, lambda lines: "  model" in lines and "/ find" in lines[-1])

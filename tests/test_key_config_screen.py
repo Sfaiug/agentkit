@@ -37,10 +37,8 @@ ROWS = ["Claude Code",
         "  Weekly audit  off · orch Fable 5.1 · builds Fable 5.1, GPT-6-Astra · reviews Fable 5.1,",
         "                GPT-6-Astra",
         ""]
-MARK_KEYS = "  ↑↓←→ move   ⏎ mark   esc back"
-EFFORT_KEYS = "  ↑↓←→ move   ⏎ effort   esc back"
-ROW_KEYS = "  ↑↓ move   ⏎ open   esc back"
-MAIN_KEYS = "  ↑↓ move   ⏎ open   n new   x stop   c config   esc leave"
+KEYS = "  ↑↓←→ move   ⏎ choose   esc back"   # wherever the highlight is
+MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"
 
 
 def lines(screen):
@@ -78,7 +76,7 @@ class ConfigScreen(unittest.TestCase):
         self.term.keys("c")
         # the subscriptions are read before the matrix is drawn
         self.opened = self.term.wait(lambda screen: HEADS in lines(screen)
-                                     and key_line(screen) == MARK_KEYS)
+                                     and key_line(screen) == KEYS)
 
     def leave(self):
         """Esc back to the main screen, and Esc again leaves the menu."""
@@ -103,15 +101,16 @@ class ConfigScreen(unittest.TestCase):
         self.assertTrue(block(self.opened)[len(ROWS) + 1].startswith("  Version "), self.opened)
         self.leave()
 
-    def test_the_key_line_follows_the_cell_the_highlight_is_on(self):
+    def test_the_key_line_stays_as_the_highlight_moves(self):
         self.term.keys("Right", "Right", "Right")
-        on_effort = self.term.wait(lambda screen: key_line(screen) == EFFORT_KEYS)
-        self.assertIn("› Fable 5.1     ●      □        □     ▰▰▰▰▱   xhigh", lines(on_effort))
+        on_effort = self.term.wait("› Fable 5.1     ●      □        □     ▰▰▰▰▱   [xhigh]")
+        self.assertEqual(key_line(on_effort), KEYS)
         self.term.keys("Down", "Down")
-        on_row = self.term.wait(lambda screen: key_line(screen) == ROW_KEYS)
+        on_row = self.term.wait("› + add a model")
         self.assertEqual(block(on_row)[1:7],
                          [ROWS[0], "  Fable 5.1     ●      □        □     ▰▰▰▰▱   xhigh",
                           *ROWS[2:5], "› + add a model"])
+        self.assertEqual(key_line(on_row), KEYS)
         self.leave()
 
     def test_marking_a_model_for_builds_rewrites_the_seats_record_at_once(self):

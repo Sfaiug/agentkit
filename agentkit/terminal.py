@@ -358,20 +358,6 @@ def styled(text, kind):
     return f"\033[{code}m{text}\033[0m"
 
 
-def keys(text, room):
-    """Keep each key beside its verb phrase whenever the whole phrase fits."""
-    lines, line = [], ""
-    for phrase in text.split("   "):
-        if line and cells(line + "   " + phrase) > room:
-            lines.append(line)
-            line = ""
-        pieces = wrap(phrase, room)
-        lines.extend(pieces[:-1])
-        if pieces:
-            line = f"{line}   {pieces[-1]}" if line else pieces[-1]
-    return lines + ([line] if line else [])
-
-
 def state_tone(word):
     """One meaning for each state colour; anything else reads dim."""
     return word if word in STATE_STYLES else "dim"   # a phrase reads dim, as `waiting` does
@@ -490,6 +476,16 @@ def key_parts(text):
         key, _, word = phrase.partition(" ")
         parts.append((key.strip(), word.strip()))
     return parts
+
+
+# What every key line leads with, on every screen wherever its highlight is: the arrows move it
+# -- between rows, cells and pages -- and Enter chooses what it is on; then without UTF-8.
+MOVE_KEYS = ("↑↓←→ move   ⏎ choose", "arrows move   enter choose")
+
+
+def keys(*rest):
+    """A screen's key line: MOVE_KEYS, then that screen's own keys, `rest`."""
+    return "   ".join((MOVE_KEYS[0 if utf8() else 1], *rest))
 
 
 def key_line(text, term_width=None, first=None):

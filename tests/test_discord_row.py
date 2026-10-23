@@ -148,7 +148,7 @@ class DiscordRow(unittest.TestCase):
                 patch.object(terminal, "read_key",
                              side_effect=[Key("down"), Key("enter"), Key("esc")]):
             menu.config_discord()
-        keys = len(terminal.key_line(menu.ADD_KEYS["choose"][0] + "   esc back"))
+        keys = len(terminal.key_line(terminal.keys("esc back")))
         for body in frames:
             self.assertLessEqual(2 + len(body) + 1 + keys, 8, body)
         opened = next(body for body in frames if "typed here" in body)

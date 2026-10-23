@@ -29,7 +29,7 @@ ADAPTER = """#!/bin/sh
 printf '%s' {command}
 """
 HARNESS = "sh -c 'echo the harness is back; exec sleep 300'\n"
-PAST_KEYS = "  ↑↓ move   ⏎ reopen   x remove   esc back"
+PAST_KEYS = "  ↑↓←→ move   ⏎ choose   x remove   esc back"
 
 
 class Stopped:

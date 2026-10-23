@@ -24,7 +24,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_config_matrix import DOWN, ENTER, FULL, LEFT, REPO, RIGHT, Screen, highlighted
+from test_config_matrix import DOWN, ENTER, FULL, LEFT, REPO, RIGHT, Screen, highlighted, on_effort
 from agentkit import config, terminal
 
 CHILD = r"""
@@ -55,7 +55,6 @@ STUB = """#!/usr/bin/env bash
 printf '%s' "$*" >"$STUB_DIR/argv"
 printf '%s' "${OPENCODE_CONFIG_CONTENT:-}" >"$STUB_DIR/config"
 """
-EFFORT_KEYS = "  ↑↓←→ move   ⏎ effort   esc back"
 
 
 def drawn(screen, keys, shown):
@@ -76,7 +75,7 @@ class EffortStep(unittest.TestCase):
         with patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}):
             screen = Screen(self, child=CHILD)
         screen.frame()
-        screen.press(DOWN + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)   # opus's effort
+        screen.press(DOWN + RIGHT * 3, lambda lines: on_effort(lines, "opus"))   # opus's effort
         # the manifest's table while the listing sleeps: xhigh, max, then round to low
         drawn(screen, ENTER, "▰▰▰▰▰   max")
         self.assertFalse((adapters / "answered").exists(), "the listing is still asleep")

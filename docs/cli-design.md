@@ -68,7 +68,7 @@ Every screen reads the same keys, one key at a time, with no Enter.
 - **Arrows and Enter:** the arrows move the highlight between rows, cells and pages, and
   Enter chooses what it is on.
 - **Esc:** Esc goes back, and on the main screen it leaves.
-- **A screen's own keys:** these are named on its key line, after the shared keys.
+- **A screen's own keys:** its key line (`terminal.keys`) names them after the shared ones.
 - **Digits:** a digit opens that seat.
 - **Pointer:** a click does what the key would do. The pointer lights what a click there
   would act on, never a second highlight and never more words.
@@ -79,7 +79,7 @@ From a pipe or a file the menu reads a line at a time instead: a key, then Enter
 `terminal.Keyboard`, `terminal.read_key`, `terminal.choose`, `terminal.field`,
 `terminal.under`.
 
-Example: `↑↓ move   ⏎ open   n new   x stop   c config   esc leave`.
+Example: `↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave`.
 
 ## Colour
 
