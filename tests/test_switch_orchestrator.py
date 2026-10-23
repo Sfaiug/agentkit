@@ -3,11 +3,11 @@
 Picking another model in the `c` screen's orchestrator column moves the seat to it at
 once under the same name: the old harness process ends, the new one starts in the seat's
 directory, and the runs, plan file and record stay, with the new orchestrator in the
-record. The handover -- from which model, the plan file, `ak run status`, and the old
-transcript to read the last exchange from -- is marked for the tick, which types it
-after the new TUI is listening through the confirmed send. A model whose harness is not
-installed or not logged in, or whose meter is spent, is refused in one line with the
-seat as it was, as is a restart that fails.
+record. The new seat's rulebook ends on `ak plan`, `ak run status` and the file the old
+conversation is handed on in, and nothing is typed for it; a turn it was in is typed on by
+the tick where its harness takes no first prompt. A model whose harness is not installed or
+not logged in, or whose meter is spent, is refused in one line with the seat as it was, as
+is a restart that fails.
 
 Offline: a temporary HOME, fake harness adapters and binaries, a fake tmux, and no real
 process signalled. The seat listing is faked live or gone; the session records, plan
@@ -100,8 +100,10 @@ class Switch(Sandbox):
         transcript = Path(os.environ["HOME"]) / ".claude/projects" / slug \
             / f"{CONVERSATION}.jsonl"
         transcript.parent.mkdir(parents=True)
-        transcript.write_text('{"type":"user","text":"what changed?"}\n'
-                              '{"type":"assistant","text":"the endpoint"}\n')
+        transcript.write_text(
+            '{"type":"user","message":{"role":"user","content":"what changed?"}}\n'
+            '{"type":"assistant","message":{"role":"assistant",'
+            '"content":[{"type":"text","text":"the endpoint"}]}}\n')
         self.transcript = str(transcript)
         config.plan_path("fix-api").write_text("- [ ] Finish the endpoint\n")
         going = config.RUNS / "going"
@@ -119,6 +121,15 @@ class Switch(Sandbox):
         if args[0] in self.fail:
             return 1, "boom"
         return 0, PROMPT if args[0] == "capture-pane" else ""
+
+    def rulebook(self, name="fix-api"):
+        return config.rulebook_path(name).read_text()
+
+    def handover(self, name="fix-api"):
+        """The file its rulebook names for what was said before the move."""
+        path = config.seat_file("handover", name)
+        self.assertIn(str(path), self.rulebook(name))
+        return path.read_text()
 
     def selected(self, name="fix-api"):
         record = config.load_session(self.cfg, name)
@@ -154,13 +165,13 @@ class Switch(Sandbox):
         self.assertIn("-k", respawns[0])           # the old harness process ends
         self.assertIn("fake-tui-codex", respawns[0][-1])
         self.assertEqual([args for args in self.calls if args[0] == "kill-session"], [])
-        # nothing typed yet: the new TUI is still starting, and the tick says it
+        # nothing typed, now or by the tick: the handover is in the rulebook it opened on
         self.assertEqual([args for args in self.calls if args[0] == "send-keys"], [])
-        mark = watch.seat_read("fix-api").get("midturn")
-        self.assertEqual((mark["boot"], mark["name"]), (watch.boot_id(), "fix-api"))
-        for part in ("opus", str(config.plan_path("fix-api")), "ak run status",
-                     self.transcript, "read the last exchange"):
-            self.assertIn(part, mark["line"])
+        self.assertIsNone(watch.seat_read("fix-api").get("midturn"))
+        for part in ("ak plan", "ak run status"):
+            self.assertIn(part, self.rulebook())
+        self.assertIn("## Its conversation on opus\n\n**user:** what changed?\n\n"
+                      "**opus:** the endpoint", self.handover())
 
     def test_a_seat_whose_orchestrators_model_was_removed_moves_to_another(self):
         config.remove_model(self.cfg, "opus")     # fix-api is still open on it
@@ -171,18 +182,22 @@ class Switch(Sandbox):
         respawns = [args for args in self.calls if args[0] == "respawn-pane"]
         self.assertEqual(len(respawns), 1)
         self.assertIn("fake-tui-codex", respawns[0][-1])
-        line = watch.seat_read("fix-api")["midturn"]["line"]
-        self.assertIn("opus", line)
-        self.assertIn("no transcript file", line)   # nothing says where the old one is kept
-        self.assertNotIn(self.transcript, line)
+        handover = self.handover()
+        self.assertIn("## Its conversation on opus", handover)
+        self.assertIn("cannot be read here", handover)   # nothing says where the old one is kept
+        self.assertNotIn(self.transcript, handover)
 
-    def test_the_tick_types_the_handover_after_the_warmup(self):
+    def test_the_tick_types_a_turn_on_after_the_warmup_where_no_first_prompt_carries_it(self):
+        watch.seat_write("fix-api", state="at_prompt")
+        config.record_hook_fact("fix-api", {"session": "fix-api", "event": "UserPromptSubmit",
+                                            "at": time.time(), "kind": "", "text": ""})
         selected = self.selected()
         # a harness that takes no first prompt has its line typed
         with patch.object(orch, "takes_line", return_value=False):
             self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}),
                              "")
         line = watch.seat_read("fix-api")["midturn"]["line"]
+        self.assertEqual(line, watch.MOVED_LINE)
         self.calls.clear()
         sleeps, logs = [], []
         with patch.object(watch.time, "sleep", side_effect=sleeps.append), \
@@ -194,7 +209,7 @@ class Switch(Sandbox):
         self.assertEqual([args[1:] for args in sent],
                          [("-t", "=fix-api:", "-l", line), ("-t", "=fix-api:", "Enter")])
         self.assertIsNone(watch.seat_read("fix-api").get("midturn"))
-        self.assertTrue(any("continue" in entry for entry in logs), logs)
+        self.assertTrue(any(line in entry for entry in logs), logs)
 
     def test_a_seat_tmux_lost_starts_again_in_its_directory(self):
         with patch.object(orch, "sessions", return_value=[]):
@@ -210,8 +225,7 @@ class Switch(Sandbox):
         self.assertEqual(config.plan_path("fix-api").read_text(),
                          "- [ ] Finish the endpoint\n")
         self.assertEqual([args for args in self.calls if args[0] == "send-keys"], [])
-        self.assertIn("ak run status",
-                      watch.seat_read("fix-api")["midturn"]["line"])
+        self.assertIn("ak run status", self.rulebook())
 
     def test_a_seat_renamed_under_the_open_screen_moves_under_its_new_name(self):
         selected = self.selected()
@@ -223,8 +237,7 @@ class Switch(Sandbox):
         respawns = [args for args in self.calls if args[0] == "respawn-pane"]
         self.assertEqual([args[args.index("-t") + 1] for args in respawns], ["=ship-api:"])
         self.assertEqual([args for args in self.calls if "new-session" in args], [])
-        self.assertIn(str(config.plan_path("ship-api")),
-                      watch.seat_read("ship-api")["midturn"]["line"])
+        self.assertIn("## Its conversation on opus", self.handover("ship-api"))
 
     def test_a_restart_that_fails_says_so_in_one_line_and_keeps_the_record(self):
         before = config.load_session(self.cfg, "fix-api")
@@ -241,18 +254,6 @@ class Switch(Sandbox):
             note = menu.session_mark(self.cfg, "fix-api", self.selected(), "astra", 0, {})
         self.assertEqual(note, "adapter boom second line")
         self.assertEqual(config.load_session(self.cfg, "fix-api"), before)
-
-    def test_the_handover_names_takeover_plan_status_and_transcript(self):
-        text = orch.handover_text("fix-api", "opus", self.transcript)
-        self.assertIn("opus", text)
-        self.assertIn(str(config.plan_path("fix-api")), text)
-        self.assertIn("ak run status", text)
-        self.assertIn(self.transcript, text)
-        self.assertIn("read the last exchange", text)
-        text = orch.handover_text("fix-api", "spark", None)
-        self.assertIn("spark", text)
-        self.assertIn("no transcript file", text)
-        self.assertIn("ak run status", text)
 
     def test_a_harness_not_installed_logged_out_or_spent_is_refused_in_one_line(self):
         selected = self.selected()
