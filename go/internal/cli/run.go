@@ -10,6 +10,7 @@ import (
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
+	"agentkit/internal/job"
 )
 
 const runFlagsUsage = "ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N] | ak run --review-pr <url> [--review MODEL] [--first] [--bg]"
@@ -129,10 +130,10 @@ func validateRunSubcommand(verb string, args []string) string {
 		return fmt.Sprintf("no such run: %s (looked in %s)", args[0], runs)
 	}
 	if verb == "status" || verb == "show" {
-		data, _ := os.ReadFile(filepath.Join(config.Home(), "jobs", args[0], "job.json"))
-		var job map[string]any
-		if json.Unmarshal(data, &job) == nil {
-			if _, ok := job["tasks"].([]any); ok {
+		data, _ := os.ReadFile(job.ReceiptPath(args[0]))
+		var state map[string]any
+		if json.Unmarshal(data, &state) == nil {
+			if _, ok := state["tasks"].([]any); ok {
 				return ""
 			}
 		}
@@ -145,7 +146,7 @@ func validateRunSubcommand(verb string, args []string) string {
 			return args[0] + ": merge requires a finished PASS"
 		}
 	} else if err != nil {
-		if verb == "stop" && isFile(filepath.Join(config.Home(), "jobs", args[0], "job.json")) {
+		if verb == "stop" && isFile(job.ReceiptPath(args[0])) {
 			return ""
 		}
 		if verb == "resume" {
