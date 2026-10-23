@@ -3564,7 +3564,8 @@ def composer_holds(name, session, line, cfg=None, *, exact=False):
     and another's top goes above the read; or the harness's fold of a line longer than `[screen]
     folds_over`.  What the owner types goes in at its end, so none of these is a line with the
     owner's words beside it, and a one-row draft that only ends the way the line does is the
-    owner's.
+    owner's.  It is also the whole composer holding that line joined in order with the others
+    ak typed there last (`_joined`): a line drawn late joins the next.
     `exact` requires the whole composer to be read and hold the full line: a cropped or
     scrolled composer, suffix or paste fold is no proof without a delivery mark.
     """
