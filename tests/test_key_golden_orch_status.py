@@ -15,7 +15,6 @@ reads its age from its session.  The working run is owned by a live process of t
 """
 
 import json
-import os
 from pathlib import Path
 import re
 import subprocess
@@ -24,7 +23,7 @@ import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import REPO, Home
+from fixtures.akbin import REPO, Home, owner
 from fixtures.akseat import Seat
 
 DAY = 86400
@@ -46,17 +45,6 @@ def collapsed(lines):
     place alone."""
     return ["<processes>" if PROCESSES.match(line) else " ".join(line.split())
             for line in lines]
-
-
-def owner(pid):
-    """The process identity `ak run` records for itself: the boot, and the process's start."""
-    stat = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-    btime = next(int(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines()
-                 if line.startswith("btime "))
-    ticks = int(stat[19])
-    return {"pid": pid, "process_identity": {
-        "boot": Path("/proc/sys/kernel/random/boot_id").read_text().strip(), "ticks": ticks,
-        "started_at": btime + ticks / os.sysconf("SC_CLK_TCK")}}
 
 
 class GoldenListings(unittest.TestCase):
