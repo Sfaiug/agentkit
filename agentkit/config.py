@@ -1270,11 +1270,10 @@ def rename_session(old, new):
         was, now = seat_file(kind, old), seat_file(kind, new)
         if kind == "handover" and was.exists():
             # the rulebook it runs on names it under the old name, and a move only adds to it:
-            # both names lead to it, the newest whole
-            linked = now.with_name(f"{now.name}.{os.getpid()}.tmp")
-            linked.unlink(missing_ok=True)
-            os.link(was, linked)
-            linked.replace(now)
+            # a copy keeps that one readable, the newest whole under the new name
+            copied = now.with_name(f"{now.name}.{os.getpid()}.tmp")
+            copied.write_bytes(was.read_bytes())
+            copied.replace(now)
         elif was.exists() and not (target == old and now.exists()):
             was.replace(now)
 

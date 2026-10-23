@@ -433,7 +433,8 @@ class ClosedSeat(Sandbox):
         self.assertEqual(self.tmux, [])            # no tmux session by the name: nothing killed
 
     def test_a_renamed_seat_leaves_nothing_under_the_name_it_was_launched_with(self):
-        left = [config.STATE / "rulebook-atoll.md", config.STATE / "stop-atoll.json"]
+        left = [config.STATE / "rulebook-atoll.md", config.STATE / "stop-atoll.json",
+                config.STATE / "handover-atoll.md"]
         for path in left:
             path.write_text("{}\n")
         config.rename_session("atoll", "beta")    # what a rename moves, and what it leaves
@@ -453,8 +454,8 @@ class ClosedSeat(Sandbox):
             self.assertFalse(config.seat_file(kind, "atoll").exists(), kind)
             self.assertTrue(config.seat_file(kind, "beta").exists(), kind)
         self.assertTrue(config.rulebook_path("atoll").exists())   # its orchestrator still reads it
-        self.assertTrue(config.seat_file("handover", "atoll").samefile(   # and what that names
-            config.seat_file("handover", "beta")))
+        self.assertEqual(config.seat_file("handover", "atoll").read_text(),   # and what it names
+                         config.seat_file("handover", "beta").read_text())
         self.assertTrue(config.stop_path("atoll").exists())       # its hooks still write it
         self.assertTrue(config.seat_file("launch", "atoll").exists())   # a starting pane reads it
 
