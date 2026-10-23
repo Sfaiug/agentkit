@@ -5,11 +5,10 @@ word and its seat, and the only one Discord may act on, so whatever a seat is ca
 else is pinged.  The id in the environment outranks the one-line secrets file, whose own
 mention tests/test_key_notify_needs_card.py pins, and it holds alike for a seat's own `ak
 notify needs` and for the page the tick sends when a question has stood.  Black-box: the
-program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, beside seats of
-tests/fixtures/akseat.py, paging tests/fixtures/sink.py.
+program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, its tick in the box
+`home.tick()` builds, beside seats of tests/fixtures/akseat.py, paging tests/fixtures/sink.py.
 """
 
-import socket
 import sys
 from pathlib import Path
 import time
@@ -17,11 +16,9 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.sink import Sink
-
-PROXIES = ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
 
 
 def card(seat, owner):
@@ -61,7 +58,7 @@ class ASeatAsks(unittest.TestCase):
         self.assertEqual(self.paged("fix-web").json, card("fix-web", "1234"))
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class TheTickPages(unittest.TestCase):
     def setUp(self):
         self.home = Home()
@@ -69,13 +66,6 @@ class TheTickPages(unittest.TestCase):
         self.sink = Sink(self.home)
         self.addCleanup(self.sink.close)
         akconfig.write(self.home, ["opus"])     # the audit off: a tick opens no seat of its own
-        # The tick asks the public boards over HTTP itself: every proxy names a loopback port
-        # nobody listens on, and the sink alone is reached past them.
-        with socket.socket() as probe:
-            probe.bind(("127.0.0.1", 0))
-            port = probe.getsockname()[1]
-        self.home.env.update(dict.fromkeys(PROXIES, f"http://127.0.0.1:{port}"))
-        self.home.env.update(no_proxy="127.0.0.1", NO_PROXY="127.0.0.1")
 
     def test_its_page_mentions_the_owner_named_in_the_environment_and_allows_only_them(self):
         # A seat that closed on its own with its question standing, the card a tick five minutes
@@ -89,7 +79,7 @@ class TheTickPages(unittest.TestCase):
         self.home.write(".agentkit/state/card-acme.json",
                         {"word": "needs you", "since": now - 300, "began": now - 300,
                          "episode": "e" * 32, "sent": False})
-        done = self.home.ak("watch", env={"AGENTKIT_DISCORD_USER_ID": "123456789"})
+        done = self.home.tick(env={"AGENTKIT_DISCORD_USER_ID": "123456789"})
         self.assertEqual(done.code, 0, done.err)
         page, = self.sink.wait(1)
         self.assertEqual((page.method, page.path), ("POST", "/hook"))

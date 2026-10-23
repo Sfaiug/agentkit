@@ -6,13 +6,12 @@ answer either.  The tick holds a question's page back for a minute from the owne
 in the seat, an open or a key, though they left between two ticks; a seat nobody opened in that
 minute is paged in the very same tick.  Three seats ask the same question, idle a minute: the
 owner opens one and stays, opens another and leaves, and leaves the third alone.  Black-box:
-the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, the owner opens a
-seat with `ak orch NAME` in a terminal of tests/fixtures/akterm.py, and pages land in
-tests/fixtures/sink.py.
+the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, its tick in the box
+`home.tick()` builds, the owner opens a seat with `ak orch NAME` in a terminal of
+tests/fixtures/akterm.py, and pages land in tests/fixtures/sink.py.
 """
 
 import json
-import socket
 import sys
 from pathlib import Path
 import time
@@ -20,7 +19,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 from fixtures.sink import Sink
@@ -50,19 +49,12 @@ def opened_by_owner(home, name):
     return terminal
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class OwnerInTheSeat(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        # The tick fetches the public model boards over https: a proxy that refuses every
-        # connection keeps it off the network, whichever build runs.
-        refused = socket.socket()
-        refused.bind(("127.0.0.1", 0))
-        cls.addClassCleanup(refused.close)
-        home.env["HTTPS_PROXY"] = home.env["https_proxy"] = (
-            f"http://127.0.0.1:{refused.getsockname()[1]}")
         cls.sink = Sink(home)
         cls.addClassCleanup(cls.sink.close)
         akconfig.write(home, ["opus"])
@@ -81,7 +73,7 @@ class OwnerInTheSeat(unittest.TestCase):
         left.keys("C-b", "d")
         assert left.exit_code() == 0, left.screen()
         assert clients(home) == [STAYS], clients(home)
-        done = home.ak("watch")
+        done = home.tick()
         assert done.code == 0, done.out + done.err
 
     def test_no_page_goes_while_the_owner_is_in_the_seat(self):
