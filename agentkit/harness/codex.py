@@ -268,7 +268,8 @@ def user_messages(record, cwd, conversation):
                 # A skipped/expired card emits no such owner message. Bad ids answer none.
                 kept["replies"] = []
                 try:
-                    replies = json.loads(kept["text"].split(">", 1)[1].rsplit("<", 1)[0])
+                    body, closing, rest = kept["text"].rpartition("</send_user_message_question_reply>")
+                    replies = json.loads(body.split(">", 1)[1]) if closing and not rest.strip() else []
                 except (IndexError, ValueError):
                     replies = []
                 for reply in replies if isinstance(replies, list) else ():

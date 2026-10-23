@@ -115,6 +115,14 @@ class CodexQuestionCards(Sandbox):
         self.assertFalse(notify.answer_written(SEAT))
         self.assertEqual(questions.pending(SEAT), TEXTS)
 
+    def test_an_unclosed_reply_answers_nothing(self):
+        self.ask()
+        self.reply(0)
+        self.path.write_text(self.path.read_text().replace(
+            '</send_user_message_question_reply>', ''))
+        self.assertFalse(notify.answer_written(SEAT))
+        self.assertEqual(questions.pending(SEAT), TEXTS)
+
     def test_a_bad_reply_does_not_hide_another_cards_valid_answer(self):
         self.ask()
         text = '<send_user_message_question_reply>\n' + json.dumps([
