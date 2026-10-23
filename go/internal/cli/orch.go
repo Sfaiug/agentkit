@@ -49,7 +49,7 @@ func validateOrch(args []string) string {
 				return "ak orch rename <new> renames the session it runs in, and this is not one; use ak orch rename <old> <new>"
 			}
 			if verb == "rename" && strings.HasPrefix(rest[len(rest)-1], "-") {
-				return fmt.Sprintf("not a session name: %s", repr(rest[len(rest)-1]))
+				return fmt.Sprintf("not a session name: %s", commandhelp.Quote(rest[len(rest)-1]))
 			}
 			return ""
 		}
@@ -69,7 +69,7 @@ func validateOrch(args []string) string {
 			i++
 		default:
 			if strings.HasPrefix(arg, "-") || name {
-				return fmt.Sprintf("%s  (got %s)", orchUsage, repr(arg))
+				return fmt.Sprintf("%s  (got %s)", orchUsage, commandhelp.Quote(arg))
 			}
 			name = true
 		}

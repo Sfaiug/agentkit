@@ -144,6 +144,42 @@ func TestPlanInputRefusals(t *testing.T) {
 		assertCall(t, []string{"plan", "add", "the parser works", "--check", command}, 2, "", "ak plan: a check is one shell command without backticks or line breaks\n")
 		assertCall(t, []string{"plan", "check", "1", command}, 2, "", "ak plan: a check is one shell command without backticks or line breaks\n")
 	}
+	write(t, filepath.Join(home, ".agentkit", "state", "session-old.json"), `{"renamed":"middle"}`)
+	write(t, filepath.Join(home, ".agentkit", "state", "session-middle.json"), `{"renamed":"  acme  "}`)
+	write(t, filepath.Join(home, ".agentkit", "state", "session-acme-seat.json"), string(data))
+	write(t, filepath.Join(home, ".agentkit", "state", "session-literal seat.json"), string(data))
+	for _, name := range []string{"old", "  acme  ", "\u2003acme\t", "  acme   seat  ", " literal  seat "} {
+		t.Setenv("AGENTKIT_SESSION", name)
+		assertCall(t, []string{"plan", "add", "the parser works", "--check", "false\nfalse"}, 2, "", "ak plan: a check is one shell command without backticks or line breaks\n")
+		assertCall(t, []string{"plan", "add", "the parser works", "--check", "false"}, 3, "", "ak plan: not implemented in Go yet\n")
+		assertCall(t, []string{"run", filepath.Join(home, "task.md"), "--exec", "acme"}, 2, "", "ak run: --exec: not a seat's; ak picks the models, decides what goes first and refuses a second run of a change under way, so launch without\n")
+	}
+}
+
+func TestHandInDecodedQuotes(t *testing.T) {
+	home := sandbox(t)
+	turn := filepath.Join(home, "turn.jsonl")
+	data, err := json.Marshal(map[string]string{"kind": "turn", "role": "reviewer", "workspace": home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, turn, string(data)+"\n")
+	t.Setenv("AK_HAND_IN", turn)
+	for _, example := range []struct{ data, quote string }{
+		{"first\r\nsecond\r\n", "first\nsecond"},
+		{"first\rsecond\r", "first\nsecond"},
+		{"first\r\nsecond\rthird\n", "second\nthird"},
+		{"bad \xff\xff\n", "bad \ufffd\ufffd"},
+		{"bad \xe2\x82", "bad \ufffd"},
+		{"bad \xe2\x82!\n", "bad \ufffd!"},
+		{"bad \xe0\x80\x80\n", "bad \ufffd\ufffd\ufffd"},
+		{"bad \xed\xa0\x80\n", "bad \ufffd\ufffd\ufffd"},
+		{"bad \xf0\x9f\x92", "bad \ufffd"},
+		{"valid \ufffd\U0001f600\r\n", "valid \ufffd\U0001f600"},
+	} {
+		write(t, filepath.Join(home, "task.md"), example.data)
+		assertCall(t, []string{"hand-in", "finding", "task.md:1", "Wrong result", "Breaks callers", "--quote", example.quote}, 3, "", "ak hand-in finding: not implemented in Go yet\n")
+	}
 }
 
 func TestHandInEvidenceRefusals(t *testing.T) {

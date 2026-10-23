@@ -19,7 +19,7 @@ func validateWorker(args []string) string {
 	}
 	roles := []string{"executor", "reviewer", "fixer", "reviewer-pr", "executor-scratch", "fixer-scratch", "reviewer-scratch"}
 	if role, ok := parsed.values["--role"]; ok && !contains(roles, role) {
-		return fmt.Sprintf("--role must be one of %s (got %s)", strings.Join(roles, ", "), repr(role))
+		return fmt.Sprintf("--role must be one of %s (got %s)", strings.Join(roles, ", "), commandhelp.Quote(role))
 	}
 	task := config.Expand(parsed.words[1])
 	if !isFile(task) {

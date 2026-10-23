@@ -21,7 +21,7 @@ func Main(args []string, out, errOut io.Writer) int {
 		command, rest, help = args[0], args[1:], args[0]
 	}
 	if !contains(commandhelp.Verbs, command) {
-		fmt.Fprintf(errOut, "ak: unknown subcommand %s; expected one of %s\n", repr(command), strings.Join(commandhelp.Verbs, ", "))
+		fmt.Fprintf(errOut, "ak: unknown subcommand %s; expected one of %s\n", commandhelp.Quote(command), strings.Join(commandhelp.Verbs, ", "))
 		return 2
 	}
 	if entry, ok := commandhelp.Help(help, rest); ok {
@@ -86,12 +86,10 @@ func Main(args []string, out, errOut io.Writer) int {
 	return 3
 }
 
-func repr(value string) string { return commandhelp.Quote(value) }
-
 func reprList(args []string) string {
 	values := make([]string, len(args))
 	for i, arg := range args {
-		values[i] = repr(arg)
+		values[i] = commandhelp.Quote(arg)
 	}
 	return "[" + strings.Join(values, ", ") + "]"
 }

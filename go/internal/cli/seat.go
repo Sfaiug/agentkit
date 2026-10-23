@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -55,7 +54,11 @@ func validateNotify(args []string) string {
 }
 
 func validatePlan(args []string) string {
-	if os.Getenv("AGENTKIT_SESSION") == "" {
+	name, record, err := config.CurrentSession()
+	if err != nil {
+		return err.Error()
+	}
+	if name == "" {
 		return "ak plan belongs to a session; run it inside one"
 	}
 	if len(args) == 0 {
@@ -65,13 +68,8 @@ func validatePlan(args []string) string {
 		if strings.TrimSpace(args[1]) == "" || strings.Contains(args[1], "·") {
 			return "an outcome is plain words without `·`"
 		}
-		var record struct {
-			Repo string `json:"repo"`
-		}
-		name := os.Getenv("AGENTKIT_SESSION")
-		data, _ := os.ReadFile(filepath.Join(config.Home(), "state", "session-"+name+".json"))
-		_ = json.Unmarshal(data, &record)
-		if _, err := os.Stat(filepath.Join(record.Repo, ".git")); record.Repo == "" || err != nil {
+		repo, _ := record["repo"].(string)
+		if _, err := os.Stat(filepath.Join(repo, ".git")); repo == "" || err != nil {
 			return fmt.Sprintf("%s is filed under no project; run `ak orch project <checkout>` first", name)
 		}
 		if !oneCommand(args[3]) {

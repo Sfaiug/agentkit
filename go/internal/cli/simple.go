@@ -27,12 +27,12 @@ func validate(command string, args []string) string {
 				if command == "attach" {
 					usage = menuUsage
 				}
-				return fmt.Sprintf("%s  (got %s)", usage, repr(arg))
+				return fmt.Sprintf("%s  (got %s)", usage, commandhelp.Quote(arg))
 			}
 		}
 	case "update", "watch":
 		if len(args) > 0 && !(len(args) == 1 && args[0] == "--dry-run") {
-			return fmt.Sprintf("%s  (got %s)", usage, repr(args[0]))
+			return fmt.Sprintf("%s  (got %s)", usage, commandhelp.Quote(args[0]))
 		}
 	case "macbridge":
 		if runtime.GOOS != "darwin" {
@@ -49,7 +49,7 @@ func validate(command string, args []string) string {
 		}
 	case "browser":
 		if !commandhelp.Known("browser " + args[0]) {
-			return fmt.Sprintf("unknown command %s; expected one of status, login, mcp-register, install", repr(args[0]))
+			return fmt.Sprintf("unknown command %s; expected one of status, login, mcp-register, install", commandhelp.Quote(args[0]))
 		}
 		if len(args) > 1 {
 			return fmt.Sprintf("ak browser %s takes no arguments; got %s", args[0], strings.Join(args[1:], " "))

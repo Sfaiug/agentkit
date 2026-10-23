@@ -41,9 +41,9 @@ func (t *table) child(key string, dotted bool) (*table, bool) {
 	}
 	switch child := value.(type) {
 	case *table:
-		return child, !child.frozen
+		return child, !child.frozen && !(dotted && child.declared)
 	case tableArray:
-		return child[len(child)-1], true
+		return child[len(child)-1], !dotted
 	}
 	return nil, false
 }
