@@ -483,10 +483,19 @@ def capture(path, event):
             receipt = json.load(fh)
             old = receipt.get("event")
             if old and old != event:
-                if any(old.get(k) != event.get(k) for k in
-                       ("session_id", "transcript_path", "cwd")):
+                same_path = old.get("transcript_path") == event.get("transcript_path")
+                if not same_path:
+                    # Codex resolves the launch's transcript symlink when it resumes.
+                    try:
+                        same_path = os.path.samefile(old.get("transcript_path"),
+                                                    event.get("transcript_path"))
+                    except (OSError, TypeError, ValueError):
+                        pass
+                if not same_path or any(old.get(k) != event.get(k)
+                                        for k in ("session_id", "cwd")):
                     receipt["ambiguous"] = True
-            else:
+            # Compaction also emits SessionStart, but cannot replace ownership evidence.
+            if not receipt.get("ambiguous") and event.get("source") in ("startup", "resume"):
                 receipt["event"] = event
             # The callback runs under the TUI's actual login, including CODEX_HOME.
             receipt["home"] = str(Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).resolve())
