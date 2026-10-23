@@ -32,8 +32,7 @@ class FirstInLineFarPastItsUsual(unittest.TestCase):
     def polls(self, run_id, start, end, let_in=False):
         """`run_id`'s polls first in line each half minute, the host gates letting it in at
         `end` if `let_in`: whether its last poll let it in."""
-        with patch.object(gate, "slot_counts", return_value=(0, 0, [])), \
-                patch.object(gate, "_host_admits", lambda *_: let_in and self.clock >= end):
+        with patch.object(gate, "_host_admits", lambda *_: let_in and self.clock >= end):
             for self.clock in [*range(int(start), int(end), 30), end]:
                 admitted = gate.claim_slot({"run_id": run_id, "run_depth": 0}, 4)
         return admitted
