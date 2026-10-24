@@ -2855,6 +2855,9 @@ REMOVE_ASK = ("Remove {} from the config?",   # what `Remove` asks, and what it 
               "Nothing new starts on it; + add a model brings it back.")
 # Whom `c`'s marks are for when they are no seat's: [defaults], what the next `n` starts from.
 NEW_SEATS = "new seats"
+MOVE_ASK = "Restart {} on {}?"     # what another model's orchestrator mark asks, and what it means
+MOVE_MEANS = {True: "It keeps its conversation.",
+              False: "It starts a new conversation, handed the one it had."}
 # Every effort word, weakest first -- the widest list a manifest names (adapters/muse.toml) --
 # so a new model id that does not take its model's effort takes the nearest one it does.
 EFFORT_RANK = ("none", "minimal", *config.EFFORTS)
@@ -3718,7 +3721,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     subscription's meter over its page (config_meters).
 
     `selected` is `session`'s record, and its role marks are that seat's models: Enter, space or
-    a click flips one (session_mark), the orchestrator moving the seat at once, the roles saved
+    a click flips one (session_mark), the orchestrator moving the seat once asked, the roles saved
     to the record for the runs it launches next, the mark filling or emptying over two frames
     and one refused shaking (motion.toggled).  With no `session` the marks are new seats',
     [defaults], what the next `n` starts from (defaults_mark), no open seat changing.
@@ -3826,8 +3829,13 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             if here[1] not in cfg["models"]:
                 here = rows[rows.index(here) + 1]     # removed: the row under it is highlighted
         elif act in ("enter", "space") and column < 3:
-            note = (session_mark(cfg, session, selected, here[1], column, providers) if session
-                    else defaults_mark(cfg, selected, here[1], column))
+            def around(card):     # the matrix with the question under it, drawn again on a resize
+                first, room = matrix_page(body, places, here, top, card, "esc back", over)
+                shown = body[first:first + room]
+                terminal.frame("config", [*over, *shown, *card], "esc back")
+                return 3 + len(over) + len(shown)
+            note = (session_mark(cfg, session, selected, here[1], column, providers, around)
+                    if session else defaults_mark(cfg, selected, here[1], column))
             if note:
                 clock.touch(("mark", here[1], column))    # refused: the mark shakes
         elif act in ("enter", "space") or isinstance(act, int):     # the effort column
@@ -4700,24 +4708,29 @@ def defaults_saved(cfg, selected, changed, before):
     return ""
 
 
-def session_mark(cfg, name, selected, model, column, providers):
+def session_mark(cfg, name, selected, model, column, providers, around=None):
     """Act on one of a session's marks, saving it to the session's record at once.
 
     `column` is 0 for the orchestrator and 1 for executes and 2 for reviews, as
-    `orch.role_mark` numbers them. The orchestrator moves the seat to that model at once,
-    under the same name, asking nothing, and a harness that is not installed or not logged in, or a meter
-    that is spent, is refused in one line with the seat as it was, and so is a record naming
-    a model removed on this screen. Reviewers keep one model, executors may be empty, and a
+    `orch.role_mark` numbers them. The orchestrator moves the seat to that model under the
+    same name, once `Move` is picked on the card `around` draws (terminal.confirm), the
+    owner's 24 Oct words: "when pressing a different orch, it should ask me to confirm. As
+    this restarts the session. for exec and review should be instant."  A harness that is
+    not installed or not logged in, or a meter that is spent, is refused in one line before
+    any question with the seat as it was, and so is a record naming a model removed on this
+    screen. Reviewers keep one model, executors may be empty, and a
     flip leaving no allowed pair is refused. A run launched afterwards reads the record as
     left here (marks_saved); one already going keeps the groups its receipt saved. A refusal
     or a save that fails leaves the record, and `selected`, alone. What to say under the
     rows, or "".
     """
     if column == 0:
-        note = orch.switch_orchestrator(cfg, name, model, providers)
-        if not note:
+        note = orch.switch_orchestrator(cfg, name, model, providers, asked=around and (
+            lambda kept: terminal.confirm(MOVE_ASK.format(name, config.model_name(cfg, model)),
+                                          MOVE_MEANS[kept], "Move", around)))
+        if note == "":
             selected["orchestrator"] = model
-        return note
+        return note or ""
     changed, note = orch.role_mark(cfg, selected, model, column, providers)
     return note or marks_saved(name, selected, changed)
 
