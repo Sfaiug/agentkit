@@ -173,10 +173,10 @@ def resident_bytes(pid, proc_root=PROC):
 
 
 def _unit_memory(readings):
-    """(used, high, raw, name) for the cgroup the gate reads, or None.
+    """(used, high, raw, name, swap) for the cgroup the gate reads, or None.
 
     ``used`` excludes reclaimable file cache; ``raw`` includes it or is None
-    where the readings predate it. A list carries the nearest
+    where the readings predate it; both include ``swap``. A list carries the nearest
     limit first, so the first valid entry wins.
     """
     limits = readings.get("unit_limits")
@@ -188,16 +188,17 @@ def _unit_memory(readings):
                 used, high = entry
                 if (_number(used) is not None and _number(high) is not None
                         and high >= 0):
-                    return (used, high, None, None)
+                    return (used, high, None, None, 0.0)
             elif len(entry) >= 3:
                 used, high, raw = entry[0], entry[1], entry[2]
                 name = entry[3] if len(entry) > 3 else None
+                swap = _number(entry[4] if len(entry) > 4 else None) or 0.0
                 if (_number(used) is None or _number(high) is None
                         or high < 0):
                     continue
                 raw = _number(raw)
                 name = name if isinstance(name, str) and name else None
-                return (used, high, raw, name)
+                return (used, high, raw, name, swap)
     current = _reading(readings, "unit_memory_current_mb", "memory_current_mb")
     high = _reading(readings, "unit_memory_high_mb", "memory_high_mb")
     if current is not None and high is not None and high >= 0:
@@ -205,16 +206,16 @@ def _unit_memory(readings):
                        "memory_raw_mb")
         name = readings.get("unit_memory_name", readings.get("unit_name"))
         name = name if isinstance(name, str) and name else None
-        return (current, high, raw, name)
+        return (current, high, raw, name, _reading(readings, "unit_memory_swap_mb") or 0.0)
     return None
 
 
 def _slice_or_unit_memory(readings):
-    """(used, high, raw, name) for the slice, else the nearest limited unit."""
+    """(used, high, raw, name, swap) for the slice, else the nearest limited unit."""
     used = _reading(readings, "slice_memory_used_mb")
     high = _reading(readings, "slice_memory_high_mb")
     if used is not None and high is not None and high >= 0:
-        return (used, high, None, None)
+        return (used, high, None, None, _reading(readings, "slice_memory_swap_mb") or 0.0)
     return _unit_memory(readings)
 
 
@@ -230,6 +231,15 @@ def _read_number(path, *, bytes_to_mb=False):
     except ValueError:
         return None
     return value / (1024 * 1024) if bytes_to_mb else value
+
+
+def _swap_mb(cgroup):
+    """A cgroup's memory in swap in MB, 0 where none is accounted.
+
+    `memory.current` leaves swap out, yet a page swapped out is still in use: a slice at its
+    cap swaps rather than reclaims, and reading only RAM saw room the whole time it thrashed.
+    """
+    return _read_number(Path(cgroup) / "memory.swap.current", bytes_to_mb=True) or 0.0
 
 
 def _reclaimable_mb(path):
@@ -256,9 +266,9 @@ def _reclaimable_mb(path):
 
 
 def _unit_memory_limits(cgroup_file=None, cgroup_root=None, *, all_limits=False, hard=False):
-    """The nearest ancestor with a finite memory.high, as one (used, high, raw, name).
+    """The nearest ancestor with a finite memory.high, as one (used, high, raw, name, swap).
 
-    The used figure excludes reclaimable file cache. An empty list means
+    The used figure excludes reclaimable file cache; it and raw include swap. An empty list means
     no finite limit or no reading of its use. With `all_limits`, include each
     enclosing limit, memory.max too: a child cannot spend its parent's headroom.
     With `hard`, read only enclosing memory.max caps; reclaim frees file cache before an
@@ -286,8 +296,9 @@ def _unit_memory_limits(cgroup_file=None, cgroup_root=None, *, all_limits=False,
             if cache is None and hard:
                 cache = 0.0
             if raw is not None and cache is not None:
-                limits.append((max(0.0, raw - cache), high, raw,
-                               current.name if current != root else "/"))
+                swap = _swap_mb(current)
+                limits.append((max(0.0, raw - cache) + swap, high, raw + swap,
+                               current.name if current != root else "/", swap))
             if not (all_limits or hard):
                 return limits
         if current == root:
@@ -296,25 +307,25 @@ def _unit_memory_limits(cgroup_file=None, cgroup_root=None, *, all_limits=False,
     return limits
 
 
-def _pressure_avg10(text):
-    """The `some avg10` percentage in a pressure body, or None when it says none."""
+def _pressure_avg(text):
+    """The larger `some` percentage of avg10 and avg60 in a pressure body, or None when it
+    says none: two calm ten-second readings must not hide a minute of stalls."""
     for line in text.splitlines():
         if line.startswith("some "):
-            for part in line.split():
-                if part.startswith("avg10="):
-                    try:
-                        return float(part.split("=", 1)[1])
-                    except ValueError:
-                        return None
+            try:
+                return max(float(part.split("=", 1)[1]) for part in line.split()
+                           if part.startswith(("avg10=", "avg60=")))
+            except ValueError:
+                return None
     return None
 
 
 def _slice_pressure(slice_dir, resource):
-    """The cgroup's `some avg10` stalls for a resource, or None where nothing answers."""
+    """The cgroup's `some` stalls for a resource (`_pressure_avg`), or None where nothing answers."""
     if slice_dir is None:
         return None
     try:
-        return _pressure_avg10((slice_dir / f"{resource}.pressure").read_text())
+        return _pressure_avg((slice_dir / f"{resource}.pressure").read_text())
     except OSError:
         return None
 
@@ -468,7 +479,7 @@ def kept_cpu(slice_dir, delay=0.1):
 
 
 def _slice_memory(cgroup):
-    """(used, high) of the cgroup in MB, used without reclaimable cache.
+    """(used, high, swap) of the cgroup in MB, used without reclaimable cache, with swap.
 
     `memory.high` first, `memory.max` where high sets none;
     None where neither answers.
@@ -483,7 +494,8 @@ def _slice_memory(cgroup):
         if high is None:
             return None
         used = held_mb(base)
-        return None if used is None else (used, high)
+        swap = _swap_mb(base)
+        return None if used is None else (used + swap, high, swap)
     except OSError:
         return None
 
@@ -557,13 +569,14 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
     caps = _unit_memory_limits(cgroup_file, cgroup_root, hard=True)
     readings = {"free_mb": meminfo.get("MemAvailable"), "mem_total_mb": meminfo.get("MemTotal"),
                 "load": load, "cpus": cpu_count(), "unit_limits": limits,
-                "unit_memory_max_headroom_mb": min((cap - used for used, cap, _, _ in caps),
+                "unit_memory_max_headroom_mb": min((cap - used for used, cap, *_ in caps),
                                                    default=None),
                 "slice_cpu_pressure": _slice_pressure(cpu_dir, "cpu"),
                 "slice_memory_pressure": _slice_pressure(slice_dir, "memory"),
                 "slice_cpu_stat": _slice_cpu_stat(cpu_dir)}
-    if limits and isinstance(limits[0], (tuple, list)) and len(limits[0]) >= 4:
-        used, high, raw, name = limits[0][:4]
+    if limits:
+        used, high, raw, name, swap = limits[0]
+        readings["unit_memory_swap_mb"] = swap
         readings["unit_memory_current_mb"] = used
         readings["unit_memory_high_mb"] = high
         readings["unit_memory_raw_mb"] = raw
@@ -601,7 +614,8 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
     readings["slice_cpu_used"] = cpu_used
     readings["outside_cpu_used"] = outside
     if mem is not None:
-        readings["slice_memory_used_mb"], readings["slice_memory_high_mb"] = mem
+        (readings["slice_memory_used_mb"], readings["slice_memory_high_mb"],
+         readings["slice_memory_swap_mb"]) = mem
     else:
         readings["slice_memory_used_mb"] = readings["slice_memory_high_mb"] = None
     if pressure_window is not None:
