@@ -1126,16 +1126,19 @@ def discard_session(name, created):
             path.unlink(missing_ok=True)
 
 
-def remember_defaults(record):
+def remember_defaults(record, models=None):
     """[defaults] as `record` has them: what the next `n` starts from, and the one write of
-    them (save).  The file is read again first, so nothing changed in it since is written back
-    over; a failed write keeps the ones before and says why, else ""."""
+    them (save), the `[models.*]` tables as `models` has them in the same write where given.
+    The file is read again first, so nothing else changed in it since is written back over; a
+    failed write keeps it as it was and says why, else ""."""
     try:
         cfg = load()
         # a file from before it held the models (max_runs alone) loads as the shipped one: its
         # own keys are written back over the shipped ones, as they were
         cfg.update((key, value) for key, value in (_read_toml(HOME / CONFIG_NAME) or {}).items()
                    if key not in ("defaults", "tiers", "models", "providers"))
+        if models is not None:
+            cfg["models"] = models
         save(cfg, {key: record[key] for key in _DEFAULTS_ORDER if key in record})
     except (Error, OSError) as exc:
         return str(exc)     # a seat is made all the same

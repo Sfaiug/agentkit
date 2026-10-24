@@ -86,7 +86,7 @@ provider = "anthropic"
 [providers.anthropic]
 mode = "subscription"
 """
-KEYS = {"label": "  ↑↓←→ move   ⏎ open   esc back",
+KEYS = {"label": "  ↑↓←→ move   ⏎ open   r recommended   esc back",
         "step": "  ↑↓ move   ←→ choose   esc back",
         "remove": "  ↑↓ move   ⏎ remove   esc back"}
 
