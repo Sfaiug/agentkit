@@ -72,8 +72,7 @@ class SwitchCarriesDraft(EditorSeat):
 
     def test_a_paste_muse_took_after_the_switch_captured_its_pane_sends_no_key_and_refuses(self):
         self.on_muse()
-        self.show("and add these posts")
-        captured = self.pane            # read before the seat's lock, holding no paste
+        captured = self.pane            # read before the seat's lock, its composer empty
         self.show("and add these posts [Pasted Content 1190 chars]")
         self.assertFalse(watch.carry_draft(self.seat, "muse", captured, "muse", self.cfg))
         self.assertEqual((self.keys, self.buffers), ([], {}))
@@ -82,7 +81,7 @@ class SwitchCarriesDraft(EditorSeat):
         with patch.object(watch, "asking", return_value=True):
             self.assertTrue(self.switched())
         self.show(DRAFT)
-        self.assertTrue(self.switched(to="acme"))     # a harness with no manifest
+        self.assertFalse(self.switched(to="acme"))    # a harness with no manifest: refused
         self.assertEqual((self.keys, self.buffers), ([], {}))
 
 
