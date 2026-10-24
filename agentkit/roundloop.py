@@ -1664,6 +1664,8 @@ def rounds(lp, execv=None):
                 lp.log(f"--- round {lp.rnd}/{lp.rounds}: executor {lp.executor}")
                 if lp.rnd == 1:
                     summary = execute(lp, "executor", lp.context, "executor")
+                    # A change past the ceiling is refused now, before its checks and their fixer.
+                    first_review_ceiling(lp, record=False)
                 else:
                     fixer_body = (f"{lp.context}\n\n## Reviewer findings to fix\n"
                                   f"{prompts.without_followups(lp.findings)}")
@@ -1683,7 +1685,7 @@ def rounds(lp, execv=None):
             return
 
 
-def first_review_ceiling(lp):
+def first_review_ceiling(lp, record=True):
     """A task's change gets its first review only up to `task.MAX_PR_LINES` added lines:
     past it the run ends blocked with `split it`
     before the reviewer reads a line, and the branch it keeps holds the work for the pieces.
@@ -1702,7 +1704,8 @@ def first_review_ceiling(lp):
                                            lines, carried)
     if why:
         raise turns.Blocked(why, f"## Blocked\n\n{why}")
-    history.first_review(lp.state.get("run_id"), lines - carried, log=lp.log)
+    if record:
+        history.first_review(lp.state.get("run_id"), lines - carried, log=lp.log)
 
 
 def fix_after_failed_review(lp, upstream, how):
