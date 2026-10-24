@@ -255,7 +255,7 @@ class EveryFilePool(unittest.TestCase):
         self.assertEqual(every_file.pool_limit(readings), 2)
         # Existing callers keep the nearest soft limit, rather than changing run admission.
         self.assertEqual(host._unit_memory_limits(membership, cgroups),
-                         [(4140, 4600, 4140, "acme.slice")])
+                         [(4140, 4600, 4140, "acme.slice", 0.0)])
 
     def test_injected_readings_bypass_every_real_host_read(self):
         with patch.dict(os.environ, {"AK_HOST_READINGS": '{"cpu_pressure": 12, "free_mb": 4600}'}), \

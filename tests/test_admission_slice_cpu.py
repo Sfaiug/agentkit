@@ -123,13 +123,13 @@ class AdmissionSliceCpu(unittest.TestCase):
         self.assertTrue(admitted)
         self.assertEqual(state["state"], "running")
 
-    def test_slice_pressure_reads_some_avg10(self):
+    def test_slice_pressure_reads_the_larger_of_some_avg10_and_avg60(self):
         slice_dir = self.root / "agentkit.slice"
         slice_dir.mkdir()
         (slice_dir / "cpu.pressure").write_text(
             "some avg10=24.01 avg60=32.25 avg300=41.39 total=115793455101\n"
             "full avg10=2.73 avg60=3.79 avg300=5.51 total=30965092215\n")
-        self.assertEqual(host._slice_pressure(slice_dir, "cpu"), 24.01)
+        self.assertEqual(host._slice_pressure(slice_dir, "cpu"), 32.25)
         (slice_dir / "cpu.pressure").unlink()
         self.assertIsNone(host._slice_pressure(slice_dir, "cpu"))
         (slice_dir / "cpu.pressure").write_text("some avg10=banana\n")

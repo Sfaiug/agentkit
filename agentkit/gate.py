@@ -138,6 +138,7 @@ def host_status_line():
     unit = host._unit_memory(readings)
     if unit and len(unit) > 3 and unit[3]:
         segment = f" · {unit[3]} {host._g(unit[0])} of {host._g(unit[1])} G in use"
+    segment += _in_swap(host._slice_or_unit_memory(readings))
     first = (f"host: {int(cpus)} cpus · {signal} · "
              f"{host._g(host._reading(readings, 'free_mb', 'mem_available_mb'))} G free{segment} · "
              f"{admitted}")
@@ -296,6 +297,11 @@ def _slice_cpu_reason(readings):
     return None, None
 
 
+def _in_swap(memory):
+    """` · N G in swap` for a (used, high, raw, name, swap) reading holding swap, else ""."""
+    return f" · {host._g(memory[4])} G in swap" if memory and memory[4] else ""
+
+
 def _wait_reason(readings, minimum, maximum, frozen=0):
     # An unreadable gate fails open, as the memory check before it did: a host
     # that cannot answer (no /proc on macOS, no cgroup file in a container)
@@ -320,14 +326,14 @@ def _wait_reason(readings, minimum, maximum, frozen=0):
         room = unit[1] - unit[0]
         if room < peak:
             return (f"waiting for the unit's memory · {host._g(room)} G left, "
-                    f"a run needs {host._g(peak)} G", "unit memory")
+                    f"a run needs {host._g(peak)} G{_in_swap(unit)}", "unit memory")
     elif unit and unit[0] > unit[1] * .75:
         raw = unit[2]
         if raw is not None:
             return (f"waiting for the unit's memory · {host._g(unit[0])} of {host._g(unit[1])} G "
-                    f"in use ({host._g(raw)} with cache)", "unit memory")
-        return (f"waiting for the unit's memory · {host._g(unit[0])} of {host._g(unit[1])} G",
-                "unit memory")
+                    f"in use ({host._g(raw)} with cache){_in_swap(unit)}", "unit memory")
+        return (f"waiting for the unit's memory · {host._g(unit[0])} of {host._g(unit[1])} G"
+                f"{_in_swap(unit)}", "unit memory")
     return None, None
 
 
