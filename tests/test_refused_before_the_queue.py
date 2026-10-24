@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.own_pr import OwnPr, URL
-from agentkit import box, config, gate, record, run
+from agentkit import box, config, gate, plan, record, run
 
 
 class RefusedBeforeTheQueue(OwnPr):
@@ -26,6 +26,9 @@ class RefusedBeforeTheQueue(OwnPr):
         self.assertEqual(record.read_state(self.run_dir)["state"], "running")
         self.stack.enter_context(patch.dict(os.environ, {"AK_MAX_RUNS": "1"}))
         self.stack.enter_context(patch.object(box, "check"))
+        # a seat launches only with an open line in its plan
+        plan.write("fix-api", [plan.compose("Mend the gate", "check: `false`", "acme", False,
+                                            "2026-10-23 09:00", None)])
 
     def launch(self, *argv):
         """(the refusal, how many background runs started, the new run's record)."""
