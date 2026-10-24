@@ -40,6 +40,10 @@ class SilenceHonoursDeclaredTimeout(unittest.TestCase):
         verdict = self.check("sleep 6\n")
         self.assertIn(KILLED, verdict["fix"]["line"], verdict)
 
+    def test_a_declared_timeout_that_ended_holds_off_no_silence_after_it(self):
+        verdict = self.check("timeout 30 sleep 1; sleep 6\n")
+        self.assertIn(KILLED, verdict["fix"]["line"], verdict)
+
     def test_a_declared_timeout_ends_the_command_by_itself(self):
         verdict = self.check("timeout 4 sleep 60\n")
         self.assertEqual(verdict["fix"]["tests"], ["slow.sh"], verdict)

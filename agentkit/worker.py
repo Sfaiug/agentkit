@@ -474,13 +474,12 @@ def kill_marked(run_id, grace=MARK_KILL_GRACE, log=None, exact=False):
     return False
 
 
-def declared_ends(pid):
-    """When each live `timeout N` at or under that pid runs out, in `time.monotonic()` terms.
+def within_declared_timeout(pid):
+    """Whether a live `timeout N` at or under that pid is still inside its N seconds.
 
     A command started under `timeout` has said how long it may take, however little it prints:
     `| tail` hides a slow test's output, and its silence is no hang before that bound."""
     from . import watch     # here, not at the top: the babysitter imports this module
-    ends = []
     for child in watch.descendants(pid):
         try:
             argv = Path(f"/proc/{child}/cmdline").read_bytes().decode(errors="replace").split("\0")
@@ -488,9 +487,9 @@ def declared_ends(pid):
             continue
         seconds = timeout_seconds(argv)
         birth = seconds and host.process_identity(child)
-        if birth:
-            ends.append(time.monotonic() + birth["started_at"] + seconds - time.time())
-    return ends
+        if birth and birth["started_at"] + seconds > time.time():
+            return True
+    return False
 
 
 def timeout_seconds(argv):
@@ -641,19 +640,19 @@ def limited(cmd, limit, *, silence=None, activity=None, heartbeats=(), output=No
             stop(proc, KILL_GRACE)
 
     def watch_output():
-        last, seen, longest, bound = started, previous, 0, started
+        last, seen, longest, held = started, previous, 0, started
         while not finished.is_set():
             now = time.monotonic()
             current = heard()
             if current != seen:
                 longest = max(longest, now - last)
                 last, seen = now, current
-            if silence is not None and now - max(last, bound) >= silence:
-                # silence counts from the end a live `timeout N` declared, never before it
-                bound = max([bound, *declared_ends(proc.pid)])
+            if (silence is not None and now - last >= silence
+                    and within_declared_timeout(proc.pid)):
+                held = now      # silence counts from the last poll a declared bound held
             reason = ("abort" if abort is not None and abort() else
                       "ceiling" if limit is not None and now - started >= limit else
-                      "silence" if silence is not None and now - max(last, bound) >= silence
+                      "silence" if silence is not None and now - max(last, held) >= silence
                       else None)
             if reason:
                 expired.set()
@@ -667,7 +666,7 @@ def limited(cmd, limit, *, silence=None, activity=None, heartbeats=(), output=No
             if limit is not None:
                 remaining.append(limit - (now - started))
             if silence is not None:
-                remaining.append(silence - (now - max(last, bound)))
+                remaining.append(silence - (now - max(last, held)))
             finished.wait(min(remaining))
         if quiet is not None:
             quiet.append(max(longest, time.monotonic() - last))
