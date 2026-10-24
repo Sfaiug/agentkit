@@ -55,7 +55,7 @@ STUB = """#!/usr/bin/env bash
 printf '%s' "$*" >"$STUB_DIR/argv"
 printf '%s' "${OPENCODE_CONFIG_CONTENT:-}" >"$STUB_DIR/config"
 """
-EFFORT_KEYS = "  ↑↓←→ move   ⏎ effort   esc back"
+EFFORT_KEYS = "  ↑↓←→ move   ⏎ effort   r recommended   esc back"
 
 
 def drawn(screen, keys, shown):

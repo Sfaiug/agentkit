@@ -2904,8 +2904,9 @@ def model_heading(harness):
     return terminal.styled(config.harness_name(harness), config.harness_colour(harness) or "accent")
 
 
-# the roles `r` takes, each with its group in a seat's record (its config role: matrix.CONFIG_ROLES)
-TAKEN = {"execute": "workers", "review": "reviewers"}
+# the roles `r` takes, each with its group in a record (its config role: matrix.CONFIG_ROLES); a
+# seat's own `r` leaves its orchestrator, which only its mark moves (session_mark)
+TAKEN = {"orchestrate": "orchestrator", "execute": "workers", "review": "reviewers"}
 
 
 def takes(cfg, row, role):
@@ -2933,28 +2934,34 @@ def advice(cfg, held):
 
 
 def take_advice(cfg, name, selected, providers, found):
-    """`r`: the seat's executors and reviewers become the recommended rows' models, each at
+    """`r`: seat `name`'s executors and reviewers become the recommended rows' models, each at
     the row's effort as its entry's own for that role (`exec_effort`, `review_effort`; a row
     at the entry's effort or at none leaves it following the effort, _follows), saved to the
     config (_saved) and then to the seat's record at once as a flipped mark is (marks_saved);
     a config that cannot be saved changes no mark and says why.  The orchestrator is only
-    said, since moving the seat is its orchestrator mark's.  What to say under the rows, or
-    ""."""
-    taken = {role: found.get(role, (None, None, None))[1:] for role in TAKEN}
+    said, since moving the seat is its orchestrator mark's.  With no `name`, `selected` being
+    [defaults], the orchestrator is taken too, at the row's effort as the entry's `effort`, and
+    [defaults] are saved as a flipped mark is (defaults_saved), no open seat changing.  What
+    to say under the rows, or ""."""
+    taken = {role: found.get(role, (None, None, None))[1:] for role in TAKEN
+             if name is None or role != "orchestrate"}
     if not any(model for model, _ in taken.values()):
         return "nothing to take: the recommended rows are not configured models"
     changed, note = orch.role_groups(cfg, selected, providers, **{
-        TAKEN[role]: [model] for role, (model, _) in taken.items() if model})
+        TAKEN[role]: model if role == "orchestrate" else [model]
+        for role, (model, _) in taken.items() if model})
     if note:
         return note
     before = copy.deepcopy(cfg)
+    # the orchestrator's `effort` first, so a worker's set to it then follows it (_follows)
     for role, (model, effort) in taken.items():
         if model:
             entry, key = cfg["models"][model], config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]]
             entry[key] = effort or entry["effort"]
             _follows(entry, [key])
     note = _saved(cfg, cfg, before) if cfg != before else ""
-    return note or marks_saved(name, selected, changed)
+    return note or (marks_saved(name, selected, changed) if name
+                    else defaults_saved(cfg, selected, changed))
 
 
 def marks_saved(name, selected, changed):
@@ -3172,8 +3179,9 @@ def config_within(cfg, step):
 
 @terminal.clicks_its_own
 def models_screen(cfg, session, selected, providers):
-    """`models · <seat>`, `r recommended` on `c`: every model the matrix (matrix.stored) has a
-    row for, against the public boards, read with the matrix's keys until Esc (models_body).
+    """`models · <seat>`, or `models · new seats` without one, `r recommended` on `c`: every
+    model the matrix (matrix.stored) has a row for, against the public boards, read with the
+    matrix's keys until Esc (models_body).
     The boards are read as it opens (matrix.refresh: once a day, the rows again once anything
     they are computed from changed), the rule gliding until they land and what was stored
     standing meanwhile; a reading that failed is said under the rows.
@@ -3184,10 +3192,11 @@ def models_screen(cfg, session, selected, providers):
     step the effort its row shows, through its own efforts (models_levels), the numbers and
     the cost following, nothing saved: the effort a model runs at is set on `c`.  `r`, once a
     row is recommended, takes it as `c` says it (take_advice): the seat's executors and reviewers
-    become the recommended rows' models at their efforts, the orchestrator only said.
+    become the recommended rows' models at their efforts, the orchestrator only said; without a
+    seat new seats' orchestrator, executors and reviewers do.
     """
     fetch, held, table, shown = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None, {}
-    here, top, note, title = None, 0, "", f"models · {session}"
+    here, top, note, title = None, 0, "", f"models · {session or NEW_SEATS}"
     clock = motion.Clock(page=True)
     while True:
         if fetch is not None and not fetch.is_alive():
@@ -3721,7 +3730,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     Enter or a click on a model's label, left of its marks, opens that model's own screen
     (config_model), and Esc there comes back to its row.  `r`, or a click on `r recommended`,
     opens the models screen (models_screen), every model against the boards, where `r` takes
-    the recommendation.  Enter or a click
+    the recommendation for whom the marks are.  Enter or a click
     on `+ add a model` opens its screen (config_add), and a model added there is the row
     highlighted after it, and `Subscriptions` its page (config_subscriptions).  ↑ past the
     first model, and the pointer, reach
@@ -3740,7 +3749,6 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     standing = watch.token_standing() or ""     # a file's date, read once a visit
     scope = session or NEW_SEATS
     here, column, top, clock = None, 0, 0, motion.Clock(page=True)
-    seat = session if selected else None    # what `r` recommends is a seat's to take
     while True:
         columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
         # the meter the highlight or the pointer is on, lit as the main screen lights one
@@ -3756,7 +3764,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         where = ("row" if here[0] in ("row", "usage") else "effort" if column == 3
                  else "label" if column < 0 else "mark")
         keys = (CONFIG_KEYS[where][0 if terminal.utf8() else 1]
-                + (f"   {ADVICE_KEY}" if seat else "") + "   esc back")
+                + (f"   {ADVICE_KEY}" if selected else "") + "   esc back")
         # each meter's cells, on the lines over the page counted back from it, washing in and out
         moves = [(line - len(over), ("sub", number), number == lit,
                   motion.washing([(column, text, rest)], colour(cfg, subs[number - 1][0])))
@@ -3779,9 +3787,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         note = ""
         if act == "back":
             return cfg
-        if act == "r" and seat:
+        if act == "r" and selected:     # a record that will not read has nobody to take it
             clock.forget()            # another screen: the matrix back from it replays nothing
-            models_screen(cfg, seat, selected, providers)
+            models_screen(cfg, session, selected, providers)
             continue
         if act in ("enter", "space") and (here[0] in ("row", "usage") or column < 0):
             clock.forget()            # another screen: the matrix back from it replays nothing
@@ -4673,6 +4681,13 @@ def defaults_mark(cfg, selected, model, column):
     changed, note = orch.role_mark(cfg, selected, model, column, {})
     if note or changed == selected:
         return note
+    return defaults_saved(cfg, selected, changed)
+
+
+def defaults_saved(cfg, selected, changed):
+    """New seats' role groups as `changed` has them, saved at once (config.remember_defaults)
+    and then into `cfg` and `selected`; a save that fails leaves all three alone.  What to say
+    under the rows, or ""."""
     note = config.remember_defaults(changed)
     if note:
         return f"config: {note}"
