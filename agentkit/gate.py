@@ -1329,8 +1329,9 @@ def split_suite_run(lp, command):
 
 
 class _SuiteMeasure:
-    """Wall time and each box's CPU work everywhere, a line's checker included; memory, less
-    the file cache reclaim frees, where a cgroup is this run's or holds only this process."""
+    """Wall time and each box's CPU work everywhere, a line's checker included; memory, swap
+    included and less the file cache reclaim frees, where a cgroup is this run's or holds only
+    this process."""
 
     def __init__(self, run_dir):
         state = run_record.read_state(run_dir) or {} if run_dir else {}
@@ -1341,19 +1342,25 @@ class _SuiteMeasure:
                       else host.own_cgroup())
         self.cpu = []     # each box's CPU seconds (`worker.boxed`)
         self.quiet = []   # and the longest each go went without output (`worker.limited`)
-        self.baseline = host.held_mb(self.group) if self.group is not None else None
+        self.baseline = host.held_mb(self.group, swap=True) if self.group is not None else None
         self.peak = self.baseline
+        self.ooms = self.oom()
+        self.mem_mb = 0   # what `save` recorded
         self.lock = threading.Lock()
         self.started = time.monotonic()
 
+    def oom(self):
+        return host.memory_events(self.group).get("oom", 0) if self.group is not None else 0
+
     def sample(self):
         if self.baseline is not None:
-            held = host.held_mb(self.group)
+            held = host.held_mb(self.group, swap=True)
             if held is not None:
                 with self.lock:
                     self.peak = max(self.peak, held)
 
     def save(self, path, pieces):
+        """`pieces` the ones that ran here."""
         elapsed = time.monotonic() - self.started
         if elapsed <= 0:
             return
@@ -1361,7 +1368,7 @@ class _SuiteMeasure:
         if len(self.cpu) == pieces:
             cost["cpus"] = max(HEAVY_CPUS, sum(self.cpu) / (elapsed * pieces))
         if self.baseline is not None:
-            cost["mem_mb"] = max(HEAVY_MEM_MB, (self.peak - self.baseline) / pieces)
+            cost["mem_mb"] = self.mem_mb = max(HEAVY_MEM_MB, (self.peak - self.baseline) / pieces)
         try:
             with watch.state_lock():
                 previous = read_suite_cost(path)
@@ -1373,6 +1380,18 @@ class _SuiteMeasure:
                 write_suite_cost(path, cost)
         except OSError:
             pass    # a missing measurement keeps the initial estimate
+
+    def overflowed(self, path, planned_mb):
+        """A suite whose cgroup ran out of memory since this measure began (`host.memory_events`)
+        costs at least twice the `planned_mb` it ran at, however its pieces ended: held memory
+        stops at the cap, so no peak shows the overflow, and its next pass is cut smaller."""
+        if self.oom() <= self.ooms:
+            return
+        try:
+            with watch.state_lock():
+                write_suite_cost(path, {"mem_mb": max(2 * planned_mb, self.mem_mb)})
+        except OSError:
+            pass
 
     def paced(self, path, pieces):
         """Once each of a run's `pieces` ran to its end, the longest any of its goes went
@@ -1460,7 +1479,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     if not names_shard(command):
         if log is not None:
             log("suite runs here: command is not sent to the suite helper (does not name AK_SHARD)")
-        path = suite_cost(command, cwd, run_dir)[0] if measure else None
+        path, _, planned = suite_cost(command, cwd, run_dir) if measure else (None,) * 3
         measured = _SuiteMeasure(run_dir) if measure else None
         aborting = kwargs.pop("abort", None)
         def abort():
@@ -1477,6 +1496,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         if measured and not result[2] and result[0] != SUITE_BUSY:
             measured.save(path, 1)
             measured.paced(path, 1)
+        if measured:
+            measured.overflowed(path, planned)
         return result
     with gate_turn(run_dir, activity, log, command, cwd, local=changed is not None):
         hold = getattr(_GATE_HELD, "hold", None)
@@ -1610,9 +1631,11 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             results = [None] * count
             attempts(range(count), first=True)
             # Pieces that waited for turns did not run at once: their measure is no piece's cost.
-            if not away and not (hold and hold.waited) and not any(
+            # Those on the helper held none of this host's memory.
+            here = count - (away.count if away else 0)
+            if here and not (hold and hold.waited) and not any(
                     killed or code == SUITE_BUSY for code, _, killed, _ in results):
-                measure.save(path, count)
+                measure.save(path, here)
             again = [index for index, (code, _, killed, _) in enumerate(results)
                      if away and index < away.count and code and not killed and not cancel.is_set()]
             helped, away = away, None
@@ -1727,6 +1750,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     f"[{'killed at the limit' if killed else f'exit {code}'}]\n{text}".rstrip())
             if not helped and not any(killed for _, _, killed, _ in results):
                 measure.paced(path, count)
+            measure.overflowed(path, mem)
             text = "\n\n".join(chunks + red + flakes)
             output.write(("\n" + text + "\n").encode())
             output.flush()
