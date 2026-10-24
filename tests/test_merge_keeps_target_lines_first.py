@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_merge_step as fixture
-from agentkit import config, land, roundloop, run
+from agentkit import config, gitcall, land, roundloop, run
 
 
 def commit(cwd, message, **files):
@@ -87,6 +87,15 @@ class TargetLinesFirst(unittest.TestCase):
         with patch.object(roundloop, "resolve_conflicts", side_effect=resolve):
             self.assertFalse(run.integrate(self.loop(), "origin/main"))
         self.assertEqual(seen, [("merge", tip, True)])
+
+    def test_git_merge_still_makes_the_commit(self):
+        # its hooks and signing apply as to any merge: a hook refusing it keeps the head
+        tip = self.advance("old\nm\n")
+        hook = self.wt / ".git" / "hooks" / "pre-merge-commit"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        self.assertNotEqual(gitcall.merge(self.wt, tip)[0], 0)
+        self.assertEqual(run.git(self.wt, "rev-parse", "HEAD"), self.head)
 
 
 if __name__ == "__main__":

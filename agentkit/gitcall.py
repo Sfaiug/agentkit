@@ -274,22 +274,19 @@ def ref_held(out):
     return bool(failed) and all(REF_LOCKED.fullmatch(line) for line in failed)
 
 
+# `git merge -s <name>` runs `git-merge-<name>` off PATH
+STRATEGIES = config.REPO / "tools" / "merge"
+
+
 def merge(wt, tip):
-    """`git merge --no-edit tip` on the checked-out branch, as `git_out` answers it, except
-    that a clean merge takes its tree from merging with `tip` as "ours": a union-merged file
-    then keeps the target's lines before the branch's, as a rebase onto it would order them.
-    The commit still has HEAD first and `tip` second, so the branch keeps its history and
-    its push stays a fast-forward.  A conflict, a fast-forward and nothing to bring in go
-    through `git merge` itself."""
-    for older, newer in ((tip, "HEAD"), ("HEAD", tip)):
-        if git_out(wt, "merge-base", "--is-ancestor", older, newer)[0] == 0:
-            return git_out(wt, "merge", "--no-edit", tip)
-    code, tree = git_out(wt, "merge-tree", "--write-tree", tip, "HEAD")
-    if code:
+    """`git merge --no-edit tip` on the checked-out branch, as `git_out` answers it, with a
+    clean merge's tree from `tip` as "ours" (`tools/merge/git-merge-target-first`): a
+    union-merged file then reads the target's lines first, as a rebase onto it orders them.
+    A merge that conflicts is git's own, as without it."""
+    if git_out(wt, "merge-tree", "--write-tree", tip, "HEAD")[0]:
         return git_out(wt, "merge", "--no-edit", tip)
-    commit = git(wt, "commit-tree", tree.splitlines()[0], "-p", "HEAD", "-p", tip,
-                 "-m", f"Merge commit '{tip}'")
-    return git_out(wt, "merge", "--ff-only", commit)
+    path = os.pathsep.join((str(STRATEGIES), tool_env().get("PATH", os.defpath)))
+    return git_out(wt, "merge", "--no-edit", "-s", "target-first", tip, env={"PATH": path})
 
 
 def gh(cwd, *args, timeout=None):
