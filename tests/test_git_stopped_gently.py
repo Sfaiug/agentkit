@@ -27,7 +27,9 @@ while :; do sleep 0.05; done
 
 
 class GitStoppedGently(unittest.TestCase):
-    def call(self, on_term, interrupt=False):
+    # a git that removes its lock ends the grace as soon as it exits, however slowly a loaded
+    # host lets its shell reach the trap; only one ignoring SIGTERM waits it out
+    def call(self, on_term, interrupt=False, grace=60):
         with tempfile.TemporaryDirectory() as tmp:
             fake = Path(tmp)
             (fake / "git").write_text(GIT.format(on_term=on_term))
@@ -40,7 +42,7 @@ class GitStoppedGently(unittest.TestCase):
                     time.sleep(.01)
                 raise KeyboardInterrupt
 
-            with patch.object(gitcall, "TOOL_GRACE", 1), patch.object(
+            with patch.object(gitcall, "TOOL_GRACE", grace), patch.object(
                     subprocess.Popen, "communicate",
                     interrupted if interrupt else subprocess.Popen.communicate):
                 try:
@@ -63,7 +65,7 @@ class GitStoppedGently(unittest.TestCase):
         self.assertIn("was killed after 2s", result[2])
 
     def test_a_git_ignoring_sigterm_is_killed_when_the_grace_ends(self):
-        result, locked, pid = self.call("")
+        result, locked, pid = self.call("", grace=1)
         self.assertTrue(locked)
         self.assert_gone(pid)
         self.assertEqual(result, (None, "", "`git status` was killed after 2s: "
