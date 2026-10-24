@@ -1,4 +1,4 @@
-"""`c` on the menu opens the config screen for the highlighted seat, named over its headings and
+"""`c` in the popup opens the config screen for the seat it is over, named over its headings and
 laid out as a matrix of its roles and each model's effort, and marking a role there rewrites the
 seat's record at once.
 
@@ -73,7 +73,8 @@ class ConfigScreen(unittest.TestCase):
     def setUp(self):
         # each case starts from the record as the seat was opened with it
         self.home.write(".agentkit/state/session-atoll-ask.json", self.seat.record)
-        self.term = Terminal(self.home, size=(100, 30), env={"NO_COLOR": "1"})
+        self.term = Terminal(self.home, "attach", "--overlay", size=(100, 30),
+                             env={"NO_COLOR": "1", "AGENTKIT_SESSION": "atoll-ask"})
         self.term.wait(lambda screen: key_line(screen) == MAIN_KEYS)
         self.term.keys("c")
         # the subscriptions are read before the matrix is drawn
@@ -92,10 +93,10 @@ class ConfigScreen(unittest.TestCase):
     def record(self):
         return json.loads(self.record_path.read_text())
 
-    def test_c_opens_the_highlighted_seats_matrix_under_harness_headings(self):
+    def test_c_opens_the_popups_seats_matrix_under_harness_headings(self):
         shown = lines(self.opened)
         self.assertEqual(shown[0].split()[:3], ["agentkit", "·", "config"], shown[0])
-        # whom the marks are for, the highlighted seat, is said over the heads
+        # whom the marks are for, the popup's seat, is said over the heads
         self.assertEqual(shown[shown.index(HEADS) - 1], "  For  atoll-ask")
         self.assertGreater(shown.index(HEADS), 3, "the usage grid comes over the heads")
         self.assertEqual(block(self.opened)[1:len(ROWS) + 1], ROWS)
