@@ -97,6 +97,14 @@ class TargetLinesFirst(unittest.TestCase):
         self.assertNotEqual(gitcall.merge(self.wt, tip)[0], 0)
         self.assertEqual(run.git(self.wt, "rev-parse", "HEAD"), self.head)
 
+    def test_staged_work_is_refused_as_git_refuses_it(self):
+        tip = self.advance("old\nm\n")
+        (self.wt / "work.txt").write_text("staged\n")
+        run.git(self.wt, "add", "work.txt")
+        self.assertNotEqual(gitcall.merge(self.wt, tip)[0], 0)
+        self.assertEqual(run.git(self.wt, "rev-parse", "HEAD"), self.head)
+        self.assertEqual(run.git(self.wt, "show", ":work.txt"), "staged")
+
 
 if __name__ == "__main__":
     unittest.main()

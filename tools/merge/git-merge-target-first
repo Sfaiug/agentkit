@@ -3,8 +3,10 @@
 # union-merged file reads <tip>'s lines first, as a rebase onto it orders them, while `git
 # merge` itself still makes the commit, HEAD its first parent, with its hooks and signing.
 # Git calls it as `git-merge-target-first <bases> -- HEAD <tip>`; exit 2 is a merge it
-# does not take, and git puts the tree back.
+# does not take, and git puts the tree back.  Git leaves an index that differs from HEAD to
+# the strategy: ort refuses it, and so does this one, or the commit would carry it.
 while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done
 [ $# -eq 3 ] || exit 2
+git diff-index --quiet --cached "$2" -- || exit 2
 tree=$(git merge-tree --write-tree "$3" "$2") || exit 2
 exec git read-tree -m -u "$2" "$tree"
