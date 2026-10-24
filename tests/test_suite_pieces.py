@@ -226,7 +226,7 @@ class SuitePieces(unittest.TestCase):
 
     def test_running_landing_pieces_are_not_counted_free_again(self):
         # Another lander's two pieces keep their 2 cores; only the build's 0.8 of the 3.3
-        # in use can be taken: 4 - 2.5 cores fit two more pieces, not five.
+        # in use can be taken: 4 - 2.5 cores fit two more pieces, not three.
         top = host.CPU_WEIGHT_MAX
         self.cgroups({"lander-widget.scope": (top, 0.5), "lander-acme.scope": (top, 2.0),
                       "agentkit-run-build.scope": (40, 0.8)})
