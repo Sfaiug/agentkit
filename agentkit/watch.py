@@ -6357,16 +6357,20 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
 
 
 def revive_seats(cfg, log):
-    """Bring back a seat whose harness died while a run it launched is still going.
+    """Bring back a seat whose harness died owing work: a run it launched still going, or a
+    turn or a question to the owner its process cut off.
 
     A seat the listing shows exited, restarting or resumable -- its process gone, however it
-    went -- with a run of its own still running or queued is reopened on its saved
-    conversation and told the run is still going.  Once per death: `reopened_at` in the seat's
-    state file, written before the launch so one that fails is not repeated every tick, and
-    cleared when the seat is next seen live.  A seat the owner stopped stays stopped.  The
-    owner hears only when the reopen fails.  tmux is asked only with something to do: a run
-    going, or a marker to clear.  Every tick files a seat with no project from the run records
-    read here (`orch.file_projectless`), a run going or not.
+    went -- is reopened on its saved conversation when it was asking or mid-turn by
+    `resume_after_boot`'s reading (`_cut_line`), on a conversation its own, and typed
+    `reboot_line`'s line; else, with a run of its own still running or queued, told the run is
+    still going.  A Stop on background agents is mid-turn; one that died idle, a shell or a
+    monitor held or not, stays gone.  Once per death: `reopened_at` in the seat's state file,
+    written before the launch so one that fails is not repeated every tick, and cleared when
+    the seat is next seen live.  A seat the owner stopped stays stopped.  The owner hears only
+    when the reopen fails.  tmux is asked only with something to do: a run going, a seat not
+    closed that reads asking or mid-turn, or a marker to clear.  Every tick files a seat with
+    no project from the run records read here (`orch.file_projectless`), a run going or not.
     """
     going, states = {}, []
     for run_dir in run_record.run_dirs():
@@ -6383,36 +6387,52 @@ def revive_seats(cfg, log):
             going.setdefault(seat, (run_dir, state))
     kept = config.session_records()
     orch.file_projectless([{**record, "name": name} for name, record in kept.items()], states)
-    if not going and not any(seat_read(name).get("reopened_at") for name in kept):
+    cut = {name for name, record in kept.items()
+           if not (seat_stopped_at(name) or seat_closed_by_owner(name))
+           and _cut_line(cfg, name, hook_facts(name)) and orch.resumable(record)}
+    if not going and not cut and not any(seat_read(name).get("reopened_at") for name in kept):
         return
     for session in orch.listing():
         name = session["name"]
         marks = seat_read(name)
         if not any(session.get(key) for key in ("exited", "restart", "resumable")):
             if marks.get("reopened_at"):
+                # An attempt to clear it only once the reopened turn ended failed three review
+                # rounds on 24 Oct 2026: no one signal says a turn ended on every harness (an
+                # unsent draft, a permission card and a question asked mid-turn each misread
+                # it).  Runs bound repeated deaths by time instead (DEAD_BACKOFF, DEAD_WINDOW).
                 seat_write(name, reopened_at=None)   # live again: the next death is a new one
             continue
-        if (name not in going or marks.get("reopened_at") or seat_closed(name)
-                or marks.get("closed_by_owner")):
+        if (name not in going and name not in cut or marks.get("reopened_at")
+                or seat_closed(name) or marks.get("closed_by_owner")):
             continue
-        run_dir, state = going[name]
-        run_id, title = run_dir.name, state.get("title") or run_dir.name
+        line = reboot_line(cfg, name) if name in cut else None   # read before the reopen
+        if name in going:
+            run_dir, state = going[name]
+            run_id, title = run_dir.name, state.get("title") or run_dir.name
+            owed, about = f"while run {run_id} ({title}) is still going", f"continue {run_id}"
+            say, event = f"continue {title}", run_id
+        else:
+            owed, about = "in the middle of a turn or a question to you", "go on with its turn"
+            say, event = "continue", "turn"
         died = time.time()
         seat_write(name, reopened_at=died)
-        why = revive(name, f"continue: your run {run_id} ({title}) is still going; "
-                           "pick up where you left off", log, cfg,
-                     prepare=lambda line: handback.seat_notice(
-                         line, state, run_dir, f"run {run_id} is still going.",
-                         "Pick up where you left off."))
+        if line:
+            why = revive(name, line, log, cfg, prepare=lambda line: line)
+        else:
+            why = revive(name, f"continue: your run {run_id} ({title}) is still going; "
+                               "pick up where you left off", log, cfg,
+                         prepare=lambda line: handback.seat_notice(
+                             line, state, run_dir, f"run {run_id} is still going.",
+                             "Pick up where you left off."))
         if why is None:
-            log(f"reopened {name} and asked it to continue {run_id}")
+            log(f"reopened {name} and asked it to {about}")
             continue
-        text = (f"Its orchestrator session {name} is gone while run {run_id} ({title}) is "
-                f"still going. agentkit tried to reopen the seat and could not: {why}. "
-                f"Press its number in the menu, then say: continue {title}.")
+        text = (f"Its orchestrator session {name} is gone {owed}. agentkit tried to reopen the "
+                f"seat and could not: {why}. Press its number in the menu, then say: {say}.")
         if notify.shaped("needs", text, session=name,
-                         event_id=f"revive:{name}:{run_id}:{int(died)}") == 0:
-            log(f"could not reopen {name}; asked the user to continue {run_id}")
+                         event_id=f"revive:{name}:{event}:{int(died)}") == 0:
+            log(f"could not reopen {name}; asked the user to {about}")
         else:
             log(f"WARN {name}: notification was not accepted; retry required")
 
