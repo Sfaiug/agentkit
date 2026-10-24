@@ -110,10 +110,16 @@ class QuestionStands(unittest.TestCase):
         self.assertFalse(notify.progress("seat", lambda: "Writing the tests", "claude"))
         self.assertEqual(notify.last("seat")["text"], "Ship the acme parser today?")
 
-    def test_output_after_an_open_is_the_answer_where_no_prompt_is_reported(self):
+    def test_output_after_an_open_answers_nothing_where_messages_are_read(self):
         notify.record("seat", "needs", "Ship the acme parser today?", time=100)
         notify.opened("seat", lambda: "Reading the parser")
-        self.assertTrue(notify.progress("seat", lambda: "Shipping the parser", "muse"))
+        self.assertFalse(notify.progress("seat", lambda: "Shipping the parser", "muse"))
+        self.assertEqual(notify.last("seat")["text"], "Ship the acme parser today?")
+
+    def test_output_after_an_open_is_the_answer_where_nothing_reports_or_reads_one(self):
+        notify.record("seat", "needs", "Ship the acme parser today?", time=100)
+        notify.opened("seat", lambda: "Reading the parser")
+        self.assertTrue(notify.progress("seat", lambda: "Shipping the parser", None))
         self.assertIsNone(notify.last("seat"))
 
     def test_a_watchers_alert_is_still_answered_by_output(self):

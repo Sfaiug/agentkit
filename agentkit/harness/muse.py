@@ -424,11 +424,27 @@ def said(record, cwd, conversation):
     showed as an event of its own; its reasoning, tool batches and reminders are other events,
     and a child session is a log of its own."""
     from . import turns
+    return turns(session_log(conversation), typed,
+                 lambda entry: run_event(entry, "assistant_message_committed").get("text"))
+
+
+def user_messages(record, cwd, conversation):
+    """What `typed` reads, dated when Muse recorded it, in microseconds as `seat_token_usage`
+    reads them; a line dated otherwise is nobody's answer."""
+    from . import entries, user_message
+    for entry in entries(session_log(conversation)):
+        at = entry.get("recorded_at")
+        kept = type(at) is int and user_message(at / 1_000_000, typed(entry))
+        if kept:
+            yield kept
+
+
+def session_log(conversation):
+    """That session's log, or None where it has none or no such name."""
     if not isinstance(conversation, str) or not re.fullmatch(r"[\w-]+", conversation):
         return None
     logs = session_logs(conversation)
-    return turns(logs[0] if logs else None, typed,
-                 lambda entry: run_event(entry, "assistant_message_committed").get("text"))
+    return logs[0] if logs else None
 
 
 def typed(entry):
