@@ -109,6 +109,11 @@ faint = ["38;5;242"]
 # 1.4.7 draws a tray of background tasks between its composer and its status line: a header,
 # up to four tasks, then `+N`.
 tray = '(?:main(?: · ↓ to select)?|[├└] .+)'
+# Ctrl-G hands the composer to $VISUAL, ak's editor
+editor = ["C-g"]
+# but a paste as its placeholder, which Muse sends alone once the editor returns: a composer that
+# may hold one, shown or above the rows read, opens no editor (`watch._may_paste`)
+pasted = '\[Pasted\s+Content\s+\d+\s+chars\]'
 
 # Muse's picker: both choices and the key hint, in the last few lines with the hint newest.
 [[rule]]
@@ -142,13 +147,15 @@ state = "working"
 lines = 1
 row = ' · .* {2,}(?:interrupting run|compacting context|steering the running turn)$'
 
-# the owner's own `/model` and `/resume` pickers, their key hints where the status line was: his
-# unfinished input, which a line typed there would pick from
+# the owner's own `/model` and `/resume` pickers, their key hints where the status line was:
+# their unfinished input, which a line typed there would pick from, and Enter under one picks a
+# row (`picker`)
 [[rule]]
 id = "prompt.picker"
 state = "draft"
 lines = 2
 any = ["esc go back", "esc exit"]
+picker = true
 
 # A composer holding bright, typed text is a draft never sent. Muse has no
 # suggestion feature: its suggestion fixture is its placeholder, the empty box.

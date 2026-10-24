@@ -9,8 +9,8 @@ last took keys are the test's to set."""
 import os
 from unittest.mock import patch
 
-from fixtures.seats import NOW, PANE, Seats
-from agentkit import aside_editor, watch
+from fixtures.seats import NOW, PANE, REPO, Seats
+from agentkit import aside_editor, config, watch
 
 
 class EditorSeat(Seats):
@@ -32,6 +32,14 @@ class EditorSeat(Seats):
             patcher = patch.object(target, name, side_effect=fake)
             patcher.start()
             self.addCleanup(patcher.stop)
+        self.show("")
+
+    def on_muse(self):
+        """The seat on Muse, its empty composer drawn as Muse's faint placeholder."""
+        self.cfg["models"]["opus"]["harness"] = "muse"
+        config.save(self.cfg)
+        self.base = (REPO / "tests/fixtures/muse-placeholder-pane.txt").read_text(encoding="utf-8")
+        self.empty = "❯ \x1b[38;5;242m/resume reopens a past session (--last for the latest)\n"
         self.show("")
 
     def untouched(self, seconds):

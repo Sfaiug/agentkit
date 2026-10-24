@@ -15,6 +15,7 @@ from agentkit import aside_editor, watch
 
 DRAFT = "and add these posts"
 DOCS = "The docs finished."
+PASTE = "[Pasted Content 1190 chars]"      # what Muse hands its editor, and sends alone after
 FIXTURES = REPO / "tests/fixtures"
 
 
@@ -184,11 +185,43 @@ class LinePastOwnersText(EditorSeat):
             self.assertFalse(self.typed_line())
         self.assertEqual((self.keys, self.typed), ([], []))
 
+    def test_a_muse_draft_is_set_aside_for_the_line_and_comes_back_into_its_placeholder(self):
+        self.on_muse()
+        self.show(DRAFT)
+        self.tick()
+        self.assertEqual((self.keys, self.sent, self.composer, self.told()),
+                         (["C-g", "Enter", "C-g"], [LINE], DRAFT, True))
+
+    def test_a_muse_draft_that_may_hold_a_paste_holds_the_line_back(self):
+        self.on_muse()
+        tall = (FIXTURES / "muse-tall-line-pane.txt").read_text()   # its top above the rows read
+
+        def held(composer):
+            """The composer holding that, or drawn as the tall draft, takes no key."""
+            for draw in (lambda: self.show(composer), lambda: setattr(self, "pane", tall)):
+                keys = list(self.keys)
+                draw()
+                self.tick()
+                self.assertEqual((self.keys, self.told()), (keys, False))
+        held(f"{DRAFT} {PASTE}")        # for a new line
+        self.show(DRAFT)                # and a paste taken after its last read, before its key
+        with patch.object(watch, "kept_asked_first",
+                          side_effect=lambda *_a, **_kw: self.show(f"{DRAFT} {PASTE}")):
+            self.tick()
+        self.assertEqual((self.keys, self.told()), ([], False))
+        self.show(DRAFT)
+        with patch.object(watch, "_send_enter", return_value=False):
+            self.tick()
+        self.assertEqual((self.keys, self.composer), (["C-g"], LINE))
+        held(f"{LINE} {PASTE}")         # for the pending line's pass
+
     def test_a_picker_the_owner_opens_over_their_text_as_the_step_reads_it_takes_no_step(self):
         # its highlighted row reads as typed text, and Enter under it picks a row
         step = watch._editor_read
+        self.buffers.update(kept(aside_editor.GIVEN))  # text given back: Muse's picker shows none
         for harness, picker in (("codex", "codex-model-picker-pane.txt"),
-                                ("antigravity", "antigravity-chooser-pane.txt")):
+                                ("antigravity", "antigravity-chooser-pane.txt"),
+                                ("muse", "muse-model-picker-pane.txt")):
             draft = (FIXTURES / f"{harness}-draft-pane.txt").read_text()
 
             def opened(*args, **kwargs):
