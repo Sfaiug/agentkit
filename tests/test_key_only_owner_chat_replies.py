@@ -84,12 +84,13 @@ class Conversation:
                 db.execute(STEPS)
         self.steps = 0
 
-    def said(self, text, at, *, date=None):
-        """The user side wrote `text` at `at`; `date` replaces the date the store keeps."""
+    def said(self, text, at, *, date=...):
+        """The user side wrote `text` at `at`; `date`, where given, is what the store keeps as
+        its date, None for nothing."""
         if self.harness == "muse":
             line = {"schema_version": 1, "stream": {"kind": "session", "id": "s"},
                     "sequence": self.steps, "record_type": "event",
-                    "recorded_at": round(at * 1_000_000) if date is None else date,
+                    "recorded_at": round(at * 1_000_000) if date is ... else date,
                     "payload": {"kind": "run", "run_id": f"r{self.steps}",
                                 "event": {"kind": "started", "prompt": text}}}
             with self.path.open("a") as fh:
@@ -97,7 +98,7 @@ class Conversation:
         else:
             seconds, fraction = divmod(at, 1)
             stamp = number(1, int(seconds)) + number(2, round(fraction * 1e9))
-            metadata = nested(1, stamp) if date is None else date
+            metadata = nested(1, stamp) if date is ... else date
             payload = number(1, USER) + nested(19, nested(2, text.encode()))
             with contextlib.closing(sqlite3.connect(self.path)) as db, db:
                 db.execute("INSERT INTO steps (idx, step_type, status, metadata, step_payload)"
@@ -162,12 +163,8 @@ class OnlyOwnerReplies(unittest.TestCase):
         return found
 
     def test_only_a_later_reply_of_the_owners_answers(self):
-        for name, (_harness, _seat, _talk) in self.seats.items():
-            if name.endswith("-before"):
-                self.open(name)
         for name in self.seats:
-            if name.endswith("-during"):
-                self.open(name)
+            self.open(name)
         self.output(0)
         self.assertCountEqual(self.standing(), self.seats, "opening the seat answered it")
 
@@ -183,12 +180,12 @@ class OnlyOwnerReplies(unittest.TestCase):
         self.output(1)
         self.assertCountEqual(self.standing(), self.seats, "ak's own line answered it")
 
-        # a reply the store dates in no way ak can read
-        for harness, _seat, talk in self.seats.values():
-            talk.said("The first one.", time.time(),
-                      date="soon" if harness == "muse" else b"\x0a\x02\x10\x05")
+        # a reply the store keeps no date for, or one ak cannot read: nanoseconds alone
+        for name, (harness, _seat, talk) in self.seats.items():
+            talk.said("The first one.", time.time(), date=None if name.endswith("-before") else
+                      "soon" if harness == "muse" else b"\x0a\x02\x10\x05")
         self.output(2)
-        self.assertCountEqual(self.standing(), self.seats, "an undated reply answered it")
+        self.assertCountEqual(self.standing(), self.seats, "a reply with no date answered it")
 
         # the owner's reply, half a second after the question, in the same second
         for _harness, _seat, talk in self.seats.values():
