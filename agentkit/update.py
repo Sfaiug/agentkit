@@ -955,7 +955,8 @@ def live_hand_back(commit, check, code, log, hand=True, *, standing=False):
 
     Its record is `handed` in the check's directory, the tick's own file: the line, the
     composer's mark while its Enter has not landed, so it is entered and never typed twice,
-    and `told` once it has.
+    and `told` once it has.  A red that holds the install also records the seat told as
+    `first`, the place its next agentkit review takes (`take_first_place`).
     """
     record = _handed(check)
     if record is None or (standing and not record.get("standing")
@@ -986,15 +987,17 @@ def live_hand_back(commit, check, code, log, hand=True, *, standing=False):
                             f"also failed on the running install: {' / '.join(lines)}. Fix the standing faults."
                             if standing else
                            f"tests/live.sh failed on agentkit's main at {commit[:12]}, so this host "
-                           f"stays on the agentkit it runs: {' / '.join(lines)}. Fix main."),
+                           f"stays on the agentkit it runs: {' / '.join(lines)}. Fix main: your "
+                           "next agentkit PR review goes first in line, so make it the fix."),
                       typed=None, told=False, standing=standing)
         _put(check / "handed", json.dumps(record))
-    if hand and _gate_hand_back(check, record, log):
+    if hand and _gate_hand_back(check, record, log, first=not record.get("standing")):
         log(f"handed agentkit's failed tests/live.sh at {commit[:12]} back to fix")
 
 
-def _gate_hand_back(check, record, log):
-    """Deliver a gate's saved line with the same composer receipt across ticks."""
+def _gate_hand_back(check, record, log, first=False):
+    """Deliver a gate's saved line with the same composer receipt across ticks; with `first`,
+    the seat told is recorded with it."""
     from . import deliver, watch  # here, not at the top: both import this module
 
     def keep(**change):
@@ -1004,11 +1007,35 @@ def _gate_hand_back(check, record, log):
     if record["told"]:
         return False
     key = deliver.remote_key(_git("remote", "get-url", "origin")[1])
-    if watch.after_merge_deliver(None, {}, key, record["line"], log, typed=record["typed"],
-                                 receipt=lambda mark: keep(typed=mark)):
-        keep(told=True)
+    seat = watch.after_merge_deliver(None, {}, key, record["line"], log, typed=record["typed"],
+                                     receipt=lambda mark: keep(typed=mark))
+    if seat:
+        keep(told=True, **({"first": seat} if first else {}))
         return True
     return False
+
+
+def take_first_place(seat, url, run_id):
+    """The held commit whose first place that seat's review of that PR takes, or None.
+
+    Only an agentkit PR's review takes it, once, under the slot lock (`run.capture_launch`),
+    and only while the install still lacks the commit: past it, nothing is held.
+    """
+    from . import deliver, transitions  # here, not at the top: both import this module
+    for _, commit, check in live_checks():
+        record = _handed(check)
+        if not (record and record.get("first") and not record.get("taken")
+                and config.resolve_session(record["first"]) == seat):
+            continue
+        found = transitions.PR_PARTS.match(url or "")
+        if not (found and deliver.remote_key(f"https://github.com/{found[1]}/{found[2]}")
+                == deliver.remote_key(_git("remote", "get-url", "origin")[1])
+                and _git("merge-base", "--is-ancestor", commit, "HEAD")[0] == 1):
+            return None
+        record["taken"] = run_id
+        _put(check / "handed", json.dumps(record))
+        return commit
+    return None
 
 
 def harness_gate_result(plan, passed, gate, log_path):
