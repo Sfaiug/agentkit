@@ -1394,6 +1394,16 @@ def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed"):
     return "\n".join([note, f"failed output: {Path(saved.name).resolve()}", *diff])
 
 
+def unnamed(code, only, ran, output):
+    """`code`, or 1 for a run of just the tests `only` lists that exited 0 without naming each
+    one as run (`AK_RAN`): a runner may skip a name it does not know and exit 0."""
+    missing = [test for test in only if test not in ran]
+    if code or not missing:
+        return code
+    output.write(f"[not named as run (AK_RAN): {' '.join(missing)}]\n".encode())
+    return 1
+
+
 def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
               on_wait=None, measure=False, shard=None, pieces=None, later=None, only=None,
               confirmed=None, changed=None, **kwargs):
@@ -1401,7 +1411,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
 
     Callers keep one command and one outcome. Each piece has its own silence window;
     all attempts share the command's ceiling, and live output identifies its piece.
-    A red piece that named its failed tests (`AK_FAILED`) retries just those first (`AK_ONLY`).
+    A red piece that named its failed tests (`AK_FAILED`) retries just those first (`AK_ONLY`);
+    one red on the suite helper runs just those here, which decide it, green as `unnamed` says.
     With `shard` (`k/N`) one piece runs alone with that share set, as the lander probes the
     target's tip: on one turn, never split again, measuring nothing, its cost the suite's;
     with `only` too, just those of its tests, as one share, green only where the runner names
@@ -1432,9 +1443,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             env={**env, "AK_SHARD": share}, only=only, ran=ran, failed=failed, **kwargs)
         if confirmed is not None and only is not None:
             confirmed[shard] = [test for test in only if code > 0 and test in ran and test in failed]
-        if not code and ran is not None and (missing := [test for test in only if test not in ran]):
-            output.write(f"[not named as run (AK_RAN): {' '.join(missing)}]\n".encode())
-            code = 1
+        if ran is not None:
+            code = unnamed(code, only, ran, output)
         if pieces is not None:
             pieces[shard] = None if killed else code
         return code, text, killed
@@ -1483,9 +1493,10 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
 
         with ExitStack() as files:
             results = []
-            def attempt(shard, only=None, first=False):
-                """The piece of `shard`, or with `only` just those of its tests, as one share;
-                a `first` go stopped for silence goes again where the suite has a pace."""
+            def attempt(shard, only=None, first=False, ran=None):
+                """The piece of `shard`, or with `only` just those of its tests, as one share,
+                green with `ran` as `unnamed` says; a `first` go stopped for silence goes again
+                where the suite has a pace."""
                 run_record.stop_check(run_dir)
                 piece = files.enter_context(tempfile.NamedTemporaryFile(
                     dir=activity.parent, prefix=f"{activity.stem}-piece-", suffix=".log"))
@@ -1557,7 +1568,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     own[worker.RUN_MARKER] += f"/piece-{shard.replace('/', '-')}"
                 try:
                     here = {} if there else {"cpu": measure.cpu, "quiet": measure.quiet,
-                                             "only": only, "failed": tests}
+                                             "only": only, "failed": tests, "ran": ran}
                     code, _, killed = (worker.limited if there else worker.boxed)(
                         helper.piece(there, shard, PINNED_PIECE.format(shlex.quote(command)))
                         if there else ["bash", "-c", command],
@@ -1565,16 +1576,21 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         env=own, abort=abort,
                         on_timeout=stopped, silence=silence if first else later or silence,
                         **here, **kwargs)
+                    if ran is not None:
+                        code = unnamed(code, only, ran, stream)
                 finally:
                     stream.finish()
                     if local:
                         local.give(turn)
                 return code, piece, killed, tests
 
-            def attempts(which, first=False):
+            def attempts(which, first=False, only=None):
+                """The pieces at `which`, each with `only`'s tests for it, if any, alone."""
+                only = only or {}
                 with ThreadPoolExecutor(max_workers=len(which)) as pool:
                     try:
-                        futures = [pool.submit(attempt, f"{index + 1}/{count}", first=first)
+                        futures = [pool.submit(attempt, f"{index + 1}/{count}", only.get(index),
+                                               first=first, ran=[] if index in only else None)
                                    for index in which]
                         for index, future in zip(which, futures):
                             results[index] = future.result()
@@ -1591,6 +1607,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             again = [index for index, (code, _, killed, _) in enumerate(results)
                      if away and index < away.count and code and not killed and not cancel.is_set()]
             helped, away = away, None
+            named = {}    # by index, a piece red on the helper: what it printed there, its tests
             if helped and log is not None:
                 home_reasons.update((f"{index + 1}/{count}",
                                      f"helper {helped.alias} {helper.failure(code)}")
@@ -1623,6 +1640,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         shutil.copyfile(results[index][1].name, kept)
                         log(f"WARN AK_SHARD={index + 1}/{count} failed on the suite helper; "
                             f"what it printed there: {kept}")
+                    if tests := helper.failed(helped, f"{index + 1}/{count}"):
+                        named[index] = results[index][1], tests
                 if hold is None:
                     began = time.monotonic()
                     hold = _GATE_HELD.hold = _GATE_HELD.home()
@@ -1632,7 +1651,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         on_wait(queued)
                 env = suite_env(changed)
                 if again:
-                    attempts(again)
+                    attempts(again, only={index: tests for index, (_, tests) in named.items()})
             hold = getattr(_GATE_HELD, "hold", None)
             if hold is not None:
                 hold.alone()
@@ -1646,6 +1665,11 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     piece.seek(0)
                     failed, how = piece.read(), f"was stopped after {silence / 60:g} min of silence"
                     code, piece, killed, tests = attempt(shard)
+                decides = index - 1 in named    # its tests the helper named, run alone here
+                if decides:
+                    there, only = named[index - 1]
+                    there.seek(0)
+                    failed, how = there.read(), f"failed on the suite helper {helped.alias}"
                 while not killed and not cancel.is_set():
                     if code == SUITE_BUSY:
                         queued = busy_turn(run_dir, activity, log, command, cwd)
@@ -1659,13 +1683,16 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     elif only is not None:
                         # Failing again alone, the tests the piece named confirm it red in a
                         # fraction of its time; passing, the whole piece decides, as a failure
-                        # can need the tests that ran before it.
+                        # can need the tests that ran before it -- but for a failure only the
+                        # helper saw, which they show a flake.
                         alone = ("its failed tests failed again, run alone" if code else
                                  "its failed tests passed run alone: the failure needs the "
                                  "tests that ran before them")
                         if code:
                             if confirmed is not None:
                                 confirmed[shard] = tests
+                            break
+                        if decides:
                             break
                         only = None
                     elif not code:
@@ -1676,7 +1703,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         only = tests or None
                     else:
                         break
-                    code, piece, killed, tests = attempt(shard, only)
+                    code, piece, killed, tests = attempt(shard, only, ran=[] if decides else None)
                 if failed is not None and code == 0:
                     piece.seek(0)
                     flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,

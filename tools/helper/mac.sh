@@ -122,7 +122,9 @@ run)       # KEY IMAGE NAME CPUS MEMORY_MB REPO, then piece.sh's arguments
   D="$ROOT/$2" image=$3 name=$4 cpus=$5 memory=$6 M="$MIRRORS/$7"
   shift 7
   on_power || exit 251
-  [ -d "$D" ] && [ -d "$M" ] || exit 253
+  # The piece names its failed tests in /out (piece.sh), which `failed` reads once it ends.
+  out="$D/$name.out"
+  [ -d "$D" ] && [ -d "$M" ] && rm -rf "$out" && mkdir -m 777 "$out" || exit 253
   session=$PPID
   until [ "$session" -le 1 ] || ps -o comm= -p "$session" | grep -q sshd; do
     session=$(ps -o ppid= -p "$session" | tr -d ' ')
@@ -137,7 +139,8 @@ run)       # KEY IMAGE NAME CPUS MEMORY_MB REPO, then piece.sh's arguments
   # psi=1: the suite sizes its pool from pressure; an unmasked /proc lets its sandbox mount one.
   caffeinate -is container run --rm --init --progress none --kernel-arg psi=1 --masked-path NONE \
     --read-only-path NONE --no-dns --cpus "$cpus" --memory "${memory}m" --name "$name" \
-    --volume "$D:/in:ro" --volume "$M:/mirror:ro" "$image" /bin/bash /in/piece.sh "$@" &
+    --volume "$D:/in:ro" --volume "$M:/mirror:ro" --volume "$out:/out" "$image" \
+    /bin/bash /in/piece.sh "$@" &
   vm=$!
   # The VM stops once ak's ssh session ends or the Mac leaves its charger; the stop is repeated
   # until `container run` ends, so a VM that comes up after the first stop stops too.
@@ -156,6 +159,9 @@ run)       # KEY IMAGE NAME CPUS MEMORY_MB REPO, then piece.sh's arguments
   kill $! 2>/dev/null; wait $! 2>/dev/null
   [ ! -e "$D/$name.lost" ] || exit "$(cat "$D/$name.lost")"
   exit "$code" ;;
+failed)    # KEY NAME: the tests piece NAME named as failed; never through a link it left there
+  f="$ROOT/$2/$3.out/failed"
+  [ ! -f "$f" ] || [ -L "$f" ] || cat "$f"; exit 0 ;;
 finish) rm -rf "${ROOT:?}/$2" ;;
 *) exit 253 ;;
 esac
