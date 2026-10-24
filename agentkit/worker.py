@@ -486,8 +486,9 @@ def declared_ends(pid):
             argv = Path(f"/proc/{child}/cmdline").read_bytes().decode(errors="replace").split("\0")
         except OSError:
             continue
-        seconds, birth = timeout_seconds(argv), host.process_identity(child)
-        if seconds and birth:
+        seconds = timeout_seconds(argv)
+        birth = seconds and host.process_identity(child)
+        if birth:
             ends.append(time.monotonic() + birth["started_at"] + seconds - time.time())
     return ends
 
