@@ -25,8 +25,8 @@ from fixtures import akconfig
 from fixtures.akbin import REAL_TMUX, Home
 
 DAY = 86400
-# The tick asks the public boards and fetches the project each seat is filed under, ak's own
-# checkout for this one: a proxy nobody answers keeps both off the network, as offline.
+# The tick fetches the project each seat is filed under, ak's own checkout for this one: a proxy
+# nobody answers keeps it off the network, as offline.
 OFFLINE = {name: "http://127.0.0.1:9"
            for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
 AUDIT = '[audit]\norchestrator = "beta"\nworkers = ["beta"]\nreviewers = ["alpha"]\n'

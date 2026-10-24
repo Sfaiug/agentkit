@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import browser, config, gc, job as jobs, notify, orch, run, staffing, update  # noqa: E402
-from agentkit import leases, logins, matrix, seat_tokens, usage, watch  # noqa: E402
+from agentkit import leases, logins, seat_tokens, usage, watch  # noqa: E402
 from fixtures.tick import only_passes  # noqa: E402
 
 # The passes of the tick this test runs, in its order: the WARN line a raise of each is told in
@@ -34,7 +34,6 @@ PASSES = (
     (usage, "collect", "the usage refresh did not finish", False),
     (logins, "remind", "the login-end read did not run", False),
     (watch, "remind_worker_tokens", "the worker-token reminder did not run", False),
-    (matrix, "refresh", "the boards pass did not run", False),
     (staffing, "_cached_providers", "the usage refresh did not finish", True),
     (watch, "resume_exhausted", "the exhausted-resume pass did not run", True),
     (watch, "resume_waiting_login", "the login-resume pass did not run", True),
@@ -108,6 +107,15 @@ class TickPasses(unittest.TestCase):
         for name in ("resume_exhausted", "resume_waiting_login", "resume_errored",
                      "resume_waiting"):
             self.assertIs(self.passes[f"agentkit.watch.{name}"].call_args.kwargs["dry_run"], True)
+
+    def test_the_tick_reads_no_board(self):
+        # the owner, 22 Oct 2026: "It should not be a 24/7 running process, but isntead more
+        # like a feature"; the models screen and `ak models` read the boards
+        out = io.StringIO()
+        with only_passes(self.root, "the boards pass did not run"), redirect_stdout(out), \
+                patch("agentkit.matrix.refresh", side_effect=AssertionError("the tick read")):
+            self.assertEqual(watch.main([]), 0)
+        self.assertNotIn("the tick read", out.getvalue())
 
     def test_the_exhausted_resume_reads_the_usage_this_tick_refreshed(self):
         # the read itself, never a copy: a Readings is what has readiness check the harnesses
