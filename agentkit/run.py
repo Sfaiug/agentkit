@@ -8,8 +8,8 @@ The loop derives a review's verdict from its checked hand-in records.
 
 `ak run --review-pr <url>` is the same reviewer with no executor: a PR checked out at
 its head, judged against the repo and posted back as a GitHub review. The seat's own
-PR merges on PASS with green checks; anyone else's asks the inbox. The seat's own PRs of
-documents alone skip review and join the line like any passed review.
+PR merges on PASS with green checks; anyone else's asks the inbox. No change skips review,
+documents included, as the owner decided on 24 Oct 2026.
 """
 
 import os
@@ -29,8 +29,7 @@ from .deliver import (GITHUB_RETRIES, MERGE_METHODS, PICKUP_HELD, do_merge, end_
     finish_blocked, join_line, land, merge, merge_own_pr, own_pr_heads, pr_head,
     push_pr_branch, release_line)
 from .deliver import (LANDING_COUNTS, PUSH_RIGHTS, checks, gh_json, github_body,
-    push, require_review_pass, rights,
-    text_only_pr, wait_checks)
+    push, require_review_pass, rights, wait_checks)
 from .roundloop import execute, final_check, integrate, review, rounds
 from .roundloop import (Loop, note,
     restore_review_checkout, rules_check, verify_work)
@@ -2117,13 +2116,13 @@ def pr_context(state, body):
 
 def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
     """(the lines a seat's own PR's first review reads, the sentence refusing that review or
-    None), or None where no first review is ahead: a PR of wording alone, or one a review
-    already judged in this run or any, whose later rounds review whatever the fix left.  The
+    None), or None where no first review is ahead: a PR a review already judged in this run
+    or any, whose later rounds review whatever the fix left.  The
     seat builds under `task.SEAT_TASK_LINES` added lines, the ones moved unchanged aside
     and the files the target's tip marks generated, as the change will land on it, and a PR
     that re-adds most of a budget-failed one's lines, no real split of it, inherits that one's
     rounds (`replacement_refusal`)."""
-    if text_only_pr(repo, base_sha, head) or change_reviewed(pr=url):
+    if change_reviewed(pr=url):
         return None
     lines, carried = diff_lines(repo, target_sha, head, added_only=True), carried_lines(repo, target_sha, head)
     read = lines - carried
@@ -2453,7 +2452,6 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         os.environ.update(env)
         log(f"env: {config.ENV / f'{repo.name}.env'} -> {', '.join(sorted(env))}")
 
-    text_only = is_own and text_only_pr(repo, base_sha, head)
     first = is_own and own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir)
     if first:
         # preflight refuses it before the run waits for a slot; here again on the head checked
@@ -2464,23 +2462,6 @@ def review_pr_round(cfg, run_dir, url, opts, log):
             return pr_review_blocked(lp, Blocked(why, f"## Blocked\n\n{why}"))
         # what the first review reads, whatever the run's ending (`roundloop.first_review_ceiling`)
         history.first_review(state.get("run_id"), read, log=log)
-    if text_only:
-        # The seat's own wording needs no reviewer: it joins the line like a passed review,
-        # where the repository's suite and CI still check it.
-        summary = "Documents only; review skipped."
-        # this head's verdict replaces the last one's findings: a later failure is its own
-        state.update(verdict="PASS", review_posted=True, findings="",
-                     review={**commit_identity(wt), "verdict": "PASS", "skipped": True})
-        state.pop("review_records", None)
-        state.pop("findings_file", None)
-        state["round_summaries"] = [*summaries, {"round": len(summaries) + 1, "verdict": "PASS",
-                                                 "done_when": None, "summary": summary,
-                                                 "head_sha": head}]
-        run_record.save_state(run_dir, state)
-        log(summary)
-        lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body)
-        lp.rnd += 1
-        return settle_pr_round(lp, url, info)
     providers = collect_usage(cfg)
     # the reviewer is picked against everyone who wrote part of the head under review: the
     # orchestrator, and every model a fixer turn ran on or was handed to; none comes first

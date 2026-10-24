@@ -421,18 +421,18 @@ class OwnPrRounds(OwnPr):
         self.assertEqual(state["verdict"], "PASS")
         self.assertEqual(len(self.prompts), 1)
 
-    def test_an_own_pr_of_text_only_lands_whatever_its_size(self):
+    def test_an_own_pr_of_documents_alone_is_refused_past_the_ceiling_like_any(self):
         self.git("checkout", "-qb", "notes", "main")
         (self.repo / "docs").mkdir()
         (self.repo / "docs/notes.txt").write_text("note\n" * 500)
         self.git("add", "docs/notes.txt")
         self.git("commit", "-qm", "Notes")
         self.git("push", "-q", "--force", "origin", f"{self.git('rev-parse', 'HEAD')}:refs/heads/{BRANCH}")
-        state = self.review([])
-        self.assertTrue(state["merged"])
-        self.assertEqual(state["round_summaries"][0]["summary"], "Documents only; review skipped.")
-        self.assertEqual(self.prompts, [])
-
+        with patch.object(run, "ready_order", return_value=[]):
+            state = self.review([])
+        self.assertEqual((state["state"], state["verdict"]), ("blocked", "BLOCKED"))
+        self.assertIn("PR #7 adds 500 lines", state["error"])
+        self.assertEqual((self.prompts, self.merges), ([], []))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -47,11 +47,6 @@ def review_providers(cfg, executor, reviewer):
 def review_pass(state, cfg):
     """A verdict alone (including a legacy PASS) is not evidence of a successful review."""
     evidence = state.get("review")
-    if (state.get("review_pr") and state.get("own_pr") and isinstance(evidence, dict)
-            and evidence.get("skipped")):
-        # the seat's own wording, its review skipped for exactly the commit it was judged on
-        return (state.get("verdict") == "PASS" and evidence.get("verdict") == "PASS"
-                and all(evidence.get(key) for key in ("head_sha", "tree_sha")))
     if state.get("verdict") != "PASS" or not isinstance(evidence, dict):
         return False
     if state.get("repo") and not all(evidence.get(key) for key in ("head_sha", "tree_sha")):
