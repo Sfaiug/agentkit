@@ -44,10 +44,6 @@ def home_for_seats():
     # reopened is still there to see once the tick has ended.
     done = home.tmux("-f", "/dev/null", "new-session", "-d", "-s", OWN, "sleep 3600")
     assert done.code == 0, done.err
-    # The public boards are asked once a day: asked just now, a tick here reaches none of them.
-    home.write(".agentkit/state/boards.json",
-               {board: {"asked_at": time.time(), "error": "not asked in a test"}
-                for board in ("artificialanalysis.ai", "arena.ai", "livebench.ai")})
     return home
 
 

@@ -25,7 +25,7 @@ from fixtures.akseat import Seat
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
-# The tick asks the public boards over HTTP: a proxy nobody answers keeps it off the network.
+# A proxy nobody answers keeps the tick off the network.
 OFFLINE = {name: "http://127.0.0.1:9"
            for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
 ENDED = ("pass", "fail", "error")

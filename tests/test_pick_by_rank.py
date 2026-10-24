@@ -1,7 +1,7 @@
 """Among a session's marks, a run's executor and reviewer follow the matrix's rank for the role,
 then what their providers have left; the writer's own model last.
 
-The matrix every pick reads is the one `ak models` or the tick last computed and stored in
+The matrix every pick reads is the one the models screen or `ak models` last computed and stored in
 `state/matrix.json` (`matrix.refresh`), computed again only once a board answered
 anew or the config's models or the harnesses installed changed; `matrix.rank` reads each
 configured model's place for a role off it, None where the boards have nothing on it.
@@ -25,7 +25,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
-from agentkit import boards, config, matrix, staffing, usage, watch
+from agentkit import boards, config, matrix, staffing, usage
 import test_model_matrix as boards_test
 import test_model_rows as rows_test
 
@@ -96,12 +96,6 @@ class PickByRank(Sandbox):
         self.assertIsNone(matrix.rank(self.cfg, "execute")["opus"])
         matrix.refresh(self.cfg, now=10000 + boards.FRESH_FOR + 3)
         self.assertIsNotNone(matrix.rank(self.cfg, "execute")["opus"])
-        # the tick's pass is the same refresh, never on a dry run
-        passes = {what: (step, dry) for what, step, dry in watch.local_passes({}, False, print)}
-        self.assertFalse(passes["the boards pass did not run"][1])
-        with patch.object(matrix, "refresh") as refreshed:
-            passes["the boards pass did not run"][0]()
-        refreshed.assert_called_once()
 
     def test_each_configured_model_s_place_for_a_role_is_read_off_the_stored_matrix(self):
         self.assertEqual(matrix.rank(self.cfg, "execute"),
