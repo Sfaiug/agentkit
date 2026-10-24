@@ -270,15 +270,16 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     path = directory / "target-probe.log"
     again = None
     if tests:
-        ok, probe, _, again = _check(directory, state, scratch, [suite], path, log, suite=suite,
-                                     shard=piece or None, only=tests)
+        ok, probe, red = _check(directory, state, scratch, [suite], path, log, suite=suite,
+                                shard=piece or None, only=tests)
+        again = red.get("tests")
         if ok:
             log(f"{upstream} at {tip[:12]} passes the tests that failed {directory.name}'s "
                 f"piece AK_SHARD={piece}, run alone: the red is the member's own")
             return True
         _put_back(scratch, tip)
     if not again:       # a repeat needs no piece to say the tip is red
-        ok, probe, _, _ = _check(directory, state, scratch, [suite], path, log, shard=piece or None)
+        ok, probe, _ = _check(directory, state, scratch, [suite], path, log, shard=piece or None)
     if ok:
         # the pass is the piece's, named so it covers no stack's own checks
         note(turn, [tree], directory.name, checks=[f"{suite} (AK_SHARD={piece})" if piece else suite],
@@ -481,35 +482,34 @@ def check_line(turn, log=lambda _: None):
                 prefix.append((directory, state))
 
 
-def red_piece(cmds, marks, pieces, suite, ok):
-    """What of `suite` the checks found red, from the exits the runner saw (`marks`, and
-    `pieces` by share): the first red piece's share (`k/N`); "" where the suite ran whole, a
-    piece was killed at the limit, which stops its siblings with it, or no command failed and
-    yet the checks did not pass (the checkout changed under them, the suite's own doing as far
-    as the lander can tell); None where the first failing command was not the suite -- a check
-    of the member's own, which no target answers for -- or the checks passed."""
-    if ok or suite is None or not marks:
-        return None       # no exits reported: nothing says the suite failed
+def red_part(cmds, marks, pieces, confirmed, suite, ok):
+    """What the checks found red, from the exits the runner saw (`marks`, and `pieces` by
+    command and share): the first failing `command`, its first red `piece`'s share (`k/N`), and
+    the `tests` that piece named that failed again alone (`confirmed`), if any.  The piece is
+    "" where the command ran whole or a piece was killed at the limit, which stops its siblings
+    with it, and the suite whole where no command failed and yet the checks did not pass (the
+    checkout changed under them, the suite's own doing as far as the lander can tell); {}
+    where the checks passed or no exits were reported."""
+    if ok or not marks:
+        return {}
     for cmd, mark in zip(cmds, marks):
         if mark == 0:
             continue
-        if cmd != suite:
-            return None
         codes = pieces.get(cmd, {})
-        if any(code is None for code in codes.values()):
-            return ""      # a piece killed at the limit stops its siblings with it: the suite whole
-        return next((share for share, code in sorted(codes.items(),
-                                                     key=lambda item: int(item[0].split("/")[0]))
-                     if code != 0), "")
-    return ""
+        piece = "" if any(code is None for code in codes.values()) else next(
+            (share for share, code in sorted(codes.items(),
+                                             key=lambda item: int(item[0].split("/")[0]))
+             if code != 0), "")
+        tests = (confirmed.get(cmd) or {}).get(piece) if piece else None
+        return {"command": cmd, "piece": piece, **({"tests": tests} if tests else {})}
+    return {"command": suite, "piece": ""} if suite else {}
 
 
 def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=None,
            only=None, artifacts=None):
-    """(whether the checks passed, their output, the red piece of `suite` as `red_piece` reads
-    it, the tests that piece named that failed again alone on the pinned commit, or None); with
-    `shard` every command runs as that one piece alone, on one turn, and with `only` just those
-    tests."""
+    """(whether the checks passed, their output, what they found red as `red_part` reads it,
+    `suite` standing for a red no command showed); with `shard` every command runs as that
+    one piece alone, on one turn, and with `only` just those tests."""
     from . import gate, run
     identity = gitcall.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
@@ -535,8 +535,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
                  "these commands do not verify the pinned commit.")
     text = f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}"
     log_path.write_text(text)
-    red = red_piece(cmds, marks, pieces, suite, ok)
-    return ok, text, red, (confirmed.get(suite) or {}).get(red) if red else None
+    return ok, text, red_part(cmds, marks, pieces, confirmed, suite, ok)
 
 
 def _put_back(scratch, commit):
@@ -619,30 +618,31 @@ def _landing_checks(directory, state, scratch, tip):
     return tuple(once)
 
 
-def _check_tests(directory, state, scratch, tree, suite, piece, tests, log):
-    """The stack's answer from just `tests` of `suite`'s `piece`, or {} if inconclusive.
-    A pass, each named as run, moves the narrowing deeper and answers for nothing else;
-    a confirmed failure moves it earlier.  Anything else proves nothing -- a test a later
-    member added is not there -- so that stack gets its whole check on its original checkout.
+def _check_tests(directory, state, scratch, tree, command, piece, tests, log):
+    """The stack's answer from just `tests` of `command`'s `piece`, or with none that piece
+    alone ("" the command whole), or {} if inconclusive.  A pass, each test named as run,
+    moves the narrowing deeper and answers for nothing else; a failure, of the tests
+    confirmed, moves it earlier.  Anything else proves nothing -- a test a later member added
+    is not there -- so that stack gets its whole check on its original checkout.
     """
     from . import run
     head = run.git(scratch, "rev-parse", "HEAD")
     log_path = directory / f"lander-{tree}-tests.log"
-    ok, text, red, again = _check(directory, state, scratch, [suite], log_path,
-                                  log, suite=suite, shard=piece, only=list(tests))
+    ok, text, red = _check(directory, state, scratch, [command], log_path, log, suite=command,
+                           shard=piece or None, only=list(tests) if tests else None)
     _put_back(scratch, head)
     if ok:
         return {"land": tree}
     return {"fix": {"line": prompts.first_failure(text), "log": str(log_path),
-                    "piece": red, "tests": again}} if again else {}
+                    **red}} if red.get("tests") or not tests else {}
 
 
 def _check_tree(directory, state, scratch, tree, checks, log, suite, *, artifacts=None):
     log_path = directory / f"lander-{tree}.log"
-    ok, text, red, tests = _check(directory, state, scratch, list(checks), log_path, log,
-                                  suite=suite, artifacts=artifacts)
-    return {"land": tree} if ok else {"fix": {"line": prompts.first_failure(text), "log": str(log_path),
-                                              "piece": red, **({"tests": tests} if tests else {})}}
+    ok, text, red = _check(directory, state, scratch, list(checks), log_path, log,
+                           suite=suite, artifacts=artifacts)
+    return {"land": tree} if ok else {"fix": {"line": prompts.first_failure(text),
+                                              "log": str(log_path), **red}}
 
 
 def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), ready=lambda _: None,
@@ -733,8 +733,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 return all(cmd in ran for cmd in checks)
 
             def cached_red(tree):
-                return {"fix": {key: red[tree][key] for key in ("line", "log", "piece", "tests")
-                                if key in red[tree]}}
+                return {"fix": {key: red[tree][key] for key in (
+                    "line", "log", "command", "piece", "tests") if key in red[tree]}}
 
             def green_answer(tree, tested):
                 return {"land": tree} if tree == tested else {"land": tree, "tested": tested}
@@ -753,7 +753,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                          and positions.get(entry.get("tested"), -1) >= positions[tree]
                          and checked(entry, commands(positions[entry["tested"]])))}
             answers = {}
-            tests_alone = {}    # (index, tests): whether just those tests passed run alone there
+            passed_alone = {}   # (index, what failed): whether just that passed run alone there
             for _, _, _, tree, checks in stacks:
                 if tree in green and checked(green[tree], checks):
                     answers[tree, checks] = green_answer(tree, green[tree]["tested"])
@@ -778,10 +778,10 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         cover(index, evidence["checks"], evidence["tested"], evidence["at"],
                               evidence.get("code"))
 
-            def answer_tree(index, checks, check, tests=None):
+            def answer_tree(index, checks, check, failed=None):
                 answer = check.result()
-                if tests is not None:
-                    tests_alone[index, tests] = "land" in answer
+                if failed is not None:
+                    passed_alone[index, failed] = "land" in answer
                     if "fix" not in answer:
                         return
                     # A confirmed failed part makes the stack's planned check red.
@@ -817,13 +817,14 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     if answer is None or ("fix" in answer and index and not green_prefix):
                         break
                     # The target's tip answers for a red suite before anyone is blamed: its red
-                    # piece (`red_piece`, from the exits the runner saw) runs there alone,
+                    # piece (`red_part`, from the exits the runner saw) runs there alone,
                     # whatever pass the target has on record, as the host, not the change, may
                     # have failed it.  A red check of the member's own is the member's.  A
                     # piece the tip passed whole on this pass answers again, tests named or not:
                     # failing there, they would hand the probe back to that same piece.
                     if index == 0 and not prefix and "fix" in answer and not saved.get("repair"):
-                        piece = answer["fix"].get("piece")
+                        piece = (answer["fix"].get("piece")
+                                 if answer["fix"].get("command") == suite else None)
                         if piece is not None and piece not in tip_green:
                             if stopped():
                                 return
@@ -856,26 +857,30 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     while not rebuild and not target_red and not stopped():
                         unchecked = [index for index, (_, _, _, tree, checks) in enumerate(stacks)
                                      if (tree, checks) not in answers]
-                        narrowing = None
+                        narrowing, command, owner = None, None, 0
                         if batched and unchecked:
                             # Narrow the first unresolved red between the last green and it.
                             red_index = next((index for index in range(unchecked[0], len(stacks))
                                               if "fix" in answers.get(tuple(stacks[index][3:]), {})), None)
                             low = unchecked[0] - 1
                             if red_index is not None:
-                                # Where its suite piece named the tests that failed again alone,
-                                # each step runs just those first, from the deepest stack they
-                                # passed in; a confirmed failure narrows earlier, and only an
-                                # inconclusive run gets its whole check.
+                                # Each step runs just what failed: the tests of the first failing
+                                # command's piece that failed again alone, or with none that
+                                # piece, from the deepest stack it passed in; a failure narrows
+                                # earlier, and only an inconclusive run gets its whole check.
                                 failing = answers[tuple(stacks[red_index][3:])]
-                                narrowing = tuple(failing["fix"].get("tests") or ()) or None
-                                low = max([low] + [index for (index, tests), ok
-                                                   in tests_alone.items()
-                                                   if ok and tests == narrowing
-                                                   and index < red_index])
+                                command = failing["fix"].get("command")
+                                tests = tuple(failing["fix"].get("tests") or ()) or None
+                                if command:
+                                    narrowing = command, tests
+                                    owner = next((index for index, stack in enumerate(stacks)
+                                                  if command in stack[4]), 0)
+                                    low = max([low] + [
+                                        index for (index, failed), ok in passed_alone.items()
+                                        if ok and failed == narrowing and index < red_index])
                             if narrowing and low + 1 == red_index:
-                                # They pass alone on the stack just ahead and fail on its own:
-                                # its change turned them red, whatever the stacks ahead hold.
+                                # It passes alone on the stack just ahead and fails on its own:
+                                # its change turned it red, whatever the stacks ahead hold.
                                 member = stacks[red_index][0]
                                 if member not in verdicts:
                                     verdicts[member] = failing
@@ -884,16 +889,22 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                            if m not in verdicts or "land" in verdicts[m]]
                                 rebuild = True
                                 break
-                            unchecked = [(low + red_index) // 2
+                            # No stack below the command's first runs it: the search starts
+                            # just ahead of that one, and it reaches lower only on evidence.
+                            unchecked = [(max(low, owner - 1) + red_index) // 2
                                          if red_index is not None else unchecked[-1]]
                         active = {tuple(stacks[index][3:]) for index, *_ in running.values()}
                         for index in unchecked:
                             member, saved, scratch, tree, own = stacks[index]
                             if (tree, own) in active or len(running) >= limit:
                                 continue
-                            if narrowing and (index, narrowing) not in tests_alone:
-                                job = pool.submit(_check_tests, member, saved, scratch, tree, suite,
-                                                  failing["fix"]["piece"], narrowing, log)
+                            # Ahead of the command's first stack the target's suite runs where
+                            # that stack's `tests:` line does: its tests that failed run there.
+                            runs = narrowing and (index, narrowing) not in passed_alone and (
+                                command if index >= owner else tests and suite)
+                            if runs:
+                                job = pool.submit(_check_tests, member, saved, scratch, tree,
+                                                  runs, failing["fix"]["piece"], tests, log)
                                 running[job] = index, None, narrowing
                             else:
                                 checks = commands(index) if batched else own
@@ -903,13 +914,13 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         if not running:
                             break
                         check = next(as_completed(running))
-                        index, checks, tests = running.pop(check)
-                        answer_tree(index, checks, check, tests)
+                        index, checks, failed = running.pop(check)
+                        answer_tree(index, checks, check, failed)
                         decide()
                 finally:
                     # Keep suffix evidence even if a wake or verdict write crashes.
-                    for check, (index, checks, tests) in running.items():
-                        answer_tree(index, checks, check, tests)
+                    for check, (index, checks, failed) in running.items():
+                        answer_tree(index, checks, check, failed)
             if target_red or stale or not rebuild:
                 break
     return verdicts
