@@ -3829,7 +3829,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             if here[1] not in cfg["models"]:
                 here = rows[rows.index(here) + 1]     # removed: the row under it is highlighted
         elif act in ("enter", "space") and column < 3:
-            def around(card):     # the matrix with the question under it, drawn again on a resize
+            def around(card):     # the matrix laid out at this draw's size, the question under it
+                over, _, body, places, _ = meters_led(config_meters(cfg), *config_body(
+                    cfg, here, column, selected, providers, scope=scope), card, "esc back")
                 first, room = matrix_page(body, places, here, top, card, "esc back", over)
                 shown = body[first:first + room]
                 terminal.frame("config", [*over, *shown, *card], "esc back")

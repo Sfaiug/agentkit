@@ -73,6 +73,30 @@ class OrchestratorMarkAsksFirst(Sandbox):
         self.assertEqual(len(self.asked), 2)
         self.assertEqual((self.orchestrator(), self.launched), ("fable", ["fable"]))
 
+    def test_the_question_s_screen_is_laid_out_anew_on_a_resize(self):
+        size, drawn, frame = [100], [], terminal.frame
+
+        def resized():          # the terminal narrows while the question is up
+            size[0] = 40
+        keys = iter([Key("enter"), resized, Key("esc"), Key("esc")])
+
+        def read(*_a, **_kw):
+            key = next(keys)
+            return key() if callable(key) else key
+
+        def framed(title, body=(), *args, **kw):
+            drawn.append((size[0], list(body)))
+            return frame(title, body, *args, **kw)
+        with patch.object(terminal, "width", side_effect=lambda: size[0]), \
+                patch.object(terminal, "frame", side_effect=framed), \
+                patch.object(terminal, "read_key", side_effect=read), \
+                redirect_stdout(io.StringIO()):
+            menu.show_config(False, Keyboard(), "fix-api")
+        self.assertEqual(len(self.asked), 1)
+        narrow = [line for width, body in drawn if width == 40 for line in body]
+        self.assertTrue(narrow)
+        self.assertLessEqual(max(map(terminal.cells, narrow)), 40, narrow)
+
     def test_the_seat_s_own_mark_and_a_refused_move_ask_nothing(self):
         self.refusal = "fable: claude is not installed"
         self.screen(Key("enter"))
