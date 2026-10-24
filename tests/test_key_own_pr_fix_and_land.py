@@ -41,7 +41,7 @@ def reviewed(case, claude, codex, check=None):
     akconfig.write(case.home, ["opus", "astra"])
     case.fakes = fakeadapter.install(case.home, claude=claude, codex=codex)
     Seat(case.home, "acme", cwd=case.rig.path, alive=False,
-         record={"workers": ["opus", "astra"]})
+         record={"workers": ["opus", "astra"]}, planned=True)
     case.head = case.rig.branch("contrib", {"contrib.txt": "c\n"})
     case.url = case.gh.open_pr(case.rig, "contrib", title="Add contrib")
     if check:

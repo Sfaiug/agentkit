@@ -114,7 +114,8 @@ class OwnPullRequest(unittest.TestCase):
         rig, cls.gh = Rig(home, "widgets"), GitHub(home)
         akconfig.write(home, ["opus", "astra"])
         cls.fakes = fakeadapter.install(home, claude="pass", codex=REVIEW)
-        Seat(home, "acme", cwd=rig.path, alive=False, record={"workers": ["opus", "astra"]})
+        Seat(home, "acme", cwd=rig.path, alive=False, record={"workers": ["opus", "astra"]},
+             planned=True)
         rig.branch("fix-api", {"retry.txt": "one\n"})
         cls.url = cls.gh.open_pr(rig, "fix-api", title="Add retry file")
         cls.done = cls.review(rig)

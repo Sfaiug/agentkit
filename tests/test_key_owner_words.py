@@ -77,7 +77,7 @@ class Launch(unittest.TestCase):
         script.chmod(0o755)
         config = home.path / ".agentkit/config.toml"
         config.write_text(config.read_text() + MODEL)
-        seat = Seat(home, "lagoon", record={"workers": ["echo"]})
+        seat = Seat(home, "lagoon", record={"workers": ["echo"]}, planned=True)
         # what the owner typed into the seat a minute ago, where Claude Code keeps it
         project = "".join(c if c.isascii() and c.isalnum() else "-" for c in str(seat.cwd))
         at = datetime.fromtimestamp(time.time() - 60, timezone.utc).isoformat()

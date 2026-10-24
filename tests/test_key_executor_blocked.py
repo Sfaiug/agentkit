@@ -123,7 +123,8 @@ class NotNeededInAFixRun(unittest.TestCase):
         cls.fakes = fakeadapter.install(cls.home, claude=["work", NOT_NEEDED],
                                         codex=[FOLLOW_UP, "pass"])
         # Only a seat's merged run starts a fix run for each of its review follow-ups.
-        Seat(cls.home, "acme", cwd=cls.rig.path, record={"workers": ["opus", "astra"]})
+        Seat(cls.home, "acme", cwd=cls.rig.path, record={"workers": ["opus", "astra"]},
+             planned=True)
         task = taskfile.write(cls.home, cls.rig.path, "Add retry file")
         cls.done = cls.home.ak("run", str(task), env={"AGENTKIT_SESSION": "acme"},
                                timeout=300)

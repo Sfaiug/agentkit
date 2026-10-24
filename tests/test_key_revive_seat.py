@@ -79,7 +79,7 @@ class SeatRevived(unittest.TestCase):
         cls.addClassCleanup(home.close)
         cls.sink = Sink(home)
         cls.addClassCleanup(cls.sink.close)
-        seat = Seat(home, "acme", record={"conversation": CONVERSATION})
+        seat = Seat(home, "acme", record={"conversation": CONVERSATION}, planned=True)
         # Claude files a workspace's conversations under its path, each character that is not
         # a letter or a digit a dash: this one it has opened, so it is resumed, not started.
         folder = re.sub(r"[^A-Za-z0-9]", "-", str(seat.cwd))
@@ -132,7 +132,7 @@ class SeatNotReopened(unittest.TestCase):
         cls.sink = Sink(home)
         cls.addClassCleanup(cls.sink.close)
         # tmux lost the seat, and its harness gives no command to open it with
-        going(cls, home, Seat(home, "acme", alive=False), opens=["", 1])
+        going(cls, home, Seat(home, "acme", alive=False, planned=True), opens=["", 1])
         cls.ticks = [home.ak("watch", boxed=True), home.ak("watch", boxed=True)]
         cls.opened = cls.fake.calls("interactive")
 
