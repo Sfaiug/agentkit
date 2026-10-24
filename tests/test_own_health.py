@@ -8,7 +8,6 @@ the window closes is told as broken.
 Offline: a temporary repository and the tick's own probe.
 """
 
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -20,28 +19,22 @@ sys.path.insert(0, str(REPO))
 from agentkit import gitcall, watch
 
 
-def git(repo, *args):
-    return subprocess.run(["git", "-C", str(repo), *args], check=True,
-                          capture_output=True, text=True).stdout.strip()
-
-
 class OwnHealth(unittest.TestCase):
     def test_live_once_the_merge_is_installed(self):
         command = gitcall.front_value((REPO / "AGENTS.md").read_text(), "health")
         self.assertTrue(command, "AGENTS.md declares no health:")
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
-            env = {**os.environ, "GIT_AUTHOR_NAME": "acme", "GIT_AUTHOR_EMAIL": "acme@example.com",
-                   "GIT_COMMITTER_NAME": "acme", "GIT_COMMITTER_EMAIL": "acme@example.com"}
-            subprocess.run(["git", "init", "-q", str(repo)], check=True, env=env)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
             for message in ("installed", "merged"):
-                subprocess.run(["git", "-C", str(repo), "commit", "-q", "--allow-empty",
-                                "-m", message], check=True, env=env)
-            merged = git(repo, "rev-parse", "HEAD")
-            git(repo, "checkout", "-q", "--detach", "HEAD~1")
+                subprocess.run(["git", "-C", str(repo), "-c", "user.name=acme", "-c",
+                                "user.email=acme@example.com", "commit", "-q", "--allow-empty",
+                                "-m", message], check=True)
+            merged = gitcall.git(repo, "rev-parse", "HEAD")
+            gitcall.git(repo, "checkout", "-q", "--detach", "HEAD~1")
             self.assertFalse(watch.health_command(repo, merged, command)[0],
                              "a merge the checkout has not installed reads live")
-            git(repo, "checkout", "-q", "--detach", merged)
+            gitcall.git(repo, "checkout", "-q", "--detach", merged)
             passed, output = watch.health_command(repo, merged, command)
             self.assertTrue(passed, output)
 
