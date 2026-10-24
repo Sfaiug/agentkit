@@ -4155,7 +4155,7 @@ def _one_line(exc):
     return " ".join(str(exc).split())
 
 
-def switch_orchestrator(cfg, name, model, providers=None, credits=True):
+def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=None):
     """Move the open seat to another orchestrator at once, under the same name.
 
     The old harness process ends and the new one starts in the seat's directory: a live or
@@ -4175,7 +4175,9 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
     there, and their unsent text goes on into the new composer (`watch.carry_draft`), or the
     move is refused where it cannot be kept; a login on credits without `credits` refuses it
     too. A refusal, and a restart that fails, leave the seat as they found it and say so in
-    one line. What to say under the rows, or "".
+    one line. What to say under the rows, or ""; None where `asked(kept)`, the owner's say on
+    a move that passed every refusal -- `kept` whether its conversation goes on -- answered
+    False, the seat left as it was.
     """
     from . import watch   # here, not at the top: watch imports this module
     providers = usage.collect(cfg) if providers is None else providers
@@ -4187,11 +4189,6 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
     old_model = record["orchestrator"]
     if old_model == model:
         return ""
-    # Its screen and hooks as they are now: a recorded reading can be a prompt or a draft behind.
-    session = find(name)
-    pane = (watch.pane_text(session)
-            if session and not any(session.get(key) for key in CLOSED) else None)
-    live = watch.look_at(session, cfg=cfg, pane=pane)[1] if pane and pane.strip() else {}
     new_harness = config.model(cfg, model)["harness"]
     try:
         old_harness = config.model(cfg, old_model)["harness"]
@@ -4199,6 +4196,13 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
         old_harness = None    # its model is gone: nothing names its harness or transcript
     owned = seat_conversation(record, old_harness) if old_harness else None
     kept = owned if old_harness == new_harness and resumable(record, cfg=cfg) else None
+    if asked and not asked(bool(kept)):
+        return None
+    # Its screen and hooks as they are now: a recorded reading can be a prompt or a draft behind.
+    session = find(name)
+    pane = (watch.pane_text(session)
+            if session and not any(session.get(key) for key in CLOSED) else None)
+    live = watch.look_at(session, cfg=cfg, pane=pane)[1] if pane and pane.strip() else {}
     waited = watch.seat_read(name).get("usage_wait")   # a turn its usage cut off goes on
     going = (watch._turn_in_flight(old_harness or new_harness, live)[0]
              or (waited or {}).get("continue"))
