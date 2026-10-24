@@ -753,6 +753,8 @@ def _rule(entry, path):
     return {"id": str(entry.get("id") or entry["state"]), "state": entry["state"],
             "lines": max(1, int(entry.get("lines", 8))), "all": marks("all"),
             "any": marks("any"), "none": marks("none"), "row": _pattern(entry.get("row"), path),
+            # one pattern over the window's rows as drawn, read together: a frame no row alone is
+            "rows": _pattern(entry.get("rows"), path, re.M),
             "newest": _pattern(entry.get("newest"), path), "chrome": bool(entry.get("at_composer")),
             "picker": bool(entry.get("picker"))}
 
@@ -1833,7 +1835,8 @@ def screen_state(harness, tail):
         raws = raw_lines[-rule["lines"]:]
         # marks read their rows as drawn, indented or from the left edge, so a dialog's
         # indented controls are not a reply's rows quoting them
-        low = "\n".join(strip_sgr(raw).rstrip() for raw in raws).lower()
+        together = "\n".join(strip_sgr(raw).rstrip() for raw in raws)
+        low = together.lower()
         if rule["id"] in ("prompt.draft", "prompt.suggestion"):
             if rule["none"] and any(mark in low for mark in rule["none"]):
                 continue
@@ -1892,6 +1895,7 @@ def screen_state(harness, tail):
                 or (rule["any"] and not any(mark in low for mark in rule["any"]))
                 or (rule["none"] and any(mark in low for mark in rule["none"]))
                 or (rule["row"] and not drawn)
+                or (rule["rows"] and not rule["rows"].search(together))
                 or (rule["newest"] and not rule["newest"].search(newest))
                 or (rule["chrome"] and not chrome_line(chrome, lines[-1]))):
             continue

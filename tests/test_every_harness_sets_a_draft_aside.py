@@ -79,8 +79,8 @@ class EveryHarness(EditorSeat):
     def test_a_palette_that_never_opens_gets_none_of_the_keys_meant_for_it(self):
         self.on("grokbuild")
         self.opens = False
-        # its transcript quoting the palette's search row is no palette
-        self.base = f"{PALETTE['edit prompt'].splitlines()[6]}\n{self.base}"
+        # its transcript quoting the palette whole, each step's, is no palette
+        self.base = f"{PALETTE['C-p']}{PALETTE['edit prompt']}{self.base}"
         self.show(DRAFT)
         self.assertIsNone(watch._edit(self.seat, watch.seat_editor(self.seat, self.cfg), "line",
                                       LINE))
