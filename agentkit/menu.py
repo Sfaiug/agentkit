@@ -3172,43 +3172,61 @@ def config_within(cfg, step):
 
 
 @terminal.clicks_its_own
-def models_screen(cfg, session, selected, providers, held):
-    """`models · <seat>`, `r recommended` on `c`: every model the matrix (`held`,
-    matrix.stored) has a row for, against the public boards, read with the matrix's keys
-    until Esc (models_body).
+def models_screen(cfg, session, selected, providers):
+    """`models · <seat>`, `r recommended` on `c`: every model the matrix (matrix.stored) has a
+    row for, against the public boards, read with the matrix's keys until Esc (models_body).
+    The boards are read as it opens (matrix.refresh: once a day, the rows again once anything
+    they are computed from changed), the rule gliding until they land and what was stored
+    standing meanwhile; a reading that failed is said under the rows.
 
     ↑/↓, k/j and the wheel move between the knob, the three lines that say why (SAID), the
     quality and cost note (rows read with no action) and the models.  ←/→ on the knob step
     `within`, saved to config.toml at once, and the recommendation follows; on a model they
     step the effort its row shows, through its own efforts (models_levels), the numbers and
-    the cost following, nothing saved: the effort a model runs at is set on `c`.  `r` takes
-    the recommendation as `c` says it (take_advice): the seat's executors and reviewers
+    the cost following, nothing saved: the effort a model runs at is set on `c`.  `r`, once a
+    row is recommended, takes it as `c` says it (take_advice): the seat's executors and reviewers
     become the recommended rows' models at their efforts, the orchestrator only said.
     """
-    table = models_table(held)
-    levels = {key: models_levels(cfg, key, rows) for key, rows in table.items()}
-    shown = {key: models_shown(cfg, key, rows, levels[key]) for key, rows in table.items()}
-    models = [("model", *key) for key in table]
-    here, top, note, title = models[0] if models else KNOB, 0, "", f"models · {session}"
+    fetch, held, table, shown = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None, {}
+    here, top, note, title = None, 0, "", f"models · {session}"
     clock = motion.Clock(page=True)
     while True:
+        if fetch is not None and not fetch.is_alive():
+            try:                      # a board that failed answers with its error, kept a day
+                failed = "; ".join(f"{name} {board['error']}" for name, board
+                                   in fetch.answer()[0].items() if board.get("error"))
+            except Exception as exc:      # noqa: BLE001 -- what stands is shown, the fault said
+                failed = " ".join(str(exc).split())
+            note = f"the boards were not read: {failed}" if failed else note
+            held, fetch, table = matrix.stored(), None, None
+        if table is None:             # laid out again once the boards land, a stepped effort kept
+            table = models_table(held)
+            levels = {key: models_levels(cfg, key, rows) for key, rows in table.items()}
+            shown = {key: shown[key] if key in shown else models_shown(cfg, key, rows, levels[key])
+                     for key, rows in table.items()}
+        models = [("model", *key) for key in table]
+        if here is None or here[0] == "model" and here not in models:
+            here = models[0] if models else KNOB
         picks = matrix.recommended(matrix.assessment(cfg, held.get("rows") or []),
                                    matrix.within(cfg))
         where = ("knob" if here == KNOB else "effort"
                  if here[0] == "model" and len(levels[here[1:]]) > 1 else "still")
         keys = (MODELS_KEYS[where][0 if terminal.utf8() else 1]
-                + f"   {MODELS_TAKE}   esc back")
+                + (f"   {MODELS_TAKE}" if picks else "") + "   esc back")
         body, places = models_body(cfg, table, levels, shown,
                                    None if terminal.away() else here, picks)
         rows = list(dict.fromkeys(row for row, _ in places.values()))
         act, here, _, top = matrix_key(title, body, places, rows, here, top, note, keys, marks=0,
-                                       clock=clock)
+                                       clock=clock, fetched=lambda: fetch.began
+                                       if fetch is not None and fetch.is_alive() else None,
+                                       # one landed since the look above is taken at once
+                                       timeout=None if fetch is None else 0)
         if act is None:
-            continue                  # a resize or the pointer: drawn again
+            continue                  # a resize, the pointer or the boards landing: drawn again
         note = ""
         if act == "back":
             return
-        if act == "r":
+        if act == "r" and picks:      # nothing to take before the boards scored a row
             note = take_advice(cfg, session, selected, providers, advice(cfg, held))
         elif act in ("left", "right", "less", "more") and not terminal.unseen():
             step = 1 if act in ("right", "more") else -1
@@ -3650,7 +3668,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     began = fetched and fetched()
     if began is not None:     # on the screen's own clock, so what else moves goes on with it
         clock = motion.fetching(clock or motion.Clock(), began)
-    if clock is None or clock.wait() is None:
+    if clock is None or clock.wait() is None and began is None:    # nothing moves or lands
         key = terminal.read_key(timeout)
     else:
         key = moving(clock, timeout=timeout or TICK,
@@ -3723,11 +3741,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     standing = watch.token_standing() or ""     # a file's date, read once a visit
     scope = session or NEW_SEATS
     here, column, top, clock = None, 0, 0, motion.Clock(page=True)
-    held = matrix.stored()                          # read once a visit: the tick keeps the file
+    seat = session if selected else None    # what `r` recommends is a seat's to take
     while True:
         columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
-        # what `r` recommends is a seat's to take, against the config as it stands
-        found = advice(cfg, held) if selected and session else None
         # the meter the highlight or the pointer is on, lit as the main screen lights one
         lit = here[1] if here and here[0] == "usage" and not terminal.away() else None
         subs, spans = usage_rows(cfg), {}
@@ -3741,7 +3757,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         where = ("row" if here[0] in ("row", "usage") else "effort" if column == 3
                  else "label" if column < 0 else "mark")
         keys = (CONFIG_KEYS[where][0 if terminal.utf8() else 1]
-                + (f"   {ADVICE_KEY}" if found else "") + "   esc back")
+                + (f"   {ADVICE_KEY}" if seat else "") + "   esc back")
         # each meter's cells, on the lines over the page counted back from it, washing in and out
         moves = [(line - len(over), ("sub", number), number == lit,
                   motion.washing([(column, text, rest)], colour(cfg, subs[number - 1][0])))
@@ -3764,9 +3780,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         note = ""
         if act == "back":
             return cfg
-        if act == "r" and found:
+        if act == "r" and seat:
             clock.forget()            # another screen: the matrix back from it replays nothing
-            models_screen(cfg, scope, selected, providers, held)
+            models_screen(cfg, seat, selected, providers)
             continue
         if act in ("enter", "space") and (here[0] in ("row", "usage") or column < 0):
             clock.forget()            # another screen: the matrix back from it replays nothing

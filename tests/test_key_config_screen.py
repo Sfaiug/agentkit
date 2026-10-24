@@ -37,9 +37,9 @@ ROWS = ["Claude Code",
         "  Weekly audit  off · orch Fable 5.1 · builds Fable 5.1, GPT-6-Astra · reviews Fable 5.1,",
         "                GPT-6-Astra",
         ""]
-MARK_KEYS = "  ↑↓←→ move   ⏎ mark   esc back"
-EFFORT_KEYS = "  ↑↓←→ move   ⏎ effort   esc back"
-ROW_KEYS = "  ↑↓ move   ⏎ open   esc back"
+MARK_KEYS = "  ↑↓←→ move   ⏎ mark   r recommended   esc back"
+EFFORT_KEYS = "  ↑↓←→ move   ⏎ effort   r recommended   esc back"
+ROW_KEYS = "  ↑↓ move   ⏎ open   r recommended   esc back"
 MAIN_KEYS = "  ↑↓ move   ⏎ open   n new   x stop   c config   esc leave"
 
 

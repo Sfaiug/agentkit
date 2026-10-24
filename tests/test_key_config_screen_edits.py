@@ -36,7 +36,8 @@ CATALOG = "m1\tModel One\tlow medium high"     # what the claude adapter's `mode
 # efforts the same, as a real Claude's does, so the bar reads the same either way.
 FABLE_LISTED = "claude-fable-5-1\tFable 5.1\tlow medium high xhigh max"
 HEADER = "# agentkit's config, written by the menu's `c` screen."
-MARK_KEYS = "  ↑↓←→ move   ⏎ mark   esc back"
+# a seat's `c` always offers `r recommended`: opening the models screen is what reads the boards
+MARK_KEYS = "  ↑↓←→ move   ⏎ mark   r recommended   esc back"
 
 def rows(screen):
     return [line.rstrip() for line in screen.split("\n")]
@@ -87,7 +88,8 @@ class ConfigScreenEdits(unittest.TestCase):
     def test_enter_on_an_effort_steps_it_up_and_rewrites_config_toml_keeping_the_rest(self):
         self.fakes["claude"].answer("models", FABLE_LISTED)
         self.term.keys("Right", "Right", "Right")
-        self.term.wait(lambda screen: key_line(screen) == "  ↑↓←→ move   ⏎ effort   esc back")
+        self.term.wait(lambda screen: key_line(screen)
+                       == "  ↑↓←→ move   ⏎ effort   r recommended   esc back")
         self.term.keys("Enter")
         self.term.wait(lambda screen: "› Fable 5.1     ●      □        □     ▰▰▰▰▰   max"
                        in rows(screen))
@@ -134,7 +136,7 @@ class ConfigScreenEdits(unittest.TestCase):
     def test_add_a_model_walks_harness_model_and_effort_and_writes_the_model(self):
         self.fakes["claude"].answer("models", CATALOG)
         self.term.keys("j", "j")
-        self.term.wait(lambda screen: key_line(screen) == "  ↑↓ move   ⏎ open   esc back")
+        self.term.wait(lambda screen: key_line(screen) == "  ↑↓ move   ⏎ open   r recommended   esc back")
         self.term.keys("Enter")
         # each list draws once its choices are in hand; a harness's models are asked of it
         screen = self.term.wait(lambda screen: "›   claude  Claude" in rows(screen))
