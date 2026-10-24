@@ -180,10 +180,12 @@ class OnlyOwnerReplies(unittest.TestCase):
         self.output(1)
         self.assertCountEqual(self.standing(), self.seats, "ak's own line answered it")
 
-        # a reply the store keeps no date for, or one ak cannot read: nanoseconds alone
+        # a reply the store keeps no date for, or one ak cannot read: agy's seconds of now,
+        # its nanoseconds cut off
+        cut = nested(1, number(1, int(time.time())) + b"\x10\x80")
         for name, (harness, _seat, talk) in self.seats.items():
             talk.said("The first one.", time.time(), date=None if name.endswith("-before") else
-                      "soon" if harness == "muse" else b"\x0a\x02\x10\x05")
+                      "soon" if harness == "muse" else cut)
         self.output(2)
         self.assertCountEqual(self.standing(), self.seats, "a reply with no date answered it")
 

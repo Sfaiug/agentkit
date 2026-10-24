@@ -32,16 +32,30 @@ def said(record, cwd, conversation):
 
 
 def user_messages(record, cwd, conversation):
-    """Each user input, dated by its step's `metadata`: field 1 a Timestamp, its seconds (1)
-    and nanoseconds (2).  A step dated otherwise is nobody's answer."""
+    """Each user input, dated by its step's `metadata`: field 1 a Timestamp.  A step dated
+    otherwise is nobody's answer."""
     from . import user_message
     for _kind, metadata, payload in steps(conversation, USER) or ():
-        stamp = field(metadata, 1)
-        seconds, nanos = field(stamp, 1, wire=0), field(stamp, 2, wire=0) or 0
-        kept = (seconds is not None and nanos < 1_000_000_000
-                and user_message(seconds + nanos / 1e9, words(USER, payload)))
+        at = timestamp(field(metadata, 1))
+        kept = at is not None and user_message(at, words(USER, payload))
         if kept:
             yield kept
+
+
+def timestamp(stamp):
+    """A Timestamp's seconds (field 1) and nanoseconds (2, omitted when 0) as seconds, or None
+    where it does not read whole: a cut-off field is no date."""
+    read, at = {}, 0
+    try:
+        while at < len(stamp):
+            key, at = varint(stamp, at)
+            if key not in (1 << 3, 2 << 3) or key in read:
+                return None
+            read[key], at = varint(stamp, at)
+    except (IndexError, TypeError):
+        return None
+    seconds, nanos = read.get(1 << 3), read.get(2 << 3, 0)
+    return None if seconds is None or nanos >= 1_000_000_000 else seconds + nanos / 1e9
 
 
 def steps(conversation, *kinds):
@@ -118,22 +132,19 @@ def there(path):
     return True
 
 
-def field(message, number, wire=2):
-    """That field of a protocol buffer message, or None: length-delimited (`wire` 2) as bytes,
-    a varint (0) as an int."""
+def field(message, number):
+    """That length-delimited field of a protocol buffer message, as bytes, or None."""
     at = 0
     try:
         while isinstance(message, bytes) and at < len(message):
             key, at = varint(message, at)
             if key & 7 == 2:
                 size, at = varint(message, at)
-                if key == number << 3 | wire and at + size <= len(message):
+                if key >> 3 == number and at + size <= len(message):
                     return message[at:at + size]
                 at += size
             elif key & 7 == 0:
-                value, at = varint(message, at)
-                if key == number << 3 | wire:
-                    return value
+                at = varint(message, at)[1]
             elif key & 7 in (1, 5):
                 at += 8 if key & 7 == 1 else 4
             else:
