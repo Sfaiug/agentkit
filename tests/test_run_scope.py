@@ -234,7 +234,7 @@ class RunScope(unittest.TestCase):
         record.save_state(directory, {**(record.read_state(directory) or {}),
                                    "silence_minutes": 20, "ceiling_hours": 6,
                                    "scope": "none", "scope_reason": "no user systemd manager"})
-        opts = {"--review-pr": None, "--no-merge": True, "--anyway": False}
+        opts = {"--review-pr": None, "--no-merge": True, "--no-worktree": False, "--anyway": False}
         lines = []
         with patch.object(run, "task_repo", return_value=None), \
                 patch.object(run, "ignore_time_keys"):

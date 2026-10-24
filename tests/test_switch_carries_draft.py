@@ -70,6 +70,14 @@ class SwitchCarriesDraft(EditorSeat):
         self.assertFalse(self.switched())
         self.assertEqual((self.composer, self.sent), ("typed since", []))
 
+    def test_a_paste_muse_took_after_the_switch_captured_its_pane_sends_no_key_and_refuses(self):
+        self.on_muse()
+        self.show("and add these posts")
+        captured = self.pane            # read before the seat's lock, holding no paste
+        self.show("and add these posts [Pasted Content 1190 chars]")
+        self.assertFalse(watch.carry_draft(self.seat, "muse", captured, "muse", self.cfg))
+        self.assertEqual((self.keys, self.buffers), ([], {}))
+
     def test_no_keys_go_to_a_question_or_for_a_harness_that_opens_no_editor_of_ak_s(self):
         with patch.object(watch, "asking", return_value=True):
             self.assertTrue(self.switched())

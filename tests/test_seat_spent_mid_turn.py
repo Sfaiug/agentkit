@@ -18,7 +18,7 @@ from test_spent_seat_moves_past_question import REFUSED, SpentSeat  # noqa: E402
 from test_seat_account import NAME  # noqa: E402
 from agentkit import config, watch  # noqa: E402
 
-EDITOR = {"id": "%1", "tty": "/dev/pts/1", "keys": ("C-g",)}
+EDITOR = {"id": "%1", "tty": "/dev/pts/1", "keys": ("C-g",), "harness": "claude"}
 
 
 class SpentMidTurn(SpentSeat):

@@ -98,6 +98,21 @@ def task_repo(meta, task_path, task_file=None):
     return Path(out.strip()).resolve()
 
 
+def from_refusal(task_path, from_branch, repo, no_worktree):
+    """Why no run can start `from:` that branch, or None: a scratch run has no branch, a run
+    with no worktree no checkout of its own, and the branch must be a local one."""
+    if not from_branch:
+        return None
+    if repo is None:
+        return f"{task_path}: from: needs a repository; a scratch run has no branch to start from"
+    if no_worktree:
+        return (f"{task_path}: from: needs a worktree; "
+                "drop --no-worktree so the run gets its own checkout")
+    if not git(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{from_branch}", check=False):
+        return f"{task_path}: from: {from_branch!r} is not a local branch"
+    return None
+
+
 def loop(cfg, run_dir, task_path, opts, log, prior=None):
     receipt = run_record.read_state(run_dir) or {}
     # a --bg parent's pick, consumed here: one launch, one pick, whichever process prints it
@@ -157,14 +172,16 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         if method not in MERGE_METHODS:
             raise config.Error(f"{task_path}: merge must be one of "
                                f"{', '.join(MERGE_METHODS)} (got {meta.get('merge')!r})")
+        from_branch = (meta.get("from") or "").strip()
+        # refused at launch too (`preflight`); here again, as the branch can go while the run waits
+        why = from_refusal(task_path, from_branch, repo, opts["--no-worktree"])
+        if why:
+            raise config.Error(why)
+        change = None
         if scratch:
             # nothing to branch from: the run gets a workspace of its own, and whatever it
             # leaves there is the deliverable
-            if (meta.get("from") or "").strip():
-                raise config.Error(f"{task_path}: from: needs a repository; "
-                                   "a scratch run has no branch to start from")
             base = target = base_sha = branch = None
-            from_branch, change = "", None
             wt = config.WORK / run_dir.name
             wt.mkdir(parents=True, exist_ok=True)
         else:
@@ -203,8 +220,6 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                 ref = spelled
             # a branch name moves with the executor's commits, so pin the diff to the commit it names
             base_sha = git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
-            from_branch = (meta.get("from") or "").strip()
-            change = None
             if from_branch:
                 # the change continues on that branch: the run the branch belongs to names it,
                 # and the rounds earlier runs spent on it are spent
@@ -213,20 +228,12 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                                              what=f"branch {from_branch}")
                 if why:
                     raise config.Error(f"{task_path}: {why}")
-            if from_branch and opts["--no-worktree"]:
-                raise config.Error(f"{task_path}: from: needs a worktree; "
-                                   "drop --no-worktree so the run gets its own checkout")
             if opts["--no-worktree"]:
                 wt, branch = repo, git(repo, "rev-parse", "--abbrev-ref", "HEAD")
-                from_branch = ""
                 log(f"no worktree: working directly in {wt} on {branch}")
             elif from_branch:
                 # A relaunch from a stopped or blocked run's committed work: the new
                 # checkout starts where that branch left off before taking in `target`.
-                if not git(repo, "rev-parse", "--verify", "--quiet",
-                           f"refs/heads/{from_branch}", check=False):
-                    raise config.Error(f"{task_path}: from: {from_branch!r} "
-                                       "is not a local branch")
                 wt, branch = make_worktree(repo, run_dir.name, slugify(title), from_branch)
             else:
                 wt, branch = make_worktree(repo, run_dir.name, slugify(title), base_sha)
@@ -1213,7 +1220,9 @@ def preflight(run_dir, opts, log):
         # the checks a round runs, settled as the loop settles them, against the same target
         every, once = taskfile.group_commands(round_commands(
             cmds, repo, target, scratch=repo is None, landing=not opts["--no-merge"]))
-        refusal = taskfile.checks_refusal(every)
+        refusal = (taskfile.checks_refusal(every)
+                   or from_refusal(run_dir / "task.md", (meta.get("from") or "").strip(), repo,
+                                   opts["--no-worktree"]))
         if refusal:
             raise config.Error(refusal)
         commands = " ; ".join(every)
