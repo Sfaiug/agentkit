@@ -229,14 +229,14 @@ class BranchNames(unittest.TestCase):
 
     def broken_ls_remote(self, error):
         """Everything git does still works; only the remote lookup fails, as a stub's would."""
-        real = run.subprocess.run
+        real = gitcall.run_capped
 
         def fake(argv, *args, **kwargs):
             if "ls-remote" in argv:
                 raise error
             return real(argv, *args, **kwargs)
 
-        return patch.object(run.subprocess, "run", side_effect=fake)
+        return patch.object(gitcall, "run_capped", side_effect=fake)
 
     def test_v5j_a_branch_name_origin_already_has_is_not_reused(self):
         path = self.repo()

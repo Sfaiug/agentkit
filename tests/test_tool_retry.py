@@ -1,6 +1,6 @@
 """Remote timeouts get one more try; checkout edits stop for recovery before another call.
 
-Offline: subprocess.run raises fake timeouts or returns canned answers; sleep is recorded.
+Offline: run_capped raises fake timeouts or returns canned answers; sleep is recorded.
 """
 
 from pathlib import Path
@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, handback, run
+from agentkit import config, gitcall, handback, run
 
 COMMANDS = (["git", "fetch", "origin", "--prune"], ["gh", "api", "user"],
             ["git", "push", "origin", "fix-api"], ["git", "ls-remote", "origin"],
@@ -50,7 +50,7 @@ class ToolRetry(unittest.TestCase):
                         self.assertTrue(0 < seconds <= 5)
                         events.append("pause")
 
-                    with patch.object(run.subprocess, "run", side_effect=attempt), \
+                    with patch.object(gitcall, "run_capped", side_effect=attempt), \
                             patch.object(run.time, "sleep", side_effect=pause):
                         self.assertEqual(run.tool_run(cmd, cwd=Path("acme"), timeout=timeout,
                                                       env={"EXTRA": "kept"}),
@@ -69,7 +69,7 @@ class ToolRetry(unittest.TestCase):
     def test_two_timeouts_stop_with_a_network_reason(self):
         for cmd in COMMANDS:
             with self.subTest(cmd=cmd), \
-                    patch.object(run.subprocess, "run",
+                    patch.object(gitcall, "run_capped",
                                  side_effect=subprocess.TimeoutExpired(cmd, 3)) as attempt, \
                     patch.object(run.time, "sleep") as pause:
                 code, out, err = run.tool_run(cmd, timeout=3)
@@ -90,7 +90,7 @@ class ToolRetry(unittest.TestCase):
                 with self.subTest(cmd=cmd, timed_out=timed_out):
                     answers = ([subprocess.TimeoutExpired(cmd, 3)] if timed_out else [])
                     answers.append(subprocess.CompletedProcess(cmd, 4, "", refusal))
-                    with patch.object(run.subprocess, "run", side_effect=answers) as attempt, \
+                    with patch.object(gitcall, "run_capped", side_effect=answers) as attempt, \
                             patch.object(run.time, "sleep") as pause:
                         code, _, err = run.tool_run(cmd, timeout=3)
                     self.assertEqual(code, 4)
@@ -105,7 +105,7 @@ class ToolRetry(unittest.TestCase):
     def test_an_ordinary_failure_is_returned_without_a_retry(self):
         for cmd in COMMANDS:
             with self.subTest(cmd=cmd), \
-                    patch.object(run.subprocess, "run", return_value=
+                    patch.object(gitcall, "run_capped", return_value=
                                  subprocess.CompletedProcess(cmd, 1, "", "rejected")) as attempt, \
                     patch.object(run.time, "sleep") as pause:
                 self.assertEqual(run.tool_run(cmd), (1, "", "rejected"))
@@ -119,7 +119,7 @@ class ToolRetry(unittest.TestCase):
             for prefix in (["git"], ["git", "-C", "acme"]):
                 cmd = prefix + args
                 with self.subTest(cmd=cmd), \
-                        patch.object(run.subprocess, "run", side_effect=[
+                        patch.object(gitcall, "run_capped", side_effect=[
                             subprocess.TimeoutExpired(cmd, 3),
                             subprocess.CompletedProcess(cmd, 128, "", "already in progress")
                         ]) as attempt, patch.object(run.time, "sleep") as pause:
@@ -135,7 +135,7 @@ class ToolRetry(unittest.TestCase):
         for answer in (subprocess.TimeoutExpired(cmd, 3),
                        subprocess.CompletedProcess(cmd, 128, "", REFUSED)):
             with self.subTest(answer=answer), \
-                    patch.object(run.subprocess, "run", side_effect=
+                    patch.object(gitcall, "run_capped", side_effect=
                                  answer if isinstance(answer, Exception) else [answer]), \
                     patch.object(run.time, "sleep"):
                 _, _, err = run.tool_run(cmd, timeout=3)
