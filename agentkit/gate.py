@@ -1613,7 +1613,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 # here, on this host's own turns; a stopped piece alone, below.
                 for index in (index for index in again
                               if results[index][0] not in (helper.LOST, helper.SHORT,
-                                  helper.BATTERY, helper.BUSY, helper.BROKEN)):
+                                  helper.BATTERY, helper.FULL, helper.BROKEN)):
                     if log is not None:
                         # its go here takes its place in the suite's output: a copy keeps this one
                         handle, kept = tempfile.mkstemp(dir=run_dir or activity.parent,
