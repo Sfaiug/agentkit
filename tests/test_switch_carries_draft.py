@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from fixtures.editor_seat import PANE, EditorSeat
 from fixtures.sandbox import REPO
-from agentkit import aside_editor, watch
+from agentkit import aside_editor, config, watch
 
 DRAFT = "and add these posts\nto the list  \n\n"     # carried byte for byte
 
@@ -76,6 +76,20 @@ class SwitchCarriesDraft(EditorSeat):
         self.show("and add these posts [Pasted Content 1190 chars]")
         self.assertFalse(watch.carry_draft(self.seat, "muse", captured, "muse", self.cfg))
         self.assertEqual((self.keys, self.buffers), ([], {}))
+
+    def test_a_picker_opened_or_input_unread_after_the_capture_sends_no_key_and_refuses(self):
+        for harness, picker in (("muse", True), ("codex", True), ("muse", False)):
+            with self.subTest(harness=harness, picker=picker):
+                self.cfg["models"]["opus"]["harness"] = harness
+                config.save(self.cfg)
+                self.base = (REPO / f"tests/fixtures/{harness}-draft-pane.txt").read_text()
+                self.show(DRAFT)
+                captured = self.pane
+                if picker:              # Muse draws its composer empty above the picker
+                    self.pane = (REPO / f"tests/fixtures/{harness}-model-picker-pane.txt").read_text()
+                self.unread = not picker
+                self.assertFalse(watch.carry_draft(self.seat, harness, captured, harness, self.cfg))
+                self.assertEqual((self.keys, self.buffers), ([], {}))
 
     def test_no_keys_go_to_a_question_or_for_a_harness_that_opens_no_editor_of_ak_s(self):
         with patch.object(watch, "asking", return_value=True):
