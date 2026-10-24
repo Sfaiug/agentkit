@@ -2941,8 +2941,8 @@ def take_advice(cfg, name, selected, providers, found):
     a config that cannot be saved changes no mark and says why.  The orchestrator is only
     said, since moving the seat is its orchestrator mark's.  With no `name`, `selected` being
     [defaults], the orchestrator is taken too, at the row's effort as the entry's `effort`, and
-    [defaults] are saved as a flipped mark is (defaults_saved), no open seat changing.  What
-    to say under the rows, or ""."""
+    the efforts and [defaults] are saved in one write (defaults_saved), no open seat changing.
+    What to say under the rows, or ""."""
     taken = {role: found.get(role, (None, None, None))[1:] for role in TAKEN
              if name is None or role != "orchestrate"}
     if not any(model for model, _ in taken.values()):
@@ -2959,9 +2959,10 @@ def take_advice(cfg, name, selected, providers, found):
             entry, key = cfg["models"][model], config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]]
             entry[key] = effort or entry["effort"]
             _follows(entry, [key])
+    if name is None:
+        return defaults_saved(cfg, selected, changed, before)
     note = _saved(cfg, cfg, before) if cfg != before else ""
-    return note or (marks_saved(name, selected, changed) if name
-                    else defaults_saved(cfg, selected, changed))
+    return note or marks_saved(name, selected, changed)
 
 
 def marks_saved(name, selected, changed):
@@ -4681,15 +4682,18 @@ def defaults_mark(cfg, selected, model, column):
     changed, note = orch.role_mark(cfg, selected, model, column, {})
     if note or changed == selected:
         return note
-    return defaults_saved(cfg, selected, changed)
+    return defaults_saved(cfg, selected, changed, copy.deepcopy(cfg))
 
 
-def defaults_saved(cfg, selected, changed):
-    """New seats' role groups as `changed` has them, saved at once (config.remember_defaults)
-    and then into `cfg` and `selected`; a save that fails leaves all three alone.  What to say
-    under the rows, or ""."""
-    note = config.remember_defaults(changed)
+def defaults_saved(cfg, selected, changed, before):
+    """New seats' role groups as `changed` has them, saved at once (config.remember_defaults),
+    with the models `cfg` changed from `before` in the same write, and then into `cfg` and
+    `selected`; a save that fails puts `cfg` back as `before`, leaves the file and `selected`
+    alone and says why.  What to say under the rows, or ""."""
+    note = config.remember_defaults(changed, cfg["models"] if cfg != before else None)
     if note:
+        cfg.clear()
+        cfg.update(before)
         return f"config: {note}"
     cfg["defaults"] = copy.deepcopy(changed)
     selected.update(changed)
