@@ -709,10 +709,10 @@ class ScreenRules(GrokSandbox):
 
     def test_screen_rules_classify_the_fixture_captures(self):
         for name, state, rule in (
-                ("grok-prompt-pane", "at_prompt", "prompt.composer"),
+                ("grokbuild-prompt-pane", "at_prompt", "prompt.composer"),
                 ("grok-working-pane", "working", "working.turn"),
                 ("grok-dialog-pane", "asking", "asking.trust"),
-                ("grok-draft-pane", "draft", "prompt.draft"),
+                ("grokbuild-draft-pane", "draft", "prompt.draft"),
                 ("grok-suggestion-pane", "at_prompt", "prompt.composer")):
             with self.subTest(name=name):
                 pane = (FIX / f"{name}.txt").read_text(encoding="utf-8", errors="replace")

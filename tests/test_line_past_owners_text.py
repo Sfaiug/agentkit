@@ -11,11 +11,12 @@ from unittest.mock import patch
 
 from fixtures.editor_seat import PANE, EditorSeat
 from fixtures.seats import LINE, REPO
-from agentkit import aside_editor, watch
+from agentkit import aside_editor, config, watch
 
 DRAFT = "and add these posts"
 DOCS = "The docs finished."
 PASTE = "[Pasted Content 1190 chars]"      # what Muse hands its editor, and sends alone after
+GROK_PASTE = "[Pasted: 40 lines]"           # what Grok's editor never takes
 FIXTURES = REPO / "tests/fixtures"
 
 
@@ -215,13 +216,27 @@ class LinePastOwnersText(EditorSeat):
         self.assertEqual((self.keys, self.composer), (["C-g"], LINE))
         held(f"{LINE} {PASTE}")         # for the pending line's pass
 
+    def test_a_grok_draft_holding_a_paste_chip_holds_the_line_back(self):
+        # Grok's editor never takes such a draft, saying so in its transcript
+        self.cfg["models"]["opus"]["harness"] = "grokbuild"
+        config.save(self.cfg)
+        draft = (FIXTURES / "grokbuild-draft-pane.txt").read_text()
+        self.pane = draft.replace("hello draft text", f"and {GROK_PASTE}  ")
+        self.tick()
+        self.assertEqual((self.keys, self.told()), ([], False))
+        # one with none gets the palette's key, which no palette drawn here takes further
+        self.pane = draft
+        self.tick()
+        self.assertEqual((self.keys, self.told()), (["C-p"], False))
+
     def test_a_picker_the_owner_opens_over_their_text_as_the_step_reads_it_takes_no_step(self):
         # its highlighted row reads as typed text, and Enter under it picks a row
         step = watch._editor_read
         self.buffers.update(kept(aside_editor.GIVEN))  # text given back: Muse's picker shows none
         for harness, picker in (("codex", "codex-model-picker-pane.txt"),
                                 ("antigravity", "antigravity-chooser-pane.txt"),
-                                ("muse", "muse-model-picker-pane.txt")):
+                                ("muse", "muse-model-picker-pane.txt"),
+                                ("grokbuild", "grokbuild-slash-pane.txt")):
             draft = (FIXTURES / f"{harness}-draft-pane.txt").read_text()
 
             def opened(*args, **kwargs):

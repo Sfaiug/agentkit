@@ -785,7 +785,11 @@ def screen(harness):
              # the keys that hand its composer to $VISUAL, ak's editor (`seat_editor`)
              "editor": tuple(key for key in block.get("editor") or ()
                              if isinstance(key, str) and key),
-             # a paste it hands that editor as its placeholder alone (`_may_paste`)
+             # what the screen shows before each of the last of them goes in, each typed into a
+             # menu the key before it opens in its own time (`_edit`)
+             "editor_shows": tuple(_pattern(shown, path) for shown in block.get("editor_shows")
+                                   or () if isinstance(shown, str) and shown),
+             # a paste that editor would lose or never takes (`_may_paste`)
              "pasted": _pattern(block.get("pasted"), path),
              "rules": [_rule(entry, path) for entry in data.get("rule") or ()]}
     _SCREEN[harness] = (data, built)
@@ -3855,35 +3859,58 @@ def _edit(session, where, mode, line=""):
     that open it: its answer, or None where it gives none within SENT_WAIT, or where no key
     goes out as the pane's cursor is off its composer (`off_composer`) or its composer, read
     just before them, may hold a paste the editor would lose (`_may_paste`).  The editor reads
-    the composer itself, which a screen can draw late or cropped.  The ask is taken back after,
-    for the owner's own edit never to find -- one that keys went out for and that went
-    unanswered turned to `none`, which an edit they open late leaves as it is."""
+    the composer itself, which a screen can draw late or cropped.  The keys go in one write, as
+    a harness opening a new session can drop a first key typed alone, but each one typed into a
+    menu only once the screen shows what the key before it drew (`[screen] editor_shows`):
+    where the menu never opens, it would be the owner's.  The ask goes out with the last key, as
+    the editor takes none asked longer ago than `aside_editor.FRESH`, the menus' waits included.
+    It is taken back after, for the owner's own edit never to find -- one that keys went out for
+    and that went unanswered turned to `none`, which an edit they open late leaves as it is."""
     bound = dict(session, pane=where["id"])
     if off_composer(bound) or _may_paste(where["harness"], bound):
         return None
-    server, pane, ask = orch.seat_socket(session), where["id"], aside_editor.request(mode, line)
+    server, pane, ask = orch.seat_socket(session), where["id"], ""
+    keys, shows = where["keys"], screen(where["harness"])["editor_shows"]
+    split = len(keys) - len(shows)
+    writes = [(None, keys[:split]), *((shown, (key,)) for shown, key in zip(shows, keys[split:]))]
     after = ("set-option", "-pu", "-t", pane, aside_editor.ASK)
     try:
-        if (orch.tmux_out("set-option", "-p", "-t", pane, aside_editor.ASK,
-                          orch.tmux_literal(ask), socket=server)[0] == 0
-                and orch.tmux_out("send-keys", "-t", pane, *where["keys"], socket=server)[0] == 0):
-            for _ in range(int(SENT_WAIT / SENT_POLL)):
-                rc, said = orch.tmux_out("show-options", "-pqv", "-t", pane, aside_editor.ASK,
-                                         socket=server)
-                if rc == 0 and (word := aside_editor.answer(ask, said)):
-                    return word
-                time.sleep(SENT_POLL)
-            after = ("set-option", "-p", "-t", pane, aside_editor.ASK,
-                     orch.tmux_literal(aside_editor.request("none")))
+        for at, (shown, chord) in enumerate(writes, 1):
+            if shown and not _shows(bound, shown):
+                return None
+            if at == len(writes):
+                ask = aside_editor.request(mode, line)
+                if orch.tmux_out("set-option", "-p", "-t", pane, aside_editor.ASK,
+                                 orch.tmux_literal(ask), socket=server)[0] != 0:
+                    return None
+            if orch.tmux_out("send-keys", "-t", pane, *chord, socket=server)[0] != 0:
+                return None
+        for _ in range(int(SENT_WAIT / SENT_POLL)):
+            rc, said = orch.tmux_out("show-options", "-pqv", "-t", pane, aside_editor.ASK,
+                                     socket=server)
+            if rc == 0 and (word := aside_editor.answer(ask, said)):
+                return word
+            time.sleep(SENT_POLL)
+        after = ("set-option", "-p", "-t", pane, aside_editor.ASK,
+                 orch.tmux_literal(aside_editor.request("none")))
     finally:
         orch.tmux_out(*after, socket=server)
     return None
 
 
+def _shows(session, shown):
+    """Whether that seat's screen shows `shown` on a row within SENT_WAIT."""
+    for _ in range(int(SENT_WAIT / SENT_POLL)):
+        if any(map(shown.search, strip_sgr(pane_text(session)).splitlines())):
+            return True
+        time.sleep(SENT_POLL)
+    return False
+
+
 def _may_paste(harness, session):
-    """Whether that seat's composer may hold a paste its harness hands its editor as a
-    placeholder and sends alone once the editor returns (`[screen] pasted`): one it shows, or
-    any draft not read whole, which may hold one above the rows it shows."""
+    """Whether that seat's composer may hold a paste its harness's editor would lose or never
+    takes (`[screen] pasted`): one it shows, or any draft not read whole, which may hold one
+    above the rows it shows."""
     pasted = screen(harness)["pasted"]
     if pasted is None:
         return False
