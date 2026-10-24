@@ -76,7 +76,8 @@ class LiveHandBackNamesFailures(unittest.TestCase):
         line = self.hand_back([*FAILURES, *PASSES, "live: waiting"], code=None)
         for failure in FAILURES:
             self.assertIn(failure, line)
-        self.assertTrue(line.endswith("[stopped before it finished]. Fix main."))
+        self.assertTrue(line.endswith("[stopped before it finished]. Fix main: your next agentkit "
+                                      "PR review goes first in line, so make it the fix."))
 
     def test_without_fail_lines_the_last_ten_nonblank_lines_still_explain_the_exit(self):
         output = [*PASSES, "", "live: runner could not start", "[exit 1]"]

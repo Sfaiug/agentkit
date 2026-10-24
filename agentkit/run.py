@@ -24,7 +24,7 @@ from pathlib import Path
 
 from . import (box, command_help, config, gate, gc, gitcall, history, host, job as jobs,
                land as landing, orch, plan, record as run_record, status, stop, task as taskfile,
-               turns, usage, watch, worker, worktrees)
+               turns, update, usage, watch, worker, worktrees)
 from .deliver import (GITHUB_RETRIES, MERGE_METHODS, PICKUP_HELD, do_merge, end_on_dependency,
     finish_blocked, join_line, land, merge, merge_own_pr, own_pr_heads, pr_head,
     push_pr_branch, release_line)
@@ -1047,6 +1047,11 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
             state["task_file"] = str(task_file)
         if (opts or {}).get("--first"):
             state["first"] = True
+        # the place a held install's hand-back gave the seat (`update.live_hand_back`)
+        held = (not bound and session_at_launch and state["review_pr"]
+                and update.take_first_place(session_at_launch, state["review_pr"], run_dir.name))
+        if held:
+            state.update(first=True, first_place=held)
         if not bound:
             # A fix run waits for its slot from its first record on: whatever cuts its handoff
             # off before the launch, it is a slot wait, which the tick resumes.
