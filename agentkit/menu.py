@@ -51,8 +51,8 @@ account's *shared* weekly meter -- the one every model of it draws on: a provide
 single row.  A bar and `NN% left`, then `resets <weekday> <HH:MM>` in local time, then
 `Fable 41%` for a scoped cap that reads differently, then `5h 40% left` for the 5-hour
 window (`5h spent until 14:00` once it reads 100% used), then `1 reset in hand` while the
-subscription holds usage-limit resets for the owner to spend on `c`, then `? <reason>` when
-the last probe errored though the meter it read still stands, and `as of HH:MM` beside it when
+subscription holds usage-limit resets for the owner to spend from its meter, then `? <reason>`
+when the last probe errored though the meter it read still stands, and `as of HH:MM` beside it when
 that reading is older than half an hour, with the weekday when it is not from today.
 A probe the endpoint would not answer says nothing at all: its reading stands as it was,
 and past half an hour its age says the rest.
@@ -1960,10 +1960,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         turns.append(next((name for _, name in lines
                            if isinstance(name, (str, Path)) and name not in before), None))
         before.update(name for _, name in lines)
-    logins = {number: (name, account) for number, ((name, _, _, account), note)
-              in enumerate(zip(rows, ending), 1) if note}
     drawn.update(order=order, cursor=cursor, pointing=pointing, words=words, rule=not compact,
-                 ask=top + at + 1 if at else None, spots=spots, turns=turns, logins=logins,
+                 ask=top + at + 1 if at else None, spots=spots, turns=turns,
                  go_on={info["name"]: info["go_on"] for info in infos if info.get("go_on")})
     return page, (len(pages) if ordered else 1)
 
@@ -2822,9 +2820,10 @@ def show_notices(messages):
 # The rows under the models, each running its own step.
 CONFIG_ROWS = ("+ add a model", "Subscriptions", "Discord", "Weekly audit")
 AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (config.audit)
-# What a subscription offers, its meter over `c`'s page and its row on `Subscriptions` alike, each
-# where it applies (subscription_acts), and without UTF-8.
-SUBSCRIPTION_ACTS = (("↻ spend a reset", "spend a reset"), ("− remove", "- remove"))
+# What a subscription offers, each where it applies (subscription_acts), and without UTF-8:
+# its meter, on the ak screen and on `c` alike, the first two; its row on `Subscriptions` all.
+SUBSCRIPTION_ACTS = (("↻ log in again", "log in again"), ("↻ spend a reset", "spend a reset"),
+                     ("− remove", "- remove"))
 # What `+ add a subscription` offers each provider the shipped default has as: its company, and
 # the harness it runs on; any other is its name.  One shipped on a harness that runs any
 # provider (config.provider_hosts) is offered among that harness's own.
@@ -3728,7 +3727,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     first model, and the pointer, reach
     the meters over the page: one is lit as the main screen lights it, its colour washing in
     over it and the labels of the models on it and out as it goes, and Enter or a click
-    opens what it offers (config_usage).  The row a model was just
+    opens what it offers (meter_acts).  The row a model was just
     added on glows (motion.glowing); on `Discord` its two
     secrets are typed on the same keys (config_discord).  agentkit's build, `version`, is read
     under the rows, dim, on every page.
@@ -3794,7 +3793,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                     clock.touch(here)
         elif here[0] == "usage":
             if act in ("enter", "space"):
-                note = config_usage(cfg, here[1])
+                note = meter_acts(cfg, keyboard, here[1],
+                                  f"config · {usage_rows(cfg)[here[1] - 1][1]}")
         elif here == ("row", CONFIG_ROWS[1]):
             if act in ("enter", "space"):
                 config_subscriptions(cfg, keyboard)
@@ -4121,10 +4121,10 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
 
 
 def sign_in(cfg, keyboard, provider, account):
-    """`provider`'s login for `account` (None: its only one) made afresh on the terminal, for
-    one whose meter is amber: its harness's `login again` (`logins.harness`), and the menu back
-    as soon as that ends, one that failed once what it said has been read.  One that finished
-    is asked its end at once (`logins.renewed`), so the menu comes back with its meter grey."""
+    """`provider`'s login for `account` (None: its only one) made afresh on the terminal, its
+    `↻ log in again` (`subscription_acts`): its harness's `login again` (`logins.harness`), and the
+    menu back as soon as that ends, one that failed once what it said has been read.  One that
+    finished is asked its end at once (`logins.renewed`), so the menu comes back with its meter grey."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     harness = logins.harness(cfg, provider)
     if harness and not _adapter_verbs(keyboard, harness, ("login again",), provider, account,
@@ -4270,10 +4270,10 @@ def config_add_provider(cfg, keyboard):
 
 @terminal.clicks_its_own
 def config_remove_provider(cfg, picked):
-    """`− remove` on a meter or a row of `Subscriptions` (subscription_acts): `picked`, its
-    subscription as (provider, account, label), `Remove <provider> and its models?` for its usual
-    login or its only one, `Remove <subscription>?` for another, asked under its name, `Keep`
-    picked and Esc keeping it.  config.remove_provider takes a provider's table, its models and their places
+    """`− remove` under a row of `Subscriptions` (subscription_acts): `picked`, its subscription as
+    (provider, account, label), `Remove <provider> and its models?` for its usual login or its
+    only one, `Remove <subscription>?` for another, asked under its name, `Keep` picked and Esc
+    keeping it.  config.remove_provider takes a provider's table, its models and their places
     in [defaults], and with its table goes its meter; a subscription leaves only the
     provider's `accounts`.  The last provider is refused without asking.  Either way no login
     file goes: the login taken out is recorded (config.keep_login) for `+ add a subscription` to
@@ -4328,44 +4328,48 @@ def config_spend_reset(cfg, picked):
     return f"{label} · {said}"
 
 
-def subscription_acts(cfg, number):
+def subscription_acts(cfg, keyboard, number, remove=False):
     """What subscription `number`, from 1 in usage_rows' order, offers, as (text, act) each, an
-    act what to say under the screen or "": `spend a reset` while it holds one
-    (config_spend_reset), and `remove` (config_remove_provider)."""
+    act what to say under the screen or "": `log in again` where its harness signs it in
+    afresh (sign_in, config.signs_in_again), `spend a reset` while it holds one (config_spend_reset), and with `remove`,
+    `remove` (config_remove_provider)."""
+    from . import logins    # here, not at the top: logins names subscriptions through the menu
     name, label, prov, account = usage_rows(cfg)[number - 1]
     # its label as usage_cells has it, which config_spend_reset reads its week back by
     picked = (name, account, label)
+    harness = logins.harness(cfg, name)
     return [(text[0 if terminal.utf8() else 1], act) for text, act, offers in (
-        (SUBSCRIPTION_ACTS[0], lambda: config_spend_reset(cfg, picked), in_hand(prov)),
-        (SUBSCRIPTION_ACTS[1], lambda: config_remove_provider(cfg, picked), True)) if offers]
+        (SUBSCRIPTION_ACTS[0], lambda: sign_in(cfg, keyboard, name, account) or "",
+         harness and config.signs_in_again(harness)),
+        (SUBSCRIPTION_ACTS[1], lambda: config_spend_reset(cfg, picked), in_hand(prov)),
+        (SUBSCRIPTION_ACTS[2], lambda: config_remove_provider(cfg, picked), remove)) if offers]
 
 
 @terminal.clicks_its_own
-def config_usage(cfg, number):
-    """Enter or a click on subscription `number`'s meter, from 1, over the page of `c`: what it
-    offers (subscription_acts), picked from a list under its name where it offers more than one,
-    the highlight on `− remove`, so only a move or a click picks the spend.  What to say under
-    the matrix, or ""."""
-    acts = dict(subscription_acts(cfg, number))
-    texts = list(acts)
-    chosen = texts[0]
-    if len(texts) > 1:
-        keys = ADD_KEYS["choose"][0 if terminal.utf8() else 1]
+def meter_acts(cfg, keyboard, number, screen):
+    """Enter or a click on subscription `number`'s meter, on the ak screen or `c` alike: what it
+    offers (subscription_acts, nothing removed from here), picked from a list under its name,
+    `screen` the title it is drawn under, the highlight on the first: `log in again` where it is
+    offered, so a reset is spent only by a move or a click there.  What to say under the screen,
+    or ""."""
+    acts = dict(subscription_acts(cfg, keyboard, number))
+    if not acts:
+        return ""
+    keys = ADD_KEYS["choose"][0 if terminal.utf8() else 1]
 
-        def listed():     # the screen the list is drawn on, drawn again on a resize
-            terminal.frame(f"config · {usage_rows(cfg)[number - 1][1]}", [""] * len(texts),
-                           keys + "   esc back")
-            return 3
-        chosen = terminal.choose(texts, around=listed, default=texts[-1])
+    def listed():     # the screen the list is drawn on, drawn again on a resize
+        terminal.frame(screen, [""] * len(acts), keys + "   esc back")
+        return 3
+    chosen = terminal.choose(list(acts), around=listed)
     return "" if chosen is None else acts[chosen]()
 
 
 def config_subscriptions(cfg, keyboard):
     """`Subscriptions` on `c`: a row for each subscription, saying when its login ends where it
     soon does (login_notes) and the resets it holds, Enter opening what it offers under it
-    (subscription_acts); then `+ add a subscription` (config_add_provider)."""
-    def acts(number):     # `− remove`, last, highlighted: only a move or a click picks the spend
-        offered = subscription_acts(cfg, number)
+    (subscription_acts, `remove` too); then `+ add a subscription` (config_add_provider)."""
+    def acts(number):     # `− remove`, last, highlighted: only a move or a click picks another
+        offered = subscription_acts(cfg, keyboard, number, remove=True)
         return [(text, act, at == len(offered)) for at, (text, act) in enumerate(offered, 1)]
 
     def page():
@@ -5328,9 +5332,9 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 spot = (terminal.under(key, shown["spots"]) if key.name == "click"
                         else terminal.Spot())
                 cell = spot.cell
-                if isinstance(cell, tuple) and cell[0] == "usage" and cell[1] in shown["logins"]:
+                if isinstance(cell, tuple) and cell[0] == "usage":
                     pointing = False          # and opens no line
-                    sign_in(cfg, keyboard, *shown["logins"][cell[1]])   # an amber meter
+                    meter_acts(cfg, keyboard, cell[1], usage_rows(cfg)[cell[1] - 1][1])
                     continue
                 if spot.what is not None and cell in (WAIT, GO_ON):
                     pointing = False          # answered: its lines close
