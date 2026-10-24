@@ -25,13 +25,13 @@ This section changes only with the owner's yes. Every other line has one home, a
 - The `tests:` gate (`tests/landing.py`) runs `bash tests/smoke.sh` beside `tests/every_file.py` (remaining `tests/test_*.py`; see its docstring). It refuses Python 3.11 cannot parse, f-strings aside, so `python3.11 -m py_compile` what you touch holding one like `f"{data["key"]}"`. `AGENTKIT_ACCEPTANCE_REQUIRED=1` makes skips fail.
 - Match the file's style.
 - `README.md` holds only what ak is, installation and starting.
-- `orchestrator.md` is the rulebook agentkit sessions launch with, not one for here.
+- `orchestrator.md` instructs agentkit sessions, not work here.
 
 ## Lessons
 
 Mistakes no check catches and no one area of the code holds; one that becomes a check or a comment at its code leaves.
 
-- Never start the landing suite (`tests/landing.py`, `tests/smoke.sh`, `tests/every_file.py`). When wording changes, grep tests/ and fix assertions pinning it.
+- Never start the landing suite. When wording changes, grep tests/ and fix assertions pinning it.
 - Comments say why. Listing screens go through `agentkit/terminal.py` (`docs/cli-design.md`).
 - Each run has a memory cap (exit 137). Commit before a test sweep; run only the files your change touches, three at most at once.
 - Tests never touch real processes, units, seats, transcripts or state: fake process tables and tmux, injected kill/systemctl (`_proc_table()`, `AK_HOST_READINGS`), a temporary HOME. A test calling `run.review`, `run.execute` or a sweep in-process sets the run variables `tests/fixtures/seats.py` sets, or a refusal SIGTERMs your own run.
@@ -67,6 +67,6 @@ Mistakes no check catches and no one area of the code holds; one that becomes a 
 - Every project meets one contract, enforced by checks and scaled by what is at stake: its suite runs every test file, its front matter holds only lines ak reads, and a live project proves it is live with a real `health:`, deploys only code ak tested, and puts the previous release back by itself when health breaks. How each project deploys stays its own; a ready-made deploy kit covers the common case. [5 Oct]
 - Seats never message one another and nothing one seat writes is typed into another; a seat waits only on a pull request or a run (`ak wait`), and ak ends the wait when that merges, closes or ends. [4 Oct, 9 Oct]
 - A change that loosens or rewrites the owner's parts (this file's first section, Owner rules, landing gate, pinned measures, word maximums) lands only on the owner's yes in a seat's question box for that exact head; tightening lands by itself. The Go program builds it. [2 Oct, 24 Oct 2026]
-- ak becomes one Go program for Linux, Mac and Windows (WSL2 first, native menu over ssh); Go may vendor modules. First black-box tests against `AK_BIN`, passing on today's ak; then `go/` lands by milestone, uncapped (`.gitattributes`), in shadow until it takes over, and from its first milestone Python takes only fixes (bugs, throughput, resources) and the menu changes the owner asked for on 20 Oct, each with answer keys. The landing suite gains Go's tests and refuses to run where it cannot build its sandbox. Reason: one fast program anyone installs. [20, 23, 24 Oct 2026]
+- ak becomes one Go program for Linux, Mac and Windows (WSL2 first, native menu over ssh); Go may vendor modules. First black-box tests against `AK_BIN`, passing on today's ak; then `go/` lands by milestone, uncapped (`.gitattributes`), in shadow until it takes over, and from its first milestone Python takes only fixes (bugs, throughput, resources) and the 20 Oct menu changes, each with answer keys. The landing suite gains Go's tests and refuses to run where it cannot build its sandbox. Reason: one fast program anyone installs. [20, 23, 24 Oct 2026]
 - Quality, then speed, then cost, in that order, is how ak judges a week, a change and a seat's work: the weekly audit names a quality loss before any gain in speed or cost (`scoreboard.loss`), a week with a quality measure worse is a loss whatever speed did, and nothing ak shows or picks credits speed or cost while the result got worse. [14 Oct]
 - ak compacts no seat itself: each harness's own compaction does (Claude's idle compaction, its minimum set in the login's settings). Reason: Claude Code compacts an idle seat itself, and two compactors on one seat can only clash. [16 Oct 2026]
