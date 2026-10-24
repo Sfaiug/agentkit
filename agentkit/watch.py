@@ -2929,18 +2929,19 @@ def waiting_on(name):
 
 
 def wait_fact(wait):
-    """(whether what that wait names is over, the one line saying how): a run once it is no
-    longer going, or the run its task was started again as, a pull request once it is merged
-    or closed, or while open, once no run reviewing or landing it is going.  (None, why) where
-    nothing can say yet: `wait_over` leaves the wait as it is while that is the owner's login
-    to fix, and for UNREAD_TICKS ticks otherwise."""
+    """(whether what that wait names is over, the one line saying how, the run whose ending
+    that is or None): a run once it is no longer going, or the run its task was started again
+    as, a pull request once it is merged (by the run landing it, if one did) or closed, or
+    while open, once no run reviewing or landing it is going (the last to end since the wait
+    began).  (None, why, None) where nothing can say yet: `wait_over` leaves the wait as it is
+    while that is the owner's login to fix, and for UNREAD_TICKS ticks otherwise."""
     on = wait.get("on")
     if wait.get("kind") == "run":
         while True:
             directory = config.RUNS / on
             state = run_record.read_state(directory) if directory.is_dir() else None
             if not state:
-                return True, f"run {on} is gone"
+                return True, f"run {on} is gone", None
             if not state.get("lease_restarted"):
                 break
             # stopped to wait on an older run's change, and started again (`leases.restart`):
@@ -2948,32 +2949,39 @@ def wait_fact(wait):
             on = state["lease_restarted"]
         if state.get("state") == "stalled":
             # going to the ladder, but nothing moves it except the seat: the wait is over
-            return True, f"run {on} stalled: resume it with ak run resume {on}"
+            return True, f"run {on} stalled: resume it with ak run resume {on}", None
         if transitions.going(state):
-            return False, ""
+            return False, "", None
         ended = state.get("verdict") or state.get("state") or "ended"
-        return True, f"run {on} ended {ended}" + (", merged" if state.get("merged") else "")
+        return True, f"run {on} ended {ended}" + (", merged" if state.get("merged") else ""), on
     data, why = gh_json(config.RUNS, "pr", "view", on, "--json", "state,number,mergeCommit")
     if not isinstance(data, dict) or data.get("state") not in ("OPEN", "MERGED", "CLOSED"):
-        return None, why or "GitHub did not answer"
+        return None, why or "GitHub did not answer", None
     number = data.get("number")
     if data["state"] == "OPEN":
         # a run that ends without merging leaves it open, its ending may reach no seat (one
         # launched outside a seat records none), and one never sent to a run has none at all:
         # open, it waits while a wait on any going run of any seat reviewing or landing it
         # would, and one such run that would not (a stalled one) ends it with its own line
+        runs = list(transitions.runs_on(pr=on))
         facts = [wait_fact({"kind": "run", "on": state["run_id"]})
-                 for state in transitions.runs_on(pr=on) if transitions.going(state)]
-        if not all(over for over, _ in facts):
-            return False, ""
+                 for state in runs if transitions.going(state)]
+        if not all(over for over, _, _ in facts):
+            return False, "", None
         if facts:
             return facts[0]
+        ended = [state for state in runs if state.get("state") in run_record.ENDED
+                 and (state.get("finished_at") or 0) >= (wait.get("at") or 0)]
+        last = max(ended, key=lambda state: state.get("finished_at") or 0, default=None)
         return True, (f"PR #{number} is open with no ak run going on it: "
-                      f"ak run --review-pr {on} --bg takes it")
+                      f"ak run --review-pr {on} --bg takes it"), last and last["run_id"]
     if data["state"] == "MERGED":
         sha = str((data.get("mergeCommit") or {}).get("oid") or "")[:12]
-        return True, f"PR #{number} merged" + (f" as {sha}" if sha else "")
-    return True, f"PR #{number} closed without merging"
+        # its lander may still be finishing: `merged` is written before the run's ending
+        lander = next((state["run_id"] for state in transitions.runs_on(pr=on)
+                       if state.get("merged")), None)
+        return True, f"PR #{number} merged" + (f" as {sha}" if sha else ""), lander
+    return True, f"PR #{number} closed without merging", None
 
 
 def wait_over(cfg, log):
@@ -2985,7 +2993,9 @@ def wait_over(cfg, log):
     in through the confirmed send, only at the seat's own quiet prompt, the way a run's ending
     is handed back; a seat mid-turn is tried again next tick.  It names the fact and nothing
     else: no other seat's words, no other seat's screen.  The send that took it is written on
-    the wait as `told`, so it is typed once.
+    the wait as `told`, so it is typed once.  An ending its own run hands back to the seat
+    (`handback.hand_back`) is that line already: none is typed for it, and the wait is told
+    once the hand-back is in.
     """
     waiting = {}
     for name in config.session_records():
@@ -3009,7 +3019,7 @@ def wait_over(cfg, log):
                     "on a pull request or run")
             continue
         if not wait.get("over"):
-            over, reason = wait_fact(wait)
+            over, reason, run = wait_fact(wait)
             if over is None:
                 log(f"WARN {name}: its wait on {wait['on']} cannot be read: {reason}")
                 if LOGGED_OUT.search(reason or ""):
@@ -3022,18 +3032,32 @@ def wait_over(cfg, log):
                     continue
                 # a fact nobody could read for this many ticks running ends the wait, said:
                 # no seat stands on it for good
-                over, reason = True, f"your wait on {wait['on']} cannot be read ({reason})"
+                over, reason, run = (True, f"your wait on {wait['on']} cannot be read ({reason})",
+                                     None)
             elif not over:
                 if wait.get("unread"):
                     wait_mark(name, wait, unread=0)     # read again: the misses were blips
                 continue
-            if not wait_mark(name, wait, over=reason):
+            if not wait_mark(name, wait, over=reason, run=run):
                 continue
             wait = seat_read(name).get("wait")
             if not isinstance(wait, dict) or wait.get("told"):
                 continue
         if closed:
             continue
+        run = wait.get("run") and run_record.read_state(config.RUNS / wait["run"])
+        if run and transitions.launched_session(run) == name:
+            # its own run hands this ending back with the verdict, PR and result: that line is
+            # the one the seat hears, and a second for the same ending would join it in the
+            # composer (22 Oct).  A routine ending, or one said elsewhere, is not typed to it
+            if not handback.routine_ending(run) and (
+                    run.get("state") not in run_record.ENDED or handback.owes_ending(run)):
+                continue        # the hand-back is on its way
+            if handback.already_handed_back(run) and not run.get("handback_note"):
+                if wait_mark(name, wait, told=time.time()):
+                    log(f"{name}: its own run's hand-back told it that {wait['over']}; its "
+                        "wait is over")
+                continue
         # one line, whatever gh said over several: a newline typed is a key of its own
         line = f"{' '.join(str(wait['over']).split())}; your wait is over. Decide the next step."
         if type_at_prompt(session, line, log, cfg=cfg, typed=wait.get("typed"),
@@ -3073,7 +3097,7 @@ def wait_main(argv):
               file=sys.stderr)
         return 1
     wait = {"on": on, "kind": kind, "at": time.time()}
-    over, why = wait_fact(wait)
+    over, why, _ = wait_fact(wait)
     if over is None:
         print(f"ak wait: gh cannot view {on}: {why}", file=sys.stderr)
         return 1
