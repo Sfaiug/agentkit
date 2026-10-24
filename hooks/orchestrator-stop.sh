@@ -349,13 +349,16 @@ def held(launched, payload):
     return delivery or (parked_reason(undecided) if undecided else config.name_owed(seat) or REASON)
 
 
-def written(launched, kind):
+def written(launched, kind, holds):
     """This Stop, as hooks/seat-state.sh writes every other event down for the seat's row:
     under the name the seat goes by now, which is the name its row reads, and in the order the
-    two hooks heard their events (`config.record_hook_fact`)."""
+    two hooks heard their events (`config.record_hook_fact`).  Beside it, where there are any,
+    `holds`: the type of each background task still in flight, shells and monitors too, which
+    no move off an account with usage left cuts off (`lifecycle.held_work`)."""
     try:
         config.record_hook_fact(resolve(launched), {"session": launched, "event": "Stop",
-                                                    "kind": kind, "text": "", "at": time.time()})
+                                                    "kind": kind, "text": "", "at": time.time(),
+                                                    **({"holds": holds} if holds else {})})
     except (OSError, config.Error):
         pass        # a Stop nobody could write down is no reason to let the turn end
 
@@ -376,7 +379,9 @@ def main():
         # record before this harness takes its next prompt (`watch.turn_ended`)
         turn_ended(resolve(launched))
     if tells(payload):
-        written(launched, "held" if back else "background" if background(payload) else "")
+        written(launched, "held" if back else "background" if background(payload) else "",
+                [str(task.get("type") or "task") for task in tasks(payload)
+                 if isinstance(task, dict)])
         # looked at again now its Stop is on record, however long judging it took
         start_look(launched)
     if back:
