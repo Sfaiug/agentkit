@@ -45,7 +45,7 @@ class Slice:
         runs = self.dir / "agentkit-test-runs.slice"
         runs.mkdir(parents=True)
         membership = home.root / "membership"
-        membership.write_text(f"0::/{SERVICE}/shell.scope\n")
+        membership.write_text(f"0::/{SERVICE}/app.slice/acme.service\n")
         home.env.update(AK_CGROUP_ROOT=str(root), AK_CGROUP_FILE=str(membership))
         (runs / "cpu.max").write_text("800000 100000\n")
         for directory in (self.dir, runs):
@@ -65,6 +65,13 @@ class AdmissionCountsSwap(unittest.TestCase):
     def test_swap_in_the_slice_derives_fewer_heavy_turns_and_shows_on_the_host_line(self):
         with Home() as home:
             slice_ = Slice(home)
+            # The shell asking sits in a limited unit of its own, outside ak's slice.
+            shell = home.root / "cgroup" / SERVICE / "app.slice" / "acme.service"
+            shell.mkdir(parents=True)
+            for name, mb in (("memory.high", 16384), ("memory.current", 7168),
+                             ("memory.swap.current", 3072)):
+                (shell / name).write_text(str(mb * MB))
+            (shell / "memory.stat").write_text("active_file 0\ninactive_file 0\n")
             lines = {}
             for swap in (0, 1536):
                 slice_.holds(swap_mb=swap)
@@ -73,8 +80,9 @@ class AdmissionCountsSwap(unittest.TestCase):
                 lines[swap] = done.out.splitlines()[:2]
             turns = {swap: int(heavy.split()[2]) for swap, (_, heavy) in lines.items()}
             self.assertLess(turns[1536], turns[0], lines)
-            self.assertIn("1.5 G in swap", lines[1536][0])
-            self.assertNotIn("in swap", lines[0][0])
+            self.assertIn("acme.service 10 of 16 G in use · 3 G in swap · "
+                          "agentkit-test.slice 3.5 of 4 G in use · 1.5 G in swap", lines[1536][0])
+            self.assertIn("acme.service 10 of 16 G in use · 3 G in swap · a run", lines[0][0])
 
     def test_a_run_waits_while_ram_and_swap_fill_the_slice_or_memory_stalls_for_a_minute(self):
         with Home() as home:
@@ -86,7 +94,8 @@ class AdmissionCountsSwap(unittest.TestCase):
             fakeadapter.install(home, claude="work", codex="pass")
             for title, holds, why in (
                     ("Add retry file", {"swap_mb": 1536}, "in swap"),
-                    ("Bump alpha notes", {"swap_mb": 0, "pressure": STALLED}, "pressure 30%")):
+                    ("Bump alpha notes", {"swap_mb": 512, "pressure": STALLED},
+                     "pressure 30%, limit 10% · 0.5 G in swap")):
                 with self.subTest(title):
                     slice_.holds(**holds)
                     known = set(taskfile.runs(home))

@@ -137,8 +137,11 @@ def host_status_line():
     segment = ""
     unit = host._unit_memory(readings)
     if unit and len(unit) > 3 and unit[3]:
-        segment = f" · {unit[3]} {host._g(unit[0])} of {host._g(unit[1])} G in use"
-    segment += _in_swap(host._slice_or_unit_memory(readings))
+        segment = f" · {unit[3]} {host._g(unit[0])} of {host._g(unit[1])} G in use{_in_swap(unit)}"
+    ours, name = host._slice_or_unit_memory(readings), orch.slice_cgroup().name
+    # From a shell outside it, ak's slice is not the unit above, yet its swap is what admission reads.
+    if ours and ours[4] and ours != unit and not (unit and unit[3] == name):
+        segment += f" · {name} {host._g(ours[0])} of {host._g(ours[1])} G in use{_in_swap(ours)}"
     first = (f"host: {int(cpus)} cpus · {signal} · "
              f"{host._g(host._reading(readings, 'free_mb', 'mem_available_mb'))} G free{segment} · "
              f"{admitted}")
@@ -316,11 +319,11 @@ def _wait_reason(readings, minimum, maximum, frozen=0):
             return (f"waiting for the host to calm · load {_load(load)} + {frozen} "
                     f"frozen {noun}, limit {_load(maximum)}", "load")
         return f"waiting for the host to calm · load {_load(load)}, limit {_load(maximum)}", "load"
+    unit = host._slice_or_unit_memory(readings)
     pressure = host._reading(readings, "slice_memory_pressure")
     if pressure is not None and pressure > MEMORY_PRESSURE_LIMIT:
         return (f"waiting for ak's memory · pressure {pressure:g}%, "
-                f"limit {MEMORY_PRESSURE_LIMIT}%", "unit memory")
-    unit = host._slice_or_unit_memory(readings)
+                f"limit {MEMORY_PRESSURE_LIMIT}%{_in_swap(unit)}", "unit memory")
     peak = history.recent_peak_rss_mb() if unit else None
     if unit and peak is not None:
         room = unit[1] - unit[0]
