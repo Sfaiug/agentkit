@@ -33,7 +33,7 @@ class DocumentsAreReviewed(unittest.TestCase):
         akconfig.write(cls.home, ["opus", "astra"])
         cls.fakes = fakeadapter.install(cls.home, claude="pass", codex="pass")
         Seat(cls.home, "acme", cwd=cls.rig.path, alive=False,
-             record={"workers": ["opus", "astra"]})
+             record={"workers": ["opus", "astra"]}, planned=True)
         cls.head = cls.rig.branch("readme", {"README.md": "# widgets\n\nSay what it is.\n"})
         cls.url = cls.gh.open_pr(cls.rig, "readme", title="Say what widgets is")
         cls.done = cls.home.ak("run", "--review-pr", cls.url, env={"AGENTKIT_SESSION": "acme"},
