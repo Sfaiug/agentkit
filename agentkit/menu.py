@@ -3196,7 +3196,7 @@ def models_screen(cfg, session, selected, providers):
                 failed = "; ".join(f"{name} {board['error']}" for name, board
                                    in fetch.answer()[0].items() if board.get("error"))
             except Exception as exc:      # noqa: BLE001 -- what stands is shown, the fault said
-                failed = " ".join(str(exc).split())
+                failed = " ".join(str(exc).split()) or type(exc).__name__
             note = f"the boards were not read: {failed}" if failed else note
             held, fetch, table = matrix.stored(), None, None
         if table is None:             # laid out again once the boards land, a stepped effort kept
