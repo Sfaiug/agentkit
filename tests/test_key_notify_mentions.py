@@ -70,8 +70,9 @@ class TheTickPages(unittest.TestCase):
     def test_its_page_mentions_the_owner_named_in_the_environment_and_allows_only_them(self):
         # A seat that closed on its own with its question standing, the card a tick five minutes
         # ago held back: nobody is in it, so its minute has long passed.  A live seat's minute
-        # counts from its tmux session's last activity, which no test can date back.
-        Seat(self.home, "acme", alive=False)
+        # counts from its tmux session's last activity, which no test can date back.  Its
+        # conversation is not its own, so no tick reopens it to ask again.
+        Seat(self.home, "acme", alive=False, record={"id_source": None})
         now = time.time()
         self.home.write(".agentkit/state/notify-acme.json",
                         {"session": "acme", "kind": "needs",

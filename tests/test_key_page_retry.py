@@ -31,8 +31,9 @@ def asking(home):
     akconfig.write(home, ["opus"])      # the audit off: a tick opens no seat of its own
     # A seat that closed with its question standing, its card held back by a tick five minutes
     # ago: nobody is in it, so its minute has passed.  A live seat's minute counts from its tmux
-    # session's last activity, which no test can date back.
-    Seat(home, "acme", alive=False)
+    # session's last activity, which no test can date back.  Its conversation is not its own,
+    # so no tick reopens it to ask again.
+    Seat(home, "acme", alive=False, record={"id_source": None})
     now = time.time()
     home.write(".agentkit/state/notify-acme.json",
                {"session": "acme", "kind": "needs", "text": "Which database should the app use?",
