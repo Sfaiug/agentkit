@@ -3916,12 +3916,18 @@ def _editor_read(session, where, cfg=None):
         harness = seat_model(config.load() if cfg is None else cfg, name)[0]
         pane = pane_text(session) if harness else ""
         found = live_state(session, harness, pane=pane, cfg=cfg) if pane.strip() else {}
-        picker = found and any(rule["picker"] and rule["id"] == found.get("rule")
-                               for rule in screen(harness)["rules"])
+        picker = _picker_up(harness, found)
     except (config.Error, OSError):
         return None
     return ((harness, pane, found) if found.get("authority") and not asking(name, harness, pane)
             and not picker and not pane_unread(session) else None)
+
+
+def _picker_up(harness, found):
+    """Whether that seat's screen, read as `found` (`live_state`), shows a picker
+    (`[[rule]] picker`), which may draw its composer empty above it."""
+    return any(rule["picker"] and rule["id"] == found.get("rule")
+               for rule in screen(harness)["rules"])
 
 
 def drafts_back(cfg):
@@ -4012,15 +4018,22 @@ def carry_draft(session, harness, pane, to, cfg=None):
     where the editor gives no answer, or finds text typed since that set aside, which no step
     merges.  Only through ak's editor, which reads a composer whole, and only to a harness
     (`to`) that opens it too: a screen draws a draft late, wrapped and cropped, and elsewhere
-    the text would go with the old harness.  Under the seat's lock its caller holds over the
-    respawn too, so no tick hands the text back to the harness going; the pane is read again
-    under it, as the caller's capture predates a paste taken since."""
+    the text would go with the old harness.  Not where the editor may not be asked a step now
+    either (`_editor_read`): a picker drawn since, or input unread, would take its keys.
+    Under the seat's lock its caller holds over the respawn too, so no tick hands the text back
+    to the harness going; the pane is read again under it, as the caller's capture predates a
+    paste or picker taken since."""
     pane = pane_text(session)
-    # nothing to keep in a composer read empty, and no keys to a question: they could answer it
-    if not harness or composer_draft(harness, pane) == "" or asking(session["name"], harness, pane):
+    # no keys to a question: they could answer it; nothing to keep in a composer read empty,
+    # but a picker may draw it empty over the owner's text
+    if not harness or asking(session["name"], harness, pane):
+        return True
+    if composer_draft(harness, pane) == "" and not (
+            pane.strip() and _picker_up(harness, live_state(session, harness, pane=pane, cfg=cfg))):
         return True
     where = screen(to).get("editor") and seat_editor(session, cfg)
-    return bool(where) and _edit(session, where, "line") in ("line", "unsent")
+    return bool(where and _editor_read(session, where, cfg)
+                and _edit(session, where, "line") in ("line", "unsent"))
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
