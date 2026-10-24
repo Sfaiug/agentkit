@@ -1382,7 +1382,7 @@ class _SuiteMeasure:
             pass    # a missing measurement keeps the initial estimate
 
     def overflowed(self, path, planned_mb):
-        """A suite whose cgroup ran out of memory since this measure began (`memory.events`)
+        """A suite whose cgroup ran out of memory since this measure began (`host.memory_events`)
         costs at least twice the `planned_mb` it ran at, however its pieces ended: held memory
         stops at the cap, so no peak shows the overflow, and its next pass is cut smaller."""
         if self.oom() <= self.ooms:
