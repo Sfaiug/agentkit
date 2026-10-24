@@ -35,6 +35,7 @@ class RecommendsEffort(Sandbox):
         config.save_session(self.cfg, "fix-api", "fable", ["fable", "astra"],
                             {"reviewers": ["astra"], "cwd": "/", "created": 0})
         self.stack.enter_context(patch.object(update, "agentkit_version", return_value="abc1234"))
+        scores.read_as_stored(self.stack)     # the boards as stored: none is asked
         self.stack.enter_context(patch.object(usage, "collect", return_value=usage.Readings({})))
         self.stack.enter_context(patch.object(terminal, "layout_width", return_value=100))
         self.stack.enter_context(patch.dict("os.environ", {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}))
