@@ -1,5 +1,6 @@
 """`c`'s For row names whom its marks are for -- new seats ([defaults], test_new_seats_marks) or
-the seat `c` opened on -- and turns between them; a flip is for whom it names, asking nothing.
+the seat `c` opened on -- and never turns, the keys passing over it; a flip is for whom it names,
+asking nothing.
 Offline: a throwaway HOME, the keys fed in, the switch faked as test_switch_orchestrator proves.
 """
 
@@ -46,14 +47,14 @@ class ForRow(Sandbox):
                  for frame in terminal.plain(drawn.getvalue()).split("agentkit · config ")[1:]]
         return [scope for at, scope in enumerate(named) if not at or scope != named[at - 1]]
 
-    def test_it_turns_between_the_seat_it_opened_on_and_new_seats(self):
-        # ↑ from the first model is the row; ←, →, Enter and space turn it, round the ends
-        self.assertEqual(self.screen("up", "right", "left", "enter", "space", session="fix-api"),
-                         ["fix-api", "new seats", "fix-api", "new seats", "fix-api"])
-        self.assertEqual(self.screen("up", "right", "enter"), ["new seats"])    # on a heading
+    def test_it_never_turns(self):
+        # ↑ from the first model is past the row, on a meter, and ←, → and ↓ there turn nothing
+        self.assertEqual(self.screen("up", "right", "left", "down", session="fix-api"),
+                         ["fix-api"])
+        self.assertEqual(self.screen("up", "right", "left", "down"), ["new seats"])
 
     def test_a_flip_is_for_whom_the_row_names_asking_nothing(self):
-        self.screen("up", "right", "down", "enter", session="fix-api")    # new seats': fable
+        self.screen("enter")                                             # new seats': fable
         self.assertEqual((config.load()["defaults"]["orchestrator"], self.moved), ("fable", []))
         self.screen("enter", session="acme")                             # acme's own
         self.assertEqual(self.moved, [("acme", "fable")])
