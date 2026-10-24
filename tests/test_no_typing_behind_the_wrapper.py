@@ -231,7 +231,7 @@ class WrappedPane(Seats):
                 mark = {'boot': watch.boot_id(), 'at': NOW - 100, 'name': SEAT,
                         'tries': watch.MIDTURN_TRIES - 1}
                 if accounts:
-                    mark['line'] = watch.ACCOUNT_LINE
+                    mark.update(line=watch.ACCOUNT_LINE, account=True)
                 watch.seat_write(SEAT, midturn=mark)
                 for _ in range(watch.MIDTURN_TRIES + 1):
                     watch.continue_turns(self.cfg, lambda _: None, accounts=accounts)

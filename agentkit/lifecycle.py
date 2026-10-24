@@ -20,6 +20,21 @@ def facts(name):
     return data if isinstance(data, dict) else {}
 
 
+def held_work(fact):
+    """The type of each background task the seat's harness listed in flight at its last Stop
+    (hooks/orchestrator-stop.sh), or [] -- as for a harness whose Stop lists none."""
+    holds = fact.get("holds") if isinstance(fact, dict) else None
+    return [str(task) for task in holds] if isinstance(holds, list) else []
+
+
+def carried(standing, fact):
+    """`fact`, holding the background work the fact `standing` names unless it is the next Stop,
+    which lists that work again: a prompt or a compaction ends none of it.  A new harness's
+    first fact finds none standing (`orch.resume` moves the last one aside)."""
+    work = held_work(standing)
+    return {**fact, "holds": work} if work and fact.get("event") != "Stop" else fact
+
+
 def state(harness, fact):
     """(state, event, evidence, when) the manifest maps that fact to, or (None, "", "", None).
 

@@ -1631,7 +1631,8 @@ def record_hook_fact(name, fact, keep=lambda standing: False):
         if (isinstance(at, (int, float)) and not isinstance(at, bool) and at > fact["at"]
                 or keep(standing)):
             return
-        _write_json(path, fact, prepare=False)
+        from . import lifecycle     # here: it reads this module's paths
+        _write_json(path, lifecycle.carried(standing, fact), prepare=False)
 
 
 def plan_path(name):

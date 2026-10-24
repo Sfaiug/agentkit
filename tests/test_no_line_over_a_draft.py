@@ -33,10 +33,11 @@ class NoLineOverADraft(Seats):
             with self.subTest(line=line[:20]):
                 self.typed.clear()
                 self.drafted()
-                mark = {"boot": watch.boot_id(), "at": NOW - 100, "name": SEAT,
-                        "tries": watch.MIDTURN_TRIES - 1, "line": line}
-                watch.seat_write(SEAT, midturn=mark)
                 accounts = line == watch.ACCOUNT_LINE
+                mark = {"boot": watch.boot_id(), "at": NOW - 100, "name": SEAT,
+                        "tries": watch.MIDTURN_TRIES - 1, "line": line,
+                        **({"account": True} if accounts else {})}
+                watch.seat_write(SEAT, midturn=mark)
                 for _ in range(watch.MIDTURN_TRIES + 1):
                     watch.continue_turns(self.cfg, lambda _: None, accounts=accounts)
                 self.assertEqual(self.typed, [])
