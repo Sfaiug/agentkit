@@ -37,6 +37,7 @@ CATALOG = "m1\tModel One\tlow medium high"     # what the claude adapter's `mode
 FABLE_LISTED = "claude-fable-5-1\tFable 5.1\tlow medium high xhigh max"
 HEADER = "# agentkit's config, written by the menu's `c` screen."
 KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"   # a seat's, wherever the highlight is
+PAGE_KEYS = "  ↑↓←→ move   ⏎ choose   esc back"   # a page under it, with no `r`
 
 def rows(screen):
     return [line.rstrip() for line in screen.split("\n")]
@@ -142,17 +143,17 @@ class ConfigScreenEdits(unittest.TestCase):
         screen = self.term.wait(lambda screen: "›   claude  Claude" in rows(screen))
         self.assertTrue(rows(screen)[0].startswith("agentkit · config · add a model"), screen)
         self.assertEqual(body(screen), ["  harness", "›   claude  Claude", "    codex   ChatGPT"])
-        self.assertEqual(key_line(screen), KEYS)
+        self.assertEqual(key_line(screen), PAGE_KEYS)
         self.term.keys("Enter")
         screen = self.term.wait(lambda screen: "›   Model One  m1" in rows(screen))
         self.assertEqual(body(screen), ["  harness  claude · Claude", "  model",
                                         "›   Model One  m1"])
-        self.assertEqual(key_line(screen), KEYS)
+        self.assertEqual(key_line(screen), PAGE_KEYS)
         self.term.keys("Enter")
         screen = self.term.wait(lambda screen: "›   low" in rows(screen))
         self.assertEqual(body(screen), ["  harness  claude · Claude", "  model    Model One · m1",
                                         "  effort", "›   low", "    medium", "    high"])
-        self.assertEqual(key_line(screen), KEYS)
+        self.assertEqual(key_line(screen), PAGE_KEYS)
         self.term.keys("Enter")
         # the row's cells, under whichever name the screen gives a model it has just added
         cells = "[○]     □        □     ▰▱▱     low"
