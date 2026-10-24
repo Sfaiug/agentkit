@@ -118,11 +118,13 @@ class ReadsTheBoards(screen.Screen):
                       "Unavailable", text)
 
     def test_a_reading_that_failed_is_said_and_the_stored_rows_stand(self):
-        with patch.object(matrix, "refresh", side_effect=OSError("artificialanalysis.ai\n"
-                                                                 "answered 503")):
-            text = self.screens([Key("char", "r"), Key("esc"), Key("esc")])
-        self.assertIn(f"› {self.opus} claude ‹ xhigh › 100 100 100 8.00", text)
-        self.assertIn("the boards were not read: artificialanalysis.ai answered 503", text)
+        # one with no message is said by its kind
+        for fault, said in ((OSError("artificialanalysis.ai\nanswered 503"),
+                             "artificialanalysis.ai answered 503"), (TimeoutError(), "TimeoutError")):
+            with self.subTest(said=said), patch.object(matrix, "refresh", side_effect=fault):
+                text = self.screens([Key("char", "r"), Key("esc"), Key("esc")])
+            self.assertIn(f"› {self.opus} claude ‹ xhigh › 100 100 100 8.00", text)
+            self.assertIn(f"the boards were not read: {said}", text)
 
 
 if __name__ == "__main__":
