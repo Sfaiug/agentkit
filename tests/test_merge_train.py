@@ -117,7 +117,9 @@ class MergeTrain(LanderFixture, unittest.TestCase):
             {f"member-{n}.txt" for n in range(1, 4)},
             {f"member-{n}.txt" for n in range(1, 5)},
             {f"member-{n}.txt" for n in (1, 2, 3, 5, 6)}])
-        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [m.name for m in members])
+        # the halfway steps run the suite alone, covering no stack: the rebuilt check lands them
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
+                         [members[3].name] + [m.name for m in members[:3] + members[4:]])
         self.assertIn("fix", self.wait(members[3]))
         good = members[:3] + members[4:]
         for index, member in enumerate(good):
