@@ -1,6 +1,7 @@
 ---
 users: none
 tests: export AK_SHARD AGENTKIT_ACCEPTANCE_REQUIRED=1; offline() { unshare --user --map-current-user --net --keep-caps sh -c 'ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' - "$@"; }; offline true 2>/dev/null || offline() { "$@"; }; offline bash -c 'python3 tests/landing.py'
+health: git merge-base --is-ancestor "$AK_MERGE_SHA" HEAD
 ---
 # agentkit, for an agent working on it
 
