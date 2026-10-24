@@ -502,10 +502,10 @@ def _slice_memory(cgroup):
 
 def held_mb(cgroup, *, swap=False):
     """A cgroup's memory in MB less the file cache reclaim frees, or None where unread; with
-    `swap`, what it swapped out too, none where the kernel counts no swap for it."""
+    `swap`, what it swapped out too (`_swap_mb`)."""
     raw = _read_number(Path(cgroup) / "memory.current", bytes_to_mb=True)
     cache = _reclaimable_mb(Path(cgroup) / "memory.stat")
-    swapped = swap and _read_number(Path(cgroup) / "memory.swap.current", bytes_to_mb=True) or 0
+    swapped = _swap_mb(cgroup) if swap else 0.0
     return None if raw is None or cache is None else max(0.0, raw - cache) + swapped
 
 
