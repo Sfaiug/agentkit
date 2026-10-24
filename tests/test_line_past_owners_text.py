@@ -224,8 +224,9 @@ class LinePastOwnersText(EditorSeat):
         self.pane = draft.replace("hello draft text", f"and {GROK_PASTE}  ")
         self.tick()
         self.assertEqual((self.keys, self.told()), ([], False))
-        # one with none gets the palette's key, which no palette drawn here takes further
-        self.pane = draft
+        # one with none gets the palette's key, which no palette drawn here takes further, a
+        # slash command quoted in its transcript no dropdown
+        self.pane = f"    ❯ /model\n{draft}"
         self.tick()
         self.assertEqual((self.keys, self.told()), (["C-p"], False))
 

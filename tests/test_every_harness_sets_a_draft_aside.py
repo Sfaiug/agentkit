@@ -3,8 +3,8 @@ each manifest names the keys that hand its composer to ak's editor (`[screen] ed
 keys set the text aside for the line and give it back (19 Oct 2026).  Grok 1.0.46 opens that
 editor only from its command palette, each key typed once the palette shows what the key before
 it drew (`[screen] editor_shows`).  Offline: fixtures.editor_seat's seat, on each harness
-`config.manifests()` ships, its pane that harness's prompt capture, ak's clock and its editor's
-the test's.
+`config.manifests()` ships, its pane that harness's prompt capture or Grok's palette's, ak's clock
+and its editor's the test's.
 """
 
 import unittest
@@ -17,8 +17,9 @@ from agentkit import aside_editor, config, watch
 
 DRAFT = "and add these posts"
 LINE = "ak notice"
-# what Grok's command palette draws as each key lands (1.0.46)
-PALETTE = {"C-p": "│   search: ", "edit prompt": "│   search: edit prompt   │"}
+# what Grok's command palette draws as each key lands (captured 1.0.46)
+PALETTE = {key: (REPO / f"tests/fixtures/grokbuild-{name}-pane.txt").read_text(encoding="utf-8")
+           for key, name in (("C-p", "palette"), ("edit prompt", "palette-edit-prompt"))}
 
 
 class EveryHarness(EditorSeat):
@@ -41,7 +42,7 @@ class EveryHarness(EditorSeat):
         super().press(key, *(pane,) if pane else ())
 
     def read(self, *args, **kwargs):
-        return super().read(*args, **kwargs) + self.menu
+        return super().read(*args, **kwargs) if not self.menu else self.menu
 
     def on(self, harness):
         """The seat, its model on that harness, showing that harness's prompt holding DRAFT."""
@@ -77,6 +78,9 @@ class EveryHarness(EditorSeat):
     def test_a_palette_that_never_opens_gets_none_of_the_keys_meant_for_it(self):
         self.on("grokbuild")
         self.opens = False
+        # its transcript quoting the palette's search row is no palette
+        self.base = f"{PALETTE['edit prompt'].splitlines()[6]}\n{self.base}"
+        self.show(DRAFT)
         self.assertIsNone(watch._edit(self.seat, watch.seat_editor(self.seat, self.cfg), "line",
                                       LINE))
         # the rest would have gone into the owner's composer; no ask is left for their own edit

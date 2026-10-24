@@ -785,10 +785,11 @@ def screen(harness):
              # the keys that hand its composer to $VISUAL, ak's editor (`seat_editor`)
              "editor": tuple(key for key in block.get("editor") or ()
                              if isinstance(key, str) and key),
-             # what the screen shows before each of the last of them goes in, each typed into a
-             # menu the key before it opens in its own time (`_edit`)
-             "editor_shows": tuple(_pattern(shown, path) for shown in block.get("editor_shows")
-                                   or () if isinstance(shown, str) and shown),
+             # what the screen shows, read whole, before each of the last of them goes in, each
+             # typed into a menu the key before it opens in its own time (`_edit`)
+             "editor_shows": tuple(_pattern(shown, path, re.M) for shown
+                                   in block.get("editor_shows") or ()
+                                   if isinstance(shown, str) and shown),
              # a paste that editor would lose or never takes (`_may_paste`)
              "pasted": _pattern(block.get("pasted"), path),
              "rules": [_rule(entry, path) for entry in data.get("rule") or ()]}
@@ -3899,9 +3900,9 @@ def _edit(session, where, mode, line=""):
 
 
 def _shows(session, shown):
-    """Whether that seat's screen shows `shown` on a row within SENT_WAIT."""
+    """Whether that seat's screen, read whole, shows `shown` within SENT_WAIT."""
     for _ in range(int(SENT_WAIT / SENT_POLL)):
-        if any(map(shown.search, strip_sgr(pane_text(session)).splitlines())):
+        if shown.search(strip_sgr(pane_text(session))):
             return True
         time.sleep(SENT_POLL)
     return False
