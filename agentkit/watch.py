@@ -4012,12 +4012,15 @@ def carry_draft(session, harness, pane, to, cfg=None):
     where the editor gives no answer, or finds text typed since that set aside, which no step
     merges.  Only through ak's editor, which reads a composer whole, and only to a harness
     (`to`) that opens it too: a screen draws a draft late, wrapped and cropped, and elsewhere
-    the text goes with the old harness.  Under the seat's lock its caller holds over the
-    respawn too, so no tick hands the text back to the harness going."""
-    # keys go out unless the composer reads empty, and never to a question: they could answer it
-    where = (harness and screen(to).get("editor") and composer_draft(harness, pane) != ""
-             and not asking(session["name"], harness, pane) and seat_editor(session, cfg))
-    return not where or _edit(session, where, "line") in ("line", "unsent")
+    the text would go with the old harness.  Under the seat's lock its caller holds over the
+    respawn too, so no tick hands the text back to the harness going; the pane is read again
+    under it, as the caller's capture predates a paste taken since."""
+    pane = pane_text(session)
+    # nothing to keep in a composer read empty, and no keys to a question: they could answer it
+    if not harness or composer_draft(harness, pane) == "" or asking(session["name"], harness, pane):
+        return True
+    where = screen(to).get("editor") and seat_editor(session, cfg)
+    return bool(where) and _edit(session, where, "line") in ("line", "unsent")
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
