@@ -1,7 +1,7 @@
 """A seat builds under 50 added lines; larger own PRs must become executor tasks.
 
 The same gate refuses at launch and on the checked-out head, before any reviewer runs.
-Documents alone stay exempt. Offline: real Git, fake GitHub and workers, a throwaway HOME.
+Documents count like any file. Offline: real Git, fake GitHub and workers, a throwaway HOME.
 """
 
 from pathlib import Path
@@ -32,9 +32,11 @@ class SeatPrUnderFiftyLines(OwnPr):
         self.assertIn("too big for the seat", why)
         self.assertIn("Write it as a task and launch it; a worker builds it", why)
 
-    def test_200_lines_of_documents_launch(self):
-        self.push_lines(200, "README.md")
-        self.assertEqual(self.launch()[:2], (None, 1))
+    def test_50_lines_of_documents_must_be_written_as_a_task_too(self):
+        self.push_lines(50, "README.md")
+        why, spawned, _ = self.launch()
+        self.assertEqual(spawned, 0)
+        self.assertIn("adds 50 lines", why)
 
     def test_growth_after_launch_is_refused_on_the_checked_out_head(self):
         self.push_lines(49)

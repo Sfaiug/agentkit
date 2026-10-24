@@ -88,7 +88,7 @@ class LoginBack(unittest.TestCase):
         cls.addClassCleanup(cls.home.close)
         cls.sink = Sink(cls.home)
         cls.addClassCleanup(cls.sink.close)
-        cls.seat = Seat(cls.home, "acme")
+        cls.seat = Seat(cls.home, "acme", planned=True)
         cls.claude, cls.run_dir, cls.code = park(cls.home, seat="acme")
         cls.parked = record(cls.run_dir)
         cls.out_tick = cls.home.tick()

@@ -321,7 +321,7 @@ def _bind(own, writable, homes=()):
 @contextmanager
 def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=(), hidden=(),
             home_overlay=False, drain=False):
-    """Yield spawn arguments; wait for teardown, and with drain for the command's output EOF.
+    """Yield spawn arguments; wait for teardown, and with drain, a check's, for its output EOF.
 
     `state` names a manifest's paths, expanded from the environment; `places` are literal
     directories the command may also write; `hidden` are literal files and folders it finds empty,
@@ -557,6 +557,14 @@ def cpu_seconds(out_dir):
 
 
 def _supervise(report, argv, drain=False):
+    if drain:
+        # A check runs again and a killed piece is retried; a seat's conversation or a turn
+        # cannot be. So wherever memory runs out, at the run's cap, in its slice or host-wide,
+        # the kernel ends a check first. Children inherit the score; raising it takes no right.
+        try:
+            Path("/proc/self/oom_score_adj").write_text("1000")
+        except OSError:
+            pass
     try:
         proc = subprocess.Popen(argv, start_new_session=True, **(
             {"stdout": subprocess.PIPE, "stderr": subprocess.STDOUT} if drain else {}))

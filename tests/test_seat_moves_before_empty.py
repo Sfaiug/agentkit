@@ -113,9 +113,13 @@ class MovesBeforeEmpty(unittest.TestCase):
 
         def unreadable():
             self.pane = ""
+
+        def held():     # a turn ended on background work meanwhile
+            config.hook_facts_path(NAME).write_text(json.dumps(
+                {"event": "Stop", "kind": "", "at": self.now, "holds": ["monitor"]}))
         self.unread = False
         with patch.object(watch, "pane_unread", side_effect=lambda _seat: self.unread):
-            for change in (draft, typed, closed, unread, unreadable):
+            for change in (draft, typed, closed, unread, unreadable, held):
                 with self.subTest(change.__name__):
                     base.SeatAccount.setUp(self)
                     self.calls, self.at_look, self.keys_off, self.unread = [], change, False, False

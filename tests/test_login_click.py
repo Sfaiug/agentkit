@@ -1,7 +1,8 @@
-"""A click on an amber meter hands the terminal to that login's `login again`, and the ak screen
-is back as soon as it ends, the meter grey once the login it made stands; a click on a grey one
-signs nothing in.  `menu.loop` in-process, its keys scripted, with a fake Claude adapter whose
-`login again` makes a login 30 days out, or fails where $FAKE/fail exists.
+"""A click on a meter lists what it offers, as Enter on it over `c` does (test_meter_acts.py),
+and `↻ log in again` on an amber one hands the terminal to that login's `login again`, the ak
+screen back as soon as it ends, the meter grey once the login it made stands; Esc on the list
+signs nothing in.  `menu.loop` in-process, its keys and picks scripted, with a fake Claude adapter
+whose `login again` makes a login 30 days out, or fails where $FAKE/fail exists.
 """
 
 from contextlib import redirect_stdout
@@ -40,7 +41,7 @@ class LoginClick(Sandbox):
         (self.fake / "standing").write_text(json.dumps(soon))
         (self.fake / "renewed").write_text(json.dumps({**soon, "ends": 10000 + 30 * DAY}))
         (config.STATE / "usage.json").write_text(json.dumps({"fetched_at": 10000, "providers": {
-            "anthropic": {"meters": [WEEK]}, "openai": {"meters": [WEEK]}}}))
+            "anthropic": {"meters": [WEEK], "resets": 1}, "openai": {"meters": [WEEK]}}}))
         (config.STATE / "logins.json").write_text(json.dumps(
             {"anthropic": {"default": {**soon, "checked_at": 10000}}}))
         self.stack.enter_context(patch.dict(os.environ, {
@@ -63,35 +64,42 @@ class LoginClick(Sandbox):
                     for first, last, at in places if at == cell)
 
     def signed_in(self):
-        """The last screen drawn, and the login kept, as the owner clicks the grey meter, then the
-        amber one, then Esc."""
-        draws = []
+        """The meters amber on the last screen drawn, and the login kept, as the owner clicks
+        the grey meter and lets its list go, then the amber one and picks `↻ log in again`,
+        then Esc."""
+        draws, amber, offered = [], [], []
         real = menu.draw
 
         def draw(*args, **kwargs):
             draws.append(args[5])         # what the screen drew, read back as the loop does
+            amber.append([number for number, note in enumerate(
+                menu.login_notes(menu.usage_rows(args[0])), 1) if note])
             return real(*args, **kwargs)
         script = iter([lambda: self.click(draws[-1], "ChatGPT"),   # grey: no login ends soon
                        lambda: self.click(draws[-1], "Claude"),    # amber: it ends in 2 days
                        lambda: terminal.Key("esc")])
+        picks = iter([None, "↻ log in again"])
         with patch.object(menu, "draw", side_effect=draw), \
                 patch.object(menu, "moving", side_effect=lambda *a, **k: next(script)()), \
+                patch.object(terminal, "choose", side_effect=lambda choices, **_kw:
+                             offered.append(choices) or next(picks)), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
+        self.assertEqual(offered, [["↻ log in again"], ["↻ log in again", "↻ spend a reset"]])
         calls = self.fake / "calls"
         self.assertEqual(calls.read_text() if calls.exists() else "", "again default\n")
         self.assertEqual(len(draws), 3)   # the screen came back by itself before Esc left it
-        return draws[-1], logins.read()["anthropic"]["default"]
+        return amber[-1], logins.read()["anthropic"]["default"]
 
     def test_a_click_on_the_amber_meter_comes_back_with_it_grey(self):
-        shown, kept = self.signed_in()
-        self.assertEqual(shown["logins"], {})      # no meter amber, before any tick asked
+        amber, kept = self.signed_in()
+        self.assertEqual(amber, [])                 # no meter amber, before any tick asked
         self.assertEqual(kept["ends"], 10000 + 30 * DAY)
 
     def test_a_login_that_failed_leaves_its_meter_amber(self):
         (self.fake / "fail").touch()
-        shown, kept = self.signed_in()
-        self.assertEqual(list(shown["logins"]), [number(self.cfg, "Claude")])
+        amber, kept = self.signed_in()
+        self.assertEqual(amber, [number(self.cfg, "Claude")])
         self.assertEqual(kept["ends"], 10000 + 2 * DAY)
 
 

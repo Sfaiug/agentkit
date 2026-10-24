@@ -68,7 +68,7 @@ class MemoryGate(unittest.TestCase):
         }, "/user@1000.service/agentkit.slice/agentkit-run-r.scope")
         limits = host._unit_memory_limits(cgroup_file, root)
         self.assertEqual(len(limits), 1)
-        used, high, raw, name = limits[0]
+        used, high, raw, name, _ = limits[0]
         self.assertEqual(name, "agentkit.slice")
         self.assertAlmostEqual(high, 10 * 1024, delta=0.01)
         self.assertAlmostEqual(raw, 5 * 1024, delta=0.01)
@@ -84,7 +84,7 @@ class MemoryGate(unittest.TestCase):
                                   "stat": f"anon 0\ninactive_file {gb(5)}\n"},
         }, "/user@1000.service")
         limits = host._unit_memory_limits(cgroup_file, root)
-        used, high, raw, _ = limits[0]
+        used, high, raw, *_ = limits[0]
         self.assertAlmostEqual(raw, 9.5 * 1024, delta=0.01)
         self.assertAlmostEqual(used, 4.5 * 1024, delta=0.01)
         readings = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,

@@ -53,13 +53,27 @@ def row(screen, name):
     return lines[at], lines[at + 1]
 
 
+def grown(line):
+    """Whether a row's bar, if it has one, has reached its share, right to half a cell (`╸`
+    where the share ends inside one).  The line eases out to it (agentkit/motion.py), so a frame
+    read early, as a fast host reads it, shows less."""
+    bar = BAR.search(line)
+    if not bar:
+        return True
+    cells = len(bar["full"]) + len(bar["half"]) + len(bar["rest"])
+    halves = 2 * len(bar["full"]) + len(bar["half"])
+    return abs(halves - 2 * cells * int(bar["done"]) / int(bar["total"])) <= 1
+
+
 def shows(*rows):
-    """A test of a screen: each (name, pattern) seat's row matches its pattern.  A seat is
-    drawn as last recorded before it is looked at, so the first frames may say otherwise."""
+    """A test of a screen: each (name, pattern) seat's row matches its pattern, its bar grown.
+    A seat is drawn as last recorded before it is looked at, so the first frames may say
+    otherwise."""
     def test(screen):
         lines = [line.rstrip() for line in screen.splitlines()]
         return "esc leave" in screen and all(
-            any(re.match(rf"[› ] \d+  {re.escape(name)} +{pattern}", line) for line in lines)
+            any(re.match(rf"[› ] \d+  {re.escape(name)} +{pattern}", line) and grown(line)
+                for line in lines)
             for name, pattern in rows)
     return test
 
@@ -144,10 +158,7 @@ class PlanBars(unittest.TestCase):
         bar = BAR.search(line)
         self.assertIsNotNone(bar, line)
         self.assertEqual((int(bar["done"]), int(bar["total"])), (done, total), line)
-        cells = len(bar["full"]) + len(bar["half"]) + len(bar["rest"])
-        # a half cell `╸` where the share ends inside one: the line is right to half a cell
-        halves = 2 * len(bar["full"]) + len(bar["half"])
-        self.assertLessEqual(abs(halves - 2 * cells * done / total), 1, line)
+        self.assertTrue(grown(line), line)
 
     def test_the_bar_counts_only_lines_ticked_on_a_commit(self):
         fix = row(self.screen, "atoll-fix")[0]

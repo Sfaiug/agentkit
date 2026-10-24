@@ -5,7 +5,8 @@ What it recommends is read off the matrix as last computed (`matrix.stored`,
 `matrix.recommended`); `r` there makes the recommended executor and reviewer the seat's marks where an entry in the config as it
 stands runs that model (`matrix.runs`; tests/test_c_recommends_effort.py: at the row's effort),
 saved to its record at once, and says why when it cannot; the orchestrator is only said, since
-moving the seat is its orchestrator mark's.  With nothing computed no model is recommended and `r` is no key.
+moving the seat is its orchestrator mark's.  With nothing computed no model is recommended and
+`r` takes nothing; without a seat `r` is no key.
 
 Offline: a throwaway HOME with a stored matrix written by hand, the keys fed in, the usage faked.
 """
@@ -45,6 +46,7 @@ class Recommends(Sandbox):
         config.save_session(self.cfg, "fix-api", "opus", ["opus", "astra"],
                             {"reviewers": ["astra"], "cwd": "/", "created": 0})
         self.stack.enter_context(patch.object(update, "agentkit_version", return_value="abc1234"))
+        scores.read_as_stored(self.stack)     # the boards as stored: none is asked
         self.stack.enter_context(patch.object(usage, "collect", return_value=usage.Readings({})))
         self.stack.enter_context(patch.object(terminal, "layout_width", return_value=100))
         self.stack.enter_context(patch.dict("os.environ", {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}))
@@ -126,9 +128,11 @@ class Recommends(Sandbox):
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["opus"]))
 
-    def test_with_nothing_computed_no_model_is_recommended_and_r_is_no_key(self):
-        text = self.screen([Key("char", "r"), Key("esc")])
-        self.assertNotIn("recommended", text)
+    def test_with_nothing_computed_no_model_is_recommended_and_r_takes_nothing(self):
+        # r opens the models screen, which reads the boards; with none scored, r there is no key
+        text = self.screen([Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])
+        self.assertIn("agentkit · models · fix-api", text)
+        self.assertNotIn("take recommended", text)
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["astra"]))
         # without a seat nothing is recommended

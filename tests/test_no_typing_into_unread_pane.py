@@ -108,7 +108,7 @@ class UnreadPane(Seats):
                 mark = {"boot": watch.boot_id(), "at": NOW - 100, "name": SEAT,
                         "tries": watch.MIDTURN_TRIES - 1}
                 if accounts:
-                    mark["line"] = line
+                    mark.update(line=line, account=True)
                 watch.seat_write(SEAT, midturn=mark)
                 before = list(self.keys)
                 for _ in range(watch.MIDTURN_TRIES + 1):

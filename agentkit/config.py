@@ -539,6 +539,12 @@ def one_login(harness):
     return (manifest(harness).get("auth") or {}).get("accounts") is False
 
 
+def signs_in_again(harness):
+    """False where that harness's manifest says `[auth] again = false`: its adapter's `login
+    again` cannot sign in afresh over a login that still stands, so nothing offers it."""
+    return (manifest(harness).get("auth") or {}).get("again") is not False
+
+
 def listed_providers(harness):
     """Every provider that harness can log in to, as its adapter's `providers` verb lists them:
     (id, name, mode), the logged-in ones first with their mode, `subscription`, `free` or
@@ -1625,7 +1631,8 @@ def record_hook_fact(name, fact, keep=lambda standing: False):
         if (isinstance(at, (int, float)) and not isinstance(at, bool) and at > fact["at"]
                 or keep(standing)):
             return
-        _write_json(path, fact, prepare=False)
+        from . import lifecycle     # here: it reads this module's paths
+        _write_json(path, lifecycle.carried(standing, fact), prepare=False)
 
 
 def plan_path(name):

@@ -1,6 +1,7 @@
-"""`c` is the one model screen: on a seat its matrix holds that seat's own roles, flipped and
-saved to its record, and its row and the next run it starts read the same record; on a heading
-its marks are new seats', `[defaults]`; `m` is no key; and `n` starts from `[defaults]`.
+"""`c` is the one model screen: in the popup over a seat its matrix holds that seat's own roles,
+flipped and saved to its record, and its row and the next run it starts read the same record; in
+a window of its own its marks are new seats', `[defaults]`; `m` is no key; and `n` starts from
+`[defaults]`.
 
 Each test runs `menu.loop` in a child process on a pty of its own, the way
 tests/test_session_models_screen.py does, in a temporary HOME holding the shipped config, the
@@ -62,7 +63,7 @@ orch.launch = lambda name, model, *args, **kwargs: print(f"<launched {name} {mod
 orch.CHARACTERS = ("new",)          # a seat nobody named is `new` here
 menu.open_session = lambda cfg, session, dry_run: print(f"<opened {session['name']}>",
                                                         flush=True)
-code = menu.loop(cfg)
+code = menu.loop(cfg, overlay="AGENTKIT_SESSION" in os.environ)     # the popup over that seat
 os.environ["AGENTKIT_SESSION"] = "fix-api"
 picked = run.pick_models(config.load(), usage.Readings({}), None, None, lambda line: None)
 print(f"<picks {' '.join(picked)}>", flush=True)
@@ -114,9 +115,10 @@ def title(name):
 
 
 class Menu:
-    """One child menu on a pty: what it wrote so far, keys sent to it, and its HOME."""
+    """One child menu on a pty, the popup over `own` if given: what it wrote so far, keys sent
+    to it, and its HOME."""
 
-    def __init__(self, case, down=""):
+    def __init__(self, case, down="", own=None):
         self.case = case
         home = tempfile.TemporaryDirectory(prefix="one-config-")
         case.addCleanup(home.cleanup)
@@ -143,7 +145,7 @@ class Menu:
                     "AGENTKIT_TMUX_SOCKET": "agentkit-test",
                     "AGENTKIT_ADAPTER_DIR": str(self.home / "adapters"),
                     "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "ONE_REPO": str(REPO),
-                    "ONE_DOWN": down})
+                    "ONE_DOWN": down, **({"AGENTKIT_SESSION": own} if own else {})})
         self.proc = subprocess.Popen([sys.executable, "-c", CHILD], stdin=self.slave,
                                      stdout=self.slave, stderr=self.slave, env=env,
                                      start_new_session=True)
@@ -245,7 +247,7 @@ def born(lines):
 
 class OneConfigScreen(unittest.TestCase):
     def test_c_on_a_seat_flips_its_roles_and_its_row_and_next_run_follow(self):
-        menu = Menu(self)
+        menu = Menu(self, own="fix-api")
         lines = menu.screen()
         self.assertIn("fix-api", highlighted(lines))
         self.assertIn(full("opus"), highlighted(lines))
@@ -278,7 +280,7 @@ class OneConfigScreen(unittest.TestCase):
         menu.saw("<picks fable astra>")
 
     def test_a_refusal_is_one_line_and_leaves_the_record_alone(self):
-        menu = Menu(self, down="claude")
+        menu = Menu(self, down="claude", own="fix-api")
         menu.screen()
         menu.press(b"c", title("config"))
         menu.press(DOWN + RIGHT + RIGHT + SPACE,          # opus joins the reviewers
@@ -297,7 +299,7 @@ class OneConfigScreen(unittest.TestCase):
         menu.leave()
 
     def test_a_seat_naming_a_removed_model_opens_c_on_the_models_left(self):
-        menu = Menu(self)
+        menu = Menu(self, own="fix-api")
         menu.screen()
         shipped = menu.config.read_text()
         cfg = tomllib.loads(shipped)
@@ -315,11 +317,9 @@ class OneConfigScreen(unittest.TestCase):
         menu.config.write_text(shipped)                   # for the pick the child ends on
         menu.leave()
 
-    def test_on_a_heading_the_marks_are_new_seats(self):
+    def test_in_a_window_of_its_own_the_marks_are_new_seats(self):
         menu = Menu(self)
-        menu.screen()
-        lines = menu.press(b"k", lambda lines: any("esc leave" in line for line in lines)
-                           and "ACME" in highlighted(lines))
+        self.assertIn("fix-api", highlighted(menu.screen()))
         lines = menu.press(b"c", title("config"))
         self.assertEqual(lines[2].split(), ["For", "new", "seats"])
         # the shipped [defaults]: opus orchestrates, and it and astra build and review

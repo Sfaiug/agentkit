@@ -713,16 +713,18 @@ def progress(session, capture, seat_harness):
     hook then reports.  A line typed before the open is history, and so is one typed where no
     prompt hook reports anything: there this output is the only answer.
     Nor is any output the answer to the seat's own question where `seat_harness`, its harness
-    (None for a seat ak has no record of), reports his prompts: a seat asks with `ak notify
-    needs` and works on, so its screen moves whether he answered or only looked, and his prompt
-    (`answered`) is what answers it.
+    (None for a seat ak has no record of), reports the owner's prompts or reads their messages:
+    a seat asks with `ak notify needs` and works on, so its screen moves whether they answered,
+    only looked or ak told it something, and their prompt (`answered`) or message
+    (`answer_written`) is what answers it.
     """
     with session_lock(session) as session:
         previous = last(session)
         if not previous or previous.get("opened_at") is None:
             return
-        if (seat_harness and previous.get("watcher") is not True
-                and harness.load(seat_harness).prompt_hook is not None):
+        plugin = harness.load(seat_harness) if seat_harness else None
+        if (plugin and previous.get("watcher") is not True
+                and (plugin.prompt_hook is not None or plugin.reads_messages)):
             return
         if any(isinstance(sent.get("harness"), str)
                and harness.load(sent["harness"]).prompt_hook is not None

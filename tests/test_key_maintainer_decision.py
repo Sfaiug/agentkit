@@ -19,7 +19,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
 from fixtures.akbin import REAL_TMUX, Home, boxable
-from fixtures.akseat import Seat
+from fixtures.akseat import PLAN_LINE, Seat
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
@@ -36,11 +36,14 @@ class MaintainerDecides(unittest.TestCase):
         rig, cls.gh = Rig(home, "gadgets", owner="zeta"), GitHub(home)
         akconfig.write(home, ["opus", "astra"])
         fakeadapter.install(home, claude="work", codex="pass")
-        cls.seat = Seat(home, "acme", cwd=rig.path, record={"repo": str(rig.path)})
+        cls.seat = Seat(home, "acme", cwd=rig.path, record={"repo": str(rig.path)}, planned=True)
         cls.launched = [home.ak("run", str(taskfile.write(home, rig.path, title)),
                                 env={"AGENTKIT_SESSION": "acme"}, timeout=300)
                         for title in ("Add retry file", "Add retry note")]
         cls.runs = taskfile.runs(home)
+        # its line done, the seat owes nothing a merge would be typed into it for
+        home.write(".agentkit/state/plan-acme.md",
+                   PLAN_LINE.replace("- [ ]", "- [x]", 1) + " · done 0123abcd\n")
         cls.changed, cls.approved = (cls.gh.pr(n, SLUG)["url"] for n in (1, 2))
         cls.told = [cls.seat.lines()]
         cls.gh.edit(1, SLUG, reviewDecision="CHANGES_REQUESTED")

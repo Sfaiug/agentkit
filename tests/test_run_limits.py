@@ -362,7 +362,7 @@ class Limits(unittest.TestCase):
     def test_v5f_every_git_and_gh_call_is_capped_and_prompt_free(self):
         self.repo()
         seen = []
-        real = subprocess.run
+        real = gitcall.run_capped
 
         def record(cmd, **kwargs):
             if isinstance(cmd, (list, tuple)) and str(cmd[0]) in ("git", "gh"):
@@ -370,7 +370,7 @@ class Limits(unittest.TestCase):
             return real(cmd, **kwargs)
 
         task = self.task(["true"])
-        with patch.object(run.subprocess, "run", side_effect=record):
+        with patch.object(gitcall, "run_capped", side_effect=record):
             code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra")
 
         self.assertEqual(code, 0)
@@ -964,7 +964,7 @@ class Limits(unittest.TestCase):
         run.git(self.work, "commit", "-am", "target intent")
         run.git(self.work, "push", "origin", "main")
         run.git(self.work, "checkout", "ak/fix-api")
-        real = subprocess.run
+        real = gitcall.run_capped
 
         for how in ("rebase", "merge"):
             with self.subTest(how=how):
@@ -986,7 +986,7 @@ class Limits(unittest.TestCase):
                     return proc
 
                 try:
-                    with patch.object(run.subprocess, "run", side_effect=timeout_after_state), \
+                    with patch.object(gitcall, "run_capped", side_effect=timeout_after_state), \
                             patch.object(roundloop, "resolve_conflicts",
                                          side_effect=AssertionError("timeout reached conflict fixer")):
                         with self.assertRaisesRegex(run.Stopped, "was killed after"):

@@ -182,8 +182,8 @@ def settled_gate(lp):
     round would take its own untouched checkout for one that changed under the gate.
     A repo run whose log never recorded one has no settled gate to adopt.
     """
-    if lp.state.get("step") == "done-when":
-        return None
+    if lp.state.get("step") == "done-when" or round_suite(lp):
+        return None     # the round's suite passes on more than exits: it runs again
     if turns.regression_script(lp.run_dir).is_file() and not lp.state.get("regression_checked"):
         return None
     path = lp.round_dir / "donewhen.log"
@@ -551,6 +551,10 @@ def verify_work(lp, cmds=None):
     ok, text = gate.run_done_when(cmds, lp.wt, lp.round_dir / "donewhen.log", lp.artifacts,
                                   lp.done_when_limit, lp.log, silence=lp.turn_limit,
                                   run_dir=lp.run_dir)
+    suite_ok, suite_text = affected_suite(lp)
+    if suite_text:
+        ok &= suite_ok
+        text = f"{suite_text}\n\n{text}"
     if not lp.scratch and not lp.state.get("review_pr") and (
             not clean or gitcall.commit_identity(lp.wt) != lp.validation or
             gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
@@ -575,6 +579,84 @@ def verify_work(lp, cmds=None):
                 + text)
         (lp.round_dir / "donewhen.log").write_text(text)
     return ok, text
+
+
+def round_suite(lp):
+    """The target's current `tests:` suite where this run lands and it names `AK_CHANGED`,
+    which opts it into every round (`affected_suite`); else None.  Read off the target each
+    time, as a sibling can change the line mid-run."""
+    from . import gate  # here, not at the top: gate reaches run
+    landing = lp.upstream and not lp.state.get("no_merge")
+    suite = landing and gitcall.declared_suite(lp.wt, lp.target)
+    return suite if suite and gate.names_changed(suite) else None
+
+
+def affected_suite(lp):
+    """(whether it passed, what it said) of the round's suite (`round_suite`), which every
+    round runs besides the task's own checks; (True, "") where there is none.
+
+    The suite narrows itself to the tests the change can affect, from the file `AK_CHANGED`
+    names: the paths the change edits relative to the target, one per line.  It runs on HEAD
+    merged onto the target as just fetched, so a sibling merged since meets the change here
+    rather than in the landing line, in a clone of its own, on the heavy-suite turns and shares
+    a landing check takes.  A red whose failing tests (`AK_FAILED`) all fail again on the
+    target's tip alone (`AK_ONLY`) is the target's, not the change's: it passes, and says which.
+    """
+    from . import gate, leases  # here, not at the top: gate reaches run
+    suite = round_suite(lp)
+    if not suite:
+        return True, ""
+    if gitcall.fetch(lp.wt, "origin", lp.upstream.removeprefix("origin/"))[0]:
+        lp.log(f"WARN cannot fetch {lp.upstream}: the suite meets it as last fetched")
+    tip = gitcall.git(lp.wt, "rev-parse", f"{lp.upstream}^{{commit}}")
+    head = gitcall.git(lp.wt, "rev-parse", "HEAD")
+    where = f"{head[:12]} merged onto {lp.upstream} at {tip[:12]}"
+    with tempfile.TemporaryDirectory(dir=lp.run_dir) as tmp:
+        checkout, changed = Path(tmp) / "checkout", Path(tmp) / "changed"
+
+        def moved(sha):
+            """Whether a run left the checkout off `sha` or edited what it tracks: then its
+            verdict is not that commit's, as `land._check` holds for the landing suite."""
+            return (gitcall.git(checkout, "rev-parse", "HEAD") != sha
+                    or gitcall.git_out(checkout, "diff", "--quiet", "HEAD")[0] != 0)
+
+        gitcall.git(lp.wt, "clone", "--quiet", "--shared", "--no-checkout", str(lp.wt), str(checkout))
+        code, tree = gitcall.git_out(checkout, "merge-tree", "--write-tree", "--name-only", tip, head)
+        if code:
+            return False, f"$ {suite}\n[not run: {where} does not merge cleanly]\n{tree}"
+        merged = gitcall.git(checkout, "commit-tree", tree.splitlines()[0], "-p", tip, "-p", head,
+                             "-m", where, env=leases.STAMP)
+        gitcall.git(checkout, "checkout", "--quiet", "--detach", merged)
+        paths = [p for p in gitcall.git(checkout, "diff", "--name-only", "-z", "--no-renames",
+                                        tip, merged).split("\0") if p]
+        changed.write_text("".join(f"{path}\n" for path in paths))
+        pieces, confirmed = {}, {}
+        ok, text = gate.run_done_when([suite], checkout, lp.round_dir / "suite.log", set(),
+                                      lp.done_when_limit, lp.log, silence=lp.turn_limit,
+                                      run_dir=lp.run_dir, heavy=True, pieces=pieces,
+                                      confirmed=confirmed, changed=changed)
+        text = f"The `tests:` suite on {where}, AK_CHANGED listing its {len(paths)} paths:\n\n{text}"
+        if moved(merged):
+            return False, f"{text}\n\nCheckout changed during the suite; it does not verify {where}."
+        named = confirmed.get(suite, {})
+        reds = [share for share, code in pieces.get(suite, {}).items() if code != 0] or ["1/1"]
+        failed = sorted({test for share in reds for test in named.get(share) or ()})
+        if ok or not all(named.get(share) for share in reds):
+            return ok, text
+        gitcall.git(checkout, "checkout", "--quiet", "--force", "--detach", tip)
+        gitcall.git(checkout, "clean", "-fdqx")
+        again = {}
+        gate.run_done_when([suite], checkout, lp.round_dir / "suite-target.log", set(),
+                           lp.done_when_limit, lp.log, silence=lp.turn_limit, run_dir=lp.run_dir,
+                           heavy=True, shard="1/1", only=failed, confirmed=again)
+        if moved(tip):
+            return False, text
+    theirs = [test for test in failed if test in (again.get(suite) or {}).get("1/1", ())]
+    if not theirs:
+        return False, text
+    said = f"failing on {lp.upstream} at {tip[:12]} alone too, the target's own: {' '.join(theirs)}"
+    lp.log(f"done-when: the suite's tests {said}")
+    return theirs == failed, f"{text}\n\nTests {said}"
 
 
 def passed_review_head(state):
@@ -1871,7 +1953,7 @@ def integrate(lp, upstream):
             # check 19 in tests/smoke.sh pins the bare line below; the SHA line above
             # records the pinned tip being integrated.
             lp.log(f"--- merge: merging {upstream} into {lp.state['branch']}")
-            rc, out = gitcall.git_out(lp.wt, "merge", "--no-edit", tip)
+            rc, out = gitcall.merge(lp.wt, tip)
         else:
             lp.log(f"--- merge: rebasing {lp.state['branch']} onto {upstream} ({tip[:12]})")
             rc, out = gitcall.git_out(lp.wt, "rebase", tip)

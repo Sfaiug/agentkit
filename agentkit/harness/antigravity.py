@@ -15,25 +15,64 @@ import sqlite3
 
 # `steps.step_type`, and where each keeps its words in its payload: a user input's text, and
 # a planner response's answer -- its thinking (3) and tool calls (7) are fields beside that.
-WORDS = {14: ("user", 19, 2), 15: ("model", 20, 1)}
+USER, MODEL = 14, 15
+WORDS = {USER: ("user", 19, 2), MODEL: ("model", 20, 1)}
 
 
 def said(record, cwd, conversation):
-    from . import rows
-    if not isinstance(conversation, str) or not re.fullmatch(r"[\w-]+", conversation):
-        return None
-    found = rows(conversation_stores()[0]["root"] / f"{conversation}.db",
-                 "SELECT step_type, step_payload FROM steps WHERE step_type IN (?, ?)"
-                 " ORDER BY idx", *WORDS)
+    found = steps(conversation, *WORDS)
     if found is None:
         return None
     said = []
-    for kind, payload in found:
-        who, step, words = WORDS[kind]
-        text = (field(field(payload, step), words) or b"").decode(errors="replace")
+    for kind, _metadata, payload in found:
+        text = words(kind, payload)
         if text:
-            said.append({"who": who, "text": text})
+            said.append({"who": WORDS[kind][0], "text": text})
     return said
+
+
+def user_messages(record, cwd, conversation):
+    """Each user input, dated by its step's `metadata`: field 1 a Timestamp.  A step dated
+    otherwise is nobody's answer."""
+    from . import user_message
+    for _kind, metadata, payload in steps(conversation, USER) or ():
+        at = timestamp(field(metadata, 1))
+        kept = at is not None and user_message(at, words(USER, payload))
+        if kept:
+            yield kept
+
+
+def timestamp(stamp):
+    """A Timestamp's seconds (field 1) and nanoseconds (2, omitted when 0) as seconds, or None
+    where it does not read whole: a cut-off field is no date."""
+    read, at = {}, 0
+    try:
+        while at < len(stamp):
+            key, at = varint(stamp, at)
+            if key not in (1 << 3, 2 << 3) or key in read:
+                return None
+            read[key], at = varint(stamp, at)
+    except (IndexError, TypeError):
+        return None
+    seconds, nanos = read.get(1 << 3), read.get(2 << 3, 0)
+    return None if seconds is None or nanos >= 1_000_000_000 else seconds + nanos / 1e9
+
+
+def steps(conversation, *kinds):
+    """(step_type, metadata, step_payload) of each of that conversation's steps of those kinds,
+    in order, or None where it has no store to read."""
+    from . import rows
+    if not isinstance(conversation, str) or not re.fullmatch(r"[\w-]+", conversation):
+        return None
+    return rows(conversation_stores()[0]["root"] / f"{conversation}.db",
+                "SELECT step_type, metadata, step_payload FROM steps"
+                f" WHERE step_type IN ({', '.join('?' * len(kinds))}) ORDER BY idx", *kinds)
+
+
+def words(kind, payload):
+    """The words a step of that kind keeps in its payload, or ''."""
+    _who, step, text = WORDS[kind]
+    return (field(field(payload, step), text) or b"").decode(errors="replace")
 
 
 def conversation_stores():

@@ -79,7 +79,7 @@ class Ladder(unittest.TestCase):
         cls.addClassCleanup(home.close)
         rig = Rig(home, "widgets")
         akconfig.write(home, ["opus"])
-        cls.seat = Seat(home, "acme")
+        cls.seat = Seat(home, "acme", planned=True)
         turn, silent = hang(home)
         claude = fakeadapter.install(home, claude=turn)["claude"]
         loop = home.spawn("run", str(taskfile.write(home, rig.path, "Add retry file")),

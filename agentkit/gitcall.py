@@ -41,6 +41,10 @@ SANDBOX_PREFIX = ".ak-test-"
 
 
 TOOL_CAP = 120                  # seconds allowed for each git or gh attempt
+# seconds a timed-out git or gh gets between SIGTERM and SIGKILL, a ceiling: on SIGTERM git
+# removes its index and ref locks and exits at once, where SIGKILL leaves them for the next
+# git to fail on ("File exists"); one that ignores SIGTERM is killed when this ends
+TOOL_GRACE = 5
 
 
 # the line a fetch prints for a ref another process holds: the ref moved under it, or git's
@@ -113,9 +117,8 @@ def merge_config(git, cwd, env, timeout):
     count = int(env.get("GIT_CONFIG_COUNT") or 0)
     if driver in (env.get(f"GIT_CONFIG_KEY_{n}") for n in range(count)):
         return env
-    named = subprocess.run([*git, "config", "--path", "--get", "core.attributesFile"], cwd=cwd,
-                           capture_output=True, text=True, stdin=subprocess.DEVNULL,
-                           timeout=timeout, env=env)
+    named = run_capped([*git, "config", "--path", "--get", "core.attributesFile"], cwd=cwd,
+                       text=True, stdin=subprocess.DEVNULL, timeout=timeout, env=env)
     if named.returncode not in (0, 1):
         return env
     # unset, git reads $XDG_CONFIG_HOME/git/attributes, or $HOME/.config/git/attributes
@@ -145,6 +148,25 @@ def merge_config(git, cwd, env, timeout):
     return env
 
 
+def run_capped(cmd, timeout, **popen):
+    """subprocess.run's captured call, except that one stopped -- past `timeout`, or interrupted
+    -- gets SIGTERM, and SIGKILL only after TOOL_GRACE.  Both go through the Popen holding the
+    child, so neither reaches its pid once it is reaped."""
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **popen) as proc:
+        try:
+            out, err = proc.communicate(timeout=timeout)
+        except BaseException:
+            proc.terminate()
+            try:
+                proc.wait(TOOL_GRACE)
+            except subprocess.TimeoutExpired:
+                pass
+            finally:
+                proc.kill()     # also when a second interrupt cuts the grace short
+            raise
+    return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
+
+
 def tool_run(cmd, cwd=None, timeout=None, env=None):
     """(exit code, stdout, stderr) for every git and gh call this module makes, in `tool_env`
     as `env` changes it (None drops a variable), with `merge_config` for a git that merges.
@@ -165,10 +187,9 @@ def tool_run(cmd, cwd=None, timeout=None, env=None):
         try:
             call = {name: value for name, value in {**tool_env(), **(env or {})}.items()
                     if value is not None}
-            proc = subprocess.run(cmd, cwd=None if cwd is None else str(cwd), capture_output=True,
-                                  encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
-                                  timeout=timeout, env=merge_config(
-                                      cmd[:start], cwd, call, timeout) if merges else call)
+            proc = run_capped(cmd, timeout=timeout, cwd=None if cwd is None else str(cwd),
+                              encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
+                              env=merge_config(cmd[:start], cwd, call, timeout) if merges else call)
             break
         except subprocess.TimeoutExpired:
             if attempt or not retry:
@@ -251,6 +272,21 @@ def ref_held(out):
               if line.startswith(("error:", "fatal:"))
               or line.strip().startswith("!") and not line.endswith("(unable to update local ref)")]
     return bool(failed) and all(REF_LOCKED.fullmatch(line) for line in failed)
+
+
+# `git merge -s <name>` runs `git-merge-<name>` off PATH
+STRATEGIES = config.REPO / "tools" / "merge"
+
+
+def merge(wt, tip):
+    """`git merge --no-edit tip` on the checked-out branch, as `git_out` answers it, with a
+    clean merge's tree from `tip` as "ours" (`tools/merge/git-merge-target-first`): a
+    union-merged file then reads the target's lines first, as a rebase onto it orders them.
+    A merge that conflicts is git's own, as without it."""
+    if git_out(wt, "merge-tree", "--write-tree", tip, "HEAD")[0]:
+        return git_out(wt, "merge", "--no-edit", tip)
+    path = os.pathsep.join((str(STRATEGIES), tool_env().get("PATH", os.defpath)))
+    return git_out(wt, "merge", "--no-edit", "-s", "target-first", tip, env={"PATH": path})
 
 
 def gh(cwd, *args, timeout=None):

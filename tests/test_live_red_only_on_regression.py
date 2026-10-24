@@ -12,7 +12,7 @@ from agentkit import config, update, watch, worker
 import check_harness_contract as contract
 
 HEAD, TIP = "a" * 40, "b" * 40
-LABELS = ("3 acme", "4")
+LABELS = ("3 acme", "3", "4")   # 3 acme printed first shares check 3's first token
 
 
 class LiveRedOnlyOnRegression(Sandbox):

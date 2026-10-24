@@ -24,7 +24,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
 from fixtures.akbin import REAL_TMUX, Home
-from fixtures.akseat import Seat
+from fixtures.akseat import PLAN_LINE, Seat
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
@@ -74,16 +74,18 @@ class Seated:
         cls.rig = Rig(cls.home, "widgets")
         GitHub(cls.home).grant(cls.rig.slug, "WRITE")
         akconfig.write(cls.home, ["opus", "astra"])
-        Seat(cls.home, name, cwd=cls.rig.path, record={"reviewers": ["astra"]})
+        Seat(cls.home, name, cwd=cls.rig.path, record={"reviewers": ["astra"]}, planned=True)
         cls.name, cls.release = name, cls.home.root / "adapters" / "release"
         cls.task = taskfile.write(cls.home, cls.rig.path, "Add retry file")
 
     @classmethod
     def plan(cls):
+        """The seat's plan past PLAN_LINE, the line its own launch needed."""
         try:
-            return (cls.home.path / f".agentkit/state/plan-{cls.name}.md").read_text()
+            text = (cls.home.path / f".agentkit/state/plan-{cls.name}.md").read_text()
         except FileNotFoundError:
             return ""
+        return text.replace(PLAN_LINE + "\n", "", 1)
 
     @classmethod
     def state(cls, run_dir):

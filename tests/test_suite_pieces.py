@@ -213,11 +213,11 @@ class SuitePieces(unittest.TestCase):
             self.assertIsNone(host.kept_cpu(whole))
 
     def landing_pieces(self, used):
-        """Pieces a landing check adds beside four running pieces, the slice read as `used`."""
+        """Pieces a landing check adds beside two running pieces, the slice read as `used`."""
         busy = {**ROOM, "slice_cpu_used": used, "slice_memory_high_mb": 41000}
         self.stack.enter_context(patch.dict(os.environ, {
             "AK_MAX_RUNS": "", "AK_HOST_READINGS": json.dumps(busy)}))
-        for index in range(4):
+        for index in range(2):
             holder = self.stack.enter_context(gate.gate_lock(None, index).open("a"))
             fcntl.flock(holder, fcntl.LOCK_EX)
         context = {"repo": str(self.root), "run_id": "widget", "landing": True, "since": 1}
@@ -225,8 +225,8 @@ class SuitePieces(unittest.TestCase):
             return len(gate._GATE_HELD.hold.slots)
 
     def test_running_landing_pieces_are_not_counted_free_again(self):
-        # Another lander's four pieces keep their 2 cores; only the build's 0.8 of the 3.3
-        # in use can be taken: 4 - 2.5 cores fit two more pieces, not five.
+        # Another lander's two pieces keep their 2 cores; only the build's 0.8 of the 3.3
+        # in use can be taken: 4 - 2.5 cores fit two more pieces, not three.
         top = host.CPU_WEIGHT_MAX
         self.cgroups({"lander-widget.scope": (top, 0.5), "lander-acme.scope": (top, 2.0),
                       "agentkit-run-build.scope": (40, 0.8)})

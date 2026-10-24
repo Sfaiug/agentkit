@@ -18,7 +18,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox
-from agentkit import config, handback, job as jobs, menu, orch, run, watch
+from agentkit import config, handback, job as jobs, menu, orch, plan, run, watch
 from agentkit import record
 
 BAD = "~nosuch-acme-owner/acme"
@@ -34,6 +34,9 @@ class RepoLineBadHome(Sandbox):
         self.acme = self.checkout("acme")
         config.save_session(self.cfg, "fix-api", "fable", ["opus"],
                             {"cwd": str(config.CODE), "repo": None})
+        # a seat launches only with an open line in its plan
+        plan.write("fix-api", [plan.compose("Fix the api", "check: `false`", "acme", False,
+                                            "2026-10-23 09:00", None)])
         self.stack.enter_context(patch.object(orch, "sessions", return_value=[{
             "name": "fix-api", "path": str(config.CODE), "created": 9000, "attached": False,
             "exited": False, "legacy": False, "resumable": False}]))

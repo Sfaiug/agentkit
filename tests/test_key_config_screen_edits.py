@@ -7,10 +7,10 @@ to it at once, asking nothing, its record naming the new orchestrator and its tm
 running that model's harness, config.toml as it was; and `+ add a
 model` walks harness, model and effort, each picked from a list, the models being the ones the
 harness's adapter lists, and writes the new model to config.toml under its provider.
-Black-box: the program `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py) over a
-seat as ak leaves it (tests/fixtures/akseat.py), its harnesses the fakes of
-tests/fixtures/fakeadapter.py, judged by what the terminal shows, config.toml, the seat's
-record and its pane; this test fails against `/bin/false`.  The terminal has no colour
+Black-box: the program `AK_BIN` names, as the popup over a seat as ak leaves it
+(tests/fixtures/akseat.py) in a person's terminal (tests/fixtures/akterm.py), its harnesses the
+fakes of tests/fixtures/fakeadapter.py, judged by what the terminal shows, config.toml, the
+seat's record and its pane; this test fails against `/bin/false`.  The terminal has no colour
 (NO_COLOR), so the mark the keys are on is bracketed, `[○]`, where a colour terminal reverses it.
 """
 
@@ -36,7 +36,7 @@ CATALOG = "m1\tModel One\tlow medium high"     # what the claude adapter's `mode
 # efforts the same, as a real Claude's does, so the bar reads the same either way.
 FABLE_LISTED = "claude-fable-5-1\tFable 5.1\tlow medium high xhigh max"
 HEADER = "# agentkit's config, written by the menu's `c` screen."
-KEYS = "  ↑↓←→ move   ⏎ choose   esc back"   # wherever the highlight is
+KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"   # a seat's, wherever the highlight is
 
 def rows(screen):
     return [line.rstrip() for line in screen.split("\n")]
@@ -75,7 +75,8 @@ class ConfigScreenEdits(unittest.TestCase):
         # model lists once and keeps them.
         self.config = akconfig.write(self.home, MODELS, workers=["fable", "astra"])
         self.given = tomllib.loads(self.config.read_text())
-        self.term = Terminal(self.home, size=(100, 30), env={"NO_COLOR": "1"})
+        self.term = Terminal(self.home, "attach", "--overlay", size=(100, 30),
+                             env={"NO_COLOR": "1", "AGENTKIT_SESSION": SEAT})
         # ends this case's menu, keeping the terminal's server for the next case
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
                         "sleep 86400", server=SERVER)

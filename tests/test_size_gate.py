@@ -16,7 +16,7 @@ A task has at most three checks a round runs (`task.MAX_CHECKS`, counted by pref
 list the loop settles: the repository's suite line, however the task names it, runs once at
 landing and never counts; a `# once` line counts where the run has no landing), and a task
 gets its first review only up to 300 added lines (`task.MAX_PR_LINES`); a seat's own PR stays
-under 50 (`task.SEAT_TASK_LINES`), documents alone exempt, generated files aside
+under 50 (`task.SEAT_TASK_LINES`), documents included, generated files aside
 and nothing deleted counted, as `run.diff_lines` counts them, less the blocks `run.carried_lines`
 finds moved unchanged from lines the diff deletes.  tests/test_seat_pr_under_fifty_lines.py drives the
 refusal through the review itself.  Offline: a real checkout whose attributes mark a

@@ -94,7 +94,7 @@ class MemoryAdmissionByRoom(unittest.TestCase):
                 ({"slice_memory_used_mb": 0, "slice_memory_high_mb": 0}, True, 1),
                 ({"slice_memory_high_mb": None, "unit_limits": []}, False, 8)):
             with self.subTest(overrides=overrides):
-                readings = {**READINGS, "unit_limits": [(0, 2048)], **overrides}
+                readings = {**READINGS, "unit_limits": [(PEAK, 2048 + PEAK)], **overrides}
                 reason, _ = gate._wait_reason(readings, 3072, 0)
                 self.assertEqual(reason is not None, holds)
                 self.assertEqual(gate.derived_heavy_limit(readings, running=1,

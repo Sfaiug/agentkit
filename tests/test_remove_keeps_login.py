@@ -20,8 +20,8 @@ from unittest import mock
 
 from test_add_subscription import CLAUDE, CODEX, rows
 from test_config_matrix import DOWN, ENTER, ESC, Screen
-from test_provider_screen import (ADD, GIVE, KEYS, MATRIX, ONE, PAGE, SHIPPED, back, open_meter,
-                                  open_providers, pick, subscriptions, title)
+from test_provider_screen import (ADD, GIVE, ONE, PAGE, SHIPPED, back, open_providers, pick,
+                                  remove_asked, subscriptions, title)
 from agentkit import config, menu
 
 FAKE = r"""#!/usr/bin/env bash
@@ -77,13 +77,10 @@ def verbs(home, verb):
 
 
 def remove(screen, name):
-    """`− remove` on `name`'s meter, from the matrix or `Subscriptions`, and `Remove`, then
-    down `Subscriptions` to `+ add a subscription`."""
-    if title(screen.frame()) == PAGE:
-        back(screen)
-    open_meter(screen, name)
-    screen.press(ENTER, lambda lines: lines[-1] == KEYS["ask"])
-    screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
+    """`− remove` under `name`'s row on `Subscriptions` and `Remove`, then down to `+ add a
+    subscription`."""
+    remove_asked(screen, name)
+    screen.press(DOWN + ENTER, lambda lines: title(lines) == PAGE)
     open_providers(screen)
 
 

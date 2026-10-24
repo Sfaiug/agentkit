@@ -159,7 +159,8 @@ def member(state):
 
 
 def line(turn):
-    """Green deliveries in tested stack order, then the rest in join order."""
+    """Green deliveries in tested stack order, then the rest in join order, a held install's
+    fix (`first_place`, `update.take_first_place`) ahead of those that joined without one."""
     members = []
     for directory in record.run_dirs():
         state = record.read_state(directory) or {}
@@ -173,7 +174,7 @@ def line(turn):
         not green_delivery(member[1]["waiting_on"]),
         sum(deliveries.get(name) == tree
             for name, tree in member[1]["waiting_on"].get("after", {}).items())
-        if green_delivery(member[1]["waiting_on"]) else 0,
+        if green_delivery(member[1]["waiting_on"]) else not member[1].get("first_place"),
         member[1]["waiting_on"]["joined"], member[0].name))
 
 
@@ -589,11 +590,10 @@ def _stack_member(repo, state, top, upstream, opened):
                          base_sha=state.get("base_sha") or
                          run.git(scratch, "merge-base", head, top))
     how = roundloop.how_to_integrate(lp)
-    args = ("merge", "--no-edit", top) if how == "merge" else ("rebase", top)
-    if how == "rebase":
-        # A detached rebase must not rewrite the member's branch through Git config.
-        args = ("-c", "rebase.updateRefs=false", *args)
-    code, out = run.git_out(scratch, *args)
+    # A detached rebase must not rewrite the member's branch through Git config.
+    args = ("merge", "--no-edit", top) if how == "merge" else (
+        "-c", "rebase.updateRefs=false", "rebase", top)
+    code, out = gitcall.merge(scratch, top) if how == "merge" else run.git_out(scratch, *args)
     text = (f"$ git {' '.join(args)}\n[exit {code}]\n"
             f"ERROR: {how} of {upstream} failed\n{out}") if code else ""
     return scratch, text

@@ -149,8 +149,8 @@ class Wash(Sandbox):
         return drawn
 
     def test_on_c_the_meter_the_highlight_comes_onto_washes_in_and_its_models_with_it(self):
-        drawn = self.c_keys(["up", "up"])
-        chatgpt = menu.COLOURS["openai"]     # ↑ past the For row: the last meter, ChatGPT's
+        drawn = self.c_keys(["up"])
+        chatgpt = menu.COLOURS["openai"]     # ↑ past the first model: the last meter, ChatGPT's
         lit, astra = drawn[-1], self.full("astra")
         self.assertEqual(lit[astra], "".join(terminal.styled(char, chatgpt) for char in astra))
         self.assertIn("ChatGPT", lit)

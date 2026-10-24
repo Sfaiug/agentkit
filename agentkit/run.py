@@ -8,8 +8,8 @@ The loop derives a review's verdict from its checked hand-in records.
 
 `ak run --review-pr <url>` is the same reviewer with no executor: a PR checked out at
 its head, judged against the repo and posted back as a GitHub review. The seat's own
-PR merges on PASS with green checks; anyone else's asks the inbox. The seat's own PRs of
-documents alone skip review and join the line like any passed review.
+PR merges on PASS with green checks; anyone else's asks the inbox. No change skips review,
+documents included, as the owner decided on 24 Oct 2026.
 """
 
 import os
@@ -23,14 +23,13 @@ from datetime import datetime
 from pathlib import Path
 
 from . import (box, command_help, config, gate, gc, gitcall, history, host, job as jobs,
-               land as landing, orch, record as run_record, status, stop, task as taskfile,
-               turns, usage, watch, worker, worktrees)
+               land as landing, orch, plan, record as run_record, status, stop, task as taskfile,
+               turns, update, usage, watch, worker, worktrees)
 from .deliver import (GITHUB_RETRIES, MERGE_METHODS, PICKUP_HELD, do_merge, end_on_dependency,
     finish_blocked, join_line, land, merge, merge_own_pr, own_pr_heads, pr_head,
     push_pr_branch, release_line)
 from .deliver import (LANDING_COUNTS, PUSH_RIGHTS, checks, gh_json, github_body,
-    push, require_review_pass, rights,
-    text_only_pr, wait_checks)
+    push, require_review_pass, rights, wait_checks)
 from .roundloop import execute, final_check, integrate, review, rounds
 from .roundloop import (Loop, note,
     restore_review_checkout, rules_check, verify_work)
@@ -674,9 +673,11 @@ def pickup_while_queued(run_dir, execv=None, current=None):
 def seat_refusal(opts, flags):
     """Why a seat's launch is refused: a seat names no model, no place in the queue and no
     second run of a change under way, since ak picks the models, decides what goes first and
-    refuses the rival itself.  A seat is a recorded session (`config.session_records`);
-    a shell naming none is no seat, and outside a seat the flags stand.  So do a queued child's,
-    which `spawn_bg` starts under the seat's name: they are ak's own pick (a job's rerun on the
+    refuses the rival itself; and it launches only while its plan has an open line, since the
+    plan is what its bar counts and what a review of its pull request checks against
+    (`prompts.plan_context`).  A seat is a recorded session (`config.session_records`);
+    a shell naming none is no seat, and outside a seat neither holds.  Nor in a queued child,
+    which `spawn_bg` starts under the seat's name: it is ak's own pick (a job's rerun on the
     next executor) or the seat's launch, judged at its parsing."""
     if not from_seat():
         return None
@@ -685,6 +686,9 @@ def seat_refusal(opts, flags):
     if given:
         return (f"{', '.join(given)}: not a seat's; ak picks the models, decides what "
                 "goes first and refuses a second run of a change under way, so launch without")
+    if not plan.open_lines(config.current_session()):
+        return ("your plan has no open line, and the plan is what your bar counts: first run "
+                "ak plan add \"<outcome>\" --check '<command>'")
     return None
 
 
@@ -1043,6 +1047,11 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
             state["task_file"] = str(task_file)
         if (opts or {}).get("--first"):
             state["first"] = True
+        # the place a held install's hand-back gave the seat (`update.live_hand_back`)
+        held = (not bound and session_at_launch and state["review_pr"]
+                and update.take_first_place(session_at_launch, state["review_pr"], run_dir.name))
+        if held:
+            state.update(first=True, first_place=held)
         if not bound:
             # A fix run waits for its slot from its first record on: whatever cuts its handoff
             # off before the launch, it is a slot wait, which the tick resumes.
@@ -2112,13 +2121,13 @@ def pr_context(state, body):
 
 def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
     """(the lines a seat's own PR's first review reads, the sentence refusing that review or
-    None), or None where no first review is ahead: a PR of wording alone, or one a review
-    already judged in this run or any, whose later rounds review whatever the fix left.  The
+    None), or None where no first review is ahead: a PR a review already judged in this run
+    or any, whose later rounds review whatever the fix left.  The
     seat builds under `task.SEAT_TASK_LINES` added lines, the ones moved unchanged aside
     and the files the target's tip marks generated, as the change will land on it, and a PR
     that re-adds most of a budget-failed one's lines, no real split of it, inherits that one's
     rounds (`replacement_refusal`)."""
-    if text_only_pr(repo, base_sha, head) or change_reviewed(pr=url):
+    if change_reviewed(pr=url):
         return None
     lines, carried = diff_lines(repo, target_sha, head, added_only=True), carried_lines(repo, target_sha, head)
     read = lines - carried
@@ -2448,7 +2457,6 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         os.environ.update(env)
         log(f"env: {config.ENV / f'{repo.name}.env'} -> {', '.join(sorted(env))}")
 
-    text_only = is_own and text_only_pr(repo, base_sha, head)
     first = is_own and own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir)
     if first:
         # preflight refuses it before the run waits for a slot; here again on the head checked
@@ -2459,23 +2467,6 @@ def review_pr_round(cfg, run_dir, url, opts, log):
             return pr_review_blocked(lp, Blocked(why, f"## Blocked\n\n{why}"))
         # what the first review reads, whatever the run's ending (`roundloop.first_review_ceiling`)
         history.first_review(state.get("run_id"), read, log=log)
-    if text_only:
-        # The seat's own wording needs no reviewer: it joins the line like a passed review,
-        # where the repository's suite and CI still check it.
-        summary = "Documents only; review skipped."
-        # this head's verdict replaces the last one's findings: a later failure is its own
-        state.update(verdict="PASS", review_posted=True, findings="",
-                     review={**commit_identity(wt), "verdict": "PASS", "skipped": True})
-        state.pop("review_records", None)
-        state.pop("findings_file", None)
-        state["round_summaries"] = [*summaries, {"round": len(summaries) + 1, "verdict": "PASS",
-                                                 "done_when": None, "summary": summary,
-                                                 "head_sha": head}]
-        run_record.save_state(run_dir, state)
-        log(summary)
-        lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body)
-        lp.rnd += 1
-        return settle_pr_round(lp, url, info)
     providers = collect_usage(cfg)
     # the reviewer is picked against everyone who wrote part of the head under review: the
     # orchestrator, and every model a fixer turn ran on or was handed to; none comes first

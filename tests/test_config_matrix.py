@@ -74,7 +74,8 @@ provider = "anthropic"
 """
 ESC, UP, DOWN, RIGHT, LEFT, ENTER = b"\x1b", b"\x1b[A", b"\x1b[B", b"\x1b[C", b"\x1b[D", b"\r"
 TAB = b"\t"
-KEYS = "  ↑↓←→ move   ⏎ choose   esc back"   # c's key line, wherever the highlight is
+KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"   # a seat's, wherever the highlight is
+NEW_KEYS = "  ↑↓←→ move   ⏎ choose   esc back"   # new seats', with no `r`
 # What a worker's own run leaves in the environment; nothing here may act on that run.
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
              "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLORTERM", "COLUMNS", "LINES")
@@ -282,7 +283,7 @@ class Matrix(unittest.TestCase):
         self.assertTrue(lines[0].startswith("agentkit · config "), lines[0])
         self.assertEqual(lines[headings(lines) - 1].split(), ["For", "new", "seats"])
         self.assertEqual(row(lines, "opus")[1].split()[2:5], ["●", "■", "■"])
-        self.assertEqual(lines[-1], KEYS)
+        self.assertEqual(lines[-1], NEW_KEYS)
         lines = screen.press(RIGHT * 3, lambda lines: on_effort(lines, "fable"))
         self.assertEqual(screen.path.read_bytes(), before)
         screen.press(DOWN + ENTER, lambda lines: effort(lines, "opus") == "max")

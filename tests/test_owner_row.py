@@ -1,10 +1,10 @@
 """The scoreboard shows the owner's time each week: the questions seats asked them, the cards
 sent to them, and the median hours a question answered that week had waited since it was last
 asked.  notify writes each moment as it decides it -- a question new to a notice, a card
-delivered, each standing question answered, by the owner's prompt or, where no prompt hook
-reports one, by output after an open -- as a row naming no seat.  A moment on the boundary
-between the weeks counts in the last 7 days only.  A new install, with no database, shows
-`not recorded`.
+delivered, each standing question answered, by the owner's prompt or, where nothing reports or
+reads one, by output after an open -- as a row naming no seat.  A moment on the boundary between
+the weeks counts in the last 7 days only.  A new install, with no database, shows `not
+recorded`.
 
 Offline: a sandbox HOME with its own history database, the webhook post faked, git answering
 nothing.
@@ -69,12 +69,12 @@ class OwnerRow(Sandbox):
         self.assertCountEqual(self.moments(), [*asked, (350.0, "answered", 180.0),
                                                (350.0, "answered", 190.0)])
 
-    def test_output_after_an_open_answers_where_no_prompt_hook_reports(self):
+    def test_output_after_an_open_answers_where_nothing_reports_or_reads_one(self):
         self.said("needs", "Which schema?", 100.0)
         with patch.object(notify.time, "time", return_value=150.0):
             notify.opened(SEAT, lambda: "Reading the parser")
         with patch.object(notify.time, "time", return_value=200.0):
-            self.assertTrue(notify.progress(SEAT, lambda: "Shipping the parser", "muse"))
+            self.assertTrue(notify.progress(SEAT, lambda: "Shipping the parser", None))
         self.assertCountEqual(self.moments(), [(100.0, "asked", None), (200.0, "answered", 100.0)])
 
     def test_questions_cards_and_waits_count_in_the_week_each_happened(self):

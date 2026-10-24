@@ -1,8 +1,8 @@
-"""The owner spends a usage-limit reset by hand, from its subscription's meter on `c`; offline.
+"""The owner spends a usage-limit reset by hand, from its subscription's meter; offline.
 
 A subscription's line under the grid of `ak` says `1 reset in hand` (`2 resets in hand`) while it
-holds any, and nothing with none.  Its meter over the page of `c` then offers `↻ spend a reset`
-beside `− remove`, Enter on the list never landing on the spend; it spends
+holds any, and nothing with none.  Its meter, on `ak` and over the page of `c` alike, then offers
+`↻ spend a reset` after `↻ log in again`, Enter on the list never landing on the spend; it spends
 exactly one through `usage.replenish` -- the only caller of it in ak -- and the row shows the
 week that came back.  A fake Codex adapter answers every verb in a temporary HOME.
 """
@@ -70,15 +70,12 @@ class ResetByHand(unittest.TestCase):
                 for number in range(1, len(menu.usage_cells(self.cfg)) + 1)]
 
     def offered(self, number, picked=None):
-        """What subscription `number`'s meter on `c` lists and picks first, `picked` taken; a
-        meter offering only `− remove` lists nothing and asks at once."""
+        """What subscription `number`'s meter lists and picks first, `picked` taken."""
         asked = []
         with patch.object(terminal, "choose", side_effect=lambda choices, default=None, **_kw:
                           asked.append((choices, default)) or picked), \
-                patch.object(terminal, "frame"), \
-                patch.object(menu, "config_remove_provider",
-                             side_effect=lambda *_a: asked.append("removed") or ""):
-            self.note = menu.config_usage(self.cfg, number)
+                patch.object(terminal, "frame"):
+            self.note = menu.meter_acts(self.cfg, None, number, "config · ChatGPT")
         return asked
 
     def test_a_usage_row_says_the_resets_its_subscription_holds(self):
@@ -86,21 +83,21 @@ class ResetByHand(unittest.TestCase):
         first, second = self.rows()
         self.assertRegex(first, r"^ChatGPT I resets .* · 2 resets in hand$")
         self.assertRegex(second, r"^ChatGPT II resets .* · 1 reset in hand$")
-        self.assertEqual(self.offered(1), [(["↻ spend a reset", "− remove"], "− remove")])
+        self.assertEqual(self.offered(1), [(["↻ log in again", "↻ spend a reset"], None)])
         self.held.update({"": 0, "second": 0})
         (config.STATE / "usage.json").unlink()
         usage.collect(self.cfg, refresh=True)
         self.assertFalse(any("in hand" in row for row in self.rows()), self.rows())
-        self.assertEqual(self.offered(1), ["removed"])
+        self.assertEqual(self.offered(1), [(["↻ log in again"], None)])
         self.assertEqual(menu.in_hand({"resets": None}), "")
 
     def test_a_meter_spends_one_of_its_own_and_shows_the_week_back(self):
         usage.collect(self.cfg, refresh=True)
         self.assertEqual(self.offered(2, "↻ spend a reset"),
-                         [(["↻ spend a reset", "− remove"], "− remove")])
+                         [(["↻ log in again", "↻ spend a reset"], None)])
         self.assertEqual(self.spent, ["second"])          # exactly one, of the meter picked
         self.assertEqual(self.note, "ChatGPT II · 100% left")
-        self.assertEqual(self.offered(2), ["removed"])   # none left there to spend
+        self.assertEqual(self.offered(2), [(["↻ log in again"], None)])   # none left to spend
         self.offered(1)                                   # Esc on the list spends nothing
         self.assertEqual(self.spent, ["second"])
 
@@ -114,7 +111,7 @@ class ResetByHand(unittest.TestCase):
         rows = [("openai", "ChatGPT", {}, None), ("acme", "ChatGPT", {"resets": 1}, None)]
         with patch.object(menu, "usage_rows", return_value=rows), \
                 patch.object(usage, "replenish", return_value=(False, 1)) as replenish:
-            self.assertEqual(self.offered(1), ["removed"])      # the other's is not its own
+            self.assertEqual(self.offered(1), [(["↻ log in again"], None)])   # not its own
             self.offered(2, "↻ spend a reset")
         replenish.assert_called_once_with(self.cfg, "acme", account=None)
 

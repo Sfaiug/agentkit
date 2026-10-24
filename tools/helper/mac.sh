@@ -1,22 +1,39 @@
 #!/bin/bash
 # The suite helper's Mac side (agentkit/helper.py), run over ssh as `bash -c <this> mac.sh VERB
-# ...`; macOS bash is 3.2. Exits match helper.py: 251 battery, 252 busy, 253 container or
+# ...`; macOS bash is 3.2. Exits match helper.py: 251 battery, 252 no room, 253 container or
 # preparation failure; 255 belongs to ssh. A piece keeps its own exit.
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 export ROOT="$HOME/.agentkit-helper"
 export MIRRORS="$ROOT/mirrors"   # each repository's history, kept between its suites
 on_power() { pmset -g batt 2>/dev/null | head -1 | grep -q "'AC Power'"; }
-# One suite at a time holds the Mac: by its claim from `prepare` until its pieces start, then by
-# each piece's mark until that piece ends. A running piece keeps touching its mark, so one whose
-# caller is gone lets go in minutes. held KEY: is it held by a suite other than KEY?
-held() { find "$ROOT" -mindepth 2 -maxdepth 2 -name '*held' -mmin -3 ! -path "$ROOT/$1/*" \
-  2>/dev/null | grep -q .; }
-# claim KEY MARK: two suites marking at once each see the other's mark, and both let go.
-claim() { touch "$ROOT/$1/$2" && ! held "$1" || { rm -f "$ROOT/$1/$2"; return 1; }; }
 # locked FILE COMMAND...: COMMAND, a program or a function here, runs holding FILE's lock, which
 # the kernel drops when its holder dies; suites preparing at once share the Mac by these locks.
 locked() { lockf -k "$1" bash -c "$(declare -f)"'
   "$@"' mac.sh "${@:2}"; }
+# held FLAG PID, under a lock: says it holds the lock by deleting FLAG, then keeps it until FLAG
+# is back or PID has ended.
+held() { rm "$1"; until [ -e "$1" ] || ! kill -0 "$2"; do sleep 0.1; done; rm -f "$1"; }
+# left: the MiB ak's VMs here may still be given. Together they get at most half of what would
+# be free without them, so the Mac stays its owner's: half of what macOS calls free and what
+# they hold, less what they were given. The VMs running are the truth: one counts exactly while
+# it runs. Stats that fail count nothing held, which only gives less.
+left() {
+  vms=$(container list --all --format json) || return
+  stats=$(container stats --no-stream --format json 2>/dev/null) || stats=
+  free=$(( $(sysctl -n hw.memsize) / 1048576 *
+    $(memory_pressure -Q | awk -F': *' '/free percentage/ {print $2 + 0}') / 100 ))
+  jq -n --argjson vms "$vms" --argjson stats "${stats:-[]}" --argjson free "$free" '
+    [$vms[] | select(.status.state == "running" and (.configuration.id | startswith("ak-")))]
+    | (map(.configuration.id)) as $ids
+    | ([$stats[] | select(.id | IN($ids[])) | .memoryUsageBytes] | add // 0) as $held
+    | ((($free * 1048576 + $held) / 2 - (map(.configuration.resources.memoryInBytes) | add // 0))
+       / 1048576 | floor)'
+}
+# running NAME: is the VM NAME running?
+running() {
+  container list --all --format json | jq -e --arg id "$1" \
+    'any(.[]; .configuration.id == $id and .status.state == "running")' >/dev/null
+}
 # bare: image references without registry or namespace, tagged `latest` where untagged, as
 # `container ls`, `container image ls` and FROM each write one image differently; an image
 # matching another of its name elsewhere stays rather than going while a VM uses it.
@@ -79,13 +96,12 @@ history() {
 case "$1" in
 probe)
   on_power || exit 251
-  ! held || exit 252
   { container system status || container system start --enable-kernel-install; } \
     >/dev/null 2>&1 || exit 253
+  room=$(left) || exit 253
   echo "cpus $(sysctl -n hw.ncpu)"
   echo "load $(sysctl -n vm.loadavg | awk '{print $2}')"
-  echo "memory_mb $(( $(sysctl -n hw.memsize) / 1048576 ))"
-  echo "free_percent $(memory_pressure -Q | awk -F': *' '/free percentage/ {print $2 + 0}')" ;;
+  echo "room_mb $room" ;;
 known)     # REPO: the commit its history here reaches, if any. A suite asks just before its
   # `prepare`, so this marks the history in use: no other suite's `prepare` deletes it for a week.
   touch -c "$MIRRORS/$2"
@@ -101,47 +117,51 @@ prepare)   # KEY IMAGE REPO, the parcel on stdin
   M="$MIRRORS/$4"
   mkdir -p "$MIRRORS" && locked "$M.lock" git init -q --bare "$M" || exit 253
   locked "$ROOT/build.lock" images "$2" "$3" || exit
-  # Beside another suite's claim it goes on without one: its pieces wait for the other's.
-  claim "$2" held || :
   locked "$M.lock" history "$2" "$M" ;;
 run)       # KEY IMAGE NAME CPUS MEMORY_MB REPO, then piece.sh's arguments
-  key=$2 D="$ROOT/$2" image=$3 name=$4 cpus=$5 memory=$6 M="$MIRRORS/$7"
+  D="$ROOT/$2" image=$3 name=$4 cpus=$5 memory=$6 M="$MIRRORS/$7"
   shift 7
   on_power || exit 251
-  [ -d "$D" ] && [ -d "$M" ] || exit 253
+  # The piece names its failed tests in /out (piece.sh), which `failed` reads once it ends.
+  out="$D/$name.out"
+  [ -d "$D" ] && [ -d "$M" ] && rm -rf "$out" && mkdir -m 777 "$out" || exit 253
   session=$PPID
   until [ "$session" -le 1 ] || ps -o comm= -p "$session" | grep -q sshd; do
     session=$(ps -o ppid= -p "$session" | tr -d ' ')
   done
-  # The suite's claim may have aged while ak ran its other checks, so each piece claims the Mac
-  # again; held by another suite, it waits as long as a dead holder takes to let go.
-  until claim "$key" "$name.held"; do
-    on_power || exit 251
-    ps -p "$session" >/dev/null || exit 253
-    [ "$SECONDS" -lt 180 ] || exit 252
-    sleep 5
-  done
-  rm -f "$D/held"
+  # VMs are admitted one at a time, each running before the next is weighed, so pieces placed
+  # at once never get more together than `left` allows; one that does not fit runs on ak's host.
+  flag=$D/$name.admit
+  : >"$flag" && { locked "$ROOT/vms.lock" held "$flag" $$ </dev/null >/dev/null 2>&1 & }
+  while [ -e "$flag" ]; do kill -0 $! 2>/dev/null || exit 253; sleep 0.1; done
+  room=$(left) || exit 253
+  [ "$memory" -le "$room" ] || exit 252
   # psi=1: the suite sizes its pool from pressure; an unmasked /proc lets its sandbox mount one.
   caffeinate -is container run --rm --init --progress none --kernel-arg psi=1 --masked-path NONE \
     --read-only-path NONE --no-dns --cpus "$cpus" --memory "${memory}m" --name "$name" \
-    --volume "$D:/in:ro" --volume "$M:/mirror:ro" "$image" /bin/bash /in/piece.sh "$@" &
+    --volume "$D:/in:ro" --volume "$M:/mirror:ro" --volume "$out:/out" "$image" \
+    /bin/bash /in/piece.sh "$@" &
   vm=$!
   # The VM stops once ak's ssh session ends or the Mac leaves its charger; the stop is repeated
   # until `container run` ends, so a VM that comes up after the first stop stops too.
   ( lost=253
     while ps -p "$session"; do
       on_power || { lost=251; break; }
-      touch "$D/$name.held"; sleep 5
+      sleep 5
     done
     echo "$lost" >"$D/$name.lost"
     while ps -p "$vm"; do container stop "$name"; sleep 1; done ) >/dev/null 2>&1 &
+  # The next VM is weighed once this one runs, or has ended: stopped while starting, it ends.
+  until running "$name" || ! kill -0 "$vm" 2>/dev/null; do sleep 0.2; done
+  : >"$flag"
   wait "$vm"
   code=$?
   kill $! 2>/dev/null; wait $! 2>/dev/null
-  rm -f "$D/$name.held"
   [ ! -e "$D/$name.lost" ] || exit "$(cat "$D/$name.lost")"
   exit "$code" ;;
+failed)    # KEY NAME: the tests piece NAME named as failed; never through a link it left there
+  f="$ROOT/$2/$3.out/failed"
+  [ ! -f "$f" ] || [ -L "$f" ] || cat "$f"; exit 0 ;;
 finish) rm -rf "${ROOT:?}/$2" ;;
 *) exit 253 ;;
 esac

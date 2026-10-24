@@ -25,7 +25,7 @@ from . import config, gitcall, orch
 LOST = 255            # ssh's own failure
 LACKS = 3             # mac.sh's `prepare`: the Mac's copy lacks history the parcel left out
 SHORT = 254           # piece.sh: the kernel of the piece's VM killed a process for memory
-BATTERY, BUSY, BROKEN = 251, 252, 253   # mac.sh: off power, held by another suite, could not run
+BATTERY, FULL, BROKEN = 251, 252, 253   # mac.sh: off power, no room for the VM, could not run
 TOOLS = config.REPO / "tools" / "helper"
 RECIPE = "tools/helper/Containerfile"     # a repository's recipe when `suite_image:` names none
 SSH = ("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15")
@@ -87,31 +87,30 @@ def _tracked(cwd, path):
 
 def room(alias, piece_cpus, piece_mem_mb, least_mb=0):
     """((pieces, CPUs each, MiB each), reason): a fit, or (None, why it cannot run there).
-    Its CPUs less its load; half the memory macOS calls free, so the
-    Mac stays its owner's. A VM gets two CPUs or more, as a one-CPU VM's kernel hands a
-    terminal's bytes over late and the suite's terminal tests read them at once, and twice the
-    piece's measured memory, as it also holds its own kernel, page cache and clone, or
-    `least_mb` where that is more."""
+    Its CPUs less its load, split equally, as VMs time-share them; the memory ak's VMs may still
+    be given there (mac.sh's `left`), beside other suites' VMs. A VM gets two CPUs or more, as a
+    one-CPU VM's kernel hands a terminal's bytes over late and the suite's terminal tests read
+    them at once, and twice the piece's measured memory, as it also holds its own kernel, page
+    cache and clone, or `least_mb` where that is more."""
     try:
         probe = _remote(alias, "probe", text=True, timeout=30)
         if probe.returncode:
             return None, failure(probe.returncode)
         readings = {key: float(value) for key, value in
                     (line.split(None, 1) for line in probe.stdout.splitlines() if " " in line)}
-        spare = readings["cpus"] - readings["load"]
-        free_mb = readings["memory_mb"] * readings["free_percent"] / 200
-        count = min(int(spare // max(piece_cpus, 2)),
-                    int(free_mb // max(2 * piece_mem_mb, least_mb)))
+        spare, room_mb = readings["cpus"] - readings["load"], readings["room_mb"]
+        each_mb = int(max(2 * piece_mem_mb, least_mb))
+        count = min(int(spare // max(piece_cpus, 2)), int(room_mb // each_mb))
     except (OSError, subprocess.TimeoutExpired, KeyError, ValueError, OverflowError):
         return None, "did not answer (asleep or away)"
     if count < 1:
-        return None, f"has no room ({spare:g} spare CPUs and {free_mb:g} MiB)"
-    return (count, int(spare // count), int(free_mb // count)), ""
+        return None, f"has no room ({spare:g} spare CPUs and {room_mb:g} MiB)"
+    return (count, int(spare // count), each_mb), ""
 
 
 def failure(code):
     """The helper's reason, decided from its exit, never its diagnostic output."""
-    return {LOST: "did not answer (asleep or away)", BATTERY: "is on battery", BUSY: "is busy",
+    return {LOST: "did not answer (asleep or away)", BATTERY: "is on battery", FULL: "has no room",
             BROKEN: "could not prepare or run the container", SHORT: "ran out of memory"}.get(
                 code, f"failed (exit {code})")
 
@@ -199,12 +198,10 @@ def _least(repo):
 
 
 def short(away):
-    """A VM of the suite ran out of memory (`SHORT`): its repository's next ones each get what
-    one piece fewer would have had, or twice as much after a suite of one piece; the MiB they
-    get. Measured here, a piece's memory is its share of all the pieces' peak; there, each VM
+    """A VM of the suite ran out of memory (`SHORT`): its repository's next ones each get twice
+    as much; the MiB they get. Measured here, a piece's memory is its share of all the pieces' peak; there, each VM
     holds its own piece's peak."""
-    least = (away.memory_mb * away.count // (away.count - 1) if away.count > 1
-             else 2 * away.memory_mb)
+    least = 2 * away.memory_mb
     path = config.STATE / f"helper-memory-{away.repo}"
     # Suites of one repository's stacks end at once: each reads, raises and replaces it whole.
     with path.with_name(f".{path.name}.lock").open("a") as lock:
@@ -216,11 +213,27 @@ def short(away):
     return least
 
 
+def _vm(away, shard):
+    return f"ak-{away.key}-{shard.replace('/', '-')}"
+
+
 def piece(away, shard, command):
     """The argv of one piece on the helper: it exits as the piece did, or a helper failure."""
-    return _remote(away.alias, "run", away.key, away.image,
-                   f"ak-{away.key}-{shard.replace('/', '-')}", away.cpus, away.memory_mb,
-                   away.repo, shard, away.branch, away.default, away.programs, command)
+    return _remote(away.alias, "run", away.key, away.image, _vm(away, shard), away.cpus,
+                   away.memory_mb, away.repo, shard, away.branch, away.default, away.programs,
+                   command)
+
+
+def failed(away, shard):
+    """The tests the ended piece of `shard` named as failed there (`AK_FAILED`), from the file
+    piece.sh gives it, never from what it printed; none where the helper does not answer."""
+    try:
+        reply = _remote(away.alias, "failed", away.key, _vm(away, shard), text=True,
+                        errors="replace", timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return [] if reply.returncode else list(dict.fromkeys(
+        line.strip() for line in reply.stdout.splitlines() if line.strip()))
 
 
 def finish(away):

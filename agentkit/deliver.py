@@ -2,10 +2,10 @@
 
 The push of its branch and the pull request that opens on it (its body, its
 checks and their wait, the rights a fork needs), the gh calls that read GitHub's
-answers, the merge and what it may merge (a diff of wording alone needs no
-review), the landing line a run joins, releases and rejoins, the landing itself
-under the repository's lock, and the endings a delivery can have: blocked, on a
-dependency, or a landing that failed and goes back to the writer.
+answers, the merge and what it may merge, the landing line a run joins, releases
+and rejoins, the landing itself under the repository's lock, and the endings a
+delivery can have: blocked, on a dependency, or a landing that failed and goes
+back to the writer.
 """
 
 import fcntl
@@ -499,65 +499,6 @@ def gh_json(cwd, *args, timeout=None):
         return None, f"gh printed no JSON ({exc}): {out[-200:]}"
 
 
-def text_only_pr(repo, base, head):
-    """Does every change between `base` and `head` touch only a document people read?
-
-    A document is a README, CHANGELOG, LICENSE, ARCHITECTURE or the like, at any depth, or
-    prose under the top-level `docs/`.  Markdown elsewhere may be what a product or a model
-    reads (a support assistant's knowledge, a rulebook) and translations are the product's
-    own words, so they are reviewed.  Both sides of a rename count: moving code into a
-    document's name still needs review.  AGENTS.md is executable configuration: its front
-    matter supplies shell commands.  Only a regular file counts: a submodule's commit or a link
-    names code elsewhere, and a local `diff.ignoreSubmodules` hides nothing here.  A file is
-    binary when its committed bytes hold a NUL, whatever `.gitattributes` tells the diff.
-    Names are read byte for byte, so each is looked up as the file it is, never a lookalike.
-    An AGENTS.md at any depth that is a link makes its target executable configuration too,
-    so then nothing skips review.
-    """
-    raw = ("--no-renames", "--no-ext-diff", "--no-textconv", "--ignore-submodules=none", "-z")
-    try:
-        trees = [gitcall.git_bytes(repo, "ls-tree", "-r", "-z", ref) for ref in (base, head)]
-        if any(meta.split(" ", 1)[0] not in ("100644", "100755")
-               for tree in trees for meta, _, name in (entry.partition("\t")
-                                                       for entry in tree.split("\0") if entry)
-               if Path(name).name.upper() == "AGENTS.MD"):
-            return False        # an AGENTS.md anywhere that is a link or a submodule
-        entries = gitcall.git_bytes(repo, "diff", "--raw", *raw, base, head, "--").split("\0")
-        modes = [entry.split()[:2] for entry in entries[0::2] if entry.startswith(":")]
-        entries = gitcall.git_bytes(repo, "diff", "--numstat", *raw, base, head, "--").split("\0")
-    except (config.Error, gitcall.Stopped):
-        return False        # a diff nobody could read cannot be shown to be wording
-    files = [entry.split("\t", 2) for entry in entries if entry]
-    return (bool(files) and len(modes) == len(files)
-            and all(mode.lstrip(":") in ("000000", "100644", "100755")
-                    for pair in modes for mode in pair)
-            and all(len(row) == 3 and row[0].isdigit() and row[1].isdigit()
-                    and document(row[2]) for row in files)
-            and all(text_blob(repo, ref, row[2]) for pair, row in zip(modes, files)
-                    for mode, ref in zip(pair, (base, head)) if mode.lstrip(":") != "000000"))
-
-
-def document(name):
-    """Is the file `name` a document people read, as `text_only_pr` counts them?"""
-    path = Path(name)
-    suffix = path.suffix.lower()
-    prose = suffix in (".md", ".markdown", ".rst", ".adoc", ".txt", ".text")
-    if path.name.upper() == "AGENTS.MD":
-        return False        # executable configuration, wherever it sits
-    if path.stem.upper() in ("README", "CHANGELOG", "LICENSE", "COPYING", "NOTICE", "AUTHORS",
-                             "ARCHITECTURE"):
-        return prose or not suffix
-    return prose and len(path.parts) > 1 and path.parts[0] == "docs"
-
-
-def text_blob(repo, ref, path):
-    """Do the bytes `path` names at `ref` read back, with no NUL among them?"""
-    try:
-        return "\0" not in gitcall.git_bytes(repo, "cat-file", "blob", f"{ref}:{path}")
-    except (config.Error, gitcall.Stopped):
-        return False
-
-
 MERGE_METHODS = {"squash": "--squash", "merge": "--merge", "rebase": "--rebase"}
 # the race a merge can lose to a merge to the target between the push and this call; the
 # answer is a retry, never an ending -- see `do_merge`
@@ -857,10 +798,10 @@ def land_from_line(lp, upstream, deliver):
                 gitcall.fetch(lp.wt, "origin", "--prune", check=True)
                 tip = gitcall.git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
                 how = roundloop.how_to_integrate(lp)
-                args = ("merge", "--no-edit", tip) if how == "merge" else ("rebase", tip)
                 saved = dict(lp.state["review"])
                 try:
-                    code, _ = gitcall.git_out(lp.wt, *args)
+                    code, _ = (gitcall.merge(lp.wt, tip) if how == "merge"
+                               else gitcall.git_out(lp.wt, "rebase", tip))
                 except gitcall.Stopped:
                     roundloop.abort_stopped_integration(lp, how)
                     raise
@@ -887,14 +828,6 @@ def land_from_line(lp, upstream, deliver):
                     lp.state.pop("waiting_on", None)
                     forget_landing_counts(lp.state)
                     return roundloop.note(lp, f"its work is already on {upstream.removeprefix('origin/')}")
-                if saved.get("skipped") and not text_only_pr(lp.wt, tip, "HEAD"):
-                    # work not on the target yet: the target may have carried the wording onto
-                    # files that need review (a rename, say)
-                    path = lp.run_dir / "review-needed.log"
-                    path.write_text("Rebased onto the target, this wording PR now changes files "
-                                    "that need review; push the rebased branch and it is reviewed.\n")
-                    return fail_pr_landing(lp, {"line": path.read_text().strip(), "log": str(path)},
-                                           landing=False)
                 lp.state["final_check"] = {"outcome": "passed", "where": "landing",
                                            "sha": identity["head_sha"],
                                            "tree_sha": identity["tree_sha"],

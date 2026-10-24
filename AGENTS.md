@@ -1,6 +1,7 @@
 ---
 users: none
 tests: export AK_SHARD AGENTKIT_ACCEPTANCE_REQUIRED=1; offline() { unshare --user --map-current-user --net --keep-caps sh -c 'ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' - "$@"; }; offline true 2>/dev/null || offline() { "$@"; }; offline bash -c 'python3 tests/landing.py'
+health: git -C ~/agentkit merge-base --is-ancestor "$AK_MERGE_SHA" HEAD && test ! -e ~/.agentkit/state/agentkit-install-pending
 ---
 # agentkit, for an agent working on it
 
@@ -59,10 +60,10 @@ Mistakes no check catches and no one area of the code holds; one that becomes a 
 - Every screen follows `docs/cli-design.md`: plain words that explain themselves, every glyph followed by its word (⚒ builds and ◎ reviews excepted), nothing cut mid-sentence, the same back, forward and exit keys everywhere. [15 Sep, 16 Sep, 18 Oct]
 - A harness's settings are its own, changed in any of its sessions (its settings screen, or by asking its model): every login of a harness reads one settings file (not yet Antigravity's: 1.3.5 replaces links), so the change reaches every session and worker of that harness. ak has no settings screen for them and no setting shared across harnesses. Reason: rebuilding each harness's options in ak is work the harness already did, and an edit made on one Claude login was reverted by the next launch. [15 Oct 2026]
 - The normal way in is a session: open it, pick who orchestrates, executes and reviews, type the prompt. A notes intake, if built, is an optional add-on on the ak screen, using ak's providers. [1 Oct]
-- Every provider takes several subscriptions, each shown by its provider's name, numbered in roman numerals when there are several (Claude I, Claude II), never by its account name. A seat between turns moves off one running low; a phone prompt in its restart's instant may be lost, as no harness can hold it. [29 Sep, 21 Oct 2026]
+- Every provider takes several subscriptions, shown by provider name, in roman numerals when several (Claude I, Claude II), never account name. Between turns a seat leaves one running low, or, holding background work, only one spent, told to pick that work up; a phone prompt as it restarts may be lost. [29 Sep, 21, 24 Oct 2026]
 - The features screen has only `you` and `everyone`; grants for specific users live on the project's own owner page, never in ak. [23 Sep]
 - Instructions have four homes: `orchestrator.md` and the worker rules (ak's), the host's `~/.agentkit/rules.md` (the owner's), and a project's `AGENTS.md` (what no code can hold), each handed whole to every session and worker it concerns; nothing else instructs a model ak runs, no harness memory and no lessons file. `AGENTS.md` and `orchestrator.md` each have a word maximum (`tests/test_boundaries.py`); in each, a line explains something ak checks or a judgement no check can make, and a rule ak comes to enforce shrinks to a mention. [1 Oct, 4 Oct, 16 Oct, 20 Oct]
-- Credits a provider account still holds (ChatGPT credits first, any provider that reports a balance) count as usage left; ak never spends a usage-limit reset on its own: the owner spends one by hand, from its meter on `c`. [2 Oct]
+- Credits a provider account still holds (ChatGPT credits first, any provider that reports a balance) count as usage left; ak never spends a usage-limit reset on its own: the owner spends one by hand, from its meter. [2 Oct, 20 Oct]
 - Every project meets one contract, enforced by checks and scaled by what is at stake: its suite runs every test file, its front matter holds only lines ak reads, and a live project proves it is live with a real `health:`, deploys only code ak tested, and puts the previous release back by itself when health breaks. How each project deploys stays its own; a ready-made deploy kit covers the common case. [5 Oct]
 - Seats never message one another and nothing one seat writes is typed into another; a seat waits only on a pull request or a run (`ak wait`), and ak ends the wait when that merges, closes or ends. [4 Oct, 9 Oct]
 - The landing gate changes only with the owner's yes. [2 Oct]

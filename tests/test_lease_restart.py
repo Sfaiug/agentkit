@@ -89,16 +89,17 @@ class LeaseRestart(LiveRuns):
         leases.scan(self.repo, now=2000)
         wait = {"kind": "run", "on": YOUNGER}
         self.assertTrue(transitions.going(self.state(YOUNGER)))                   # its seat is working
-        self.assertEqual(watch.wait_fact(wait), (False, ""))
+        self.assertEqual(watch.wait_fact(wait), (False, "", None))
         self.land(OLDER)
         with patch.object(run, "preflight"), patch.object(run, "spawn_bg"):
             leases.restart(log=self.logs.append, now=3000)
         fresh, = self.started_again()
         self.assertFalse(transitions.going(self.state(YOUNGER)))
-        self.assertEqual(watch.wait_fact(wait), (False, ""))
+        self.assertEqual(watch.wait_fact(wait), (False, "", None))
         record.save_state(fresh, {**record.read_state(fresh), "state": "pass", "verdict": "PASS",
                                   "merged": True})
-        self.assertEqual(watch.wait_fact(wait), (True, f"run {fresh.name} ended PASS, merged"))
+        self.assertEqual(watch.wait_fact(wait), (True, f"run {fresh.name} ended PASS, merged",
+                                                   fresh.name))
 
     def calls_off(self, end):
         """Stopped waiting, then ended by `end`: once the holder lands, nothing starts again."""

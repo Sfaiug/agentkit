@@ -49,7 +49,7 @@ from . import (aside_editor, browser, command_help, config, gc, gitcall, handbac
 from . import record as run_record
 from . import terminal as terminal_mod
 from .harness import LIMITED, SPENT, entries, says
-from .lifecycle import LIVE, facts as hook_facts, state as hook_state
+from .lifecycle import LIVE, facts as hook_facts, held_work, state as hook_state
 
 INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is typed into
 # what a seat reopened after its process died mid-turn is told, in a run's mid-turn words
@@ -61,6 +61,9 @@ ASKED_LINE = ("The host restarted while your question to the owner was still ope
 # ... and one whose turn its usage cut off, on an account with usage again, this or another
 ACCOUNT_LINE = ("Your turn was cut off when its usage ran out, and there is usage again. "
                 "Continue that turn and finish it; do not start over.")
+# ... and, after any of these or alone, one whose background work went with its process
+HELD_LINE = ("Your process was ended, not by you, while it held background work: {}. Resume "
+             "what can be resumed and start the rest again.")
 # ... and one moved mid-turn to a model of another harness: its rulebook hands the turn on
 MOVED_LINE = ("This seat moved to you in the middle of a turn. Continue that turn from where "
               "the conversation your instructions point you to leaves it; do not start over.")
@@ -480,21 +483,31 @@ def boot_id():
         return None
 
 
-def reboot_line(cfg, name):
+def reboot_line(cfg, name, moved=None):
     """What that seat is told once it is back, by what it was doing when its process went.
 
     Its last look, unless its hook has spoken since, which is then the newest word.  Asking
     the owner, in a turn or not: its question on the screen, or its own unanswered `ak notify
     needs`.  Else in the middle of a turn: the ladder's own test -- a hook's prompt with no
     `Stop` after it, or a screen positively `working`, as it is once a question the turn asked
-    was answered.  None for a seat that was idle or done.
+    was answered.  A move to another account knows what it cut instead: `moved` says whether
+    that was a turn, which goes on with ACCOUNT_LINE.  Background work its process held goes
+    after that line or alone, named, to be resumed or started again.  None for a seat that was
+    idle or done and held nothing.
     """
+    fact = hook_facts(name)
+    line = _cut_line(cfg, name, fact) if moved is None else ACCOUNT_LINE if moved else None
+    work = held_work(fact)
+    return " ".join(filter(None, (line, work and HELD_LINE.format(", ".join(work))))) or None
+
+
+def _cut_line(cfg, name, fact):
     harness = seat_model(cfg, name)[0]
     if not harness:
         return None
     looked = seat_read(name)
     try:
-        hooked, _event, _text, when = hook_state(harness, hook_facts(name))
+        hooked, _event, _text, when = hook_state(harness, fact)
     except config.Error:
         return None
     if when is not None and when != looked.get("hooked_at"):
@@ -546,9 +559,11 @@ def resume_after_boot(cfg, dry_run=False, log=print):
             if (name in present or name in attempted or not orch.resumable(record)
                     or seat_closed_by_owner(name)):
                 continue
-            line = reboot_line(cfg, name)   # read before the relaunch writes anything
-            if not line and not owes_work(name, own_runs(name, records), index, now):
+            # background work alone owes nothing: its words go only to a seat that comes back
+            if (not _cut_line(cfg, name, hook_facts(name))
+                    and not owes_work(name, own_runs(name, records), index, now)):
                 continue
+            line = reboot_line(cfg, name)   # read before the relaunch writes anything
             if dry_run:
                 log(f"would resume {name} after reboot in {record.get('cwd')}")
                 continue
@@ -569,14 +584,16 @@ def resume_after_boot(cfg, dry_run=False, log=print):
             _write_state(state)
 
 
-def relaunched(name, harness, line, at, boot=None):
-    """Mark the line a seat relaunched at `at` goes on with, for `continue_turns`.
+def relaunched(name, harness, line, at, boot=None, account=False):
+    """Mark the line a seat relaunched at `at` goes on with, for `continue_turns`; `account`
+    marks a move to another account, whose line the same tick types.
 
     Where its harness took the line as its first prompt (`orch.takes_line`) the mark only
     waits for that prompt; elsewhere the tick types it once the TUI is listening.
     """
     seat_write(name, midturn={"boot": boot or boot_id(), "at": at, "name": name, "line": line,
-                              **({"launched": True} if orch.takes_line(harness) else {})})
+                              **({"launched": True} if orch.takes_line(harness) else {}),
+                              **({"account": True} if account else {})})
 
 
 def prompted_since(name, at):
@@ -615,7 +632,7 @@ def continue_turns(cfg, log, accounts=False):
     boot = boot_id()
     for name in config.session_records():
         mark = seat_read(name).get("midturn")
-        if not isinstance(mark, dict) or (mark.get("line") == ACCOUNT_LINE) != accounts:
+        if not isinstance(mark, dict) or bool(mark.get("account")) != accounts:
             continue
         at = mark.get("at") if isinstance(mark.get("at"), (int, float)) else 0
         line = mark.get("line") or MIDTURN_LINE
@@ -642,7 +659,7 @@ def continue_turns(cfg, log, accounts=False):
                     return held != mark.get("name") or prompted_since(held, at)
 
                 def stale(held):
-                    if line == ASKED_LINE and not quiet:
+                    if line.startswith(ASKED_LINE) and not quiet:
                         quiet.append(quiet_prompt(session, held, cfg))
                     return quiet == [False] or taken(held)
                 sent = type_into(session, line, log, stale, asked=True)
@@ -2929,18 +2946,19 @@ def waiting_on(name):
 
 
 def wait_fact(wait):
-    """(whether what that wait names is over, the one line saying how): a run once it is no
-    longer going, or the run its task was started again as, a pull request once it is merged
-    or closed, or while open, once no run reviewing or landing it is going.  (None, why) where
-    nothing can say yet: `wait_over` leaves the wait as it is while that is the owner's login
-    to fix, and for UNREAD_TICKS ticks otherwise."""
+    """(whether what that wait names is over, the one line saying how, the run whose ending
+    that is or None): a run once it is no longer going, or the run its task was started again
+    as, a pull request once it is merged (by the run landing it, if one did) or closed, or
+    while open, once no run reviewing or landing it is going (the last to end since the wait
+    began).  (None, why, None) where nothing can say yet: `wait_over` leaves the wait as it is
+    while that is the owner's login to fix, and for UNREAD_TICKS ticks otherwise."""
     on = wait.get("on")
     if wait.get("kind") == "run":
         while True:
             directory = config.RUNS / on
             state = run_record.read_state(directory) if directory.is_dir() else None
             if not state:
-                return True, f"run {on} is gone"
+                return True, f"run {on} is gone", None
             if not state.get("lease_restarted"):
                 break
             # stopped to wait on an older run's change, and started again (`leases.restart`):
@@ -2948,32 +2966,39 @@ def wait_fact(wait):
             on = state["lease_restarted"]
         if state.get("state") == "stalled":
             # going to the ladder, but nothing moves it except the seat: the wait is over
-            return True, f"run {on} stalled: resume it with ak run resume {on}"
+            return True, f"run {on} stalled: resume it with ak run resume {on}", None
         if transitions.going(state):
-            return False, ""
+            return False, "", None
         ended = state.get("verdict") or state.get("state") or "ended"
-        return True, f"run {on} ended {ended}" + (", merged" if state.get("merged") else "")
+        return True, f"run {on} ended {ended}" + (", merged" if state.get("merged") else ""), on
     data, why = gh_json(config.RUNS, "pr", "view", on, "--json", "state,number,mergeCommit")
     if not isinstance(data, dict) or data.get("state") not in ("OPEN", "MERGED", "CLOSED"):
-        return None, why or "GitHub did not answer"
+        return None, why or "GitHub did not answer", None
     number = data.get("number")
     if data["state"] == "OPEN":
         # a run that ends without merging leaves it open, its ending may reach no seat (one
         # launched outside a seat records none), and one never sent to a run has none at all:
         # open, it waits while a wait on any going run of any seat reviewing or landing it
         # would, and one such run that would not (a stalled one) ends it with its own line
+        runs = list(transitions.runs_on(pr=on))
         facts = [wait_fact({"kind": "run", "on": state["run_id"]})
-                 for state in transitions.runs_on(pr=on) if transitions.going(state)]
-        if not all(over for over, _ in facts):
-            return False, ""
+                 for state in runs if transitions.going(state)]
+        if not all(over for over, _, _ in facts):
+            return False, "", None
         if facts:
             return facts[0]
+        ended = [state for state in runs if state.get("state") in run_record.ENDED
+                 and (state.get("finished_at") or 0) >= (wait.get("at") or 0)]
+        last = max(ended, key=lambda state: state.get("finished_at") or 0, default=None)
         return True, (f"PR #{number} is open with no ak run going on it: "
-                      f"ak run --review-pr {on} --bg takes it")
+                      f"ak run --review-pr {on} --bg takes it"), last and last["run_id"]
     if data["state"] == "MERGED":
         sha = str((data.get("mergeCommit") or {}).get("oid") or "")[:12]
-        return True, f"PR #{number} merged" + (f" as {sha}" if sha else "")
-    return True, f"PR #{number} closed without merging"
+        # its lander may still be finishing: `merged` is written before the run's ending
+        lander = next((state["run_id"] for state in transitions.runs_on(pr=on)
+                       if state.get("merged")), None)
+        return True, f"PR #{number} merged" + (f" as {sha}" if sha else ""), lander
+    return True, f"PR #{number} closed without merging", None
 
 
 def wait_over(cfg, log):
@@ -2985,7 +3010,9 @@ def wait_over(cfg, log):
     in through the confirmed send, only at the seat's own quiet prompt, the way a run's ending
     is handed back; a seat mid-turn is tried again next tick.  It names the fact and nothing
     else: no other seat's words, no other seat's screen.  The send that took it is written on
-    the wait as `told`, so it is typed once.
+    the wait as `told`, so it is typed once.  An ending its own run hands back to the seat
+    (`handback.hand_back`) is that line already: none is typed for it, and the wait is told
+    once the hand-back is in.
     """
     waiting = {}
     for name in config.session_records():
@@ -3009,7 +3036,7 @@ def wait_over(cfg, log):
                     "on a pull request or run")
             continue
         if not wait.get("over"):
-            over, reason = wait_fact(wait)
+            over, reason, run = wait_fact(wait)
             if over is None:
                 log(f"WARN {name}: its wait on {wait['on']} cannot be read: {reason}")
                 if LOGGED_OUT.search(reason or ""):
@@ -3022,18 +3049,32 @@ def wait_over(cfg, log):
                     continue
                 # a fact nobody could read for this many ticks running ends the wait, said:
                 # no seat stands on it for good
-                over, reason = True, f"your wait on {wait['on']} cannot be read ({reason})"
+                over, reason, run = (True, f"your wait on {wait['on']} cannot be read ({reason})",
+                                     None)
             elif not over:
                 if wait.get("unread"):
                     wait_mark(name, wait, unread=0)     # read again: the misses were blips
                 continue
-            if not wait_mark(name, wait, over=reason):
+            if not wait_mark(name, wait, over=reason, run=run):
                 continue
             wait = seat_read(name).get("wait")
             if not isinstance(wait, dict) or wait.get("told"):
                 continue
         if closed:
             continue
+        run = wait.get("run") and run_record.read_state(config.RUNS / wait["run"])
+        if run and transitions.launched_session(run) == name:
+            # its own run hands this ending back with the verdict, PR and result: that line is
+            # the one the seat hears, and a second for the same ending would join it in the
+            # composer (22 Oct).  A routine ending, or one said elsewhere, is not typed to it
+            if not handback.routine_ending(run) and (
+                    run.get("state") not in run_record.ENDED or handback.owes_ending(run)):
+                continue        # the hand-back is on its way
+            if handback.already_handed_back(run) and not run.get("handback_note"):
+                if wait_mark(name, wait, told=time.time()):
+                    log(f"{name}: its own run's hand-back told it that {wait['over']}; its "
+                        "wait is over")
+                continue
         # one line, whatever gh said over several: a newline typed is a key of its own
         line = f"{' '.join(str(wait['over']).split())}; your wait is over. Decide the next step."
         if type_at_prompt(session, line, log, cfg=cfg, typed=wait.get("typed"),
@@ -3073,7 +3114,7 @@ def wait_main(argv):
               file=sys.stderr)
         return 1
     wait = {"on": on, "kind": kind, "at": time.time()}
-    over, why = wait_fact(wait)
+    over, why, _ = wait_fact(wait)
     if over is None:
         print(f"ak wait: gh cannot view {on}: {why}", file=sys.stderr)
         return 1
@@ -3892,12 +3933,18 @@ def _editor_read(session, where, cfg=None):
         harness = seat_model(config.load() if cfg is None else cfg, name)[0]
         pane = pane_text(session) if harness else ""
         found = live_state(session, harness, pane=pane, cfg=cfg) if pane.strip() else {}
-        picker = found and any(rule["picker"] and rule["id"] == found.get("rule")
-                               for rule in screen(harness)["rules"])
+        picker = _picker_up(harness, found)
     except (config.Error, OSError):
         return None
     return ((harness, pane, found) if found.get("authority") and not asking(name, harness, pane)
             and not picker and not pane_unread(session) else None)
+
+
+def _picker_up(harness, found):
+    """Whether that seat's screen, read as `found` (`live_state`), shows a picker
+    (`[[rule]] picker`), which may draw its composer empty above it."""
+    return any(rule["picker"] and rule["id"] == found.get("rule")
+               for rule in screen(harness)["rules"])
 
 
 def drafts_back(cfg):
@@ -3988,12 +4035,22 @@ def carry_draft(session, harness, pane, to, cfg=None):
     where the editor gives no answer, or finds text typed since that set aside, which no step
     merges.  Only through ak's editor, which reads a composer whole, and only to a harness
     (`to`) that opens it too: a screen draws a draft late, wrapped and cropped, and elsewhere
-    the text goes with the old harness.  Under the seat's lock its caller holds over the
-    respawn too, so no tick hands the text back to the harness going."""
-    # keys go out unless the composer reads empty, and never to a question: they could answer it
-    where = (harness and screen(to).get("editor") and composer_draft(harness, pane) != ""
-             and not asking(session["name"], harness, pane) and seat_editor(session, cfg))
-    return not where or _edit(session, where, "line") in ("line", "unsent")
+    the text would go with the old harness.  Not where the editor may not be asked a step now
+    either (`_editor_read`): a picker drawn since, or input unread, would take its keys.
+    Under the seat's lock its caller holds over the respawn too, so no tick hands the text back
+    to the harness going; the pane is read again under it, as the caller's capture predates a
+    paste or picker taken since."""
+    pane = pane_text(session)
+    # no keys to a question: they could answer it; nothing to keep in a composer read empty,
+    # but a picker may draw it empty over the owner's text
+    if not harness or asking(session["name"], harness, pane):
+        return True
+    if composer_draft(harness, pane) == "" and not (
+            pane.strip() and _picker_up(harness, live_state(session, harness, pane=pane, cfg=cfg))):
+        return True
+    where = screen(to).get("editor") and seat_editor(session, cfg)
+    return bool(where and _editor_read(session, where, cfg)
+                and _edit(session, where, "line") in ("line", "unsent"))
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
@@ -4423,12 +4480,12 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
 
 
 def _resume_on(cfg, name, log, account, continuing, still=None):
-    """Resume that seat's conversation on `account`; a turn it was in goes on there."""
-    at, line = time.time(), ACCOUNT_LINE if continuing else None
+    """Resume that seat's conversation on `account`, told what the move cut (`reboot_line`)."""
+    at, line = time.time(), reboot_line(cfg, name, bool(continuing))
     resumed = orch.resume(cfg, name, log=log, hand_over=False, account=account, still=still,
                           line=line)
     if line and resumed == "resumed":
-        relaunched(name, seat_model(cfg, name)[0], line, at)
+        relaunched(name, seat_model(cfg, name)[0], line, at, account=True)
 
 
 def between_turns(name, harness, record, opened_at, pane=None):
@@ -4472,7 +4529,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
             or seat_closed_by_owner(name)):
         return False
     live = seat_read(name)
-    if (live.get("midturn") or {}).get("line") == ACCOUNT_LINE:
+    if (live.get("midturn") or {}).get("account"):
         return True       # its resumed transcript may still show the previous account's refusal
     if live.get("state") == "asking":
         return True       # a respawn would lose it; an open question is ak's record and stays
@@ -4546,11 +4603,12 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         # turn the limit ended goes on there, though the meters may not show that limit yet.
         # One whose account runs low moves to one that does not, between turns, so no turn of
         # it is cut off when that account is spent; with every one low it spends its own, and
-        # it comes home only to room it would not leave again at once.
+        # it comes home only to room it would not leave again at once.  None of it cuts off
+        # background work: that waits until the account is spent (owner, 24 Oct 2026).
         moves = [a for a in orch.account_order(cfg, model, readings, home) if a != current
                  and window(a) and (not window(current) or not low(a)
                                     and (a == home or low(current)))]
-        if (moves and live.get("state") == "at_prompt"
+        if (moves and live.get("state") == "at_prompt" and not held_work(hook_facts(name))
                 and not _turn_in_flight(harness, live)[0]
                 and orch.resumable(record)):
             if dry_run:
@@ -4562,8 +4620,10 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                 return False
             def still(pane=None):
                 # The last look, the old harness taking no keys from it on (the owner's choice
-                # of 21 Oct 2026: a prompt from the phone in that instant may be lost).
-                return between_turns(name, harness, record, live.get("opened_at"), pane)
+                # of 21 Oct 2026: a prompt from the phone in that instant may be lost), and
+                # still holding no background work a turn ended on since the first.
+                return (between_turns(name, harness, record, live.get("opened_at"), pane)
+                        and not held_work(hook_facts(name)))
             with state_lock():
                 if not still():
                     return True
@@ -7024,28 +7084,18 @@ def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None, typed
 
     As a finished run is: only at its prompt, so a turn in flight means the next tick
     tries again, and with the composer's mark kept across retries, so a line whose Enter
-    did not land is entered and never typed a second time.  True when the line was told.
+    did not land is entered and never typed a second time.  The seat's name when the line was
+    told, else None.
     """
     if run_dir is not None:
         line = handback.seat_notice(line, {}, run_dir,
                                   f"run {run_dir.name}: a check failed after its merge.",
                                   "Fix the target.")
-    try:
-        session = transitions.launched_session(run_state)
-    except config.Error:
-        session = None
-    if session:
-        try:
-            seat = orch.find(session)
-        except (config.Error, OSError, ValueError, AttributeError):
-            seat = None
-        if after_merge_live(seat):
-            return bool(type_at_prompt(seat, line, log, cfg=cfg, typed=typed,
-                                       receipt=receipt))
-    fallback = after_merge_fallback(repo_key)
-    if fallback is None:
-        return False
-    return bool(type_at_prompt(fallback, line, log, cfg=cfg, typed=typed, receipt=receipt))
+    seat = after_merge_seat(run_state, repo_key)
+    if seat is None:
+        return None
+    return seat["name"] if type_at_prompt(seat, line, log, cfg=cfg, typed=typed,
+                                          receipt=receipt) else None
 
 
 def after_merge_seat(run_state, repo_key):
