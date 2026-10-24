@@ -868,6 +868,8 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     neither answers.  `job_cpus` and `job_mem_mb` are one job's cost, such as a suite
     piece's as measured (`suite_cost`). With `unit`, pieces also fit the caller's soft
     limit and the remaining room under every enclosing hard memory cap.
+    Running and new never pass what the slice's cores and memory fit with nothing running:
+    a held piece's use dips while it waits, and room read in a dip piled 60 turns on 8 cores.
     """
     if running is None:
         running = _heavy_running()
@@ -883,6 +885,7 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
         if outside is not None and cpus is not None:
             cpu_quota = min(cpu_quota, cpus - outside)
         cpu_free = cpu_quota - used if used is not None else float(cpu_quota)
+        cpu_whole = cpu_quota
     else:
         load = host._reading(readings, "load", "load1", "load_1m")
         if cpus is not None and load is not None:
@@ -891,11 +894,14 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
             cpu_free = float(cpus)
         else:
             cpu_free = None
+        cpu_whole = cpus
     memory = host._slice_or_unit_memory(readings)
     if memory is not None:
         mem_free = memory[1] - memory[0]
+        mem_whole = memory[1]
     else:
         mem_free = host._reading(readings, "free_mb", "mem_available_mb", "mem_available")
+        mem_whole = host._reading(readings, "mem_total_mb")
     if unit:
         own = host._unit_memory(readings)
         if own is not None:
@@ -911,6 +917,8 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
         candidates.append(int(mem_free / job_mem_mb))
     if not candidates:
         return 1
+    candidates += [int(total / cost) - running for total, cost in
+                   ((cpu_whole, job_cpus), (mem_whole, job_mem_mb)) if total is not None]
     return max(1, running + max(0, min(candidates)))
 
 
