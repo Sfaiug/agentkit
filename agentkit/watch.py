@@ -4362,14 +4362,14 @@ def sweep_preexisting(log, now=None):
 
 
 def revive(name, line, log, cfg=None, *, prepare):
-    """Bring a gone seat back on its own conversation, and type one line into it.
+    """Bring a gone seat back on its own conversation, and owe it one line.
 
     The way its number in the menu opens it: the saved conversation where the record holds
-    one, and fresh where it does not -- then the line says so.  A seat just started gets
-    INBOX_WARMUP before it is typed into, as the inbox does, and the line goes through the
-    confirmed send, after `prepare` fits the final line to its composer. The answer is None
-    when the seat was told, else why it was not, in a
-    clause the owner's notice can end with.
+    one, and fresh where it does not -- then the line says so.  The line, once `prepare` fits it
+    to its composer, is from then on ak's to deliver (`tell_owed`): tried once a seat just
+    started has had INBOX_WARMUP, as the inbox is, and on every tick after until it is in,
+    however long the harness takes to draw its prompt.  The answer is None when the seat came
+    back, else why it did not, in a clause the owner's notice can end with.
     """
     try:
         back = orch.ensure(config.load() if cfg is None else cfg, name, log, saved=True)
@@ -4377,12 +4377,39 @@ def revive(name, line, log, cfg=None, *, prepare):
         return str(exc)
     if back == "fresh":
         line += FRESH_NOTE
-    line = prepare(line)
+    name = config.resolve_session(name)
+    owe_line(name, None, {"line": prepare(line)})
     if back:
         time.sleep(INBOX_WARMUP)     # the TUI has to be listening before it is typed into
-    if type_into(orch.find(name) or {"name": name}, line, log):
-        return None
-    return "the continue line was not confirmed sent"
+    tell_owed(name, log, cfg)
+    return None
+
+
+def owe_line(name, line, owed):
+    """Under the seat's lock, the line owed to it with the text `line` becomes `owed`: added
+    where `line` is None, gone where `owed` is."""
+    with seat_lock(name):
+        data = seat_read(name)
+        lines = data.get("owed_lines") or []
+        lines = ([owed if old["line"] == line else old for old in lines] if line
+                 else [*lines, owed])
+        _seat_put(name, data, {"owed_lines": [old for old in lines if old] or None})
+
+
+def tell_owed(name, log, cfg=None):
+    """The oldest line `revive` owes that seat goes in at its quiet prompt (`type_at_prompt`),
+    never onto text the owner typed there; the tick asks this of every seat, so the line waits
+    for a harness however slow to draw its prompt.  Its mark is kept from try to try until the
+    composer reads empty, so it goes in once."""
+    owed = (seat_read(name).get("owed_lines") or [None])[0]
+    seat = orch.find(name) if owed else None
+    if not seat:
+        return
+    line = owed["line"]
+    if type_at_prompt(seat, line, log, cfg=cfg, typed=owed.get("typed"),
+                      receipt=lambda mark: owe_line(name, line, {**owed, "typed": mark})):
+        owe_line(name, line, None)
+        log(f"told {name}: {line}")
 
 
 def seat_subscription(cfg, provider, name):
@@ -7566,9 +7593,11 @@ def local_passes(state, dry_run, log):
         ("the ending pass did not run", lambda: offer_endings(log), False),
         # A job that finished while its seat was mid-turn hands its line back at the next quiet
         # prompt, the way one of its runs does; a seat whose `ak wait` names a pull request or
-        # run that is over is told so, which ends the wait.
+        # run that is over is told so, which ends the wait; a seat ak reopened, what it missed.
         ("a finished job was not handed back", lambda: jobs.deliver_job_handbacks(log), False),
         ("the wait pass did not run", lambda: wait_over(config.load(), log), False),
+        ("a reopened seat was not told",
+         lambda: [tell_owed(name, log) for name in config.session_records()], False),
         # Every feature switch on for everyone for two weeks becomes a line in the plan of a seat
         # on its project, to take out of the code.
         ("the switch retirement pass did not run", lambda: retire.hand(log), False),

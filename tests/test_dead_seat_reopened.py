@@ -1,7 +1,8 @@
 """a dead orchestrator seat is reopened and told to continue, by the run and by the tick.
 
-Offline: no tmux (`orch.sessions`/`orch.listing` say what the seat is), a fake `ensure`, a
-fake confirmed send and a fake notify.  The one test of the real `ensure(saved=True)` and
+Offline: no tmux (`orch.sessions`/`orch.listing` say what the seat is), a fake `ensure` and a
+fake notify; the line owed to the seat is read off its record, and a fake send at its prompt
+leaves it there.  The one test of the real `ensure(saved=True)` and
 `resume(hand_over=False)` fakes the launch itself and forbids an attach.
 """
 
@@ -35,9 +36,8 @@ class V5s(Sandbox):
         self.stack.enter_context(patch.object(
             orch, "tmux_out", side_effect=AssertionError("tmux was called")))
         self.stack.enter_context(patch.object(handback, "launcher_watched", return_value=False))
-        self.logs, self.typed, self.cards, self.slept, self.reopened = [], [], [], [], []
+        self.logs, self.cards, self.slept, self.reopened = [], [], [], []
         self.back = "resumed"    # what the fake `ensure` answers, or the error it raises
-        self.sent = True         # what the fake confirmed send answers
 
         def ensure(cfg, name, log=print, saved=False, **_kw):
             self.reopened.append((name, saved))
@@ -46,14 +46,16 @@ class V5s(Sandbox):
             return self.back
         self.stack.enter_context(patch.object(orch, "ensure", side_effect=ensure))
         self.stack.enter_context(patch.object(
-            watch, "type_into",
-            side_effect=lambda session, text, log, **_kw: self.typed.append(
-                (session.get("name"), text)) or self.sent))
-        self.stack.enter_context(patch.object(
             notify, "shaped",
             side_effect=lambda kind, text, **kw: self.cards.append((kind, text, kw)) or 0))
+        self.stack.enter_context(patch.object(watch, "type_at_prompt", return_value=False))
         self.stack.enter_context(patch.object(watch.time, "sleep", self.slept.append))
         self.record()
+
+    @property
+    def owed(self):
+        """Each line the seat is owed, oldest first."""
+        return [owed["line"] for owed in watch.seat_read(SEAT).get("owed_lines") or []]
 
     def record(self):
         config.save_session(self.cfg, SEAT, "fable", ["astra"],
@@ -79,15 +81,15 @@ class V5s(Sandbox):
         return (f"Its orchestrator session {SEAT} is gone. Run finished: {verdict}. "
                 f"Press n in the menu, then say: continue Finished {name}.")
 
-    # (a) a finished run with its seat gone reopens the seat and types the continue line
+    # (a) a finished run with its seat gone reopens the seat and owes it the continue line
 
-    def test_v5s_a_finished_run_reopens_its_gone_seat_and_types_the_continue_line(self):
+    def test_v5s_a_finished_run_reopens_its_gone_seat_and_owes_it_the_continue_line(self):
         directory = self.ended("run-1", owner=SEAT)
         run.announce(run_record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.reopened, [(SEAT, True)])
         self.assertEqual(self.slept, [watch.INBOX_WARMUP])
-        self.assertEqual(self.typed, [(SEAT, "continue Finished run-1: run run-1 finished PASS, "
-                                             f"result at {directory / 'result.md'}")])
+        self.assertEqual(self.owed, ["continue Finished run-1: run run-1 finished PASS, "
+                                      f"result at {directory / 'result.md'}"])
         self.assertEqual(self.cards, [])
         state = run_record.read_state(directory)
         self.assertTrue(state["reported"])
@@ -97,17 +99,18 @@ class V5s(Sandbox):
         directory = self.ended("run-1", owner=SEAT)
         self.back = "fresh"
         run.announce(run_record.read_state(directory), directory, self.logs.append)
-        self.assertTrue(self.typed[-1][1].endswith(f"result at {directory / 'result.md'}"
-                                                   + watch.FRESH_NOTE), self.typed)
+        self.assertTrue(self.owed[-1].endswith(f"result at {directory / 'result.md'}"
+                                                + watch.FRESH_NOTE), self.owed)
         self.assertIn("could not be resumed", watch.FRESH_NOTE)
-        # a seat somebody brought back between the look and the reopen: typed into at once
+        # a seat somebody brought back between the look and the reopen: owed after the first
         self.back = False
         self.slept.clear()
         failed = self.ended("run-3", owner=SEAT, state="fail")
         run.announce(run_record.read_state(failed), failed, self.logs.append)
         self.assertEqual(self.slept, [])
-        self.assertEqual(self.typed[-1], (SEAT, "continue Finished run-3: run run-3 finished FAIL, "
-                                                f"result at {failed / 'result.md'}"))
+        self.assertEqual(len(self.owed), 2)
+        self.assertEqual(self.owed[-1], "continue Finished run-3: run run-3 finished FAIL, "
+                                         f"result at {failed / 'result.md'}")
         self.assertEqual(self.cards, [])
 
     # (b) when `ensure` fails, the needs goes out with the added sentence
@@ -117,26 +120,14 @@ class V5s(Sandbox):
         self.back = config.Error(f"tmux could not start the session {SEAT} in /gone: no server")
         run.announce(run_record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.reopened, [(SEAT, True)])
-        self.assertEqual(self.typed, [])
+        self.assertEqual(self.owed, [])
         self.assertEqual(self.cards, [("needs", self.old_needs() + " agentkit tried to reopen the "
                                        f"seat and could not: tmux could not start the session "
                                        f"{SEAT} in /gone: no server",
                                        {"session": SEAT, "event_id": "orphan:run-1:None:9990"})])
         self.assertTrue(run_record.read_state(directory)["reported"])
 
-    # (c) when the line is not confirmed sent, the same
-
-    def test_v5s_an_unconfirmed_continue_line_sends_the_needs_with_the_added_sentence(self):
-        directory = self.ended("run-1", owner=SEAT)
-        self.sent = False
-        run.announce(run_record.read_state(directory), directory, self.logs.append)
-        self.assertEqual(self.reopened, [(SEAT, True)])
-        self.assertEqual(len(self.typed), 1)
-        self.assertEqual([card[1] for card in self.cards],
-                         [self.old_needs() + " agentkit tried to reopen the seat and could not: "
-                          "the continue line was not confirmed sent"])
-
-    # (d) a seat that died mid-run is reopened by the tick once, with the marker
+    # (c) a seat that died mid-run is reopened by the tick once, with the marker
 
     def test_v5s_the_tick_reopens_a_seat_that_died_mid_run_once_per_death(self):
         self.going("run-2")
@@ -145,8 +136,8 @@ class V5s(Sandbox):
         watch.revive_seats(self.cfg, self.logs.append)
         self.assertEqual(self.reopened, [(SEAT, True)])
         self.assertEqual(self.slept, [watch.INBOX_WARMUP])
-        self.assertEqual(self.typed, [(SEAT, "continue: your run run-2 (Going) is still going; "
-                                             "pick up where you left off")])
+        self.assertEqual(self.owed, ["continue: your run run-2 (Going) is still going; "
+                                      "pick up where you left off"])
         self.assertEqual(self.cards, [])
         self.assertTrue(watch.seat_read(SEAT)["reopened_at"])
         # the next tick finds the same death and leaves it alone
@@ -161,7 +152,7 @@ class V5s(Sandbox):
         self.back = "fresh"
         watch.revive_seats(self.cfg, self.logs.append)
         self.assertEqual(len(self.reopened), 2)
-        self.assertTrue(self.typed[-1][1].endswith("pick up where you left off" + watch.FRESH_NOTE))
+        self.assertTrue(self.owed[-1].endswith("pick up where you left off" + watch.FRESH_NOTE))
         # a seat with nothing going is not reopened at all
         self.rows = [self.exited(name="other")]
         watch.revive_seats(self.cfg, self.logs.append)
@@ -190,7 +181,7 @@ class V5s(Sandbox):
         self.back = config.Error("no session 'seat' to reopen and no record of one")
         watch.revive_seats(self.cfg, self.logs.append)
         self.assertEqual(self.reopened, [(SEAT, True)])
-        self.assertEqual(self.typed, [])
+        self.assertEqual(self.owed, [])
         self.assertEqual(len(self.cards), 1)
         kind, text, extra = self.cards[0]
         self.assertEqual((kind, text), ("needs", (
@@ -230,7 +221,7 @@ class V5s(Sandbox):
         orch.mark_owner_closed(SEAT)
         self.assertEqual(watch.session_state(SEAT, session=self.rows[0])["word"], "working")
 
-    # (e) a seat stopped on purpose is not reopened by either path
+    # (d) a seat stopped on purpose is not reopened by either path
 
     def test_v5s_a_seat_stopped_on_purpose_is_not_reopened_by_either_path(self):
         orch.cmd_stop([SEAT])
@@ -241,7 +232,7 @@ class V5s(Sandbox):
         run.announce(run_record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.reopened, [])
         # a seat the owner closed keeps its ending waiting, never a revival nor a card
-        self.assertEqual((self.typed, self.cards), ([], []))
+        self.assertEqual((self.owed, self.cards), ([], []))
         state = run_record.read_state(directory)
         self.assertFalse(state["handed_back"])
         self.assertTrue(state["handback_pending"])
@@ -249,7 +240,7 @@ class V5s(Sandbox):
         self.going("run-2")
         self.rows = [self.exited()]
         watch.revive_seats(self.cfg, self.logs.append)
-        self.assertEqual((self.reopened, self.typed, len(self.cards)), ([], [], 0))
+        self.assertEqual((self.reopened, self.owed, len(self.cards)), ([], [], 0))
         # a seat launched under the name again is not the stopped one
         with patch.object(orch, "start"):
             orch.launch(SEAT, "fable", self.root, ["fable"], "thread-seat")
@@ -264,12 +255,12 @@ class V5s(Sandbox):
         config.session_path(SEAT).unlink()
         directory = self.ended("run-1", owner=SEAT)
         run.announce(run_record.read_state(directory), directory, self.logs.append)
-        self.assertEqual((self.reopened, self.typed), ([], []))
+        self.assertEqual((self.reopened, self.owed), ([], []))
         self.assertEqual([card[1] for card in self.cards], [self.old_needs()])
         self.assertEqual(self.logs, [f"the orchestrator session {SEAT} this run was launched from "
                                      "is gone; asking the user to continue the task"])
 
-    # (f) the log lines read as specified
+    # (e) the log lines read as specified
 
     def test_v5s_the_log_lines_read_as_specified(self):
         directory = self.ended("run-1", owner=SEAT)
