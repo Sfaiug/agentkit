@@ -115,7 +115,7 @@ class ReviewerReadsNoBranchRules(unittest.TestCase):
                               "baseRefName": "main", "headRefOid": "a" * 40},
                   "pr_writer": (True, "acme-reads", "high"), "own_pr_budget": (3, None),
                   "checkout_for": checkout, "git": "a" * 40, "plan_context": "",
-                  "make_worktree": (checkout, "ak/pr-7"), "text_only_pr": False,
+                  "make_worktree": (checkout, "ak/pr-7"),
                   "own_pr_first_review": None}
         with ExitStack() as stack:
             for name, value in values.items():

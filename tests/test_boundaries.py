@@ -221,7 +221,7 @@ RULES = [
 # (the owner's yes, 15 Oct 2026, set at their size of 16 Oct).  A line added makes room: a rule
 # turned into a check, what one area needs moved to a comment at that code, or what is stale
 # deleted.  No task raises a max; the owner raises one by merging that change by hand.
-WORDS = {"AGENTS.md": 2977, "orchestrator.md": 2176}
+WORDS = {"AGENTS.md": 2977, "orchestrator.md": 2140}
 
 
 def outside(rule):

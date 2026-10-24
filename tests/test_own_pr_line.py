@@ -1,13 +1,13 @@
 """Own PRs share the landing line: independently green changes cannot land a red stack.
 
-Owner rule, 1 Oct, 2 Oct, 3 Oct, 4 Oct, 7 Oct, 13 Oct, 14 Oct, 16 Oct, 21 Oct 2026: "The orchestrator
+Owner rule, 1 Oct, 2 Oct, 3 Oct, 4 Oct, 7 Oct, 13 Oct, 14 Oct, 16 Oct, 21 Oct, 24 Oct 2026: "The orchestrator
 builds a change under 50 added lines; from 50 up it writes a task and a marked executor builds it;
 it tests and looks at every change end to end itself, and ak moves no work for quota. Reason: in
 14 days of runs, seat-built changes from 50 lines up failed all three rounds about twice as often
 as worker-built ones of the same size (50-99: 17% against 5%, the gap holding within each repository),
 and 58-72% of a seat's build context was unrelated history. Every change lands through
-the one path, the orchestrator's own included: review rounds, its tests and the landing line; only
-a diff of documents alone skips review. A behaviour change needs a test that fails on the old code,
+the one path, the orchestrator's own included: review rounds, its tests and the landing line; no
+change skips review, documents included. A behaviour change needs a test that fails on the old code,
 which ak proves where it can and never fails a round for. A FAIL is fixed by a fresh fixer session
 on the model that wrote the PR, never by the seat, whose conversation is the owner's." Held here
 with tests/test_own_pr_fixer.py, tests/test_regression_fails_before.py, tests/test_followup_runs.py,
@@ -164,38 +164,6 @@ class OwnPrLineFixture(LanderFixture):
 
 
 class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
-    def test_wording_the_target_carries_onto_code_goes_back_for_review(self):
-        original = "".join(f"# Deployment example {i}\n" for i in range(30)) + "RETENTION_DAYS = 30\n"
-        self.on_main(lambda: ((self.repo / "docs").mkdir(),
-                             (self.repo / "docs/example.md").write_text(original)),
-                     "document retention")
-        directory, url = self.own_pr("README", 1)
-        run.git(self.repo, "rm", "-q", "README.txt")
-        (self.repo / "docs/example.md").write_text(original.replace("= 30", "= 0"))
-        self.pushed(url, "change the documented retention")
-        state = self.review(directory, url)
-        self.assertTrue(state["review"]["skipped"])
-        # the target renames the prose file to code while the wording waits in the line
-        self.on_main(lambda: run.git(self.repo, "mv", "docs/example.md", "app.py"), "run the example")
-        land.check_line(self.turn)
-        handed_back = []
-
-        def rebased(cfg, directory, url, state, opts, log):
-            handed_back.append(state.get("findings") or "")
-            self.assertEqual(self.merges, [])
-            # the seat brings its branch onto the target and pushes it: now it is code
-            run.git(self.repo, "checkout", self.prs[url]["branch"])
-            run.git(self.repo, "rebase", "-q", "main")
-            run.git(self.repo, "push", "-q", "-f", "origin", self.prs[url]["branch"])
-            self.prs[url]["head"] = run.git(self.repo, "rev-parse", "HEAD")
-            return True
-
-        with patch.object(run, "fix_own_pr", side_effect=rebased):
-            state = self.review(directory, url)
-        self.assertIn("need review", handed_back[0])
-        self.assertFalse(state["review"].get("skipped", False))
-        self.assertEqual(len(self.reviews), 1)
-
     def fail_first_review(self, lp, summary, ok, dw_log, **kw):
         rows = [{"kind": "finding", "path": "first.txt", "line": 1,
                  "what": "Remove the unsafe setting", "why": "It removes saved data",
@@ -233,10 +201,9 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         reason = handback.handback_reason(state, self.cfg)
         self.assertIn(current_failure, reason, f"obsolete findings hid the landing failure: {reason}")
 
-    def test_wording_already_on_the_target_is_recorded_as_landed(self):
+    def test_work_already_on_the_target_is_recorded_as_landed(self):
         directory, url = self.own_pr("README", 1)
         state = self.review(directory, url)
-        self.assertTrue(state["review"]["skipped"])
         run.git(self.repo, "checkout", "main")
         run.git(self.repo, "cherry-pick", state["head_sha"])
         run.git(self.repo, "push", "origin", "main")
@@ -245,28 +212,6 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
             state = self.review(directory, url)
         self.assertTrue(state.get("on_target"))
         self.assertEqual(self.merges, [])
-
-    def test_wording_skips_review_only_when_every_file_reads_back_as_text(self):
-        for name, setup in (("a name git mangles", lambda: (
-                                self.repo / ".gitattributes").write_text("*.txt diff\n")),
-                            ("a linked AGENTS.md", lambda: (
-                                (self.repo / "docs").mkdir(),
-                                run.git(self.repo, "mv", "AGENTS.md", "docs/rules.md"),
-                                (self.repo / "AGENTS.md").symlink_to("docs/rules.md")))):
-            with self.subTest(case=name):
-                self.doCleanups()
-                self.setUp()
-                self.on_main(setup, name)
-                directory, url = self.own_pr("README", 1)
-                if name == "a name git mangles":
-                    (self.repo / "docs").mkdir()
-                    (self.repo / "docs/binary\r.txt").write_bytes(b"words\0binary\n")
-                else:
-                    (self.repo / "docs/rules.md").write_text("---\nusers: none\ntests: true\n---\n")
-                self.pushed(url, name)
-                state = self.review(directory, url)
-                self.assertFalse(state["review"].get("skipped", False))
-                self.assertEqual(len(self.reviews), 1)
 
     def test_suite_starts_after_the_review_passes(self):
         directory, url = self.own_pr("first", 1)
@@ -524,11 +469,10 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         self.assertTrue(self.review(directory, url)["merged"])
         self.assertEqual(len(self.checks), checks + 1)
 
-    def test_a_wording_pr_rejoining_after_a_target_move_is_not_a_moved_head(self):
+    def test_a_pr_rejoining_after_a_target_move_is_not_a_moved_head(self):
         # its delivery rebased it locally; GitHub still holds the head it was reviewed at
         directory, url = self.own_pr("README", 1)
-        state = self.review(directory, url)
-        self.assertTrue(state["review"]["skipped"])
+        self.review(directory, url)
         land.check_line(self.turn)
         self.advance(**{"later.txt": "later\n"})
         state = self.review(directory, url)
