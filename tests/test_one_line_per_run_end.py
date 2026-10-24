@@ -25,6 +25,13 @@ class OneLinePerRunEnd(Seats):
         patcher.start()
         self.addCleanup(patcher.stop)
 
+    def other(self, **state):
+        """A run another seat launched."""
+        directory = config.RUNS / "20260101-0910-acme-review"
+        directory.mkdir(exist_ok=True)
+        record.save_state(directory, {"run_id": directory.name, "launched_session": "fix-api",
+                                      "started_at": NOW - 600, **state})
+
     def end(self, **state):
         """The run ends as `state` says, and its ending is announced to the seat."""
         record.save_state(self.directory, dict(record.read_state(self.directory), **state))
@@ -50,15 +57,36 @@ class OneLinePerRunEnd(Seats):
 
     def test_a_wait_on_the_pull_request_it_lands_hears_only_the_hand_back(self):
         watch.seat_write(SEAT, wait={"on": PR, "kind": "pr", "at": NOW - 300})
+        # another seat's review of it ended last: the merge is still this run's ending
+        self.other(state="fail", review_pr=PR, finished_at=NOW)
         with (patch.object(watch, "gh_json", return_value=(
                 {"state": "MERGED", "number": 7, "mergeCommit": {"oid": "abc123"}}, "")),
               patch.object(stop, "owed", return_value=True)):      # its plan owes work
-            self.end(pr=PR)
+            # merged, the run not yet ended: its hand-back is still to come
+            record.save_state(self.directory, dict(record.read_state(self.directory), pr=PR,
+                                                   state="running", finished_at=None))
+            self.tick()
+            self.assertEqual(self.typed, [])
+            self.end(state="pass", finished_at=NOW - 60)
             self.tick()
         self.assertEqual(len(self.typed), 1)
         self.assertTrue(self.typed[0].startswith(f"run {RUN} finished "))   # the hand-back
         self.assertTrue(self.told())
         self.assertEqual(watch.seat_read(SEAT)["wait"]["over"], "PR #7 merged as abc123")
+
+    def test_a_pull_request_closed_after_its_hand_back_gets_its_own_line(self):
+        watch.seat_write(SEAT, wait={"on": PR, "kind": "pr", "at": NOW - 300})
+        self.other(state="running", review_pr=PR)
+        gh = {"state": "OPEN", "number": 7, "mergeCommit": None}
+        with patch.object(watch, "gh_json", side_effect=lambda *_a, **_kw: (gh, "")):
+            self.end(state="fail", verdict="FAIL", merged=False, review_pr=PR)
+            self.tick()     # another seat's review still holds the wait
+            gh["state"] = "CLOSED"
+            self.tick()
+        self.assertEqual(len(self.typed), 2)
+        self.assertEqual(self.typed[1],
+                         "PR #7 closed without merging; your wait is over. Decide the next step.")
+        self.assertTrue(self.told())
 
     def test_a_routine_ending_still_ends_the_wait_with_its_line(self):
         self.end()      # merged, while the seat owes nothing: recorded, not typed
