@@ -17,7 +17,8 @@ from agentkit import aside_editor, config, watch
 
 DRAFT = "and add these posts"
 LINE = "ak notice"
-# what Grok's command palette draws as each key lands (captured 1.0.46)
+# what Grok's command palette draws over a draft as each key lands: 1.0.46, `capture-pane -p -e`
+# at 120x40 on a private tmux socket and a throwaway HOME, kept whole, its path invented
 PALETTE = {key: (REPO / f"tests/fixtures/grokbuild-{name}-pane.txt").read_text(encoding="utf-8")
            for key, name in (("C-p", "palette"), ("edit prompt", "palette-edit-prompt"))}
 
