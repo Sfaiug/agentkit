@@ -500,11 +500,13 @@ def _slice_memory(cgroup):
         return None
 
 
-def held_mb(cgroup):
-    """A cgroup's memory in MB less the file cache reclaim frees, or None where unread."""
+def held_mb(cgroup, *, swap=False):
+    """A cgroup's memory in MB less the file cache reclaim frees, or None where unread; with
+    `swap`, what it swapped out too, none where the kernel counts no swap for it."""
     raw = _read_number(Path(cgroup) / "memory.current", bytes_to_mb=True)
     cache = _reclaimable_mb(Path(cgroup) / "memory.stat")
-    return None if raw is None or cache is None else max(0.0, raw - cache)
+    swapped = swap and _read_number(Path(cgroup) / "memory.swap.current", bytes_to_mb=True) or 0
+    return None if raw is None or cache is None else max(0.0, raw - cache) + swapped
 
 
 def own_cgroup():
@@ -629,23 +631,23 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
     return readings
 
 
+def memory_events(path):
+    """A cgroup directory's memory.events counters by name, below it included; none where
+    it cannot be read."""
+    try:
+        text = (Path(path) / "memory.events").read_text()
+    except OSError:
+        return {}
+    return {key: int(value) for key, value in (line.split(" ", 1) for line in text.splitlines()
+                                               if " " in line) if value.strip().isdigit()}
+
+
 def _oom_kill_count(cgroup):
     """How many processes the kernel OOM-killed in that cgroup, or 0 if it cannot be read.
 
     A removed or unreadable cgroup has no count.
     """
-    if not cgroup:
-        return 0
-    path = cgroup_path(cgroup) / "memory.events"
-    try:
-        text = path.read_text()
-    except OSError:
-        return 0
-    for line in text.splitlines():
-        key, _, value = line.partition(" ")
-        if key == "oom_kill" and value.strip().isdigit():
-            return int(value.strip())
-    return 0
+    return memory_events(cgroup_path(cgroup)).get("oom_kill", 0) if cgroup else 0
 
 
 def _scope_readings(scope_dir):

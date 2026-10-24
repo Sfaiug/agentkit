@@ -397,7 +397,7 @@ class SuitePieces(unittest.TestCase):
             measured.sample()
             measured.cpu.extend([15, 25])     # what each piece's box reported
             path, _, _ = gate.suite_cost(SUITE, self.root, self.run_dir)
-            measured.save(path, 2)
+            measured.save(path, 2, gate.HEAVY_MEM_MB)
         self.assertEqual(json.loads(path.read_text()),
                          {"cpus": 2, "mem_mb": 1000, "wall_seconds": 10, "run_id": "fixture"})
         record.save_state(self.run_dir, state)

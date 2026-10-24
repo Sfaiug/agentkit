@@ -1329,8 +1329,11 @@ def split_suite_run(lp, command):
 
 
 class _SuiteMeasure:
-    """Wall time and each box's CPU work everywhere, a line's checker included; memory, less
-    the file cache reclaim frees, where a cgroup is this run's or holds only this process."""
+    """Wall time and each box's CPU work everywhere, a line's checker included; memory, swap
+    included and less the file cache reclaim frees, where a cgroup is this run's or holds only
+    this process.  Held memory stops at the cgroup's cap, so a suite that ran out of memory
+    there (`memory.events`) costs at least twice what it was planned at: its next pass is cut
+    into fewer pieces, and the estimate keeps climbing while it runs out."""
 
     def __init__(self, run_dir):
         state = run_record.read_state(run_dir) or {} if run_dir else {}
@@ -1341,19 +1344,24 @@ class _SuiteMeasure:
                       else host.own_cgroup())
         self.cpu = []     # each box's CPU seconds (`worker.boxed`)
         self.quiet = []   # and the longest each go went without output (`worker.limited`)
-        self.baseline = host.held_mb(self.group) if self.group is not None else None
+        self.baseline = host.held_mb(self.group, swap=True) if self.group is not None else None
         self.peak = self.baseline
+        self.ooms = self.oom()
         self.lock = threading.Lock()
         self.started = time.monotonic()
 
+    def oom(self):
+        return host.memory_events(self.group).get("oom", 0) if self.group is not None else 0
+
     def sample(self):
         if self.baseline is not None:
-            held = host.held_mb(self.group)
+            held = host.held_mb(self.group, swap=True)
             if held is not None:
                 with self.lock:
                     self.peak = max(self.peak, held)
 
-    def save(self, path, pieces):
+    def save(self, path, pieces, planned_mb):
+        """`pieces` the ones that ran here, each planned at `planned_mb`."""
         elapsed = time.monotonic() - self.started
         if elapsed <= 0:
             return
@@ -1361,7 +1369,10 @@ class _SuiteMeasure:
         if len(self.cpu) == pieces:
             cost["cpus"] = max(HEAVY_CPUS, sum(self.cpu) / (elapsed * pieces))
         if self.baseline is not None:
-            cost["mem_mb"] = max(HEAVY_MEM_MB, (self.peak - self.baseline) / pieces)
+            used = (self.peak - self.baseline) / pieces
+            if self.oom() > self.ooms:
+                used = max(used, 2 * planned_mb)
+            cost["mem_mb"] = max(HEAVY_MEM_MB, used)
         try:
             with watch.state_lock():
                 previous = read_suite_cost(path)
@@ -1460,7 +1471,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     if not names_shard(command):
         if log is not None:
             log("suite runs here: command is not sent to the suite helper (does not name AK_SHARD)")
-        path = suite_cost(command, cwd, run_dir)[0] if measure else None
+        path, _, planned = suite_cost(command, cwd, run_dir) if measure else (None,) * 3
         measured = _SuiteMeasure(run_dir) if measure else None
         aborting = kwargs.pop("abort", None)
         def abort():
@@ -1475,7 +1486,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         if failed is not None:
             confirmed["1/1"] = failed if result[0] > 0 else []
         if measured and not result[2] and result[0] != SUITE_BUSY:
-            measured.save(path, 1)
+            measured.save(path, 1, planned)
             measured.paced(path, 1)
         return result
     with gate_turn(run_dir, activity, log, command, cwd, local=changed is not None):
@@ -1610,9 +1621,11 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             results = [None] * count
             attempts(range(count), first=True)
             # Pieces that waited for turns did not run at once: their measure is no piece's cost.
-            if not away and not (hold and hold.waited) and not any(
+            # Those on the helper held none of this host's memory.
+            here = count - (away.count if away else 0)
+            if here and not (hold and hold.waited) and not any(
                     killed or code == SUITE_BUSY for code, _, killed, _ in results):
-                measure.save(path, count)
+                measure.save(path, here, mem)
             again = [index for index, (code, _, killed, _) in enumerate(results)
                      if away and index < away.count and code and not killed and not cancel.is_set()]
             helped, away = away, None
