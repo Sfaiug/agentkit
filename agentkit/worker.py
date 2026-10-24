@@ -133,6 +133,11 @@ PROCESSES = ("[checked by ak: tests/test_turn_leftover_processes.py] ak stops pr
              "when your turn ends and asks once to finish in the foreground.")
 CHECKS = ("[checked by ak: tests/test_reviewer_judges_the_diff.py] ak runs per-round done-when "
           "commands even when the worker skips them.")
+# 24 Oct 2026: an ATLAS builder ran its repository's whole suite, 7,417 tests, in one 3-hour
+# command on a host already swapping; the gate runs that suite once, at landing.
+SUITE = ("[worker judgement] Never run the repository's `tests:` suite or a large share of it: "
+         "ak runs it at landing. Run the tests your change touches; if you need suite-wide data, "
+         "say so in your summary.")
 SIZE = (f"[checked by ak: tests/test_size_gate.py] ak ends the run blocked with `split it` when "
         f"its first review would read more than {taskfile.MAX_PR_LINES} added lines, the tests among "
         "them (generated files and blocks moved unchanged aside).")
@@ -298,7 +303,7 @@ PREAMBLES = {
     "executor": (
         "You are the executor.\n"
         "[worker judgement] Work only inside {workspace} on the current branch; never push.\n"
-        f"{COMMITS}\n{CHECKS}\n{SIZE}\n{PROCESSES}\n{LEAST}\n"
+        f"{COMMITS}\n{CHECKS}\n{SUITE}\n{SIZE}\n{PROCESSES}\n{LEAST}\n"
         "[worker judgement] Finish with a `## Summary` section: what changed, how you verified it, open issues.\n"
         f"{NO_NOTIFY}\n{BLOCKED}"),
     "reviewer": (
@@ -319,7 +324,7 @@ PREAMBLES = {
         f"{GATE}\n{ONE_PASS}"),
     "fixer": (
         "You are the executor, continuing.\n"
-        f"{FIX_OR_DISPUTE.format(work='the diff')}\n{COMMITS}\n{CHECKS}\n{SIZE}\n{PROCESSES}\n{LEAST}\n"
+        f"{FIX_OR_DISPUTE.format(work='the diff')}\n{COMMITS}\n{CHECKS}\n{SUITE}\n{SIZE}\n{PROCESSES}\n{LEAST}\n"
         "[worker judgement] Finish with `## Summary`: what changed, how you verified it, open issues.\n"
         f"{NO_NOTIFY}\n{BLOCKED}"),
     # somebody else's PR: no executor ran, so the diff is judged against the repository itself
