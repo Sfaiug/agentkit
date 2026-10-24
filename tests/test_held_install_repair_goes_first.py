@@ -5,6 +5,7 @@ Offline: a temporary HOME; Git, the receiving seat, the slot claim, the lander a
 
 from contextlib import ExitStack
 import os
+import shutil
 from pathlib import Path
 import sys
 import tempfile
@@ -35,7 +36,7 @@ class HeldInstallRepairGoesFirst(unittest.TestCase):
                                                      "AK_PARENT_RUN": "", "AK_RUN_DEPTH": "0",
                                                      "AGENTKIT_SESSION": ""}))
         config.RUNS.mkdir(parents=True)
-        self.moved = False
+        self.installed = set()     # commits the install's HEAD has
         stack.enter_context(patch.object(update, "_git", side_effect=self.git))
         stack.enter_context(patch.object(watch, "after_merge_deliver", return_value="fix-api"))
         for name in ("redress_seat", "history_start"):
@@ -51,7 +52,7 @@ class HeldInstallRepairGoesFirst(unittest.TestCase):
         if args[:2] == ("remote", "get-url"):
             return 0, "git@github.com:acme/agentkit.git"
         if args[:2] == ("merge-base", "--is-ancestor"):
-            return (0 if self.moved else 1), ""
+            return (0 if args[2] in self.installed else 1), ""
         return 0, ""
 
     def hand_back(self):
@@ -92,12 +93,36 @@ class HeldInstallRepairGoesFirst(unittest.TestCase):
         self.assertTrue(self.review("fix")[1]["first"])
         self.assertNotIn("first", self.review("second")[1])
 
-        self.check = config.STATE / update.LIVE / f"{'0' * 40}-2000"
+        self.held("0" * 40)
+        self.installed.add("0" * 40)
+        self.assertNotIn("first", self.review("after-the-move")[1])
+
+    def test_a_place_the_install_moved_past_hides_no_later_one(self):
+        self.hand_back()
+        self.installed.add(HELD)
+        newer = "1" * 40
+        self.held(newer)
+        self.assertEqual(self.review("fix")[1]["first_place"], newer)
+
+    def test_a_place_pruned_as_it_is_taken_leaves_the_launch_standing(self):
+        self.hand_back()
+        git = self.git
+
+        def pruned(*args, **_kw):
+            if args[:2] == ("merge-base", "--is-ancestor"):
+                shutil.rmtree(self.check)       # the tick, as the install moves past it
+            return git(*args)
+
+        with patch.object(update, "_git", side_effect=pruned):
+            state = self.review("fix")[1]
+        self.assertNotIn("first", state)
+
+    def held(self, commit):
+        """Another red that holds the install, handed back to the same seat."""
+        self.check = config.STATE / update.LIVE / f"{commit}-2000"
         self.check.mkdir()
         (self.check / "output").write_text("[exit 1]\n")
         self.hand_back()
-        self.moved = True
-        self.assertNotIn("first", self.review("after-the-move")[1])
 
 
 if __name__ == "__main__":

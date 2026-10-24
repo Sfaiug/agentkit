@@ -1019,21 +1019,25 @@ def take_first_place(seat, url, run_id):
     """The held commit whose first place that seat's review of that PR takes, or None.
 
     Only an agentkit PR's review takes it, once, under the slot lock (`run.capture_launch`),
-    and only while the install still lacks the commit: past it, nothing is held.
+    and only while the install still lacks the commit: past it, nothing is held, and the tick
+    may prune the check (`live_tick`) at any moment, under no lock of the launch's.
     """
     from . import deliver, transitions  # here, not at the top: both import this module
+    found = transitions.PR_PARTS.match(url or "")
     for _, commit, check in live_checks():
         record = _handed(check)
         if not (record and record.get("first") and not record.get("taken")
-                and config.resolve_session(record["first"]) == seat):
-            continue
-        found = transitions.PR_PARTS.match(url or "")
-        if not (found and deliver.remote_key(f"https://github.com/{found[1]}/{found[2]}")
-                == deliver.remote_key(_git("remote", "get-url", "origin")[1])
+                and config.resolve_session(record["first"]) == seat
                 and _git("merge-base", "--is-ancestor", commit, "HEAD")[0] == 1):
+            continue
+        if not (found and deliver.remote_key(f"https://github.com/{found[1]}/{found[2]}")
+                == deliver.remote_key(_git("remote", "get-url", "origin")[1])):
             return None
         record["taken"] = run_id
-        _put(check / "handed", json.dumps(record))
+        try:
+            _put(check / "handed", json.dumps(record))
+        except OSError:
+            continue
         return commit
     return None
 
