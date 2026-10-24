@@ -798,10 +798,10 @@ def land_from_line(lp, upstream, deliver):
                 gitcall.fetch(lp.wt, "origin", "--prune", check=True)
                 tip = gitcall.git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
                 how = roundloop.how_to_integrate(lp)
-                args = ("merge", "--no-edit", tip) if how == "merge" else ("rebase", tip)
                 saved = dict(lp.state["review"])
                 try:
-                    code, _ = gitcall.git_out(lp.wt, *args)
+                    code, _ = (gitcall.merge(lp.wt, tip) if how == "merge"
+                               else gitcall.git_out(lp.wt, "rebase", tip))
                 except gitcall.Stopped:
                     roundloop.abort_stopped_integration(lp, how)
                     raise

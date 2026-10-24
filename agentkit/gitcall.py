@@ -274,6 +274,21 @@ def ref_held(out):
     return bool(failed) and all(REF_LOCKED.fullmatch(line) for line in failed)
 
 
+# `git merge -s <name>` runs `git-merge-<name>` off PATH
+STRATEGIES = config.REPO / "tools" / "merge"
+
+
+def merge(wt, tip):
+    """`git merge --no-edit tip` on the checked-out branch, as `git_out` answers it, with a
+    clean merge's tree from `tip` as "ours" (`tools/merge/git-merge-target-first`): a
+    union-merged file then reads the target's lines first, as a rebase onto it orders them.
+    A merge that conflicts is git's own, as without it."""
+    if git_out(wt, "merge-tree", "--write-tree", tip, "HEAD")[0]:
+        return git_out(wt, "merge", "--no-edit", tip)
+    path = os.pathsep.join((str(STRATEGIES), tool_env().get("PATH", os.defpath)))
+    return git_out(wt, "merge", "--no-edit", "-s", "target-first", tip, env={"PATH": path})
+
+
 def gh(cwd, *args, timeout=None):
     """(exit code, output); the code is None when the command ran out of time.
 
