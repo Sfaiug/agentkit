@@ -3,6 +3,7 @@ one OSC 8 link: a real tmux under ak's config, a client on a pseudo-terminal, a 
 
 import fcntl
 import os
+from pathlib import Path
 import pty
 import re
 import select
@@ -10,6 +11,7 @@ import shlex
 import shutil
 import struct
 import subprocess
+import tempfile
 import termios
 import time
 import unittest
@@ -25,7 +27,10 @@ class LoginLink(Sandbox):
         link = "https://acme.test/oauth/authorize?" + "&".join(f"part{n}=" + "x" * 40 for n in range(10))
         shown = self.root / "link"      # as the harness prints it: the link around its own text
         shown.write_bytes(f"\033]8;;{link}\033\\{link}\033]8;;\033\\\n".encode())
-        (sockets := self.root / "s").mkdir()
+        # under the system's temp, not this HOME: a socket's path holds ~100 bytes, and a
+        # checkout's own path can take most of them
+        sockets = Path(tempfile.mkdtemp(prefix="ak-login-link-"))
+        self.addCleanup(shutil.rmtree, sockets, True)
         env = {**os.environ, "TMUX_TMPDIR": str(sockets), "TERM": "xterm-256color"}
         env.pop("TMUX", None)
         argv = ["tmux", "-S", str(sockets / "t")]
