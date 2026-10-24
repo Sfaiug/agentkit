@@ -57,19 +57,7 @@ func Main(args []string, out, errOut io.Writer) int {
 		return 1
 	}
 	if command == "fetch" {
-		result := fetch.Local(rest)
-		if !result.Pending || len(result.Errors) > 0 {
-			for _, path := range result.Paths {
-				fmt.Fprintln(out, path)
-			}
-			for _, problem := range result.Errors {
-				fmt.Fprintln(errOut, "ak fetch: "+problem)
-			}
-			if len(result.Errors) > 0 {
-				return 1
-			}
-			return 0
-		}
+		return fetch.Main(rest, out, errOut)
 	}
 	// These commands read configuration before their first operation. Help and
 	// argument refusals above must remain usable even when that file is broken.

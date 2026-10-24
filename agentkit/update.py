@@ -969,10 +969,12 @@ def live_hand_back(commit, check, code, log, hand=True, *, standing=False):
         lines = _live_excerpt(said)
         if standing:
             labels = sorted(_live_failed(check))
-            lines = [next((line for line in said.splitlines()
-                           if line.startswith(("FAIL  ", "SKIP  ")) and (
-                               line[6:].startswith(f"{label}:") or
-                               label in line[6:].split(":", 1)[0].split(" ", 1)[0].split("/"))),
+            heads = [(line, line[6:].split(":", 1)[0]) for line in said.splitlines()
+                     if line.startswith(("FAIL  ", "SKIP  "))]
+            # A whole label first: check 3's own line, not `3 acme`'s, which shares its first token
+            # that acceptance.sh records each `/`-joined label of.
+            lines = [next((line for whole in (True, False) for line, head in heads
+                           if head == label or not whole and label in head.split(" ", 1)[0].split("/")),
                           f"{label}: no failure line recorded")[:LIVE_REPORT_CAP // len(labels)]
                      for label in labels]
         lines += [] if code is not None else ["[stopped before it finished]"]

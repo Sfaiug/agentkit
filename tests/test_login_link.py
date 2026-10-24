@@ -10,9 +10,11 @@ import shlex
 import shutil
 import struct
 import subprocess
+import tempfile
 import termios
 import time
 import unittest
+from pathlib import Path
 
 from fixtures.sandbox import Sandbox
 from agentkit import orch
@@ -25,7 +27,8 @@ class LoginLink(Sandbox):
         link = "https://acme.test/oauth/authorize?" + "&".join(f"part{n}=" + "x" * 40 for n in range(10))
         shown = self.root / "link"      # as the harness prints it: the link around its own text
         shown.write_bytes(f"\033]8;;{link}\033\\{link}\033]8;;\033\\\n".encode())
-        (sockets := self.root / "s").mkdir()
+        sockets = Path(tempfile.mkdtemp(prefix="ak", dir="/tmp"))  # a socket path has a length limit
+        self.addCleanup(shutil.rmtree, sockets, ignore_errors=True)
         env = {**os.environ, "TMUX_TMPDIR": str(sockets), "TERM": "xterm-256color"}
         env.pop("TMUX", None)
         argv = ["tmux", "-S", str(sockets / "t")]
