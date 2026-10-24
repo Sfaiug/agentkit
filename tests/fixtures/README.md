@@ -115,9 +115,9 @@ additional strings are verified literals; their exact mid-session rendering rema
 uncaptured. No account login or model call is needed to replay these checks.
 
 `grokbuild`'s `*-pane.txt` come from a private tmux socket's `capture-pane`, run against
-Grok Build 1.0.40: `grokbuild-prompt-pane.txt` a resumed session sitting at its prompt,
+Grok Build 1.0.40: `grok-prompt-pane.txt` a resumed session sitting at its prompt,
 `grok-working-pane.txt` a turn mid-stream (the `⠼ Responding…` line over the composer, the
-footer turned to `Ctrl+c:cancel`), `grokbuild-draft-pane.txt` and `grok-suggestion-pane.txt`
+footer turned to `Ctrl+c:cancel`), `grok-draft-pane.txt` and `grok-suggestion-pane.txt`
 `-e` captures of a typed draft and the empty box. The `dialog`, `stall` and `auth` panes
 are replay variants, not captures: a real composer tail with the wording being asserted
 above it. The trust dialog's words are the executable's own strings -- no fresh folder on

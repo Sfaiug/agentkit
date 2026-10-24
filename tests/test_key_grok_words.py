@@ -63,7 +63,7 @@ class GrokWords(unittest.TestCase):
     def test_an_empty_composer_is_idle_whatever_is_drawn_above_it(self):
         # a line taller than the box scrolls inside it, owner words or not, at any height
         self.assertReads("idle", {
-            "grokbuild-prompt-pane.txt": "prompt.composer",
+            "grok-prompt-pane.txt": "prompt.composer",
             "grokbuild-background-pane.txt": "prompt.composer",
             "grokbuild-interrupted-pane.txt": "prompt.composer",
             "grok-tall-line-pane.txt": "prompt.composer",
@@ -87,7 +87,7 @@ class GrokWords(unittest.TestCase):
     def test_text_typed_and_never_sent_is_idle_by_the_draft_rule(self):
         # under the first Esc's hint, under a slash command's dropdown, over a suggestion
         self.assertReads("idle", {
-            "grokbuild-draft-pane.txt": "prompt.draft",
+            "grok-draft-pane.txt": "prompt.draft",
             "grok-title-composed-pane.txt": "prompt.draft",
             "grokbuild-esc-clear-pane.txt": "prompt.draft",
             "grokbuild-slash-pane.txt": "draft.dropdown",

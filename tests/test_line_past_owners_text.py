@@ -220,7 +220,7 @@ class LinePastOwnersText(EditorSeat):
         # Grok's editor never takes such a draft, saying so in its transcript
         self.cfg["models"]["opus"]["harness"] = "grokbuild"
         config.save(self.cfg)
-        draft = (FIXTURES / "grokbuild-draft-pane.txt").read_text()
+        draft = (FIXTURES / "grok-draft-pane.txt").read_text()
         self.pane = draft.replace("hello draft text", f"and {GROK_PASTE}  ")
         self.tick()
         self.assertEqual((self.keys, self.told()), ([], False))
@@ -234,11 +234,12 @@ class LinePastOwnersText(EditorSeat):
         # its highlighted row reads as typed text, and Enter under it picks a row
         step = watch._editor_read
         self.buffers.update(kept(aside_editor.GIVEN))  # text given back: Muse's picker shows none
-        for harness, picker in (("codex", "codex-model-picker-pane.txt"),
-                                ("antigravity", "antigravity-chooser-pane.txt"),
-                                ("muse", "muse-model-picker-pane.txt"),
-                                ("grokbuild", "grokbuild-slash-pane.txt")):
-            draft = (FIXTURES / f"{harness}-draft-pane.txt").read_text()
+        for harness, draft, picker in (
+                ("codex", "codex-draft-pane.txt", "codex-model-picker-pane.txt"),
+                ("antigravity", "antigravity-draft-pane.txt", "antigravity-chooser-pane.txt"),
+                ("muse", "muse-draft-pane.txt", "muse-model-picker-pane.txt"),
+                ("grokbuild", "grok-draft-pane.txt", "grokbuild-slash-pane.txt")):
+            draft = (FIXTURES / draft).read_text()
 
             def opened(*args, **kwargs):
                 self.pane = (FIXTURES / picker).read_text()

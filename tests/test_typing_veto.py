@@ -20,7 +20,7 @@ from fixtures.seats import SEAT, Seats
 from agentkit import config, orch, watch
 
 DIALOG = (REPO / "tests/fixtures/claude-dialog-pane.txt").read_text(encoding="utf-8")
-GROK_PROMPT = (REPO / "tests/fixtures/grokbuild-prompt-pane.txt").read_text(encoding="utf-8")
+GROK_PROMPT = (REPO / "tests/fixtures/grok-prompt-pane.txt").read_text(encoding="utf-8")
 GROK_DIALOG = (REPO / "tests/fixtures/grok-dialog-pane.txt").read_text(encoding="utf-8")
 
 

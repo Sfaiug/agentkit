@@ -17,6 +17,7 @@ from agentkit import aside_editor, config, watch
 
 DRAFT = "and add these posts"
 LINE = "ak notice"
+FIXTURE = {"grokbuild": "grok"}     # its screen captures predate its name
 # what Grok's command palette draws over a draft as each key lands: 1.0.46, `capture-pane -p -e`
 # at 120x40 on a private tmux socket and a throwaway HOME, kept whole, its path invented
 PALETTE = {key: (REPO / f"tests/fixtures/grokbuild-{name}-pane.txt").read_text(encoding="utf-8")
@@ -49,7 +50,8 @@ class EveryHarness(EditorSeat):
         """The seat, its model on that harness, showing that harness's prompt holding DRAFT."""
         self.cfg["models"]["opus"]["harness"] = harness
         config.save(self.cfg)
-        self.base = (REPO / f"tests/fixtures/{harness}-prompt-pane.txt").read_text(encoding="utf-8")
+        prompt = REPO / f"tests/fixtures/{FIXTURE.get(harness, harness)}-prompt-pane.txt"
+        self.base = prompt.read_text(encoding="utf-8")
         self.keys, self.sent, self.buffers = [], [], {}
         self.show(DRAFT)
         return watch.screen(harness)["editor"]
