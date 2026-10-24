@@ -316,25 +316,30 @@ REPLACED_WITHIN = 14 * 86400    # a pull request that failed at its budget this 
 
 def budget_failed_reviews(repo, exclude=None):
     """The pull requests of that repository whose review spent the budget, counted
-    across their runs (`rounds_spent_elsewhere`), none of which merged, as (url, `size_base`,
-    head) of each run of them that ended `fail` within `REPLACED_WITHIN`: what a replacement
-    inherits rounds from.  The run itself (`exclude`) counts for nothing."""
-    found, merged = [], set()
+    across their runs as `rounds_spent_elsewhere` counts them, none of which merged, as
+    (url, `size_base`, head) of the runs of them that ended `fail` within `REPLACED_WITHIN`,
+    each once: what a replacement inherits rounds from.  The run itself (`exclude`) counts for
+    nothing.  One pass over the records: a launch reads thousands of them."""
+    found, merged, spent = {}, set(), Counter()
     for run_dir in run_record.run_dirs():
         if exclude is not None and run_dir.name == Path(exclude).name:
             continue
         state = run_record.read_state(run_dir)
         if not state:
             continue
+        rounds = rounds_spent(state)
+        for key in pr_keys(state):
+            spent[key] += rounds
         if state.get("merged"):
-            # a task run keeps its pull request in `pr`, a review in `review_pr`
-            merged |= {pr_key(state.get("pr")), pr_key(state.get("review_pr"))}
+            merged |= pr_keys(state)
         elif (state.get("review_pr") and state.get("state") == "fail"
                 and same_repo(state.get("repo"), repo) and size_base(state) and state.get("head_sha")
                 and time.time() - (state.get("finished_at") or 0) <= REPLACED_WITHIN):
-            found.append((state["review_pr"], size_base(state), state["head_sha"]))
-    return [(url, base, head) for url, base, head in found if pr_key(url) not in merged
-            and rounds_spent_elsewhere(pr=url, exclude=exclude)[0] >= taskfile.TASK_MAX_ROUNDS]
+            key = pr_key(state["review_pr"])
+            found.setdefault((key, size_base(state), state["head_sha"]),
+                             (state["review_pr"], size_base(state), state["head_sha"]))
+    return [failed for (key, _, _), failed in found.items()
+            if key not in merged and spent[key] >= taskfile.TASK_MAX_ROUNDS]
 
 
 def replacement_refusal(repo, base, head, number, counted, exclude=None):
@@ -1251,10 +1256,14 @@ def runs_on(*, pr=None, change=None, exclude=None):
         if exclude is not None and run_dir.name == Path(exclude).name:
             continue
         state = run_record.read_state(run_dir)
-        if state and ((wanted is not None
-                       and wanted in (pr_key(state.get("pr")), pr_key(state.get("review_pr"))))
-                      or (change is not None and change_of(state) == change)):
+        if state and (wanted in pr_keys(state) or (change is not None and change_of(state) == change)):
             yield state
+
+
+def pr_keys(state):
+    """The pull requests a run is on (`pr_key`): a task run keeps its own in `pr`, a review
+    in `review_pr`."""
+    return {pr_key(state.get("pr")), pr_key(state.get("review_pr"))} - {None}
 
 
 def change_reviewed(*, pr=None, change=None):
