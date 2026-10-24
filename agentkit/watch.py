@@ -2928,6 +2928,30 @@ def waiting_on(name):
     return {"on": wait["on"], "kind": wait["kind"], "at": at, "since": at}
 
 
+def run_now(on):
+    """(the run a wait on run `on` waits on now, its record or None where it is gone)."""
+    while True:
+        directory = config.RUNS / on
+        state = run_record.read_state(directory) if directory.is_dir() else None
+        if not state or not state.get("lease_restarted"):
+            return on, state
+        # stopped to wait on an older run's change, and started again (`leases.restart`):
+        # the wait goes on with the new run
+        on = state["lease_restarted"]
+
+
+def ended_by(wait):
+    """The record of the run whose ending ended that wait, or None: the run it names, or the
+    latest run reviewing or landing the pull request it names that ended since the wait began
+    (one ended before is old news, and a merge or close after it is GitHub's own)."""
+    if wait.get("kind") == "run":
+        return run_now(wait["on"])[1]
+    ended = [state for state in transitions.runs_on(pr=wait["on"])
+             if state.get("state") in run_record.ENDED
+             and (state.get("finished_at") or 0) >= (wait.get("at") or 0)]
+    return max(ended, key=lambda state: state.get("finished_at") or 0, default=None)
+
+
 def wait_fact(wait):
     """(whether what that wait names is over, the one line saying how): a run once it is no
     longer going, or the run its task was started again as, a pull request once it is merged
@@ -2936,16 +2960,9 @@ def wait_fact(wait):
     to fix, and for UNREAD_TICKS ticks otherwise."""
     on = wait.get("on")
     if wait.get("kind") == "run":
-        while True:
-            directory = config.RUNS / on
-            state = run_record.read_state(directory) if directory.is_dir() else None
-            if not state:
-                return True, f"run {on} is gone"
-            if not state.get("lease_restarted"):
-                break
-            # stopped to wait on an older run's change, and started again (`leases.restart`):
-            # the wait goes on with the new run
-            on = state["lease_restarted"]
+        on, state = run_now(on)
+        if not state:
+            return True, f"run {on} is gone"
         if state.get("state") == "stalled":
             # going to the ladder, but nothing moves it except the seat: the wait is over
             return True, f"run {on} stalled: resume it with ak run resume {on}"
@@ -2985,7 +3002,9 @@ def wait_over(cfg, log):
     in through the confirmed send, only at the seat's own quiet prompt, the way a run's ending
     is handed back; a seat mid-turn is tried again next tick.  It names the fact and nothing
     else: no other seat's words, no other seat's screen.  The send that took it is written on
-    the wait as `told`, so it is typed once.
+    the wait as `told`, so it is typed once.  An ending its own run hands back to the seat
+    (`handback.hand_back`) is that line already: none is typed for it, and the wait is told
+    once the hand-back is in.
     """
     waiting = {}
     for name in config.session_records():
@@ -3034,6 +3053,18 @@ def wait_over(cfg, log):
                 continue
         if closed:
             continue
+        run = ended_by(wait)
+        if run and transitions.launched_session(run) == name:
+            # its own run hands this ending back with the verdict, PR and result: that line is
+            # the one the seat hears, and a second for the same ending would join it in the
+            # composer (22 Oct).  A routine ending, or one said elsewhere, is not typed to it
+            if handback.owes_ending(run) and not handback.routine_ending(run):
+                continue        # the hand-back is on its way
+            if handback.already_handed_back(run) and not run.get("handback_note"):
+                if wait_mark(name, wait, told=time.time()):
+                    log(f"{name}: its own run's hand-back told it that {wait['over']}; its wait "
+                        "is over")
+                continue
         # one line, whatever gh said over several: a newline typed is a key of its own
         line = f"{' '.join(str(wait['over']).split())}; your wait is over. Decide the next step."
         if type_at_prompt(session, line, log, cfg=cfg, typed=wait.get("typed"),
