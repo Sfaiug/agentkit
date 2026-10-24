@@ -1953,7 +1953,7 @@ def integrate(lp, upstream):
             # check 19 in tests/smoke.sh pins the bare line below; the SHA line above
             # records the pinned tip being integrated.
             lp.log(f"--- merge: merging {upstream} into {lp.state['branch']}")
-            rc, out = gitcall.git_out(lp.wt, "merge", "--no-edit", tip)
+            rc, out = gitcall.merge(lp.wt, tip)
         else:
             lp.log(f"--- merge: rebasing {lp.state['branch']} onto {upstream} ({tip[:12]})")
             rc, out = gitcall.git_out(lp.wt, "rebase", tip)

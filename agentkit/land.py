@@ -590,11 +590,10 @@ def _stack_member(repo, state, top, upstream, opened):
                          base_sha=state.get("base_sha") or
                          run.git(scratch, "merge-base", head, top))
     how = roundloop.how_to_integrate(lp)
-    args = ("merge", "--no-edit", top) if how == "merge" else ("rebase", top)
-    if how == "rebase":
-        # A detached rebase must not rewrite the member's branch through Git config.
-        args = ("-c", "rebase.updateRefs=false", *args)
-    code, out = run.git_out(scratch, *args)
+    # A detached rebase must not rewrite the member's branch through Git config.
+    args = ("merge", "--no-edit", top) if how == "merge" else (
+        "-c", "rebase.updateRefs=false", "rebase", top)
+    code, out = gitcall.merge(scratch, top) if how == "merge" else run.git_out(scratch, *args)
     text = (f"$ git {' '.join(args)}\n[exit {code}]\n"
             f"ERROR: {how} of {upstream} failed\n{out}") if code else ""
     return scratch, text

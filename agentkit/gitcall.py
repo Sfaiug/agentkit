@@ -274,6 +274,24 @@ def ref_held(out):
     return bool(failed) and all(REF_LOCKED.fullmatch(line) for line in failed)
 
 
+def merge(wt, tip):
+    """`git merge --no-edit tip` on the checked-out branch, as `git_out` answers it, except
+    that a clean merge takes its tree from merging with `tip` as "ours": a union-merged file
+    then keeps the target's lines before the branch's, as a rebase onto it would order them.
+    The commit still has HEAD first and `tip` second, so the branch keeps its history and
+    its push stays a fast-forward.  A conflict, a fast-forward and nothing to bring in go
+    through `git merge` itself."""
+    for older, newer in ((tip, "HEAD"), ("HEAD", tip)):
+        if git_out(wt, "merge-base", "--is-ancestor", older, newer)[0] == 0:
+            return git_out(wt, "merge", "--no-edit", tip)
+    code, tree = git_out(wt, "merge-tree", "--write-tree", tip, "HEAD")
+    if code:
+        return git_out(wt, "merge", "--no-edit", tip)
+    commit = git(wt, "commit-tree", tree.splitlines()[0], "-p", "HEAD", "-p", tip,
+                 "-m", f"Merge commit '{tip}'")
+    return git_out(wt, "merge", "--ff-only", commit)
+
+
 def gh(cwd, *args, timeout=None):
     """(exit code, output); the code is None when the command ran out of time.
 
