@@ -19,7 +19,7 @@ from agentkit import record
 FRESH = (REPO / "tests/e2e-fresh.sh").read_text()
 D2 = FRESH[FRESH.index("# ==== d, closing:"):FRESH.index("# ==== h)")]
 
-# Stand-ins for the gate's helpers: the pty drive reached `stopped atoll`, `as` answers with
+# Stand-ins for the gate's helpers: the pty drive reached `p past`, `as` answers with
 # the listing under test, and the verdict is the exit code.
 FAKES = r'''
 doing() { true; }
