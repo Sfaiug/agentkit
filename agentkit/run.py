@@ -1025,7 +1025,13 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
         if "reviewers" in selection:
             groups = {role: list(selection[role]) for role in ("workers", "reviewers")}
     limit = config.max_runs()
+    url = (opts or {}).get("--review-pr")
     with gate.slot_lock():
+        # two runs on one PR both land it, and the second fails on a head the first moved: read
+        # under the lock its receipt is written in, so of two launches at once the second sees
+        # the first
+        going = next((other["run_id"] for other in (runs_on(pr=url, exclude=run_dir) if url else ())
+                      if other.get("state") not in run_record.ENDED), None)
         state = stamp_origin({**receipt, "run_id": run_dir.name, "state": "queued", "verdict": None,
                          "launched_session": session_at_launch, "started_at": time.time(),
                          "queued_at": time.time(), "slot_waiting": True,
@@ -1036,8 +1042,6 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
                          **run_record.process_owner(), "launch_opts": opts or {},
                          **groups,
                          "review_pr": (opts or {}).get("--review-pr"), "reported": False,
-                         # on the PR only once its preflight claims it (`preflight`)
-                         "pr_unclaimed": bool((opts or {}).get("--review-pr")),
                          # launched under the rule: one of its checks must fail on base
                          # (`fails_on_base`), unless its receipt holds the proof -- a repair's,
                          # from the lander; a PR review's proof is its plan's lines
@@ -1061,6 +1065,9 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
         run_record.save_state(run_dir, state)
     history_start(state)
     redress_seat(session_at_launch)   # the seat's bar says it from the start
+    if going:
+        raise config.Error(f"run {going} on {url} has not ended; "
+                           f"`ak wait {going}`, then launch again if it is still needed")
 
 
 def preset_models(cfg, opts, log, run_dir):
@@ -1149,12 +1156,13 @@ def refused(run_dir, exc, log, cfg, printed=False):
 
 def prepare(run_dir, opts, log, cfg=None, job_id=None, task_file=None, receipt=None,
             printed=False):
-    capture_launch(run_dir, opts, job_id, cfg, task_file, receipt)
     try:
+        capture_launch(run_dir, opts, job_id, cfg, task_file, receipt)
         preflight(run_dir, opts, log)
     except (Stopped, config.Error, OSError) as exc:
-        # The launch receipt is already visible to `r`; a rejected preflight must not leave
-        # it queued forever, or lose the seat it belonged to before the check began.  It is
+        # The launch receipt is already visible to `r`; a launch refused at its receipt (another
+        # run on its PR) or in preflight must not leave it queued forever, or lose the seat it
+        # belonged to before the check began.  It is
         # an ending like any other, so a result is written and the seat that launched it
         # hears why -- a hand-back naming a result.md nothing wrote is no hand-back.  Repository
         # discovery that never answered (`Stopped`) did nothing, so relaunch is its recovery.
@@ -1167,18 +1175,6 @@ def preflight(run_dir, opts, log):
     url = opts.get("--review-pr")
     alongside = None
     if url:
-        # two runs on one PR both land it, and the second fails on a head the first moved; the
-        # check and the claim are one step, so of two launches at once exactly one goes ahead
-        with gate.slot_lock():
-            going = next((state for state in runs_on(pr=url, exclude=run_dir)
-                          if state.get("state") not in run_record.ENDED
-                          and not state.get("pr_unclaimed")), None)
-            if not going:
-                with run_record.record(run_dir) as claimed:
-                    claimed["pr_unclaimed"] = False
-        if going:
-            raise config.Error(f"run {going['run_id']} on {url} has not ended; "
-                               f"`ak wait {going['run_id']}`, then launch again if it is still needed")
         info = pr_view(url)
         owner, name, number = PR_PARTS.match(url).groups()
         state = run_record.read_state(run_dir) or {}
