@@ -76,9 +76,8 @@ class RecommendsEffort(Sandbox):
         config.save(self.cfg)
         self.store([row("claude", "claude-opus-5-5", "max", execute=100, review=100)])
         text = self.screen([Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])
-        said = f"{config.model_name(self.cfg, 'opus-max')} @ max 100"
-        self.assertIn(f"best builds {said} · reviews {said} as good none recommended the "
-                      f"cheapest as good: builds {said} · reviews {said}", text)
+        said = f"{config.model_name(self.cfg, 'opus-max')} @ max 100 0 more as good"
+        self.assertIn(f"orch none builds {said} reviews {said}", text)
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus-max"], ["opus-max"]))
         self.assertNotIn("exec_effort", self.entry("opus-max"))

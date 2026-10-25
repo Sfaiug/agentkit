@@ -2983,20 +2983,19 @@ def marks_saved(name, selected, changed):
     return ""
 
 
-# The models screen, `r recommended` on `c`: every model the matrix has a row for against the
-# public boards, at the effort its arrows stand on, the recommendation and the rows as good,
-# and the one knob, how far under the best still counts as as good (`within` in config.toml).
+# The models screen, `r recommended` on `c`: the recommendation per role, the one knob, how far
+# under the best still counts as as good (`within` in config.toml), and every model the matrix
+# has a row for against the public boards, at the effort its arrows stand on.
 MODELS_KEYS = {"knob": ("↑↓ move   ←→ as good", "arrows move   left/right as good"),
                "effort": ("↑↓ move   ←→ effort", "arrows move   left/right effort"),
                "still": ("↑↓ move", "arrows move")}
 MODELS_TAKE = "r take recommended"
 KNOB = ("knob", "within")
-KNOB_TEXT = "as good as the best: within "
+KNOB_TEXT = "as good within "
+KNOB_SAID = "points of the best; the cheapest of those wins"
 MODELS_HEADS = ("model", "harness", "effort", *orch.ROLE_HEADS, "cost $")
 MODELS_NOTE = ("quality is 100 less how many points a model is behind the best on the public "
                "boards; cost is what a task of Artificial Analysis's index run cost it, in dollars")
-CHEAPEST = "the cheapest as good: "   # why the recommended row is the one: said before it
-SAID = ("best", "as good", "recommended")   # the lines that say why, rows the highlight rests on
 
 
 def models_table(held):
@@ -3045,27 +3044,17 @@ def models_at(rows, effort):
          if all(hit["effort"] is None for hit in (row.get("matched") or {}).values())), {})
 
 
-def _entry(cfg, row, role):
-    """A row as the lines above the table say it: its label under the configured model `r`
-    takes it as in `role` (takes), its quality for the role and what a task of its index run
-    cost (`Opus 5.5 @ xhigh 97 $5.98`, by its full name; the cost left out where Artificial
-    Analysis has not run it)."""
-    cost, name = row["values"].get(matrix.COST), takes(cfg, row, role)
-    return (f"{matrix.row_label({**row, 'name': name and config.model_name(cfg, name)})} "
-            f"{row['scores'][role]['score']:.0f}" + ("" if cost is None else f" ${cost:.2f}"))
-
-
 def models_body(cfg, table, levels, shown, at, picks):
     """The models screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
-    First the knob, `within` between the arrows that step it (KNOB), then the three lines that
-    say why (SAID): dim, the best row per role (matrix.tops) and the rows as good as it
-    (`picks`, matrix.recommended), then the recommended row per role, said as the cheapest as
-    good (CHEAPEST), each row with its quality and cost (_entry) under the configured model `r`
-    takes it as; each line a row the highlight rests on and nothing more, so a short screen,
-    where they wrap to more lines than its page holds, shows each in turn, a page at a time
-    where one is taller than the page (matrix_key).  Then, dim, what
-    quality and cost are, a row read the same way, and under it every model of `table`
+    A line per role: its head, the recommended row (`picks`, matrix.recommended) under the
+    configured model `r` takes it as (takes), by its full name, its quality, what a task of
+    Artificial Analysis's index run cost it and how many more rows are as good, `none` where
+    no row is scored; on a narrow screen the rows as good give way, then the cost, and the
+    name alone is cut to the room left, its effort kept.  Then the knob, `within` between the arrows that step it
+    (KNOB), and what it means.  Each line a row the highlight rests on and nothing more.
+    Then, dim, what quality and cost are, a row read the same way, a page at a time where it
+    is taller than the page (matrix_key), and under it every model of `table`
     (models_table) once: its label, its full name where the config runs it, else its id, dim
     where no board scores it, its harness (dim), its effort between the arrows that step it
     (`shown`; a word alone with one effort, `-` with none), its quality per role at that effort
@@ -3079,36 +3068,46 @@ def models_body(cfg, table, levels, shown, at, picks):
     """
     room, utf = terminal.layout_width(), terminal.utf8()
     arrows = "‹ {} ›" if utf else "< {} >"
-    lines, places = [], {}
-    knob = arrows.format(f"{matrix.within(cfg):g}")
-    first = 2 + terminal.cells(KNOB_TEXT)
-    line = "  " + KNOB_TEXT + (terminal.styled(knob, "reverse") if at == KNOB else knob)
-    places[len(lines)] = (KNOB, [(first + 1, first + terminal.cells(knob), 0)])
-    lines.append(terminal.highlight(line) if at == KNOB else line)
+    lines, places, said = [], {}, []
     ids = {role: [(row["harness"], row["model"], row["effort"]) for row in rows]
            for role, rows in picks.items()}
-    tops = matrix.tops(matrix.assessment(cfg, [row for rows in table.values()
-                                                for row in rows.values()]))
-    said = {word: [] for word in SAID}
-    for number, role in enumerate(matrix.ROLES):
-        rows, head = picks.get(role) or [], orch.ROLE_HEADS[number]
-        if role in tops:
-            said["best"].append(f"{head} {_entry(cfg, tops[role], role)}")
-        if rows[1:]:
-            said["as good"].append(f"{head} " + ", ".join(_entry(cfg, row, role)
-                                                           for row in rows[1:]))
-        if rows:
-            said["recommended"].append(f"{head} {_entry(cfg, rows[0], role)}")
-    wide = max(terminal.cells(word) for word in said)
-    for word, parts in said.items():
-        text = (CHEAPEST if word == "recommended" and parts else "") + (" · ".join(parts) or "none")
-        for number, part in enumerate(terminal.wrap(text, room - 2 - wide - 2)):
-            places[len(lines)] = (("said", word), [])
-            line = terminal.table_row([word if number == 0 else "", part],
-                                      [wide, room - 2 - wide - 2], indent="  ",
-                                      kinds=("dim", None if word == "recommended" else "dim"))
-            lines.append(terminal.highlight(line, number == 0) if at == ("said", word) else line)
-    here = ("said", "quality and cost")
+    names = []
+    for role, head in zip(matrix.ROLES, orch.ROLE_HEADS):
+        rows = picks.get(role) or []
+        if not rows:
+            names.append("none")
+            said.append([head, "none", "", "", ""])
+            continue
+        row, cost, name = rows[0], rows[0]["values"].get(matrix.COST), takes(cfg, rows[0], role)
+        names.append(name and config.model_name(cfg, name) or row["model"])
+        said.append([head, matrix.row_label({**row, "name": names[-1]}),
+                     f"{row['scores'][role]['score']:.0f}",
+                     "" if cost is None else f"${cost:.2f} a task", f"{len(rows) - 1} more as good"])
+    widths = [max(terminal.cells(part[n]) for part in said) for n in range(5)]
+    kept = list(range(5))             # on a narrow screen the rows as good give way, then the cost
+    while len(kept) > 3 and sum(widths[n] + 2 for n in kept) > room:
+        kept.pop()
+    widths[1] = min(widths[1], room - sum(widths[n] + 2 for n in kept if n != 1) - 2)
+    for role, name, part in zip(matrix.ROLES, names, said):
+        effort = part[1][len(name):]  # the name is the one part ever cut, its effort kept
+        part[1] = terminal.cut(name, widths[1] - terminal.cells(effort)) + effort
+        here = ("role", role)
+        places[len(lines)] = (here, [])
+        line = terminal.table_row([part[n] for n in kept], [widths[n] for n in kept], indent="  ",
+                                  kinds=[(None, None, "dim", "dim", "dim")[n] for n in kept],
+                                  right=(2,))
+        lines.append(terminal.highlight(line) if at == here else line)
+    knob = arrows.format(f"{matrix.within(cfg):g}")
+    word = knob.replace(" ", "_")     # wrapped as one word, so the knob never breaks
+    for number, part in enumerate(terminal.wrap(f"{KNOB_TEXT}{word} {KNOB_SAID}", room - 2)):
+        before, found, after = part.partition(word)
+        first = 2 + terminal.cells(before)
+        line = "  " + terminal.styled(before, "dim") + (
+            "" if not found else terminal.styled(knob, "reverse") if at == KNOB else knob
+        ) + terminal.styled(after, "dim")
+        places[len(lines)] = (KNOB, [(first + 1, first + terminal.cells(knob), 0)] if found else [])
+        lines.append(terminal.highlight(line, number == 0) if at == KNOB else line)
+    here = ("note", "quality and cost")
     for number, part in enumerate(terminal.wrap(MODELS_NOTE, room - 2)):
         places[len(lines)] = (here, [])
         line = "  " + terminal.styled(part, "dim")
@@ -3190,8 +3189,8 @@ def models_screen(cfg, session, selected, providers):
     they are computed from changed), the rule gliding until they land and what was stored
     standing meanwhile; a reading that failed is said under the rows.
 
-    ↑/↓, k/j and the wheel move between the knob, the three lines that say why (SAID), the
-    quality and cost note (rows read with no action) and the models.  ←/→ on the knob step
+    ↑/↓, k/j and the wheel move between the role lines, the knob, the quality and cost note
+    (rows read with no action) and the models.  ←/→ on the knob step
     `within`, saved to config.toml at once, and the recommendation follows; on a model they
     step the effort its row shows, through its own efforts (models_levels), the numbers and
     the cost following, nothing saved: the effort a model runs at is set on `c`.  `r`, once a
