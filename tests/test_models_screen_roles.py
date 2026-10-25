@@ -64,7 +64,7 @@ class Roles(screen.Screen):
 
     def test_the_knob_wraps_at_words_and_never_breaks(self):
         with patch.object(terminal, "layout_width", return_value=40):
-            lines, places = menu.models_body(self.cfg, {}, {}, {}, None, {})
+            lines, places = menu.models_body(self.cfg, {}, None, {})
         self.assertEqual([terminal.plain(lines[n]) for n, (place, _) in places.items()
                           if place == menu.KNOB],
                          ["as good within ‹ 5 › points of the", "best; the cheapest of those wins"])
