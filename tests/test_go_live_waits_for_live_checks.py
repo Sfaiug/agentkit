@@ -7,7 +7,7 @@ by its own runner and by that marker, and counted red.  A red check keeps the ho
 and closing lines, however far main moved since, and is tried again on watch.RETRY_BACKOFF from its end, or
 from its cap; a newer origin/main is tried as soon as nothing runs.  Every caller of update_agentkit moves
 only to a commit that passed, exactly it, and a commit without tests/live.sh moves as before.
-`ak update`'s harness upgrade runs tests/live.sh after tests/smoke.sh and reverts on its failure.
+`ak update`'s harness upgrade is gated by tests/live.sh and reverts on its failure.
 
 Offline throughout: origin is a throwaway bare repository, ~/agentkit is its clone under a
 temporary HOME, install.sh and tests/live.sh are fakes committed there, the only processes
@@ -167,7 +167,7 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         return check
 
     def cap(self, check):
-        return int(check.name.rsplit("-", 1)[1]) + update.SMOKE_CAP
+        return int(check.name.rsplit("-", 1)[1]) + update.LIVE_CAP
 
     def test_a_commit_goes_live_only_once_its_check_passed_on_exactly_it(self):
         new = self.merge("second")
@@ -298,7 +298,7 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         check = self.held()
         with patch.object(signal, "SIGTERM", signal.SIGKILL):     # as a reboot would: no TERM
             worker.kill_marked(str(check), grace=2)
-        seen = self.cap(check) - update.SMOKE_CAP + 60
+        seen = self.cap(check) - update.LIVE_CAP + 60
         said = self.tick(now=seen)
         self.assertEqual(said[1:3], ["  live: waiting", "  [stopped before it finished]"])
         self.assertEqual(self.tick(now=seen + watch.RETRY_BACKOFF[0] - 1), [])
@@ -514,11 +514,10 @@ try:
         self.assertEqual(self.tick(), [f"agentkit is live at {third[:12]}"])
 
     def upgrade(self, live_passes):
-        """`update.upgrade` of one harness with tests/smoke.sh and tests/live.sh beside it:
-        the exit code, what it said, and the gates it ran."""
+        """`update.upgrade` of one harness with tests/live.sh beside it: the exit code, what it
+        said, and the gates it ran."""
         (self.clone / "tests").mkdir()
-        for name in ("smoke.sh", "live.sh"):
-            (self.clone / "tests" / name).write_text("#!/bin/sh\n")
+        (self.clone / "tests" / "live.sh").write_text("#!/bin/sh\n")
         harness = {"name": "acme", "version": ["acme", "--version"],
                    "upgrade": ["acme", "upgrade"], "revert": ["acme", "install", "{version}"],
                    "env": {}, "cannot": ""}
@@ -528,8 +527,8 @@ try:
             ran.append(cmd)
             if cmd[0] == "bash":
                 self.assertEqual((env, timeout),
-                                 ({"AGENTKIT_ACCEPTANCE_REQUIRED": "1"}, update.SMOKE_CAP))
-                return live_passes or not cmd[-1].endswith("live.sh")
+                                 ({"AGENTKIT_ACCEPTANCE_REQUIRED": "1"}, update.LIVE_CAP))
+                return live_passes
             installed[0] = "1.0.0" if cmd[-1] == "1.0.0" else "2.0.0"
             return True
 
@@ -541,19 +540,18 @@ try:
             code = update.upgrade([harness], {"acme": "1.0.0"})
         return code, out.getvalue(), [cmd[-1] for cmd in ran if cmd[0] == "bash"]
 
-    def test_a_harness_upgrade_runs_it_after_smoke_and_reverts_on_its_failure(self):
-        tests = self.clone / "tests"
+    def test_a_harness_upgrade_runs_it_and_reverts_on_its_failure(self):
         code, said, gates = self.upgrade(live_passes=False)
         self.assertEqual(code, 1, said)
-        self.assertEqual(gates, [str(tests / "smoke.sh"), str(tests / "live.sh")])
+        self.assertEqual(gates, [str(self.clone / "tests" / "live.sh")])
         self.assertIn("update: live FAILED", said)
         self.assertIn("acme: reverted, back on 1.0.0", said)
 
     def test_a_harness_upgrade_that_passes_it_keeps_the_new_release(self):
         code, said, gates = self.upgrade(live_passes=True)
         self.assertEqual(code, 0, said)
-        self.assertEqual(len(gates), 2)
-        self.assertIn("acme 1.0.0->2.0.0, smoke and live passed", said)
+        self.assertEqual(len(gates), 1)
+        self.assertIn("acme 1.0.0->2.0.0, live passed", said)
 
 
 if __name__ == "__main__":

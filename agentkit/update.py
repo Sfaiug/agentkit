@@ -42,7 +42,7 @@ from .harness import load as harness_plugin
 VERSION = re.compile(r"\d+\.\d+\.\d+[^\s()]*")
 PINS = {"DISABLE_AUTOUPDATER": "1", "MUSE_NO_AUTO_UPDATE": "1", "MUSE_LAUNCHER_INSTALL": "0"}
 STEP_CAP = 30 * 60          # an upgrade that is not done in half an hour is not going to be
-SMOKE_CAP = 2 * 60 * 60     # the gate makes real model calls and waits out two retry backoffs
+LIVE_CAP = 2 * 60 * 60      # the gate makes real model calls and waits out two retry backoffs
 E2E_CAP = 90 * 60           # a fresh account, three harness installs and one real merged run
 FETCH_CAP = 60              # the tick's look at origin; one not back by then is offline
 START_WAIT = 2              # the detached start-up check's deadline for origin
@@ -172,7 +172,7 @@ def step(cmd, fh, env=None, timeout=STEP_CAP, *, target_slice=None):
     """Run one command into the log; True when it exited 0.
 
     Its stdin is /dev/null: an update runs unattended, and a gate started from a terminal
-    must not wait on it -- a smoke suite that did held the host's suite lock for hours.
+    must not wait on it -- a suite that did held the host's suite lock for hours.
     """
     cmd = [config.harness_binary(cmd[0]) or cmd[0], *cmd[1:]]
     fh.write(f"\n$ {shlex.join(cmd)}\n")
@@ -370,7 +370,7 @@ def fresh_gate(fh, log):
     This covers borrowed logins, not a clean host.  The script leaves before its first
     check where the host cannot run it, with no acceptance line of its own;
     a run that reached its checks says so there, and a non-zero exit from one is a
-    failure, however it ended.  Only what this gate appended is read back: the smoke
+    failure, however it ended.  Only what this gate appended is read back: the live
     gate that passed first wrote its own acceptance line to the same log.
     """
     why = fresh_unavailable()
@@ -704,11 +704,11 @@ def live_checks():
 
 
 def _exit(check, started):
-    """A check's exit code, or None while it has none: one written after `SMOKE_CAP` is none,
+    """A check's exit code, or None while it has none: one written after `LIVE_CAP` is none,
     and so is any once the tick wrote `stopped`, so every reader counts that check red."""
     try:
         if (not (check / "stopped").exists()
-                and (check / "exit").stat().st_mtime < started + SMOKE_CAP):
+                and (check / "exit").stat().st_mtime < started + LIVE_CAP):
             return int((check / "exit").read_text())
     except (OSError, ValueError):
         pass
@@ -726,7 +726,7 @@ def _alive(check, started, now):
     """
     if host.PROC.is_dir():
         return bool(worker.marked_pids(str(check)))
-    return _exit(check, started) is None and now < started + SMOKE_CAP + worker.MARK_KILL_GRACE
+    return _exit(check, started) is None and now < started + LIVE_CAP + worker.MARK_KILL_GRACE
 
 
 def _put(path, text):
@@ -807,7 +807,7 @@ def owed_live(now):
 def live_tick(log, now, fetched):
     """The tick's half of tests/live.sh: it starts the checks and ends them at their cap.
 
-    One past `SMOKE_CAP` is ended by its runner (`LIVE_RUN`); that, or one of a commit the
+    One past `LIVE_CAP` is ended by its runner (`LIVE_RUN`); that, or one of a commit the
     checkout already has, is ended by its marker too, for whatever left its group -- out of
     reach on a host with no /proc, as for every ak run there -- and its directory goes,
     worktree and all, only once nothing of it runs.  One the cap ends, or that ended with no
@@ -833,7 +833,7 @@ def live_tick(log, now, fetched):
         baseline = commit == head and tip != head
         notice = _handed(check)
         notice = notice and (check / "baseline").exists() and not notice["told"]
-        capped, alive = now >= started + SMOKE_CAP, _alive(check, started, now)
+        capped, alive = now >= started + LIVE_CAP, _alive(check, started, now)
         stop = ((not had[commit] or baseline) and not (check / "stopped").exists()
                 and (capped if alive else _exit(check, started) is None))
         if stop:
@@ -910,7 +910,7 @@ def live_tick(log, now, fetched):
     check.mkdir(parents=True)
     orch.start_in_slice(
         [sys.executable, "-c", LIVE_RUN, str(check), str(agentkit_dir()), tip,
-         str(int(now) + SMOKE_CAP), str(worker.MARK_KILL_GRACE)],
+         str(int(now) + LIVE_CAP), str(worker.MARK_KILL_GRACE)],
         f"agentkit-live-{check.name}",
         {**config.child_env(), **PINS, "AGENTKIT_ACCEPTANCE_REQUIRED": "1",
          worker.RUN_MARKER: str(check)}, os.devnull, log, target_slice=orch.slice_name())
@@ -1222,9 +1222,7 @@ def main(argv):
     if argv and not (dry_run and len(argv) == 1):
         raise config.Error(f"usage: ak update [--dry-run]  (got {argv[0]!r})")
     config.ensure_dirs()
-    smoke = config.REPO / "tests" / "smoke.sh"
-    if not smoke.is_file():
-        raise config.Error(f"no acceptance gate at {smoke}; an unverified upgrade is not one")
+    live = live_gate()
     plan = harnesses()
     if not plan:
         # with nothing to move, the gate would spend two hours of real model calls proving that
@@ -1254,9 +1252,7 @@ def main(argv):
                   f"{shlex.join(harness['upgrade'])}")
         e2e = config.REPO / "tests" / "e2e-fresh.sh"
         print("update: dry run, nothing changed; each gate below says whether it would run")
-        print(f"update: gate smoke: run (`bash {smoke}`)")
-        if (config.REPO / "tests" / "live.sh").is_file():
-            print(f"update: gate live: run (`bash {config.REPO / 'tests' / 'live.sh'}`)")
+        print(f"update: gate live: run (`bash {live}`)")
         fresh_why = fresh_unavailable()
         if fresh_why:
             print(f"update: gate fresh: skipped: {fresh_why}")
@@ -1303,6 +1299,19 @@ def main(argv):
     return code or update_self()
 
 
+def live_gate():
+    """tests/live.sh, the gate a harness upgrade passes before its fresh install; or the refusal.
+
+    Not tests/smoke.sh: that is the landing suite's offline half, whose fake adapters stand in
+    for every harness, and it passed at landing on this commit, so only host load can fail it --
+    which twice put back a harness release for nothing it did.
+    """
+    live = config.REPO / "tests" / "live.sh"
+    if not live.is_file():
+        raise config.Error(f"no acceptance gate at {live}; an unverified upgrade is not one")
+    return live
+
+
 def upgrade(plan, before):
     """Upgrade `plan` from `before`, and put it back where a gate fails; the exit code.
 
@@ -1313,7 +1322,7 @@ def upgrade(plan, before):
     # for this upgrade to end (update_agentkit)
     with (config.TMP / MOVING).open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-    smoke, live = config.REPO / "tests" / "smoke.sh", config.REPO / "tests" / "live.sh"
+    live = live_gate()
     output = tempfile.NamedTemporaryFile(mode="w", prefix=f"update-{datetime.now():%Y%m%d-%H%M%S}-",
                                          suffix=".log", dir=config.TMP, delete=False)
     log_path = Path(output.name)
@@ -1392,22 +1401,15 @@ def upgrade(plan, before):
             report(landed, sys.stderr)
             return 1
         say(f"update: {', '.join(changed) if changed else 'no harness moved'}; "
-            f"running {smoke.name}")
-        gate = "smoke"
-        passed = step(["bash", str(smoke)], fh, {"AGENTKIT_ACCEPTANCE_REQUIRED": "1"},
-                      timeout=SMOKE_CAP)
-        if passed and live.is_file():
-            # the checks that need the outside world, which the landing suite leaves out
-            say(f"update: running {live.name}")
-            gate = "live"
-            passed = step(["bash", str(live)], fh, {"AGENTKIT_ACCEPTANCE_REQUIRED": "1"},
-                          timeout=SMOKE_CAP, target_slice=orch.slice_name())
+            f"running {live.name}")
+        gate = "live"
+        passed = step(["bash", str(live)], fh, {"AGENTKIT_ACCEPTANCE_REQUIRED": "1"},
+                      timeout=LIVE_CAP, target_slice=orch.slice_name())
         if passed:
             fresh_ok, fresh_why = fresh_gate(fh, say)
             if fresh_ok or fresh_why.startswith("skipped:"):
-                gates = "smoke and live passed" if gate == "live" else "smoke passed"
-                done = (f"{', '.join(changed)}, {gates}" if changed
-                        else f"every harness was already current, {gates}")
+                done = (f"{', '.join(changed)}, live passed" if changed
+                        else "every harness was already current, live passed")
                 print(f"update: {done}, fresh-install gate {fresh_why} ({log_path})")
                 landed = kept(before, after)
                 for name, (old, now) in downgraded.items():

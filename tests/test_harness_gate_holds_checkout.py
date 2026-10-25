@@ -87,7 +87,7 @@ class HarnessGateHoldsCheckout(unittest.TestCase):
                        check=True, capture_output=True, timeout=60)
         git(seed, "symbolic-ref", "HEAD", "refs/heads/main")
         (seed / "tests").mkdir()
-        for name, text in (("install.sh", INSTALL), ("tests/smoke.sh", "exit 0\n")):
+        for name, text in (("install.sh", INSTALL), ("tests/live.sh", "exit 0\n")):
             (seed / name).write_text(text)
             (seed / name).chmod(0o755)
         git(seed, "add", "-A")
@@ -101,12 +101,16 @@ class HarnessGateHoldsCheckout(unittest.TestCase):
         git(seed, "commit", "-q", "-m", "second")
         git(seed, "push", "-q", "origin", "main")
         self.new = git(seed, "rev-parse", "HEAD")
-        self.during = lambda: None    # what happens while the smoke gate runs
-        self.gates = []               # each smoke gate: HEAD and installs at its start and end
+        # its tests/live.sh passed already, so only the upgrade holds its move
+        check = config.STATE / update.LIVE / f"{self.new}-{int(time.time())}"
+        check.mkdir(parents=True)
+        (check / "exit").write_text("0\n")
+        self.during = lambda: None    # what happens while the live gate runs
+        self.gates = []               # each live gate: HEAD and installs at its start and end
         stack.enter_context(patch.object(update, "step", side_effect=self.gate))
 
     def gate(self, cmd, fh, env=None, timeout=update.STEP_CAP, **_kw):
-        if not cmd[-1].endswith("smoke.sh"):
+        if not cmd[-1].endswith("live.sh"):
             return STEP(cmd, fh, env, timeout)
         began = (self.head(), self.installs())
         self.during()
