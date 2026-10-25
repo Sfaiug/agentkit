@@ -684,8 +684,15 @@ def pending_review(lp, reason):
 
 
 def restore_review_checkout(lp, stage):
-    """Tests can regenerate tracked files; preserve their diff, then review the pinned commit."""
+    """Tests can regenerate tracked files; preserve their diff, then review the pinned commit.
+
+    A review that passed the PR head and was then rebased onto the moved target pins its own
+    rebased commit: a run killed before delivery resumes there rather than losing the PASS.
+    `passed_head_sha`, not `rebased_from`, because a second rebase moves the latter."""
     head = lp.state["head_sha"]
+    review = lp.state.get("review") or {}
+    if review.get("verdict") == "PASS" and review.get("passed_head_sha") == head:
+        head = review["head_sha"]
     if gitcall.git(lp.wt, "rev-parse", "HEAD") != head:
         raise config.Error(f"review checkout HEAD changed during {stage}; cannot review the pinned PR head")
     rc, why = gitcall.git_out(lp.wt, "diff", "--quiet", head)

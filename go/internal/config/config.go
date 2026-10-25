@@ -223,24 +223,48 @@ func CheckModel(name string) error {
 	if err != nil {
 		return err
 	}
+	_, err = resolve(root, name)
+	return err
+}
+
+// A Model is what a [models.*] entry runs on: its provider and the provider's model id.
+type Model struct{ Provider, ID string }
+
+// Models is every entry `resolve` runs.
+func Models() (map[string]Model, error) {
+	root, err := load()
+	if err != nil {
+		return nil, err
+	}
+	models := map[string]Model{}
+	for _, name := range root.values["models"].(*table).keys {
+		if model, err := resolve(root, name); err == nil {
+			models[name] = model
+		}
+	}
+	return models, nil
+}
+
+// resolve is the [models.*] entry `config.model` runs, or why it runs none.
+func resolve(root *table, name string) (Model, error) {
 	models := root.values["models"].(*table)
 	value, exists := models.values[name]
 	if !exists {
 		names := append([]string(nil), models.keys...)
 		sort.Strings(names)
-		return fmt.Errorf("unknown model %s; ~/.agentkit/config.toml defines: %s", commandhelp.Quote(name), strings.Join(names, ", "))
+		return Model{}, fmt.Errorf("unknown model %s; ~/.agentkit/config.toml defines: %s", commandhelp.Quote(name), strings.Join(names, ", "))
 	}
 	entry, _ := value.(*table)
 	for _, field := range []string{"harness", "model", "effort", "provider"} {
 		if entry == nil || entry.values[field] == nil {
-			return fmt.Errorf("~/.agentkit/config.toml: [models.%s] is missing %s", name, commandhelp.Quote(field))
+			return Model{}, fmt.Errorf("~/.agentkit/config.toml: [models.%s] is missing %s", name, commandhelp.Quote(field))
 		}
 	}
 	provider, valid := entry.values["provider"].(string)
 	if _, exists := root.values["providers"].(*table).values[provider]; !valid || !exists {
-		return fmt.Errorf("~/.agentkit/config.toml: [models.%s].provider=%s has no [providers.*] entry", name, valueRepr(entry.values["provider"]))
+		return Model{}, fmt.Errorf("~/.agentkit/config.toml: [models.%s].provider=%s has no [providers.*] entry", name, valueRepr(entry.values["provider"]))
 	}
-	return nil
+	return Model{provider, fmt.Sprint(entry.values["model"])}, nil
 }
 
 func valueRepr(value any) string {

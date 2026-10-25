@@ -19,6 +19,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import (config, gate, gc, gitcall, handback, history, notify, plan, run, staffing,
                       status, task as taskfile, turns, watch)
 from agentkit import record
+from fixtures.own_pr import end_runs_going
 
 URL = "https://github.com/acme/widget/pull/7"
 
@@ -66,6 +67,7 @@ class OwnPrReview(unittest.TestCase):
 
     def review(self, author="owner", seat="fix-api", background=False,
                want_review=None, launch_only=False):
+        end_runs_going()                # each call is a launch of its own
         directory = config.RUNS / f"review-{len(list(config.RUNS.iterdir()))}"
         directory.mkdir()
         head = self.git("rev-parse", "HEAD")
@@ -87,7 +89,8 @@ class OwnPrReview(unittest.TestCase):
 
         with ExitStack() as mocks:
             mocks.enter_context(patch.dict(os.environ, {"AGENTKIT_SESSION": seat}))
-            run.capture_launch(directory, {"--review-pr": URL})
+            if not background:      # a background launch records its own run
+                run.capture_launch(directory, {"--review-pr": URL})
             for name, value in (("pr_view", info), ("viewer_login", "owner"),
                                 ("checkout_for", self.repo), ("fetch", (0, "")),
                                 ("origin_default", "main"), ("collect_usage", {}),

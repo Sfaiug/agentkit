@@ -2,7 +2,7 @@
 
 The bar is the menu row's own values -- the state function's word and `last_column` --
 written through the one writer by the tick and every menu draw; line two is the line the row
-opens, and ends in the one key, and `r` renames everything that carries the name.
+opens, never the question the seat's own screen shows, and ends in the one key, and `r` renames everything that carries the name.
 Offline: fake seats, plan files and run records, `orch.tmux_out` patched.
 """
 
@@ -88,7 +88,8 @@ class StatusBar(Sandbox):
         found = watch.announce_state(self.seat, cfg=self.cfg)
         self.assertEqual(found["word"], "needs you")
         self.assertIn("! needs you", self.line(statusbar.TOP))
-        self.assertEqual(self.line(statusbar.WHY), "  Merge the MOV helper before or after?")
+        # its question is on the seat's own screen: line two is who builds and reviews
+        self.assertEqual(self.line(statusbar.WHY), "  Opus 5.5 ⚒◎")
         self.assertEqual(self.options["set-titles-string"], "herdr · needs you")
 
     def test_bar_and_row_come_from_one_function(self):

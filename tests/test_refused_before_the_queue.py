@@ -24,6 +24,9 @@ class RefusedBeforeTheQueue(OwnPr):
         super().setUp()
         # the one slot is taken: the fixture's own review run holds it, alive
         self.assertEqual(record.read_state(self.run_dir)["state"], "running")
+        # ... on another PR, as one going on this PR would refuse the launch itself
+        with record.record(self.run_dir) as held:
+            held["review_pr"] = URL.replace("/pull/7", "/pull/8")
         self.stack.enter_context(patch.dict(os.environ, {"AK_MAX_RUNS": "1"}))
         self.stack.enter_context(patch.object(box, "check"))
         # a seat launches only with an open line in its plan

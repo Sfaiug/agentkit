@@ -51,7 +51,7 @@ if session:     # the seat whose roles the marks are, with no reviewers of its o
     config.save_session(config.load(), session, "opus", json.loads(os.environ["MATRIX_WORKERS"]),
                         {"cwd": "/", "created": 0})
 usage.collect = lambda cfg, **kwargs: usage.Readings({})
-orch.switch_orchestrator = lambda cfg, name, model, providers=None: (
+orch.switch_orchestrator = lambda cfg, name, model, providers=None, **_kw: (
     config.update_session(name, orchestrator=model), "")[1]
 with closing(terminal.Keyboard()) as keyboard:
     menu.show_config(False, keyboard, session)
@@ -286,7 +286,7 @@ class Matrix(unittest.TestCase):
         screen = Screen(self)
         lines = screen.frame()
         self.assertEqual("\n".join(lines).count("●"), 1)
-        # another model's mark moves the seat at once, asking nothing
+        # another model's mark moves the seat (the switch, its question with it, faked)
         lines = screen.press(ENTER, lambda lines: "●" in row(lines, "fable")[1])
         self.assertEqual("\n".join(lines).count("●"), 1)
         self.assertEqual(screen.record()["orchestrator"], "fable")

@@ -603,7 +603,9 @@ def transient_wait(out_dir, delay):
 def shell_foreground_note():
     """Keep long commands attached to the turn that must report their result."""
     return ("Run long commands, tests included, in the foreground and wait for them; "
-            "a turn that ends with a command still running in the background is not finished.")
+            "a turn that ends with a command still running in the background is not finished. "
+            f"A command that may print nothing for {run_record.SILENCE_MINUTES} minutes starts "
+            "with `timeout <seconds>`, or that silence stops it.")
 
 
 FINISH_IN_FOREGROUND = ("The command you left in the background was stopped when your turn ended. "

@@ -44,10 +44,6 @@ def home_for_seats():
     # reopened is still there to see once the tick has ended.
     done = home.tmux("-f", "/dev/null", "new-session", "-d", "-s", OWN, "sleep 3600")
     assert done.code == 0, done.err
-    # The public boards are asked once a day: asked just now, a tick here reaches none of them.
-    home.write(".agentkit/state/boards.json",
-               {board: {"asked_at": time.time(), "error": "not asked in a test"}
-                for board in ("artificialanalysis.ai", "arena.ai", "livebench.ai")})
     return home
 
 
@@ -161,7 +157,7 @@ class OnAFreshInstall(unittest.TestCase):
         cls.dry = home.ak("watch", "--dry-run")
         cls.dry_state = watch_state(home) or {}
         cls.tick = home.tick()
-        cls.sessions, cls.state = sessions(home), watch_state(home)
+        cls.state = watch_state(home)
 
     def test_a_dry_run_records_no_boot(self):
         self.assertEqual(self.dry.code, 0, self.dry.err)
@@ -169,8 +165,9 @@ class OnAFreshInstall(unittest.TestCase):
         self.assertNotIn("boot_id", self.dry_state)
 
     def test_the_first_tick_only_records_the_boot(self):
+        # its seats cut off mid-turn and asking come back as on any tick, not after a reboot
+        # (tests/test_key_dead_seat_with_work_comes_back.py)
         self.assertEqual(self.tick.code, 0, self.tick.err)
-        self.assertEqual(self.sessions, [])
         self.assertEqual(reboot_lines(self.tick), [])
         self.assertEqual(self.state["boot_id"], BOOT)
         self.assertNotIn("boot_resume", self.state)
