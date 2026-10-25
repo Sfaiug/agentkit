@@ -59,6 +59,7 @@ class OwnPr(unittest.TestCase):
         self.wt.mkdir()
 
     def launch_dir(self, name, session="fix-api"):
+        end_runs_going()                # each is a launch of its own
         run_dir = config.RUNS / name
         run_dir.mkdir(parents=True)
         (run_dir / "log.txt").touch()
@@ -477,11 +478,7 @@ class OwnPr(unittest.TestCase):
                 ("other", "fix-api", False, "review only"),
                 (LOGIN, "", False, "review only")):
             with self.subTest(author=author, session=session):
-                run_dir = config.RUNS / f"20260927-preflight-{author}-{session or 'noseat'}"
-                run_dir.mkdir(parents=True)
-                (run_dir / "log.txt").touch()
-                with patch.dict(os.environ, {"AGENTKIT_SESSION": session}):
-                    run.capture_launch(run_dir, {"--review-pr": URL})
+                run_dir = self.launch_dir(f"20260927-preflight-{author}-{session or 'noseat'}", session)
                 lines = []
                 with ExitStack() as mocks:
                     for m in self.checkout_patches():
@@ -494,7 +491,6 @@ class OwnPr(unittest.TestCase):
                 if want_own:
                     self.assertEqual(saved.get("own_orchestrator"), "opus")
                 self.assertIn(want_line, "\n".join(lines))
-                end_runs_going()             # the next subtest is a launch of its own
 
     def test_preflight_refuses_own_pr_without_a_writer(self):
         run_dir = config.RUNS / "20260927-preflight-ghost"
@@ -534,7 +530,6 @@ class OwnPr(unittest.TestCase):
                         run.preflight(run_dir, {"--review-pr": URL}, lambda line: None)
                 saved = record.read_state(run_dir)
                 self.assertEqual((saved["own_pr"], saved["own_orchestrator"]), (True, "opus"))
-                end_runs_going()             # the next subtest is a launch of its own
 
 
 if __name__ == "__main__":
