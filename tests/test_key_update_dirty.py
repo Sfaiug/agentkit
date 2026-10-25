@@ -34,7 +34,8 @@ class LeftAsIs(unittest.TestCase):
         done = self.home.run(self.install.ak, "watch")
         self.assertEqual(done.code, 0, done.err)
         return [line for line in done.out.splitlines()
-                if "agentkit" in line or line.startswith(" ")]
+                # the daily git gc of the checkout is its own story
+                if ("agentkit" in line or line.startswith(" ")) and not line.startswith("git gc: ")]
 
     def assert_left_and_said_once(self, why):
         start = self.install.head()
