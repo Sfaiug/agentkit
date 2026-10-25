@@ -2983,68 +2983,33 @@ def marks_saved(name, selected, changed):
     return ""
 
 
-# The models screen, `r recommended` on `c`: the recommendation per role, the one knob, how far
-# under the best still counts as as good (`within` in config.toml), and every model the matrix
-# has a row for against the public boards, at the effort its arrows stand on.
+# The models screen, `r recommended` on `c`: the recommendation per role over the models the
+# owner marks (matrix.assessed), the one knob, how far under the best still counts as as good
+# (`within` in config.toml), and every model the harnesses offer under its harness, a mark each.
 MODELS_KEYS = {"knob": ("↑↓ move   ←→ as good", "arrows move   left/right as good"),
-               "effort": ("↑↓ move   ←→ effort", "arrows move   left/right effort"),
+               "model": ("↑↓ move   space mark", "arrows move   space mark"),
                "still": ("↑↓ move", "arrows move")}
 MODELS_TAKE = "r take recommended"
 KNOB = ("knob", "within")
 KNOB_TEXT = "as good within "
 KNOB_SAID = "points of the best; the cheapest of those wins"
-MODELS_HEADS = ("model", "harness", "effort", *orch.ROLE_HEADS, "cost $")
 MODELS_NOTE = ("quality is 100 less how many points a model is behind the best on the public "
                "boards; cost is what a task of Artificial Analysis's index run cost it, in dollars")
 
 
-def models_table(held):
-    """The matrix's rows by model, {(harness, model): {effort: row}}: the scored models first,
-    by their best quality in any role at any effort, then the rest, each by harness and
-    model."""
-    table = {}
+def models_grid(held):
+    """Every model the matrix (`held`, matrix.stored) has a row for, {harness: {model: its best
+    quality in any role at any effort, -1 unscored}}: the harnesses by name, each one's models
+    by that quality, then by id."""
+    found = {}
     for row in held.get("rows") or []:
-        table.setdefault((row["harness"], row["model"]), {})[row["effort"]] = row
-
-    def quality(rows):
-        return max(map(matrix.best, rows.values()), default=-1)
-    return dict(sorted(table.items(), key=lambda item: (-quality(item[1]), *item[0])))
-
-
-def models_levels(cfg, key, rows):
-    """The efforts a model's arrows step through: its catalog's, as the `c` screen's bars
-    count them (effort_levels), and any the matrix has a row at or the config runs it at
-    besides, weakest first."""
-    listed = effort_levels({"harness": key[0], "model": key[1]}) or []
-    besides = {effort for effort in rows if effort}
-    besides.update(cfg["models"][name].get("effort") for name in _runs(cfg, *key))
-    return listed + sorted((effort for effort in besides if effort and effort not in listed),
-                           key=matrix.effort_rank)
+        models = found.setdefault(row["harness"], {})
+        models[row["model"]] = max(models.get(row["model"], -1), matrix.best(row))
+    return {harness: dict(sorted(models.items(), key=lambda item: (-item[1], item[0])))
+            for harness, models in sorted(found.items())}
 
 
-def models_shown(cfg, key, rows, levels):
-    """The effort a model's row opens on: the one the config runs it at, else the effort of
-    its best row, else the first its arrows step through, else none (a model whose one row is
-    at none, the boards naming no effort, opens on its first level and shows that row)."""
-    names = _runs(cfg, *key)
-    if names:
-        return cfg["models"][names[0]].get("effort")
-    scored = {effort: matrix.best(row) for effort, row in rows.items() if effort}
-    best = max((effort for effort, score in scored.items() if score >= 0),
-               key=lambda effort: (scored[effort], matrix.effort_rank(effort)), default=None)
-    return best if best is not None else levels[0] if levels else None
-
-
-def models_at(rows, effort):
-    """A model's row ({effort: row}, models_table) at `effort`, else the one every board it
-    matched names no effort for, at none or the config's effort, which stands at every effort
-    of the model (matrix.placed stands it at any); {} with neither."""
-    return rows.get(effort) or next(
-        (row for row in rows.values()
-         if all(hit["effort"] is None for hit in (row.get("matched") or {}).values())), {})
-
-
-def models_body(cfg, table, levels, shown, at, picks):
+def models_body(cfg, grid, at, picks):
     """The models screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
     A line per role: its head, the recommended row (`picks`, matrix.recommended) under the
@@ -3055,23 +3020,17 @@ def models_body(cfg, table, levels, shown, at, picks):
     between the arrows that step it (KNOB), and what it means, wrapped at words, the knob whole.
     Each line a row the highlight rests on and nothing more.  Then, dim, what quality and cost
     are, a row read the same way, a page at a time where it is taller than the page
-    (matrix_key), and under it every model of `table`
-    (models_table) once: its label, its full name where the config runs it, else its id, dim
-    where no board scores it, its harness (dim), its effort between the arrows that step it
-    (`shown`; a word alone with one effort, `-` with none), its quality per role at that effort
-    (its row there, models_at; `-` without a score, the recommended row's in `done`'s colour,
-    one as good in the accent) and what a task of Artificial Analysis's index run cost; on a narrow
-    screen the harness gives way, then the cost, and where the label would still be cut each
-    model takes two lines, its label and harness over its effort and numbers, the harness
-    giving way again where the label would still be cut beside it.  `at`
-    is the highlighted row; `cells` are the knob's and each effort's text, arrows and all, for
+    (matrix_key), and under it every model the harnesses offer (`grid`, models_grid) under its
+    harness, a line each: its mark, filled where it is assessed (matrix.assessed), its full
+    name where its harness's catalog has one (config.catalog_label), else its id, dim where no
+    board scores it, and the id after a full name, dim, or under it where the line has no
+    room, so a 40-cell screen reads a 35-cell id whole.  `at` is the highlighted
+    row; `cells` are the knob's text, arrows and all, and each model's line from its mark, for
     a click, counted from 1 as the terminal counts.
     """
     room, utf = terminal.layout_width(), terminal.utf8()
     arrows = "‹ {} ›" if utf else "< {} >"
     lines, places, said = [], {}, []
-    ids = {role: [(row["harness"], row["model"], row["effort"]) for row in rows]
-           for role, rows in picks.items()}
     names = []
     for role, head in zip(matrix.ROLES, orch.ROLE_HEADS):
         rows = picks.get(role) or []
@@ -3114,60 +3073,37 @@ def models_body(cfg, table, levels, shown, at, picks):
         line = "  " + terminal.styled(part, "dim")
         lines.append(terminal.highlight(line, number == 0) if at == here else line)
     lines.append("")
-    labels = {key: next((config.model_name(cfg, name) for name in _runs(cfg, *key)), key[1])
-              for key in table}
-    showing = {key: models_at(rows, shown[key]) for key, rows in table.items()}
-    texts, kinds = {}, {}
-    for key, row in showing.items():
-        scored = any(found for other in table[key].values()
-                     for found in (other.get("scores") or {}).values())
-        stepper = (arrows if len(levels[key]) > 1 else "{}").format(shown[key] or "-")
-        texts[key] = [labels[key], key[0], stepper]
-        kinds[key] = [None if scored else "dim", "dim",
-                      "reverse" if at == ("model", *key) else None]
-        for role in matrix.ROLES:
-            found = (row.get("scores") or {}).get(role)
-            place = (*key, row.get("effort"))
-            texts[key].append("-" if not found else f"{found['score']:.0f}")
-            kinds[key].append("dim" if not found else "done" if place == ids.get(role, [None])[0]
-                              else "accent" if place in ids.get(role, []) else None)
-        cost = (row.get("values") or {}).get(matrix.COST)
-        texts[key].append("-" if cost is None else f"{cost:.2f}")
-        kinds[key].append("dim" if cost is None else None)
-    widths = [max(terminal.cells(text) for text in (head, *(texts[key][n] for key in table)))
-              for n, head in enumerate(MODELS_HEADS)]
-    # the columns that fit the screen: the harness gives way first, then the cost; where the
-    # label would still be cut, each model takes two lines, its label and harness on the
-    # first, its effort and numbers under them (a 40-cell phone), and the harness gives way
-    # again where the label would still be cut beside it (a catalog id 35 cells wide)
-    kept, under = list(range(len(MODELS_HEADS))), []
-    for column in (1, 6):
-        if sum(widths[n] + 2 for n in kept) > room:
-            kept.remove(column)
-    if sum(widths[n] + 2 for n in kept) > room:
-        kept, under = [0, 1], kept[1:]
-        if sum(widths[n] + 2 for n in kept) > room:
-            kept.remove(1)
-    widths[0] = max(1, min(widths[0], room - sum(widths[n] + 2 for n in kept[1:]) - 2))
-    groups = [(columns, indent, {n for n, column in enumerate(columns) if column >= 3})
-              for columns, indent in [(kept, "  "), (under, "    ")] if columns]
-    for columns, indent, right in groups:
-        lines.append(terminal.styled(terminal.table_row([MODELS_HEADS[n] for n in columns],
-                                                        [widths[n] for n in columns],
-                                                        indent=indent, right=right), "dim"))
-    for key in table:
-        here = ("model", *key)
-        for number, (columns, indent, right) in enumerate(groups):
-            cells = []
-            if 2 in columns:          # the effort's text, arrows and all, for a click
-                first = len(indent) + sum(widths[n] + 2 for n in columns[:columns.index(2)])
-                cells = [(first + 1, first + terminal.cells(texts[key][2]), 0)]
-            places[len(lines)] = (here, cells)
-            line = terminal.table_row([texts[key][n] for n in columns],
-                                      [widths[n] for n in columns], indent=indent,
-                                      kinds=[kinds[key][n] for n in columns], right=right)
-            lines.append(terminal.highlight(line, number == 0) if at == here else line)
+    marks, (full, empty) = matrix.assessed(cfg), ("■", "□") if utf else ("#", "-")
+    for harness, models in grid.items():         # under each harness as `c` under a provider
+        lines.append(model_heading(harness))
+        for model, quality in models.items():
+            here = ("model", harness, model)
+            name, ident = config.catalog_label(harness, model), terminal.cut(model, room - 4)
+            mark = full if (harness, model) in marks else empty
+            label = terminal.cut(name or model, room - 4)
+            line = ("  " + (terminal.styled(mark, "reverse") if at == here else mark) + " "
+                    + (label if quality >= 0 else terminal.styled(label, "dim")))
+            said = [line]
+            if name:          # the id beside its name, else whole on a line of its own
+                if terminal.cells(label) + 2 + terminal.cells(ident) <= room - 4:
+                    said = [line + "  " + terminal.styled(ident, "dim")]
+                else:
+                    said.append("    " + terminal.styled(ident, "dim"))
+            for number, line in enumerate(said):
+                places[len(lines)] = (here, [(3, room, 0)])  # a click on it flips its mark
+                lines.append(terminal.highlight(line, number == 0) if at == here else line)
     return lines, places
+
+
+def config_assess(cfg, harness, model):
+    """A model's mark flipped: the models assessed (matrix.assessed) with it or without it,
+    written to the config as `[assess]`, each harness's model ids (_saved); what to say under
+    the rows, or ""."""
+    before = copy.deepcopy(cfg)
+    marks = matrix.assessed(cfg) ^ {(harness, model)}
+    cfg["assess"] = {each: sorted(m for h, m in marks if h == each)
+                     for each in sorted({h for h, _ in marks})}
+    return _saved(cfg, cfg, before)
 
 
 def config_within(cfg, step):
@@ -3183,23 +3119,24 @@ def config_within(cfg, step):
 
 @terminal.clicks_its_own
 def models_screen(cfg, session, selected, providers):
-    """`models · <seat>`, or `models · new seats` without one, `r recommended` on `c`: every
-    model the matrix (matrix.stored) has a row for, against the public boards, read with the
+    """`models · <seat>`, or `models · new seats` without one, `r recommended` on `c`: the
+    recommendation per role over the models marked on it, and every model the matrix
+    (matrix.stored) has a row for, read with the
     matrix's keys until Esc (models_body).
     The boards are read as it opens (matrix.refresh: once a day, the rows again once anything
     they are computed from changed), the rule gliding until they land and what was stored
     standing meanwhile; a reading that failed is said under the rows.
 
     ↑/↓, k/j and the wheel move between the role lines, the knob, the quality and cost note
-    (rows read with no action) and the models.  ←/→ on the knob step
-    `within`, saved to config.toml at once, and the recommendation follows; on a model they
-    step the effort its row shows, through its own efforts (models_levels), the numbers and
-    the cost following, nothing saved: the effort a model runs at is set on `c`.  `r`, once a
-    row is recommended, takes it as `c` says it (take_advice): the seat's executors and reviewers
-    become the recommended rows' models at their efforts, the orchestrator only said; without a
-    seat new seats' orchestrator, executors and reviewers do.
+    (rows read with no action) and the models.  ←/→ on the knob step `within`, saved to
+    config.toml at once, and the recommendation follows.  Space, Enter or a click on a model
+    flips its mark, saved to config.toml at once (config_assess), and the recommendation
+    follows; the effort a model runs at is set on `c`.  `r`, once a row is recommended, takes
+    it as `c` says it (take_advice): the seat's executors and reviewers become the recommended
+    rows' models at their efforts, the orchestrator only said; without a seat new seats'
+    orchestrator, executors and reviewers do.
     """
-    fetch, held, table, shown = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None, {}
+    fetch, held, grid = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
     here, top, note, title = None, 0, "", f"models · {session or NEW_SEATS}"
     clock = motion.Clock(page=True)
     while True:
@@ -3210,25 +3147,19 @@ def models_screen(cfg, session, selected, providers):
             except Exception as exc:      # noqa: BLE001 -- what stands is shown, the fault said
                 failed = " ".join(str(exc).split()) or type(exc).__name__
             note = f"the boards were not read: {failed}" if failed else note
-            held, fetch, table = matrix.stored(), None, None
-        if table is None:             # laid out again once the boards land, a stepped effort kept
-            table = models_table(held)
-            levels = {key: models_levels(cfg, key, rows) for key, rows in table.items()}
-            shown = {key: shown[key] if key in shown else models_shown(cfg, key, rows, levels[key])
-                     for key, rows in table.items()}
-        models = [("model", *key) for key in table]
+            held, fetch, grid = matrix.stored(), None, None
+        grid = grid or models_grid(held)      # laid out again once the boards land
+        models = [("model", harness, model) for harness, found in grid.items() for model in found]
         if here is None or here[0] == "model" and here not in models:
             here = models[0] if models else KNOB
         picks = matrix.recommended(matrix.assessment(cfg, held.get("rows") or []),
                                    matrix.within(cfg))
-        where = ("knob" if here == KNOB else "effort"
-                 if here[0] == "model" and len(levels[here[1:]]) > 1 else "still")
+        where = "knob" if here == KNOB else "model" if here[0] == "model" else "still"
         keys = (MODELS_KEYS[where][0 if terminal.utf8() else 1]
                 + (f"   {MODELS_TAKE}" if picks else "") + "   esc back")
-        body, places = models_body(cfg, table, levels, shown,
-                                   None if terminal.away() else here, picks)
+        body, places = models_body(cfg, grid, None if terminal.away() else here, picks)
         rows = list(dict.fromkeys(row for row, _ in places.values()))
-        act, here, _, top = matrix_key(title, body, places, rows, here, top, note, keys, marks=0,
+        act, here, _, top = matrix_key(title, body, places, rows, here, top, note, keys, marks=1,
                                        clock=clock, fetched=lambda: fetch.began
                                        if fetch is not None and fetch.is_alive() else None,
                                        # one landed since the look above is taken at once
@@ -3240,15 +3171,10 @@ def models_screen(cfg, session, selected, providers):
             return
         if act == "r" and picks:      # nothing to take before the boards scored a row
             note = take_advice(cfg, session, selected, providers, advice(cfg, held))
-        elif act in ("left", "right", "less", "more") and not terminal.unseen():
-            step = 1 if act in ("right", "more") else -1
-            if here == KNOB:
-                note = config_within(cfg, step)
-            elif here[0] == "model":
-                taken, key = levels[here[1:]], here[1:]
-                at = taken.index(shown[key]) if shown[key] in taken else -1
-                if taken:
-                    shown[key] = taken[min(max(at + step, 0), len(taken) - 1)]
+        elif act in ("enter", "space") and here[0] == "model":
+            note = config_assess(cfg, *here[1:])
+        elif act in ("left", "right", "less", "more") and here == KNOB and not terminal.unseen():
+            note = config_within(cfg, 1 if act in ("right", "more") else -1)
 
 
 def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=None, subs=(),

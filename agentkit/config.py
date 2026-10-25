@@ -871,8 +871,15 @@ def model_name(cfg, name):
     entry = (cfg.get("models") or {}).get(name)
     if not isinstance(entry, dict) or entry.get("model") in (None, "", DEFAULT_MODEL):
         return name
-    labels = {row["id"]: row["label"] for row in catalog_table(entry.get("harness") or "")}
-    return labels.get(entry["model"]) or entry["model"].rsplit("/", 1)[-1]
+    return (catalog_label(entry.get("harness") or "", entry["model"])
+            or entry["model"].rsplit("/", 1)[-1])
+
+
+def catalog_label(harness, model):
+    """A model's full name, its harness's catalog label for its id, read off the manifest's
+    table so no draw waits on a listing; None where the table names it no other way."""
+    label = next((row["label"] for row in catalog_table(harness) if row["id"] == model), None)
+    return label if label != model else None
 
 
 def normalize_session(name):
