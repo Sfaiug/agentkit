@@ -36,7 +36,7 @@ class Marks(screen.Screen):
         marks = config.load()["assess"]           # every other model the config runs stays
         self.assertNotIn("claude-opus-5-5", marks["claude"])
         self.assertEqual(marks["codex"], ["gpt-6-astra"])
-        self.assertIn(f"orch {self.astra} @ xhigh 85", text)
+        self.assertIn(f"orch {self.astra} @ xhigh 84.6", text)
         self.assertIn(f"Claude Code › □ {self.opus}", text)
         # Enter on sonnet marks it, beside the marks as saved
         self.screens([Key("char", "r"), Key("down"), Key("enter"), Key("esc"), Key("esc")])

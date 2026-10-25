@@ -32,39 +32,39 @@ class Roles(screen.Screen):
         # opus at max is the best in every role and its xhigh as good at half the cost; astra,
         # as good at an eighth of that, is the cheapest as good to build and review
         opus, astra = self.opus, self.astra
-        self.assertIn(f"orch {opus} @ xhigh 97 $4.00 a task 0 more as good "
-                      f"builds {astra} @ xhigh 95 $0.50 a task 1 more as good "
-                      f"reviews {astra} @ xhigh 96 $0.50 a task 1 more as good {KNOB}",
+        self.assertIn(f"orch {opus} @ xhigh 96.5 $4.00 a task 0 more as good "
+                      f"builds {astra} @ xhigh 95.5 $0.50 a task 1 more as good "
+                      f"reviews {astra} @ xhigh 95.8 $0.50 a task 1 more as good {KNOB}",
                       self.shown())
 
     def test_a_row_without_an_index_run_cost_is_said_without_one_and_none_without_a_row(self):
         # Artificial Analysis has not run astra
         self.store([screen.row("codex", "gpt-6-astra", "xhigh", 84.64, 95.48, 95.75)])
         astra = self.astra
-        self.assertIn(f"orch {astra} @ xhigh 85 0 more as good builds {astra} @ xhigh 95 0 more as "
-                      f"good reviews {astra} @ xhigh 96 0 more as good {KNOB}", self.shown())
+        self.assertIn(f"orch {astra} @ xhigh 84.6 0 more as good builds {astra} @ xhigh 95.5 0 more as "
+                      f"good reviews {astra} @ xhigh 95.8 0 more as good {KNOB}", self.shown())
         self.store([])                # no model to rest on: the highlight is on the knob
         self.assertIn(f"orch none builds none reviews none › {KNOB}", self.shown())
 
     def test_on_a_narrow_screen_the_count_gives_way_then_the_cost_and_the_name_is_cut(self):
         opus, astra = self.opus, self.astra
         shown = self.shown(width=60)
-        self.assertIn(f"orch {opus} @ xhigh 97 $4.00 a task builds {astra} @ xhigh 95 $0.50 a "
-                      f"task reviews {astra} @ xhigh 96 $0.50 a task {KNOB}", shown)
+        self.assertIn(f"orch {opus} @ xhigh 96.5 $4.00 a task builds {astra} @ xhigh 95.5 $0.50 a "
+                      f"task reviews {astra} @ xhigh 95.8 $0.50 a task {KNOB}", shown)
         shown = self.shown(width=40)
-        self.assertIn(f"orch {opus} @ xhigh 97 builds {astra} @ xhigh 95 reviews {astra} @ "
-                      f"xhigh 96 {KNOB}", shown)
+        self.assertIn(f"orch {opus} @ xhigh 96.5 builds {astra} @ xhigh 95.5 reviews {astra} @ "
+                      f"xhigh 95.8 {KNOB}", shown)
         self.assertNotIn("…", shown)
         named = config.model_name     # a name longer than the room left: it alone is cut, its effort kept
         with patch.object(config, "model_name", side_effect=lambda cfg, name: (
                 "GPT-6-Astra Long Context Preview" if name == "astra" else named(cfg, name))):
             shown = self.shown(width=40)
-        self.assertIn(f"orch {opus} @ xhigh 97 builds GPT-6-Astra Long… @ xhigh 95 reviews "
-                      f"GPT-6-Astra Long… @ xhigh 96 {KNOB}", shown)
+        self.assertIn(f"orch {opus} @ xhigh 96.5 builds GPT-6-Astra… @ xhigh 95.5 reviews "
+                      f"GPT-6-Astra… @ xhigh 95.8 {KNOB}", shown)
 
     def test_the_knob_wraps_at_words_and_never_breaks(self):
         with patch.object(terminal, "layout_width", return_value=40):
-            lines, places = menu.models_body(self.cfg, {}, None, {})
+            lines, places = menu.models_body(self.cfg, {}, {}, None, {})
         self.assertEqual([terminal.plain(lines[n]) for n, (place, _) in places.items()
                           if place == menu.KNOB],
                          ["as good within ‹ 5 › points of the", "best; the cheapest of those wins"])

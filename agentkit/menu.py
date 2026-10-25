@@ -2986,15 +2986,26 @@ def marks_saved(name, selected, changed):
 # The models screen, `r recommended` on `c`: the recommendation per role over the models the
 # owner marks (matrix.assessed), the one knob, how far under the best still counts as as good
 # (`within` in config.toml), and every model the harnesses offer under its harness, a mark each.
-MODELS_KEYS = {"knob": ("↑↓ move   ←→ as good", "arrows move   left/right as good"),
+MODELS_KEYS = {"role": ("↑↓ move   ⏎ why", "arrows move   enter why"),
+               "knob": ("↑↓ move   ←→ as good", "arrows move   left/right as good"),
                "model": ("↑↓ move   space mark", "arrows move   space mark"),
-               "still": ("↑↓ move", "arrows move")}
+               "still": ("↑↓ move", "arrows move"),
+               "why": ("↑↓ role   ⏎ close", "arrows role   enter close")}
 MODELS_TAKE = "r take recommended"
 KNOB = ("knob", "within")
 KNOB_TEXT = "as good within "
 KNOB_SAID = "points of the best; the cheapest of those wins"
 MODELS_NOTE = ("quality is 100 less how many points a model is behind the best on the public "
                "boards; cost is what a task of Artificial Analysis's index run cost it, in dollars")
+WHY_ROWS = 10                     # the rows the evidence lists: the best, and the recommended
+# each measure's word at the head of its column, where the evidence lays the points behind out
+MEASURE_HEADS = {"arena.agent_task_outcome_explicit": "task done", "arena.agent_steerability": "steering",
+                 "livebench.long_agentic": "long", "aa.briefcaseBreakdown.overall.elo": "briefcase",
+                 "livebench.coding": "coding", "arena.agent_bash_reliability": "bash",
+                 "arena.webdev": "webdev", "aa.terminalBench40": "terminal",
+                 "livebench.reasoning": "reasoning", "arena.text_factuality.coding": "factual",
+                 "arena.text_style_control.coding": "style", "aa.deepsecBench": "deepsec",
+                 "aa.omniscience": "omniscience"}
 
 
 def models_grid(held):
@@ -3009,7 +3020,88 @@ def models_grid(held):
             for harness, models in sorted(found.items())}
 
 
-def models_body(cfg, grid, at, picks):
+def role_label(cfg, row, role, room=None):
+    """A row as the models screen names it in `role`: the full name of the configured model `r`
+    takes it as (takes), else its catalog's (config.catalog_label), else its id, at its effort;
+    only the name cut, to fit `room`."""
+    name = takes(cfg, row, role)
+    name = (name and config.model_name(cfg, name) or config.catalog_label(row["harness"], row["model"])
+            or row["model"])
+    effort = matrix.row_label({**row, "name": name})[len(name):]
+    return name + effort if room is None else terminal.cut(name, room - terminal.cells(effort)) + effort
+
+
+def models_why(cfg, held, role, picks, room):
+    """Why the role's recommendation won, as lines: the best rows of the models assessed, at
+    most WHY_ROWS and the recommended one among them, each by its full name (role_label), its
+    quality, the points it is behind the best on each of the role's measures (matrix.behind;
+    dim where the board never ran the model on it, so its typical gap counts, a line under
+    them saying so; `-` for a measure no board gave) and what a task of Artificial Analysis's
+    index run cost it.  The recommended row is starred and the rows as good marked `=`, as
+    the heading says.  Where not one measure fits beside the name each row's numbers take a
+    line under it; where they still do not fit the cost gives way, then the measures from the
+    last, a line naming the ones left out."""
+    best, within = held.get("bests") or {}, matrix.within(cfg)
+    rows = sorted((row for row in matrix.assessment(cfg, held.get("rows") or [])
+                   if (row.get("scores") or {}).get(role)),
+                  key=lambda row: (-row["scores"][role]["score"], matrix.cost_key(row)))
+    pick, listed = (picks.get(role) or [None])[0], rows[:WHY_ROWS]
+    if pick is not None and pick not in listed:
+        listed[-1] = pick
+    measures = [(column, kind) for column, kind, _ in matrix.ROLES[role]]
+    top = rows[0]["scores"][role]["score"] if rows else 0
+    said, inks = [], []
+    for row in listed:
+        cost, good = row["values"].get(matrix.COST), row["scores"][role]["score"] >= top - within
+        said.append(["★" if row is pick else "=" if good else "", role_label(cfg, row, role),
+                     f"{row['scores'][role]['score']:.1f}",
+                     *(f"{matrix.behind(row, column, kind, best):.1f}" if column in best else "-"
+                       for column, kind in measures),
+                     "" if cost is None else f"${cost:.2f}"])
+        inks.append(["good" if row is pick else None, None if good else "dim",
+                     "good" if row is pick else "accent" if good else "dim",
+                     *("dim" if column in best and column not in row["values"] else None
+                       for column, _ in measures), None if good else "dim"])
+    heads = ["", "model", "quality", *(MEASURE_HEADS.get(column, column.split(".")[-1])
+                                        for column, _ in measures), "$ a task"]
+    widths = [max(terminal.cells(part[n]) for part in (heads, *said)) for n in range(len(heads))]
+
+    def fits(columns, indent):
+        return indent + sum(widths[n] + 2 for n in columns) - 2 <= room
+    line, under = list(range(len(heads))), []
+    if fits(line[:4], 2):             # the cost gives way, then the measures from the last
+        while len(line) > 3 and not fits(line, 2):
+            line.pop()
+    else:                             # no measure fits beside the name: the numbers under it
+        line, under = [0, 1, 2], line[3:]
+        while len(under) > 1 and not fits(under, 4):
+            under.pop()
+        widths[1] = min(widths[1], room - widths[0] - widths[2] - 6)
+        for part, row in zip(said, listed):
+            part[1] = role_label(cfg, row, role, widths[1])
+    left_out = [heads[n] for n in range(3, len(heads) - 1) if n not in line + under]
+    head = f"{orch.ROLE_HEADS[list(matrix.ROLES).index(role)]} · points behind the best on each measure"
+    legend = "★ recommended · = as good"
+    lines = ([f"  {terminal.styled(f'{head} · {legend}', 'bold')}"]
+             if terminal.cells(f"{head} · {legend}") + 2 <= room
+             else [*("  " + terminal.styled(part, "bold") for part in terminal.wrap(head, room - 2)),
+                   f"  {legend}"])
+    for part, ink in [(heads, ["dim"] * len(heads)), *zip(said, inks)]:
+        lines += (terminal.table_row([part[n] for n in group], [widths[n] for n in group],
+                                     indent=indent, kinds=[ink[n] for n in group],
+                                     right=[at for at, n in enumerate(group) if n >= 2])
+                  for group, indent in ((line, "  "), (under, "    ")) if group)
+    if not said:
+        lines.append("    " + terminal.styled("no row scored: mark a model", "dim"))
+    notes = [*(["a dim number is the board's typical gap: it never ran the model on that benchmark"]
+               if any("dim" in ink[3:-1] for ink in inks) else []),
+             *(["a wider screen shows " + ", ".join(left_out)] if left_out else [])]
+    for note in notes:
+        lines += ("  " + terminal.styled(part, "dim") for part in terminal.wrap(note, room - 2))
+    return lines
+
+
+def models_body(cfg, held, grid, at, picks, why=None):
     """The models screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
     A line per role: its head, the recommended row (`picks`, matrix.recommended) under the
@@ -3025,34 +3117,32 @@ def models_body(cfg, grid, at, picks):
     name where its harness's catalog has one (config.catalog_label), else its id, dim where no
     board scores it, and the id after a full name, dim, or under it where the line has no
     room, so a 40-cell screen reads a 35-cell id whole.  `at` is the highlighted
-    row; `cells` are the knob's text, arrows and all, and each model's line from its mark, for
-    a click, counted from 1 as the terminal counts.
+    row; `cells` are each role's line, the knob's text, arrows and all, and each model's line
+    from its mark, for a click, counted from 1 as the terminal counts.  With `why`, a role, the
+    evidence for its recommendation stands in the models' place (models_why).
     """
     room, utf = terminal.layout_width(), terminal.utf8()
     arrows = "‹ {} ›" if utf else "< {} >"
     lines, places, said = [], {}, []
-    names = []
     for role, head in zip(matrix.ROLES, orch.ROLE_HEADS):
         rows = picks.get(role) or []
         if not rows:
-            names.append("none")
             said.append([head, "none", "", "", ""])
             continue
-        row, cost, name = rows[0], rows[0]["values"].get(matrix.COST), takes(cfg, rows[0], role)
-        names.append(name and config.model_name(cfg, name) or row["model"])
-        said.append([head, matrix.row_label({**row, "name": names[-1]}),
-                     f"{row['scores'][role]['score']:.0f}",
+        row, cost = rows[0], rows[0]["values"].get(matrix.COST)
+        # quality in tenths: whole points would show a row just past the knob as within it
+        said.append([head, role_label(cfg, row, role), f"{row['scores'][role]['score']:.1f}",
                      "" if cost is None else f"${cost:.2f} a task", f"{len(rows) - 1} more as good"])
     widths = [max(terminal.cells(part[n]) for part in said) for n in range(5)]
     kept = list(range(5))             # on a narrow screen the rows as good give way, then the cost
     while len(kept) > 3 and sum(widths[n] + 2 for n in kept) > room:
         kept.pop()
     widths[1] = min(widths[1], room - sum(widths[n] + 2 for n in kept if n != 1) - 2)
-    for role, name, part in zip(matrix.ROLES, names, said):
-        effort = part[1][len(name):]  # the name is the one part ever cut, its effort kept
-        part[1] = terminal.cut(name, widths[1] - terminal.cells(effort)) + effort
+    for role, part in zip(matrix.ROLES, said):
+        if picks.get(role):           # the name is the one part ever cut, its effort kept
+            part[1] = role_label(cfg, picks[role][0], role, widths[1])
         here = ("role", role)
-        places[len(lines)] = (here, [])
+        places[len(lines)] = (here, [(3, room, 0)])      # a click on it opens its why
         line = terminal.table_row([part[n] for n in kept], [widths[n] for n in kept], indent="  ",
                                   kinds=[(None, None, "dim", "dim", "dim")[n] for n in kept],
                                   right=(2,))
@@ -3073,6 +3163,11 @@ def models_body(cfg, grid, at, picks):
         line = "  " + terminal.styled(part, "dim")
         lines.append(terminal.highlight(line, number == 0) if at == here else line)
     lines.append("")
+    if why is not None:               # its role's row, so a page at a time where taller (matrix_key)
+        for line in models_why(cfg, held, why, picks, room):
+            places[len(lines)] = (("role", why), [])
+            lines.append(line)
+        return lines, places
     marks, (full, empty) = matrix.assessed(cfg), ("■", "□") if utf else ("#", "-")
     for harness, models in grid.items():         # under each harness as `c` under a provider
         lines.append(model_heading(harness))
@@ -3128,15 +3223,17 @@ def models_screen(cfg, session, selected, providers):
     standing meanwhile; a reading that failed is said under the rows.
 
     ↑/↓, k/j and the wheel move between the role lines, the knob, the quality and cost note
-    (rows read with no action) and the models.  ←/→ on the knob step `within`, saved to
-    config.toml at once, and the recommendation follows.  Space, Enter or a click on a model
-    flips its mark, saved to config.toml at once (config_assess), and the recommendation
-    follows; the effort a model runs at is set on `c`.  `r`, once a row is recommended, takes
+    (rows read with no action) and the models.  Enter or a click on a role line shows why its
+    recommendation won in the models' place (models_why); ↑/↓ then move it between the roles,
+    turning its pages first where it is taller than the page, and Enter, Esc or a click on its
+    role line brings the models back.  ←/→ on the knob step `within`, saved to config.toml at
+    once, and the recommendation follows.  Space, Enter or a click on a model flips its mark,
+    saved to config.toml at once (config_assess), and the recommendation follows; the effort a model runs at is set on `c`.  `r`, once a row is recommended, takes
     it as `c` says it (take_advice): the seat's executors and reviewers become the recommended
     rows' models at their efforts, the orchestrator only said; without a seat new seats'
     orchestrator, executors and reviewers do.
     """
-    fetch, held, grid = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
+    fetch, held, grid, why = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None, None
     here, top, note, title = None, 0, "", f"models · {session or NEW_SEATS}"
     clock = motion.Clock(page=True)
     while True:
@@ -3154,11 +3251,15 @@ def models_screen(cfg, session, selected, providers):
             here = models[0] if models else KNOB
         picks = matrix.recommended(matrix.assessment(cfg, held.get("rows") or []),
                                    matrix.within(cfg))
-        where = "knob" if here == KNOB else "model" if here[0] == "model" else "still"
+        if why is not None:
+            here = ("role", why)      # the evidence's role is the one highlighted
+        where = ("why" if why is not None else "knob" if here == KNOB
+                 else here[0] if here[0] in ("role", "model") else "still")
         keys = (MODELS_KEYS[where][0 if terminal.utf8() else 1]
                 + (f"   {MODELS_TAKE}" if picks else "") + "   esc back")
-        body, places = models_body(cfg, grid, None if terminal.away() else here, picks)
-        rows = list(dict.fromkeys(row for row, _ in places.values()))
+        body, places = models_body(cfg, held, grid, None if terminal.away() else here, picks, why)
+        rows = [row for row in dict.fromkeys(row for row, _ in places.values())
+                if why is None or row[0] == "role"]      # the evidence moves between the roles
         act, here, _, top = matrix_key(title, body, places, rows, here, top, note, keys, marks=1,
                                        clock=clock, fetched=lambda: fetch.began
                                        if fetch is not None and fetch.is_alive() else None,
@@ -3166,10 +3267,16 @@ def models_screen(cfg, session, selected, providers):
                                        timeout=None if fetch is None else 0)
         if act is None:
             continue                  # a resize, the pointer or the boards landing: drawn again
-        note = ""
-        if act == "back":
+        note, shown = "", why
+        if why is not None and here[0] == "role":
+            why = here[1]             # the evidence follows the highlight between the roles
+        if act == "back" and why is not None:
+            why = None
+        elif act == "enter" and here[0] == "role":    # a click on another role moves it there
+            why = None if shown == here[1] else here[1]
+        elif act == "back":
             return
-        if act == "r" and picks:      # nothing to take before the boards scored a row
+        elif act == "r" and picks:    # nothing to take before the boards scored a row
             note = take_advice(cfg, session, selected, providers, advice(cfg, held))
         elif act in ("enter", "space") and here[0] == "model":
             note = config_assess(cfg, *here[1:])
