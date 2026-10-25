@@ -96,7 +96,7 @@ class ModelsScreen(Screen):
         text = self.screens([Key("char", "r"), Key("esc"), Key("esc")])
         self.assertIn("agentkit · models · fix-api", text)
         opus, astra = self.opus, self.astra
-        self.assertIn(f"orch {opus} @ xhigh 97 $4.00 a task builds {astra} @ xhigh 95 $0.50 a task "
+        self.assertIn(f"orch {opus} @ xhigh 97 $4.00 a task 0 more as good builds {astra} @ xhigh 95 $0.50 a task "
                       f"1 more as good reviews {astra} @ xhigh 96 $0.50 a task 1 more as good "
                       "as good within ‹ 5 › points of the best", text)
         self.assertIn("quality is 100 less how many points a model is behind the best on the "
@@ -145,12 +145,12 @@ class ModelsScreen(Screen):
         self.assertIn("↑↓ move ←→ as good r take recommended esc back", text)
         self.assertEqual(config.load()["within"], 4)
         # within 4, astra's 96 is no longer as good as opus's 100: opus @ xhigh everywhere
-        said = f"{self.opus} @ xhigh 97 $4.00 a task"
+        said = f"{self.opus} @ xhigh 97 $4.00 a task 0 more as good"
         self.assertIn(f"orch {said} builds {said} reviews {said} › as good within ‹ 4 ›", text)
         text = self.screens([Key("char", "r"), *[Key("up")] * 2, *[Key("left")] * 6, Key("esc"),
                              Key("esc")])
         self.assertEqual(config.load()["within"], 0)
-        said = f"{self.opus} @ max 100 $8.00 a task"
+        said = f"{self.opus} @ max 100 $8.00 a task 0 more as good"
         self.assertIn(f"orch {said} builds {said} reviews {said} › as good within ‹ 0 ›", text)
 
     def test_on_a_phone_the_cost_gives_way_and_every_line_fits(self):

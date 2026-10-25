@@ -3051,7 +3051,7 @@ def models_body(cfg, table, levels, shown, at, picks):
     configured model `r` takes it as (takes), by its full name, its quality, what a task of
     Artificial Analysis's index run cost it and how many more rows are as good, `none` where
     no row is scored; on a narrow screen the rows as good give way, then the cost, and the
-    name is cut to the room left.  Then the knob, `within` between the arrows that step it
+    name alone is cut to the room left, its effort kept.  Then the knob, `within` between the arrows that step it
     (KNOB), and what it means.  Each line a row the highlight rests on and nothing more.
     Then, dim, what quality and cost are, a row read the same way, a page at a time where it
     is taller than the page (matrix_key), and under it every model of `table`
@@ -3074,36 +3074,35 @@ def models_body(cfg, table, levels, shown, at, picks):
     for role, head in zip(matrix.ROLES, orch.ROLE_HEADS):
         rows = picks.get(role) or []
         if not rows:
-            said.append([head, "none", "", "", ""])
+            said.append([head, "none", "", "", "", ""])
             continue
         row, cost, name = rows[0], rows[0]["values"].get(matrix.COST), takes(cfg, rows[0], role)
-        said.append([head, matrix.row_label({**row, "name": name and config.model_name(cfg, name)}),
+        said.append([head, name and config.model_name(cfg, name) or row["model"],
+                     f"@ {row['effort']}" if row["effort"] else "",
                      f"{row['scores'][role]['score']:.0f}",
-                     "" if cost is None else f"${cost:.2f} a task",
-                     f"{len(rows) - 1} more as good" if rows[1:] else ""])
-    widths = [max(terminal.cells(part[n]) for part in said) for n in range(5)]
-    kept = list(range(5))             # on a narrow screen the rows as good give way, then the cost
-    while len(kept) > 3 and sum(widths[n] + 2 for n in kept) > room:
+                     "" if cost is None else f"${cost:.2f} a task", f"{len(rows) - 1} more as good"])
+    widths = [max(terminal.cells(part[n]) for part in said) for n in range(6)]
+    kept = list(range(6))             # on a narrow screen the rows as good give way, then the cost
+    while len(kept) > 4 and sum(widths[n] + 2 for n in kept) > room:
         kept.pop()
-    # what room is left is the name's, cut where even three columns do not fit
+    # what room is left is the name's, the one part ever cut: its effort is a column of its own
     widths[1] = max(1, min(widths[1], room - sum(widths[n] + 2 for n in kept if n != 1) - 2))
     for role, part in zip(matrix.ROLES, said):
         here = ("role", role)
         places[len(lines)] = (here, [])
         line = terminal.table_row([part[n] for n in kept], [widths[n] for n in kept], indent="  ",
-                                  kinds=[(None, None, "dim", "dim", "dim")[n] for n in kept],
-                                  right=(2,))
+                                  kinds=[(None, None, None, "dim", "dim", "dim")[n] for n in kept],
+                                  right=(3,))
         lines.append(terminal.highlight(line) if at == here else line)
     knob = arrows.format(f"{matrix.within(cfg):g}")
-    first, lead = 2 + terminal.cells(KNOB_TEXT), len(KNOB_TEXT + knob)
-    # what the knob means wraps under it where the screen is narrow, never cut
-    for number, part in enumerate(terminal.wrap(f"{KNOB_TEXT}{knob} {KNOB_SAID}", room - 2)):
-        line = "  " + (terminal.styled(KNOB_TEXT, "dim")
-                       + (terminal.styled(knob, "reverse") if at == KNOB else knob)
-                       + terminal.styled(part[lead:], "dim") if number == 0
-                       else terminal.styled(part, "dim"))
-        places[len(lines)] = (KNOB, [(first + 1, first + terminal.cells(knob), 0)]
-                              if number == 0 else [])
+    word = knob.replace(" ", "_")     # wrapped as one word, so the knob never breaks
+    for number, part in enumerate(terminal.wrap(f"{KNOB_TEXT}{word} {KNOB_SAID}", room - 2)):
+        before, found, after = part.partition(word)
+        first = 2 + terminal.cells(before)
+        line = "  " + terminal.styled(before, "dim") + (
+            "" if not found else terminal.styled(knob, "reverse") if at == KNOB else knob
+        ) + terminal.styled(after, "dim")
+        places[len(lines)] = (KNOB, [(first + 1, first + terminal.cells(knob), 0)] if found else [])
         lines.append(terminal.highlight(line, number == 0) if at == KNOB else line)
     here = ("note", "quality and cost")
     for number, part in enumerate(terminal.wrap(MODELS_NOTE, room - 2)):
