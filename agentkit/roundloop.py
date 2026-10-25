@@ -686,13 +686,8 @@ def pending_review(lp, reason):
 def restore_review_checkout(lp, stage):
     """Tests can regenerate tracked files; preserve their diff, then review the pinned commit.
 
-    A review that passed the PR head and was then rebased onto the moved target pins its own
-    rebased commit: a run killed before delivery resumes there rather than losing the PASS.
-    `passed_head_sha`, not `rebased_from`, because a second rebase moves the latter."""
-    head = lp.state["head_sha"]
-    review = lp.state.get("review") or {}
-    if review.get("verdict") == "PASS" and review.get("passed_head_sha") == head:
-        head = review["head_sha"]
+    A run killed after its own rebase resumes on the commit it made (`pinned_head`)."""
+    head = pinned_head(lp.state)
     if gitcall.git(lp.wt, "rev-parse", "HEAD") != head:
         raise config.Error(f"review checkout HEAD changed during {stage}; cannot review the pinned PR head")
     rc, why = gitcall.git_out(lp.wt, "diff", "--quiet", head)
@@ -862,6 +857,26 @@ def set_base(lp, tip):
     tip = gitcall.git(lp.wt, "rev-parse", f"{tip}^{{commit}}")
     lp.state.update(base_sha=tip, target_sha=tip)
     lp.write()
+    pin_checkout(lp)
+
+
+def pin_checkout(lp):
+    """A review run reviews the commit its own rebase, merge or landing fixer left, until the
+    PR head moves (`pinned_head`); a rebase or merge still stopped has made nothing yet."""
+    if lp.state.get("review_pr") and not (in_progress(lp.wt, "rebase") or in_progress(lp.wt, "merge")):
+        lp.state["integrated"] = {"from": lp.state["head_sha"],
+                                  "to": gitcall.git(lp.wt, "rev-parse", "HEAD")}
+        lp.write()
+
+
+def pinned_head(state):
+    """The commit a review run judges: the PR head, or what its own landing made of it."""
+    review = state.get("review") or {}
+    integrated = state.get("integrated") or (
+        # a receipt from before `integrated` kept its rebase in the review that passed
+        {"from": review.get("passed_head_sha"), "to": review.get("head_sha")}
+        if review.get("verdict") == "PASS" else {})
+    return integrated["to"] if integrated.get("from") == state["head_sha"] else state["head_sha"]
 
 
 def abort_integration(lp, how):
@@ -1303,7 +1318,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     else:
         head = "HEAD"
         if lp.state.get("review_pr"):
-            head = lp.state["head_sha"]
+            head = pinned_head(lp.state)
             restore_review_checkout(lp, "tests")
         else:
             gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
@@ -1611,6 +1626,7 @@ def landing_fixer(lp, text, name):
         text += (f"\n\n## The final check failed. Fix the root cause as well.\n```\n"
                  f"{prompts.failing_blocks(output, lp.run_dir)}\n```")
     summary = execute(lp, "fixer", text, name)
+    pin_checkout(lp)
     if failure:
         # Save the actual fixer with its summary before a check or review can stop.
         lp.state["waiting_on"]["fixed"] = True
@@ -1821,6 +1837,7 @@ def fix_after_failed_review(lp, upstream, how):
         lp.rnd += 1
         lp.log(f"--- round {lp.rnd}/{lp.rounds}: fixer {lp.executor} (findings after {what})")
         summary = execute(lp, "fixer", fix, "executor")
+        pin_checkout(lp)
         ok, dw_log = verify_work(lp)
         lp.log(f"done-when after the fix: {'all passed' if ok else 'FAILED'}")
         same_failure(lp, ok, dw_log)
@@ -1861,6 +1878,10 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
             + "\n".join(f"- {p}" for p in conflicts)
             + f"\n\n```\n{turns.cut(out, lp.run_dir, f'{how}-conflict')}\n```")
     summary, landed = "", False
+    if lp.state.get("own_pr"):
+        # a seat's PR that passed its first review had no fixer yet: its conflict is its
+        # writer's, as a finding is, and the re-review is picked against them
+        lp.executor = lp.executor or lp.state["own_orchestrator"]
     for attempt in range(1, CONFLICT_ROUNDS + 1):
         lp.log(f"--- merge: conflict round {attempt}/{CONFLICT_ROUNDS}: "
                f"fixer {lp.executor} ({how} conflict)")

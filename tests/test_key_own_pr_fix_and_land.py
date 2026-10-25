@@ -4,7 +4,8 @@ The orchestrator's own pull request goes the one path every change goes: a FAIL 
 fresh fixer turn on the model that wrote it, never typed into the seat, and what it commits is
 pushed to the PR branch for the next round to review; a PASS joins the landing line, which runs
 the repository's suite on it and merges it only once the checks the target requires are green.
-A red required check leaves the PR open and the run failed.  Black-box: the program `AK_BIN`
+A red required check leaves the PR open and the run failed, and a rebase onto main that
+conflicts goes to the writer's model to resolve, as a finding does.  Black-box: the program `AK_BIN`
 names runs from outside through tests/fixtures/akbin.py, from the seat of akseat.py, against
 the bare origin of gitrig.py and the GitHub of fakegh.py, with scripted harnesses from
 fakeadapter.py.
@@ -29,11 +30,14 @@ FIND = {"final": "Found one.", "hand_in": [
 FOUND = "- contrib.txt:1 - contrib.txt is unfinished - nothing reads it"
 FIX = {"write": {"contrib.txt": "fixed\n"}, "commit": "finish contrib.txt", "final": "Fixed.",
        "hand_in": [["done"]]}
+RESOLVE = {"sh": "printf 'main\\nc\\n' > contrib.txt && git add contrib.txt && "
+                 "GIT_EDITOR=true git rebase --continue", "final": "Resolved.", "hand_in": [["done"]]}
 
 
-def reviewed(case, claude, codex, check=None):
+def reviewed(case, claude, codex, check=None, main=None):
     """The acme seat, whose orchestrator is opus, reviews its own PR adding contrib.txt, with
-    astra reviewing; `check` is the conclusion of the `ci` check main requires, if any."""
+    astra reviewing; `check` is the conclusion of the `ci` check main requires, if any, and
+    `main` files main gains once the PR is open."""
     case.home = Home()
     case.addClassCleanup(case.home.close)
     case.rig = Rig(case.home, "widgets", files={"AGENTS.md": RULES})
@@ -44,6 +48,8 @@ def reviewed(case, claude, codex, check=None):
          record={"workers": ["opus", "astra"]}, planned=True)
     case.head = case.rig.branch("contrib", {"contrib.txt": "c\n"})
     case.url = case.gh.open_pr(case.rig, "contrib", title="Add contrib")
+    if main:
+        case.rig.commit(main, "main moves")
     if check:
         case.gh.require(case.rig.slug, "main", "ci")
         case.gh.check(case.head, "ci", conclusion=check)
@@ -99,6 +105,33 @@ class GreenCheck(LandedMixin, unittest.TestCase):
     def test_the_head_it_merged_is_the_one_reviewed_and_green(self):
         self.assertEqual(self.gh.pr(1)["merge"]["head"], self.head)
         self.assertEqual(self.fakes["claude"].runs(), [])
+
+
+class ConflictedRebase(LandedMixin, unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        reviewed(cls, RESOLVE, "pass", main={"contrib.txt": "main\n"})
+
+    def test_the_writer_s_model_resolves_the_conflict_keeping_both_sides(self):
+        self.assertEqual([turn["role"] for turn in self.fakes["claude"].runs()], ["fixer"])
+        shown = self.home.run("git", "-C", str(self.rig.bare), "show", "main:contrib.txt")
+        self.assertEqual(shown.out, "main\nc\n")
+
+
+class FlawedResolution(LandedMixin, unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        flawed = {**RESOLVE, "sh": RESOLVE["sh"].replace("main\\nc\\n", "main\\nc\\nbroken\\n")}
+        found = {"final": "Found one.", "hand_in": [
+            ["finding", "contrib.txt:3", "the resolution adds a broken line", "neither side has it",
+             "--run", "! grep -q broken contrib.txt"], ["done"]]}
+        fix = {**FIX, "write": {"contrib.txt": "main\nc\n"}}
+        reviewed(cls, [flawed, fix], ["pass", found, "pass"], main={"contrib.txt": "main\n"})
+
+    def test_the_writer_s_fix_of_its_resolution_is_reviewed_and_lands(self):
+        self.assertEqual([turn["role"] for turn in self.fakes["claude"].runs()], ["fixer", "fixer"])
+        shown = self.home.run("git", "-C", str(self.rig.bare), "show", "main:contrib.txt")
+        self.assertEqual(shown.out, "main\nc\n")
 
 
 class RedCheck(unittest.TestCase):
