@@ -14,25 +14,11 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.own_pr import OwnPr, URL
-from agentkit import config, gate, gitcall, record, run
+from fixtures.own_pr import OwnPr
+from agentkit import gitcall, run
 
 
 class OwnPrOnDefaultBranch(OwnPr):
-    def launch(self):
-        """(the refusal, how many background runs started, the new run's record)."""
-        before = set(config.RUNS.iterdir())
-        with patch.object(run, "spawn_bg", return_value=0) as spawned, \
-                patch.object(gate, "wait_for_slot", side_effect=AssertionError("waited for a slot")):
-            try:
-                run.review_pr_main(self.cfg, {"--review-pr": URL, "--review": None},
-                                   {"--bg": True}, ["--review-pr", URL, "--bg"], None)
-                why = None
-            except config.Error as refused:
-                why = str(refused)
-        launched = (set(config.RUNS.iterdir()) - before).pop()
-        return why, spawned.call_count, record.read_state(launched)
-
     def stack_on_earlier(self):
         """The PR now stands on an unmerged branch of the seat's, `earlier`."""
         self.git("push", "-q", "origin", "main:refs/heads/earlier")
