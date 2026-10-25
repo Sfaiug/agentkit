@@ -1,8 +1,9 @@
 """The models screen says a line per role: its head, the recommended row by its full name and
 effort, its quality, what a task of Artificial Analysis's index run cost it and how many more
 models are as good, `none` where no row is scored; a row Artificial Analysis has not run is
-said without a cost.  On a narrow screen the count gives way, then the cost.  Under them the
-knob says what it means, wrapped where the screen is narrow, never cut.
+said without a cost.  On a narrow screen the count gives way, then the cost, and the name is
+cut to fit, nothing else.  Under them the knob says what it means, wrapped where the screen is
+narrow, never cut.
 
 Offline, on test_models_screen's fixture: a throwaway HOME, rows written by hand, the keys fed in.
 """
@@ -10,10 +11,12 @@ Offline, on test_models_screen's fixture: a throwaway HOME, rows written by hand
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
+from agentkit import config
 from agentkit.terminal import Key
 import test_models_screen as screen
 
@@ -43,7 +46,7 @@ class Roles(screen.Screen):
         self.store([])                # no model to rest on: the highlight is on the knob
         self.assertIn(f"orch none builds none reviews none › {KNOB}", self.shown())
 
-    def test_on_a_narrow_screen_the_count_gives_way_then_the_cost(self):
+    def test_on_a_narrow_screen_the_count_gives_way_then_the_cost_and_the_name_is_cut(self):
         opus, astra = self.opus, self.astra
         shown = self.shown(width=60)
         self.assertIn(f"orch {opus} @ xhigh 97 $4.00 a task builds {astra} @ xhigh 95 $0.50 a "
@@ -52,6 +55,12 @@ class Roles(screen.Screen):
         self.assertIn(f"orch {opus} @ xhigh 97 builds {astra} @ xhigh 95 reviews {astra} @ "
                       f"xhigh 96 {KNOB}", shown)
         self.assertNotIn("…", shown)
+        named = config.model_name     # a name longer than the room left: it alone is cut
+        with patch.object(config, "model_name", side_effect=lambda cfg, name: (
+                "GPT-6-Astra Long Context Preview" if name == "astra" else named(cfg, name))):
+            shown = self.shown(width=40)
+        self.assertIn(f"orch {opus} @ xhigh 97 builds GPT-6-Astra Long Context… 95 reviews "
+                      f"GPT-6-Astra Long Context… 96 {KNOB}", shown)
 
 
 if __name__ == "__main__":
