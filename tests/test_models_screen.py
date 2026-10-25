@@ -91,8 +91,8 @@ class ModelsScreen(Screen):
         text = self.screens([Key("char", "r"), Key("esc"), Key("esc")])
         self.assertIn("agentkit · models · fix-api", text)
         opus, astra = self.opus, self.astra
-        self.assertIn(f"orch {opus} @ xhigh 97 $4.00 a task 0 more as good builds {astra} @ xhigh 95 $0.50 a task "
-                      f"1 more as good reviews {astra} @ xhigh 96 $0.50 a task 1 more as good "
+        self.assertIn(f"orch {opus} @ xhigh 96.5 $4.00 a task 0 more as good builds {astra} @ xhigh 95.5 $0.50 a task "
+                      f"1 more as good reviews {astra} @ xhigh 95.8 $0.50 a task 1 more as good "
                       "as good within ‹ 5 › points of the best", text)
         self.assertIn("quality is 100 less how many points a model is behind the best on the "
                       "public boards; cost is what a task of Artificial Analysis's index run cost it, in "
@@ -108,13 +108,13 @@ class ModelsScreen(Screen):
         text = self.screens([Key("char", "r"), *[Key("up")] * 2, Key("left"), Key("esc"), Key("esc")])
         self.assertIn("↑↓ move ←→ as good r take recommended esc back", text)
         self.assertEqual(config.load()["within"], 4)
-        # within 4, astra's 96 is no longer as good as opus's 100: opus @ xhigh everywhere
-        said = f"{self.opus} @ xhigh 97 $4.00 a task 0 more as good"
+        # within 4, astra's 95.5 is no longer as good as opus's 100: opus @ xhigh everywhere
+        said = f"{self.opus} @ xhigh 96.5 $4.00 a task 0 more as good"
         self.assertIn(f"orch {said} builds {said} reviews {said} › as good within ‹ 4 ›", text)
         text = self.screens([Key("char", "r"), *[Key("up")] * 2, *[Key("left")] * 6, Key("esc"),
                              Key("esc")])
         self.assertEqual(config.load()["within"], 0)
-        said = f"{self.opus} @ max 100 $8.00 a task 0 more as good"
+        said = f"{self.opus} @ max 100.0 $8.00 a task 0 more as good"
         self.assertIn(f"orch {said} builds {said} reviews {said} › as good within ‹ 0 ›", text)
 
     def test_on_a_phone_the_cost_gives_way_and_every_line_fits(self):
@@ -125,9 +125,9 @@ class ModelsScreen(Screen):
                                  Key("esc"), Key("esc")], width=40)
         # each role line is read on the page it is highlighted on, its cost given way
         opus, astra = re.escape(self.opus), re.escape(self.astra)
-        for said in (f"orch {opus} @ xhigh 97", f"builds {astra} @ xhigh 95",
-                     f"reviews {astra} @ xhigh 96"):
-            self.assertRegex(text, rf"› {said} .*? ↑↓ move r take recommended esc back")
+        for said in (f"orch {opus} @ xhigh 96.5", f"builds {astra} @ xhigh 95.5",
+                     f"reviews {astra} @ xhigh 95.8"):
+            self.assertRegex(text, rf"› {said} .*? ↑↓ move ⏎ why r take recommended esc back")
         self.assertNotIn("$", text.split("models · fix-api")[1])
         self.assertIn("quality is 100 less how many points a model is behind the best on the "
                       "public boards; cost is what a task of Artificial Analysis's index run cost it, in "
