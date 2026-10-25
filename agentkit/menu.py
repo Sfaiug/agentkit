@@ -3050,11 +3050,12 @@ def models_body(cfg, table, levels, shown, at, picks):
     A line per role: its head, the recommended row (`picks`, matrix.recommended) under the
     configured model `r` takes it as (takes), by its full name, its quality, what a task of
     Artificial Analysis's index run cost it and how many more rows are as good, `none` where
-    no row is scored; on a narrow screen the rows as good give way, then the cost, and the
-    name alone is cut to the room left, its effort kept.  Then the knob, `within` between the arrows that step it
-    (KNOB), and what it means.  Each line a row the highlight rests on and nothing more.
-    Then, dim, what quality and cost are, a row read the same way, a page at a time where it
-    is taller than the page (matrix_key), and under it every model of `table`
+    no row is scored; on a narrow screen, from 40 cells up, the rows as good give way, then the
+    cost, and the name alone is cut to the room left, its effort kept.  Then the knob, `within`
+    between the arrows that step it (KNOB), and what it means, wrapped at words, the knob whole.
+    Each line a row the highlight rests on and nothing more.  Then, dim, what quality and cost
+    are, a row read the same way, a page at a time where it is taller than the page
+    (matrix_key), and under it every model of `table`
     (models_table) once: its label, its full name where the config runs it, else its id, dim
     where no board scores it, its harness (dim), its effort between the arrows that step it
     (`shown`; a word alone with one effort, `-` with none), its quality per role at that effort

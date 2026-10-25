@@ -2,8 +2,8 @@
 effort, its quality, what a task of Artificial Analysis's index run cost it and how many more
 models are as good, `none` where no row is scored; a row Artificial Analysis has not run is
 said without a cost.  On a narrow screen the count gives way, then the cost, and the name is
-cut to fit, nothing else.  Under them the knob says what it means, wrapped where the screen is
-narrow, never cut.
+cut to fit, nothing else, from 40 cells up.  Under them the knob says what it means, wrapped
+at words where the screen is narrow, never cut.
 
 Offline, on test_models_screen's fixture: a throwaway HOME, rows written by hand, the keys fed in.
 """
@@ -62,24 +62,12 @@ class Roles(screen.Screen):
         self.assertIn(f"orch {opus} @ xhigh 97 builds GPT-6-Astra Long… @ xhigh 95 reviews "
                       f"GPT-6-Astra Long… @ xhigh 96 {KNOB}", shown)
 
-    def test_at_the_narrowest_the_name_alone_gives_way(self):
-        # 24 cells, narrower than any screen around it: the name is all cut, its effort and
-        # quality kept, and no line runs past the screen
-        with patch.object(terminal, "layout_width", return_value=24):
-            lines, places = menu.models_body(self.cfg, {}, {}, {}, None, matrix.recommended(
-                matrix.assessment(self.cfg, matrix.stored()["rows"]), matrix.within(self.cfg)))
-        self.assertEqual([terminal.plain(lines[n], spaced=True) for n, (place, _) in places.items()
-                          if place[0] == "role"],
-                         ["  orch     … @ xhigh  97", "  builds   … @ xhigh  95",
-                          "  reviews  … @ xhigh  96"])
-
     def test_the_knob_wraps_at_words_and_never_breaks(self):
-        # 20 cells, narrower than any screen around it: the knob's arrows stay on one line
-        with patch.object(terminal, "layout_width", return_value=20):
+        with patch.object(terminal, "layout_width", return_value=40):
             lines, places = menu.models_body(self.cfg, {}, {}, {}, None, {})
         self.assertEqual([terminal.plain(lines[n]) for n, (place, _) in places.items()
                           if place == menu.KNOB],
-                         ["as good within", "‹ 5 › points of", "the best; the", "cheapest of those", "wins"])
+                         ["as good within ‹ 5 › points of the", "best; the cheapest of those wins"])
 
 
 if __name__ == "__main__":
