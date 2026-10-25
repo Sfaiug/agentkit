@@ -19,6 +19,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, deliver, gc, gitcall, handback, orch, run, watch, worker, worktrees
 from agentkit import record
 from fixtures.hand_in import records
+from fixtures.own_pr import end_runs_going
 
 URL = "https://github.com/acme/widget/pull/7"
 HEAD = "b" * 40
@@ -64,11 +65,6 @@ class OwnPr(unittest.TestCase):
         with patch.dict(os.environ, {"AGENTKIT_SESSION": session}):
             run.capture_launch(run_dir, {"--review-pr": URL})
         return run_dir
-
-    def ended(self, run_dir):
-        """That run ends, so the next subtest's launch on the PR is not refused for it."""
-        with record.record(run_dir) as state:
-            state["state"] = "stopped"
 
     def review_pass(self, lp, summary, ok, dw_log, **_kw):
         head = lp.state["head_sha"]
@@ -498,7 +494,7 @@ class OwnPr(unittest.TestCase):
                 if want_own:
                     self.assertEqual(saved.get("own_orchestrator"), "opus")
                 self.assertIn(want_line, "\n".join(lines))
-                self.ended(run_dir)
+                end_runs_going()             # the next subtest is a launch of its own
 
     def test_preflight_refuses_own_pr_without_a_writer(self):
         run_dir = config.RUNS / "20260927-preflight-ghost"
@@ -538,7 +534,7 @@ class OwnPr(unittest.TestCase):
                         run.preflight(run_dir, {"--review-pr": URL}, lambda line: None)
                 saved = record.read_state(run_dir)
                 self.assertEqual((saved["own_pr"], saved["own_orchestrator"]), (True, "opus"))
-                self.ended(run_dir)
+                end_runs_going()             # the next subtest is a launch of its own
 
 
 if __name__ == "__main__":

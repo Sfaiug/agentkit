@@ -19,6 +19,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import (config, gate, gc, gitcall, handback, history, notify, plan, run, staffing,
                       status, task as taskfile, turns, watch)
 from agentkit import record
+from fixtures.own_pr import end_runs_going
 
 URL = "https://github.com/acme/widget/pull/7"
 
@@ -66,11 +67,7 @@ class OwnPrReview(unittest.TestCase):
 
     def review(self, author="owner", seat="fix-api", background=False,
                want_review=None, launch_only=False):
-        # each call is a launch of its own: one earlier on the PR has ended, or it refuses this
-        for earlier in record.run_dirs():
-            if record.read_state(earlier):
-                with record.record(earlier) as state:
-                    state["state"] = "stopped"
+        end_runs_going()                # each call is a launch of its own
         directory = config.RUNS / f"review-{len(list(config.RUNS.iterdir()))}"
         directory.mkdir()
         head = self.git("rev-parse", "HEAD")

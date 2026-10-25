@@ -29,6 +29,15 @@ URL = "https://github.com/acme/widget/pull/7"
 BRANCH = "fix-api"
 
 
+def end_runs_going():
+    """Every run not ended yet ends, as a launch beside one going on the PR is refused: in
+    error, not stopped, as a test may go on to review the fixture's own run."""
+    for earlier in record.run_dirs():
+        if (record.read_state(earlier) or {"state": "pass"})["state"] not in record.ENDED:
+            with record.record(earlier) as state:
+                state["state"] = "error"
+
+
 class OwnPr(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-own-pr-", dir=REPO)
@@ -184,10 +193,8 @@ class OwnPr(unittest.TestCase):
                              {"--review": None, "--review-pr": URL}, lambda _: None)
 
     def launch(self):
-        """(the refusal, how many background runs started, the new run's record), the fixture's
-        own run on the PR ended, or it would refuse the launch itself."""
-        with record.record(self.run_dir) as state:
-            state["state"] = "stopped"
+        """(the refusal, how many background runs started, the new run's record)."""
+        end_runs_going()
         before = set(config.RUNS.iterdir())
         with patch.object(run, "spawn_bg", return_value=0) as spawned, \
                 patch.object(gate, "wait_for_slot", side_effect=AssertionError("waited for a slot")):
