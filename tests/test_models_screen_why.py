@@ -88,6 +88,20 @@ class Why(screen.Screen):
                       [line for keys, lines in pages if keys == WHY for line in lines])
         self.assertIn(f"■ {self.opus} claude-opus-5-5", pages[-1][1])
 
+    def test_evidence_taller_than_the_page_is_read_a_page_at_a_time_before_the_next_role(self):
+        with patch.object(terminal, "height", return_value=12):
+            pages = self.pages(*[Key("up")] * 4, Key("enter"), Key("down"), Key("down"),
+                               Key("esc"))
+        why = [lines for keys, lines in pages if keys == WHY]
+        self.assertNotIn(f"{self.opus} @ high 86.2 13.8 - 13.8 - 13.8 $2.00", why[0])
+        self.assertIn(f"{self.opus} @ high 86.2 13.8 - 13.8 - 13.8 $2.00", why[1])
+        self.assertTrue(why[2][0].startswith("reviews · points behind the best"), why[2])
+
+    def test_a_marked_model_the_config_does_not_run_goes_by_its_catalog_name(self):
+        row = screen.row("acme", "acme-pro-1", "max")
+        with patch.object(config, "catalog_label", return_value="Acme Pro One"):
+            self.assertEqual(menu.role_label(self.cfg, row, "execute"), "Acme Pro One @ max")
+
     def test_a_click_on_a_role_opens_its_why_and_another_closes_it(self):
         spots, frame = {}, terminal.frame
 

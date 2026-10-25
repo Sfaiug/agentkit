@@ -3022,9 +3022,11 @@ def models_grid(held):
 
 def role_label(cfg, row, role, room=None):
     """A row as the models screen names it in `role`: the full name of the configured model `r`
-    takes it as (takes), else its id, at its effort; only the name cut, to fit `room`."""
+    takes it as (takes), else its catalog's (config.catalog_label), else its id, at its effort;
+    only the name cut, to fit `room`."""
     name = takes(cfg, row, role)
-    name = name and config.model_name(cfg, name) or row["model"]
+    name = (name and config.model_name(cfg, name) or config.catalog_label(row["harness"], row["model"])
+            or row["model"])
     effort = matrix.row_label({**row, "name": name})[len(name):]
     return name + effort if room is None else terminal.cut(name, room - terminal.cells(effort)) + effort
 
@@ -3161,8 +3163,11 @@ def models_body(cfg, held, grid, at, picks, why=None):
         line = "  " + terminal.styled(part, "dim")
         lines.append(terminal.highlight(line, number == 0) if at == here else line)
     lines.append("")
-    if why is not None:
-        return lines + models_why(cfg, held, why, picks, room), places
+    if why is not None:               # its role's row, so a page at a time where taller (matrix_key)
+        for line in models_why(cfg, held, why, picks, room):
+            places[len(lines)] = (("role", why), [])
+            lines.append(line)
+        return lines, places
     marks, (full, empty) = matrix.assessed(cfg), ("■", "□") if utf else ("#", "-")
     for harness, models in grid.items():         # under each harness as `c` under a provider
         lines.append(model_heading(harness))
@@ -3220,10 +3225,10 @@ def models_screen(cfg, session, selected, providers):
     ↑/↓, k/j and the wheel move between the role lines, the knob, the quality and cost note
     (rows read with no action) and the models.  Enter or a click on a role line shows why its
     recommendation won in the models' place (models_why); ↑/↓ then move it between the roles,
-    and Enter, Esc or a click on its role line brings the models back.  ←/→ on the knob step
-    `within`, saved to config.toml at once, and the recommendation follows.  Space, Enter or a
-    click on a model flips its mark, saved to config.toml at once (config_assess), and the recommendation
-    follows; the effort a model runs at is set on `c`.  `r`, once a row is recommended, takes
+    turning its pages first where it is taller than the page, and Enter, Esc or a click on its
+    role line brings the models back.  ←/→ on the knob step `within`, saved to config.toml at
+    once, and the recommendation follows.  Space, Enter or a click on a model flips its mark,
+    saved to config.toml at once (config_assess), and the recommendation follows; the effort a model runs at is set on `c`.  `r`, once a row is recommended, takes
     it as `c` says it (take_advice): the seat's executors and reviewers become the recommended
     rows' models at their efforts, the orchestrator only said; without a seat new seats'
     orchestrator, executors and reviewers do.
