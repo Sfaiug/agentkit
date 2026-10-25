@@ -2611,11 +2611,18 @@ def still_owed(name, stopped):
     return None
 
 
-def news_owed(name, mine):
-    """What ak still has to type into that seat, as its reason, or None: the end of its `ak
-    wait` not yet told (`wait_over`), or an ending of its own runs nobody has heard that is the
-    seat's to decide (`handback.owes_ending`, less a routine one, which is never typed)."""
-    wait = seat_read(name).get("wait")
+def news_owed(name, mine, read=True):
+    """What ak still has to type into that seat, as its reason, or None: a line `revive` owes it
+    (`tell_owed`), the end of its `ak wait` not yet told (`wait_over`), or an ending of its own
+    runs nobody has heard that is the seat's to decide (`handback.owes_ending`, less a routine
+    one, which is never typed).  Only the first while no rule or hook `read` its screen: the
+    harness of a seat just reopened is still drawing its prompt."""
+    marks = seat_read(name)
+    if marks.get("owed_lines"):
+        return "telling it what it missed while it was gone"
+    if not read:
+        return None
+    wait = marks.get("wait")
     if isinstance(wait, dict) and wait.get("over") and not wait.get("told"):
         return f"telling it its wait on {wait.get('on')} is over"
     for run_dir, state in mine:
@@ -2892,10 +2899,10 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         return {"word": "needs you", "reason": asked, "since": found.get("began")}
     # ... or ak still has a line to type into it, at its next quiet prompt: that line moves it,
     # not the owner, who was paged `stopped with work open` while the line waited behind
-    # their own unsent text (19 Oct 2026).  Only at a prompt a rule or hook read: `classify`
-    # offers `at_prompt` with no `authority` for a screen nobody can read, which takes no line.
-    telling = (news_owed(name, mine) if found.get("authority")
-               and found.get("state") in ("at_prompt", "draft") else None)
+    # their own unsent text (19 Oct 2026).  `classify` offers `at_prompt` with no `authority`
+    # for a screen nobody can read, which takes no line yet (`news_owed`).
+    telling = (news_owed(name, mine, bool(found.get("authority")))
+               if found.get("state") in ("at_prompt", "draft") else None)
     if telling:
         return {"word": "working", "reason": telling, "since": found.get("began")}
     # Nothing running, asked or owed: a plan whose every line is proven is done, which ak reads
@@ -4362,14 +4369,14 @@ def sweep_preexisting(log, now=None):
 
 
 def revive(name, line, log, cfg=None, *, prepare):
-    """Bring a gone seat back on its own conversation, and type one line into it.
+    """Bring a gone seat back on its own conversation, and owe it one line.
 
     The way its number in the menu opens it: the saved conversation where the record holds
-    one, and fresh where it does not -- then the line says so.  A seat just started gets
-    INBOX_WARMUP before it is typed into, as the inbox does, and the line goes through the
-    confirmed send, after `prepare` fits the final line to its composer. The answer is None
-    when the seat was told, else why it was not, in a
-    clause the owner's notice can end with.
+    one, and fresh where it does not -- then the line says so.  The line, once `prepare` fits it
+    to its composer, is from then on ak's to deliver (`tell_owed`): tried once a seat just
+    started has had INBOX_WARMUP, as the inbox is, and on every tick after until it is in,
+    however long the harness takes to draw its prompt.  The answer is None when the seat came
+    back, else why it did not, in a clause the owner's notice can end with.
     """
     try:
         back = orch.ensure(config.load() if cfg is None else cfg, name, log, saved=True)
@@ -4377,12 +4384,50 @@ def revive(name, line, log, cfg=None, *, prepare):
         return str(exc)
     if back == "fresh":
         line += FRESH_NOTE
-    line = prepare(line)
+    name = config.resolve_session(name)
+    owe_line(name, None, {"line": prepare(line)})
     if back:
         time.sleep(INBOX_WARMUP)     # the TUI has to be listening before it is typed into
-    if type_into(orch.find(name) or {"name": name}, line, log):
-        return None
-    return "the continue line was not confirmed sent"
+    tell_owed(name, log, cfg)
+    return None
+
+
+def owe_line(name, line, owed):
+    """The line owed to that seat with the text `line` becomes `owed`: added where `line` is
+    None, gone where `owed` is.  Under the seat's send lock, which a rename takes too, so the
+    lines are written where the seat's record is."""
+    with notify.session_lock(name) as held, seat_lock(held):
+        data = seat_read(held)
+        lines = data.get("owed_lines") or []
+        lines = ([owed if old["line"] == line else old for old in lines] if line
+                 else [*lines, owed])
+        _seat_put(held, data, {"owed_lines": [old for old in lines if old] or None})
+
+
+def tell_owed(name, log, cfg=None):
+    """The oldest line `revive` owes that seat goes in at its quiet prompt (`type_at_prompt`),
+    never onto text the owner typed there; the tick asks this of every seat, so the line waits
+    for a harness however slow to draw its prompt.  Its mark is kept from try to try until the
+    composer reads empty, so it goes in once.  `revive` in a run's process and the tick may both
+    get here: each key goes only while the line it read still heads the seat's lines, read under
+    the send lock, so a teller another one overtook types nothing more."""
+    owed = (seat_read(name).get("owed_lines") or [None])[0]
+    seat = orch.find(name) if owed else None
+    if not seat:
+        return
+    line, read = owed["line"], [owed]
+
+    def kept(mark):
+        read[0] = {**owed, "typed": mark}
+        owe_line(name, line, read[0])
+
+    def overtaken(held):
+        return (seat_read(held).get("owed_lines") or [None])[0] != read[0]
+
+    if type_at_prompt(seat, line, log, cfg=cfg, typed=owed.get("typed"), receipt=kept,
+                      stale=overtaken):
+        owe_line(name, line, None)
+        log(f"told {name}: {line}")
 
 
 def seat_subscription(cfg, provider, name):
@@ -7566,9 +7611,11 @@ def local_passes(state, dry_run, log):
         ("the ending pass did not run", lambda: offer_endings(log), False),
         # A job that finished while its seat was mid-turn hands its line back at the next quiet
         # prompt, the way one of its runs does; a seat whose `ak wait` names a pull request or
-        # run that is over is told so, which ends the wait.
+        # run that is over is told so, which ends the wait; a seat ak reopened, what it missed.
         ("a finished job was not handed back", lambda: jobs.deliver_job_handbacks(log), False),
         ("the wait pass did not run", lambda: wait_over(config.load(), log), False),
+        ("a reopened seat was not told",
+         lambda: [tell_owed(name, log) for name in config.session_records()], False),
         # Every feature switch on for everyone for two weeks becomes a line in the plan of a seat
         # on its project, to take out of the code.
         ("the switch retirement pass did not run", lambda: retire.hand(log), False),
