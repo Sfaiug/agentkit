@@ -221,8 +221,7 @@ class V5s(Sandbox):
         orch.mark_owner_closed(SEAT)
         self.assertEqual(watch.session_state(SEAT, session=self.rows[0])["word"], "working")
 
-    # the line owed keeps the seat working, gives way to a teller that overtook it, and
-    # follows a rename
+    # the line owed keeps the seat working, gives way when overtaken, and follows a rename
 
     def test_v5s_a_line_owed_is_news_told_once_under_the_name_the_seat_goes_by(self):
         directory = self.ended("run-1", owner=SEAT)
