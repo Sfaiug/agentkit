@@ -1007,6 +1007,8 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
 
     The task file it was launched from goes on too, because the run keeps only a copy:
     where the file lives is what files a scratch run's seat under a project (`run_project`).
+
+    Returns why another run on its pull request refuses the launch, or None.
     """
     receipt = (run_record.read_state(run_dir) or {}) if receipt is None else receipt
     # launched by the tick for a seat: the receipt says whose, and which lists, and no slot
@@ -1065,9 +1067,8 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
         run_record.save_state(run_dir, state)
     history_start(state)
     redress_seat(session_at_launch)   # the seat's bar says it from the start
-    if going:
-        raise config.Error(f"run {going} on {url} has not ended; "
-                           f"`ak wait {going}`, then launch again if it is still needed")
+    return (f"run {going} on {url} has not ended; "
+            f"`ak wait {going}`, then launch again if it is still needed") if going else None
 
 
 def preset_models(cfg, opts, log, run_dir):
@@ -1156,8 +1157,10 @@ def refused(run_dir, exc, log, cfg, printed=False):
 
 def prepare(run_dir, opts, log, cfg=None, job_id=None, task_file=None, receipt=None,
             printed=False):
+    taken = capture_launch(run_dir, opts, job_id, cfg, task_file, receipt)
     try:
-        capture_launch(run_dir, opts, job_id, cfg, task_file, receipt)
+        if taken:
+            raise config.Error(taken)
         preflight(run_dir, opts, log)
     except (Stopped, config.Error, OSError) as exc:
         # The launch receipt is already visible to `r`; a launch refused at its receipt (another

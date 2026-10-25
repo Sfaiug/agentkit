@@ -81,10 +81,8 @@ class OneRunPerPr(unittest.TestCase):
         launches = [config.RUNS / name for name in ("launch-a", "launch-b")]
         for run_dir in launches:
             run_dir.mkdir()
-        run.capture_launch(launches[0], {"--review-pr": URL})
-        with self.assertRaises(config.Error) as refused:
-            run.capture_launch(launches[1], {"--review-pr": URL})
-        self.assertIn("`ak wait launch-a`", str(refused.exception))
+        self.assertIsNone(run.capture_launch(launches[0], {"--review-pr": URL}))
+        self.assertIn("`ak wait launch-a`", run.capture_launch(launches[1], {"--review-pr": URL}))
 
     def test_a_going_run_on_another_pr_does_not_stand_in_the_way(self):
         self.other_run("20261024-1700-review-pr-8", "running", "https://github.com/acme/widget/pull/8")

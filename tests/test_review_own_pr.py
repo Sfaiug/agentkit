@@ -19,7 +19,6 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, deliver, gc, gitcall, handback, orch, run, watch, worker, worktrees
 from agentkit import record
 from fixtures.hand_in import records
-from fixtures.own_pr import end_runs_going
 
 URL = "https://github.com/acme/widget/pull/7"
 HEAD = "b" * 40
@@ -59,7 +58,6 @@ class OwnPr(unittest.TestCase):
         self.wt.mkdir()
 
     def launch_dir(self, name, session="fix-api"):
-        end_runs_going()                # each is a launch of its own
         run_dir = config.RUNS / name
         run_dir.mkdir(parents=True)
         (run_dir / "log.txt").touch()
@@ -478,7 +476,11 @@ class OwnPr(unittest.TestCase):
                 ("other", "fix-api", False, "review only"),
                 (LOGIN, "", False, "review only")):
             with self.subTest(author=author, session=session):
-                run_dir = self.launch_dir(f"20260927-preflight-{author}-{session or 'noseat'}", session)
+                run_dir = config.RUNS / f"20260927-preflight-{author}-{session or 'noseat'}"
+                run_dir.mkdir(parents=True)
+                (run_dir / "log.txt").touch()
+                with patch.dict(os.environ, {"AGENTKIT_SESSION": session}):
+                    run.capture_launch(run_dir, {"--review-pr": URL})
                 lines = []
                 with ExitStack() as mocks:
                     for m in self.checkout_patches():
