@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bytes"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -61,4 +63,21 @@ func TestRunStatusStampsASweepWithNothingToEnd(t *testing.T) {
   }
 ]
 `, "")
+}
+
+// A job directory whose receipt nobody can read shows no job, as in Python, and the runs list.
+func TestRunStatusPassesOverAnUnreadableJob(t *testing.T) {
+	home := sandbox(t)
+	write(t, filepath.Join(home, ".agentkit", "runs", "20261020-0900-fix-api", "run.json"), `{"state":"pass","finished_at":1e10}`)
+	for job, content := range map[string]string{"batch": "{not json", "acme": "[1, 2]", "beta": `{"tasks":{}}`} {
+		write(t, filepath.Join(home, ".agentkit", "jobs", job, "job.json"), content)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".agentkit", "jobs", "empty"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	if code := Main([]string{"run", "status", "--plain"}, &out, &errOut); code != 0 || errOut.Len() > 0 ||
+		!bytes.Contains(out.Bytes(), []byte("20261020-0900-fix-api")) {
+		t.Fatalf("got (%d, %q, %q)", code, out.String(), errOut.String())
+	}
 }

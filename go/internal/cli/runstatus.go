@@ -228,7 +228,10 @@ func jobShown(seat string, showHistory, machine bool, now time.Time) bool {
 		if errors.Is(err, run.ErrLoneSurrogate) {
 			return true
 		}
-		if _, ok := receipt.Get("tasks").([]any); receipt == nil || !ok {
+		if receipt == nil {
+			continue
+		}
+		if _, ok := receipt.Get("tasks").([]any); !ok {
 			continue
 		}
 		launched := run.NewObject()
