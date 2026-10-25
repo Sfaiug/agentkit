@@ -18,6 +18,9 @@ var sessionDashes = regexp.MustCompile(`-+`)
 
 const renameHops = 8
 
+// Renamed is the key a rename leaves in the old name's record: the name it goes by now.
+const Renamed = "renamed"
+
 func normalizeSession(name string) string {
 	return strings.Join(strings.FieldsFunc(name, func(r rune) bool {
 		return unicode.IsSpace(r) || (r >= '\x1c' && r <= '\x1f')
@@ -31,13 +34,30 @@ func sessionPath(name string) (string, error) {
 	return filepath.Join(Home(), "state", "session-"+name+".json"), nil
 }
 
-// A rename leaves a pointer because the running seat keeps its original
-// environment. Return the resolved record with its name so lookups agree.
+// CurrentSession is the seat this process runs in, by its name now; none outside a seat.
 func CurrentSession() (string, map[string]any, error) {
 	name := os.Getenv("AGENTKIT_SESSION")
 	if name == "" {
 		return "", nil, nil
 	}
+	return ResolveSession(name)
+}
+
+// SeatFiles are the files every seat keeps its record in.
+func SeatFiles() []string {
+	pattern, _ := sessionPath("*")
+	paths, _ := filepath.Glob(pattern)
+	return paths
+}
+
+// SessionPath is where a seat's record is kept.
+func SessionPath(name string) (string, error) {
+	return sessionPath(normalizeSession(name))
+}
+
+// A rename leaves a pointer because the running seat keeps its original
+// environment. Return the resolved record with its name so lookups agree.
+func ResolveSession(name string) (string, map[string]any, error) {
 	name = normalizeSession(name)
 	path, err := sessionPath(name)
 	if err != nil {
@@ -81,7 +101,7 @@ func CurrentSession() (string, map[string]any, error) {
 			return "", nil, fmt.Errorf("%s: %w", path, err)
 		}
 		record, _ := value.(map[string]any)
-		next, renamed := record["renamed"].(string)
+		next, renamed := record[Renamed].(string)
 		if !renamed {
 			return name, record, nil
 		}

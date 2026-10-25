@@ -11,7 +11,6 @@ import (
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
-	"agentkit/internal/fetch"
 	"agentkit/internal/terminal"
 )
 
@@ -56,9 +55,6 @@ func Main(args []string, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "ak wait: no seat: run it inside an orchestrator session")
 		return 1
 	}
-	if command == "fetch" {
-		return fetch.Main(rest, out, errOut)
-	}
 	// These commands read configuration before their first operation. Help and
 	// argument refusals above must remain usable even when that file is broken.
 	if command == "usage" || command == "models" {
@@ -68,10 +64,12 @@ func Main(args []string, out, errOut io.Writer) int {
 		}
 	}
 	if len(rest) > 0 && commandhelp.Known(command+" "+rest[0]) {
-		command += " " + rest[0]
+		command, rest = command+" "+rest[0], rest[1:]
 	}
-	fmt.Fprintf(errOut, "ak %s: not implemented in Go yet\n", command)
-	return 3
+	if entry, ok := commands[command]; ok {
+		return entry(rest, out, errOut)
+	}
+	return notImplemented(errOut, command)
 }
 
 func reprList(args []string) string {
