@@ -1,12 +1,15 @@
 """A seat waiting on its own run hears that run's ending once.
 
 The run's hand-back carries the verdict, the pull request and the result, so a seat whose `ak
-wait` names that run, or the pull request it lands, gets that one line: the tick's wait pass
+wait` names that run, or the pull request it lands (waited on as the run), gets that one line: the tick's wait pass
 (`watch.wait_over`) types nothing while the hand-back is on its way and marks the wait told once
 it is in.  A routine ending, recorded and never typed, still ends the wait with its own line.
 The fixture is fixtures.seats: a temporary HOME, a fake tmux and pane.
 """
 
+from contextlib import redirect_stdout
+import io
+import os
 import unittest
 from unittest.mock import patch
 
@@ -73,6 +76,25 @@ class OneLinePerRunEnd(Seats):
         self.assertTrue(self.typed[0].startswith(f"run {RUN} finished "))   # the hand-back
         self.assertTrue(self.told())
         self.assertEqual(watch.seat_read(SEAT)["wait"]["over"], "PR #7 merged as abc123")
+
+    def test_ak_wait_on_the_pull_request_its_run_lands_hears_only_the_hand_back(self):
+        record.save_state(self.directory, dict(record.read_state(self.directory), pr=PR,
+                                               state="running", merged=False, finished_at=None))
+        gh = {"state": "OPEN", "number": 7, "mergeCommit": None}
+        with (patch.object(watch, "gh_json", side_effect=lambda *_a, **_kw: (gh, "")),
+              patch.object(stop, "owed", return_value=True),
+              patch.dict(os.environ, {config.SESSION_ENV: SEAT})):
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(watch.wait_main([PR]), 0)
+            # GitHub says merged before the lander's gh call returns and it saves merged
+            gh.update(state="MERGED", mergeCommit={"oid": "abc123"})
+            self.tick()
+            self.assertEqual(self.typed, [])
+            self.end(state="pass", merged=True, finished_at=NOW - 60)
+            self.tick()
+        self.assertEqual(len(self.typed), 1)
+        self.assertTrue(self.typed[0].startswith(f"run {RUN} finished "))   # the hand-back
+        self.assertTrue(self.told())
 
     def test_a_pull_request_closed_after_its_hand_back_gets_its_own_line(self):
         watch.seat_write(SEAT, wait={"on": PR, "kind": "pr", "at": NOW - 300})
