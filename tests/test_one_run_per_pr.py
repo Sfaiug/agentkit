@@ -76,6 +76,16 @@ class OneRunPerPr(unittest.TestCase):
         self.other_run("20261024-1700-review-pr-7", "pass", URL)
         self.assertEqual(self.launch(), (None, 1))
 
+    def test_of_two_launches_at_once_the_first_to_check_goes_ahead(self):
+        launches = [config.RUNS / name for name in ("launch-a", "launch-b")]
+        for run_dir in launches:                        # both receipts written before either checks
+            run_dir.mkdir()
+            run.capture_launch(run_dir, {"--review-pr": URL})
+        run.preflight(launches[0], {"--review-pr": URL}, lambda _: None)
+        with self.assertRaises(config.Error) as refused:
+            run.preflight(launches[1], {"--review-pr": URL}, lambda _: None)
+        self.assertIn("`ak wait launch-a`", str(refused.exception))
+
     def test_a_going_run_on_another_pr_does_not_stand_in_the_way(self):
         self.other_run("20261024-1700-review-pr-8", "running", "https://github.com/acme/widget/pull/8")
         self.assertEqual(self.launch(), (None, 1))

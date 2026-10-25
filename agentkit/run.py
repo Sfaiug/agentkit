@@ -1036,6 +1036,8 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
                          **run_record.process_owner(), "launch_opts": opts or {},
                          **groups,
                          "review_pr": (opts or {}).get("--review-pr"), "reported": False,
+                         # on the PR only once its preflight claims it (`preflight`)
+                         "pr_unclaimed": bool((opts or {}).get("--review-pr")),
                          # launched under the rule: one of its checks must fail on base
                          # (`fails_on_base`), unless its receipt holds the proof -- a repair's,
                          # from the lander; a PR review's proof is its plan's lines
@@ -1165,9 +1167,15 @@ def preflight(run_dir, opts, log):
     url = opts.get("--review-pr")
     alongside = None
     if url:
-        # two runs on one PR both land it, and the second fails on a head the first moved
-        going = next((state for state in runs_on(pr=url, exclude=run_dir)
-                      if state.get("state") not in run_record.ENDED), None)
+        # two runs on one PR both land it, and the second fails on a head the first moved; the
+        # check and the claim are one step, so of two launches at once exactly one goes ahead
+        with gate.slot_lock():
+            going = next((state for state in runs_on(pr=url, exclude=run_dir)
+                          if state.get("state") not in run_record.ENDED
+                          and not state.get("pr_unclaimed")), None)
+            if not going:
+                with run_record.record(run_dir) as claimed:
+                    claimed["pr_unclaimed"] = False
         if going:
             raise config.Error(f"run {going['run_id']} on {url} has not ended; "
                                f"`ak wait {going['run_id']}`, then launch again if it is still needed")
