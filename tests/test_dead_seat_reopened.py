@@ -7,6 +7,7 @@ leaves it there.  The one test of the real `ensure(saved=True)` and
 """
 
 from contextlib import redirect_stderr, redirect_stdout
+import fcntl
 import io
 import os
 import re
@@ -220,6 +221,27 @@ class V5s(Sandbox):
         # a seat the owner closed since is their choice, no failure: its run going speaks again
         orch.mark_owner_closed(SEAT)
         self.assertEqual(watch.session_state(SEAT, session=self.rows[0])["word"], "working")
+
+    # the line owed keeps the seat working, has one teller at a time, and follows a rename
+
+    def test_v5s_a_line_owed_is_news_told_once_under_the_name_the_seat_goes_by(self):
+        directory = self.ended("run-1", owner=SEAT)
+        run.announce(run_record.read_state(directory), directory, self.logs.append)
+        self.assertEqual(watch.news_owed(SEAT, []), "telling it what it missed while it was gone")
+        self.rows = [self.live()]
+        # a teller already at it, as revive in a run's process: the tick leaves the line be
+        with watch.config.seat_state_path(SEAT).with_suffix(".telling").open("a") as telling:
+            fcntl.flock(telling, fcntl.LOCK_EX)
+            watch.tell_owed(SEAT, self.logs.append)
+        watch.type_at_prompt.assert_not_called()
+        watch.tell_owed(SEAT, self.logs.append)
+        watch.type_at_prompt.assert_called_once()
+        # renamed while its line went in: the receipt and the removal reach the moved record
+        line, = self.owed
+        config.rename_session(SEAT, "renamed")
+        watch.owe_line(SEAT, line, None)
+        self.assertEqual(watch.seat_read("renamed").get("owed_lines"), None)
+        self.assertIsNone(watch.news_owed("renamed", []))
 
     # (d) a seat stopped on purpose is not reopened by either path
 
