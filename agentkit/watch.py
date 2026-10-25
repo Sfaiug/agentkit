@@ -2612,10 +2612,14 @@ def still_owed(name, stopped):
 
 
 def news_owed(name, mine):
-    """What ak still has to type into that seat, as its reason, or None: the end of its `ak
-    wait` not yet told (`wait_over`), or an ending of its own runs nobody has heard that is the
-    seat's to decide (`handback.owes_ending`, less a routine one, which is never typed)."""
-    wait = seat_read(name).get("wait")
+    """What ak still has to type into that seat, as its reason, or None: a line `revive` owes it
+    (`tell_owed`), the end of its `ak wait` not yet told (`wait_over`), or an ending of its own
+    runs nobody has heard that is the seat's to decide (`handback.owes_ending`, less a routine
+    one, which is never typed)."""
+    marks = seat_read(name)
+    if marks.get("owed_lines"):
+        return "telling it what it missed while it was gone"
+    wait = marks.get("wait")
     if isinstance(wait, dict) and wait.get("over") and not wait.get("told"):
         return f"telling it its wait on {wait.get('on')} is over"
     for run_dir, state in mine:
@@ -4387,7 +4391,9 @@ def revive(name, line, log, cfg=None, *, prepare):
 
 def owe_line(name, line, owed):
     """Under the seat's lock, the line owed to it with the text `line` becomes `owed`: added
-    where `line` is None, gone where `owed` is."""
+    where `line` is None, gone where `owed` is.  The seat by the name it goes by now: a rename
+    moves the lines with its record."""
+    name = config.resolve_session(name)
     with seat_lock(name):
         data = seat_read(name)
         lines = data.get("owed_lines") or []
@@ -4400,16 +4406,25 @@ def tell_owed(name, log, cfg=None):
     """The oldest line `revive` owes that seat goes in at its quiet prompt (`type_at_prompt`),
     never onto text the owner typed there; the tick asks this of every seat, so the line waits
     for a harness however slow to draw its prompt.  Its mark is kept from try to try until the
-    composer reads empty, so it goes in once."""
-    owed = (seat_read(name).get("owed_lines") or [None])[0]
-    seat = orch.find(name) if owed else None
-    if not seat:
+    composer reads empty, so it goes in once.  One teller at a time: `revive` in a run's process
+    and the tick may both get here, and the second leaves the line to the next tick."""
+    name = config.resolve_session(name)
+    if not seat_read(name).get("owed_lines"):
         return
-    line = owed["line"]
-    if type_at_prompt(seat, line, log, cfg=cfg, typed=owed.get("typed"),
-                      receipt=lambda mark: owe_line(name, line, {**owed, "typed": mark})):
-        owe_line(name, line, None)
-        log(f"told {name}: {line}")
+    with config.seat_state_path(name).with_suffix(".telling").open("a") as telling:
+        try:
+            fcntl.flock(telling, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        owed = (seat_read(name).get("owed_lines") or [None])[0]
+        seat = orch.find(name) if owed and config.resolve_session(name) == name else None
+        if not seat:
+            return
+        line = owed["line"]
+        if type_at_prompt(seat, line, log, cfg=cfg, typed=owed.get("typed"),
+                          receipt=lambda mark: owe_line(name, line, {**owed, "typed": mark})):
+            owe_line(name, line, None)
+            log(f"told {name}: {line}")
 
 
 def seat_subscription(cfg, provider, name):
