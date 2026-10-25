@@ -43,7 +43,7 @@ from .transitions import (carried_lines, change_budget, change_on, replacement_r
     change_reviewed, delivery, diff_lines, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
     invalidate_saved_pass, judged_in_integration, landing_line, launched_session, needs_recovery, over_lineage, park_error, park_exhausted, PR_PARTS,
-    queued, report_config, review_pass, review_providers, round_budget, settled, stands_on_dependency)
+    queued, report_config, review_pass, review_providers, round_budget, runs_on, settled, stands_on_dependency)
 from .prompts import (HANDOVER, done_when_block, fix_body, fixer_words, overridden_section,
     placed, plan_context, saved_findings, without_followups)
 from .turns import (Blocked, Dead, Exhausted, Killed, NotNeeded, QuotaDry, _scope_units,
@@ -1165,6 +1165,12 @@ def preflight(run_dir, opts, log):
     url = opts.get("--review-pr")
     alongside = None
     if url:
+        # two runs on one PR both land it, and the second fails on a head the first moved
+        going = next((state for state in runs_on(pr=url, exclude=run_dir)
+                      if state.get("state") not in run_record.ENDED), None)
+        if going:
+            raise config.Error(f"run {going['run_id']} on {url} has not ended; "
+                               f"`ak wait {going['run_id']}`, then launch again if it is still needed")
         info = pr_view(url)
         owner, name, number = PR_PARTS.match(url).groups()
         state = run_record.read_state(run_dir) or {}
