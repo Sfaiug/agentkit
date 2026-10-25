@@ -42,7 +42,8 @@ class FastForward(unittest.TestCase):
         and its install stand after it."""
         done = cls.home.run(cls.install.ak, "watch")
         said = [line for line in done.out.splitlines()
-                if "agentkit" in line or line.startswith(" ")]
+                # the daily git gc of the checkout is its own story
+                if ("agentkit" in line or line.startswith(" ")) and not line.startswith("git gc: ")]
         pending = cls.home.path / ".agentkit" / "state" / "agentkit-install-pending"
         return Tick(done.code, done.err, said, cls.install.head(), cls.install.installs(),
                     pending.exists(), cls.install.git("status", "--porcelain") == "")
