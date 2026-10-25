@@ -10,7 +10,7 @@ failed a fresh-install gate, and the harness was put back for nothing it did.
 Offline throughout: `acme` is a fake harness whose manifest, binary and release source live
 under a temporary HOME, the checkout the tick runs from is a throwaway directory holding two
 fake gates, and the background child runs in-process.  No real harness, upgrade or
-`tests/smoke.sh` is ever run.
+`tests/live.sh` is ever run, and the stand-in for it runs outside any systemd unit.
 """
 
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
@@ -25,7 +25,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, update, watch
+from agentkit import config, orch, update, watch
 
 START = update.start   # the real starter, before a test stands in for it
 
@@ -61,11 +61,11 @@ class HarnessAutoUpdate(unittest.TestCase):
             (root / directory).mkdir(parents=True)
         (root / "adapters/acme.toml").write_text(MANIFEST)
         for name, text in (("bin/acme", ACME), ("bin/acme-latest", LATEST),
-                           ("agentkit/tests/smoke.sh", 'exit "$(cat "{root}/smoke")"\n'),
+                           ("agentkit/tests/live.sh", 'exit "$(cat "{root}/live")"\n'),
                            ("agentkit/tests/e2e-fresh.sh", "exit 0\n")):
             (root / name).write_text(text.format(root=root))
             (root / name).chmod(0o755)
-        self.write(installed="1.0.0", released="2.0.0", smoke="0")
+        self.write(installed="1.0.0", released="2.0.0", live="0")
         self.checkout = root / "agentkit"
         for args in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "gates"]):
             subprocess.run(["git", "-C", str(self.checkout), "-c", "user.name=fixture",
@@ -90,6 +90,7 @@ class HarnessAutoUpdate(unittest.TestCase):
         self.start = self.stack.enter_context(
             patch.object(update, "start", side_effect=update.background))
         self.stack.enter_context(patch.object(watch, "after_merge_fallback", return_value=None))
+        self.stack.enter_context(patch.object(orch, "user_manager", return_value=False))
 
     def write(self, **files):
         for name, text in files.items():
@@ -125,14 +126,14 @@ class HarnessAutoUpdate(unittest.TestCase):
         self.working.assert_not_called()
 
     def test_a_failed_gate_reverts_once_and_that_release_is_retried_only_after_a_day(self):
-        self.write(smoke="1")
+        self.write(live="1")
         self.assertEqual(self.tick(T),
                          ["acme 1.0.0 is behind 2.0.0: upgrading it in the background"])
         self.assertEqual(self.read("installed"), ["1.0.0"])
         self.assertEqual(self.read("calls"), ["upgrade", "install 1.0.0"])
         said = self.tick(T + 180)
         self.assertEqual(said[0], "WARN the background upgrade of acme failed:")
-        self.assertTrue(any("smoke FAILED after acme 1.0.0->2.0.0" in line for line in said), said)
+        self.assertTrue(any("live FAILED after acme 1.0.0->2.0.0" in line for line in said), said)
         self.assertIn("  update: acme: reverted, back on 1.0.0", said)
         # not within the day of its start
         for later in (T + 360, T + update.ASK_EVERY, T + update.RETRY_AFTER - update.ASK_EVERY):
@@ -148,7 +149,7 @@ class HarnessAutoUpdate(unittest.TestCase):
         self.assertEqual(self.tick(day + update.ASK_EVERY), [])
         self.assertEqual(self.read("calls"), ["upgrade", "install 1.0.0"] * 2)
         # a newer release is tried at once, and passes
-        self.write(released="2.1.0", smoke="0")
+        self.write(released="2.1.0", live="0")
         self.assertEqual(self.tick(day + 2 * update.ASK_EVERY),
                          ["acme 1.0.0 is behind 2.1.0: upgrading it in the background"])
         self.assertEqual(self.read("installed"), ["2.1.0"])

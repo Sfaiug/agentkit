@@ -66,11 +66,11 @@ class MuseSnapshot(unittest.TestCase):
                 for path in sorted(self.install.iterdir())}
 
     def test_a_red_gate_restores_the_install_as_it_was(self):
-        self.gates.exit("smoke", 1)
+        self.gates.exit("live", 1)
         done = self.home.ak("update", timeout=120)
         said = done.out + done.err
         self.assertEqual(done.code, 1, said)
-        self.assertEqual(self.gates.ran(), ["smoke"])
+        self.assertEqual(self.gates.ran(), ["live"])
         self.assertEqual(self.files(), self.before)
         self.assertEqual(Path(self.home.bin / "muse").readlink(), self.install / "muse-launcher")
         self.assertRegex(said, rf"(?m)^update: muse: reverted\b.*{OLD}")

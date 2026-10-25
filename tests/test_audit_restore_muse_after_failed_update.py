@@ -125,19 +125,18 @@ printf '%s' "$v" >"$HOME/codex.version"
         real_step = update.step
         def step(cmd, fh, env=None, timeout=update.STEP_CAP, **_kw):
             if cmd[0] == "bash":
-                # tests/live.sh, which this checkout has, runs once tests/smoke.sh passed
-                gate = {str(REPO / "tests/smoke.sh"): "smoke", str(REPO / "tests/live.sh"): "live"}
-                assert len(cmd) == 2 and cmd[1] in gate, cmd
+                # tests/live.sh, the one gate before the fresh install
+                assert cmd == ["bash", str(REPO / "tests/live.sh")], cmd
                 assert env["AGENTKIT_ACCEPTANCE_REQUIRED"] == "1"
-                gates.append(gate[cmd[1]])
-                return os.environ.get("SMOKE_EXIT", "0") == "0"
+                gates.append("live")
+                return os.environ.get("LIVE_EXIT", "0") == "0"
             return real_step(cmd, fh, env, timeout)
         def fresh_gate(fh, log):
             gates.append("fresh")
             return os.environ.get("FRESH_EXIT", "0") == "0", "offline fixture"
         self.enterContext(patch.object(update, "step", step))
         self.enterContext(patch.object(update, "fresh_gate", fresh_gate))
-        os.environ["SMOKE_EXIT"] = "0"
+        os.environ["LIVE_EXIT"] = "0"
         os.environ["FRESH_EXIT"] = "0"
         self.layout = root, install, gates
 
@@ -152,7 +151,7 @@ printf '%s' "$v" >"$HOME/codex.version"
             os.environ["SAME_BUILD"] = "1"
         if failure == "broken-build":
             os.environ["BROKEN_BUILD"] = "1"
-        if failure in ("smoke", "fresh"):
+        if failure in ("live", "fresh"):
             os.environ[f"{failure.upper()}_EXIT"] = "1"
         rc, output = invoke()
         assert rc == 1, output
@@ -163,7 +162,7 @@ printf '%s' "$v" >"$HOME/codex.version"
         assert (root / "claude.version").read_text() == "1.0.0"
         assert (root / "codex.version").read_text() == "1.0.0"
         expected = {"upgrade": [], "same-build": [], "broken-build": [],
-                    "smoke": ["smoke"], "fresh": ["smoke", "live", "fresh"]}
+                    "live": ["live"], "fresh": ["live", "fresh"]}
         assert gates == expected[failure]
         records = [json.loads(line) for line in (root / "launches.jsonl").read_text().splitlines()]
         assert all(r["pin"] == "1" and r["install"] == "0" for r in records if r["argv"] == ["--version"])
@@ -188,7 +187,7 @@ printf '%s' "$v" >"$HOME/codex.version"
         root, install, gates = self.layout
         rc, output = invoke()
         assert rc == 0, output
-        assert gates == ["smoke", "live", "fresh"]
+        assert gates == ["live", "fresh"]
         assert OLD in output and NEW in output
         assert "muse: upgraded" in output
         assert (install / ".muse-version").read_text().strip() == NEW
@@ -321,7 +320,7 @@ printf '%s' "$v" >"$HOME/codex.version"
         self.enterContext(patch.object(update.shutil, "rmtree", cannot_remove_snapshot))
         rc, output = invoke()
         assert rc == 0, output
-        assert gates == ["smoke", "live", "fresh"]
+        assert gates == ["live", "fresh"]
         assert "snapshot cleanup failed" in output
         assert NEW in update.version(muse())
         snapshots = list(config.TMP.glob("muse-snapshot-*"))
@@ -347,7 +346,7 @@ printf '%s' "$v" >"$HOME/codex.version"
             assert rc == 0, output
             assert "removed stale Muse installer lock" in output
             assert not lock.exists()
-            assert gates == ["smoke", "live", "fresh"]
+            assert gates == ["live", "fresh"]
         else:
             assert rc == 1
             assert lock.is_dir()
@@ -510,7 +509,7 @@ class StepProcesses(PinnedHome):
 # Each parameter gets its own setUp and cleanup, and counts as one unittest case.
 for name, values in (
     ('failed_updates_restore_exact_launcher_build_metadata_links_and_modes',
-     ('upgrade', 'smoke', 'fresh', 'same-build', 'broken-build')),
+     ('upgrade', 'live', 'fresh', 'same-build', 'broken-build')),
     ('preflight_stops_before_any_harness_mutation',
      ('metadata-missing', 'metadata-mismatch', 'binary-missing', 'not-executable', 'directory',
       'external-link', 'cyclic-link', 'hardlink', 'read-only-parent', 'installer-lock', 'copy-failure')),

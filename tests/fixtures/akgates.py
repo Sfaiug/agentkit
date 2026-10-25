@@ -1,11 +1,12 @@
 """The acceptance gates of a harness upgrade, stood in for in an answer-key Home.
 
-`ak update` keeps a harness's new release only once the build's own gates pass: tests/smoke.sh,
-then tests/live.sh, then the fresh-install tests/e2e-fresh.sh, each run with bash.  Those are the
-landing suite and real model calls, which no test may start.  `Gates(home)` puts a `bash` first
-on the program's PATH that answers for any of the three named among its arguments, with the exit
-status the test set (0 unless set), and runs everything else as the real bash.  It keeps each
-gate it answered, in order, with whether AGENTKIT_ACCEPTANCE_REQUIRED was 1 for it.
+`ak update` keeps a harness's new release only once the build's own gates pass: tests/live.sh,
+then the fresh-install tests/e2e-fresh.sh, each run with bash.  Those are real model calls,
+which no test may start.  `Gates(home)` puts a `bash` first on the program's PATH that answers
+for any of the three named among its arguments -- these two and the landing suite's
+tests/smoke.sh, which an upgrade never runs -- with the exit status the test set (0 unless set),
+and runs everything else as the real bash.  It keeps each gate it answered, in order, with whether
+AGENTKIT_ACCEPTANCE_REQUIRED was 1 for it.
 
     from fixtures.akbin import Home
     from fixtures.akgates import Gates
@@ -13,7 +14,7 @@ gate it answered, in order, with whether AGENTKIT_ACCEPTANCE_REQUIRED was 1 for 
         gates = Gates(home)
         gates.exit("live", 1)
         home.ak("update")
-        assert gates.ran() == ["smoke", "live"]
+        assert gates.ran() == ["live"]
 """
 
 import shlex

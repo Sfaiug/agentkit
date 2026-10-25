@@ -3175,8 +3175,8 @@ else
 fi
 
 # --- 18b: a partial upgrade is put back, and named per harness (offline) ---
-# Fake harnesses on PATH, and a fake `bash` standing in for the gate -- no model is called, and
-# the real smoke.sh (this file, already running) is never started a second time; the point is
+# Fake harnesses on PATH, and a fake `bash` standing in for the gates, run outside any systemd
+# unit -- no model is called, and tests/live.sh never starts this file a second time; the point is
 # which commands run and which do not. First all six upgrade and the gate is green, so the new
 # versions stay. Then muse's launcher replaces the binary and only then fails: claude, codex,
 # grokbuild, antigravity and opencode have moved, nothing has verified that mixture and nothing
@@ -3275,7 +3275,7 @@ akupdate() {   # akupdate <muse exit> <gate exit> <log>: all six back on their o
   chmod 640 "$AKF/bin/.muse-version" "$AKF/bin/.muse-release-info.json"
   printf '%s\n' "$1" >"$AKF/muse.rc"; printf '%s\n' "$2" >"$AKF/gate.rc"; : >"$AKF/gate.log"
   env PATH="$AKF/bin:$REPO/bin:$PYBIN:/usr/bin:/bin" HOME="$UPH" AKFAKE="$AKF" PYTHONPATH="$REPO" \
-    python3 -c 'from agentkit import update; update.fresh_unavailable = lambda: ""; raise SystemExit(update.main([]))' >"$3" 2>&1
+    python3 -c 'from agentkit import orch, update; orch.user_manager = lambda: False; update.fresh_unavailable = lambda: ""; raise SystemExit(update.main([]))' >"$3" 2>&1
 }
 akvers() { printf '%s %s %s %s %s %s' "$(cat "$AKF/claude.v")" "$(cat "$AKF/codex.v")" "$(cat "$AKF/bin/.muse-version")" "$(cat "$AKF/grok.v")" "$(cat "$AKF/opencode.v")" "$(cat "$AKF/agy.v")"; }
 akupdate 0 0 "$WORK/update-all.log"; UALL=$?
@@ -3286,7 +3286,7 @@ UP=0
 [ "$UALL" = 0 ] || UP=1
 [ "$UAV" = "9.9.9 9.9.9 9.9.9-R2 9.9.9 9.9.9 9.9.9" ] || UP=1
 case "$UGATE" in
-  *tests/smoke.sh*tests/e2e-fresh.sh) grep -q 'fresh-install gate passed' "$WORK/update-all.log" || UP=1 ;;
+  *tests/live.sh*tests/e2e-fresh.sh) grep -q 'fresh-install gate passed' "$WORK/update-all.log" || UP=1 ;;
   *) UP=1 ;;
 esac
 # A snapshot is assured before any harness moves; a failed Muse upgrade restores that copy.
@@ -5452,7 +5452,7 @@ cp "$REPO/tests/fixtures/adapters/echo.sh" "$REPO/tests/fixtures/adapters/echo.t
 cp -R "$REPO/agentkit" "$REPO/bin" "$REPO/templates" "$REPO/hooks" "$REPO/tools" \
   "$REPO/orchestrator.md" "$ERP/"   # a launch writes its seat's rulebook, whatever the harness
 printf '# the fourth-harness fixture never runs a gate; ak update --dry-run only names it\n' \
-  >"$ERP/tests/smoke.sh"
+  >"$ERP/tests/live.sh"
 python3 - "$REPO/config.default.toml" "$ERP/config.default.toml" <<'PY'
 import pathlib, sys
 source, target = (pathlib.Path(arg) for arg in sys.argv[1:3])

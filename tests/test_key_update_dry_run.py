@@ -78,7 +78,7 @@ class DryRun(unittest.TestCase):
     def test_each_gate_says_whether_it_would_run(self):
         akconfig.write(self.home, {"echo": {"harness": "echo", "model": "echo-1"}})
         lines = self.dry_run()
-        for gate in ("smoke", "live", "fresh"):
+        for gate in ("live", "fresh"):
             with self.subTest(gate):
                 said = [line for line in lines if line.startswith(f"update: gate {gate}: ")]
                 self.assertEqual(len(said), 1, lines)
