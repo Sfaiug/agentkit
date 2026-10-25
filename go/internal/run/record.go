@@ -5,10 +5,27 @@ package run
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 
 	"agentkit/internal/config"
 )
+
+// The state words a record holds, grouped by what ak asks of them.
+var (
+	active = []string{"queued", "running"}        // a loop works the run, or is about to
+	failed = []string{"fail", "error", "blocked"} // ended with nothing delivered, not by choice
+	ended  = slices.Concat([]string{"pass"}, failed, []string{"stopped", "not_needed"})
+	goes   = []string{"queued", "running", "waiting", "exhausted", "stalled", "waiting_login"}
+)
+
+func stateIn(record *Object, words []string) bool {
+	return slices.Contains(words, record.Str("state"))
+}
+
+func Active(record *Object) bool { return stateIn(record, active) }
+func Failed(record *Object) bool { return stateIn(record, failed) }
+func Ended(record *Object) bool  { return stateIn(record, ended) }
 
 const (
 	SilenceMinutes = 20 // no command output or harness event for this long is a death
@@ -54,17 +71,14 @@ func Read(dir string) (*Object, error) {
 	return ReadJSON(filepath.Join(dir, "run.json"))
 }
 
-// What an ended run's loop is swept for once it is gone: a stop and a run found not needed
-// ended theirs on purpose.
-var swept = []string{"pass", "fail", "error", "blocked"}
-
 // Reap is the record as Python's reap leaves an ended run a listing reads, and whether that
-// reap would end what the run started: an ended run whose loop died before its final cleanup
-// is swept once per loop, the sweep stamped as `tree_stopped`.  A run that recorded no pid and
-// no scope started nothing to sweep, so only the stamp changes, here in memory alone.
+// reap would end what the run started: a passed or failed run whose loop died before its final
+// cleanup is swept once per loop, the sweep stamped as `tree_stopped`; a stop and a run found
+// not needed ended theirs on purpose.  A run that recorded no pid and no scope started nothing
+// to sweep, so only the stamp changes, here in memory alone.
 func Reap(record *Object) (*Object, bool) {
 	loop := []any{record.Get("pid"), record.Get("process_identity")}
-	if !stateIn(record, swept) || ProcessActive(record) || equal(record.Get("tree_stopped"), loop) {
+	if !(Failed(record) || record.Str("state") == "pass") || ProcessActive(record) || equal(record.Get("tree_stopped"), loop) {
 		return record, false
 	}
 	if record.Get("pid") != nil || record.Get("scope") != nil {

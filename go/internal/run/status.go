@@ -5,14 +5,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/task"
 )
 
 // Models is today's config's models, none where it cannot be read.
@@ -212,94 +211,6 @@ func span(elapsed float64) string {
 	return strconv.FormatInt(secs, 10) + "s"
 }
 
-var (
-	doneWhen = regexp.MustCompile(`(?ims)^##\s+Done when\s*$(.*?)(?:^##\s|\z)`)
-	fence    = regexp.MustCompile("(?s)```(?:bash|sh)?\n(.*?)```")
-	frontRe  = regexp.MustCompile(`(?s)^---\n(.*?)\n---\n?(.*)$`)
-	agentsRe = regexp.MustCompile(`(?s)^---\n(|.*?\n)---`)
-	onceRe   = regexp.MustCompile(`^#\s*once\s*$`)
-)
-
-var taskKeys = []string{"after", "base", "done_when_minutes", "files", "from", "merge", "repo",
-	"rounds", "stall_minutes", "target", "turn_hours"}
-
-// doneWhenCommands is the task's done-when commands, or false where the task is unreadable.
-func doneWhenCommands(path string) ([]string, bool) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, false
-	}
-	text := universal(data)
-	body := text
-	if match := frontRe.FindStringSubmatch(text); match != nil {
-		for _, line := range strings.Split(match[1], "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			key, _, found := strings.Cut(line, ":")
-			if !found || !slices.Contains(taskKeys, strings.TrimSpace(key)) {
-				return nil, false
-			}
-		}
-		body = match[2]
-	} else if strings.HasPrefix(text, "---\n") {
-		return nil, false
-	}
-	section := doneWhen.FindStringSubmatch(body)
-	if section == nil {
-		return nil, false
-	}
-	block := fence.FindStringSubmatch(section[1])
-	if block == nil {
-		return nil, false
-	}
-	var cmds []string
-	for _, line := range strings.Split(block[1], "\n") {
-		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
-			cmds = append(cmds, line)
-		}
-	}
-	return cmds, len(cmds) > 0
-}
-
-// once is whether a command ends in a `# once` marker outside any quotes.
-func once(cmd string) bool {
-	single, double, escaped := false, false, false
-	for i, ch := range cmd {
-		switch {
-		case escaped:
-			escaped = false
-		case ch == '\\' && !single:
-			escaped = true
-		case ch == '\'' && !double:
-			single = !single
-		case ch == '"' && !single:
-			double = !double
-		case ch == '#' && !single && !double:
-			if i > 0 && (cmd[i-1] == ' ' || cmd[i-1] == '\t') && onceRe.MatchString(cmd[i:]) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// frontValue is a key's value in AGENTS.md front matter, or "".
-func frontValue(text, key string) string {
-	match := agentsRe.FindStringSubmatch(text)
-	if match == nil {
-		return ""
-	}
-	for _, line := range strings.Split(match[1], "\n") {
-		name, value, found := strings.Cut(strings.TrimSpace(line), ":")
-		if found && strings.TrimSpace(name) == key && strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-
 // declaredSuite is the target's `tests:` suite at `origin/<target>`, else the checkout's.
 func declaredSuite(worktree, target string) string {
 	if target != "" {
@@ -310,7 +221,7 @@ func declaredSuite(worktree, target string) string {
 		command := exec.Command("git", "-C", worktree, "show", ref+":AGENTS.md")
 		command.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 		if out, err := command.Output(); err == nil || errors.As(err, new(*exec.ExitError)) {
-			if suite := frontValue(strings.TrimSpace(universal(out)), "tests"); suite != "" {
+			if suite := task.FrontValue(strings.TrimSpace(task.Text(out)), "tests"); suite != "" {
 				return suite
 			}
 		}
@@ -319,18 +230,12 @@ func declaredSuite(worktree, target string) string {
 	if err != nil {
 		return ""
 	}
-	return frontValue(universal(data), "tests")
-}
-
-// universal is text as Python reads a text file or a command's output: every line ending a
-// newline.
-func universal(data []byte) string {
-	return strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(string(data))
+	return task.FrontValue(task.Text(data), "tests")
 }
 
 // FinalCheck is the run's `final check:` line, or "" where its task cannot be read.
 func FinalCheck(dir string, record *Object) string {
-	cmds, ok := doneWhenCommands(filepath.Join(dir, "task.md"))
+	cmds, ok := task.DoneWhen(filepath.Join(dir, "task.md"))
 	if !ok {
 		return ""
 	}
@@ -358,7 +263,7 @@ func FinalCheck(dir string, record *Object) string {
 	landing := !record.Truthy("scratch") && !record.Truthy("no_merge")
 	any := false
 	for _, cmd := range cmds {
-		any = any || once(cmd)
+		any = any || task.Once(cmd)
 	}
 	if landing && !any && !record.Truthy("review_pr") && worktree(record) != "" {
 		target := record.Str("target")

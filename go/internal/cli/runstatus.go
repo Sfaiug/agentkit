@@ -14,6 +14,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/host"
+	"agentkit/internal/job"
 	"agentkit/internal/run"
 	"agentkit/internal/terminal"
 )
@@ -177,7 +178,7 @@ func refused(entries []listed, seat string, showHistory, machine bool, now time.
 	if exists(filepath.Join(config.Home(), "history.db")) && (machine || showHistory) {
 		return true
 	}
-	if showHistory && seatRecorded() {
+	if showHistory && config.SeatRecorded() {
 		return true
 	}
 	if jobShown(seat, showHistory, machine, now) {
@@ -200,31 +201,18 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// seatRecorded is whether any seat keeps a record, which the scoreboard reads.
-func seatRecorded() bool {
-	paths, _ := filepath.Glob(filepath.Join(config.Home(), "state", "session-*.json"))
-	for _, path := range paths {
-		record, err := run.ReadJSON(path)
-		if errors.Is(err, run.ErrLoneSurrogate) || record != nil && !record.Has("renamed") {
-			return true
-		}
-	}
-	return false
-}
-
 // jobShown is whether the listing shows a job: the seat's or every one of the last seven
 // days, all of them with --history.
 func jobShown(seat string, showHistory, machine bool, now time.Time) bool {
 	if machine {
 		return false
 	}
-	entries, _ := os.ReadDir(filepath.Join(config.Home(), "jobs"))
+	entries, _ := os.ReadDir(job.Jobs())
 	for _, entry := range entries {
-		dir := filepath.Join(config.Home(), "jobs", entry.Name())
-		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		if info, err := os.Stat(filepath.Join(job.Jobs(), entry.Name())); err != nil || !info.IsDir() {
 			continue
 		}
-		receipt, err := run.ReadJSON(filepath.Join(dir, "job.json"))
+		receipt, err := run.ReadJSON(job.ReceiptPath(entry.Name()))
 		if errors.Is(err, run.ErrLoneSurrogate) {
 			return true
 		}

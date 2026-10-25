@@ -69,14 +69,14 @@ func Read() Readings {
 	}
 	pressure, ok := pressureAvg(filepath.Join(runs, "cpu.pressure"))
 	readings.set("slice_cpu_pressure", pressure, ok)
-	quota, ok := cpuQuota(runs)
+	cores, ok := cpuQuota(runs)
 	if parent, set := cpuQuota(slice); set {
-		if !ok || parent < quota {
-			quota = parent
+		if !ok || parent < cores {
+			cores = parent
 		}
 		ok = true
 	}
-	readings.set("slice_cpu_quota", quota, ok)
+	readings.set("slice_cpu_quota", cores, ok)
 	// One sample window for all three, so a burst between readings cannot count a
 	// sibling as work outside the slice.
 	whole := cgroupPath("")
@@ -319,12 +319,12 @@ func cpuQuota(cgroup string) (float64, bool) {
 	if err != nil || len(parts) != 2 || parts[0] == "max" {
 		return 0, false
 	}
-	quota, err := strconv.Atoi(parts[0])
+	allowed, err := strconv.Atoi(parts[0])
 	period, failed := strconv.Atoi(parts[1])
 	if err != nil || failed != nil || period == 0 {
 		return 0, false
 	}
-	return float64(quota) / float64(period), true
+	return float64(allowed) / float64(period), true
 }
 
 func usage(cgroup string) (float64, bool) {
@@ -366,4 +366,22 @@ func cpuRates(cgroups ...string) map[string]float64 {
 		}
 	}
 	return rates
+}
+
+// CgroupUse is how many processes a cgroup holds and the bytes they use, false where either
+// is unreadable.
+func CgroupUse(cgroup string) (int, int64, bool) {
+	procs, err := os.ReadFile(filepath.Join(cgroup, "cgroup.procs"))
+	memory, failed := os.ReadFile(filepath.Join(cgroup, "memory.current"))
+	bytes, bad := strconv.ParseInt(strings.TrimSpace(string(memory)), 10, 64)
+	if err != nil || failed != nil || bad != nil {
+		return 0, 0, false
+	}
+	count := 0
+	for _, line := range strings.Fields(string(procs)) {
+		if _, err := strconv.Atoi(line); err == nil {
+			count++
+		}
+	}
+	return count, bytes, true
 }

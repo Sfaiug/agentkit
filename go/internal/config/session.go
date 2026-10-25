@@ -40,6 +40,24 @@ func CurrentSession() (string, map[string]any, error) {
 	return ResolveSession(name)
 }
 
+// SeatRecorded is whether any seat keeps a record: every state file but one that holds only
+// where its seat was renamed to.
+func SeatRecorded() bool {
+	pattern, _ := sessionPath("*")
+	paths, _ := filepath.Glob(pattern)
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		var record map[string]any
+		if err != nil || json.Unmarshal(data, &record) != nil {
+			return true
+		}
+		if _, renamed := record["renamed"].(string); !renamed {
+			return true
+		}
+	}
+	return false
+}
+
 // SessionPath is where a seat's record is kept.
 func SessionPath(name string) (string, error) {
 	return sessionPath(normalizeSession(name))

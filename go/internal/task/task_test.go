@@ -1,4 +1,4 @@
-package run
+package task
 
 import (
 	"os"
@@ -13,7 +13,7 @@ func TestDoneWhenReadsAnyLineEnding(t *testing.T) {
 	if err := os.WriteFile(path, []byte("---\r\nrounds: 2\r\n---\r\n# fix api\r\n\r\n## Done when\r\n\r\n```bash\r\nmake test\r\n```\r\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if cmds, ok := doneWhenCommands(path); !ok || !slices.Equal(cmds, []string{"make test"}) {
+	if cmds, ok := DoneWhen(path); !ok || !slices.Equal(cmds, []string{"make test"}) {
 		t.Fatalf("got %q, %v", cmds, ok)
 	}
 }

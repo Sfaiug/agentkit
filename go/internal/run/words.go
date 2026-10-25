@@ -10,22 +10,6 @@ import (
 	"agentkit/internal/config"
 )
 
-// The state words a record holds, grouped by what ak asks of them.
-var (
-	active = []string{"queued", "running"}        // a loop works the run, or is about to
-	failed = []string{"fail", "error", "blocked"} // ended with nothing delivered, not by choice
-	ended  = []string{"pass", "fail", "error", "blocked", "stopped", "not_needed"}
-	goes   = []string{"queued", "running", "waiting", "exhausted", "stalled", "waiting_login"}
-)
-
-func stateIn(record *Object, words []string) bool {
-	return slices.Contains(words, record.Str("state"))
-}
-
-func Active(record *Object) bool { return stateIn(record, active) }
-func Failed(record *Object) bool { return stateIn(record, failed) }
-func Ended(record *Object) bool  { return stateIn(record, ended) }
-
 func seconds(at time.Time) float64 {
 	return float64(at.UnixNano()) / 1e9
 }

@@ -118,17 +118,17 @@ func (r Readings) heavyLimit() int {
 	}
 	var cpuFree, cpuWhole float64
 	hasCPU := true
-	quota, hasQuota := r.Number("slice_cpu_quota")
+	cpuQuota, hasCPUQuota := r.Number("slice_cpu_quota")
 	cpus, hasCPUs := r.Number("cpus", "nproc")
 	used, hasUsed := r.Number("slice_cpu_used")
-	if hasQuota || hasCPUs && hasUsed {
-		if !hasQuota {
-			quota = cpus
+	if hasCPUQuota || hasCPUs && hasUsed {
+		if !hasCPUQuota {
+			cpuQuota = cpus
 		}
 		if outside, ok := r.Number("outside_cpu_used"); ok && hasCPUs {
-			quota = min(quota, cpus-outside)
+			cpuQuota = min(cpuQuota, cpus-outside)
 		}
-		cpuFree, cpuWhole = quota, quota
+		cpuFree, cpuWhole = cpuQuota, cpuQuota
 		if hasUsed {
 			cpuFree -= used
 		}

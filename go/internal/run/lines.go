@@ -393,16 +393,7 @@ func Alive(record *Object) string {
 		return ""
 	}
 	if scope := scopeDir(record.Str("scope")); scope != "" {
-		procs, err := os.ReadFile(filepath.Join(scope, "cgroup.procs"))
-		memory, failed := os.ReadFile(filepath.Join(scope, "memory.current"))
-		bytes, bad := strconv.ParseInt(strings.TrimSpace(string(memory)), 10, 64)
-		if err == nil && failed == nil && bad == nil {
-			count := 0
-			for _, line := range strings.Fields(string(procs)) {
-				if _, err := strconv.Atoi(line); err == nil {
-					count++
-				}
-			}
+		if count, bytes, ok := host.CgroupUse(scope); ok {
 			return aliveText(count, bytes)
 		}
 	}

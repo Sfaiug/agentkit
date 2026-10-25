@@ -44,13 +44,13 @@ RULES = [
      "flags": (),
      "pattern": r"\b(first_round|token_share|code_lines|readme_words|agents_words)\b|"
                 r"Scoreboard \(reported tokens|no runs ended|median tokens per merged run",
-     "home": ("agentkit/scoreboard.py",),
+     "home": ("agentkit/scoreboard.py", "go/internal/cli/scoreboard.go"),
      "max": 0},
     # Process cleanup must use the worker's marker, so every ak home sweeps only its runs.
     {"name": "run marker",
      "flags": (),
      "pattern": r"AGENTKIT_RUN\b",
-     "home": ("agentkit/worker.py",),
+     "home": ("agentkit/worker.py", "go/internal/host/process.go"),
      "max": 0},
     # Host and cgroup readings have one reader: paths and counter names in code or
     # comments outside host.py count as another copy of how the host reports them.
@@ -58,7 +58,7 @@ RULES = [
      "flags": (),
      "pattern": r"/proc/meminfo|/proc/loadavg|/sys/fs/cgroup|cgroup\.freeze|"
                 r"\b(cpu|memory|pids)\.(pressure|stat|max|high|current|events)\b|CGROUP_ROOT",
-     "home": ("agentkit/host.py",),
+     "home": ("agentkit/host.py", "go/internal/host/readings.go"),
      "max": 0},
     # A process's stat and statm fields have one reader: host.proc_stat names them, and
     # host.resident_bytes counts pages. box.py runs as its own script inside the worker's
@@ -66,13 +66,13 @@ RULES = [
     {"name": "process stat",
      "flags": (),
      "pattern": r'"stat"|"statm"|/stat\b|/statm\b',
-     "home": ("agentkit/host.py",),
+     "home": ("agentkit/host.py", "go/internal/host/process.go"),
      "max": 3},
     # The heavy-suite turn owns its lock files, landing wait marker and child flag.
     {"name": "heavy suite turn",
      "flags": (),
      "pattern": r"\.heavy-|landing_since|AK_HEAVY_TURN",
-     "home": ("agentkit/gate.py",),
+     "home": ("agentkit/gate.py", "go/internal/host/lines.go"),
      "max": 0},
     # Run admission owns its lock, steady-poll counter and CPU/polling knobs.
     {"name": "run admission",
@@ -165,7 +165,7 @@ RULES = [
      "flags": (),
      "pattern": r"\^---\\n|Done when\\s",
      "names": r"FRONT = re\.compile\(r\"\^---\\n",
-     "home": ("agentkit/task.py",),
+     "home": ("agentkit/task.py", "go/internal/task/"),
      "max": 0},
     # A job's receipt has one home: every read, write, path or fingerprint of it -- gc's,
     # status's, resume's and the menu's included -- asks its job module, so a line elsewhere that
@@ -182,7 +182,7 @@ RULES = [
      "flags": (),
      "pattern": r'\("(queued|running)", "(queued|running)"[,)]|"fail", "error", "blocked"|'
                 r'^(ENDED|GOING) = ',
-     "home": ("agentkit/record.py",),
+     "home": ("agentkit/record.py", "go/internal/run/record.go"),
      "max": 1},
     # A run's worktree goes one way: the repo's `cleanup:` line, then git, then its `ak/`
     # branch. Each call of the cleanup line outside worktrees.py spells that order again.
