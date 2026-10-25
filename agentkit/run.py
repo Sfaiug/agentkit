@@ -1162,10 +1162,10 @@ def prepare(run_dir, opts, log, cfg=None, job_id=None, task_file=None, receipt=N
     except (Stopped, config.Error, OSError) as exc:
         # The launch receipt is already visible to `r`; a launch refused at its receipt (another
         # run on its PR) or in preflight must not leave it queued forever, or lose the seat it
-        # belonged to before the check began.  It is
-        # an ending like any other, so a result is written and the seat that launched it
-        # hears why -- a hand-back naming a result.md nothing wrote is no hand-back.  Repository
-        # discovery that never answered (`Stopped`) did nothing, so relaunch is its recovery.
+        # belonged to before the check began.  It is an ending like any other, so a result is
+        # written and the seat that launched it hears why -- a hand-back naming a result.md
+        # nothing wrote is no hand-back.  Repository discovery that never answered (`Stopped`)
+        # did nothing, so relaunch is its recovery.
         refused(run_dir, exc, log, cfg, printed)
         raise
 
