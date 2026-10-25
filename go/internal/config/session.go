@@ -31,13 +31,23 @@ func sessionPath(name string) (string, error) {
 	return filepath.Join(Home(), "state", "session-"+name+".json"), nil
 }
 
-// A rename leaves a pointer because the running seat keeps its original
-// environment. Return the resolved record with its name so lookups agree.
+// CurrentSession is the seat this process runs in, by its name now; none outside a seat.
 func CurrentSession() (string, map[string]any, error) {
 	name := os.Getenv("AGENTKIT_SESSION")
 	if name == "" {
 		return "", nil, nil
 	}
+	return ResolveSession(name)
+}
+
+// SessionPath is where a seat's record is kept.
+func SessionPath(name string) (string, error) {
+	return sessionPath(normalizeSession(name))
+}
+
+// A rename leaves a pointer because the running seat keeps its original
+// environment. Return the resolved record with its name so lookups agree.
+func ResolveSession(name string) (string, map[string]any, error) {
 	name = normalizeSession(name)
 	path, err := sessionPath(name)
 	if err != nil {

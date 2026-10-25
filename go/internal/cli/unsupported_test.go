@@ -36,7 +36,7 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 	before := tree(t, home)
 	calls := [][]string{
 		{}, {"attach", "--client"}, {"usage", "--json"}, {"models", "--refresh"},
-		{"worker", "acme", task}, {"run", task, "--no-merge"}, {"run", "status"},
+		{"worker", "acme", task}, {"run", task, "--no-merge"},
 		{"run", "gc", "--dry-run"}, {"run", "--review-pr", "https://github.com/acme/api/pull/12"},
 		{"orch", "acme", "--dry-run"}, {"plan"}, {"hand-in", "done"},
 		{"notify", "--check"}, {"notify", "needs", "Which branch?"},

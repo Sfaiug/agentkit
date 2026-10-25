@@ -11,3 +11,11 @@ func isTerminal(file *os.File) bool {
 	_, _, err := syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), syscall.TIOCGETA, uintptr(unsafe.Pointer(&state)))
 	return err == 0
 }
+
+func columns(file *os.File) int {
+	var size struct{ rows, columns, x, y uint16 }
+	if _, _, err := syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), syscall.TIOCGWINSZ, uintptr(unsafe.Pointer(&size))); err != 0 {
+		return 0
+	}
+	return int(size.columns)
+}
