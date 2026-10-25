@@ -161,10 +161,12 @@ class HandBack(Sandbox):
             notify, "shaped",
             side_effect=lambda kind, text, **kw: self.cards.append((kind, text, kw)) or 0))
         self.stack.enter_context(patch.object(watch.time, "sleep", lambda _s: None))
+        # reopened, the seat is in tmux again, as the real `ensure` leaves it
         self.stack.enter_context(patch.object(
             orch, "ensure",
             side_effect=lambda cfg, name, log=print, saved=False:
-                self.reopened.append((name, saved)) or "resumed"))
+                self.reopened.append((name, saved)) or self.rows.append(self.live())
+                or "resumed"))
         config.save_session(self.cfg, SEAT, "fable", ["astra"],
                             {"cwd": str(self.root), "created": 100,
                              "conversation": "thread-seat", "id_source": orch.LAUNCHER})
@@ -715,6 +717,7 @@ class HandBack(Sandbox):
         self.assertTrue(state["reported"])
         self.assertNotIn("handback_pending", state)
         # ... and when the seat cannot be reopened at all, the owner is asked as before
+        self.rows = []
         gone = self.ended("run-4", owner=SEAT, state="fail", verdict="FAIL")
         with patch.object(watch, "seat_closed", return_value=True):
             run.announce(record.read_state(gone), gone, self.logs.append)
@@ -745,15 +748,14 @@ class HandBack(Sandbox):
 
     def test_an_orphan_notice_the_seat_came_back_from_is_not_sent_twice(self):
         directory = self.failed("run-9")
-        self.rows = []              # it died, the continue line never landed, and the card
-        self.sent = False           # the owner was offered was not accepted either
-        with patch.object(notify, "shaped", return_value=1):
+        # it died, ak could not reopen it, and the card the owner was offered was not accepted
+        self.rows = []
+        with patch.object(orch, "ensure", side_effect=config.Error("no pane")), \
+                patch.object(notify, "shaped", return_value=1):
             run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertTrue(record.read_state(directory)["notification_pending"])
         # it comes back: one hand-back, and nothing pending for any later tick to repeat
         self.rows = [self.live()]
-        self.sent = True
-        self.typed.clear()
         self.tick()
         self.tick()
         self.assertEqual(len(self.typed), 1)
@@ -835,6 +837,7 @@ class HandBack(Sandbox):
         self.assertEqual(self.cards, [])
         self.assertEqual(record.read_state(directory)["recovery_notified"], "orchestrator")
         # ... and the owner is asked only when there is no seat to bring back
+        self.rows = []
         other = self.ended("run-21", owner=SEAT, state="interrupted", verdict=None,
                            finished_at=None, interrupted_at=9991, recovery_pending=True,
                            rounds=2, round_summaries=[], findings="")

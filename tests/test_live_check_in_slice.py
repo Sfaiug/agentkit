@@ -84,7 +84,6 @@ class LiveCheckInSlice(Sandbox):
         self.repo = self.root / "acme"
         tests = self.repo / "tests"
         tests.mkdir(parents=True)
-        (tests / "smoke.sh").write_text("exit 0\n")
         probe = ('import json, os; print(json.dumps(dict('
                  'slice=os.environ.get("AK_LIVE_SLICE"), cwd=os.getcwd(), '
                  'required=os.environ.get("AGENTKIT_ACCEPTANCE_REQUIRED"), '

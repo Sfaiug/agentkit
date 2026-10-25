@@ -1,6 +1,6 @@
 """`ak update`'s gate makes a real turn on every harness it lets through.
 
-Check 3 of tests/smoke.sh -- the gate `ak update` runs -- read out of the suite and driven
+Check 3 of tests/smoke.sh -- run by tests/live.sh, `ak update`'s gate -- read out and driven
 offline: every adapter is a fake that records its turn, every harness binary a stub that is
 never run, and `ak usage` answers nothing.  No model is called.
 """

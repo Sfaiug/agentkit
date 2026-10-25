@@ -51,7 +51,7 @@ if session:     # the seat whose roles the marks are, with no reviewers of its o
     config.save_session(config.load(), session, "opus", json.loads(os.environ["MATRIX_WORKERS"]),
                         {"cwd": "/", "created": 0})
 usage.collect = lambda cfg, **kwargs: usage.Readings({})
-orch.switch_orchestrator = lambda cfg, name, model, providers=None: (
+orch.switch_orchestrator = lambda cfg, name, model, providers=None, **_kw: (
     config.update_session(name, orchestrator=model), "")[1]
 with closing(terminal.Keyboard()) as keyboard:
     menu.show_config(False, keyboard, session)
@@ -74,8 +74,8 @@ provider = "anthropic"
 """
 ESC, UP, DOWN, RIGHT, LEFT, ENTER = b"\x1b", b"\x1b[A", b"\x1b[B", b"\x1b[C", b"\x1b[D", b"\r"
 TAB = b"\t"
-KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"   # a seat's, wherever the highlight is
-NEW_KEYS = "  ↑↓←→ move   ⏎ choose   esc back"   # new seats', with no `r`
+KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"   # wherever the highlight is
+PAGE_KEYS = "  ↑↓←→ move   ⏎ choose   esc back"   # the pages under it, with no `r`
 # What a worker's own run leaves in the environment; nothing here may act on that run.
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
              "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLORTERM", "COLUMNS", "LINES")
@@ -283,7 +283,7 @@ class Matrix(unittest.TestCase):
         self.assertTrue(lines[0].startswith("agentkit · config "), lines[0])
         self.assertEqual(lines[headings(lines) - 1].split(), ["For", "new", "seats"])
         self.assertEqual(row(lines, "opus")[1].split()[2:5], ["●", "■", "■"])
-        self.assertEqual(lines[-1], NEW_KEYS)
+        self.assertEqual(lines[-1], KEYS)
         lines = screen.press(RIGHT * 3, lambda lines: on_effort(lines, "fable"))
         self.assertEqual(screen.path.read_bytes(), before)
         screen.press(DOWN + ENTER, lambda lines: effort(lines, "opus") == "max")
@@ -308,7 +308,7 @@ class Matrix(unittest.TestCase):
         screen = Screen(self)
         lines = screen.frame()
         self.assertEqual("\n".join(lines).count("●"), 1)
-        # another model's mark moves the seat at once, asking nothing
+        # another model's mark moves the seat (the switch, its question with it, faked)
         lines = screen.press(ENTER, lambda lines: "●" in row(lines, "fable")[1])
         self.assertEqual("\n".join(lines).count("●"), 1)
         self.assertEqual(screen.record()["orchestrator"], "fable")

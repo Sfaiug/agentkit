@@ -216,7 +216,7 @@ def rows(cfg, boards, harnesses):
     placed on its own (`placed`; a price only off a board's row at the effort itself), the
     points a measure read off a higher effort adds (`drops`) and which board model and effort
     each board's measures came from: the first naming an effort, else the first, as one measure
-    a board tests at an effort alone holds the row to it (menu.models_at)."""
+    a board tests at an effort alone holds the row to it."""
     indexes = {board: indexed(held.get("rows") or []) for board, held in boards.items()}
     names = {}        # (harness, model, effort) -> the config name some role runs it at
     roles = {}        # (harness, model, effort) -> the roles the config runs it in
@@ -471,9 +471,10 @@ def refresh(cfg, *, refresh=False, now=None):
     `state/matrix.json` so every pick reads one computed truth; computed again
     only once a board answered anew, the config's models changed, the harnesses installed are
     not the ones it rowed or ak's own build is not the one that computed it (a matching rule
-    that landed holds at the next tick, not a day later), since the harness catalogs it asks
-    take time.  Asked as the models screen opens, by `ak models` and by the tick.  Returns
-    (boards, the scored rows); `recommended` reads off the rows."""
+    that landed holds at the next reading, not a day later), since the harness catalogs it asks
+    take time.  Asked as the models screen opens and by `ak models`, never the tick: the owner
+    wants the assessment as a feature opened, not a process running all day (22 Oct 2026).
+    Returns (boards, the scored rows); `recommended` reads off the rows."""
     from . import update        # here, not at the top: update reaches this module through orch
     now = time.time() if now is None else now
     harnesses, build = present(), update.agentkit_version()

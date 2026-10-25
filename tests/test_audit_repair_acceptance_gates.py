@@ -352,15 +352,15 @@ return 42
             self.assertIn('skipped: fixture: no account here', output.getvalue())
             self.assertNotIn('nothing was upgraded or verified', output.getvalue())
             self.assertTrue(any(cmd[0] != "bash" for cmd in calls), "no upgrade ran")
-            self.assertTrue(any(cmd[:2] == ["bash", str(update.config.REPO / "tests/smoke.sh")]
-                                for cmd in calls), "the smoke gate did not run")
+            self.assertTrue(any(cmd[:2] == ["bash", str(update.config.REPO / "tests/live.sh")]
+                                for cmd in calls), "the live gate did not run")
             selfmove.assert_called_once_with()
         with patch.object(update.sys, "platform", "darwin"):
             self.assertIn('Linux only', update.fresh_unavailable())
         with patch.object(update.sys, "platform", "linux"):
             self.assertEqual(update.fresh_unavailable(), "")
 
-    def test_update_reverts_when_smoke_skips_required_live_coverage(self):
+    def test_update_reverts_when_live_skips_required_coverage(self):
         versions = {h["name"]: "1.0.0" for h in update.harnesses()}
         self.script("muse", '''dir=${BASH_SOURCE[0]%/*}
 exec "$dir/muse-bin-$(cat "$dir/.muse-version")" "$@"
@@ -397,7 +397,7 @@ exec "$dir/muse-bin-$(cat "$dir/.muse-version")" "$@"
         self.assertIn('muse: reverted, back on 1.0.0-R1', output.getvalue())
         self.assertTrue((self.bin / 'muse-bin-1.0.0-R1').is_file())
         self.assertFalse((self.bin / 'muse-bin-2.0.0-R2').exists())
-        self.assertNotIn('smoke passed', output.getvalue())
+        self.assertNotIn('live passed', output.getvalue())
 
     def test_updated_smoke_fake_upgrade_and_merge_fixtures(self):
         # Exercise the actual fake adapters and bare origin used by smoke check 19, with

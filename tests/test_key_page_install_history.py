@@ -83,9 +83,10 @@ class QuestionBeforeTheInstall(Paging):
 
         tmux lost the seat, so nobody is in it and its card waits for no key of the owner's: a
         live seat's session would be seconds old, and that minute counts from its last
-        activity, which nothing back-dates."""
+        activity, which nothing back-dates.  Its conversation is not its own, so no tick
+        reopens it to ask again."""
         home, sink = self.home()
-        Seat(home, "acme", alive=False)
+        Seat(home, "acme", alive=False, record={"id_source": None})
         asked = time.time() - 300
         home.write(".agentkit/state/notify-acme.json",
                    {"session": "acme", "kind": "needs", "text": QUESTION, "time": asked})

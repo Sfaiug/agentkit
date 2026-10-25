@@ -87,8 +87,9 @@ mode = "subscription"
 SHIPPED = tomllib.loads((REPO / "config.default.toml").read_text())
 MATRIX, PAGE = "agentkit · config", "agentkit · config · subscriptions"
 ADD = "agentkit · config · add a subscription"
-# the key line on every page and list, and under a question
-KEYS = {"list": "  ↑↓←→ move   ⏎ choose   esc back", "ask": "  esc back"}
+# the key line on every page and list, and under a question; `r` on the matrix's rows
+KEYS = {"row": "  ↑↓←→ move   ⏎ choose   r recommended   esc back",
+        "list": "  ↑↓←→ move   ⏎ choose   esc back", "ask": "  esc back"}
 GIVE, TAKE = "\x1b[?1049l", "\x1b[?1049h"
 
 
@@ -120,7 +121,9 @@ def open_page(screen):
     lines = screen.frame()
     for _ in range(20):
         if "› Subscriptions" in lines:          # no `›` while a meter is lit
-            screen.case.assertEqual(lines[-1], KEYS["list"])
+            # a phone wraps the key line in two
+            screen.case.assertTrue(" ".join(" ".join(lines[-2:]).split()).endswith(
+                " ".join(KEYS["row"].split())), lines[-2:])
             return screen.press(ENTER, lambda lines: title(lines) == PAGE)
         lines = screen.press(DOWN)
     screen.case.fail(f"no `Subscriptions`: {lines}")

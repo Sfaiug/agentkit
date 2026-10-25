@@ -72,6 +72,11 @@ class OneTurn(unittest.TestCase):
             with self.subTest(role):
                 self.assertNotIn(RULE, self.prompt(REAL, role))
 
+    def test_an_executor_or_fixer_is_told_to_leave_the_suite_to_landing(self):
+        for role in ("executor", "fixer"):
+            with self.subTest(role):
+                self.assertIn("Never run the repository's `tests:` suite", self.prompt("", role))
+
     def test_none_another_word_or_no_line_gives_no_rule(self):
         for front in ("users: none", "users: realistic", "tests: true", ""):
             with self.subTest(front=front):

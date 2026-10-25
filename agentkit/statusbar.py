@@ -7,8 +7,9 @@ that orchestrates it, dim, then its progress line, as its menu row draws it, as 
 lets it be.  Its right end, while another seat on ak's own server needs you, says so in amber,
 `! 2 other seats need you`, a click away from the first of them; where it does not fit beside
 the left part the line narrows, then it folds to `! 2 need you`, and only then is the left part
-cut.  Line two shows the question or required action when the seat needs you; otherwise
-who builds and who reviews, and each task in flight as its squares
+cut.  Line two shows what the seat needs you for where its chat cannot: an expired login, a
+parked run, a failed move.  Its question is the chat's last message or card, so there line two
+is who builds and who reviews, and each task in flight as its squares
 (`whys`), with the one key at its right end, `Ctrl-b m  menu`, whatever the seat's word: the
 bar is in the seat, where `x` is a letter typed.  It never moves: the seat is where the owner reads and types.
 
@@ -131,12 +132,13 @@ def lines(name, model, word=None, last="", why=""):
 
 
 def whys(info):
-    """Line two, one version for each of `WHYS`: a needs-you reason, otherwise who builds and
-    reviews (`menu.crew`) and every task's squares (`menu.squares`), then cut to six, then the
-    squares alone, then cut to six, then to one and the count of the rest, so a narrow client
-    still sees its tasks; as tmux text. A recorded question may have scrolled off the chat:
-    every width keeps the reason while its needs-you word stands."""
-    if info.get("word") == "needs you":
+    """Line two, one version for each of `WHYS`: a needs-you reason no chat shows, otherwise
+    who builds and reviews (`menu.crew`) and every task's squares (`menu.squares`), then cut to
+    six, then the squares alone, then cut to six, then to one and the count of the rest, so a
+    narrow client still sees its tasks; as tmux text.  A question is not repeated: a stop shows
+    `needs you` only once it is the agent's last message, or its card is up (owner, 23 Oct
+    2026: "if we dont need it, lets remove it")."""
+    if info.get("word") == "needs you" and not info.get("question"):
         return [orch.tmux_text(terminal.plain(info.get("sentence") or ""))] * len(WHYS)
     who, tasks = menu.crew(info, tmux=True), info.get("tasks") or []
     if not tasks:
@@ -283,7 +285,7 @@ def redress(session, answer, cfg=None, records=None):
         lasts = [menu.last_column(word, *progress, cells, narrow=True, tmux=True,
                                   unsent=answer.get("unsent"), back=answer.get("resumes_at"))
                  for cells in BARS]
-        info = {"word": word, "sentence": answer.get("reason"),
+        info = {"word": word, "sentence": answer.get("reason"), "question": answer.get("question"),
                 "crew": menu.seat_crew(cfg, selection),
                 "tasks": menu.seat_tasks(name, records)}
         _write(name, selection["orchestrator"] if selection else None, word, lasts, cfg,

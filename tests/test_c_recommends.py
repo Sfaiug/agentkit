@@ -6,7 +6,7 @@ What it recommends is read off the matrix as last computed (`matrix.stored`,
 stands runs that model (`matrix.runs`; tests/test_c_recommends_effort.py: at the row's effort),
 saved to its record at once, and says why when it cannot; the orchestrator is only said, since
 moving the seat is its orchestrator mark's.  With nothing computed no model is recommended and
-`r` takes nothing; without a seat `r` is no key.
+`r` takes nothing.  Without a seat `r` takes for new seats (tests/test_r_in_a_fresh_window.py).
 
 Offline: a throwaway HOME with a stored matrix written by hand, the keys fed in, the usage faked.
 """
@@ -135,12 +135,6 @@ class Recommends(Sandbox):
         self.assertNotIn("take recommended", text)
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["astra"]))
-        # without a seat nothing is recommended
-        self.store([row("claude", "claude-fable-5-1", "xhigh", "fable", execute=100)])
-        with patch.object(terminal, "read_key", side_effect=[Key("esc")]), \
-                redirect_stdout(io.StringIO()) as drawn:
-            menu.show_config(False, Keyboard(), None)
-        self.assertNotIn("recommended", terminal.plain(drawn.getvalue()))
 
 
 if __name__ == "__main__":

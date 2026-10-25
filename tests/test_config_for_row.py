@@ -27,7 +27,7 @@ class ForRow(Sandbox):
                                 {"reviewers": ["astra"], "cwd": "/", "created": 0})
         self.moved = []
 
-        def switch(cfg, name, model, providers=None):
+        def switch(cfg, name, model, providers=None, **_kw):
             self.moved.append((name, model))
             config.update_session(name, orchestrator=model)
             return ""

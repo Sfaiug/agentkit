@@ -2,8 +2,9 @@
 
 Line one: its word -- `! needs you` alone as a chip, dark bold text on its amber, any other word
 in its colour -- the seat's name in bold, the model that orchestrates it, dim, and its progress
-line.  Line two: the question or required action for needs you; otherwise who builds and who
-reviews and each task in flight as its squares, the key at its right end.
+line.  Line two: what needs you that no chat shows (an expired login, a parked run); otherwise
+who builds and who reviews and each task in flight as its squares, the key at its right end.
+A question is the chat's last message or card, so line two never repeats it.
 The height is two on every write, so a seat dressed with one line gets its second at its next
 redraw and no pane resizes after; the bar is statusbar.py's alone, and no `@ak_runs` tally is
 left.  Offline: a temporary HOME, `orch.tmux_out` patched; no tmux runs.
@@ -106,17 +107,21 @@ class TwoLines(Sandbox):
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
         self.assertEqual(self.options["set-titles-string"], "fix-api · working")
 
-    def test_c_a_seat_that_needs_you_shows_its_question_below_its_word(self):
-        self.going()
+    def test_c_a_seat_that_needs_you_says_so_loud_and_its_question_stays_on_its_screen(self):
         notify.record("fix-api", "needs", "Merge 50% of #75 first?")
         self.assertEqual(watch.announce_state(self.seat, cfg=self.cfg)["word"], "needs you")
         top, why = self.options[statusbar.TOP], self.options[statusbar.WHY]
         self.assertIn(f"#[fg={INK},bg=#f9e2af,bold] ! needs you #[default]", top)
         self.assertEqual(drawn(top), "  ! needs you    fix-api   Fable 5.1")
-        self.assertEqual(drawn(why), "  Merge 50% of #75 first?")
-        for option in statusbar.WHYS:
-            self.assertEqual(drawn(self.options[option]), drawn(why))
+        self.assertEqual(drawn(why), "  GPT-6-Astra ⚒◎")
+        self.assertNotIn("Merge", "".join(self.options.values()))
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
+
+    def test_c1_what_needs_you_outside_the_chat_is_line_two_at_every_width(self):
+        reason = "gh login expired: run `gh auth login`"
+        statusbar.redress(self.seat, {"word": "needs you", "reason": reason}, cfg=self.cfg)
+        for option in statusbar.WHYS:
+            self.assertEqual(drawn(self.options[option]), f"  {reason}")
 
     def test_c2_a_seat_waiting_to_land_keeps_its_line(self):
         self.plan(2, 5)

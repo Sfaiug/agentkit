@@ -1,7 +1,7 @@
 """A real `ak update` upgrades a harness, gates it, and puts the old release back on a red gate.
 
 This is how every seat's harness moves to a new release: ak runs the harness's `[update]
-upgrade` command, then the acceptance gates (smoke, live, the fresh install), and keeps the new
+upgrade` command, then the acceptance gates (live, the fresh install), and keeps the new
 release only when they pass.  On a red gate it reinstalls the release it started from with
 `[update] revert` and says so; a reinstall that does not take is named with the command to run
 by hand, since a broken revert leaves every seat on a broken harness.  A second red gate in a row
@@ -37,7 +37,7 @@ case "$1 $2" in
 esac
 """
 # The fresh-install gate runs only on Linux; elsewhere the report says it was skipped.
-GATES = ["smoke", "live"] + (["e2e-fresh"] if sys.platform.startswith("linux") else [])
+GATES = ["live"] + (["e2e-fresh"] if sys.platform.startswith("linux") else [])
 
 
 def claude(home):
@@ -91,7 +91,7 @@ class HarnessUpgrade(unittest.TestCase):
 
     def test_a_reinstall_that_does_not_take_names_the_command_to_run_by_hand(self):
         (self.home.root / "reinstall-fails").touch()
-        self.gates.exit("smoke", 1)
+        self.gates.exit("live", 1)
         code, said = self.update()
         self.assertEqual(code, 1, said)
         self.assertEqual(self.release(), NEW)
@@ -108,13 +108,13 @@ class HarnessUpgrade(unittest.TestCase):
         self.assertIsNone(self.handed())
 
     def test_a_second_red_gate_in_a_row_is_kept_to_hand_back_until_one_passes(self):
-        self.gates.exit("smoke", 1)
+        self.gates.exit("live", 1)
         self.assertEqual(self.update()[0], 1)
         self.assertNotIn("line", self.handed() or {})     # one red can be the host's
         self.assertEqual(self.update()[0], 1)
         line = self.handed()["line"]
         self.assertIn("claude", line)
-        self.assertIn("smoke", line)
+        self.assertIn("live", line)
         self.gates.reset()
         self.assertEqual(self.update()[0], 0)
         self.assertIsNone(self.handed())

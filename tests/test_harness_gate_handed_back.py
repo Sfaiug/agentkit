@@ -31,14 +31,14 @@ class HarnessGateHandedBack(unittest.TestCase):
         config.ensure_dirs()
         checkout = self.root / "agentkit"
         (checkout / "tests").mkdir(parents=True)
-        for gate in ("smoke", "live", "e2e-fresh"):
+        for gate in ("live", "e2e-fresh"):
             (checkout / "tests" / f"{gate}.sh").touch()
         stack.enter_context(patch.object(config, "REPO", checkout))
         self.plan = [{"name": name, "version": [name, "--version"],
                       "upgrade": [name, "upgrade"], "revert": [name, "install", "{version}"],
                       "env": {}, "latest": [name, "latest"]} for name in ("acme", "beta")]
         self.installed = {h["name"]: "1.0.0" for h in self.plan}
-        self.failing, self.installer_failed = "smoke", False
+        self.failing, self.installer_failed = "live", False
         self.ready, self.seen = True, []
         stack.enter_context(patch.object(update, "harnesses", return_value=self.plan))
         stack.enter_context(patch.object(update, "version",
@@ -76,7 +76,7 @@ class HarnessGateHandedBack(unittest.TestCase):
         receipt({"seat": seat["name"], "line": line})
         return self.ready
 
-    def attempt(self, name="acme", failing="smoke"):
+    def attempt(self, name="acme", failing="live"):
         self.failing = failing
         self.assertEqual(update.background(name), int(bool(failing) or self.installer_failed))
         if failing:
@@ -88,7 +88,7 @@ class HarnessGateHandedBack(unittest.TestCase):
         return said
 
     def test_second_red_is_handed_back_once_with_failures_and_log_path(self):
-        for gate in ("smoke", "live", "e2e-fresh"):
+        for gate in ("live", "e2e-fresh"):
             with self.subTest(gate=gate):
                 self.attempt(failing=gate)
                 said = self.tick()

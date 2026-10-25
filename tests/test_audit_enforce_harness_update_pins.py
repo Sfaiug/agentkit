@@ -160,7 +160,7 @@ class HarnessUpdatePins(PinnedHome):
         assert settings["env"]["DISABLE_AUTOUPDATER"] == "1"
         assert "check_for_update_on_startup = false" in (self.root / ".codex/config.toml").read_text()
         # Run the actual offline assertion block too: a stale exact alias string here would
-        # otherwise make every real update fail its own smoke gate after all unit tests passed.
+        # otherwise fail smoke.sh at landing after all unit tests passed.
         smoke = (REPO / "tests/smoke.sh").read_text()
         check = smoke[smoke.index("# --- 7b:"):smoke.index("# --- 7c:")]
         prelude += f"FAKE={shlex.quote(str(self.root))}\n"

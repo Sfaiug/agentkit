@@ -133,6 +133,11 @@ PROCESSES = ("[checked by ak: tests/test_turn_leftover_processes.py] ak stops pr
              "when your turn ends and asks once to finish in the foreground.")
 CHECKS = ("[checked by ak: tests/test_reviewer_judges_the_diff.py] ak runs per-round done-when "
           "commands even when the worker skips them.")
+# 24 Oct 2026: an ATLAS builder ran its repository's whole suite, 7,417 tests, in one 3-hour
+# command on a host already swapping; the gate runs that suite once, at landing.
+SUITE = ("[worker judgement] Never run the repository's `tests:` suite or a large share of it: "
+         "ak runs it at landing. Run the tests your change touches; if you need suite-wide data, "
+         "say so in your summary.")
 SIZE = (f"[checked by ak: tests/test_size_gate.py] ak ends the run blocked with `split it` when "
         f"its first review would read more than {taskfile.MAX_PR_LINES} added lines, the tests among "
         "them (generated files and blocks moved unchanged aside).")
@@ -298,7 +303,7 @@ PREAMBLES = {
     "executor": (
         "You are the executor.\n"
         "[worker judgement] Work only inside {workspace} on the current branch; never push.\n"
-        f"{COMMITS}\n{CHECKS}\n{SIZE}\n{PROCESSES}\n{LEAST}\n"
+        f"{COMMITS}\n{CHECKS}\n{SUITE}\n{SIZE}\n{PROCESSES}\n{LEAST}\n"
         "[worker judgement] Finish with a `## Summary` section: what changed, how you verified it, open issues.\n"
         f"{NO_NOTIFY}\n{BLOCKED}"),
     "reviewer": (
@@ -319,7 +324,7 @@ PREAMBLES = {
         f"{GATE}\n{ONE_PASS}"),
     "fixer": (
         "You are the executor, continuing.\n"
-        f"{FIX_OR_DISPUTE.format(work='the diff')}\n{COMMITS}\n{CHECKS}\n{SIZE}\n{PROCESSES}\n{LEAST}\n"
+        f"{FIX_OR_DISPUTE.format(work='the diff')}\n{COMMITS}\n{CHECKS}\n{SUITE}\n{SIZE}\n{PROCESSES}\n{LEAST}\n"
         "[worker judgement] Finish with `## Summary`: what changed, how you verified it, open issues.\n"
         f"{NO_NOTIFY}\n{BLOCKED}"),
     # somebody else's PR: no executor ran, so the diff is judged against the repository itself
@@ -474,6 +479,42 @@ def kill_marked(run_id, grace=MARK_KILL_GRACE, log=None, exact=False):
     return False
 
 
+def within_declared_timeout(pid):
+    """Whether a live `timeout N` at or under that pid is still inside its N seconds.
+
+    A command started under `timeout` has said how long it may take, however little it prints:
+    `| tail` hides a slow test's output, and its silence is no hang before that bound."""
+    from . import watch     # here, not at the top: the babysitter imports this module
+    for child in watch.descendants(pid):
+        try:
+            argv = Path(f"/proc/{child}/cmdline").read_bytes().decode(errors="replace").split("\0")
+        except OSError:
+            continue
+        seconds = timeout_seconds(argv)
+        birth = seconds and host.process_identity(child)
+        if birth and birth["started_at"] + seconds > time.time():
+            return True
+    return False
+
+
+def timeout_seconds(argv):
+    """The duration `timeout(1)` was given in that argv, or None for any other command or none."""
+    if not argv or Path(argv[0]).name != "timeout":
+        return None
+    words = iter(argv[1:])
+    for word in words:
+        if word in ("-k", "-s", "--kill-after", "--signal"):
+            next(words, None)       # the option's value is the next word
+        elif word.startswith("-") and word != "--":
+            continue
+        else:
+            duration = next(words, "") if word == "--" else word
+            found = re.fullmatch(r"(\d+\.?\d*|\.\d+)([smhd]?)", duration)
+            return found and float(found[1]) * {"": 1, "s": 1, "m": 60, "h": 3600,
+                                                "d": 86400}[found[2]]
+    return None
+
+
 def kill_group(proc, run_id=None):
     """Take down the whole process group -- and, where the run is named, its marker.
 
@@ -604,16 +645,20 @@ def limited(cmd, limit, *, silence=None, activity=None, heartbeats=(), output=No
             stop(proc, KILL_GRACE)
 
     def watch_output():
-        last, seen, longest = started, previous, 0
+        last, seen, longest, held = started, previous, 0, started
         while not finished.is_set():
             now = time.monotonic()
             current = heard()
             if current != seen:
                 longest = max(longest, now - last)
                 last, seen = now, current
+            if (silence is not None and now - last >= silence
+                    and within_declared_timeout(proc.pid)):
+                held = now      # silence counts from the last poll a declared bound held
             reason = ("abort" if abort is not None and abort() else
                       "ceiling" if limit is not None and now - started >= limit else
-                      "silence" if silence is not None and now - last >= silence else None)
+                      "silence" if silence is not None and now - max(last, held) >= silence
+                      else None)
             if reason:
                 expired.set()
                 try:
@@ -626,7 +671,7 @@ def limited(cmd, limit, *, silence=None, activity=None, heartbeats=(), output=No
             if limit is not None:
                 remaining.append(limit - (now - started))
             if silence is not None:
-                remaining.append(silence - (now - last))
+                remaining.append(silence - (now - max(last, held)))
             finished.wait(min(remaining))
         if quiet is not None:
             quiet.append(max(longest, time.monotonic() - last))

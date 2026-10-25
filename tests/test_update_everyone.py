@@ -54,7 +54,7 @@ class Everyone(unittest.TestCase):
                     self.assertEqual(update.main(["--dry-run"]), 0)
                 text = out.getvalue()
                 self.assertIn("dry run, nothing changed", text)
-                self.assertIn("update: gate smoke: run", text)
+                self.assertIn("update: gate live: run", text)
                 if why:
                     self.assertIn(f"update: gate fresh: skipped: {why}", text)
                 else:
@@ -80,16 +80,14 @@ class Everyone(unittest.TestCase):
         self.assertNotIn("nothing was upgraded or verified", text)
         self.assertNotIn("the gate was not run", text)
         self.assertEqual(calls[0], PLAN[0]["upgrade"])
-        # this checkout has a tests/live.sh, which runs once tests/smoke.sh passed
-        self.assertEqual(calls[1:], [["bash", str(config.REPO / "tests/smoke.sh")],
-                                     ["bash", str(config.REPO / "tests/live.sh")]])
+        self.assertEqual(calls[1:], [["bash", str(config.REPO / "tests/live.sh")]])
         selfmove.assert_called_once_with()
 
-    def test_fresh_gate_skips_on_its_own_exit_after_smoke_passed(self):
-        # The real host path: smoke wrote its acceptance line to the shared log first,
+    def test_fresh_gate_skips_on_its_own_exit_after_live_passed(self):
+        # The real host path: live wrote its acceptance line to the shared log first,
         # then the fresh gate left before its first check. Only its own appended lines
-        # may classify it -- the smoke line must not read as a failed fresh run.
-        gates = [["bash", str(config.REPO / "tests" / name)] for name in ("smoke.sh", "live.sh")]
+        # may classify it -- the live line must not read as a failed fresh run.
+        gates = [["bash", str(config.REPO / "tests/live.sh")]]
 
         def run(cmd, fh, env=None, timeout=None, **_kw):
             fh.write(f"\n$ {' '.join(cmd)}\n")
@@ -201,10 +199,9 @@ class Everyone(unittest.TestCase):
         echo = {**PLAN[0], "revert": ["echo", "install", "{version}"]}
         both = [echo, {**PLAN[0], "name": "gone", "version": ["ak-fixture-gone", "--version"],
                        "upgrade": ["ak-fixture-gone", "upgrade"]}]
-        smoke = ["bash", str(config.REPO / "tests/smoke.sh")]
         live = ["bash", str(config.REPO / "tests/live.sh")]
         back = ["echo", "install", "1.0.0"]
-        for argv, working, failing in ((["--dry-run"], [], ""), ([], [], ""), ([], [], "smoke"),
+        for argv, working, failing in ((["--dry-run"], [], ""), ([], [], ""), ([], [], "live"),
                                        ([], [], "fresh"), ([], ["atoll", "vega"], "")):
             with self.subTest(argv=argv, working=working, failing=failing):
                 versions = {"echo": "1.0.0", "gone": ""}
@@ -214,7 +211,7 @@ class Everyone(unittest.TestCase):
                     calls.append(cmd)
                     versions["echo"] = {tuple(echo["upgrade"]): "2.0.0",
                                         tuple(back): "1.0.0"}.get(tuple(cmd), versions["echo"])
-                    return cmd != smoke or failing != "smoke"
+                    return cmd != live or failing != "live"
 
                 out = io.StringIO()
                 with patch.object(update, "harnesses", return_value=both), \
@@ -232,7 +229,7 @@ class Everyone(unittest.TestCase):
                     # the plan still names every configured harness, the absent one too
                     self.assertIn("echo 1.0.0 (versioned reinstall available): echo upgrade", text)
                     self.assertIn("gone not installed (", text)
-                    self.assertIn("update: gate smoke: run", text)
+                    self.assertIn("update: gate live: run", text)
                     self.assertEqual(calls, [])
                 elif working:
                     self.assertIn("update: harnesses: skipped: 2 sessions are working "
@@ -240,13 +237,12 @@ class Everyone(unittest.TestCase):
                     self.assertEqual(calls, [])
                     selfmove.assert_called_once_with()
                 elif failing:
-                    self.assertEqual(calls, [echo["upgrade"], smoke]
-                                     + [live] * (failing == "fresh") + [back])
+                    self.assertEqual(calls, [echo["upgrade"], live, back])
                     self.assertIn("FAILED after echo 1.0.0->2.0.0", text)
                     self.assertIn("update: echo: reverted, back on 1.0.0", text)
                     selfmove.assert_not_called()
                 else:
-                    self.assertEqual(calls, [echo["upgrade"], smoke, live])
+                    self.assertEqual(calls, [echo["upgrade"], live])
                     self.assertIn("update: echo: upgraded, 1.0.0->2.0.0", text)
                     selfmove.assert_called_once_with()
 

@@ -1,10 +1,12 @@
-"""The `c` screen steps an effort, moves a seat at once, and adds a model, each into config.
+"""The `c` screen steps an effort, moves a seat once asked, and adds a model, each into config.
 
 `c` is where the owner changes the models without opening a file: Enter on a model's effort
 steps it one up and config.toml is rewritten at once, whole, with the menu's header, every
-other value and an unknown key kept; Enter on another model's orchestrator mark moves the seat
-to it at once, asking nothing, its record naming the new orchestrator and its tmux session
-running that model's harness, config.toml as it was; and `+ add a
+other value and an unknown key kept; Enter on another model's orchestrator mark asks under the
+matrix first, as the owner said on 24 Oct ("when pressing a different orch, it should ask me
+to confirm. As this restarts the session."): Esc keeps the record and the pane as they were,
+and `Move` moves the seat, its record naming the new orchestrator and its tmux session running
+that model's harness, config.toml as it was; and `+ add a
 model` walks harness, model and effort, each picked from a list, the models being the ones the
 harness's adapter lists, and writes the new model to config.toml under its provider.
 Black-box: the program `AK_BIN` names, as the popup over a seat as ak leaves it
@@ -36,7 +38,7 @@ CATALOG = "m1\tModel One\tlow medium high"     # what the claude adapter's `mode
 # efforts the same, as a real Claude's does, so the bar reads the same either way.
 FABLE_LISTED = "claude-fable-5-1\tFable 5.1\tlow medium high xhigh max"
 HEADER = "# agentkit's config, written by the menu's `c` screen."
-KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"   # a seat's, wherever the highlight is
+KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"   # wherever the highlight is
 PAGE_KEYS = "  ↑↓←→ move   ⏎ choose   esc back"   # a page under it, with no `r`
 
 def rows(screen):
@@ -99,7 +101,19 @@ class ConfigScreenEdits(unittest.TestCase):
         expected["models"]["fable"]["effort"] = "max"
         self.assertEqual(tomllib.loads(text), expected)
 
-    def test_another_model_s_orchestrator_mark_moves_the_seat_at_once_asking_nothing(self):
+    def pane(self):
+        return self.home.tmux("display-message", "-p", "-t", f"={SEAT}:",
+                              "#{pane_id} #{pane_pid}").out.strip()
+
+    def asked(self, model):
+        """Enter on the highlighted orchestrator mark, and the question it asks under the rows."""
+        self.term.keys("Enter")
+        return self.term.wait(lambda screen: f"  Restart {SEAT} on {model}?" in rows(screen)
+                              and "  It starts a new conversation, handed the one it had."
+                              in rows(screen) and "› ✓ Keep" in rows(screen)
+                              and "  ✗ Move" in rows(screen))
+
+    def test_another_model_s_orchestrator_mark_asks_and_moves_the_seat_on_move(self):
         # the command it opens astra with leaves the pane it runs in, writing nothing on it: a
         # Codex pane's text would be its composer's
         ran = self.fakes["codex"].dir / "astra-pane"
@@ -110,7 +124,21 @@ class ConfigScreenEdits(unittest.TestCase):
         self.term.keys("j")
         self.term.wait(lambda screen: "› GPT-6-Astra  [○]     ■        ■     ▰▰▰▱▱▱  high"
                        in rows(screen))
-        self.term.keys("Enter")
+        pane, record = self.pane(), self.record.read_text()
+        opened = len(self.fakes["codex"].calls("interactive"))
+        # asked, nothing moved yet; Esc keeps the record, the pane and config.toml as they were
+        self.asked("GPT-6-Astra")
+        self.assertEqual((self.pane(), self.record.read_text()), (pane, record))
+        self.term.keys("Escape")
+        screen = self.term.wait(lambda screen: key_line(screen) == KEYS)
+        self.assertIn("› GPT-6-Astra  [○]     ■        ■     ▰▰▰▱▱▱  high", rows(screen))
+        self.assertEqual((self.pane(), self.record.read_text()), (pane, record))
+        self.assertEqual(len(self.fakes["codex"].calls("interactive")), opened)
+        self.assertFalse(ran.exists())
+        self.assertEqual(tomllib.loads(self.config.read_text()), self.given)
+        # asked again, and `Move` moves it
+        self.asked("GPT-6-Astra")
+        self.term.keys("Down", "Enter")
         screen = self.term.wait(lambda screen: "› GPT-6-Astra  [●]     ■        ■     ▰▰▰▱▱▱  high"
                                 in rows(screen))
         self.assertIn("  Fable 5.1     ○      □        □     ▰▰▰▰▱   xhigh", rows(screen))
@@ -128,7 +156,9 @@ class ConfigScreenEdits(unittest.TestCase):
                          ["gpt-6-astra", "high"])
         self.assertEqual(tomllib.loads(self.config.read_text()), self.given)
         # back on Fable, as the other cases find the seat
-        self.term.keys("k", "Enter")
+        self.term.keys("k")
+        self.asked("Fable 5.1")
+        self.term.keys("Down", "Enter")
         self.term.wait(lambda screen: "› Fable 5.1    [●]     □        □     ▰▰▰▰▱   xhigh"
                        in rows(screen))
         self.assertEqual(json.loads(self.record.read_text())["orchestrator"], "fable")
@@ -157,14 +187,14 @@ class ConfigScreenEdits(unittest.TestCase):
         self.term.keys("Enter")
         # the row's cells, under whichever name the screen gives a model it has just added
         cells = "[○]     □        □     ▰▱▱     low"
-        screen = self.term.wait(lambda screen: any(line.startswith("› ") and line.endswith(cells)
-                                                   for line in rows(screen)))
+        # read once the frame is drawn down to its key line
+        screen = self.term.wait(lambda screen: key_line(screen) == KEYS and any(
+            line.startswith("› ") and line.endswith(cells) for line in rows(screen)))
         lines = rows(screen)
         row = next(line for line in lines if line.startswith("› ") and line.endswith(cells))
         # the new model sits with its harness's others, after them
         self.assertEqual(lines.index("Codex") - lines.index("Claude Code"), 3)
         self.assertEqual(lines.index(row), lines.index("Codex") - 1)
-        self.assertEqual(key_line(screen), KEYS)
         models = tomllib.loads(self.config.read_text())["models"]
         self.assertEqual(models["model-one"], {"harness": "claude", "model": "m1",
                                                "effort": "low", "provider": "anthropic"})

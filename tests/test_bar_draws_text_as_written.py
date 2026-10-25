@@ -108,7 +108,7 @@ class AsWritten(Sandbox):
         self.assertNotIn("##", line)
         self.assertNotIn("z-", line)
 
-    def test_e_needs_you_shows_the_question_until_answered(self):
+    def test_e_needs_you_leaves_the_question_to_the_seat_s_screen(self):
         config.save_session(self.cfg, "fix-api", "fable", ["astra"])
         self.ended("20260101-0900-going", owner="fix-api", state="running",
                    finished_at=None, started_at=9000)
@@ -119,9 +119,10 @@ class AsWritten(Sandbox):
                 notify.record("fix-api", "needs", question)
                 answer = watch.announce_state(seat, cfg=self.cfg)
                 self.assertEqual(answer["word"], "needs you")
-                top, bottom = self.screen(question)
+                top, bottom = self.screen("! needs you")
                 self.assertIn("! needs you", top)
-                self.assertIn(question, bottom)
+                self.assertNotIn(question, bottom)
+                self.assertIn("■□□", bottom)
                 self.assertTrue(bottom.rstrip().endswith("Ctrl-b m  menu"), bottom)
                 notify.answered("fix-api", at=10001)
                 self.assertEqual(watch.announce_state(seat, cfg=self.cfg)["word"], "working")

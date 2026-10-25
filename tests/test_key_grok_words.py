@@ -90,7 +90,7 @@ class GrokWords(unittest.TestCase):
             "grok-draft-pane.txt": "prompt.draft",
             "grok-title-composed-pane.txt": "prompt.draft",
             "grokbuild-esc-clear-pane.txt": "prompt.draft",
-            "grokbuild-slash-pane.txt": "prompt.draft",
+            "grokbuild-slash-pane.txt": "draft.dropdown",
             "grokbuild-suggestion-typed-pane.txt": "prompt.draft",
         })
 

@@ -753,6 +753,8 @@ def _rule(entry, path):
     return {"id": str(entry.get("id") or entry["state"]), "state": entry["state"],
             "lines": max(1, int(entry.get("lines", 8))), "all": marks("all"),
             "any": marks("any"), "none": marks("none"), "row": _pattern(entry.get("row"), path),
+            # one pattern over the window's rows as drawn, read together: a frame no row alone is
+            "rows": _pattern(entry.get("rows"), path, re.M),
             "newest": _pattern(entry.get("newest"), path), "chrome": bool(entry.get("at_composer")),
             "picker": bool(entry.get("picker"))}
 
@@ -785,7 +787,12 @@ def screen(harness):
              # the keys that hand its composer to $VISUAL, ak's editor (`seat_editor`)
              "editor": tuple(key for key in block.get("editor") or ()
                              if isinstance(key, str) and key),
-             # a paste it hands that editor as its placeholder alone (`_may_paste`)
+             # what the screen shows, read whole, before each of the last of them goes in, each
+             # typed into a menu the key before it opens in its own time (`_edit`)
+             "editor_shows": tuple(_pattern(shown, path, re.M) for shown
+                                   in block.get("editor_shows") or ()
+                                   if isinstance(shown, str) and shown),
+             # a paste that editor would lose or never takes (`_may_paste`)
              "pasted": _pattern(block.get("pasted"), path),
              "rules": [_rule(entry, path) for entry in data.get("rule") or ()]}
     _SCREEN[harness] = (data, built)
@@ -1828,7 +1835,8 @@ def screen_state(harness, tail):
         raws = raw_lines[-rule["lines"]:]
         # marks read their rows as drawn, indented or from the left edge, so a dialog's
         # indented controls are not a reply's rows quoting them
-        low = "\n".join(strip_sgr(raw).rstrip() for raw in raws).lower()
+        together = "\n".join(strip_sgr(raw).rstrip() for raw in raws)
+        low = together.lower()
         if rule["id"] in ("prompt.draft", "prompt.suggestion"):
             if rule["none"] and any(mark in low for mark in rule["none"]):
                 continue
@@ -1887,6 +1895,7 @@ def screen_state(harness, tail):
                 or (rule["any"] and not any(mark in low for mark in rule["any"]))
                 or (rule["none"] and any(mark in low for mark in rule["none"]))
                 or (rule["row"] and not drawn)
+                or (rule["rows"] and not rule["rows"].search(together))
                 or (rule["newest"] and not rule["newest"].search(newest))
                 or (rule["chrome"] and not chrome_line(chrome, lines[-1]))):
             continue
@@ -2602,11 +2611,18 @@ def still_owed(name, stopped):
     return None
 
 
-def news_owed(name, mine):
-    """What ak still has to type into that seat, as its reason, or None: the end of its `ak
-    wait` not yet told (`wait_over`), or an ending of its own runs nobody has heard that is the
-    seat's to decide (`handback.owes_ending`, less a routine one, which is never typed)."""
-    wait = seat_read(name).get("wait")
+def news_owed(name, mine, read=True):
+    """What ak still has to type into that seat, as its reason, or None: a line `revive` owes it
+    (`tell_owed`), the end of its `ak wait` not yet told (`wait_over`), or an ending of its own
+    runs nobody has heard that is the seat's to decide (`handback.owes_ending`, less a routine
+    one, which is never typed).  Only the first while no rule or hook `read` its screen: the
+    harness of a seat just reopened is still drawing its prompt."""
+    marks = seat_read(name)
+    if marks.get("owed_lines"):
+        return "telling it what it missed while it was gone"
+    if not read:
+        return None
+    wait = marks.get("wait")
     if isinstance(wait, dict) and wait.get("over") and not wait.get("told"):
         return f"telling it its wait on {wait.get('on')} is over"
     for run_dir, state in mine:
@@ -2883,10 +2899,10 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         return {"word": "needs you", "reason": asked, "since": found.get("began")}
     # ... or ak still has a line to type into it, at its next quiet prompt: that line moves it,
     # not the owner, who was paged `stopped with work open` while the line waited behind
-    # their own unsent text (19 Oct 2026).  Only at a prompt a rule or hook read: `classify`
-    # offers `at_prompt` with no `authority` for a screen nobody can read, which takes no line.
-    telling = (news_owed(name, mine) if found.get("authority")
-               and found.get("state") in ("at_prompt", "draft") else None)
+    # their own unsent text (19 Oct 2026).  `classify` offers `at_prompt` with no `authority`
+    # for a screen nobody can read, which takes no line yet (`news_owed`).
+    telling = (news_owed(name, mine, bool(found.get("authority")))
+               if found.get("state") in ("at_prompt", "draft") else None)
     if telling:
         return {"word": "working", "reason": telling, "since": found.get("began")}
     # Nothing running, asked or owed: a plan whose every line is proven is done, which ak reads
@@ -3092,7 +3108,8 @@ def wait_main(argv):
     names a fact ak can read, never a session: the tick ends it when the pull request merges
     or closes, no run is going on it, or the run ends, and tells the seat so (`wait_over`).
     One already over is refused with its fact (`wait_fact`): the tick would end it at once and
-    wake the seat for nothing.
+    wake the seat for nothing.  A pull request the seat's own going run reviews or lands is
+    waited on as that run, whose hand-back then is the one line.
     """
     if command_help.show("wait", argv):
         return 0
@@ -3121,6 +3138,14 @@ def wait_main(argv):
     if over:
         print(f"ak wait: {why}; nothing is left to wait on", file=sys.stderr)
         return 1
+    if kind == "pr":
+        # its hand-back says the verdict and the merge; a wait on the pull request would type a
+        # second line whenever GitHub says merged before the run has saved it (24 Oct)
+        own = next((state["run_id"] for state in transitions.runs_on(pr=on)
+                    if transitions.going(state) and transitions.launched_session(state) == seat),
+                   None)
+        if own:
+            wait, shown = dict(wait, on=own, kind="run"), f"run {own}, on {shown}"
     if not seat_write(seat, wait=wait):
         return 1
     print(f"{seat}: waiting on {shown}")
@@ -3855,35 +3880,58 @@ def _edit(session, where, mode, line=""):
     that open it: its answer, or None where it gives none within SENT_WAIT, or where no key
     goes out as the pane's cursor is off its composer (`off_composer`) or its composer, read
     just before them, may hold a paste the editor would lose (`_may_paste`).  The editor reads
-    the composer itself, which a screen can draw late or cropped.  The ask is taken back after,
-    for the owner's own edit never to find -- one that keys went out for and that went
-    unanswered turned to `none`, which an edit they open late leaves as it is."""
+    the composer itself, which a screen can draw late or cropped.  The keys go in one write, as
+    a harness opening a new session can drop a first key typed alone, but each one typed into a
+    menu only once the screen shows what the key before it drew (`[screen] editor_shows`):
+    where the menu never opens, it would be the owner's.  The ask goes out with the last key, as
+    the editor takes none asked longer ago than `aside_editor.FRESH`, the menus' waits included.
+    It is taken back after, for the owner's own edit never to find -- one that keys went out for
+    and that went unanswered turned to `none`, which an edit they open late leaves as it is."""
     bound = dict(session, pane=where["id"])
     if off_composer(bound) or _may_paste(where["harness"], bound):
         return None
-    server, pane, ask = orch.seat_socket(session), where["id"], aside_editor.request(mode, line)
+    server, pane, ask = orch.seat_socket(session), where["id"], ""
+    keys, shows = where["keys"], screen(where["harness"])["editor_shows"]
+    split = len(keys) - len(shows)
+    writes = [(None, keys[:split]), *((shown, (key,)) for shown, key in zip(shows, keys[split:]))]
     after = ("set-option", "-pu", "-t", pane, aside_editor.ASK)
     try:
-        if (orch.tmux_out("set-option", "-p", "-t", pane, aside_editor.ASK,
-                          orch.tmux_literal(ask), socket=server)[0] == 0
-                and orch.tmux_out("send-keys", "-t", pane, *where["keys"], socket=server)[0] == 0):
-            for _ in range(int(SENT_WAIT / SENT_POLL)):
-                rc, said = orch.tmux_out("show-options", "-pqv", "-t", pane, aside_editor.ASK,
-                                         socket=server)
-                if rc == 0 and (word := aside_editor.answer(ask, said)):
-                    return word
-                time.sleep(SENT_POLL)
-            after = ("set-option", "-p", "-t", pane, aside_editor.ASK,
-                     orch.tmux_literal(aside_editor.request("none")))
+        for at, (shown, chord) in enumerate(writes, 1):
+            if shown and not _shows(bound, shown):
+                return None
+            if at == len(writes):
+                ask = aside_editor.request(mode, line)
+                if orch.tmux_out("set-option", "-p", "-t", pane, aside_editor.ASK,
+                                 orch.tmux_literal(ask), socket=server)[0] != 0:
+                    return None
+            if orch.tmux_out("send-keys", "-t", pane, *chord, socket=server)[0] != 0:
+                return None
+        for _ in range(int(SENT_WAIT / SENT_POLL)):
+            rc, said = orch.tmux_out("show-options", "-pqv", "-t", pane, aside_editor.ASK,
+                                     socket=server)
+            if rc == 0 and (word := aside_editor.answer(ask, said)):
+                return word
+            time.sleep(SENT_POLL)
+        after = ("set-option", "-p", "-t", pane, aside_editor.ASK,
+                 orch.tmux_literal(aside_editor.request("none")))
     finally:
         orch.tmux_out(*after, socket=server)
     return None
 
 
+def _shows(session, shown):
+    """Whether that seat's screen, read whole, shows `shown` within SENT_WAIT."""
+    for _ in range(int(SENT_WAIT / SENT_POLL)):
+        if shown.search(strip_sgr(pane_text(session))):
+            return True
+        time.sleep(SENT_POLL)
+    return False
+
+
 def _may_paste(harness, session):
-    """Whether that seat's composer may hold a paste its harness hands its editor as a
-    placeholder and sends alone once the editor returns (`[screen] pasted`): one it shows, or
-    any draft not read whole, which may hold one above the rows it shows."""
+    """Whether that seat's composer may hold a paste its harness's editor would lose or never
+    takes (`[screen] pasted`): one it shows, or any draft not read whole, which may hold one
+    above the rows it shows."""
     pasted = screen(harness)["pasted"]
     if pasted is None:
         return False
@@ -4330,14 +4378,14 @@ def sweep_preexisting(log, now=None):
 
 
 def revive(name, line, log, cfg=None, *, prepare):
-    """Bring a gone seat back on its own conversation, and type one line into it.
+    """Bring a gone seat back on its own conversation, and owe it one line.
 
     The way its number in the menu opens it: the saved conversation where the record holds
-    one, and fresh where it does not -- then the line says so.  A seat just started gets
-    INBOX_WARMUP before it is typed into, as the inbox does, and the line goes through the
-    confirmed send, after `prepare` fits the final line to its composer. The answer is None
-    when the seat was told, else why it was not, in a
-    clause the owner's notice can end with.
+    one, and fresh where it does not -- then the line says so.  The line, once `prepare` fits it
+    to its composer, is from then on ak's to deliver (`tell_owed`): tried once a seat just
+    started has had INBOX_WARMUP, as the inbox is, and on every tick after until it is in,
+    however long the harness takes to draw its prompt.  The answer is None when the seat came
+    back, else why it did not, in a clause the owner's notice can end with.
     """
     try:
         back = orch.ensure(config.load() if cfg is None else cfg, name, log, saved=True)
@@ -4345,12 +4393,50 @@ def revive(name, line, log, cfg=None, *, prepare):
         return str(exc)
     if back == "fresh":
         line += FRESH_NOTE
-    line = prepare(line)
+    name = config.resolve_session(name)
+    owe_line(name, None, {"line": prepare(line)})
     if back:
         time.sleep(INBOX_WARMUP)     # the TUI has to be listening before it is typed into
-    if type_into(orch.find(name) or {"name": name}, line, log):
-        return None
-    return "the continue line was not confirmed sent"
+    tell_owed(name, log, cfg)
+    return None
+
+
+def owe_line(name, line, owed):
+    """The line owed to that seat with the text `line` becomes `owed`: added where `line` is
+    None, gone where `owed` is.  Under the seat's send lock, which a rename takes too, so the
+    lines are written where the seat's record is."""
+    with notify.session_lock(name) as held, seat_lock(held):
+        data = seat_read(held)
+        lines = data.get("owed_lines") or []
+        lines = ([owed if old["line"] == line else old for old in lines] if line
+                 else [*lines, owed])
+        _seat_put(held, data, {"owed_lines": [old for old in lines if old] or None})
+
+
+def tell_owed(name, log, cfg=None):
+    """The oldest line `revive` owes that seat goes in at its quiet prompt (`type_at_prompt`),
+    never onto text the owner typed there; the tick asks this of every seat, so the line waits
+    for a harness however slow to draw its prompt.  Its mark is kept from try to try until the
+    composer reads empty, so it goes in once.  `revive` in a run's process and the tick may both
+    get here: each key goes only while the line it read still heads the seat's lines, read under
+    the send lock, so a teller another one overtook types nothing more."""
+    owed = (seat_read(name).get("owed_lines") or [None])[0]
+    seat = orch.find(name) if owed else None
+    if not seat:
+        return
+    line, read = owed["line"], [owed]
+
+    def kept(mark):
+        read[0] = {**owed, "typed": mark}
+        owe_line(name, line, read[0])
+
+    def overtaken(held):
+        return (seat_read(held).get("owed_lines") or [None])[0] != read[0]
+
+    if type_at_prompt(seat, line, log, cfg=cfg, typed=owed.get("typed"), receipt=kept,
+                      stale=overtaken):
+        owe_line(name, line, None)
+        log(f"told {name}: {line}")
 
 
 def seat_subscription(cfg, provider, name):
@@ -6357,16 +6443,20 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
 
 
 def revive_seats(cfg, log):
-    """Bring back a seat whose harness died while a run it launched is still going.
+    """Bring back a seat whose harness died owing work: a run it launched still going, or a
+    turn or a question to the owner its process cut off.
 
     A seat the listing shows exited, restarting or resumable -- its process gone, however it
-    went -- with a run of its own still running or queued is reopened on its saved
-    conversation and told the run is still going.  Once per death: `reopened_at` in the seat's
-    state file, written before the launch so one that fails is not repeated every tick, and
-    cleared when the seat is next seen live.  A seat the owner stopped stays stopped.  The
-    owner hears only when the reopen fails.  tmux is asked only with something to do: a run
-    going, or a marker to clear.  Every tick files a seat with no project from the run records
-    read here (`orch.file_projectless`), a run going or not.
+    went -- is reopened on its saved conversation when it was asking or mid-turn by
+    `resume_after_boot`'s reading (`_cut_line`), on a conversation its own, and typed
+    `reboot_line`'s line; else, with a run of its own still running or queued, told the run is
+    still going.  A Stop on background agents is mid-turn; one that died idle, a shell or a
+    monitor held or not, stays gone.  Once per death: `reopened_at` in the seat's state file,
+    written before the launch so one that fails is not repeated every tick, and cleared when
+    the seat is next seen live.  A seat the owner stopped stays stopped.  The owner hears only
+    when the reopen fails.  tmux is asked only with something to do: a run going, a seat not
+    closed that reads asking or mid-turn, or a marker to clear.  Every tick files a seat with
+    no project from the run records read here (`orch.file_projectless`), a run going or not.
     """
     going, states = {}, []
     for run_dir in run_record.run_dirs():
@@ -6383,36 +6473,52 @@ def revive_seats(cfg, log):
             going.setdefault(seat, (run_dir, state))
     kept = config.session_records()
     orch.file_projectless([{**record, "name": name} for name, record in kept.items()], states)
-    if not going and not any(seat_read(name).get("reopened_at") for name in kept):
+    cut = {name for name, record in kept.items()
+           if not (seat_stopped_at(name) or seat_closed_by_owner(name))
+           and _cut_line(cfg, name, hook_facts(name)) and orch.resumable(record)}
+    if not going and not cut and not any(seat_read(name).get("reopened_at") for name in kept):
         return
     for session in orch.listing():
         name = session["name"]
         marks = seat_read(name)
         if not any(session.get(key) for key in ("exited", "restart", "resumable")):
             if marks.get("reopened_at"):
+                # An attempt to clear it only once the reopened turn ended failed three review
+                # rounds on 24 Oct 2026: no one signal says a turn ended on every harness (an
+                # unsent draft, a permission card and a question asked mid-turn each misread
+                # it).  Runs bound repeated deaths by time instead (DEAD_BACKOFF, DEAD_WINDOW).
                 seat_write(name, reopened_at=None)   # live again: the next death is a new one
             continue
-        if (name not in going or marks.get("reopened_at") or seat_closed(name)
-                or marks.get("closed_by_owner")):
+        if (name not in going and name not in cut or marks.get("reopened_at")
+                or seat_closed(name) or marks.get("closed_by_owner")):
             continue
-        run_dir, state = going[name]
-        run_id, title = run_dir.name, state.get("title") or run_dir.name
+        line = reboot_line(cfg, name) if name in cut else None   # read before the reopen
+        if name in going:
+            run_dir, state = going[name]
+            run_id, title = run_dir.name, state.get("title") or run_dir.name
+            owed, about = f"while run {run_id} ({title}) is still going", f"continue {run_id}"
+            say, event = f"continue {title}", run_id
+        else:
+            owed, about = "in the middle of a turn or a question to you", "go on with its turn"
+            say, event = "continue", "turn"
         died = time.time()
         seat_write(name, reopened_at=died)
-        why = revive(name, f"continue: your run {run_id} ({title}) is still going; "
-                           "pick up where you left off", log, cfg,
-                     prepare=lambda line: handback.seat_notice(
-                         line, state, run_dir, f"run {run_id} is still going.",
-                         "Pick up where you left off."))
+        if line:
+            why = revive(name, line, log, cfg, prepare=lambda line: line)
+        else:
+            why = revive(name, f"continue: your run {run_id} ({title}) is still going; "
+                               "pick up where you left off", log, cfg,
+                         prepare=lambda line: handback.seat_notice(
+                             line, state, run_dir, f"run {run_id} is still going.",
+                             "Pick up where you left off."))
         if why is None:
-            log(f"reopened {name} and asked it to continue {run_id}")
+            log(f"reopened {name} and asked it to {about}")
             continue
-        text = (f"Its orchestrator session {name} is gone while run {run_id} ({title}) is "
-                f"still going. agentkit tried to reopen the seat and could not: {why}. "
-                f"Press its number in the menu, then say: continue {title}.")
+        text = (f"Its orchestrator session {name} is gone {owed}. agentkit tried to reopen the "
+                f"seat and could not: {why}. Press its number in the menu, then say: {say}.")
         if notify.shaped("needs", text, session=name,
-                         event_id=f"revive:{name}:{run_id}:{int(died)}") == 0:
-            log(f"could not reopen {name}; asked the user to continue {run_id}")
+                         event_id=f"revive:{name}:{event}:{int(died)}") == 0:
+            log(f"could not reopen {name}; asked the user to {about}")
         else:
             log(f"WARN {name}: notification was not accepted; retry required")
 
@@ -7448,7 +7554,7 @@ def local_passes(state, dry_run, log):
     Each pass re-derives placement or state from what it finds: a finding remembered from one
     tick to the next loses its race.
     """
-    from . import job as jobs, leases, logins, matrix, retire
+    from . import job as jobs, leases, logins, retire
     providers = {}
 
     def read_usage():
@@ -7496,10 +7602,6 @@ def local_passes(state, dry_run, log):
         ("the login-end read did not run", lambda: logins.remind(config.load()), False),
         ("the worker-token reminder did not run",
          lambda: remind_worker_tokens(state.get("worker_tokens")), False),
-        # the public boards once a day, and the matrix every pick reads, computed again only
-        # when a board answered anew or the config's models or the harnesses installed changed;
-        # a dry run reads nothing
-        ("the boards pass did not run", lambda: matrix.refresh(config.load()), False),
         # An exhausted run waits for a provider window and resumes itself when one refills, on
         # the usage just read; a run parked on an expired login, the moment that harness's
         # `auth` verb passes again; a run in error, on the loop's transient ladder, hourly at
@@ -7518,9 +7620,11 @@ def local_passes(state, dry_run, log):
         ("the ending pass did not run", lambda: offer_endings(log), False),
         # A job that finished while its seat was mid-turn hands its line back at the next quiet
         # prompt, the way one of its runs does; a seat whose `ak wait` names a pull request or
-        # run that is over is told so, which ends the wait.
+        # run that is over is told so, which ends the wait; a seat ak reopened, what it missed.
         ("a finished job was not handed back", lambda: jobs.deliver_job_handbacks(log), False),
         ("the wait pass did not run", lambda: wait_over(config.load(), log), False),
+        ("a reopened seat was not told",
+         lambda: [tell_owed(name, log) for name in config.session_records()], False),
         # Every feature switch on for everyone for two weeks becomes a line in the plan of a seat
         # on its project, to take out of the code.
         ("the switch retirement pass did not run", lambda: retire.hand(log), False),

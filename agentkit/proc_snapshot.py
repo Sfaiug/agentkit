@@ -12,11 +12,13 @@ import sys
 
 
 def collect(processes):
-    """Readable processes and unresolved pids; an exited process holds nothing."""
-    rows, hidden = {}, []
+    """Readable processes, and each unresolved pid's argv, None where even that is unreadable;
+    an exited process holds nothing."""
+    rows, hidden = {}, {}
     for proc in processes:
         if not proc.name.isdigit():
             continue
+        args = None
         try:
             fields = (proc / "stat").read_text().rsplit(")", 1)[1].split()
             # PF_KTHREAD identifies kernel threads; an empty userspace argv does not.
@@ -42,6 +44,7 @@ def collect(processes):
                     if target.startswith("/"):
                         paths.update((target, links[link.name]))
             if (proc / "stat").read_text().rsplit(")", 1)[1].split()[19] != start:
+                args = None             # what was read may be the earlier process's
                 raise ValueError("pid was reused during the scan")
             rows[int(proc.name)] = {"uid": uid, "start": start, "args": args,
                                     "cwd": links["cwd"], "stdout": links.get("1"),
@@ -55,7 +58,7 @@ def collect(processes):
                 continue
             except OSError:
                 pass
-            hidden.append(int(proc.name))
+            hidden[int(proc.name)] = args
     return rows, hidden
 
 

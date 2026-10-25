@@ -63,7 +63,7 @@ func TestResumeDepth(t *testing.T) {
 		assertCall(t, []string{"run", "resume", "nope"}, 2, "", "ak run: AK_RUN_DEPTH must be a non-negative integer\n")
 	}
 	t.Setenv("AK_RUN_DEPTH", "2")
-	assertCall(t, []string{"run", "status"}, 3, "", "ak run status: not implemented in Go yet\n")
+	assertCall(t, []string{"run", "show"}, 3, "", "ak run: not implemented in Go yet\n")
 }
 
 func TestFetchInputRefusals(t *testing.T) {

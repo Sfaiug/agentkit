@@ -93,11 +93,12 @@ class SeatStates(GrokSandbox):
                 self.assertEqual(watch.hook_state("grokbuild", dict(stop, kind=kind))[0], state)
 
     def test_the_draft_is_the_composer_s_own_text(self):
-        # under the first Esc's own key hint, and under a slash command's dropdown
-        for name, draft in (("esc-clear", "please remember the word pineapple"),
-                            ("slash", "/model")):
+        # under the first Esc's own key hint, and under a slash command's dropdown, a picker
+        for name, rule, draft in (
+                ("esc-clear", "prompt.draft", "please remember the word pineapple"),
+                ("slash", "draft.dropdown", "/model")):
             with self.subTest(name=name):
-                self.assertEqual(self.seen(name, {})[0], ("draft", "prompt.draft", draft))
+                self.assertEqual(self.seen(name, {})[0], ("draft", rule, draft))
 
     def test_a_suggestion_of_the_last_prompt_is_an_empty_composer_and_no_part_of_a_draft(self):
         # an ending's line waited behind it as behind a draft; what is typed over its start is one
