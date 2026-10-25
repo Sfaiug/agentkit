@@ -40,7 +40,7 @@ class NoBackgroundGit(Sandbox):
             side_effect=lambda state: state.get("pid") in self.processes))
         self.stack.enter_context(patch.object(gc.retention, "process_dirs", return_value=[]))
         self.inventory = self.stack.enter_context(patch.object(
-            gc.proc_snapshot, "collect", side_effect=lambda *_: (self.processes, [])))
+            gc.proc_snapshot, "collect", side_effect=lambda *_: (self.processes, {})))
         self.stack.enter_context(patch.object(watch, "gh_json", return_value=({}, "offline")))
         self.logs = []
 
@@ -239,8 +239,11 @@ class NoBackgroundGit(Sandbox):
         with patch.object(gc.subprocess, "run", side_effect=collecting):
             self.assertIn(f"git gc: {self.repo}", self.tick())
 
-    def test_an_unreadable_process_gone_before_its_command_line_is_read_holds_nothing(self):
-        self.inventory.side_effect = lambda *_: ({}, [PID])
+    def test_an_unreadable_command_line_is_no_proof_of_idle(self):
+        self.inventory.side_effect = lambda *_: ({}, {PID: None})
+        self.tick()
+        self.assertFalse(self.mark().exists())
+        self.inventory.side_effect = lambda *_: ({}, {PID: ["/usr/bin/ssh-agent"]})
         self.assertIn(f"git gc: {self.repo}", self.tick())
 
     def test_a_process_that_exits_during_the_inventory_is_no_reason_to_skip(self):
@@ -250,7 +253,7 @@ class NoBackgroundGit(Sandbox):
 
         def inventory(procs):
             self.assertEqual(list(procs), [])
-            return {}, []
+            return {}, {}
 
         self.inventory.side_effect = inventory
         with patch.object(gc.retention, "process_dirs", return_value=[Gone("/proc/99999998")]):

@@ -141,7 +141,7 @@ def tmp_processes():
     try:
         table, hidden = proc_snapshot.collect(retention.process_dirs())
         if hidden:
-            inspected = tmp_hidden_processes(hidden)
+            inspected = tmp_hidden_processes(list(hidden))
             if inspected is None:
                 return None, None
             table.update(inspected)
@@ -830,14 +830,10 @@ def git_busy_paths():
              for path in (row["cwd"], *row.get("open_paths", set(row["paths"]) - set(row["args"])))}
     # A login's own daemons (systemd --user, sshd, ssh-agent) hide all but their command line,
     # so an absolute path there is all that can hold a repository.
-    for pid in hidden:
-        try:
-            args = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
-        except FileNotFoundError:
-            continue
-        except OSError:
+    for args in hidden.values():
+        if args is None:
             return None
-        paths.update(os.fsdecode(arg) for arg in args if arg.startswith(b"/"))
+        paths.update(arg for arg in args if arg.startswith("/"))
     for state in states:
         line = (state.get("waiting_on") or {}).get("line")
         lander = land.passes(config.RUNS / line) if line else {}
