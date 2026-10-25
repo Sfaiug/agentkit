@@ -3108,7 +3108,8 @@ def wait_main(argv):
     names a fact ak can read, never a session: the tick ends it when the pull request merges
     or closes, no run is going on it, or the run ends, and tells the seat so (`wait_over`).
     One already over is refused with its fact (`wait_fact`): the tick would end it at once and
-    wake the seat for nothing.
+    wake the seat for nothing.  A pull request the seat's own going run reviews or lands is
+    waited on as that run, whose hand-back then is the one line.
     """
     if command_help.show("wait", argv):
         return 0
@@ -3137,6 +3138,14 @@ def wait_main(argv):
     if over:
         print(f"ak wait: {why}; nothing is left to wait on", file=sys.stderr)
         return 1
+    if kind == "pr":
+        # its hand-back says the verdict and the merge; a wait on the pull request would type a
+        # second line whenever GitHub says merged before the run has saved it (24 Oct)
+        own = next((state["run_id"] for state in transitions.runs_on(pr=on)
+                    if transitions.going(state) and transitions.launched_session(state) == seat),
+                   None)
+        if own:
+            wait, shown = dict(wait, on=own, kind="run"), f"run {own}, on {shown}"
     if not seat_write(seat, wait=wait):
         return 1
     print(f"{seat}: waiting on {shown}")
