@@ -118,6 +118,22 @@ class ConflictedRebase(LandedMixin, unittest.TestCase):
         self.assertEqual(shown.out, "main\nc\n")
 
 
+class FlawedResolution(LandedMixin, unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        flawed = {**RESOLVE, "sh": RESOLVE["sh"].replace("main\\nc\\n", "main\\nc\\nbroken\\n")}
+        found = {"final": "Found one.", "hand_in": [
+            ["finding", "contrib.txt:3", "the resolution adds a broken line", "neither side has it",
+             "--run", "! grep -q broken contrib.txt"], ["done"]]}
+        fix = {**FIX, "write": {"contrib.txt": "main\nc\n"}}
+        reviewed(cls, [flawed, fix], ["pass", found, "pass"], main={"contrib.txt": "main\n"})
+
+    def test_the_writer_s_fix_of_its_resolution_is_reviewed_and_lands(self):
+        self.assertEqual([turn["role"] for turn in self.fakes["claude"].runs()], ["fixer", "fixer"])
+        shown = self.home.run("git", "-C", str(self.rig.bare), "show", "main:contrib.txt")
+        self.assertEqual(shown.out, "main\nc\n")
+
+
 class RedCheck(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

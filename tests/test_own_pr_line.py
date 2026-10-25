@@ -537,6 +537,20 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         self.assertTrue(self.review(directory, url)["merged"])
         self.assertEqual(len(self.reviews), 1)
 
+    def test_a_receipt_from_before_integrated_resumes_on_its_rebased_commit(self):
+        directory, url = self.own_pr("first", 1)
+        self.advance()
+        with patch.object(deliver.landing, "_check_tree", side_effect=InterruptedError("killed in the suite")):
+            with self.assertRaises(InterruptedError):
+                self.review(directory, url)
+        state = record.read_state(directory)
+        self.assertNotEqual(state.pop("integrated")["to"], state["head_sha"])
+        record.save_state(directory, state)
+        land.check_line(self.turn)
+        self.review(directory, url)
+        land.check_line(self.turn)
+        self.assertTrue(self.review(directory, url)["merged"])
+
     def test_a_failed_required_check_gets_a_fix_round(self):
         directory, url = self.own_pr("first", 1)
         self.review(directory, url)

@@ -853,21 +853,29 @@ def follow_target(lp):
 
 
 def set_base(lp, tip):
-    """Keep the integrated tip for the diff and suite, even if another fetch moves the ref.
-
-    A review run also keeps the commit its checkout stands on against the PR head: the one its
-    own rebase or merge made is what it reviews until the PR head moves (`pinned_head`)."""
+    """Keep the integrated tip for the diff and suite, even if another fetch moves the ref."""
     tip = gitcall.git(lp.wt, "rev-parse", f"{tip}^{{commit}}")
     lp.state.update(base_sha=tip, target_sha=tip)
-    if lp.state.get("review_pr"):
+    lp.write()
+    pin_checkout(lp)
+
+
+def pin_checkout(lp):
+    """A review run reviews the commit its own rebase, merge or landing fixer left, until the
+    PR head moves (`pinned_head`); a rebase or merge still stopped has made nothing yet."""
+    if lp.state.get("review_pr") and not (in_progress(lp.wt, "rebase") or in_progress(lp.wt, "merge")):
         lp.state["integrated"] = {"from": lp.state["head_sha"],
                                   "to": gitcall.git(lp.wt, "rev-parse", "HEAD")}
-    lp.write()
+        lp.write()
 
 
 def pinned_head(state):
-    """The commit a review run judges: the PR head, or what its own rebase or merge made of it."""
-    integrated = state.get("integrated") or {}
+    """The commit a review run judges: the PR head, or what its own landing made of it."""
+    review = state.get("review") or {}
+    integrated = state.get("integrated") or (
+        # a receipt from before `integrated` kept its rebase in the review that passed
+        {"from": review.get("passed_head_sha"), "to": review.get("head_sha")}
+        if review.get("verdict") == "PASS" else {})
     return integrated["to"] if integrated.get("from") == state["head_sha"] else state["head_sha"]
 
 
@@ -1618,6 +1626,7 @@ def landing_fixer(lp, text, name):
         text += (f"\n\n## The final check failed. Fix the root cause as well.\n```\n"
                  f"{prompts.failing_blocks(output, lp.run_dir)}\n```")
     summary = execute(lp, "fixer", text, name)
+    pin_checkout(lp)
     if failure:
         # Save the actual fixer with its summary before a check or review can stop.
         lp.state["waiting_on"]["fixed"] = True
@@ -1828,6 +1837,7 @@ def fix_after_failed_review(lp, upstream, how):
         lp.rnd += 1
         lp.log(f"--- round {lp.rnd}/{lp.rounds}: fixer {lp.executor} (findings after {what})")
         summary = execute(lp, "fixer", fix, "executor")
+        pin_checkout(lp)
         ok, dw_log = verify_work(lp)
         lp.log(f"done-when after the fix: {'all passed' if ok else 'FAILED'}")
         same_failure(lp, ok, dw_log)
