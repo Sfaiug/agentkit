@@ -3071,28 +3071,31 @@ def models_body(cfg, table, levels, shown, at, picks):
     lines, places, said = [], {}, []
     ids = {role: [(row["harness"], row["model"], row["effort"]) for row in rows]
            for role, rows in picks.items()}
+    names = []
     for role, head in zip(matrix.ROLES, orch.ROLE_HEADS):
         rows = picks.get(role) or []
         if not rows:
-            said.append([head, "none", "", "", "", ""])
+            names.append("none")
+            said.append([head, "none", "", "", ""])
             continue
         row, cost, name = rows[0], rows[0]["values"].get(matrix.COST), takes(cfg, rows[0], role)
-        said.append([head, name and config.model_name(cfg, name) or row["model"],
-                     f"@ {row['effort']}" if row["effort"] else "",
+        names.append(name and config.model_name(cfg, name) or row["model"])
+        said.append([head, matrix.row_label({**row, "name": names[-1]}),
                      f"{row['scores'][role]['score']:.0f}",
                      "" if cost is None else f"${cost:.2f} a task", f"{len(rows) - 1} more as good"])
-    widths = [max(terminal.cells(part[n]) for part in said) for n in range(6)]
-    kept = list(range(6))             # on a narrow screen the rows as good give way, then the cost
-    while len(kept) > 4 and sum(widths[n] + 2 for n in kept) > room:
+    widths = [max(terminal.cells(part[n]) for part in said) for n in range(5)]
+    kept = list(range(5))             # on a narrow screen the rows as good give way, then the cost
+    while len(kept) > 3 and sum(widths[n] + 2 for n in kept) > room:
         kept.pop()
-    # what room is left is the name's, the one part ever cut: its effort is a column of its own
-    widths[1] = max(1, min(widths[1], room - sum(widths[n] + 2 for n in kept if n != 1) - 2))
-    for role, part in zip(matrix.ROLES, said):
+    widths[1] = min(widths[1], room - sum(widths[n] + 2 for n in kept if n != 1) - 2)
+    for role, name, part in zip(matrix.ROLES, names, said):
+        effort = part[1][len(name):]  # the name is the one part ever cut, its effort kept
+        part[1] = terminal.cut(name, widths[1] - terminal.cells(effort)) + effort
         here = ("role", role)
         places[len(lines)] = (here, [])
         line = terminal.table_row([part[n] for n in kept], [widths[n] for n in kept], indent="  ",
-                                  kinds=[(None, None, None, "dim", "dim", "dim")[n] for n in kept],
-                                  right=(3,))
+                                  kinds=[(None, None, "dim", "dim", "dim")[n] for n in kept],
+                                  right=(2,))
         lines.append(terminal.highlight(line) if at == here else line)
     knob = arrows.format(f"{matrix.within(cfg):g}")
     word = knob.replace(" ", "_")     # wrapped as one word, so the knob never breaks

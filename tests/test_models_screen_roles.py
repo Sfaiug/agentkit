@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
-from agentkit import config, menu, terminal
+from agentkit import config, matrix, menu, terminal
 from agentkit.terminal import Key
 import test_models_screen as screen
 
@@ -59,8 +59,19 @@ class Roles(screen.Screen):
         with patch.object(config, "model_name", side_effect=lambda cfg, name: (
                 "GPT-6-Astra Long Context Preview" if name == "astra" else named(cfg, name))):
             shown = self.shown(width=40)
-        self.assertIn(f"orch {opus} @ xhigh 97 builds GPT-6-Astra… @ xhigh 95 reviews GPT-6-Astra… "
-                      f"@ xhigh 96 {KNOB}", shown)
+        self.assertIn(f"orch {opus} @ xhigh 97 builds GPT-6-Astra Long… @ xhigh 95 reviews "
+                      f"GPT-6-Astra Long… @ xhigh 96 {KNOB}", shown)
+
+    def test_at_the_narrowest_the_name_alone_gives_way(self):
+        # 24 cells, narrower than any screen around it: the name is all cut, its effort and
+        # quality kept, and no line runs past the screen
+        with patch.object(terminal, "layout_width", return_value=24):
+            lines, places = menu.models_body(self.cfg, {}, {}, {}, None, matrix.recommended(
+                matrix.assessment(self.cfg, matrix.stored()["rows"]), matrix.within(self.cfg)))
+        self.assertEqual([terminal.plain(lines[n], spaced=True) for n, (place, _) in places.items()
+                          if place[0] == "role"],
+                         ["  orch     … @ xhigh  97", "  builds   … @ xhigh  95",
+                          "  reviews  … @ xhigh  96"])
 
     def test_the_knob_wraps_at_words_and_never_breaks(self):
         # 20 cells, narrower than any screen around it: the knob's arrows stay on one line
