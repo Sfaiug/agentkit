@@ -27,6 +27,7 @@ func TestRunStatusRefusals(t *testing.T) {
 		"history": {map[string]string{"runs/20261020-0900-fix-api/run.json": ended, "history.db": ""}, []string{"--json"}},
 		"seat": {map[string]string{"runs/20261020-0900-fix-api/run.json": ended,
 			"state/session-acme.json": `{"name":"acme"}`}, []string{"--history"}},
+		"seat renamed to what Go cannot keep": {map[string]string{"state/session-acme.json": `{"renamed":"\ud800"}`}, []string{"--history"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			home := sandbox(t)
@@ -79,5 +80,20 @@ func TestRunStatusPassesOverAnUnreadableJob(t *testing.T) {
 	if code := Main([]string{"run", "status", "--plain"}, &out, &errOut); code != 0 || errOut.Len() > 0 ||
 		!bytes.Contains(out.Bytes(), []byte("20261020-0900-fix-api")) {
 		t.Fatalf("got (%d, %q, %q)", code, out.String(), errOut.String())
+	}
+}
+
+// A seat file nobody can read as a record, or one only pointing at a rename, adds nothing to
+// the scoreboard, so --history lists as it would without it.
+func TestRunStatusHistoryPassesOverWhatNoSeatRecords(t *testing.T) {
+	for name, content := range map[string]string{"malformed": "{broken", "no object": "[]", "rename": `{"renamed":"fix-api"}`} {
+		t.Run(name, func(t *testing.T) {
+			home := sandbox(t)
+			write(t, filepath.Join(home, ".agentkit", "state", "session-acme.json"), content)
+			var out, errOut bytes.Buffer
+			if code := Main([]string{"run", "status", "--history"}, &out, &errOut); code != 0 || errOut.Len() > 0 {
+				t.Fatalf("got (%d, %q, %q)", code, out.String(), errOut.String())
+			}
+		})
 	}
 }

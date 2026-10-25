@@ -18,6 +18,9 @@ var sessionDashes = regexp.MustCompile(`-+`)
 
 const renameHops = 8
 
+// Renamed is the key a rename leaves in the old name's record: the name it goes by now.
+const Renamed = "renamed"
+
 func normalizeSession(name string) string {
 	return strings.Join(strings.FieldsFunc(name, func(r rune) bool {
 		return unicode.IsSpace(r) || (r >= '\x1c' && r <= '\x1f')
@@ -40,22 +43,11 @@ func CurrentSession() (string, map[string]any, error) {
 	return ResolveSession(name)
 }
 
-// SeatRecorded is whether any seat keeps a record: every state file but one that holds only
-// where its seat was renamed to.
-func SeatRecorded() bool {
+// SeatFiles are the files every seat keeps its record in.
+func SeatFiles() []string {
 	pattern, _ := sessionPath("*")
 	paths, _ := filepath.Glob(pattern)
-	for _, path := range paths {
-		data, err := os.ReadFile(path)
-		var record map[string]any
-		if err != nil || json.Unmarshal(data, &record) != nil {
-			return true
-		}
-		if _, renamed := record["renamed"].(string); !renamed {
-			return true
-		}
-	}
-	return false
+	return paths
 }
 
 // SessionPath is where a seat's record is kept.
@@ -109,7 +101,7 @@ func ResolveSession(name string) (string, map[string]any, error) {
 			return "", nil, fmt.Errorf("%s: %w", path, err)
 		}
 		record, _ := value.(map[string]any)
-		next, renamed := record["renamed"].(string)
+		next, renamed := record[Renamed].(string)
 		if !renamed {
 			return name, record, nil
 		}

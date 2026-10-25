@@ -178,7 +178,7 @@ func refused(entries []listed, seat string, showHistory, machine bool, now time.
 	if exists(filepath.Join(config.Home(), "history.db")) && (machine || showHistory) {
 		return true
 	}
-	if showHistory && config.SeatRecorded() {
+	if showHistory && seatRecorded() {
 		return true
 	}
 	if jobShown(seat, showHistory, machine, now) {
@@ -199,6 +199,17 @@ func refused(entries []listed, seat string, showHistory, machine bool, now time.
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// seatRecorded is whether any seat keeps a record, which the scoreboard reads.
+func seatRecorded() bool {
+	for _, path := range config.SeatFiles() {
+		record, err := run.ReadJSON(path)
+		if errors.Is(err, run.ErrLoneSurrogate) || record != nil && !record.Has(config.Renamed) {
+			return true
+		}
+	}
+	return false
 }
 
 // jobShown is whether the listing shows a job: the seat's or every one of the last seven
