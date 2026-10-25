@@ -3022,8 +3022,9 @@ def models_body(cfg, grid, at, picks):
     are, a row read the same way, a page at a time where it is taller than the page
     (matrix_key), and under it every model the harnesses offer (`grid`, models_grid) under its
     harness, a line each: its mark, filled where it is assessed (matrix.assessed), its full
-    name where the config runs it (config.model_name), else its id, dim where no board scores
-    it, and the id after a full name, dim, where the line has room.  `at` is the highlighted
+    name where its harness's catalog has one (config.catalog_label), else its id, dim where no
+    board scores it, and the id after a full name, dim, or under it where the line has no
+    room, so a 40-cell screen reads a 35-cell id whole.  `at` is the highlighted
     row; `cells` are the knob's text, arrows and all, and each model's line from its mark, for
     a click, counted from 1 as the terminal counts.
     """
@@ -3077,16 +3078,20 @@ def models_body(cfg, grid, at, picks):
         lines.append(model_heading(harness))
         for model, quality in models.items():
             here = ("model", harness, model)
-            name = next((config.model_name(cfg, name) for name in _runs(cfg, harness, model)), None)
+            name, ident = config.catalog_label(harness, model), terminal.cut(model, room - 4)
             mark = full if (harness, model) in marks else empty
             label = terminal.cut(name or model, room - 4)
-            rest = room - 4 - terminal.cells(label) - 2      # what the dim id after a name has
             line = ("  " + (terminal.styled(mark, "reverse") if at == here else mark) + " "
-                    + (label if quality >= 0 else terminal.styled(label, "dim"))
-                    + ("  " + terminal.styled(terminal.cut(model, rest), "dim")
-                       if name and name != model and rest > 0 else ""))
-            places[len(lines)] = (here, [(3, room, 0)])      # a click on the line flips its mark
-            lines.append(terminal.highlight(line) if at == here else line)
+                    + (label if quality >= 0 else terminal.styled(label, "dim")))
+            said = [line]
+            if name:          # the id beside its name, else whole on a line of its own
+                if terminal.cells(label) + 2 + terminal.cells(ident) <= room - 4:
+                    said = [line + "  " + terminal.styled(ident, "dim")]
+                else:
+                    said.append("    " + terminal.styled(ident, "dim"))
+            for number, line in enumerate(said):
+                places[len(lines)] = (here, [(3, room, 0)])  # a click on it flips its mark
+                lines.append(terminal.highlight(line, number == 0) if at == here else line)
     return lines, places
 
 

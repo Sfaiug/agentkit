@@ -61,7 +61,7 @@ class ReadsTheBoards(screen.Screen):
         self.assertEqual(len(standing), 1, "the screen drew nothing while the boards were read")
         self.assertIn(f"Claude Code › ■ {self.opus} claude-opus-5-5 ↑↓ move", standing[0])
         gliding.assert_called()
-        self.assertIn(f"Claude Code › ■ {self.opus} claude-opus-5-5 □ claude-sonnet-5-5", text)
+        self.assertIn(f"Claude Code › ■ {self.opus} claude-opus-5-5 □ Sonnet 5.5 claude-sonnet-5-5", text)
 
     def test_a_reading_that_lands_is_drawn_with_no_key_pressed(self):
         # in flight on a screen nothing animates, or landed while the screen was laid out
@@ -104,7 +104,7 @@ class ReadsTheBoards(screen.Screen):
                         patch.object(menu, "wait_key", side_effect=lambda prompt, timeout=None,
                                      wake=None: terminal.read_key(timeout, wake)):
                     text = self.screens(read_key)
-                self.assertIn(f"Claude Code › ■ {self.opus} claude-opus-5-5 □ claude-sonnet-5-5", text)
+                self.assertIn(f"Claude Code › ■ {self.opus} claude-opus-5-5 □ Sonnet 5.5 claude-sonnet-5-5", text)
 
     def test_a_board_that_failed_is_said_and_the_stored_rows_stand(self):
         boards = {"artificialanalysis.ai": {"error": "HTTP Error 503: Service Unavailable"},

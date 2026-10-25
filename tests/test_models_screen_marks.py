@@ -2,7 +2,8 @@
 installed harnesses offer, under its harness as `c` lists models under a provider: the
 harnesses by name, each one's models by their best quality, a line each with its mark, filled
 where it is assessed (matrix.assessed: `[assess]`, else every model the config runs), its full
-name where the config runs it, else its id, and the id after a full name, dim.  Space, Enter
+name where its harness's catalog has one, else its id, and the id after a full name, dim, or
+under it where the line has no room.  Space, Enter
 or a click on a model flips its mark, saved to config.toml at once, and the recommendation
 follows.  A 40-cell phone reads a 35-cell id whole.
 
@@ -26,7 +27,7 @@ class Marks(screen.Screen):
     def test_every_model_under_its_harness_marked_where_the_config_runs_it(self):
         text = self.screens([Key("char", "r"), Key("esc"), Key("esc")])
         # sonnet and mimo, which no seat's config runs, unmarked; opus over sonnet, the better
-        self.assertIn(f"Claude Code › ■ {self.opus} claude-opus-5-5 □ claude-sonnet-5-5 Codex ■ "
+        self.assertIn(f"Claude Code › ■ {self.opus} claude-opus-5-5 □ Sonnet 5.5 claude-sonnet-5-5 Codex ■ "
                       f"{self.astra} gpt-6-astra Muse Code ■ {self.spark} OpenCode □ mimo-pro", text)
 
     def test_space_flips_a_mark_saved_at_once_and_the_recommendation_follows(self):
@@ -62,11 +63,21 @@ class Marks(screen.Screen):
         self.assertIn("mimo-pro", config.load()["assess"]["opencode"])
 
     def test_a_phone_reads_a_long_id_whole(self):
-        self.store([screen.row("opencode", "opencode/nemotron-3.5-super-vl-free", None, None, 50.71,
-                               51.79, cost=0.1)])
+        long = "opencode/nemotron-3.5-super-vl-free"
+        self.store([screen.row("opencode", long, None, None, 50.71, 51.79, cost=0.1)])
+        self.cfg["models"]["mimo"]["model"] = long      # configured, as the config names it
+        config.save(self.cfg)
         with patch.object(terminal, "height", return_value=40):
             text = self.screens([Key("char", "r"), Key("esc"), Key("esc")], width=40)
-        self.assertIn("OpenCode › □ opencode/nemotron-3.5-super-vl-free", text)
+            self.assertIn(f"OpenCode › ■ {long}", text)
+            # a full name with no room for the id beside it leaves the id a line of its own
+            with patch.object(config, "catalog_label",
+                              side_effect=lambda harness, model: model == long
+                              and "Nemotron 3.5 Super VL" or None):
+                text = self.screens([Key("char", "r"), Key("esc"), Key("esc")], width=40)
+        shown = text.split("models · fix-api")[1].split("agentkit · config")[0]
+        self.assertIn(f"OpenCode › ■ Nemotron 3.5 Super VL {long}", shown)
+        self.assertNotIn("…", shown)
 
 
 if __name__ == "__main__":

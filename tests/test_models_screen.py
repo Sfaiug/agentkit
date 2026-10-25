@@ -97,7 +97,7 @@ class ModelsScreen(Screen):
         self.assertIn("quality is 100 less how many points a model is behind the best on the "
                       "public boards; cost is what a task of Artificial Analysis's index run cost it, in "
                       "dollars", text)
-        self.assertIn(f"Claude Code › ■ {opus} claude-opus-5-5 □ claude-sonnet-5-5 Codex", text)
+        self.assertIn(f"Claude Code › ■ {opus} claude-opus-5-5 □ Sonnet 5.5 claude-sonnet-5-5 Codex", text)
         self.assertIn("↑↓ move space mark r take recommended esc back", text)
         # back on `c`, whose key opens the screen
         self.assertRegex(text, r"esc back.* ↑↓←→ move ⏎ mark r recommended esc back")
