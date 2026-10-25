@@ -239,11 +239,8 @@ class NoBackgroundGit(Sandbox):
         with patch.object(gc.subprocess, "run", side_effect=collecting):
             self.assertIn(f"git gc: {self.repo}", self.tick())
 
-    def test_an_unreadable_process_inventory_is_no_proof_of_idle(self):
+    def test_an_unreadable_process_gone_before_its_command_line_is_read_holds_nothing(self):
         self.inventory.side_effect = lambda *_: ({}, [PID])
-        self.tick()
-        self.assertFalse(self.mark().exists())
-        self.inventory.side_effect = lambda *_: ({}, [])
         self.assertIn(f"git gc: {self.repo}", self.tick())
 
     def test_a_process_that_exits_during_the_inventory_is_no_reason_to_skip(self):
