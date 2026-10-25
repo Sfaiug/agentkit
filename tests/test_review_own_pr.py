@@ -65,6 +65,11 @@ class OwnPr(unittest.TestCase):
             run.capture_launch(run_dir, {"--review-pr": URL})
         return run_dir
 
+    def ended(self, run_dir):
+        """That run ends, so the next subtest's launch on the PR is not refused for it."""
+        with record.record(run_dir) as state:
+            state["state"] = "stopped"
+
     def review_pass(self, lp, summary, ok, dw_log, **_kw):
         head = lp.state["head_sha"]
         tree = "c" * 40
@@ -493,6 +498,7 @@ class OwnPr(unittest.TestCase):
                 if want_own:
                     self.assertEqual(saved.get("own_orchestrator"), "opus")
                 self.assertIn(want_line, "\n".join(lines))
+                self.ended(run_dir)
 
     def test_preflight_refuses_own_pr_without_a_writer(self):
         run_dir = config.RUNS / "20260927-preflight-ghost"
@@ -532,6 +538,7 @@ class OwnPr(unittest.TestCase):
                         run.preflight(run_dir, {"--review-pr": URL}, lambda line: None)
                 saved = record.read_state(run_dir)
                 self.assertEqual((saved["own_pr"], saved["own_orchestrator"]), (True, "opus"))
+                self.ended(run_dir)
 
 
 if __name__ == "__main__":

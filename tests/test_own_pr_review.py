@@ -66,6 +66,11 @@ class OwnPrReview(unittest.TestCase):
 
     def review(self, author="owner", seat="fix-api", background=False,
                want_review=None, launch_only=False):
+        # each call is a launch of its own: one earlier on the PR has ended, or it refuses this
+        for earlier in record.run_dirs():
+            if record.read_state(earlier):
+                with record.record(earlier) as state:
+                    state["state"] = "stopped"
         directory = config.RUNS / f"review-{len(list(config.RUNS.iterdir()))}"
         directory.mkdir()
         head = self.git("rev-parse", "HEAD")
@@ -87,7 +92,8 @@ class OwnPrReview(unittest.TestCase):
 
         with ExitStack() as mocks:
             mocks.enter_context(patch.dict(os.environ, {"AGENTKIT_SESSION": seat}))
-            run.capture_launch(directory, {"--review-pr": URL})
+            if not background:      # a background launch records its own run
+                run.capture_launch(directory, {"--review-pr": URL})
             for name, value in (("pr_view", info), ("viewer_login", "owner"),
                                 ("checkout_for", self.repo), ("fetch", (0, "")),
                                 ("origin_default", "main"), ("collect_usage", {}),

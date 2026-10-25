@@ -184,7 +184,10 @@ class OwnPr(unittest.TestCase):
                              {"--review": None, "--review-pr": URL}, lambda _: None)
 
     def launch(self):
-        """(the refusal, how many background runs started, the new run's record)."""
+        """(the refusal, how many background runs started, the new run's record), the fixture's
+        own run on the PR ended, or it would refuse the launch itself."""
+        with record.record(self.run_dir) as state:
+            state["state"] = "stopped"
         before = set(config.RUNS.iterdir())
         with patch.object(run, "spawn_bg", return_value=0) as spawned, \
                 patch.object(gate, "wait_for_slot", side_effect=AssertionError("waited for a slot")):
