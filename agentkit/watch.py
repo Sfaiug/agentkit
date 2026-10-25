@@ -2611,14 +2611,17 @@ def still_owed(name, stopped):
     return None
 
 
-def news_owed(name, mine):
+def news_owed(name, mine, read=True):
     """What ak still has to type into that seat, as its reason, or None: a line `revive` owes it
     (`tell_owed`), the end of its `ak wait` not yet told (`wait_over`), or an ending of its own
     runs nobody has heard that is the seat's to decide (`handback.owes_ending`, less a routine
-    one, which is never typed)."""
+    one, which is never typed).  Only the first while no rule or hook `read` its screen: the
+    harness of a seat just reopened is still drawing its prompt."""
     marks = seat_read(name)
     if marks.get("owed_lines"):
         return "telling it what it missed while it was gone"
+    if not read:
+        return None
     wait = marks.get("wait")
     if isinstance(wait, dict) and wait.get("over") and not wait.get("told"):
         return f"telling it its wait on {wait.get('on')} is over"
@@ -2896,10 +2899,10 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         return {"word": "needs you", "reason": asked, "since": found.get("began")}
     # ... or ak still has a line to type into it, at its next quiet prompt: that line moves it,
     # not the owner, who was paged `stopped with work open` while the line waited behind
-    # their own unsent text (19 Oct 2026).  Only at a prompt a rule or hook read: `classify`
-    # offers `at_prompt` with no `authority` for a screen nobody can read, which takes no line.
-    telling = (news_owed(name, mine) if found.get("authority")
-               and found.get("state") in ("at_prompt", "draft") else None)
+    # their own unsent text (19 Oct 2026).  `classify` offers `at_prompt` with no `authority`
+    # for a screen nobody can read, which takes no line yet (`news_owed`).
+    telling = (news_owed(name, mine, bool(found.get("authority")))
+               if found.get("state") in ("at_prompt", "draft") else None)
     if telling:
         return {"word": "working", "reason": telling, "since": found.get("began")}
     # Nothing running, asked or owed: a plan whose every line is proven is done, which ak reads
@@ -4390,41 +4393,41 @@ def revive(name, line, log, cfg=None, *, prepare):
 
 
 def owe_line(name, line, owed):
-    """Under the seat's lock, the line owed to it with the text `line` becomes `owed`: added
-    where `line` is None, gone where `owed` is.  The seat by the name it goes by now: a rename
-    moves the lines with its record."""
-    name = config.resolve_session(name)
-    with seat_lock(name):
-        data = seat_read(name)
+    """The line owed to that seat with the text `line` becomes `owed`: added where `line` is
+    None, gone where `owed` is.  Under the seat's send lock, which a rename takes too, so the
+    lines are written where the seat's record is."""
+    with notify.session_lock(name) as held, seat_lock(held):
+        data = seat_read(held)
         lines = data.get("owed_lines") or []
         lines = ([owed if old["line"] == line else old for old in lines] if line
                  else [*lines, owed])
-        _seat_put(name, data, {"owed_lines": [old for old in lines if old] or None})
+        _seat_put(held, data, {"owed_lines": [old for old in lines if old] or None})
 
 
 def tell_owed(name, log, cfg=None):
     """The oldest line `revive` owes that seat goes in at its quiet prompt (`type_at_prompt`),
     never onto text the owner typed there; the tick asks this of every seat, so the line waits
     for a harness however slow to draw its prompt.  Its mark is kept from try to try until the
-    composer reads empty, so it goes in once.  One teller at a time: `revive` in a run's process
-    and the tick may both get here, and the second leaves the line to the next tick."""
-    name = config.resolve_session(name)
-    if not seat_read(name).get("owed_lines"):
+    composer reads empty, so it goes in once.  `revive` in a run's process and the tick may both
+    get here: each key goes only while the line it read still heads the seat's lines, read under
+    the send lock, so a teller another one overtook types nothing more."""
+    owed = (seat_read(name).get("owed_lines") or [None])[0]
+    seat = orch.find(name) if owed else None
+    if not seat:
         return
-    with config.seat_state_path(name).with_suffix(".telling").open("a") as telling:
-        try:
-            fcntl.flock(telling, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return
-        owed = (seat_read(name).get("owed_lines") or [None])[0]
-        seat = orch.find(name) if owed and config.resolve_session(name) == name else None
-        if not seat:
-            return
-        line = owed["line"]
-        if type_at_prompt(seat, line, log, cfg=cfg, typed=owed.get("typed"),
-                          receipt=lambda mark: owe_line(name, line, {**owed, "typed": mark})):
-            owe_line(name, line, None)
-            log(f"told {name}: {line}")
+    line, read = owed["line"], [owed]
+
+    def kept(mark):
+        read[0] = {**owed, "typed": mark}
+        owe_line(name, line, read[0])
+
+    def overtaken(held):
+        return (seat_read(held).get("owed_lines") or [None])[0] != read[0]
+
+    if type_at_prompt(seat, line, log, cfg=cfg, typed=owed.get("typed"), receipt=kept,
+                      stale=overtaken):
+        owe_line(name, line, None)
+        log(f"told {name}: {line}")
 
 
 def seat_subscription(cfg, provider, name):
