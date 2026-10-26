@@ -13,7 +13,8 @@
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
 #                                  `seat` is the same login here, and is accepted and ignored
 #                     hooks        -> a no-op: a seat's launch carries its hooks (`interactive`)
-#                     hook         -> one hook event of a seat's muse, on stdin, handed on to
+#                     hook         -> one hook event of a seat's muse, on stdin: its SessionStart
+#                                  written into that launch's receipt, any other handed on to
 #                                  hooks/seat-state.sh: what that launch's hooks run
 #                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                  `model/list` over `muse serve`, else the [catalog] table
@@ -177,11 +178,13 @@ interactive)
   # Muse 1.4.7 runs lifecycle hooks, given on the command line, which replaces only the events
   # it names: hooks/seat-state.sh, through the `hook` verb below, writes down its question or
   # approval going up, its question answered, an Esc and its turn's end, the four
-  # adapters/muse.toml gives a state.  No prompt hook: a seat that reports prompts has only them
-  # answer its questions, and one opened before this, or on an older muse, reports none.  Muse
-  # hands a hook almost none of the seat's environment, so the seat's name rides in its command,
-  # and so do the pane and tmux server its look needs, which only the pane knows: `bash -c`
-  # writes them in where `@PANE@` stands as the pane starts.  Muse runs an Interrupt hook only
+  # adapters/muse.toml gives a state; SessionStart names the session this launch opened, for
+  # its receipt (agentkit/harness/muse.py).  No prompt hook: a seat that reports prompts has
+  # only them answer its questions, and one opened before this, or on an older muse, reports
+  # none.  Muse hands a hook almost none of the seat's environment, so the seat's name rides in
+  # its command, and so do the pane and tmux server its look needs and this launch's receipt,
+  # which only the pane's environment knows: `bash -c` writes them in where `@PANE@` stands as
+  # the pane starts.  Muse runs an Interrupt hook only
   # alongside the turn, and a PostToolBatch one, run on every tool batch, need not hold it up.
   # Only where this muse's own schema names hook events: an older one refuses a launch carrying
   # settings it does not know, and its seat stays read off the screen alone, as does a launch
@@ -192,13 +195,13 @@ interactive)
         grep -q '"notification"' "$schema"/*.json 2>/dev/null; then
       hook=$(printf 'env @PANE@ AGENTKIT_SESSION=%q bash %q hook' "$AGENTKIT_SESSION" \
         "$REPO/adapters/muse.sh")
-      for event in Stop Notification PostToolBatch Interrupt; do
+      for event in SessionStart Stop Notification PostToolBatch Interrupt; do
         run=$(jq -cn --arg c "$hook" --arg event "$event" '[{hooks: [{type: "command", command: $c}
           + if $event == "Interrupt" or $event == "PostToolBatch" then {async: true} else {} end]}]')
         hooks+=$(printf -- '-c %q ' "hooks.$event=$run")
       done
       # shell-quoted for the hook's shell, then escaped for the JSON string that command is in
-      pane=$(printf 'bash -c %q ' 'p=$(printf "TMUX=%q TMUX_PANE=%q" "${TMUX-}" "${TMUX_PANE-}" | jq -Rr "tojson[1:-1]"); for a; do case $a in *@PANE@*) a=${a%%@PANE@*}$p${a#*@PANE@} ;; esac; set -- "$@" "$a"; shift; done; exec "$0" "$@"')
+      pane=$(printf 'bash -c %q ' 'p=$(printf "TMUX=%q TMUX_PANE=%q AGENTKIT_MUSE_RECEIPT=%q" "${TMUX-}" "${TMUX_PANE-}" "${AGENTKIT_MUSE_RECEIPT-}" | jq -Rr "tojson[1:-1]"); for a; do case $a in *@PANE@*) a=${a%%@PANE@*}$p${a#*@PANE@} ;; esac; set -- "$@" "$a"; shift; done; exec "$0" "$@"')
     fi
     rm -rf -- "$schema"
   }
@@ -271,7 +274,7 @@ auth)
 hooks)
   # Muse takes its hooks on the command line, and `interactive` builds that line where its
   # muse runs them (1.4.7): nothing persistent to write here.
-  echo "muse: hooks are given per launch by \`adapters/muse.sh interactive\` (Stop," \
+  echo "muse: hooks are given per launch by \`adapters/muse.sh interactive\` (SessionStart, Stop," \
        "Notification, PostToolBatch, Interrupt); nothing to write here" ;;
 hook)
   # One event of a seat's muse, handed to hooks/seat-state.sh in the shape it reads.  A tool
@@ -281,6 +284,17 @@ hook)
   # where its launch named the pane; python3, which every host has, bounds the read.
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   payload=$(cat)
+  # The session this launch opened goes into its receipt, linked so the first id stands; a
+  # receipt already gone takes nothing.  It is no state of the seat's.
+  if [ "$(jq -r '.hook_event_name // empty' <<<"$payload" 2>/dev/null)" = SessionStart ]; then
+    sid=$(jq -r '.session_id // empty' <<<"$payload" 2>/dev/null)
+    if [ -n "$sid" ] && [ -n "${AGENTKIT_MUSE_RECEIPT:-}" ] &&
+        tmp=$(mktemp "$AGENTKIT_MUSE_RECEIPT/.session.XXXXXX" 2>/dev/null); then
+      printf '%s' "$sid" >"$tmp" && ln -- "$tmp" "$AGENTKIT_MUSE_RECEIPT/session" 2>/dev/null
+      rm -f -- "$tmp"
+    fi
+    exit 0
+  fi
   asked=""
   [ "$(jq -r '.notification_type // empty' <<<"$payload" 2>/dev/null)" = question_prompt ] &&
     [ -n "${TMUX_PANE:-}" ] &&

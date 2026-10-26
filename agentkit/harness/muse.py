@@ -4,7 +4,15 @@ Its screen, its stall words and its `[update]`/`[usage]` facts are data -- adapt
 What needs Python is what reads a file: the build its launcher installed, the snapshot an
 upgrade is put back from (its channel installer deletes the build it replaces), the probe
 response muse_usage.py beside it cached, the quota a refused run recorded, whether a config.toml
-entry is that probe's to run, and the session store a turn's tokens are written to.
+entry is that probe's to run, the session store a turn's tokens are written to, and which
+session a seat owns.
+
+Its TUI rejects `--session-id`, so a seat's session is learned rather than issued, as OpenCode's
+is: every launch gets a receipt, a directory named in its environment, and the SessionStart hook
+that launch's line carries (`adapters/muse.sh hook`) links into it the id Muse reported.  The
+first id stands: a link never replaces one, a stale launch writes only into its own receipt, and
+a receipt this launch replaced is gone.  The receipt's token is kept in the seat's record, so no
+other seat -- not one in the same directory -- reads or writes it.
 
 No title hooks: 1.4.0-R4302.1 refuses /rename before and after a completed turn and
 mid-turn ("naming is unavailable"), and rejects --name at launch. See the title fixtures;
@@ -22,8 +30,12 @@ import shutil
 import sqlite3
 import stat
 import tempfile
+import uuid
 
 from .. import config
+
+RECEIPT_ENV = "AGENTKIT_MUSE_RECEIPT"
+SESSION = re.compile(r"[\w-]+")     # a session's folder name, never a path
 
 
 def identity(text, argv):
@@ -395,8 +407,57 @@ def end_conversation(path, ends):
     shutil.rmtree(folder)
 
 
+def path_for(record):
+    token = record.get("muse_launch")
+    if isinstance(token, str) and re.fullmatch(r"[0-9a-f]{32}", token):
+        return config.STATE / f"muse-launch-{token}"
+    return None
+
+
+def conversation(record, cwd=None):
+    """The session this seat's launch reported, or None where it reported none yet."""
+    path = path_for(record)
+    try:
+        sid = (path / "session").read_text(encoding="utf-8") if path else ""
+    except OSError:
+        return None
+    return sid if SESSION.fullmatch(sid) else None
+
+
+def resumable(record, cwd, conversation):
+    """The receipt is the whole answer: the launcher never issues a Muse id."""
+    return bool(conversation)
+
+
+def forget(record):
+    """Remove that launch's receipt, moved aside first: a hook writing into it then finds no
+    directory to land in."""
+    path = path_for(record)
+    if path:
+        gone = path.with_name(f"{path.name}.gone")
+        try:
+            path.rename(gone)
+        except OSError:
+            return
+        shutil.rmtree(gone, ignore_errors=True)
+
+
+retire = forget   # the receipt is all a seat's launch keeps
+
+
+def launched(name, cwd, conversation):
+    """A receipt of this launch's own; a resumed session is in it from the start."""
+    token = uuid.uuid4().hex
+    path = path_for({"muse_launch": token})
+    path.mkdir(mode=0o700)
+    if conversation:
+        (path / "session").write_text(conversation, encoding="utf-8")
+    config.update_session(name, muse_launch=token)
+    return {RECEIPT_ENV: str(path)}
+
+
 def seat_token_sources(record):
-    session = record.get("conversation")
+    session = conversation(record)
     if not session:
         return []
     return [source for path in session_logs(session)
@@ -441,7 +502,7 @@ def user_messages(record, cwd, conversation):
 
 def session_log(conversation):
     """That session's log, or None where it has none or no such name."""
-    if not isinstance(conversation, str) or not re.fullmatch(r"[\w-]+", conversation):
+    if not isinstance(conversation, str) or not SESSION.fullmatch(conversation):
         return None
     logs = session_logs(conversation)
     return logs[0] if logs else None
@@ -491,7 +552,7 @@ def tokens(out):
                     runs.add(linked["id"])
     except OSError:
         return None
-    if not isinstance(session, str) or not re.fullmatch(r"[\w-]+", session) or not runs:
+    if not isinstance(session, str) or not SESSION.fullmatch(session) or not runs:
         return None
     total, seen = 0, False
     for path in session_logs(session):

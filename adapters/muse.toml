@@ -43,10 +43,11 @@ exec curl -fsSL -A muse-code/launcher-3 "https://api.meta.ai/muse-code/channels/
 # starts inherits its environment: a worker, a done-when command or another harness launched
 # from that seat would be handed the orchestrator's rules and refuse its own work.  Named here,
 # the core drops it from every child environment it builds -- config.seat_env_names().
+# The launch's receipt (agentkit/harness/muse.py) is the seat's alone the same way.
 # `programs` is what a running Muse is called besides `muse`: its launcher execs the build it
 # installed, so a tmux session running `muse-bin-<build>` holds an agent -- orch.agent_programs().
 [launch]
-seat_env = ["TBH_EVAL_APPEND_SYSTEM_PROMPT_FILE"]
+seat_env = ["TBH_EVAL_APPEND_SYSTEM_PROMPT_FILE", "AGENTKIT_MUSE_RECEIPT"]
 programs = ["muse-bin-*"]
 
 # Its usage call runs a model, so it goes through the shared supervisor (`capture`) and comes

@@ -126,7 +126,8 @@ class HooksReachTheLook(Seat):
 
     def test_every_event_its_manifest_maps_is_installed(self):
         mapped = {entry["name"] for entry in config.manifest("muse")["hooks"]["event"]}
-        self.assertEqual({name.split(".", 1)[1] for name in self.hooks}, mapped)
+        # and SessionStart, which writes the session it opened into the launch's receipt
+        self.assertEqual({name.split(".", 1)[1] for name in self.hooks}, mapped | {"SessionStart"})
         # Muse runs an Interrupt hook only alongside the turn
         (handlers,) = json.loads(self.hooks["hooks.Interrupt"])
         self.assertIs(handlers["hooks"][0].get("async"), True)

@@ -1,9 +1,9 @@
 """A Muse seat's launch hands Muse ak's hooks, and what Muse hands them becomes the seat's fact.
 
 Muse takes hooks only on its command line, so a Muse seat's word follows its hooks only when its
-launch carries them: its turn's end (`Stop`), its question or approval going up
-(`Notification`), its question answered (`PostToolBatch`) and an Esc (`Interrupt`), the last two
-run beside the turn, which waits on neither.  A muse whose own schema names no notification event
+launch carries them: the session it opened (`SessionStart`, for its launch's receipt), its
+turn's end (`Stop`), its question or approval going up (`Notification`), its question answered
+(`PostToolBatch`) and an Esc (`Interrupt`), the last two run beside the turn, which waits on neither.  A muse whose own schema names no notification event
 refuses settings it does not know, so it is given none and its seat is read off the screen.
 Muse hands a hook almost none of the seat's environment, so each command carries the seat and
 its pane itself.  A tool batch is named for its first tool, so a reminder's batch never reads as
@@ -32,7 +32,7 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 QUESTION, REMINDED, ANSWERED, STOPPED, ESCAPED, _APPROVAL = (
     json.loads(line) for line in (FIXTURES / "muse-hook-payloads.jsonl").read_text().splitlines())
 ASKED = "Which colour should the acme banner use?"    # the question muse-question-pane.txt shows
-HOOKED = {"Stop", "Notification", "PostToolBatch", "Interrupt"}
+HOOKED = {"SessionStart", "Stop", "Notification", "PostToolBatch", "Interrupt"}
 
 # muse: the schema this test gives it, and a TUI, the one call made on a terminal, that keeps the
 # line it was started with and shows Muse asking its own question.  Anything else (ak's usage

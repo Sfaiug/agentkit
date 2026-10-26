@@ -86,7 +86,9 @@ class SeatTokens(unittest.TestCase):
         self.seat("birch", "codex", codex_launch="1" * 32)
         (config.STATE / ("codex-launch-" + "1" * 32 + ".json")).write_text(json.dumps({
             "launch": "1" * 32, "remote": "fixture", "event": {"transcript_path": str(self.rollout)}}))
-        self.seat("cedar", "muse")
+        self.seat("cedar", "muse", muse_launch="2" * 32)
+        (config.STATE / ("muse-launch-" + "2" * 32)).mkdir()
+        (config.STATE / ("muse-launch-" + "2" * 32) / "session").write_text("cedar")
         store = self.root / "data/muse/sessions/2026/10/21"
         def metadata(session):
             return {"stream": {"kind": "session", "id": session}, "payload": {"kind": "metadata",

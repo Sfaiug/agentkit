@@ -11,6 +11,7 @@ from unittest.mock import ANY, patch
 
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, orch, watch
+from agentkit.harness import muse
 
 
 class MuseTitle(Sandbox):
@@ -99,7 +100,9 @@ class MuseTitle(Sandbox):
         self.assertNotIn("/rename", result.stdout)
         with patch.object(orch, "start") as start:
             orch.launch("lagoon", "spark", self.root, command, None)
-        start.assert_called_once_with("lagoon", self.root, command, "spark", ANY)
+        receipt = f"{muse.RECEIPT_ENV}={muse.path_for(self.record())}"
+        start.assert_called_once_with("lagoon", self.root, ["env", receipt, *command], "spark",
+                                      ANY)
         self.tick()
         self.tick()
 
