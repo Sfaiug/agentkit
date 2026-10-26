@@ -80,6 +80,11 @@ func utf8() bool {
 	return locale == "" || strings.Contains(strings.ReplaceAll(strings.ToLower(locale), "-", ""), "utf8")
 }
 
+// Width is the terminal's columns, for a listing that wraps to all of them.
+func (s Screen) Width() int {
+	return s.width
+}
+
 // ContentWidth is the room a listing lays out in: the terminal's, capped at 100 columns.
 func (s Screen) ContentWidth() int {
 	return max(1, min(s.width, 100))
