@@ -5,7 +5,6 @@ project, akseat.py seats, an akterm.py terminal and fakeadapter.py harnesses, ju
 effort each turn or launch is handed."""
 
 import json
-import shlex
 import sys
 from pathlib import Path
 import time
@@ -54,8 +53,7 @@ class TwoSeatsOnOneModel(unittest.TestCase):
         for args, effort in ((["acme-max"], "max"), (["acme-max", "--model", "opus"], "xhigh")):
             done = self.home.ak("orch", *args, "--dry-run", cwd=self.rig.path)
             self.assertEqual(done.code, 0, done.err)
-            words = shlex.split(done.out.splitlines()[-1])
-            self.assertEqual(words[words.index("--effort") + 1], effort)
+            self.assertEqual(self.fakes["claude"].calls("interactive")[-1]["argv"][1], effort)
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
