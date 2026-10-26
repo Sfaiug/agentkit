@@ -1,11 +1,8 @@
 """A seat with no blocking Stop whose conversation ak cannot name reads `needs you` at its question.
 
-Where the harness cannot say which conversation is the seat's (an Antigravity seat on a host
-whose open files cannot be read, a seat opened before its harness said), nothing can prove its
-closing message held the question: the stop that shows it reads `needs you` and nothing is
-typed, as before ak read the conversation, rather than `working` with a reminder every stop.
-Black-box: `AK_BIN` through tests/fixtures/akbin.py, before seats of tests/fixtures/akseat.py
-whose hooks fire as their harness fires them.
+Nothing can prove such a seat's closing message held its question, so its stop rests there with
+nothing typed, never `working` with a reminder every stop.  Black-box, as
+tests/test_key_question_delivery_after_stop.py.
 """
 
 import sys
