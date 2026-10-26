@@ -557,20 +557,30 @@ def said(record, cwd, conversation):
     """Each run of the session starts with the prompt it was given and commits every answer it
     showed as an event of its own; its reasoning, tool batches and reminders are other events,
     and a child session is a log of its own.  Its chat shows a run's first final answer, one
-    with no `phase`, and none after it: Muse 1.4.12 logs a later one its own end-of-turn
-    reminder asked for that no screen of it ever displays."""
+    with no `phase`, to its prompt or a steer, and none after it: Muse 1.4.12 logs a later one
+    its own end-of-turn reminder asked for that no screen of it ever displays."""
     from . import turns
-    finals = set()
+    answered = set()        # runs whose prompt or latest steer a shown final answered
+
+    def run(entry):
+        named = entry["payload"].get("run_id")
+        return named if isinstance(named, str) else None
+
+    def asked(entry):
+        text = typed(entry)
+        if text:
+            answered.discard(run(entry))
+        return text
 
     def shown(entry):
         event = run_event(entry, "assistant_message_committed")
-        run = entry["payload"].get("run_id") if event and not event.get("phase") else None
-        if isinstance(run, str):
-            if run in finals:
-                return None
-            finals.add(run)
+        final = run(entry) if event and not event.get("phase") else None
+        if final in answered:
+            return None
+        if final:
+            answered.add(final)
         return event.get("text")
-    return turns(session_log(conversation), typed, shown)
+    return turns(session_log(conversation), asked, shown)
 
 
 def user_messages(record, cwd, conversation):
