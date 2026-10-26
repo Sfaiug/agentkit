@@ -1,8 +1,11 @@
-"""Swap is memory in use, and a minute of memory stalls holds a run as ten seconds of them do.
+"""Swap is named, never counted against the slice's RAM, and a minute of memory stalls holds a
+run as ten seconds of them do.
 
-A slice at its cap swaps rather than frees, and `memory.current` leaves swap out: read alone, it
-saw room while the host thrashed.  So the heavy suite turns `ak run status` derives, and a `--bg`
-run's admission, count what the slice holds in swap beside its RAM, and say how much is in swap.
+A cap bounds RAM alone: the kernel moves cold pages to swap to make room, and what paging them
+back costs shows as memory pressure.  Counted as RAM, seats' cold swap kept every run out of a
+calm slice for a day (25 Oct 2026).  So the heavy suite turns `ak run status` derives, and a
+`--bg` run's admission, read the slice's RAM, the host line and the wait say how much is in swap,
+and a stall over the last minute holds a run.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on a
 project from gitrig.py with scripted harnesses from fakeadapter.py.  It reads a fake cgroup tree
 (AK_CGROUP_ROOT, AK_CGROUP_FILE) rather than AK_HOST_READINGS, so the slice's files are read by
@@ -61,8 +64,8 @@ class Slice:
         (self.dir / "memory.pressure").write_text(pressure)
 
 
-class AdmissionCountsSwap(unittest.TestCase):
-    def test_swap_in_the_slice_derives_fewer_heavy_turns_and_shows_on_the_host_line(self):
+class ColdSwapNeverHoldsARun(unittest.TestCase):
+    def test_swap_in_the_slice_leaves_the_heavy_turns_and_shows_on_the_host_line(self):
         with Home() as home:
             slice_ = Slice(home)
             # The shell asking sits in a limited unit of its own, outside ak's slice.
@@ -79,12 +82,12 @@ class AdmissionCountsSwap(unittest.TestCase):
                 self.assertEqual(done.code, 0, done.err)
                 lines[swap] = done.out.splitlines()[:2]
             turns = {swap: int(heavy.split()[2]) for swap, (_, heavy) in lines.items()}
-            self.assertLess(turns[1536], turns[0], lines)
-            self.assertIn("acme.service 10 of 16 G in use · 3 G in swap · "
-                          "agentkit-test.slice 3.5 of 4 G in use · 1.5 G in swap", lines[1536][0])
-            self.assertIn("acme.service 10 of 16 G in use · 3 G in swap · a run", lines[0][0])
+            self.assertEqual(turns[1536], turns[0], lines)
+            self.assertIn("acme.service 7 of 16 G in use · 3 G in swap · "
+                          "agentkit-test.slice 2 of 4 G in use · 1.5 G in swap", lines[1536][0])
+            self.assertIn("acme.service 7 of 16 G in use · 3 G in swap · a run", lines[0][0])
 
-    def test_a_run_waits_while_ram_and_swap_fill_the_slice_or_memory_stalls_for_a_minute(self):
+    def test_a_run_starts_beside_more_swap_than_room_and_waits_while_memory_stalls(self):
         with Home() as home:
             del home.env["AK_MAX_RUNS"]
             home.env.update(AK_SLOT_POLL="0.5", AK_MIN_FREE_MB="0")
@@ -92,8 +95,9 @@ class AdmissionCountsSwap(unittest.TestCase):
             rig = Rig(home, "widgets")
             akconfig.write(home, ["opus", "astra"])
             fakeadapter.install(home, claude="work", codex="pass")
+            # 2 of 4 G of RAM held: 3 G of cold swap is more than the room left, and holds no run.
             for title, holds, why in (
-                    ("Add retry file", {"swap_mb": 1536}, "in swap"),
+                    ("Add retry file", {"swap_mb": 3072}, None),
                     ("Bump alpha notes", {"swap_mb": 512, "pressure": STALLED},
                      "pressure 30%, limit 10% · 0.5 G in swap")):
                 with self.subTest(title):
@@ -109,15 +113,16 @@ class AdmissionCountsSwap(unittest.TestCase):
                             return json.loads((run / "run.json").read_text())
                         except (OSError, ValueError):
                             return {}
-                    wait(lambda: state().get("slot_wait_kind") == "unit memory",
-                         "the run queued on memory")
-                    time.sleep(2)     # four polls: still held
-                    held = state()
-                    self.assertEqual(held.get("state"), "queued")
-                    self.assertIn(why, held.get("slot_wait_reason", ""))
-                    slice_.holds(swap_mb=0)
+                    if why:
+                        wait(lambda: state().get("slot_wait_kind") == "unit memory",
+                             "the run queued on memory")
+                        time.sleep(2)     # four polls: still held
+                        held = state()
+                        self.assertEqual(held.get("state"), "queued")
+                        self.assertIn(why, held.get("slot_wait_reason", ""))
+                        slice_.holds(swap_mb=512)     # calm again, its swap still there
                     wait(lambda: state().get("state") not in ("queued", "running"),
-                         "the run admitted once the slice has room, and its end")
+                         "the run admitted while its slice's RAM has room, and its end")
                     self.assertEqual(state().get("verdict"), "PASS")
 
 
