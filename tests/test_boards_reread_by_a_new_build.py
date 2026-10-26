@@ -1,6 +1,6 @@
 """A board held from another build of ak whose cached rows carry none of a column the formula
 reads is asked again before the day is up, once: its reader changed, and a day of empty scores
-is stale state.  The same build asks no board twice a day, and a board whose rows carry every
+is stale state, and so is one held from a build before its reader gave `boards.ADDED`.  The same build asks no board twice a day, and a board whose rows carry every
 column it needs waits for the day.  The boards' answers are faked; a throwaway HOME."""
 
 import json
@@ -82,6 +82,28 @@ class Reread(Sandbox):
         held = boards.collect(now=10002, needs=needs, build="ghi9012")
         self.assertGreater(self.asked("livebench.ai"), asked)
         self.assertTrue(held["livebench.ai"]["rows"])
+
+    def test_a_board_read_before_its_reader_gave_the_added_columns_is_asked_again_once(self):
+        boards.collect(now=10000, build="abc1234")
+        cache = json.loads(boards.cache_path().read_text())
+        for board in ("artificialanalysis.ai", "arena.ai"):     # as a build before them stored it
+            for row in cache[board]["rows"]:
+                row["values"] = {column: value for column, value in row["values"].items()
+                                 if not column.startswith("aa.intelligenceIndexEvaluations.")
+                                 and not column.endswith("95ci")}
+        boards.cache_path().write_text(json.dumps(cache))
+        asked = {host: self.asked(host) for host in ("artificialanalysis", "huggingface", "livebench")}
+        held = boards.collect(now=10001, build="def5678")
+        self.assertEqual({host: self.asked(host) for host in asked},
+                         {"artificialanalysis": 2 * asked["artificialanalysis"],
+                          "huggingface": 2 * asked["huggingface"], "livebench": asked["livebench"]})
+        carried = {column for board in held.values() for row in board["rows"]
+                   for column in row["values"]}
+        self.assertTrue({"arena.agent.lower95ci", "aa.intelligenceIndexEvaluations.acme-bench.score"}
+                        <= carried)
+        boards.collect(now=10002, build="ghi9012")                # its rows carry them now: once
+        self.assertEqual(self.asked("huggingface"), 2 * asked["huggingface"])
+        self.assertEqual(self.asked("artificialanalysis"), 2 * asked["artificialanalysis"])
 
     def test_the_matrix_asks_for_every_column_it_scores_with_its_build(self):
         needs = matrix.needed()

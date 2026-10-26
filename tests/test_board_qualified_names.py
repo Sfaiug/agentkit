@@ -7,9 +7,10 @@ bracket and keeps the other words on the name; a model no board names exactly, n
 extends with a version, matches the one board name that is the model with a qualifier, so the
 variant's numbers reach the matrix row.  Where the board names the model exactly too, the exact
 name wins; two qualified names stand for nothing, and the config entry's `benchmark` still names
-one.
+one.  An Arena row naming a harness other than Arena's own, in its name or key, is no row: it
+measures the model inside another program, and as a qualified name it would stand for the model.
 
-Offline: the boards' rows are handed in, the harness manifests, catalogs and the installed
+Offline: the boards' rows and Arena's dataset pages are handed in, the harness manifests, catalogs and the installed
 harnesses are faked, and the config is the sandbox's.
 """
 
@@ -23,6 +24,7 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
 from agentkit import boards, config, matrix
+from test_model_matrix import ARENA, Boards
 
 NAMES = ("Acme 5 (Max, Default Fallback)", "Acme 5 (Low, Default Fallback)", "Acme 4 (high)",
          "Acme 4 (Non-reasoning, High)", "Beta 2 (Fast, max)", "Beta 2 (Slow, max)")
@@ -86,6 +88,19 @@ class QualifiedNames(Sandbox):
         self.assertNotIn("acme-5 @ high", rows)       # no board lists it, no role runs it
         self.assertEqual(rows["acme-4 @ high"]["values"]["aa.score"], 3)
         self.assertEqual(rows["beta-2"]["matched"], {})       # one row at none, nothing matched
+
+    def test_an_arena_row_run_inside_another_harness_is_not_read(self):
+        self.stack.enter_context(patch.object(boards, "fetch_bytes", Boards()))
+        with patch.dict(ARENA, agent=[
+                ("Zeta 6 (xHigh, Codex Harness)", "overall", 0.5),
+                ("Zeta 6 Max Code", "overall", 0.45, {"model_key": "zeta-6-max-code-codex-harness"}),
+                ("Zeta 6 Low", "overall", 0.35, {"model_key": "zeta_6_low_codex_harness"}),
+                ("Zeta 6 (Low, AcmeArena Harness)", "overall", 0.3),
+                ("Zeta 6 (xHigh)", "overall", 0.4, {"model_key": "zeta-6-xhigh-arena-harness"})]):
+            rows = boards.collect(now=10000)["arena.ai"]["rows"]
+        self.assertEqual([row["values"] for row in rows if row["model"].startswith("Zeta 6")],
+                         [{"arena.agent": 0.4}])
+        self.assertEqual(matrix.found(index(rows), "zeta-6"), [rows[0]])   # Arena's own harness
 
 
 if __name__ == "__main__":
