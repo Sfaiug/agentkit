@@ -4681,12 +4681,17 @@ def main(argv):
             # launched with where it was given one, and fresh where it was not.
             # Naming a model or a worker list is the one way to ask for a new seat by that name.
             return resume(cfg, name, dry_run=dry_run)
-    if not dry_run and not typed_here():
+    if not dry_run and not (typed_here() and not config.current_session()):
         # An agent's guessed `ak orch help` or `ak orch roles` once opened a real seat, which
-        # sat in the owner's list as "needs you": only a person opens a seat.
+        # sat in the owner's list as "needs you": only a person opens a seat.  A terminal a seat
+        # made is not a person's: one gave its `ak orch` a pty through a tmux session of its own
+        # and opened a seat it could then neither type into nor close (25 Oct 2026).  The menu's
+        # n, the overlay's too, opens through `create`, never here.
         seat = f"no seat named {name}" if name else "no seat name given"
-        raise config.Error(f"{seat}; a new seat opens only from a terminal (the menu's n, or "
-                           f"`ak orch NAME` typed there)\n{USAGE}")
+        how = ("a seat opens no seat: only the owner does, with the menu's n" if typed_here()
+               else "a new seat opens only from a terminal (the menu's n, or `ak orch NAME` "
+                    "typed there)")
+        raise config.Error(f"{seat}; {how}\n{USAGE}")
     if forced is not None and forced_workers is None:
         # Reject invalid flags before asking any interactive question.
         providers = usage.collect(cfg)

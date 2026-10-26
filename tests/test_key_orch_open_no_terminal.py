@@ -1,12 +1,12 @@
-"""With no terminal on stdin, `ak orch` opens no seat: it says how a person opens one instead.
+"""With no terminal on stdin, or from a seat, `ak orch` opens no seat: it says how one opens.
 
 Only a person opens a seat (owner rules): an agent's guessed `ak orch help` once opened a real
 seat, which sat in the owner's list reading `needs you`.  Agents run ak with no terminal on
 stdin, so a name no seat has, or no name at all, is refused, with the two ways a person opens a
-seat and the usage, and nothing is left behind: no seat record and no tmux session.  Arguments
-ak cannot read are refused first, each saying what was wrong.  Black-box: the program `AK_BIN`
-names runs from outside through tests/fixtures/akbin.py, its stdin a pipe and never a terminal;
-this test fails against `/bin/false`.
+seat and the usage; a seat that gives its `ak orch` a terminal is refused all the same.  Nothing
+is left behind: no seat record and no tmux session.  Arguments ak cannot read are refused first,
+each saying what was wrong.  Black-box: the program `AK_BIN` names runs from outside through
+tests/fixtures/akbin.py; this test fails against `/bin/false`.
 """
 
 import sys
@@ -29,8 +29,8 @@ class OpenWithoutTerminal(unittest.TestCase):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
 
-    def refused(self, args, err):
-        done = self.home.ak("orch", *args)
+    def refused(self, args, err, **kw):
+        done = self.home.ak("orch", *args, timeout=30, **kw)
         self.assertEqual((done.code, done.out, done.err), (2, "", err))
         state = self.home.path / ".agentkit" / "state"
         self.assertEqual([path.name for path in state.iterdir()
@@ -46,6 +46,12 @@ class OpenWithoutTerminal(unittest.TestCase):
 
     def test_no_name_is_refused_the_same_way(self):
         self.refused((), "ak orch: no seat name given" + FROM_A_TERMINAL)
+
+    def test_a_seat_opens_no_seat_even_from_a_terminal(self):
+        # A seat once gave its `ak orch` a terminal through a tmux session of its own.
+        self.refused(("brand-new",), "ak orch: no seat named brand-new; a seat opens no seat: "
+                     "only the owner does, with the menu's n\n" + USAGE + "\n",
+                     tty=True, env={"AGENTKIT_SESSION": "acme"})
 
     def test_arguments_it_cannot_read_are_refused_saying_what_was_wrong(self):
         cases = {("acme", "beta"): f"ak orch: {USAGE}  (got 'beta')\n",
