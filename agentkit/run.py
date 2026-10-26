@@ -48,7 +48,7 @@ from .prompts import (HANDOVER, done_when_block, fix_body, fixer_words, overridd
     placed, plan_context, saved_findings, without_followups)
 from .turns import (Blocked, Dead, Exhausted, Killed, NotNeeded, QuotaDry, _scope_units,
     answered, finished_answer, scope_is_real,
-    shell_foreground_note, stop_run_tree, tail)
+    shell_foreground_note, stop_run_tree)
 from .gitcall import (Stopped, TOOL_CAP, _RUN_CONTEXT, commit_identity, commit_leftovers,
     default_base, exclude_junk, fetch, git, git_out, log_is_stdout, logger, make_worktree, origin_default, repo_line, repo_rules, round_commands, run_depth, say,
     slugify, stopped, tool_env, tool_run, with_suite)

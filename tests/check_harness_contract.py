@@ -82,7 +82,7 @@ def refused(cfg, model, code, out, snapshot):
         return ""
     entry = config.model(cfg, model)
     out, snapshot = Path(out), Path(snapshot)
-    text = run.tail(out / "final.md" if out.is_dir() else out)
+    text = turns.tail(out / "final.md" if out.is_dir() else out)
     said = text if not run.answered(text) else ""
     if out.is_dir():
         said += "\n" + turns.harness_said(out, text, entry["harness"], failures_only=True)

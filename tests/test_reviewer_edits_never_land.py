@@ -504,7 +504,7 @@ class ReviewerEdits(unittest.TestCase):
 
         def unstaged(cfg, name, body, workspace, out, role, session, **kwargs):
             result = real_call(cfg, name, body, workspace, out, role, session, **kwargs)
-            self.assertEqual(result[0], 0, run.tail(Path(out) / "stderr.log"))
+            self.assertEqual(result[0], 0, turns.tail(Path(out) / "stderr.log"))
             if run.git(workspace, "ls-files", "--unmerged"):
                 (Path(workspace) / "staged.txt").write_text("working edit\n")
             return result
