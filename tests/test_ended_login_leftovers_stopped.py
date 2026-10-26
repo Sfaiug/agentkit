@@ -1,4 +1,4 @@
-"""On ak's server the tick stops, through logind, a login of ak's user that ended a day ago and
+"""On ak's server the tick kills, through logind, a login of ak's user that ended a day ago and
 still runs something, and says so in one line of its log.
 
 Offline: loginctl, systemctl, the session cgroups, the process table and the clock are fixtures.
@@ -22,7 +22,7 @@ UID = str(os.getuid())
 class EndedLoginLeftoversStopped(Sandbox):
     def setUp(self):
         super().setUp()
-        self.logins, self.commands, self.lines = {}, [], []
+        self.logins, self.commands, self.lines, self.gone = {}, [], [], []
         self.running = {4242: (1, ["opencode", "serve", "--service"]),
                         4343: (1, ["bash", "-c", "while sleep 60; do :; done"])}
         self.cgroups = self.root / "cgroup"
@@ -65,9 +65,12 @@ class EndedLoginLeftoversStopped(Sandbox):
                     "StateChangeTimestampMonotonic": "0"}).items() if key != "uid")
                 for unit in command[2:] if unit.startswith("session-"))
         elif command[:2] == ["loginctl", "terminate-session"]:
-            self.assertEqual(len(command), 3)
-            self.logins.pop(command[2])
-            self.running.clear()                       # the login's processes go with it
+            pass        # as logind, which began stopping the login when it ended, answers it
+        elif command[:2] == ["loginctl", "kill-session"]:
+            if "--signal=SIGKILL" in command:          # OpenCode's server catches TERM
+                self.gone.append(command[-1])
+                self.logins.pop(command[-1])
+                self.running.clear()                   # the login's processes go with it
         else:
             self.fail(f"not a logind or systemd question: {command}")
         return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
@@ -78,7 +81,7 @@ class EndedLoginLeftoversStopped(Sandbox):
         step()
 
     def stopped(self):
-        return [command[2] for command in self.commands if command[1] == "terminate-session"]
+        return self.gone
 
     def test_a_login_ended_a_day_ago_is_stopped_through_logind(self):
         self.login("34", "abandoned", 25 * HOUR, nested=(4343,))
@@ -88,6 +91,12 @@ class EndedLoginLeftoversStopped(Sandbox):
         self.assertEqual(self.stopped(), ["34"])
         self.assertEqual(self.lines, ["stopped login 34, ended 1d ago, still running: opencode "
                                       "serve --service; bash -c while sleep 60; do :; done"])
+
+    def test_a_login_logind_will_not_terminate_is_killed(self):
+        self.login("34", "abandoned", 2 * 86400)
+        self.tick()
+        self.assertEqual((self.running, self.lines), ({}, [
+            "stopped login 34, ended 2d ago, still running: opencode serve --service"]))
 
     def test_a_login_ended_an_hour_ago_is_kept(self):
         self.login("34", "abandoned", HOUR)

@@ -1009,12 +1009,15 @@ def stop_test_units(report):
 
 
 def stop_ended_logins(log):
-    """Have logind stop every login of ak's user that ended a day ago and still runs something.
+    """Have logind kill every login of ak's user that ended a day ago and still runs something.
 
     Only on ak's server with a user manager: there ak's own tmux server and seats live in
     `agentkit.slice`, never in a login, so what an ended login still runs was started by hand
     and left.  logind abandons a login's scope the moment the login ends, so the scope's last
-    state change is that moment.  The pids read only name what ran: the stop is the whole login's.
+    state change is that moment.  logind began stopping the login then, so `terminate-session`
+    now does nothing and answers 0; `kill-session` reaches the scope, with SIGKILL since a day
+    was grace enough and a leftover may catch TERM, as OpenCode's server does.  The pids read
+    only name what ran: the kill is the whole login's.
     """
     # install.sh stamps `installed-at` on a server and records the server's alias on a client;
     # with no user manager, seats start plainly, inside the login that opened them
@@ -1046,7 +1049,7 @@ def stop_ended_logins(log):
             ran = orch.processes() or {}     # before the stop, which takes its processes along
             commands = "; ".join(" ".join(ran[pid][1]) if pid in ran else str(pid) for pid in pids)
             login = fields["Id"].removeprefix("session-").removesuffix(".scope")
-            if systemd("loginctl", "terminate-session", login).returncode == 0:
+            if systemd("loginctl", "kill-session", "--signal=SIGKILL", login).returncode == 0:
                 log(f"stopped login {login}, ended {orch.span(now - ended)} ago, "
                     f"still running: {commands}")
         except (OSError, ValueError, KeyError, subprocess.SubprocessError):
