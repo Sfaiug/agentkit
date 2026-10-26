@@ -46,12 +46,12 @@ def wait(test, what, bound=90):
 
 
 class StalledQueueOpensWhileCalm(unittest.TestCase):
-    def queued(self, readings):
-        """A run launched under `readings`, held first in line by the room check."""
+    def queued(self, readings, kind="unit memory", **env):
+        """A run launched under `readings`, held first in line on `kind`."""
         home = Home()
         self.addCleanup(home.close)
         del home.env["AK_MAX_RUNS"]
-        home.env.update(AK_SLOT_POLL="0.5", AK_HOST_READINGS=json.dumps(readings))
+        home.env.update(AK_SLOT_POLL="0.5", AK_HOST_READINGS=json.dumps(readings), **env)
         now = time.time()
         database = sqlite3.connect(home.path / ".agentkit" / "history.db")
         database.execute(f"CREATE TABLE runs ({', '.join(COLUMNS)})")
@@ -67,8 +67,7 @@ class StalledQueueOpensWhileCalm(unittest.TestCase):
         done = home.ak("run", str(taskfile.write(home, rig.path)), "--no-merge", "--bg")
         self.assertEqual(done.code, 0, done.out + done.err)
         run = taskfile.only_run(home)
-        wait(lambda: self.state(run).get("slot_wait_kind") == "unit memory",
-             "the run queued on memory")
+        wait(lambda: self.state(run).get("slot_wait_kind") == kind, f"the run queued on {kind}")
         return home, run
 
     def state(self, run):
@@ -109,6 +108,14 @@ class StalledQueueOpensWhileCalm(unittest.TestCase):
         _, run = self.queued({**CALM, "slice_memory_pressure": 30})
         self.stall(run)
         self.held(run, "pressure 30%, limit 10%")
+
+    def test_a_stalled_first_still_waits_while_runs_stall_on_cpu(self):
+        # A pinned load, which leaves the runs' CPU pressure unread until the stall, holds it
+        # first; the room is there.
+        _, run = self.queued({**CALM, "slice_memory_used_mb": 1024, "slice_cpu_pressure": 90,
+                              "load": 20}, kind="load", AK_MAX_LOAD="8")
+        self.stall(run)
+        self.held(run, "pressure 90%, limit 40%")
 
     def test_before_its_stall_time_the_room_check_still_holds_it(self):
         _, run = self.queued(CALM)

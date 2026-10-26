@@ -373,16 +373,21 @@ def _host_admits(state, readings, is_first):
     (`_strain`), `slot_stall` naming the one it went past: the gates derived from those readings
     were retuned again and again, and one held every run for 22 hours of a calm host."""
     readings = _run_readings() if readings is None else readings
-    if _gates_admit(state, readings, is_first):
-        return True
     if stuck.slot_stall(time.time()) != state.get("run_id"):
-        return False
+        return _gates_admit(state, readings, is_first)
     reason, kind = _strain(readings, resource_limits(readings)[0])
     if reason:
-        state["slot_wait_reason"], state["slot_wait_kind"] = reason, kind
-        return False
-    state["slot_stall"] = f"went in on a stall, past: {state['slot_wait_reason']}"
+        return _held(state, reason, kind)
+    if not _gates_admit(state, readings, is_first):
+        state["slot_stall"] = f"went in on a stall, past: {state['slot_wait_reason']}"
     return True
+
+
+def _held(state, reason, kind):
+    state["slot_waited"] = True
+    state["slot_wait_reason"], state["slot_wait_kind"] = reason, kind
+    state["slot_healthy_polls"] = 0
+    return False
 
 
 def _gates_admit(state, readings, is_first):
@@ -408,10 +413,7 @@ def _gates_admit(state, readings, is_first):
         # Finished work goes first: the headroom a new run would take is the suite's.
         reason, kind = "waiting for a landing suite's turn · finished work goes first", "landing"
     if reason:
-        state["slot_waited"] = True
-        state["slot_wait_reason"], state["slot_wait_kind"] = reason, kind
-        state["slot_healthy_polls"] = 0
-        return False
+        return _held(state, reason, kind)
     polls = state.get("slot_healthy_polls", 0) + 1
     if polls < 2:
         state["slot_healthy_polls"] = polls
