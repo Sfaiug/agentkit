@@ -1535,10 +1535,7 @@ def recorded_error(harness, name):
         return None
     cwd = record.get("cwd")
     try:
-        conversation = plugin.conversation(record, cwd)
-        if not plugin.transcript(record, cwd, conversation):
-            return None
-        return plugin.error(record, cwd, conversation) or ""
+        return plugin.error(record, cwd, plugin.conversation(record, cwd))
     except OSError:
         return None
 

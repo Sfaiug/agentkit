@@ -247,3 +247,29 @@ def user_messages(record, cwd, conversation):
         kept = user_message(at, text) if who == "user" else None
         if kept:
             yield kept
+
+
+def error(record, cwd, conversation):
+    """The error OpenCode recorded as the end of that session's last turn, "" where the turn
+    ended otherwise or a prompt came after it, None where opencode.db holds none of the session.
+
+    OpenCode ends every turn in an `idle` row whose `outcome` says how; a failed one holds its own
+    error -- the `provider.*` type, the status and the message the seat shows -- which no model's
+    answer is and no terminal width wraps."""
+    from . import rows
+    if not isinstance(conversation, str) or not SESSION.fullmatch(conversation):
+        return None
+    found = rows(database(), "SELECT type, data FROM session_message WHERE session_id = ?"
+                 " AND type IN ('user', 'idle') ORDER BY seq DESC LIMIT 1", conversation)
+    if not found:
+        return None
+    kind, data = found[0]
+    try:
+        ended = json.loads(data)
+    except (TypeError, ValueError):
+        return ""
+    failed = ended.get("error") if kind == "idle" and isinstance(ended, dict) else None
+    if not isinstance(failed, dict):
+        return ""
+    return " ".join(str(failed[key]) for key in ("type", "status", "message")
+                    if failed.get(key) is not None)

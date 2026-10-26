@@ -579,8 +579,8 @@ class Harness:
     def error(self, record, cwd, conversation):
         """The error the harness recorded as that conversation's last event: the text it showed.
 
-        None where the conversation went on after it, or no record exists; OSError where one
-        exists and cannot be read.  Only the text: what it means is `failure`'s and the `[auth]`
+        "" where the conversation went on after it, None where no record exists; OSError where
+        one exists and cannot be read.  Only the text: what it means is `failure`'s and the `[auth]`
         words' to say, as for a screen's error line.
         """
         hook = self._hook("error")
