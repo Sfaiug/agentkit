@@ -513,6 +513,9 @@ def key_line(text, term_width=None, first=None):
 BAR_TONES = {"ink": ("11111b", "30")}   # a chip's dark text, Mocha's crust
 
 
+NO_PLAN = "no plan yet"     # a working seat's count where it has no plan (`plan_bar`)
+
+
 def plan_bar(done, total, room=8, least=8, word="working", tmux=False):
     """A seat's progress in `room` cells, its count included: a smooth line of how much of its
     plan is done, then `done of total` -- never under `least` cells of line, which a row too
@@ -524,17 +527,17 @@ def plan_bar(done, total, room=8, least=8, word="working", tmux=False):
     `===------ 3 of 8`.  With no `least`, a room too small for a cell of line beside the count
     draws the count alone.  `tmux` draws it as a tmux format, a seat's bar's, the same line: its
     fade is a dark terminal's whichever process writes the bar, as the bar's colours are, so
-    the menu's draws and the tick's never disagree."""
+    the menu's draws and the tick's never disagree.  With no plan (`total` 0) it is the same
+    line with nothing done, `no plan yet` in the count's place."""
     total = max(0, int(total or 0))
-    if not total:
-        return ""
     done = max(0, min(int(done or 0), total))
-    count = f"{done} of {total}"
+    count = f"{done} of {total}" if total else NO_PLAN
     size = max(least, room - len(count) - 1)
     if size < 1:
         return count
     full, half, empty = "━╸─" if utf8() else "=--"
-    halves = round(2 * size * done / total) if utf8() else 2 * round(size * done / total)
+    share = done / total if total else 0
+    halves = round(2 * size * share) if utf8() else 2 * round(size * share)
     ends = (halves + 1) // 2
     cells = [full if n < halves // 2 else half for n in range(ends)]
     rest = empty * (size - ends)

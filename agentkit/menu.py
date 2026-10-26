@@ -939,7 +939,8 @@ def line_at(line):
 
     Its coloured spans distinguish it from completion prose holding the same glyphs.
     """
-    match = re.search(r"(?:\033\[[\d;]+m[━╸=─-]+\033\[0m)+(?= \d+ of \d+)", line)
+    count = rf"(?= (?:\d+ of \d+|{terminal.NO_PLAN}))"
+    match = re.search(r"(?:\033\[[\d;]+m[━╸=─-]+\033\[0m)+" + count, line)
     if match:
         start = len(terminal.cell_texts(line[:match.start()]))
         return slice(start, start + len(terminal.cell_texts(match.group())))
@@ -1324,8 +1325,9 @@ def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", 
     """The one last column of a seat's row, and of its status bar's line one: its progress
     (`terminal.plan_bar`, a smooth line and `done of total`) in `room` cells, in its word's
     colour, while `seat_progress` finds a plan or an unfinished job and it is not at rest, its
-    work waiting in the line to land too, which its squares say (`detail`); else
-    empty -- never `N running`, and no other sentence: what a seat asks or did opens under its
+    work waiting in the line to land too, which its squares say (`detail`); a `working` seat
+    with neither draws that line with nothing done and `no plan yet`, a light going round it
+    on the menu alone (`motion.circling`); else empty -- never `N running`, and no other sentence: what a seat asks or did opens under its
     row (`detail`).  Where the owner left text `unsent`, `✎ unsent` follows two cells after,
     in the needs-you colour.  The line keeps 8 cells at least, which a row too short for them
     draws under itself; where `room` is all there is -- a `narrow` screen's line, each width of
@@ -1338,7 +1340,7 @@ def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", 
     if word == "out of usage":
         text = f"back {back_at(back)}" if back_at(back) else ""
         bar = _paint(text, word, tmux) if text else ""
-    elif not total or word in (None, "idle"):
+    elif word in (None, "idle") or not total and word != "working":
         text = bar = ""
     else:
         text = terminal.plan_bar(done, total, left, 0)
@@ -1892,6 +1894,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
             since, before = news.get(key, (None, None))
             if shown == "working":
                 clock.start([cell], motion.breathing(terminal.state_glyph(shown), shown, lit))
+                if key[1] in bars and not seats[key[1]].get("bar"):     # no plan yet
+                    line(key[1], lambda cells: motion.circling(cells, lit))
             elif since is None:
                 continue
             elif key[0] == "bar" and before:    # the plan moved: its line glides there
