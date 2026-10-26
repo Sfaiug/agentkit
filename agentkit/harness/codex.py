@@ -509,6 +509,32 @@ def capture(path, event):
         return
 
 
+def in_flight(client, thread):
+    """The background work the seat's thread still runs, in the shape Claude Code hands its Stop
+    hook, read through `client` on the seat's app server, the one place 0.163 lists it: its
+    background terminals (`unified_exec`) and the sub-agents it spawned, at any depth, still
+    working (`multi_agent`).  0.163 wakes the seat for neither once it ends -- a terminal's exit
+    is an event and no turn (core/src/unified_exec/async_watcher.rs), a sub-agent's result waits
+    for the seat's next turn (core/src/agent/control.rs, `trigger_turn` false) -- so each is a
+    `terminal` or an `agent`, held and never waited on (hooks/orchestrator-stop.sh)."""
+    def pages(method, params):
+        found, cursor = [], None
+        while True:
+            page = client.call(method, {**params, "cursor": cursor})
+            found += page["data"]
+            cursor = page.get("nextCursor")
+            if not cursor:
+                return found
+    terminals = pages("thread/backgroundTerminals/list", {"threadId": thread})
+    agents = pages("thread/list", {"ancestorThreadId": thread,
+                                   "sourceKinds": ["subAgentThreadSpawn"]})
+    return ([{"id": t["processId"], "type": "terminal", "status": "running",
+              "description": t["command"]} for t in terminals]
+            + [{"id": a["id"], "type": "agent", "status": "running",
+                "description": a.get("agentNickname") or a["preview"]}
+               for a in agents if a["status"]["type"] == "active"])
+
+
 def trust(hooks, matchers=None):
     """The `-c` that trusts exactly these command-line hooks, and nobody else's.
 
@@ -874,15 +900,17 @@ def main(argv, launch=None):
             # The same launch carries the seat-state hooks: the events 0.153.x emits that say
             # what this seat is doing.  They go here rather than into ~/.codex/config.toml
             # because that file is the user's.  What each event means is
-            # adapters/codex.toml's to say; that script only writes down what arrived.  The
-            # end-of-turn rule rides the Stop layer beside it, and is the one that decides.
+            # adapters/codex.toml's to say; that script only writes down what arrived.  A Stop
+            # reaches it and the end-of-turn rule, the one that decides, with the background
+            # work the seat holds added (tools/codex-seat.py `stop_hook`).
             # The script also rides SessionStart, where a compaction (0.160's `compact` source)
             # leaves the seat holding its launch's rulebook again (`orch.rulebook_compacted`).
             seat = (shlex.join(["bash", str(config.REPO / SEAT_STATE)]), HOOK_TIMEOUT)
             hooks.update((event, [seat]) for event in SEAT_EVENTS)
             hooks["Interrupt"] = [(seat[0], 3)]
             hooks["SessionStart"].append(seat)
-            hooks["Stop"].append((shlex.join(["bash", str(config.REPO / STOP_RULE)]), HOOK_TIMEOUT))
+            hooks["Stop"] = [(shlex.join(
+                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "stop"]), HOOK_TIMEOUT)]
             # The seat's question goes to its owner through ak (`ask`). A Plan-mode question
             # going up is written down by it, once it lets the call through, and a call's end
             # only while the seat's record holds a question (`answered`).
