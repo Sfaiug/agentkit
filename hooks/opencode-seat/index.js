@@ -14,7 +14,7 @@
 // harness (adapters/opencode.toml maps the names to states):
 //   session.inbox.enqueued where the item is a user message -> UserPromptSubmit, with its text
 //   session.execution.{succeeded,failed}                   -> Stop, with the session id and
-//     the background work OpenCode records for it still running; none for a subagent's
+//     the background work the harness records for it still running; none for a subagent's
 //     session (`recorded`)
 //   session.execution.interrupted                         -> Interrupt, with the session id
 //   permission.asked                                         -> PermissionRequest, with the
@@ -44,8 +44,8 @@ const SEAT_STATE = fileURLToPath(new URL("../seat-state.sh", import.meta.url));
 const GATE = fileURLToPath(new URL("../orchestrator-stop.sh", import.meta.url));
 // This launch's receipt, or none where the seat was not opened by agentkit.
 const RECEIPT = process.env.AGENTKIT_OPENCODE_RECEIPT || "";
-// OpenCode 2.1.1 runs its plugins on Bun 1.4.2, which offers Node's SQLite module.  A runtime
-// offering none leaves OpenCode's record unread.
+// The harness (2.1.1) runs its plugins on Bun 1.4.2, which offers Node's SQLite module.  A
+// runtime offering none leaves its record unread.
 const sqlite = await import("node:sqlite").catch(() => null);
 
 function send(payload) {
@@ -154,16 +154,16 @@ function confirmed(title, id, sessionID) {
   }
 }
 
-// That Stop once OpenCode's own record of its session is read.  A subagent's session names its
-// parent there, and its end is no end of the seat's turn: sent, it would read the seat as
-// stopped while its turn goes on, dropping the work the seat holds.  Any other Stop goes with the
-// background work still running for its session, in the shape Claude Code hands its Stop:
-// from the moment a background shell or subagent leaves its turn until its end is handed back,
-// OpenCode keeps a `job.background/<notification>` row in opencode.db's kv table
-// (Job.background), `running` until it ends.  The plugin API reads neither.  A record that
+// That Stop once the harness's own record of its session is read.  A subagent's session names
+// its parent there, and its end is no end of the seat's turn: sent, it would read the seat as
+// stopped while its turn goes on, dropping the work the seat holds.  Any other Stop goes with
+// the background work still running for its session, as the `background_tasks` every harness's
+// Stop hands over (`lifecycle.handed_over`): from the moment a background shell or subagent
+// leaves its turn until its end is handed back, the harness keeps a
+// `job.background/<notification>` row in its database's kv table (Job.background), `running`
+// until it ends.  The plugin API reads neither.  A record that
 // cannot be read leaves the Stop as it is: unread work is no evidence that none is running.
-// The database is found as OpenCode finds it, the way agentkit/harness/opencode.py `database`
-// reads it too.
+// The database is found where the harness itself finds it.
 function recorded(stop) {
   if (!sqlite) return stop;
   const share = process.env.XDG_DATA_HOME || join(homedir(), ".local/share");
@@ -206,7 +206,7 @@ function promptedSession(event) {
     ? data.sessionID : null;
 }
 
-// Whether OpenCode's own record of that session says it is the seat's conversation: a
+// Whether the harness's own record of that session says it is the seat's conversation: a
 // subagent's names the session that started it as its parent, whenever and however it was
 // started.  A record that cannot be read is not the seat's, and the last good id stands.
 async function own(ctx, sessionID) {
@@ -219,7 +219,7 @@ async function own(ctx, sessionID) {
   }
 }
 
-// The fact one OpenCode event becomes, or null when the seat does not report it.
+// The fact one harness event becomes, or null when the seat does not report it.
 export function seatFact(event) {
   if (event === null || typeof event !== "object") return null;
   const data = event.data;
