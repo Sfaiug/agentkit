@@ -344,8 +344,8 @@ def fresh_command(cfg, name, seat=None, account=None, line=None):
     The id is generated here, before anything starts, and handed to the adapter as one its
     harness has not opened yet, so the seat owns it from the moment it is launched.  A TUI that
     cannot be told an id -- Codex's, OpenCode's, Muse's -- gets its command without one, and that
-    seat has no pinned conversation id. Codex records its actual id through a launch hook and
-    OpenCode through its seat plugin; Muse restarts fresh.
+    seat has no pinned conversation id. Codex and Muse record their actual id through a launch
+    hook and OpenCode through its seat plugin.
     """
     conversation = str(uuid.uuid4())
     with for_seat(seat):
@@ -2447,7 +2447,8 @@ def resume_command(cfg, model, conversation, cwd, seat=None, account=None, line=
 # harness's receipt, and the title that launch takes. A restart that fails puts these
 # back from the record as it was, so the seat keeps its own conversation.
 LAUNCH_KEYS = ("conversation", "resumable", "id_source", "before", "codex_launch",
-               "codex_history", "opencode_launch", "session_title", "title_sync")
+               "codex_history", "opencode_launch", "muse_launch", "session_title",
+               "title_sync")
 
 
 def launch(name, model, cwd, cmd, conversation, session=None, still=None):

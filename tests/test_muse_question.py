@@ -91,8 +91,8 @@ class MuseLaunch(unittest.TestCase):
         hooks = [cmd[i + 1] for i, arg in enumerate(cmd)
                  if arg == "-c" and cmd[i + 1].startswith("hooks.")]
         self.assertEqual([hook.split("=", 1)[0] for hook in hooks],
-                         ["hooks.Stop", "hooks.Notification", "hooks.PostToolBatch",
-                          "hooks.Interrupt"])
+                         ["hooks.SessionStart", "hooks.Stop", "hooks.Notification",
+                          "hooks.PostToolBatch", "hooks.Interrupt"])
         # a hook gets almost none of the seat's environment: its name rides in the command
         for hook in hooks:
             self.assertIn(f"AGENTKIT_SESSION=fix-api bash {REPO / 'adapters/muse.sh'} hook", hook)

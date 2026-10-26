@@ -6,8 +6,9 @@ screen, its quota, its update and its conversation are, and the defaults here an
 A harness that needs Python puts it in `agentkit/harness/<name>.py` and implements only the
 hooks it has something to say about -- `claude.py` the transcript it writes, `codex.py` the
 launch receipt its thread is proven by, `grokbuild.py` the session directory it opens,
-`muse.py` its launcher build, the snapshot an upgrade is put back from, its own usage probe
-the session store its tokens and messages are in and the sessions gc ends,
+`muse.py` its launcher build, the snapshot an upgrade is put back from, its own usage probe,
+the receipt its SessionStart hook writes its session into, the session store its tokens and
+messages are in and the sessions gc ends,
 `opencode.py` the receipt its seat plugin writes its session into, the endpoint that says
 how a model is paid and the sessions gc ends,
 `antigravity.py` the database each of its conversations is.  A script its adapter runs on its

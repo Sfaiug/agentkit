@@ -25,6 +25,7 @@ import sys
 import time
 from pathlib import Path
 import unittest
+import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
@@ -71,7 +72,7 @@ class Conversation:
     """A seat's conversation in its harness's own store under the Home."""
 
     def __init__(self, home, harness, conversation):
-        self.harness = harness
+        self.harness, self.conversation = harness, conversation
         if harness == "muse":
             self.path = (home.path / ".local/share/muse/sessions/2026/10/24" / conversation
                          / "session.jsonl")
@@ -123,8 +124,15 @@ class OnlyOwnerReplies(unittest.TestCase):
         for harness, (model, composer, opened, _output) in SCREENS.items():
             for when, screen in zip(("before", "during"), opened):
                 name = f"{harness}-{when}"
-                seat = Seat(home, name, model=model, composer=composer, screen=screen)
-                talk = Conversation(home, harness, seat.record["conversation"])
+                # a Muse seat's session is the one its launch's SessionStart hook reported
+                token = uuid.uuid4().hex
+                owned = ({"conversation": None, "id_source": None, "muse_launch": token}
+                         if harness == "muse" else {})
+                seat = Seat(home, name, model=model, composer=composer, screen=screen,
+                            record=owned)
+                talk = Conversation(home, harness, f"conv-{name}")
+                if owned:
+                    home.write(f".agentkit/state/muse-launch-{token}/session", talk.conversation)
                 talk.said("Build the acme parser.", cls.asked - 60)
                 home.write(f".agentkit/state/notify-{name}.json",
                            {"session": name, "kind": "needs", "text": QUESTION,
@@ -174,7 +182,7 @@ class OnlyOwnerReplies(unittest.TestCase):
             self.home.write(f".agentkit/state/input-{seat.name}.jsonl",
                             json.dumps({"at": time.time(), "text": HANDBACK, "source": "ak",
                                         "harness": harness,
-                                        "conversation": seat.record["conversation"],
+                                        "conversation": talk.conversation,
                                         "after": talk.steps}) + "\n")
             talk.said(HANDBACK, time.time())
         self.output(1)
