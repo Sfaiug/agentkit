@@ -21,7 +21,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from fixtures.seats import cursor_row
+from fixtures.seats import chat, cursor_row
 from agentkit import config, host, job as jobs, menu, notify, orch, questions, run, watch
 from agentkit import record
 
@@ -67,6 +67,9 @@ class NudgeTurnRule(Sandbox):
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.stack.enter_context(patch.object(watch.time, "sleep", lambda _s: None))
         self.harness, self.pane, self.sent = HARNESSES[0], "", []
+        # the seat's conversation as its harness reads it back, closing on `said`
+        self.said = SAID
+        self.stack.enter_context(patch.object(notify, "conversation_of", chat(lambda: self.said)))
 
     def tmux(self, *args, socket=None, client=False, **_kw):
         """tmux for one seat, answering only the target real tmux answers: `={name}:`."""
@@ -89,8 +92,10 @@ class NudgeTurnRule(Sandbox):
         return (REPO / f"tests/fixtures/{self.harness}-{kind}-pane.txt").read_text()
 
     def stopped(self):
-        """The seat at its prompt on words that ask nothing, stood long past STALL_WAIT."""
+        """The seat at its prompt, stood long past STALL_WAIT, its closing message its recorded
+        questions, or words that ask nothing."""
         now = time.time()
+        self.said = "\n\n".join(questions.pending(SEAT)) or SAID
         self.pane = self.screen("prompt")
         # a stop of its own: whatever was typed at the last one is behind it
         watch.seat_write(SEAT, state="at_prompt", turn_began=now - 7200,
@@ -134,9 +139,8 @@ class NudgeTurnRule(Sandbox):
         (config.STATE / f"stop-{SEAT}.json").write_text(json.dumps(
             {"session": SEAT, "turn": watch.seat_read(SEAT)["turn_began"], "blocks": blocks}) + "\n")
         transcript = self.root / "transcript.jsonl"
-        said = "\n\n".join(questions.pending(SEAT)) or SAID
         transcript.write_text(json.dumps({"type": "assistant", "message": {
-            "role": "assistant", "content": [{"type": "text", "text": said}]}}) + "\n")
+            "role": "assistant", "content": [{"type": "text", "text": self.said}]}}) + "\n")
         done = subprocess.run(
             ["bash", str(REPO / "hooks/orchestrator-stop.sh")], text=True, capture_output=True,
             input=json.dumps({"hook_event_name": "Stop", "session_id": "fake",
@@ -314,7 +318,8 @@ class NudgeTurnRule(Sandbox):
                 self.harness = harness
                 self.pane = self.screen("working")
                 self.assertEqual(notify.main(["needs", question]), 0)
-                self.pane = self.screen("prompt")       # its turn ends
+                self.pane = self.screen("prompt")       # its turn ends, on the question
+                self.said = question
                 self.assertTrue(watch.type_at_prompt(
                     self.seat, "run acme-parser finished PASS merged.", lambda line: None,
                     cfg=self.cfg))

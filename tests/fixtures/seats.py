@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -21,6 +22,14 @@ RUN = "20260101-0900-acme-parser"
 LINE = f"run {RUN} ended PASS, merged; your wait is over. Decide the next step."
 PANE = "%7"     # the receiving seat's pane, which a line's reads and keys go to by id
 PROMPT = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text(encoding="utf-8")
+
+
+def chat(closing):
+    """`notify.conversation_of` for a seat whose harness reads back one message, the model's
+    closing one, `closing()`, and no owner's: to patch it with."""
+    plugin = SimpleNamespace(said=lambda *_a: [{"who": "model", "text": closing()}],
+                             reads_messages=False, user_messages=lambda *_a, **_k: [])
+    return lambda _name: (plugin, {}, None, "conv")
 
 
 def cursor_row(pane):

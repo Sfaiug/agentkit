@@ -24,8 +24,9 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 NEW = ("--model", "gemini", "--workers", "gemini")    # a seat opened anew, on Antigravity
 ASKED = {"acme": "Which schema should the acme parser write?",
          "beta": "Which branch should the acme banner land on?"}
-# step_type of an agy user input, and the schema of its steps table as agy 1.2.13 wrote it
-USER = 14
+# step_type and payload fields of an agy user input and of its model's answer, and the schema
+# of its steps table as agy 1.2.13 wrote it
+USER, MODEL = (14, 19, 2), (15, 20, 1)
 STEPS = ("CREATE TABLE `steps` (`idx` integer,`step_type` integer NOT NULL DEFAULT 0,"
          "`status` integer NOT NULL DEFAULT 0,`metadata` blob,`step_payload` blob,"
          "PRIMARY KEY (`idx`))")
@@ -92,17 +93,19 @@ class AntigravityQuestionConversation(unittest.TestCase):
             time.sleep(0.05)
         return said.read_text()
 
-    def said(self, conversation, text, at):
-        """The owner typed `text` into that conversation at `at`, as agy records a user input."""
+    def said(self, conversation, text, at, kind=USER):
+        """The owner typed `text` into that conversation at `at`, as agy records a user input, or
+        its model answered it (MODEL)."""
         seconds, fraction = divmod(at, 1)
         stamp = varint(1 << 3) + varint(int(seconds)) + varint(2 << 3) + varint(
             round(fraction * 1e9))
-        payload = varint(1 << 3) + varint(USER) + nested(19, nested(2, text.encode()))
+        step, field, inner = kind
+        payload = varint(1 << 3) + varint(step) + nested(field, nested(inner, text.encode()))
         path = self.home.path / ".gemini/antigravity-cli/conversations" / f"{conversation}.db"
         with contextlib.closing(sqlite3.connect(path)) as db, db:
             db.execute("INSERT INTO steps (idx, step_type, status, metadata, step_payload)"
                        " VALUES ((SELECT COUNT(*) FROM steps), ?, 3, ?, ?)",
-                       (USER, nested(1, stamp), payload))
+                       (step, nested(1, stamp), payload))
 
     def standing(self, name):
         done = self.home.ak("orch", "why", name)
@@ -115,6 +118,7 @@ class AntigravityQuestionConversation(unittest.TestCase):
         for name, question in ASKED.items():
             done = self.home.ak("notify", "needs", question, "--session", name)
             self.assertEqual(done.code, 0, done.err)
+            self.said(conversations[name], question, time.time(), MODEL)
         self.assertTrue(all(self.standing(name) for name in ASKED))
 
         self.said(conversations["acme"], "Write the v2 schema.", time.time())

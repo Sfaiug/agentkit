@@ -44,8 +44,9 @@ SCREENS = {"muse": ("spark", "❯", ("muse-prompt-pane.txt", "muse-working-pane.
                                            "antigravity-working-pane.txt"),
                            ("antigravity-background-pane.txt", "antigravity-usage-pane.txt",
                             "antigravity-tall-line-pane.txt"))}
-# step_type of an agy user input, and the schema of its steps table as agy 1.2.13 wrote it
-USER = 14
+# step_type and payload fields of an agy user input and of its model's answer, and the schema
+# of its steps table as agy 1.2.13 wrote it
+USER, MODEL = (14, 19, 2), (15, 20, 1)
 STEPS = ("CREATE TABLE `steps` (`idx` integer,`step_type` integer NOT NULL DEFAULT 0,"
          "`status` integer NOT NULL DEFAULT 0,`metadata` blob,`step_payload` blob,"
          "PRIMARY KEY (`idx`))")
@@ -85,26 +86,31 @@ class Conversation:
                 db.execute(STEPS)
         self.steps = 0
 
-    def said(self, text, at, *, date=...):
-        """The user side wrote `text` at `at`; `date`, where given, is what the store keeps as
-        its date, None for nothing."""
+    def said(self, text, at, *, date=..., model=False):
+        """The user side wrote `text` at `at`, and the model then its closing message, which
+        repeats the question as a seat's must for it to stand (`model`: the model wrote `text`);
+        `date`, where given, is what the store keeps as its date, None for nothing."""
         if self.harness == "muse":
             line = {"schema_version": 1, "stream": {"kind": "session", "id": "s"},
                     "sequence": self.steps, "record_type": "event",
                     "recorded_at": round(at * 1_000_000) if date is ... else date,
                     "payload": {"kind": "run", "run_id": f"r{self.steps}",
-                                "event": {"kind": "started", "prompt": text}}}
+                                "event": {"kind": "assistant_message_committed", "text": text}
+                                if model else {"kind": "started", "prompt": text}}}
             with self.path.open("a") as fh:
                 fh.write(json.dumps(line) + "\n")
         else:
             seconds, fraction = divmod(at, 1)
             stamp = number(1, int(seconds)) + number(2, round(fraction * 1e9))
             metadata = nested(1, stamp) if date is ... else date
-            payload = number(1, USER) + nested(19, nested(2, text.encode()))
+            kind, field, inner = MODEL if model else USER
+            payload = number(1, kind) + nested(field, nested(inner, text.encode()))
             with contextlib.closing(sqlite3.connect(self.path)) as db, db:
                 db.execute("INSERT INTO steps (idx, step_type, status, metadata, step_payload)"
-                           " VALUES (?, ?, 3, ?, ?)", (self.steps, USER, metadata, payload))
+                           " VALUES (?, ?, 3, ?, ?)", (self.steps, kind, metadata, payload))
         self.steps += 1
+        if not model:
+            self.said(QUESTION, time.time(), model=True)
 
 
 def clients(home):
@@ -183,7 +189,7 @@ class OnlyOwnerReplies(unittest.TestCase):
                             json.dumps({"at": time.time(), "text": HANDBACK, "source": "ak",
                                         "harness": harness,
                                         "conversation": talk.conversation,
-                                        "after": talk.steps}) + "\n")
+                                        "after": talk.steps // 2}) + "\n")
             talk.said(HANDBACK, time.time())
         self.output(1)
         self.assertCountEqual(self.standing(), self.seats, "ak's own line answered it")

@@ -117,14 +117,15 @@ class MuseQuestionAfterNew(unittest.TestCase):
         self.said(session, "Lay out the acme dashboard.", time.time() - 30)
         return session
 
-    def said(self, session, text, at):
-        """The user side of that session typed `text` at `at`, as Muse records a run's prompt."""
+    def said(self, session, text, at, event=None):
+        """The user side of that session typed `text` at `at`, as Muse records a run's prompt, or
+        the model said what `event` holds."""
         log = self.home.path / DAY / session / "session.jsonl"
         log.parent.mkdir(parents=True, exist_ok=True)
         line = {"schema_version": 1, "stream": {"kind": "session", "id": session},
                 "record_type": "event", "recorded_at": round(at * 1_000_000),
                 "payload": {"kind": "run", "run_id": uuid.uuid4().hex,
-                            "event": {"kind": "started", "prompt": text}}}
+                            "event": event or {"kind": "started", "prompt": text}}}
         with log.open("a") as fh:
             fh.write(json.dumps(line) + "\n")
 
@@ -139,6 +140,8 @@ class MuseQuestionAfterNew(unittest.TestCase):
         for name, question in ASKED.items():
             done = self.home.ak("notify", "needs", question, "--session", name)
             self.assertEqual(done.code, 0, done.err)
+            self.said(session if name == "acme" else muses[name]["session"], question, time.time(),
+                      {"kind": "assistant_message_committed", "text": question})
         self.assertTrue(all(self.standing(name) for name in ASKED))
 
         self.said(session, "Wide.", time.time())
