@@ -1,4 +1,4 @@
-"""The `c` screen steps an effort, moves a seat once asked, and adds a model, each into config.
+"""The `c` screen steps an effort, moves a seat once asked, and ticks models in and out of config.
 
 `c` is where the owner changes the models without opening a file: Enter on a model's effort
 steps it one up and config.toml is rewritten at once, whole, with the menu's header, every
@@ -6,9 +6,9 @@ other value and an unknown key kept; Enter on another model's orchestrator mark 
 matrix first, as the owner said on 24 Oct ("when pressing a different orch, it should ask me
 to confirm. As this restarts the session."): Esc keeps the record and the pane as they were,
 and `Move` moves the seat, its record naming the new orchestrator and its tmux session running
-that model's harness, config.toml as it was; and `+ add a
-model` walks harness, model and effort, each picked from a list, the models being the ones the
-harness's adapter lists, and writes the new model to config.toml under its provider.
+that model's harness, config.toml as it was; and `Models` opens
+a harness's row onto the models its adapter lists, `□` one the config does not run: Enter ticks
+it in, `■`, written to config.toml under its provider, and out again, config.toml as it was.
 Black-box: the program `AK_BIN` names, as the popup over a seat as ak leaves it
 (tests/fixtures/akseat.py) in a person's terminal (tests/fixtures/akterm.py), its harnesses the
 fakes of tests/fixtures/fakeadapter.py, judged by what the terminal shows, config.toml, the
@@ -163,44 +163,33 @@ class ConfigScreenEdits(unittest.TestCase):
                        in rows(screen))
         self.assertEqual(json.loads(self.record.read_text())["orchestrator"], "fable")
 
-    def test_add_a_model_walks_harness_model_and_effort_and_writes_the_model(self):
+    def test_models_ticks_a_model_its_harness_lists_in_and_out(self):
         self.fakes["claude"].answer("models", CATALOG)
         self.term.keys("j", "j")
-        screen = self.term.wait(lambda screen: "› + add a model" in rows(screen))
+        screen = self.term.wait(lambda screen: "› Models" in rows(screen))
         self.assertEqual(key_line(screen), KEYS)
         self.term.keys("Enter")
-        # each list draws once its choices are in hand; a harness's models are asked of it
-        screen = self.term.wait(lambda screen: "›   claude  Claude" in rows(screen))
-        self.assertTrue(rows(screen)[0].startswith("agentkit · config · add a model"), screen)
-        self.assertEqual(body(screen), ["  harness", "›   claude  Claude", "    codex   ChatGPT"])
+        screen = self.term.wait(lambda screen: "› Claude Code  Fable 5.1" in rows(screen))
+        self.assertTrue(rows(screen)[0].startswith("agentkit · config · models"), screen)
+        self.assertEqual(body(screen)[:2], ["› Claude Code  Fable 5.1",
+                                            "  Codex        GPT-6-Astra"])
         self.assertEqual(key_line(screen), PAGE_KEYS)
+        # its list draws once the harness's models are asked of it
         self.term.keys("Enter")
-        screen = self.term.wait(lambda screen: "›   Model One  m1" in rows(screen))
-        self.assertEqual(body(screen), ["  harness  claude · Claude", "  model",
-                                        "›   Model One  m1"])
-        self.assertEqual(key_line(screen), PAGE_KEYS)
+        screen = self.term.wait(lambda screen: "›   □ Model One" in rows(screen))
+        self.assertEqual(body(screen)[:3], ["  Claude Code  Fable 5.1", "›   □ Model One",
+                                            "  Codex        GPT-6-Astra"])
         self.term.keys("Enter")
-        screen = self.term.wait(lambda screen: "›   low" in rows(screen))
-        self.assertEqual(body(screen), ["  harness  claude · Claude", "  model    Model One · m1",
-                                        "  effort", "›   low", "    medium", "    high"])
-        self.assertEqual(key_line(screen), PAGE_KEYS)
-        self.term.keys("Enter")
-        # the row's cells, under whichever name the screen gives a model it has just added
-        cells = "[○]     □        □     ▰▱▱     low"
-        # read once the frame is drawn down to its key line
-        screen = self.term.wait(lambda screen: key_line(screen) == KEYS and any(
-            line.startswith("› ") and line.endswith(cells) for line in rows(screen)))
-        lines = rows(screen)
-        row = next(line for line in lines if line.startswith("› ") and line.endswith(cells))
-        # the new model sits with its harness's others, after them
-        self.assertEqual(lines.index("Codex") - lines.index("Claude Code"), 3)
-        self.assertEqual(lines.index(row), lines.index("Codex") - 1)
+        self.term.wait(lambda screen: "›   ■ Model One" in rows(screen))
         models = tomllib.loads(self.config.read_text())["models"]
+        # at the effort of its harness's first model, as near as it goes
         self.assertEqual(models["model-one"], {"harness": "claude", "model": "m1",
-                                               "effort": "low", "provider": "anthropic"})
+                                               "effort": "high", "provider": "anthropic"})
         self.assertEqual({name: models[name] for name in MODELS}, self.given["models"])
+        self.term.keys("Enter")
+        self.term.wait(lambda screen: "›   □ Model One" in rows(screen))
+        self.assertEqual(tomllib.loads(self.config.read_text()), self.given)
         self.assertTrue(self.fakes["claude"].calls("models"))
-
 
 if __name__ == "__main__":
     unittest.main()

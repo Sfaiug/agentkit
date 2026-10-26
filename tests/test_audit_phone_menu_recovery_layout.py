@@ -816,7 +816,7 @@ class Phone(Sandbox):
         phone.keys("C-b", "d")
         phone.until("esc leave", prompt="esc leave")
         # `c` lists the config, `i` and `r` are no keys and say nothing; its title, as a phone's
-        # first page of rows ends over the highlighted model's line, before `+ add a model`
+        # first page of rows ends over the highlighted model's line, before `Models`
         phone.press("c")
         phone.until("agentkit · config", "esc back")
         phone.keys("Escape")
