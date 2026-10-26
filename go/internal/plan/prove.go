@@ -25,11 +25,16 @@ var dropped = []string{"BASH_ENV", "ENV", "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMO
 // environ is what git and a check run with: nothing inherited routes git to another
 // repository or brings back seat variables, and the project's env file comes last, as exec
 // keeps a key's last value.
-func environ(extra map[string]string) []string {
+func environ(extra map[string]string) ([]string, error) {
+	seat, err := config.SeatEnv()
+	if err != nil {
+		return nil, err
+	}
 	var env []string
 	for _, pair := range os.Environ() {
 		key, _, _ := strings.Cut(pair, "=")
-		if !strings.HasPrefix(key, "AGENTKIT_") && !strings.HasPrefix(key, "AK_") && !slices.Contains(dropped, key) {
+		if !strings.HasPrefix(key, "AGENTKIT_") && !strings.HasPrefix(key, "AK_") &&
+			!slices.Contains(dropped, key) && !slices.Contains(seat, key) {
 			env = append(env, pair)
 		}
 	}
@@ -37,7 +42,7 @@ func environ(extra map[string]string) []string {
 	for key, value := range extra {
 		env = append(env, key+"="+value)
 	}
-	return env
+	return env, nil
 }
 
 func git(ctx context.Context, env []string, dir string, args ...string) (string, error) {
@@ -60,7 +65,7 @@ func git(ctx context.Context, env []string, dir string, args ...string) (string,
 // holds is whether the repository at dir holds commit, the root its line recorded, or, given
 // a revision, whether that descends from it: a remote changed to another repository brings
 // that one's history in beside the old root.
-func holds(dir, commit, revision string) bool {
+func holds(env []string, dir, commit, revision string) bool {
 	test := []string{"cat-file", "-e", commit + "^{commit}"}
 	if revision != "" {
 		test = []string{"merge-base", "--is-ancestor", commit, revision}
@@ -68,19 +73,19 @@ func holds(dir, commit, revision string) bool {
 	if !commitID.MatchString(commit) {
 		return false
 	}
-	_, err := git(context.Background(), environ(nil), dir, test...)
+	_, err := git(context.Background(), env, dir, test...)
 	return err == nil
 }
 
 // place is the checkout a line's project names (`~/code/acme#<root commit>`) and that root,
 // while the repository there still holds it: a path moved or reused proves nothing.
-func place(project string) (repo, root string) {
+func place(project string, env []string) (repo, root string) {
 	at := strings.LastIndex(project, "#")
 	if at < 0 {
 		return "", ""
 	}
 	repo, root = config.Expand(project[:at]), project[at+1:]
-	if _, err := os.Stat(filepath.Join(repo, ".git")); err != nil || !filepath.IsAbs(repo) || !holds(repo, root, "") {
+	if _, err := os.Stat(filepath.Join(repo, ".git")); err != nil || !filepath.IsAbs(repo) || !holds(env, repo, root, "") {
 		return "", ""
 	}
 	return repo, root
@@ -97,7 +102,10 @@ func defaultBranch(ctx context.Context, repo, root string) (*branch, error) {
 	if err != nil {
 		return nil, err
 	}
-	on := &branch{repo: repo, root: root, env: environ(extra)}
+	on := &branch{repo: repo, root: root}
+	if on.env, err = environ(extra); err != nil {
+		return nil, err
+	}
 	run := func(args ...string) string {
 		if err != nil {
 			return ""
@@ -141,7 +149,7 @@ func (on *branch) passes(ctx context.Context, check string) bool {
 	if _, err := git(ctx, on.env, on.repo, "worktree", "add", "--detach", tree, on.sha); err != nil {
 		return false
 	}
-	if !holds(tree, on.root, "HEAD") {
+	if !holds(on.env, tree, on.root, "HEAD") {
 		return false
 	}
 	ctx, cancel := context.WithTimeout(ctx, checkLimit)

@@ -28,3 +28,21 @@ func TestRepoEnvReadsTheProjectsEnvFile(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestEmbeddedAdapters(t *testing.T) {
+	source, _ := filepath.Glob("../../../adapters/*.toml")
+	shipped, _ := filepath.Glob("adapters/*.toml")
+	if len(source) != len(shipped) {
+		t.Fatal("embedded adapter manifests differ from adapters/; run go generate ./internal/config")
+	}
+	for _, path := range source {
+		want, _ := os.ReadFile(path)
+		if got, _ := os.ReadFile(filepath.Join("adapters", filepath.Base(path))); string(got) != string(want) {
+			t.Fatalf("%s differs from adapters/; run go generate ./internal/config", path)
+		}
+	}
+	names, err := SeatEnv()
+	if err != nil || len(names) == 0 {
+		t.Fatalf("seat variables %v %v", names, err)
+	}
+}

@@ -83,13 +83,14 @@ RULES = [
     # A harness is its adapter pair and its plugin, and a model is bound to its harness and
     # provider by one config.default.toml entry: every other copy of a name is harness
     # knowledge that adding, renaming or dropping a harness has to find and change.
-    # Go embeds a generated copy; TestEmbeddedDefault refuses any difference from the source.
+    # Go embeds generated copies; TestEmbeddedDefault and TestEmbeddedAdapters refuse any
+    # difference from the sources.
     {"name": "harness and provider names",
      "flags": ("-i", "-w"),
      "pattern": "claude|codex|muse|opencode|grok|grokbuild|antigravity|gemini|anthropic|openai"
                 "|xai|mimo|[\"']meta[\"']|[\"']google[\"']",
      "home": ("adapters/", "agentkit/harness/", "config.default.toml",
-              "go/internal/config/default.toml"),
+              "go/internal/config/default.toml", "go/internal/config/adapters/"),
      "max": 186},
     # What a refusal from a provider looks like is the harness's to say (adapters/*.toml,
     # its plugin): a copy in the loop or the watcher is a second classifier to keep in step.
@@ -104,7 +105,7 @@ RULES = [
      "pattern": "rate[ _-]?limit|quota|capacity|overload|usage[ _-]?limit",
      "names": r"quota[_-]?dry|run-quota|(cpu|unit)[ _]?quota|usage[ -]limit (reset|credit)"
               r"|capacity[._](json|tokens|pairs)",
-     "home": ("adapters/", "agentkit/harness/"),
+     "home": ("adapters/", "agentkit/harness/", "go/internal/config/adapters/"),
      "max": 59},
     # The run loop, admission and a stop write run.json through its one writer.
     # Called through the module (`record.save_state`); watch.py's own `save_state` writes the

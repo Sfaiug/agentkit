@@ -1,0 +1,247 @@
+# adapters/codex.toml -- everything agentkit reads off a Codex seat's screen, and who has the
+# authority to say what that seat is doing.  Paired with adapters/codex.sh; the format is the
+# adapter contract in `config.adapter`.
+# Verified against Codex 0.153.4; see tests/fixtures/README.md for the captures.
+version = 1
+name = "Codex"
+colour = "#FFFFFF"
+
+[check]
+model = "gpt-5.6-luna"
+effort = "low"
+
+[worker]
+state = ["~/.codex", "$CODEX_HOME", "~/.codex-$AGENTKIT_ACCOUNT"]
+logins = ["~/.codex/auth.json", "$CODEX_HOME/auth.json", "~/.codex-$AGENTKIT_ACCOUNT/auth.json"]
+
+# Codex reads at most `project_doc_max_bytes` of a project's AGENTS.md (32 KiB in 0.160) and
+# drops the rest without a word, so no project's file may grow past it.
+[instructions]
+read_limit = 32768
+# Codex 0.153.4 has a switch only for the repository's AGENTS.md, not its own, which it reads
+# under $CODEX_HOME: ~/.codex-<name> on an account (codex.sh sets it on the seat's line; a
+# worker turn's box knows the account's name)
+unswitched = ["${CODEX_HOME:-~/.codex}/AGENTS.md", "~/.codex-$AGENTKIT_ACCOUNT/AGENTS.md"]
+
+[launch]
+seat_env = ["AGENTKIT_CODEX_RECEIPT", "AGENTKIT_CODEX_CAPTURE"]
+# `interactive` hands $AGENTKIT_FIRST_PROMPT to the TUI as its first prompt, fresh or resumed
+first_prompt = true
+
+# How `ak update` moves this harness: npm installs a named version, so a failed upgrade goes
+# back by command.  `[usage] reset` says this adapter speaks `reset-status` and `reset`, which is
+# what lets the owner spend a usage-limit reset by hand and read a fresh week back.
+# `latest` is the release the tick upgrades it to in the background.
+[update]
+version = ["codex", "--version"]
+upgrade = ["npm", "i", "-g", "@openai/codex@latest"]
+revert = ["npm", "i", "-g", "@openai/codex@{version}"]
+latest = ["npm", "view", "@openai/codex", "version"]
+
+[usage]
+reset = true
+
+# A Codex seat owns only the thread its own launch's SessionStart hook reported, so its row is
+# recomputed rather than read: a seat tmux has lost keeps it, and one that owns no thread comes
+# back under its own name with no past.
+[conversation]
+fresh_words = "Codex ownership unverified; it starts fresh"
+always_offered = true
+
+# /rename <name> is accepted idle and mid-turn in 0.153.4. Neither a launch nor a
+# cleared composer proves the name: only this launch's thread in session_index.jsonl does.
+[title]
+at_launch = false
+unreadable = false
+
+[authority]
+working = "hooks"
+asking = "hooks"
+at_prompt = "hooks"
+
+# Codex's hooks are installed per launch by the seat wrapper (tools/codex-seat.py), which
+# gives them to its own app server beside the SessionStart receipt. `adapters/codex.sh hooks`
+# says so and writes nothing. These are the events Codex emits that name a state; a
+# sub-agent's SubagentStart and SubagentStop name none, as its end says nothing of the seat's turn.
+[[hooks.event]]
+name = "UserPromptSubmit"
+state = "working"
+# what its hook prints as `hookSpecificOutput.additionalContext` reaches the model with the
+# prompt (Codex 0.160): a changed rulebook is named there (`orch.rulebook_news`)
+context = true
+
+[[hooks.event]]
+name = "Stop"
+state = "at_prompt"
+
+# A turn the user escapes out of has ended, and 0.153.4 has a turn-scoped hook of its own for
+# it (`interrupt.command.input`, carrying turn_id), so the row does not stay on `working`.
+# `interrupt` marks the owner stopping the turn: the seat rests, whatever its plan still owes.
+[[hooks.event]]
+name = "Interrupt"
+state = "at_prompt"
+interrupt = true
+
+[[hooks.event]]
+name = "PermissionRequest"
+state = "asking"
+
+# A Plan-mode turn's question going up (0.160.1), and a call's end while the seat's record holds
+# a question, as the owner's answer or approval let it run: 0.03 s after the answer, 0.1 s after
+# a quick approved command.  No other call's end reaches seat-state.sh (`codex.answered`).
+[[hooks.event]]
+name = "PreToolUse"
+kinds = ["request_user_input"]
+state = "asking"
+
+[[hooks.event]]
+name = "PostToolUse"
+state = "working"
+
+[screen]
+composer = '(?:[▌›]\s+Ask Codex\b.*|⏎ send\b.*|tab to queue message\b.*|[\w.-]+ (?:default|low|medium|high|xhigh|max|ultra) · .+)$'
+# Ctrl-G hands the composer to $VISUAL, ak's editor, mid-turn too (Codex 0.163.0)
+editor = ["C-g"]
+# 0.160.1 draws `⚠ 1 warning · f2 to view` at the footer's end on a seat resumed on another
+# model than its thread's, and alone where a draft has put the shortcut hint away.
+footer = ['\? for shortcuts', '(?:\? for shortcuts\s+)?⚠ \d+ warnings? · f2 to view']
+
+# Every screen Codex stops on and waits -- the directory-trust prompt, the hook review, a
+# permission request -- is the same numbered chooser, so one rule covers them: the selected
+# option, a second option, and the key hint, in the last few lines with the hint newest.
+# 0.160.1's hook review hints `enter confirm · esc skip`.
+[[rule]]
+id = "asking.chooser"
+state = "asking"
+lines = 6
+all = ["› 1.", "2. "]
+any = ["press enter to", "enter confirm"]
+newest = '(?i)press enter to|^enter confirm · '
+
+# A Plan-mode turn's question (`request_user_input`) waits in a dialog whose hint row is
+# `  tab to add notes | enter to submit answer | esc to interrupt`, the last part on a row of its
+# own in a narrow pane: before the working rule, which its `esc to interrupt` would match.  The
+# hint is read as drawn, at the bottom, so the words in a draft or a thread title are none.
+[[rule]]
+id = "asking.question"
+state = "asking"
+lines = 2
+row = '^  tab to add notes \| enter to submit answer\b'
+newest = '(?:^| \| )esc to interrupt$'
+
+[[rule]]
+id = "working.interrupt"
+state = "working"
+lines = 8
+any = ["esc to interrupt"]
+
+# A picker the owner opened at the composer -- /model, its effort list, /permissions -- ends on
+# its key hint, `enter select · esc back` or `enter default · s session · esc back`.  It is the
+# owner's own hand at the composer, as a draft is, so nothing is typed into it, and its
+# highlighted row reads as typed text, none of which ak's editor sets aside (`picker`).
+[[rule]]
+id = "draft.picker"
+state = "draft"
+lines = 1
+newest = '^enter \w+ · (?:.+ · )?esc back$'
+picker = true
+
+# A composer holding bright, typed text is a draft never sent. A composer whose
+# only content is dim -- the `Ask Codex …` placeholder -- is empty. Both are read
+# with `-e` attributes; see watch.has_dim. Draft before prompt.
+[[rule]]
+id = "prompt.draft"
+state = "draft"
+lines = 8
+at_composer = true
+none = ["esc to interrupt"]
+
+[[rule]]
+id = "prompt.suggestion"
+state = "at_prompt"
+lines = 8
+at_composer = true
+none = ["esc to interrupt"]
+
+# A draft a wrap or a newline has taken past its prompt row ends on a row of its own, indented
+# under that row, with the status line right under it: 0.160.1 draws its `? for shortcuts`
+# only under an empty composer.  The status line is the row with ` · ` in it.
+[[rule]]
+id = "draft.rows"
+state = "draft"
+lines = 2
+at_composer = true
+none = ["esc to interrupt", "? for shortcuts"]
+row = '^  (?!.* · )\S'
+
+[[rule]]
+id = "prompt.composer"
+state = "at_prompt"
+lines = 8
+at_composer = true
+none = ["esc to interrupt"]
+
+# 0.153.4's own refusals: "You've hit your usage limit." on its own and with each of its four
+# upgrade/credit tails, and "You've hit your usage limit for <model>. Switch to another model
+# now," -- every one of them carried by `usage limit` already.  The time it names it is safe to
+# come back is printed as " Try again at " / " or try again at " plus `%b %-d<ordinal>, %Y
+# %-I:%M %p`, which is the "Oct 12th, 2026 11:39 PM" agentkit/run.py parses.
+# `quotas` names the account; `refusals` carries the transient words beside them -- `at
+# capacity` the worker answers by typing `continue`, resuming the same session, never by
+# handing the round over.
+[stall]
+signatures = [
+  "Selected model is at capacity",
+  "Goal stalled",
+  "rate limit",
+  "usage limit",
+  "429 Too Many Requests",
+]
+refusals = ["at capacity", "rate limit", "usage limit", "insufficient_quota",
+            "try a different model", "429 Too Many Requests",
+            "500", "502", "503", "504", "Internal server error", "overloaded", "529"]
+quotas = ["rate limit", "usage limit", "429 Too Many Requests", "429", "insufficient_quota",
+          "insufficient quota"]
+# `terminal` is the event log's terminal record kind: a refused turn ends with `turn.failed`,
+# which is the harness speaking about the run whether or not its kind names a failure.
+terminal = "turn.failed"
+# `error_marks` begin the error line it draws (`■ exceeded retry limit, ...`, captured; an older
+# one's `• stream error: ...`): a seat's `Goal stalled` names no failure of its own, and reads the
+# line above it only when drawn so; a last line behind another mark, as its answer's `• `, names none.
+error_marks = ["■ ", "• stream error: "]
+
+# Codex in goal mode resumes its goal rather than the turn.
+[resume]
+when = 'goal stalled|goal mode|/goal'
+key = "/goal resume"
+
+[auth]
+title = "Codex"
+remedy = "exit Codex, run codex login in the host shell, then reopen the session"
+signatures = [
+  "Your access token could not be refreshed. Please log out and sign in again.",
+  "Your access token could not be refreshed because you have since logged out or signed in to another account. Please sign in again.",
+  "Your access token could not be refreshed because your refresh token has expired. Please log out and sign in again.",
+  "Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.",
+  "Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.",
+  "Your authentication session could not be refreshed automatically. Please log out and sign in again.",
+  "unexpected status 401 Unauthorized: Invalid API key",
+]
+
+# The effort words this harness takes, in the order the menu's `c` screen cycles them.
+# The same words its status line shows beside the model name; see [screen] composer above.
+[effort]
+levels = ["low", "medium", "high", "xhigh", "max", "ultra"]
+
+# The models this harness runs when `codex debug models` cannot say: the listed models of the
+# catalog codex 0.153.4 ships (`codex debug models --bundled`), each with the reasoning levels
+# it supports, strongest last.  `default` is Codex's own model, run with no -m, which takes
+# the words above.
+[catalog]
+default = { label = "Codex's own model", efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
+gpt-6-astra = { label = "GPT-6-Astra", efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
+"gpt-5.6-sol" = { label = "GPT-5.6-Sol", efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
+"gpt-5.6-terra" = { label = "GPT-5.6-Terra", efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
+"gpt-5.6-luna" = { label = "GPT-5.6-Luna", efforts = ["low", "medium", "high", "xhigh", "max"] }
+"gpt-5.5" = { label = "GPT-5.5", efforts = ["low", "medium", "high", "xhigh"] }
+"gpt-5.2" = { label = "GPT-5.2", efforts = ["low", "medium", "high", "xhigh"] }

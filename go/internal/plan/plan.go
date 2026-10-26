@@ -73,28 +73,56 @@ func seatFile(kind, name, ext string) string {
 	return filepath.Join(config.Home(), "state", kind+"-"+name+"."+ext)
 }
 
-// held runs fn holding the seat's lock of that kind, Python ak's too (`notify` for the plan's
-// writers, `verify` for one verification at a time), with the name the seat goes by now:
-// a rename taken while it waited for the lock is followed.
-func held(kind, name string, fn func(current string) error) error {
+// held runs fn holding the seat's lock, the one Python ak's plan writers take
+// (`notify.session_lock`), with the name the seat goes by now: a rename taken while it waited
+// for the lock is followed.
+func held(ctx context.Context, name string, fn func(current string) error) error {
 	for {
 		current, _, err := config.ResolveSession(name)
 		if err != nil {
 			return err
 		}
-		if err := os.MkdirAll(filepath.Join(config.Home(), "state"), 0o700); err != nil {
-			return err
-		}
-		unlock, err := lock(seatFile(kind, current, "lock"))
+		file, err := lock(ctx, seatFile("notify", current, "lock"))
 		if err != nil {
 			return err
 		}
 		now, _, err := config.ResolveSession(name)
 		if err == nil && now == current {
-			defer unlock()
+			defer file.Close()
 			return fn(current)
 		}
-		unlock()
+		file.Close()
+		if err != nil {
+			return err
+		}
+	}
+}
+
+// verifying runs fn as the seat's one verification at a time, so a later one starts from the
+// plan the last one left.  Its lock is a seat file a rename moves, under the seat's lock: the
+// file held must be the one the seat's name reaches then, never one a rename replaced.
+func verifying(ctx context.Context, name string, fn func() error) error {
+	for {
+		current, _, err := config.ResolveSession(name)
+		if err != nil {
+			return err
+		}
+		file, err := lock(ctx, seatFile("verify", current, "lock"))
+		if err != nil {
+			return err
+		}
+		same := false
+		err = held(ctx, name, func(now string) error {
+			reached, err := os.Stat(seatFile("verify", now, "lock"))
+			mine, mineErr := file.Stat()
+			same = err == nil && mineErr == nil && os.SameFile(reached, mine)
+			return nil
+		})
+		if err == nil && same {
+			defer file.Close()
+			return fn()
+		}
+		file.Close()
 		if err != nil {
 			return err
 		}
@@ -103,25 +131,39 @@ func held(kind, name string, fn func(current string) error) error {
 
 // path is the seat's plan: of the files under its name and every name renamed into it, the
 // one written last, since a renamed seat still writes under the name it was launched with.
-func path(current string) string {
-	found, newest := seatFile("plan", current, "md"), int64(0)
-	if info, err := os.Stat(found); err == nil {
-		newest = info.ModTime().UnixNano()
-	}
+// One nothing can look at is an error: an unread plan proves nothing done.
+func path(current string) (string, error) {
+	names := []string{current}
 	for _, record := range config.SeatFiles() {
 		old := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(record), "session-"), ".json")
-		info, err := os.Stat(seatFile("plan", old, "md"))
-		if now, _, _ := config.ResolveSession(old); err == nil && now == current && info.ModTime().UnixNano() > newest {
-			found, newest = seatFile("plan", old, "md"), info.ModTime().UnixNano()
+		if now, _, _ := config.ResolveSession(old); old != current && now == current {
+			names = append(names, old)
 		}
 	}
-	return found
+	found, newest := seatFile("plan", current, "md"), int64(-1)
+	for _, each := range names {
+		plan := seatFile("plan", each, "md")
+		info, err := os.Stat(plan)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("cannot read the plan %s: %w", plan, err)
+		}
+		if info.ModTime().UnixNano() > newest {
+			found, newest = plan, info.ModTime().UnixNano()
+		}
+	}
+	return found, nil
 }
 
-// read is the plan's lines: none without a plan, an error for one nothing can read, since an
-// unread plan proves nothing done.
+// read is the plan's lines: none without a plan.
 func read(current string) ([]string, error) {
-	data, err := os.ReadFile(path(current))
+	plan, err := path(current)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(plan)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -129,13 +171,16 @@ func read(current string) ([]string, error) {
 		err = fmt.Errorf("not UTF-8")
 	}
 	if err != nil {
-		return nil, fmt.Errorf("cannot read the plan %s: %w", path(current), err)
+		return nil, fmt.Errorf("cannot read the plan %s: %w", plan, err)
 	}
 	return config.SplitLines(string(data)), nil
 }
 
 func write(current string, lines []string) error {
-	plan := path(current)
+	plan, err := path(current)
+	if err != nil {
+		return err
+	}
 	fresh := plan + ".new"
 	if err := os.WriteFile(fresh, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
 		return err
@@ -145,11 +190,11 @@ func write(current string, lines []string) error {
 
 // List proves the seat's plan (`verify`), then is its box lines, as a listing numbers them.
 func List(ctx context.Context, name string) ([]string, error) {
-	if err := held("verify", name, func(string) error { return verify(ctx, name) }); err != nil {
+	if err := verifying(ctx, name, func() error { return verify(ctx, name) }); err != nil {
 		return nil, err
 	}
 	var listed []string
-	err := held("notify", name, func(current string) error {
+	err := held(ctx, name, func(current string) error {
 		lines, err := read(current)
 		for _, line := range lines {
 			if line = strings.TrimSpace(line); strings.HasPrefix(line, "- [") {
@@ -167,10 +212,14 @@ func List(ctx context.Context, name string) ([]string, error) {
 // reads after them, each onto its own line, so a line added meanwhile stays.
 func verify(ctx context.Context, name string) error {
 	var snapshot []string
-	if err := held("notify", name, func(current string) (err error) {
+	if err := held(ctx, name, func(current string) (err error) {
 		snapshot, err = read(current)
 		return err
 	}); err != nil {
+		return err
+	}
+	env, err := environ(nil)
+	if err != nil {
 		return err
 	}
 	results, branches := map[string]string{}, map[string]*branch{}
@@ -181,8 +230,7 @@ func verify(ctx context.Context, name string) error {
 		}
 		on, seen := branches[line.Project]
 		if !seen {
-			if repo, root := place(line.Project); repo != "" {
-				var err error
+			if repo, root := place(line.Project, env); repo != "" {
 				if on, err = defaultBranch(ctx, repo, root); err != nil {
 					return err
 				}
@@ -200,7 +248,7 @@ func verify(ctx context.Context, name string) error {
 			return ctx.Err()
 		}
 	}
-	return held("notify", name, func(current string) error {
+	return held(ctx, name, func(current string) error {
 		present, err := read(current)
 		changed := false
 		for i, text := range present {
