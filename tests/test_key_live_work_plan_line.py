@@ -134,8 +134,7 @@ class LiveWork(unittest.TestCase):
         self.assertEqual(self.stop(), "")
 
     def test_a_renamed_seat_counts_only_its_running_launchs_turn(self):
-        Seat(self.home, "atoll", cwd=self.rig.path, record={"repo": str(self.rig.path)},
-             alive=False)
+        Seat(self.home, "atoll", cwd=self.rig.path, record={"repo": str(self.rig.path)})
         self.prompt("atoll")
         self.ssh("prod", "uptime", seat="atoll")
         done = self.home.ak("orch", "rename", "atoll", "beta")
