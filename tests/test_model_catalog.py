@@ -1,8 +1,8 @@
 """ak knows Artificial Analysis's current models, and what replaced each older one.
 
 Each of the board's rows keeps its record's identity beside its numbers; `catalog.current` gives
-the releases none of whose rows is deprecated, strongest first, each with its efforts and the
-default one, and `catalog.successor` follows a release's `deprecatedTo` chain to the current
+the releases none of whose rows is deprecated, strongest first, each with its efforts, the
+default one and each one's numbers, and `catalog.successor` follows a release's `deprecatedTo` chain to the current
 release it ends at.  A reading an older build stored, its rows carrying no identity, is asked
 again once by this build, and until then nothing is current.
 
@@ -81,18 +81,23 @@ class Catalog(Sandbox):
 
     def test_the_current_releases_strongest_first_each_with_its_efforts(self):
         held = boards.collect(now=10000)
+        aa = lambda index: {"aa.intelligenceIndex": index,
+                            "aa.intelligenceIndexEvaluations.acme-bench.score": index}
         self.assertEqual(catalog.current(held), [
             {"slug": "beta-3", "name": "Beta 3", "maker": "Beta",
-             "efforts": [{"effort": "none", "slug": "beta-3", "default": True},
-                         {"effort": "high", "slug": "beta-3-high", "default": False}]},
+             "efforts": [{"effort": "none", "slug": "beta-3", "default": True, "values": aa(30)},
+                         {"effort": "high", "slug": "beta-3-high", "default": False,
+                          "values": aa(62)}]},
             {"slug": "acme-7", "name": "Acme 7", "maker": "Acme",
-             "efforts": [{"effort": "low", "slug": "acme-7-low", "default": False},
-                         {"effort": "max", "slug": "acme-7", "default": True}]},
+             "efforts": [{"effort": "low", "slug": "acme-7-low", "default": False,
+                          "values": aa(50)},
+                         {"effort": "max", "slug": "acme-7", "default": True, "values": aa(60)}]},
             # no index: last, by name; a release with no row of its own slug has no default
             {"slug": "delta-1", "name": "Delta 1", "maker": "Delta",
-             "efforts": [{"effort": None, "slug": "delta-1-preview", "default": False}]},
+             "efforts": [{"effort": None, "slug": "delta-1-preview", "default": False,
+                          "values": {}}]},
             {"slug": "gamma-1", "name": "Gamma 1", "maker": "Gamma",
-             "efforts": [{"effort": None, "slug": "gamma-1", "default": True}]}])
+             "efforts": [{"effort": None, "slug": "gamma-1", "default": True, "values": {}}]}])
 
     def test_a_release_s_successor_is_the_current_release_its_chain_ends_at(self):
         held = boards.collect(now=10000)
