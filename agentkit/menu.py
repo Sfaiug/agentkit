@@ -2960,8 +2960,9 @@ def take_advice(cfg, name, selected, providers, found):
     return defaults_saved(cfg, selected, changed, before)
 
 
-def efforts_saved(cfg, name, selected, steps):
-    """Seat `name`'s efforts with each (model, key, effort) of `steps` set (_set_effort), saved
+def efforts_saved(cfg, name, selected, steps, hold=()):
+    """Seat `name`'s efforts with each (model, key, effort) of `steps` set (_set_effort, `hold`
+    held), saved
     to its record at once and into `selected`, the model entries left alone.  Each is set on the
     record as it stands, under its lock (config.change_efforts), so a key saved since is kept;
     a model it holds none for starts from its entry's.  What to say under the rows, or ""."""
@@ -2969,7 +2970,7 @@ def efforts_saved(cfg, name, selected, steps):
         efforts = dict(record.get("efforts") or {})
         for model, key, effort in steps:
             efforts[model] = dict(efforts.get(model) or config.efforts_of(cfg["models"][model]))
-            _set_effort(efforts[model], key, effort)
+            _set_effort(efforts[model], key, effort, hold)
         return efforts
     try:
         saved = config.change_efforts(config.resolve_session(name), stepped)
@@ -3504,21 +3505,21 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
     at = at % len(levels) if wrap else at
     if not 0 <= at < len(levels) or levels[at] == current:
         return ""
-    steps = [(name, key, levels[at]),
-             *((name, each, shown.get(each, shown.get("effort"))) for each in hold)]
     if seat:
-        return efforts_saved(cfg, *seat, steps)
+        return efforts_saved(cfg, *seat, [(name, key, levels[at])], hold)
     before = dict(entry)
-    for _, each, effort in steps:
-        _set_effort(entry, each, effort)
+    _set_effort(entry, key, levels[at], hold)
     return _saved(cfg, entry, before)
 
 
-def _set_effort(entry, key, effort):
+def _set_effort(entry, key, effort, hold=()):
     """`entry`'s `key` at `effort`, None being its own effort, a role's key that lands on the
-    effort unset again (_follows)."""
+    effort unset again (_follows); each key of `hold` that follows the effort keeps the one it
+    followed, read off `entry` as it stands."""
+    for each in hold if "effort" in entry else ():
+        entry.setdefault(each, entry["effort"])
     entry[key] = effort or entry["effort"]
-    _follows(entry, [key])
+    _follows(entry, [key, *hold])
 
 
 def _follows(entry, keys):

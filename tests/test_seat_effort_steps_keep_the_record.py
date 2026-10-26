@@ -35,6 +35,15 @@ class SeatEffortSteps(Sandbox):
                          {"effort": "xhigh", "review_effort": "high", "exec_effort": "low"})
         self.assertEqual(self.selected["efforts"], self.held())
 
+    def test_an_orchestrator_step_holding_the_others_keeps_a_key_saved_since(self):
+        # the matrix holds the row's other efforts: one saved since stays, a following one is
+        # kept at the effort it followed
+        note = menu.config_effort(self.cfg, "opus", 0, to=0, seat=("fix-api", self.selected),
+                                  hold=["exec_effort", "review_effort"])
+        self.assertEqual(note, "")
+        self.assertEqual(self.held()["opus"],
+                         {"effort": "low", "review_effort": "high", "exec_effort": "xhigh"})
+
     def test_r_keeps_a_key_saved_since_and_the_screen_holds_what_it_saved(self):
         note = menu.take_advice(self.cfg, "fix-api", self.selected, {},
                                 {"execute": ("Opus 5.5 @ max", "opus", "max")})
