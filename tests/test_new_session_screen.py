@@ -65,7 +65,7 @@ if not dry_run:     # a dry run keeps the real listing, rows, probe, notices, cr
 sys.exit(menu.loop(config.load(), dry_run=dry_run))
 """
 RIGHT, LEFT = b"\x1b[C", b"\x1b[D"
-DOWN, ENTER, ESC, SPACE, TAB = b"\x1b[B", b"\r", b"\x1b", b" ", b"\t"
+UP, DOWN, ENTER, ESC, SPACE, TAB = b"\x1b[A", b"\x1b[B", b"\r", b"\x1b", b" ", b"\t"
 SPENT = {"anthropic": {"meters": [{"name": "weekly_all", "used": 100, "exhausted": True,
                                    "resets_at": time.time() + 3 * 86400}]}}
 # every provider at 100%, openai's week with no reset anybody knows
@@ -187,6 +187,13 @@ class Screen:
         self.born()
         self.send(TAB)
 
+    def start(self):
+        """Esc takes the picks back to the row, and Enter there starts the seat."""
+        mark = len(self.text())
+        self.send(ESC)
+        self.born(after=mark)
+        self.send(ENTER)
+
     def send(self, keys):
         os.write(self.master, keys)
 
@@ -228,8 +235,8 @@ class NewSessionScreen(unittest.TestCase):
         self.assertEqual([line for line in lines[3:-2]
                           if line and not line.startswith((" ", "›"))],
                          ["Claude Code", "Codex", "Muse Code", "Grok Build", "Antigravity", "OpenCode"])
-        self.assertTrue(lines[-1].startswith("  ↑↓←→ move   space choose   ⏎ start   esc back"))
-        screen.send(ENTER)
+        self.assertTrue(lines[-1].startswith("  ↑↓←→ move   ⏎ choose   esc back"))
+        screen.start()
         screen.saw("<created new opus opus,astra opus,astra>", "<opened new>")
         screen.menu(after=screen.text().index("<opened new>"))
         screen.leave()
@@ -246,7 +253,7 @@ class NewSessionScreen(unittest.TestCase):
                               and marks(highlighted(lines))[0] == "●")
         self.assertEqual([row for row in models(lines) if "●" in row],
                          [highlighted(lines)])                         # one choice, moved
-        screen.send(ENTER)
+        screen.start()
         screen.saw("<created new astra opus,astra opus,astra>")
         screen.leave()
 
@@ -269,7 +276,7 @@ class NewSessionScreen(unittest.TestCase):
         screen.send(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode())
         screen.picker(lambda lines: full("spark") in highlighted(lines)
                       and marks(highlighted(lines))[1] == "■")
-        screen.send(ENTER)
+        screen.start()
         screen.saw("<created new opus spark opus,astra>")
         screen.leave()
 
@@ -285,21 +292,27 @@ class NewSessionScreen(unittest.TestCase):
         self.assertIn("spent · resets", opus[0])
         self.assertRegex(screen.text()[mark:], r"\x1b\[[0-9;]*m" + re.escape(full("opus")))
         self.assertEqual(marks(highlighted(lines)), "●■■")
-        # Astra reviewing itself could start, so Enter creates a self-review.
-        screen.send(ENTER)
+        # Astra reviewing itself could start, so the row's Enter creates a self-review.
+        screen.start()
         screen.saw("<created new astra astra astra>")
         screen.leave()
 
-    def test_with_everything_spent_nothing_is_chosen_and_enter_waits_for_a_choice(self):
+    def test_with_everything_spent_the_row_launches_its_default_and_marks_move_it(self):
         screen = Screen(self, providers=EVERYTHING_SPENT)
         screen.menu()
         screen.models()
         lines = screen.picker()
-        self.assertEqual([row for row in lines if "●" in row or "■" in row], [])
+        # the row's crew, as it would launch: the default orchestrating, building and reviewing
+        self.assertEqual([marks(row) for row in lines if "●" in row or "■" in row], ["●■■"])
+        self.assertIn(full("opus"), highlighted(lines))
         # a week at 100% whose reset nobody knows is spent all the same, only with no time
         self.assertEqual(len([row for row in lines if full("astra") in row and "spent" in row]), 1)
-        screen.send(ENTER + SPACE + ENTER)     # Fable orchestrates; reviewer column wants a choice
-        screen.send(DOWN * 2 + SPACE + ENTER)  # Astra reviews
+        screen.send(UP + ENTER)                    # Fable orchestrates
+        screen.send(RIGHT * 2 + DOWN * 2 + ENTER)  # Astra reviews
+        screen.send(UP + ENTER)                    # and Opus no longer does
+        screen.picker(lambda lines: full("opus") in highlighted(lines)
+                      and marks(highlighted(lines)) == "○□□")
+        screen.start()
         screen.saw("<created new fable  astra>")
         self.assertEqual(json.loads((screen.home / ".agentkit/state/session-new.json")
                                     .read_text())["workers"], [])
@@ -346,7 +359,8 @@ class NewSessionScreen(unittest.TestCase):
         self.assertIn(full("astra"), highlighted(lines))
         self.assertEqual(marks(highlighted(lines)), "●■■")
         self.assertIn("spent · resets", "\n".join(lines))
-        screen.send(RIGHT * 2 + DOWN + SPACE + ENTER)
+        screen.send(RIGHT * 2 + DOWN + SPACE)
+        screen.start()
         text = screen.saw("would attach new")
         screen.menu(after=text.index("would attach new"))
         screen.leave()

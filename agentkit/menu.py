@@ -2083,12 +2083,12 @@ def open_session(cfg, session, dry_run):
 
 
 def new_session(cfg, dry_run, keyboard=None, found=None):
-    """`n`: the name, then the orchestrator and both roles on one screen (`orch.pick`), both on
-    the menu's `keyboard`, or from a pipe one question at a time; Esc goes back, nothing
-    created. Enter at the name leaves it for the orchestrator to choose, and a dry run only
-    says what it would start: it creates no session, so neither its record nor its harness's
-    rulebook. The terminal is given back once all is chosen, for the seat to open on.  `found`
-    is the menu's last listing, so the name is asked without another."""
+    """`n` with no menu drawn: the name, then the orchestrator, a question at a time
+    (`orch.select`); Esc goes back, nothing created. Enter at the name leaves it for the
+    orchestrator to choose, and a dry run only says what it would start: it creates no
+    session, so neither its record nor its harness's rulebook. The terminal is given back once
+    all is chosen, for the seat to open on.  `found` is the menu's last listing, so the name is
+    asked without another."""
     terminal.frame("new session")
     if not cfg:
         return None               # no configuration means no models to offer
@@ -2112,10 +2112,10 @@ def new_session(cfg, dry_run, keyboard=None, found=None):
     if keyboard is not None:
         keyboard.give()
     if unnamed:
-        taken = orch.taken_names()        # its name is chosen now: the picker may have waited
+        taken = orch.taken_names()        # its name is chosen now: the questions may have waited
         name = orch.character_name(taken)
     if dry_run:
-        reviewers = selected[3] if len(selected) == 4 else cfg["defaults"].get("reviewers")
+        reviewers = cfg["defaults"].get("reviewers")
         print(f"would start {name}: {selected[0]}, workers {' '.join(selected[2])}"
               + (f", reviewers {' '.join(reviewers)}" if reviewers is not None else ""))
     elif orch.create(cfg, name, orch.seat_cwd(), prompting=True,
@@ -2136,7 +2136,7 @@ def born(found):
     cfg = config.load()           # the last creation's [defaults], whichever process made it
     providers = waited(lambda: usage.collect(cfg), "new session", doing=LEFT)
     default, reason = orch.choose(cfg, providers)
-    _notes, selected = orch.default_crew(cfg, providers, default)
+    selected = orch.default_crew(cfg, providers, default)
     # every model spent: launched anyway, as `orch.choose` launches its default
     selected["orchestrator"] = selected["orchestrator"] or default
     selected["reviewers"] = selected["reviewers"] or [selected["orchestrator"]]
@@ -2191,7 +2191,7 @@ def born_name(born, width):
 
 def born_refusal(born):
     """Why Enter makes nothing on the born row: a seat or a rename has the name typed, or its
-    crew has no pair that can run (`orch.role_refusal`, as the picker's Enter refuses); else ""."""
+    crew has no pair that can run (`orch.role_refusal`); else ""."""
     name = orch.session_name(born["typed"]) if born["typed"] else ""
     if name in born["taken"]:
         return f"a seat is called {name} already"
@@ -2229,12 +2229,9 @@ def born_key(born, key, drawn):
 
 def born_models(born):
     """Tab on the born row: its models chosen on `orch.pick`'s screen, which starts from the
-    last creation's -- "start" with Enter there, None with Esc, back to the row."""
-    picked = orch.pick(born["cfg"], born["providers"], born["default"])
-    if picked is None or picked is orch.BACK:
-        return None
-    born["selected"] = dict(zip(("orchestrator", "workers", "reviewers"), picked))
-    return "start"
+    row's, and brought back to the row with Esc."""
+    born["selected"] = dict(zip(("orchestrator", "workers", "reviewers"),
+                                orch.pick(born["cfg"], born["providers"], born["selected"])))
 
 
 def start_born(born, dry_run):
@@ -5437,7 +5434,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 if act == "models":
                     back = True           # the picker's screen, drawn where the menu was
                     live.away()
-                    act = born_models(newborn)
+                    born_models(newborn)
                 if act == "back":
                     newborn = None
                 elif act == "start" and not born_refusal(newborn):

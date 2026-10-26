@@ -318,7 +318,7 @@ class EscBack(unittest.TestCase):
         menu_.press(b"n", born)
         mark = len(menu_.text())
         menu_.send(b"\t")
-        menu_.back("pick", lambda lines: title("new session")(lines) and "start" in lines[-1])
+        menu_.back("pick", lambda lines: title("new session")(lines) and "choose" in lines[-1])
         menu_.screen(born, after=mark)          # back on its row, and Esc takes that down
         menu_.press(ESC)
         menu_.leave()

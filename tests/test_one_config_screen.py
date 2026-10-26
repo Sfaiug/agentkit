@@ -216,7 +216,7 @@ class Menu:
         return self.screen(where, after=mark)
 
     def picker(self, where=None, after=0):
-        return self.screen(lambda lines: any("space choose" in line for line in lines)
+        return self.screen(lambda lines: title("new session")(lines)
                            and (where is None or where(lines)), after)
 
     def models(self):
@@ -381,6 +381,7 @@ class OneConfigScreen(unittest.TestCase):
                    and marks(highlighted(lines)) == "●■■")
         menu.press(UP * 2 + RIGHT + SPACE, lambda lines: full("fable") in highlighted(lines)
                    and marks(highlighted(lines)) == "○■□")
+        menu.press(ESC, born)
         mark = len(menu.text())
         os.write(menu.master, ENTER)
         menu.saw("<opened new>", after=mark)

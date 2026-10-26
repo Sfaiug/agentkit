@@ -240,7 +240,7 @@ class NewSessionScreen(Screens):
         cells = moved(screen, click(mark_column(line, 1), number))
         landed(self, glyphs(cells, number), ["▣", "■"])
         lit_through(self, cells, number)
-        screen.send(ENTER)
+        screen.start()
         screen.saw("<created new opus astra,opus opus,astra>")
         screen.leave()
 
@@ -254,7 +254,7 @@ class NewSessionScreen(Screens):
         landed(self, shifts(cells, number, mark_column(line, 2)), [-1, 1, -1, 0])
         lit_through(self, cells, number)
         self.assertEqual(new_session.marks(highlighted(screen.picker())), "○■■")
-        screen.send(ENTER)
+        screen.start()
         screen.saw("<created new opus opus,astra astra>")
         screen.leave()
 

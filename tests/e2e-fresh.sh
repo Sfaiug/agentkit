@@ -619,7 +619,9 @@ expect 120 $MENU
 send n
 expect 60 tab models
 send atoll\t
-expect 240 space choose
+expect 240 choose   esc back
+send \x1b
+expect 60 tab models
 send \n
 expect 240 $PROMPT
 refute $NODIALOG
@@ -633,11 +635,11 @@ EXP
   LIST=$(as 'ak orch list' 2>&1)
   must "ak orch list does not show the seat" grep -q '^atoll ' <<<"$LIST"
   # The orchestrator is the picker's, which live quota chooses: the model marked ● (* on an
-  # ASCII terminal) in the last frame before Enter took it.  A frame's rows are drawn by cursor
+  # ASCII terminal) in its last frame, before Esc took it back to the row.  A frame's rows are drawn by cursor
   # moves, so in the transcript they can run together on one line.
   PICKED=$(python3 -I -c 'import re, sys
 text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
-marked = re.findall(r"([\w.-]+) +[●*] ", text[:text.rfind("space choose")])
+marked = re.findall(r"([\w.-]+) +[●*] ", text[:text.rfind("choose   esc back")])
 print(marked[-1].lower() if marked else "")' "$WORK/pty/menu1.txt")
   must "ak orch list does not show the models the picker chose${PICKED:+ (orchestrator $PICKED)}" \
     awk -F'  +' -v m="$PICKED" '/^atoll /{ok = (m != "" && tolower($5) == m && $6 != "" && $6 != "—")} END{exit !ok}' <<<"$LIST"

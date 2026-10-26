@@ -360,7 +360,7 @@ class Screens(Sandbox):
             return run(lambda: orch._picking(self.cfg, {}, notes, dict(self.selected)), keys)
 
         answer, screens = picking(ESC)
-        self.assertIs(answer, orch.BACK)
+        self.assertEqual(answer, tuple(self.selected.values()))
         self.assertOneHighlight(screens[0], "Opus 5.5")
         row = at(screens[0], "GPT-6-Astra")[1]
         review = (at(screens[0], "review")[0] + 3, row)

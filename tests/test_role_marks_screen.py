@@ -157,7 +157,7 @@ class RoleMarks(Sandbox):
                     at = names.index(name)
                     click = terminal.Key("click", col=cells[at][column][edge],
                                          row=rows[at].start + 3)
-                    keys = [*[terminal.Key("right")] * before, click, terminal.Key("enter")]
+                    keys = [*[terminal.Key("right")] * before, click, terminal.Key("esc")]
                     with self.subTest(column=column, edge=edge), \
                             patch.object(terminal, "read_key", side_effect=keys), \
                             redirect_stdout(io.StringIO()):
@@ -172,11 +172,21 @@ class RoleMarks(Sandbox):
             self.cfg["defaults"].update(workers=workers, reviewers=reviewers)
             with self.subTest(workers=workers, reviewers=reviewers), \
                     patch.object(orch, "spent_note", side_effect=lambda cfg, name, providers:
-                                 "" if name in ("astra", "spark") else "spent"), \
-                    patch.object(terminal, "Keyboard"), \
-                    patch.object(terminal, "read_key", side_effect=[terminal.Key("enter")]), \
-                    redirect_stdout(io.StringIO()):
-                self.assertEqual(orch.pick(self.cfg, {}, "astra"), ("astra", *expected))
+                                 "" if name in ("astra", "spark") else "spent"):
+                self.assertEqual(orch.default_crew(self.cfg, {}, "astra"),
+                                 dict(zip(("orchestrator", "workers", "reviewers"),
+                                          ("astra", *expected))))
+
+    def test_tab_then_esc_on_the_new_row_keeps_its_picks_spent_ones_too(self):
+        picked = {"orchestrator": "opus", "workers": ["opus", "astra"],
+                  "reviewers": ["opus", "astra"]}
+        born = {"cfg": self.cfg, "providers": {}, "selected": copy.deepcopy(picked)}
+        with patch.object(orch, "spent_note", side_effect=lambda cfg, name, providers:
+                          "spent" if name == "opus" else ""), \
+                patch.object(terminal, "read_key", side_effect=[terminal.Key("esc")]), \
+                redirect_stdout(io.StringIO()):
+            menu.born_models(born)
+        self.assertEqual(born["selected"], picked)
 
 
 class RoleMarksScreen(unittest.TestCase):
@@ -192,15 +202,18 @@ class RoleMarksScreen(unittest.TestCase):
         self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
         row = lines.index(highlighted(lines)) + 1
         col = lines[2].index("review") + 3
-        # `⏎ start` where the key line draws it: once the mark is clicked the pointer rests on
+        # `esc back` where the key line draws it: once the mark is clicked the pointer rests on
         # it, and the key line says what that mark is
-        start = next((number, line.index("⏎") + 1) for number, line in enumerate(lines, 1)
-                     if "⏎ start" in line)
+        back = next((number, line.index("esc back") + 1) for number, line in enumerate(lines, 1)
+                    if "esc back" in line)
         screen.send(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode())
         screen.picker(lambda lines: "MiMo" in highlighted(lines)
                       and marks(highlighted(lines)) == "○□■")
-        row, col = start
+        row, col = back
+        mark = len(screen.text())
         screen.send(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode())
+        screen.born(after=mark)                # the picks back on the row, where Enter starts
+        screen.send(ENTER)
         screen.saw("<created new opus opus,astra opus,astra,mimo>")
         screen.leave()
 
@@ -246,7 +259,7 @@ class RoleMarksScreen(unittest.TestCase):
         lines = screen.picker(lambda lines: "GPT-6-Astra" in highlighted(lines)
                               and marks(highlighted(lines)) == "○□□")
         self.assertFalse(any("no allowed" in line for line in lines))
-        screen.send(ENTER)
+        screen.start()
         screen.saw("<created new opus opus opus>")
         record = json.loads((screen.home / ".agentkit/state/session-new.json").read_text())
         self.assertEqual(record["reviewers"], ["opus"])

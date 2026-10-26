@@ -43,7 +43,7 @@ import threading
 import time
 import uuid
 from collections import Counter
-from contextlib import ExitStack, closing, contextmanager, nullcontext, redirect_stderr, redirect_stdout
+from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, redirect_stdout
 from datetime import datetime
 from pathlib import Path
 
@@ -4331,16 +4331,15 @@ def picker_lines(cfg, notes, selected, at, column, room, moves=None):
     return lines, rows, cells
 
 
-def default_crew(cfg, providers, default, like=None):
-    """(each offered model's spent note, what a new seat starts from): `default` orchestrating,
-    and `like`'s executors and reviewers -- a seat's saved selection, else [defaults] -- each
-    with something left to spend.  A group all spent falls back by tier -- a fresh model not
-    the other group's own first -- among those a run could start from, else any fresh one."""
+def default_crew(cfg, providers, default):
+    """What a new seat starts from: `default` orchestrating, and [defaults]' executors and
+    reviewers, each with something left to spend.  A group all spent falls back by tier -- a
+    fresh model not the other group's own first -- among those a run could start from, else any
+    fresh one."""
     names = config.offered(cfg)
-    notes = {name: spent_note(cfg, name, providers) for name in names}
-    fresh = [name for name in names if not notes[name]]
+    fresh = [name for name in names if not spent_note(cfg, name, providers)]
     model = next((name for name in [default, *names] if name in fresh), None)
-    base = like or cfg["defaults"]
+    base = cfg["defaults"]
     selected = {"orchestrator": model,
                 "workers": [name for name in base["workers"] if name in fresh],
                 "reviewers": [name for name in base.get("reviewers", base["workers"])
@@ -4365,24 +4364,18 @@ def default_crew(cfg, providers, default, like=None):
                 return min(tiers) if tiers else 3
 
             selected[role] = [min(pool, key=lambda name: (tier(name), fresh.index(name)))]
-    return notes, selected
+    return selected
 
 
-def pick(cfg, providers, default, like=None):
-    """(orchestrator, workers, reviewers) off one screen, BACK, or None with no terminal.
+def pick(cfg, providers, selected):
+    """(orchestrator, workers, reviewers) off one screen, the new row's (`menu.born_models`).
 
-    `agentkit · new session`, Tab on the menu's new row: Enter takes `default_crew`'s before a
-    key is pressed, so with every model spent nothing is chosen and Enter takes the highlight
-    to the column that still wants a choice.  ↑/↓, k/j and the wheel move through models, ←/→
-    through roles; space or a click chooses, Enter starts from anywhere, Esc goes back.
-    Reviewers keep one model; executors may be empty.  On the menu's keyboard where it has one;
-    None with no terminal to take -- a pipe, the smoke suite -- and the caller asks a line at a
-    time."""
-    notes, selected = default_crew(cfg, providers, default, like)
-    with closing(terminal.Keyboard()) as keyboard:
-        if not (terminal.taken() or keyboard.take()):
-            return None
-        return _picking(cfg, providers, notes, selected)
+    `agentkit · new session`, Tab on the menu's new row, starts from the row's `selected`, spent
+    models among them.  ↑/↓, k/j and the wheel move through models, ←/→ through roles; space,
+    Enter or a click chooses, as on `c`, and Esc goes back to the row with what is chosen.
+    Reviewers keep one model; executors may be empty."""
+    notes = {name: spent_note(cfg, name, providers) for name in config.offered(cfg)}
+    return _picking(cfg, providers, notes, selected)
 
 
 @terminal.clicks_its_own
@@ -4395,8 +4388,7 @@ def _picking(cfg, providers, notes, selected):
     names = list(notes)
     model = selected["orchestrator"]
     at, top, column, note = names.index(model) if model in names else 0, 0, 0, ""
-    keys = (f"{'↑↓←→' if terminal.utf8() else 'arrows'} move   space choose   "
-            f"{'⏎' if terminal.utf8() else 'enter'} start   esc back")
+    keys = terminal.keys("esc back")
     clock = motion.Clock(page=True)
     while True:
         moves = []
@@ -4438,21 +4430,12 @@ def _picking(cfg, providers, notes, selected):
             at = min(max(at + terminal.step(key), 0), len(rows) - 1)
         elif key.name in ("left", "right"):
             column = min(max(column + (1 if key.name == "right" else -1), 0), 2)
-        elif key.name == "space":
+        elif key.name in ("space", "enter"):
             selected, note = role_mark(cfg, selected, names[at], column, providers)
             if note:
                 clock.touch(("mark", names[at], column))  # refused: the mark shakes
-        elif key.name == "enter":
-            missing = next((number for number, role in ((0, "orchestrator"), (2, "reviewers"))
-                            if not selected[role]), None)
-            if missing is not None:
-                column = missing
-            else:
-                note = role_refusal(cfg, selected, providers)
-                if not note:
-                    return selected["orchestrator"], selected["workers"], selected["reviewers"]
         elif key.name in ("esc", "eof"):
-            return BACK
+            return selected["orchestrator"], selected["workers"], selected["reviewers"]
 
 
 def worker_names(cfg, raw):
@@ -4467,17 +4450,9 @@ def worker_names(cfg, raw):
 
 
 def select(cfg, providers, forced=None, forced_workers=None, prompting=True):
-    """(orchestrator, reason, workers), plus explicit reviewers when chosen on the screen.
-
-    Line prompts and flags keep their legacy selection; create inherits default reviewers.
-    """
+    """(orchestrator, reason, workers), off flags or line prompts; create inherits default
+    reviewers.  The new row picks its models on a screen of its own (`pick`)."""
     default, default_reason = choose(cfg, providers)
-    picked = pick(cfg, providers, default) if prompting and not forced and forced_workers is None \
-        else None
-    if picked is BACK:
-        return BACK
-    if picked:
-        return picked[0], default_reason if picked[0] == default else "selected", *picked[1:]
     if forced:
         config.model(cfg, forced)
         model, reason = forced, "--model"
