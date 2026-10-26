@@ -683,6 +683,8 @@ class Phone(Sandbox):
             phone.keys(*steps, "Space")
             screen = self.picked(phone, title, "○■□")   # executing, not reviewing
         self.fits(screen, width, height)
+        phone.keys("Escape")                 # the picks back on the row, where Enter starts
+        phone.until("tab models", prompt="esc back")
         phone.keys("Enter")
         # the unnamed seat opens in this terminal by a character's name, and its bar keeps the key
         screen = phone.until(STAND_IN, "GPT-6-Astra", "Ctrl-b m  menu")
