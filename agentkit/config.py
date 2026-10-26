@@ -65,7 +65,6 @@ ACCOUNT_ENV = "AGENTKIT_ACCOUNT"           # which of a provider's `accounts` an
 FIRST_PROMPT_ENV = "AGENTKIT_FIRST_PROMPT"  # ... and the line its harness opens on, where it takes one
 PROVIDER_ENV = "AGENTKIT_PROVIDER"         # ... and which providers, where a harness runs several's
 DEFAULT_ACCOUNT = "default"                # ... the login it has when it lists none: the empty name
-KEPT_LOGINS = "kept-logins.json"           # under STATE: the logins `− remove` left on disk
 UNATTENDED_ENV = "AGENTKIT_UNATTENDED"   # set below a run loop: what it starts is machinery
 CODE = Path.home() / "code"                # where the checkouts live, and where a new seat opens
 RENAME_HOPS = 8                            # how many renames a session name is followed through
@@ -1894,25 +1893,6 @@ def harness_providers(cfg, harness):
     question about the harness as a whole is a question about (worker.auth_ok)."""
     return list(dict.fromkeys(cfg["models"][name]["provider"] for name in offered(cfg)
                               if cfg["models"][name].get("harness") == harness))
-
-
-def kept_logins():
-    """Each login `− remove` took out of ak and left on disk, oldest first, as (provider,
-    account, label): a subscription it took out of `accounts`, or the usual login of a provider
-    it removed whole, with the name its usage row had.  `+ add` offers them back.  [] where
-    there is no record, or none that can be read."""
-    try:
-        kept = _read_json(_self.STATE / KEPT_LOGINS)
-    except Error:
-        return []
-    return [tuple(entry) for entry in kept if isinstance(entry, list) and len(entry) == 3] \
-        if isinstance(kept, list) else []
-
-
-def keep_login(provider, account, label):
-    """Record one login `− remove` takes out, in place of an older record of the same one."""
-    kept = [entry for entry in kept_logins() if entry[:2] != (provider, account)]
-    _write_json(_self.STATE / KEPT_LOGINS, [*kept, (provider, account, label)])
 
 
 def provider_harness(cfg, provider):

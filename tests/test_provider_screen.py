@@ -111,6 +111,14 @@ def subscriptions(lines):
     return [re.split(r"\s{2,}", line[2:])[0] for line in rows if line[2:3] != " "]
 
 
+def fresh(provider, saved):
+    """`provider`'s shipped table, listing the one account its added login was made under: a
+    new name, never the usual login's."""
+    [account] = saved["providers"][provider]["accounts"]
+    assert account != config.DEFAULT_ACCOUNT, account
+    return {**SHIPPED["providers"][provider], "accounts": [account]}
+
+
 def named(lines):
     """The name on the highlighted row of `Subscriptions`."""
     return re.split(r"\s{2,}", highlighted(lines)[2:])[0]
@@ -201,7 +209,7 @@ class ProviderScreen(unittest.TestCase):
         self.assertLess(said.index(GIVE), login)
         self.assertLess(login, said.index(TAKE, login))
         saved = screen.saved()
-        self.assertEqual(saved["providers"]["xai"], SHIPPED["providers"]["xai"])
+        self.assertEqual(saved["providers"]["xai"], fresh("xai", saved))
         # the first model its catalog lists, at the shipped `xhigh`, which Grok's own take
         self.assertEqual(saved["models"]["grok"], {"harness": "grokbuild", "model": "grok-mystery",
                                                    "effort": "xhigh", "provider": "xai"})
@@ -217,7 +225,7 @@ class ProviderScreen(unittest.TestCase):
                      lambda lines: title(lines) == PAGE and "ChatGPT" in subscriptions(lines))
         self.assertEqual((home / "verbs.log").read_text().split("\n")[2:], ["codex login", ""])
         saved = screen.saved()
-        self.assertEqual(saved["providers"]["openai"], SHIPPED["providers"]["openai"])
+        self.assertEqual(saved["providers"]["openai"], fresh("openai", saved))
         # under the name the shipped default gives it, whatever its catalog label
         self.assertEqual(saved["models"]["astra"], {"harness": "codex", "model": "gpt-7",
                                                     "effort": "xhigh", "provider": "openai"})
@@ -231,7 +239,7 @@ class ProviderScreen(unittest.TestCase):
         screen.press(DOWN + ENTER,
                      lambda lines: title(lines) == PAGE and "Muse" in subscriptions(lines))
         saved = screen.saved()
-        self.assertEqual(saved["providers"]["meta"], SHIPPED["providers"]["meta"])
+        self.assertEqual(saved["providers"]["meta"], fresh("meta", saved))
         self.assertEqual(saved["models"]["spark"], {"harness": "muse", "model": "muse-spark-2",
                                                     "effort": "xhigh", "provider": "meta"})
         back(screen)

@@ -18,13 +18,12 @@ import test_model_screen
 import test_models_page
 import test_past_sessions
 import test_provider_screen
-import test_remove_keeps_login
 
 FAR = "from agentkit import menu\nmenu.TICK = 10 ** 6\n"     # never, within the helper's wait
 SCREENS = [test_provider_screen.ProviderScreen("test_the_last_provider_stays"),
            test_models_page.ModelsPage("test_a_harness_ticks_its_models_in_and_out"),
-           test_remove_keeps_login.RemoveKeepsLogin(
-               "test_a_removed_subscription_is_offered_by_who_it_is_and_comes_back_without_a_login"),
+           test_add_subscription.RemoveSubscription(
+               "test_one_subscription_goes_and_its_login_files_are_left_alone"),
            test_model_screen.ModelScreen(
                "test_an_id_picked_from_the_catalog_is_saved_and_esc_goes_back_to_its_row"),
            test_add_opencode_provider.AddOpenCodeProvider(

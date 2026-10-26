@@ -4,7 +4,7 @@ it will get (`Claude II`),
 logs it in on the terminal under a fresh AGENTKIT_ACCOUNT and appends that name to the
 provider's `accounts`, `default` first when it listed none; a login that fails adds nothing.
 `− remove` under the row of each but the usual login of a provider with several asks with
-`Keep` picked, and takes that one name out of `accounts`, leaving its login files on disk.
+`Keep` picked, and takes that one name out of `accounts`, its login files left alone.
 
 Each test runs `menu.show_config` with a real `terminal.Keyboard` in a child process on a pty of
 its own, through tests/test_config_matrix.py's Screen, in a temporary HOME.  The adapters are
@@ -142,7 +142,7 @@ class AddSubscription(unittest.TestCase):
 
 
 class RemoveSubscription(unittest.TestCase):
-    def test_one_subscription_goes_and_its_login_stays(self):
+    def test_one_subscription_goes_and_its_login_files_are_left_alone(self):
         several = CLAUDE.replace('mode = "subscription"',
                                  'mode = "subscription"\naccounts = ["default", "a1", "b2"]')
         screen = Screen(self, child=CHILD, text=several + CODEX)
@@ -152,7 +152,7 @@ class RemoveSubscription(unittest.TestCase):
         before = screen.path.read_bytes()
         asked = remove_asked(screen, "Claude III")
         self.assertIn("  Remove Claude III?", asked)
-        self.assertIn("  Nothing new starts on it; its login stays on this machine.", asked)
+        self.assertIn("  Nothing new starts on it.", asked)
         mark = screen.text().rindex("Remove Claude III?")
         self.assertEqual(choices(screen, mark, 2), ["› ✓ Keep", "  ✗ Remove"])
         screen.press(ENTER, lambda lines: title(lines) == PAGE)            # Enter keeps
