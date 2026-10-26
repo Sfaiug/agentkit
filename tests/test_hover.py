@@ -203,8 +203,9 @@ class Screens(Sandbox):
         last = self.matrix(move(*beside) + ESC)[-1]
         self.assertOneHighlight(last, "GPT-6-Astra")
         self.assertEqual(marked(last, "lit"), {})
-        # its label is no cell: it lights nothing either
-        self.assertEqual(marked(self.matrix(move(*label) + ESC)[-1], "lit"), {})
+        # its label is a cell, a click's to put the highlight on its first mark
+        self.assertEqual(marked(self.matrix(move(*label) + ESC)[-1], "lit"),
+                         {label[1]: "GPT-6-Astra"})
         # on a mark the cell lights, in place of the keys' reverse: one highlight, not two
         last = self.matrix(move(*mark) + ESC)[-1]
         self.assertOneHighlight(last, "GPT-6-Astra")
@@ -250,6 +251,9 @@ class Screens(Sandbox):
         self.assertEqual(at(screens[-1], names[-1]), label)
         self.assertOneHighlight(screens[-1], names[-1])
         self.assertEqual(marked(screens[-1], "reverse"), {label[1]: "○"})
+        # and a click on the header, off every row, leaves the keys' cell where it was
+        screens = self.matrix(RIGHT, b"\x1b[<0;1;1M\x1b[<0;1;1m", ESC)
+        self.assertEqual(marked(screens[2], "reverse"), marked(screens[1], "reverse"))
 
     def test_on_a_short_screen_the_page_keeps_its_place_under_the_highlight(self):
         self.stack.enter_context(patch.object(terminal, "height", return_value=19))

@@ -3315,9 +3315,9 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     `Subscriptions`, `Discord` and `Weekly audit` with
     their values. A row is `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
-    the cell on it the keys act on.  `cells` are a model row's (first, last,
-    column), for a click, counted from 1 as the terminal counts. On a phone the cells give
-    way, then the label.  `scope`, whom the marks are for -- NEW_SEATS or a seat's name -- is
+    the cell on it the keys act on.  `cells` are a model row's (first, last, column), -1 its
+    label, for a click, counted from 1 as the terminal counts. On a phone the cells give way,
+    then the label.  `scope`, whom the marks are for -- NEW_SEATS or a seat's name -- is
     the For line over the headings, and a seat's efforts are its record's (config.at_efforts).
     """
     cfg = config.at_efforts(cfg, selected)
@@ -3378,7 +3378,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                     [(3, shown, "dim" if note else None)], ink, at == ("model", name))))
             line = "  " + (terminal.styled(shown, kind) if kind else shown) + " " * (
                 label - terminal.cells(shown))
-            cells, first = [], left + 1
+            cells, first = [(3, 2 + terminal.cells(shown), -1)], left + 1
             for number in CONFIG_ORDER if selected else CONFIG_ORDER[1::2]:
                 gap = 0 if selected and number >= 3 else 2      # a role's effort beside its mark
                 line, first = line + " " * gap, first + gap
@@ -3714,7 +3714,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         here = here if here in rows else models[0]    # the highlight is the row itself
         columns = config_columns(selected, here[1]) if here[0] == "model" else ()
         if here[0] == "model" and column not in columns:      # no effort here: onto its mark
-            column = column - 3 if column is not None and column - 3 in columns else columns[0]
+            column = column - 3 if column - 3 in columns else columns[0]
         keys = terminal.keys(*([ADVICE_KEY] if selected else []), "esc back")
         # each meter's cells, on the lines over the page counted back from it, washing in and out
         moves = [(line - len(over), ("sub", number), number == lit,
@@ -3730,8 +3730,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                                             told, keys, marks=3,
                                             clock=clock, moves=moves,
                                             over=over, over_places=meters)
-        # a click on a model's label, off its cells, is on the row: its first mark
-        column = clicked if clicked is not None else None if act == "" else column
+        column = column if clicked is None else clicked
         if act is None:
             continue                  # a resize or the pointer: drawn again
         note = ""
@@ -3764,6 +3763,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                 except config.Error as exc:
                     pause(f"config: {exc}")
                     return cfg
+        elif column < 0:          # a click on its label: the highlight on its first mark
+            column = config_columns(selected, here[1])[0]
         elif act in ("left", "right"):
             at = columns.index(column) + (1 if act == "right" else -1)
             column = columns[min(max(at, 0), len(columns) - 1)]

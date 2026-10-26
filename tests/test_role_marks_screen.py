@@ -36,7 +36,7 @@ class RoleMarks(Sandbox):
         for number, (model, cells) in places.items():
             if model[0] == "model":
                 self.assertEqual(marks(lines[number]), "")
-                self.assertEqual([cell[2] for cell in cells], [3, 4, 5])
+                self.assertEqual([cell[2] for cell in cells], [-1, 3, 4, 5])
         self.assertEqual(path.read_bytes(), before)
         self.assertNotIn("reviewers", self.cfg["defaults"])
 
