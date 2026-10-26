@@ -1020,11 +1020,8 @@ def first_place(state):
     """
     try:
         seat = transitions.launched_session(state)
-        since = min((record["at"] for _, commit, check in live_checks()
-                     if seat and isinstance(record := _handed(check), dict)
-                     and isinstance(record.get("seat"), str)
-                     and isinstance(record.get("at"), (int, float))
-                     and config.resolve_session(record["seat"]) == seat
+        since = min((at for _, commit, check in live_checks()
+                     if seat and (at := _told(check, seat)) is not None
                      and _git("merge-base", "--is-ancestor", commit, "HEAD")[0] == 1),
                     default=None)
         if since is None or not _contender(state, seat, since):
@@ -1041,6 +1038,20 @@ def first_place(state):
         except (config.Error, OSError, TypeError):
             continue
     return True
+
+
+def _told(check, seat):
+    """When that check's hand-back told that seat, or None: one whose record or seat's session
+    cannot be read told nobody, and takes no other hand-back's place with it."""
+    record = _handed(check)
+    try:
+        if (isinstance(record, dict) and isinstance(record.get("seat"), str)
+                and isinstance(record.get("at"), (int, float))
+                and config.resolve_session(record["seat"]) == seat):
+            return record["at"]
+    except (config.Error, OSError):
+        pass
+    return None
 
 
 def _contender(state, seat, since, resolved=None):

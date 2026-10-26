@@ -174,6 +174,12 @@ class HeldFixFirst(unittest.TestCase):
         self.assertEqual(self.order()["first"], [delivery])
         session.write_text(kept)
         self.assertEqual(self.order()["first"], [delivery, restarted])
+        # another seat's hand-back, its session unreadable, takes nothing from this one's
+        other = self.check.with_name(f"{self.held}-2000")
+        other.mkdir()
+        (other / "handed").write_text(json.dumps({"seat": "ghost", "at": 1}))
+        self.home.write(".agentkit/state/session-ghost.json", "{")
+        self.assertEqual(self.order()["first"], [delivery, restarted])
 
         self.assertEqual(self.home.run("git", "-C", str(self.install), "merge", "-q",
                                        "--ff-only", self.held).code, 0)
