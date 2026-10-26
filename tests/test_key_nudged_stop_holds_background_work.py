@@ -68,6 +68,22 @@ class NudgedStopHoldsBackgroundWork(unittest.TestCase):
         self.assertEqual((fact["event"], fact["kind"]), ("Stop", ""))
         self.assertNotIn("holds", fact)
 
+    def test_a_nudged_stop_written_late_never_replaces_a_prompt_heard_after_it(self):
+        # the prompt arrives while the Stop's writer starts: the Stop is the older fact
+        self.seat("mimo")
+        shim = self.home / "bin/python3"
+        shim.parent.mkdir()
+        shim.write_text(f"""#!/bin/bash
+if [[ ${{2-}} == *lifecycle.stop_fact* && -n ${{PROMPT_FIRST-}} ]]; then
+  PROMPT_FIRST= bash {REPO / "hooks/seat-state.sh"} \\
+    <<<'{{"hook_event_name": "UserPromptSubmit", "prompt": "go on with acme"}}'
+fi
+exec {sys.executable} "$@"
+""")
+        shim.chmod(0o755)
+        self.env.update(PATH=f"{shim.parent}{os.pathsep}{self.env['PATH']}", PROMPT_FIRST="1")
+        self.assertEqual(self.stop("seat-state.sh", SUBAGENT)["event"], "UserPromptSubmit")
+
     def test_a_claude_stop_is_written_by_the_stop_hook_alone(self):
         self.seat("opus")
         self.assertIsNone(self.stop("seat-state.sh", SUBAGENT, SHELL))

@@ -94,11 +94,11 @@ import json, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
 from agentkit import config, lifecycle, watch
-row, seat = sys.argv[2:]
+row, seat, at = sys.argv[2:]
 if not watch.stop_enforced(watch.seat_model(config.load(), row)[0]):
     sys.exit(1)
-config.record_hook_fact(row, lifecycle.stop_fact(seat, json.load(sys.stdin)))
-' "${BASH_SOURCE[0]}" "$row" "$seat" <<<"$payload" && look "$seat"
+config.record_hook_fact(row, lifecycle.stop_fact(seat, json.load(sys.stdin), float(at)))
+' "${BASH_SOURCE[0]}" "$row" "$seat" "$ts" <<<"$payload" && look "$seat"
     return 0
   fi
   # The fact standing is read, judged and replaced by one writer at a time, as

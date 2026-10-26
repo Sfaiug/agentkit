@@ -326,7 +326,8 @@ def written(launched, payload, held):
     for the seat's row: under the name the seat goes by now, which is the name its row reads,
     and in the order the two hooks heard their events (`config.record_hook_fact`)."""
     try:
-        config.record_hook_fact(resolve(launched), lifecycle.stop_fact(launched, payload, held))
+        config.record_hook_fact(resolve(launched), lifecycle.stop_fact(launched, payload,
+                                                                         time.time(), held))
     except (OSError, config.Error):
         pass        # a Stop nobody could write down is no reason to let the turn end
 

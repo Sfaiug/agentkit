@@ -5,7 +5,6 @@ completed tool check whether it answered a question without starting the watcher
 """
 import json
 import math
-import time
 
 from . import config
 
@@ -51,17 +50,17 @@ def waits_on(payload):
                for task in handed_over(payload) or ())
 
 
-def stop_fact(session, payload, held=False):
-    """The Stop of a payload handing over background work, as its one writer puts it down:
-    hooks/orchestrator-stop.sh where the harness runs it, hooks/seat-state.sh on a harness that
-    is nudged instead (`watch.stop_enforced`).  Its kind is `held` for a stop sent back and
-    `background` for one waiting on work in flight; beside it, where there are any, `holds`: the
-    type of each task still in flight, shells and monitors too (`held_work`)."""
+def stop_fact(session, payload, at, held=False):
+    """The Stop of a payload handing over background work, heard `at`, as its one writer puts
+    it down: hooks/orchestrator-stop.sh where the harness runs it, hooks/seat-state.sh on a
+    harness that is nudged instead (`watch.stop_enforced`).  Its kind is `held` for a stop sent
+    back and `background` for one waiting on work in flight; beside it, where there are any,
+    `holds`: the type of each task still in flight, shells and monitors too (`held_work`)."""
     holds = [str(task.get("type") or "task") for task in handed_over(payload) or ()
              if isinstance(task, dict)]
     return {"session": session, "event": "Stop",
             "kind": "held" if held else "background" if waits_on(payload) else "",
-            "text": "", "at": time.time(), **({"holds": holds} if holds else {})}
+            "text": "", "at": at, **({"holds": holds} if holds else {})}
 
 
 def held_work(fact):
