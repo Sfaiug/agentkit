@@ -1,6 +1,12 @@
 """Antigravity: the conversation a seat holds, read back for a model taking the seat over, and
 ended, with what every home keeps of it, once `ak gc` finds it stale.
 
+agy's TUI cannot be handed an id for a new conversation, so a seat's is learned rather than
+issued: each launch carries a token of its own in its environment, and the conversation a
+process carrying it holds open is that launch's (agy 1.4.7 makes `<id>.db` within seconds and
+holds it, its -wal and -shm open while it runs).  A host whose processes' open files cannot be
+read gives a seat none, as before.
+
 agy keeps each conversation as a SQLite database of its own, ~/.gemini/antigravity-cli/
 conversations/<id>.db, where every login's are (adapters/antigravity.sh links them): one row
 per step, its `step_payload` a protocol buffer.  agy ships no schema for it; the numbers below
@@ -8,15 +14,88 @@ were read off agy 1.2.13's own databases.
 """
 
 import contextlib
+import os
 from pathlib import Path
 import re
 import shutil
 import sqlite3
+import uuid
+
+from .. import config
+from . import LAUNCHER, issued
 
 # `steps.step_type`, and where each keeps its words in its payload: a user input's text, and
 # a planner response's answer -- its thinking (3) and tool calls (7) are fields beside that.
 USER, MODEL = 14, 15
 WORDS = {USER: ("user", 19, 2), MODEL: ("model", 20, 1)}
+LAUNCH_ENV = "AGENTKIT_ANTIGRAVITY_LAUNCH"
+PROC = Path("/proc")
+
+
+def launched(name, cwd, conversation):
+    """A resumed conversation is the launcher's id; a new one is learned under this token."""
+    token = uuid.uuid4().hex
+    issued(name, conversation, antigravity_launch=token, antigravity_open=None)
+    return {LAUNCH_ENV: token}
+
+
+def conversation(record, cwd=None):
+    """The conversation the record gives this seat, else the one its launch's own agy holds
+    open, written down beside that launch's token so it outlives the process and a stale
+    launch's is never a later one's.  One another seat owns is never this one's, nor a guess
+    between two."""
+    mine, token = owned(record), record.get("antigravity_launch")
+    if mine or not isinstance(token, str):
+        return mine
+    records = config.session_records()
+    name = next((name for name, kept in records.items()
+                 if kept.get("antigravity_launch") == token), None)
+    held = held_open(token) - {owned(kept) for other, kept in records.items() if other != name}
+    if name is None or len(held) != 1:
+        return None
+    found = held.pop()
+    config.update_session(name, antigravity_open={"launch": token, "conversation": found})
+    return found
+
+
+def owned(record):
+    """What that record alone says its seat owns: a launcher's id, or one its launch saw."""
+    if record.get("id_source") == LAUNCHER:
+        return record.get("conversation")
+    seen = record.get("antigravity_open")
+    if isinstance(seen, dict) and seen.get("launch") == record.get("antigravity_launch"):
+        return seen.get("conversation")
+    return None
+
+
+def resumable(record, cwd, conversation):
+    return bool(conversation)
+
+
+def held_open(token):
+    """The conversations a process carrying that launch's token has its .db open of."""
+    want, root, found = f"{LAUNCH_ENV}={token}".encode(), conversation_stores()[0]["root"], set()
+    try:
+        pids = [entry for entry in os.listdir(PROC) if entry.isdigit()]
+        root = root.resolve()
+    except OSError:
+        return found
+    for pid in pids:
+        try:
+            if want not in (PROC / pid / "environ").read_bytes().split(b"\0"):
+                continue
+            fds = list((PROC / pid / "fd").iterdir())
+        except OSError:      # gone meanwhile, or not ours to read
+            continue
+        for fd in fds:
+            try:
+                path = Path(os.readlink(fd))
+            except OSError:
+                continue
+            if path.parent == root and path.suffix == ".db" and re.fullmatch(r"[\w-]+",
+                                                                             path.stem):
+                found.add(path.stem)
+    return found
 
 
 def said(record, cwd, conversation):

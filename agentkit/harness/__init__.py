@@ -230,6 +230,12 @@ def token_family(paths, roots, metadata):
     return [found[session] for session in seen if session in found]
 
 
+def issued(name, conversation, **fields):
+    """Write down the launcher's own id as what that launch owns, beside `fields`."""
+    config.update_session(name, conversation=conversation, resumable=bool(conversation),
+                          id_source=LAUNCHER if conversation else None, before=None, **fields)
+
+
 def user_message(at, text):
     """Keep the recorded text and time, never inventing either for a notice."""
     if not isinstance(text, str) or not text:
@@ -464,8 +470,7 @@ class Harness:
         hook = self._hook("launched")
         if hook:
             return hook(name, cwd, conversation)
-        config.update_session(name, conversation=conversation, resumable=bool(conversation),
-                              id_source=LAUNCHER if conversation else None, before=None)
+        issued(name, conversation)
         return {}
 
     def title_command(self, name):
