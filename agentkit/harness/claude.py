@@ -156,7 +156,8 @@ def user_messages(record, cwd, conversation):
 
 
 def error(record, cwd, conversation):
-    """The API error Claude Code recorded as that conversation's last message, or None.
+    """The API error Claude Code recorded as that conversation's last message, "" where none
+    ends it, or None where it has no transcript.
 
     A request that failed ends in an entry of its own, `isApiErrorMessage`, holding the text
     the seat showed; a prompt or an answer after it is the conversation going on.  Its other
@@ -164,12 +165,14 @@ def error(record, cwd, conversation):
     """
     from . import last_entry
     path = transcript(record, cwd, conversation)
-    entry = path and last_entry(path, lambda entry: entry.get("type") in ("user", "assistant"))
+    if not path:
+        return None
+    entry = last_entry(path, lambda entry: entry.get("type") in ("user", "assistant"))
     message = entry.get("message") if entry and entry.get("isApiErrorMessage") is True else None
     content = message.get("content") if isinstance(message, dict) else None
     parts = content if isinstance(content, list) else [{"text": content}]
     return "\n".join(part["text"] for part in parts if isinstance(part, dict)
-                     and isinstance(part.get("text"), str)).strip() or None
+                     and isinstance(part.get("text"), str)).strip()
 
 
 def interrupted(record, cwd, conversation):

@@ -285,7 +285,8 @@ def user_messages(record, cwd, conversation):
 
 
 def error(record, cwd, conversation):
-    """The error Codex recorded as the end of that thread's last turn, or None.
+    """The error Codex recorded as the end of that thread's last turn, "" where none ends it,
+    or None where it has no rollout.
 
     A turn that failed ends in a `task_complete` event whose `error` holds the message the seat
     showed; a `task_started` after it is a newer prompt.  The last item of a turn still in
@@ -299,11 +300,13 @@ def error(record, cwd, conversation):
             entry.get("type") == "event_msg" and isinstance(payload, dict)
             and payload.get("type") in ("task_started", "task_complete"))
     path = transcript(record, cwd, conversation)
-    entry = path and last_entry(path, turn)
+    if not path:
+        return None
+    entry = last_entry(path, turn)
     payload = entry.get("payload") if entry and entry.get("type") == "event_msg" else None
     failed = payload.get("error") if payload and payload.get("type") == "task_complete" else None
     message = failed.get("message") if isinstance(failed, dict) else None
-    return message.strip() or None if isinstance(message, str) else None
+    return message.strip() if isinstance(message, str) else ""
 
 
 def running(record, cwd, conversation):
