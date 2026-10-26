@@ -3350,14 +3350,16 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     shows = {name: config_columns(selected, name)[1:] for name in names}
     beside = [(name, number) for name in names for number in shows[name] if number >= 3]
     label = max(terminal.cells(config.model_name(cfg, name)) for name in names)
-    mark = 4 if selected else 0                 # a mark is ` ● ` and a space, then its effort
 
     def widths(tall):
-        """Each role's mark, then its efforts' cells and words under its head, a word as wide as
-        its model's widest effort, so a step moves no column after it."""
+        """Each role's mark, ` ● ` and a space before cells, then its efforts' cells and words
+        under its head; with cells, a word as wide as its model's widest, so a step moves no
+        column after it."""
+        mark = (4 if tall else 3) if selected else 0
         wide = {number: max([terminal.cells(head) - mark, *(
-            (tall + 2 if tall else 0) + max(map(terminal.cells, (efforts[key], *levels[key[0]])))
-            for key in beside if key[1] == number)]) for number, head in enumerate(orch.ROLE_HEADS, 3)}
+            tall + 2 + max(map(terminal.cells, (efforts[key], *levels[key[0]]))) if tall
+            else terminal.cells(efforts[key]) for key in beside if key[1] == number)])
+            for number, head in enumerate(orch.ROLE_HEADS, 3)}
         return {**{number - 3: mark for number in wide if mark}, **wide}
     tall = max((len(levelled[key]) for key in beside), default=0)   # the cells, before every word
     width = widths(tall)
