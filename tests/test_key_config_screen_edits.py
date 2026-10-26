@@ -94,7 +94,7 @@ class ConfigScreenEdits(unittest.TestCase):
         self.term.keys("Enter")
         self.term.wait(lambda screen: "› Fable 5.1     ●      □        □     ▰▰▰▰▰   max"
                        in rows(screen))
-        self.assertEqual(json.loads(self.record.read_text())["efforts"], {"fable": {"effort": "max"}})
+        self.assertEqual(json.loads(self.record.read_text())["efforts"]["fable"], {"effort": "max"})
         self.assertEqual(tomllib.loads(self.config.read_text()), self.given)
 
     def pane(self):

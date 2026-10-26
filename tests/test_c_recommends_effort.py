@@ -66,8 +66,8 @@ class RecommendsEffort(Sandbox):
                          ("fable", ["opus"], ["astra"]))
         self.assertEqual(self.held("opus"), {"effort": "xhigh", "exec_effort": "max"})
         self.assertEqual(self.held("astra"), {"effort": "xhigh", "review_effort": "high"})
-        # the orchestrator's row is only said
-        self.assertEqual(self.held("fable"), {})
+        # the orchestrator's row is only said: the seat keeps the efforts it took on creation
+        self.assertEqual(self.held("fable"), config.efforts_of(self.cfg["models"]["fable"]))
 
     def test_the_models_screen_names_the_entry_r_marks_where_two_run_the_model(self):
         # opus-max runs opus's model at max, the recommended rows' effort: the screen names
