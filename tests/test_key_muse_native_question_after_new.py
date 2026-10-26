@@ -103,7 +103,7 @@ class MuseNativeQuestionAfterNew(unittest.TestCase):
     def drawn(self):
         """Once the seat's pane shows Muse's prompt whole: its status line, and no card."""
         deadline = time.monotonic() + 30
-        while (not (screen := self.home.tmux("capture-pane", "-p", "-t", "=acme").out)
+        while (not (screen := self.home.tmux("capture-pane", "-p", "-t", "=acme:").out)
                 .rstrip().endswith("YOLO") or "to interrupt" in screen):
             self.assertLess(time.monotonic(), deadline, "the prompt was never drawn")
             time.sleep(0.05)
