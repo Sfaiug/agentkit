@@ -17,7 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from agentkit import terminal  # noqa: E402
-from test_config_matrix import (DOWN, ENTER, ESC, KEYS, PAGE_KEYS, RIGHT, UP,  # noqa: E402
+from test_config_matrix import (DOWN, ENTER, ESC, NEW_KEYS, PAGE_KEYS, RIGHT, UP,  # noqa: E402
                                 Screen, highlighted, on_effort, on_mark)
 
 # Key lines spelled outside terminal.keys, where each is, and why it is still spelled there.
@@ -62,7 +62,7 @@ class OneKeyLine(unittest.TestCase):
             ENTER, lambda lines: "subscriptions" in lines[0])
         self.assertIn("› Models", stops)
         self.assertEqual({where: lines[-1] for where, lines in stops.items()},
-                         {**dict.fromkeys(stops, KEYS), "Subscriptions' page": PAGE_KEYS})
+                         {**dict.fromkeys(stops, NEW_KEYS), "Subscriptions' page": PAGE_KEYS})
         screen.press(ESC, lambda lines: lines[0].rstrip().endswith("config")
                      or "config " in lines[0])
         screen.leave()
