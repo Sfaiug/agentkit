@@ -30,7 +30,7 @@ ROWS = ["Claude Code",
         "Codex",
         "  GPT-6-Astra   ○      ■        ■     ▰▰▰▱▱▱  high",
         "",
-        "  + add a model",
+        "  Models",
         "  Subscriptions",
         "  Discord       not connected",
         # models by their full names, the line wrapped at a word under its value
@@ -107,10 +107,10 @@ class ConfigScreen(unittest.TestCase):
         on_effort = self.term.wait("› Fable 5.1     ●      □        □     ▰▰▰▰▱   xhigh")
         self.assertEqual(key_line(on_effort), KEYS)
         self.term.keys("Down", "Down")
-        on_row = self.term.wait("› + add a model")
+        on_row = self.term.wait("› Models")
         self.assertEqual(block(on_row)[1:7],
                          [ROWS[0], "  Fable 5.1     ●      □        □     ▰▰▰▰▱   xhigh",
-                          *ROWS[2:5], "› + add a model"])
+                          *ROWS[2:5], "› Models"])
         self.assertEqual(key_line(on_row), KEYS)
         self.leave()
 

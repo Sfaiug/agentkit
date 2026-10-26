@@ -79,7 +79,7 @@ def mark_return(module, name):
             print(f"<back {name}>", flush=True)
     setattr(module, name, screen)
 
-for module, name in ((menu, "config_matrix"), (menu, "config_model"), (menu, "config_add"),
+for module, name in ((menu, "config_matrix"), (menu, "config_model"), (menu, "models_page"),
                      (menu, "config_subscriptions"), (menu, "config_add_provider"),
                      (menu, "config_discord"), (menu, "config_audit"), (menu, "show_features"),
                      (menu, "new_session"), (orch, "pick"),
@@ -290,9 +290,9 @@ class EscBack(unittest.TestCase):
         menu_.press(LEFT + ENTER, model)
         menu_.back("config_model", model)
         menu_.press(DOWN * 30 + UP * 3, lambda lines: config_(lines) and any(
-            line.startswith("›") and "add a model" in line for line in lines))
-        menu_.press(ENTER, title("config · add a model"))
-        menu_.back("config_add", title("config · add a model"))
+            line.startswith("› Models") for line in lines))
+        menu_.press(ENTER, title("config · models"))
+        menu_.back("models_page", title("config · models"))
         menu_.press(DOWN + ENTER, title("config · subscriptions"))
         menu_.press(DOWN * 20, lambda lines: title("config · subscriptions")(lines) and any(
             line.startswith("›") and "add a subscription" in line for line in lines))

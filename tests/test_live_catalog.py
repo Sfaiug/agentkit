@@ -1,4 +1,4 @@
-"""`+ add a model` lists what each provider offers today, not a table updated by hand.
+"""`Models` lists what each provider offers today, not a table updated by hand.
 
 `adapters/claude.sh models` asks Anthropic's models API a page at a time and answers each model
 with its label and the efforts its `capabilities.effort` supports, weakest first, `none` where

@@ -9,8 +9,8 @@ itself out, and a page's rows as it is turned to; each
 progress line grows to its length as the menu opens and glides to a new one as its plan moves,
 its count counting up with it, a task's next square fills through its half and one that failed
 nudges; an effort's bar a step filled rises into place and a step onto a model's highest effort sends a light
-through its word, a mark set fills and one cleared empties, one whose change was refused shakes, a
-row just added glows; a popup's content fades in once, as it opens, and a page's under its
+through its word, a mark set fills and one cleared empties, one whose change was refused shakes;
+a popup's content fades in once, as it opens, and a page's under its
 header as it opens, its name writing itself out in the header; the rule under a screen's
 header glides while its content is fetched, a spinner turning beside what ak waits on; a
 subscription the pointer comes onto washes into its company's colour, its models with it, and
@@ -38,8 +38,7 @@ RISE = 0.15         # ... an effort's cell a step filled takes to light and sett
 SHIMMER = 0.6       # ... the light takes through an effort's word that a step took to its highest
 TOGGLE = 0.08       # ... a mark takes to fill or to empty, half way for the first half of it
 SHAKE = 0.24        # ... a mark whose change was refused takes to nudge left, right, left and back
-GLOW = 1.0          # ... a row just added takes to fade from its glow into the highlight
-GLOWING = 0.6       # that glow at first: the accent that far toward the background
+GLOW = 1.0          # ... a seat's row on news takes to fade from its glow
 NEWS = 0.7          # ... and a seat's row on news: its word's colour that far toward it
 SWEEP = 0.4         # seconds a light takes across a done seat's line
 OPEN = 0.12         # ... the line under a row the highlight came to takes to come up
@@ -160,12 +159,11 @@ def toggled(mark, width, kind, bright, column):
     return start
 
 
-def glowing(line, kind="accent", amount=GLOWING):
-    """How a row just added moves on a screen's clock, `line` as the draw wrote it: its cells on
+def glowing(line, kind, amount):
+    """How a seat's row on news moves on a screen's clock, `line` as the draw wrote it: its cells on
     a soft glow of `kind`'s colour, `amount` of the way to the background, that fades into the
-    background in GLOW seconds, and then as drawn, the pointer's cell lit (terminal.pointed):
-    the accent's for a row just added, a word's for a seat's row whose word is news.  A function
-    of the clock, the screen row, when it was added and what it was before."""
+    background in GLOW seconds, and then as drawn, the pointer's cell lit (terminal.pointed).
+    A function of the clock, the screen row, when it was news and what it was before."""
     def start(clock, row, since, _):
         lit = terminal.pointed(row, 1, line)
 
@@ -420,8 +418,7 @@ class Clock:
         return news
 
     def touch(self, key):
-        """News at `key` from now that changed nothing: a mark whose change was refused, a row
-        just added."""
+        """News at `key` from now that changed nothing: a mark whose change was refused."""
         self.touched[key] = time.monotonic()
 
     def settle(self):

@@ -520,7 +520,7 @@ def drop_bare_free(cfg):
 
 
 def provider_harnesses(cfg, provider):
-    """The harnesses `provider` runs on, for the `c` screen's `add a model`: the ones its
+    """The harnesses `provider` runs on, for the `c` screen's `Models`: the ones its
     models in `cfg` run on, then the ones the shipped default runs it on, each once.  A
     provider neither names a harness for is offered none, never a guess."""
     models = shipped().get("models")
@@ -659,7 +659,7 @@ def catalog_now(harness):
 
     A listing asks the harness itself and can take fifteen seconds, so it goes on in the
     background and the next key reads it.  Only a step on the `c` screen reads this way;
-    `ak doctor`, a model id's step and `add a model` wait for catalog() as before.
+    `ak doctor`, a model id's step and `Models` wait for catalog() as before.
     """
     asking = _ASKING.get(harness)
     if asking is None or not asking.is_alive():

@@ -437,11 +437,7 @@ class Screens(Sandbox):
         self.assertOneHighlight(screens[2], "ChatGPT")
         self.assertEqual(highlighted(screens[-1]), [])
 
-    def test_add_a_model_and_a_models_own_screen(self):
-        first = run(lambda: menu.config_add(self.cfg), ESC)[1][0]
-        answer, screens = run(lambda: menu.config_add(self.cfg), move(*at(first, "codex")) + ESC)
-        self.assertIsNone(answer)
-        self.assertOneHighlight(screens[-1], "codex")
+    def test_a_models_own_screen(self):
         first = run(lambda: menu.config_model(self.cfg, "opus"), ESC)[1][0]
         right = at(first, "›", 1)                       # the effort's, after the id's
         last = run(lambda: menu.config_model(self.cfg, "opus"), move(*right) + ESC)[1][-1]
