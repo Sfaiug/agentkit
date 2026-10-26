@@ -2947,12 +2947,12 @@ def take_advice(cfg, name, selected, providers, found):
         for role, (model, _) in taken.items() if model})
     if note:
         return note
-    before, held = copy.deepcopy(cfg), {}
+    before, held, seat = copy.deepcopy(cfg), {}, config.at_efforts(cfg, selected)["models"]
     # the orchestrator's `effort` first, so a worker's set to it then follows it (_follows)
     for role, (model, effort) in taken.items():
         if model:
-            entry = (held.setdefault(model, config.efforts_of(
-                config.at_efforts(cfg, selected)["models"][model])) if name else cfg["models"][model])
+            entry = (held.setdefault(model, config.efforts_of(seat[model])) if name
+                     else cfg["models"][model])
             key = config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]]
             entry[key] = effort or entry["effort"]
             _follows(entry, [key])

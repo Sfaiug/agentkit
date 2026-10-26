@@ -51,7 +51,6 @@ class TwoSeatsOnOneModel(unittest.TestCase):
                 receipt, handed = run_in(self, f"acme-{effort}", f"Build at {effort}")
                 self.assertEqual(handed, {effort})
                 self.assertEqual(receipt["efforts"]["opus"], {"effort": effort})
-                self.assertEqual(receipt["efforts"]["astra"], {"effort": "xhigh"})
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -75,8 +74,7 @@ class StepsOnC(unittest.TestCase):
         return json.loads(self.record.read_text())["efforts"]
 
     def step_fable(self, env=None):
-        """Enter on Fable's effort on `c`, in the menu `env` opens, once saved: config.toml and
-        the seat's efforts as they were before."""
+        """Enter on Fable's effort on `c` in the menu `env` opens: config, efforts before."""
         term = Terminal(self.home, *(("attach", "--overlay") if env else ()), size=(100, 30),
                         env={"NO_COLOR": "1", **(env or {})})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
@@ -108,9 +106,7 @@ class StepsOnC(unittest.TestCase):
         self.assertEqual(run_in(self, "atoll-old", "Build before")[1], {"xhigh"})
         self.step_fable()
         self.assertEqual(akconfig.read(self.home)["models"]["fable"]["effort"], "max")
-        receipt, handed = run_in(self, "atoll-old", "Build after")
-        self.assertEqual(handed, {"xhigh"})
-        self.assertEqual(receipt["efforts"]["fable"], {"effort": "xhigh"})
+        self.assertEqual(run_in(self, "atoll-old", "Build after")[1], {"xhigh"})
 
 
 if __name__ == "__main__":

@@ -352,7 +352,7 @@ class Matrix(unittest.TestCase):
     def test_enter_steps_an_effort_up_and_round_from_its_highest(self):
         screen = Screen(self)
         screen.frame()
-        efforts = lambda: {name: model["effort"] for name, model in screen.saved()["models"].items()}
+        efforts = lambda: {name: held["effort"] for name, held in screen.record()["efforts"].items()}
         # opus takes low to max: up from xhigh is max, and up from max is low again
         screen.press(DOWN + RIGHT * 3 + ENTER, lambda lines: effort(lines, "opus") == "max")
         self.assertEqual(efforts()["opus"], "max")
@@ -368,7 +368,7 @@ class Matrix(unittest.TestCase):
         lines = screen.press(ENTER)
         self.assertTrue(row(lines, "haiku")[1].endswith("  none"), row(lines, "haiku")[1])
         self.assertEqual(screen.path.read_bytes(), before)
-        self.assertEqual(efforts()["fable"], "xhigh")
+        self.assertNotIn("fable", efforts())         # the seat's own: config.toml as it was
         screen.leave()
 
     def test_a_click_on_an_effort_s_cell_takes_that_level(self):
@@ -378,7 +378,7 @@ class Matrix(unittest.TestCase):
         lines = screen.click(line.index("▰") + 3, number,
                              lambda lines: effort(lines, "opus") == "high")
         self.assertIn("Opus 5.5", highlighted(lines))
-        self.assertEqual(screen.saved()["models"]["opus"]["effort"], "high")
+        self.assertEqual(screen.record()["efforts"]["opus"]["effort"], "high")
         screen.leave()
 
     def test_tab_changes_nothing(self):
@@ -414,7 +414,7 @@ class Matrix(unittest.TestCase):
         number, line = row(lines, "opus")                 # a click on an effort's word steps it
         lines = screen.click(line.index("xhigh") + 1, number,
                              lambda lines: effort(lines, "opus") == "max")
-        self.assertEqual(screen.saved()["models"]["opus"]["effort"], "max")
+        self.assertEqual(screen.record()["efforts"]["opus"]["effort"], "max")
         column = KEYS.index("esc back") + 3      # and one on `esc back` leaves
         os.write(screen.master, f"\x1b[<0;{column};{len(lines)}M\x1b[<0;{column};{len(lines)}m"
                  .encode())
