@@ -461,7 +461,15 @@ smoke_source() {   # smoke_source <caller's file>: 0 to borrow it, 1 when nothin
 smoke_sync_logins() {
   # A harness may rename over its credential link. Return only valid, newer token pairs,
   # never a failed refresh's cleared login, before either exit path removes the sandbox.
-  python3 "$REPO/tests/merge_logins.py" "$WORK/home" "${SMOKE_CLAUDE_CREDS:-}" "${SMOKE_GROK_AUTH:-}"
+  python3 "$REPO/tests/merge_logins.py" "$WORK/home" "${SMOKE_CLAUDE_CREDS:-}" "${SMOKE_GROK_AUTH:-}" \
+    && return 0
+  # Past `finish` the live labels are written: a label of its own lets the gate compare this
+  # failure with the running install's like any other.
+  if [ -f "${AK_LIVE_FAILED_FINAL:-}" ]; then
+    printf 'FAIL  logins: a login renewed in the sandbox did not go back to the caller\n'
+    printf 'logins\n' >>"$AK_LIVE_FAILED_FINAL"
+  fi
+  return 1
 }
 # A bounded way to refresh the real Claude fixture without running the GitHub merge check.
 # The caller supplies an isolated HOME and output directory when outside writes are forbidden.
