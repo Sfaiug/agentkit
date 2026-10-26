@@ -31,6 +31,7 @@ SPENT = {"type": "provider.quota", "message": FREE, "status": 429, "response": {
     {"type": "error", "error": {"type": "FreeUsageLimitError", "message": FREE}})}}
 OVERLOADED = {"type": "provider.internal", "status": 503,
               "message": "The provider is overloaded. Please try again later."}
+TRANSPORT = {"type": "provider.transport", "message": "fetch failed"}
 FOOTER = "  ┃  Build auto · DeepSeek V4.1 Flash Free OpenCode · max"
 
 
@@ -116,13 +117,15 @@ class OpencodeFreeLimitSeat(unittest.TestCase):
                 self.assertEqual(self.failed(SPENT, width), "out of usage")
                 self.assertEqual((self.marked, self.typed), (["opencode"], []))
 
-    def test_an_overloaded_provider_is_retried_not_out_of_usage(self):
-        for width in (160, 80):
-            with self.subTest(width=width):
-                self.assertNotEqual(self.failed(OVERLOADED, width), "out of usage")
-                self.assertEqual(self.marked, [])
-                self.assertEqual(watch.stalled_on("opencode", self.pane, NAME, lambda _: None),
-                                 "503")
+    def test_a_transient_error_is_retried_not_out_of_usage(self):
+        # an overloaded provider by its status; one no word classifies by OpenCode's `Error: `
+        for error, stall in ((OVERLOADED, "503"), (TRANSPORT, "Error: ")):
+            for width in (160, 80):
+                with self.subTest(error=error["type"], width=width):
+                    self.assertNotEqual(self.failed(error, width), "out of usage")
+                    self.assertEqual(self.marked, [])
+                    self.assertEqual(
+                        watch.stalled_on("opencode", self.pane, NAME, lambda _: None), stall)
 
 
 if __name__ == "__main__":

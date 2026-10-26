@@ -1694,11 +1694,13 @@ def stalled_on(harness, pane, session, log):
     model's sentence about one names it further on.
 
     None of that is guessed where the seat's harness keeps a record: the error it recorded
-    last, in the word `failure` reads it by, is the stall, and no error there is none.
+    last, in the word `failure` reads it by or else its stall word, is the stall, and no error
+    there is none.
     """
     said = recorded_error(harness, session)
     if said is not None:
-        return orch.harness_plugin(harness).failure(said)[1]
+        return (orch.harness_plugin(harness).failure(said)[1]
+                or next((mark for mark in stalls(harness) if says(said, mark)), None))
     lines = content_lines(harness, pane_tail(pane))
     last = lines[-1] if lines else ""
     block = config.manifest(harness).get("stall")

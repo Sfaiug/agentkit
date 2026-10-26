@@ -254,8 +254,8 @@ def error(record, cwd, conversation):
     ended otherwise or a prompt came after it, None where opencode.db holds none of the session.
 
     OpenCode ends every turn in an `idle` row whose `outcome` says how; a failed one holds its own
-    error -- the `provider.*` type, the status and the message the seat shows -- which no model's
-    answer is and no terminal width wraps."""
+    error -- the `provider.*` type, the status and the message the seat shows behind `Error: `
+    -- which no model's answer is and no terminal width wraps."""
     from . import rows
     if not isinstance(conversation, str) or not SESSION.fullmatch(conversation):
         return None
@@ -271,5 +271,5 @@ def error(record, cwd, conversation):
     failed = ended.get("error") if kind == "idle" and isinstance(ended, dict) else None
     if not isinstance(failed, dict):
         return ""
-    return " ".join(str(failed[key]) for key in ("type", "status", "message")
-                    if failed.get(key) is not None)
+    return "Error: " + " ".join(str(failed[key]) for key in ("type", "status", "message")
+                                if failed.get(key) is not None)
