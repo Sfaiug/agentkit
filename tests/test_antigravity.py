@@ -361,9 +361,9 @@ class Antigravity(unittest.TestCase):
         self.assertFalse((self.home / ".agentkit").exists())   # nor written to any file
 
     def test_usage_reads_agy_1_4_s_gemini_windows_and_no_other(self):
-        # retrieveUserQuotaSummary's wire body under agy 1.4.7 on 2026-10-26, a Google AI Pro login, unedited
-        # but for `jq -c`: the Gemini Models group's week and five hours are the meters; Argon's
-        # own week and the Claude-and-GPT group's are not
+        # retrieveUserQuotaSummary's wire body under agy 1.4.7 on 2026-10-26, a Google AI Pro
+        # login, unedited but for `jq -c`: the Gemini Models group's week and five hours are the
+        # meters; Argon's own week and the Claude-and-GPT group's are not
         self.fake_endpoint((FIXTURES / "antigravity-quota-summary-1.4.json").read_text(),
                            live="dummy-access")
         usage = json.loads(self.adapter("usage").stdout)
