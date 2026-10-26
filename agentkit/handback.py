@@ -733,14 +733,8 @@ def seat_notice(line, state, run_dir, brief, action="Decide the next step."):
     if not watch.too_long(line):
         return line
 
-    def shown(path):
-        try:
-            return f"~/{path.relative_to(Path.home())}"
-        except ValueError:
-            return str(path)
-
     result = run_dir / "result.md"
-    where = shown(result)
+    where = config.tilde(result)
     report = result.name
     parts = [brief, f"Result: {where}."]
     count = len(state.get("followups") or [])

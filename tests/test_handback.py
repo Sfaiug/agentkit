@@ -562,21 +562,28 @@ class HandBack(Sandbox):
                 self.assertTrue(watch.type_at_prompt(self.live(), line, self.logs.append,
                                                      cfg=self.cfg, typed=marks[-1]))
 
-    def test_a_hand_back_too_long_or_too_tall_to_show_whole_still_gets_its_enter(self):
+    def test_a_hand_back_too_tall_to_show_whole_still_gets_its_enter(self):
         self.rows = [self.live()]
         seat = self.claude()
-        fold = watch.screen("claude")["folds_over"]
         end = " Result: /runs/acme/result.md. Decide the next step."
-        for shape, line, folds, wrap in (
-                ("folded", "run acme finished FAIL: " + "acme-finding " * 80 + end, fold, None),
-                ("taller than the read", "run acme finished FAIL: " + "acme " * 120 + end,
-                 None, 40)):
-            with self.subTest(shape=shape):
-                seat.composer, seat.read, seat.folds, seat.wrap = "", [], folds, wrap
-                with patch.object(watch.time, "sleep"):
-                    self.assertTrue(watch.type_at_prompt(self.live(), line, self.logs.append,
-                                                         cfg=self.cfg))
-                self.assertEqual(seat.read, [line])
+        line = "run acme finished FAIL: " + "acme " * 120 + end
+        seat.wrap = 40
+        with patch.object(watch.time, "sleep"):
+            self.assertTrue(watch.type_at_prompt(self.live(), line, self.logs.append,
+                                                 cfg=self.cfg))
+        self.assertEqual(seat.read, [line])
+
+    def test_a_folded_line_typed_before_the_bound_still_gets_its_enter(self):
+        self.rows = [self.live()]
+        seat = self.claude()
+        line = "run acme finished FAIL: " + "acme-finding " * 80
+        seat.composer, seat.folds, seat.takes = line, watch.screen("claude")["folds_over"], True
+        mark = {"line": line, "seat": self.live()["created"]}
+        self.assertFalse(watch.type_at_prompt(self.live(), line, self.logs.append,
+                                              cfg=self.cfg, typed=mark))
+        self.assertEqual((seat.read, seat.composer), ([line], ""))
+        self.assertTrue(watch.type_at_prompt(self.live(), line, self.logs.append,
+                                             cfg=self.cfg, typed=mark))
 
     def test_each_harnesss_own_screen_of_a_long_or_tall_line_holds_it_alone_until_the_owner_adds(self):
         """Real captures, 40 columns: Claude 2.1.291 folds a line past its fold into `[Pasted

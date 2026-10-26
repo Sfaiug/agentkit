@@ -105,7 +105,7 @@ class HarnessGateHandedBack(unittest.TestCase):
                 for check in (4, 6):
                     self.assertIn(f"FAIL  {check} {gate}:", line)
                 log_path = next(path for path in config.TMP.glob("update-*.log")
-                                if str(path) in line)
+                                if config.tilde(path) in line)
                 self.assertIn(f"FAIL  4 {gate}:", log_path.read_text())
                 self.attempt(failing=gate)
                 self.tick()
