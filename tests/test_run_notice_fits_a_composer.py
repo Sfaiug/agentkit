@@ -27,7 +27,7 @@ class RunNotice(Sandbox):
         config.save_session(self.cfg, "fix-api", "opus", ["astra"], {
             "cwd": str(self.root), "created": 100, "conversation": "fixture-thread"})
         self.composer, self.sent, self.keys, self.logs = "", [], [], []
-        self.visible = watch.longest(self.cfg)
+        self.visible = watch.longest()
         self.stack.enter_context(patch.object(orch, "find", return_value=self.seat))
         self.stack.enter_context(patch.object(orch, "watching", return_value=True))
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))

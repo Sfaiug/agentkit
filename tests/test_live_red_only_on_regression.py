@@ -19,7 +19,6 @@ class LiveRedOnlyOnRegression(Sandbox):
     def setUp(self):
         super().setUp()
         self.head, self.now, self.running, self.moves = HEAD, 10000, set(), []
-        config.save(self.cfg)   # the checkout below ships no default config
         self.stack.enter_context(patch.object(config, "REPO", self.root))
         self.stack.enter_context(patch.object(update, "agentkit_dir", return_value=self.root))
         self.stack.enter_context(patch.object(update.versions, "finish"))

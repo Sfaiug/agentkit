@@ -45,7 +45,7 @@ class TypedLineFitsComposer(Sandbox):
         return named
 
     def test_a_harness_gate_failing_twice_hands_back_titles_and_its_log(self):
-        self.assertEqual(watch.longest(config.load()), watch.screen("claude")["folds_over"])
+        self.assertEqual(watch.longest(), watch.screen("claude")["folds_over"])
         for count in (0, 2, 40):
             with self.subTest(failed=count):
                 titles, log = smoke_log(count)
@@ -92,7 +92,7 @@ class TypedLineFitsComposer(Sandbox):
         with patch.object(orch, "tmux_out", side_effect=tmux), \
                 patch.object(watch, "pane_text", return_value="❯ \n"), \
                 patch.object(watch, "_editor_kept", return_value={}):
-            self.assertIsNotNone(watch.too_long(line, self.cfg))
+            self.assertIsNotNone(watch.too_long(line))
             self.assertFalse(watch.type_at_prompt({"name": SEAT}, line, said.append, cfg=self.cfg))
         self.assertEqual([args for args in calls if args[0] == "send-keys"], [])
         self.assertEqual(len(said), 1)

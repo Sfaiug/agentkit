@@ -33,7 +33,6 @@ class HarnessGateHandedBack(unittest.TestCase):
         (checkout / "tests").mkdir(parents=True)
         for gate in ("live", "e2e-fresh"):
             (checkout / "tests" / f"{gate}.sh").touch()
-        config.save(config.load())     # the checkout below ships no default config
         stack.enter_context(patch.object(config, "REPO", checkout))
         self.plan = [{"name": name, "version": [name, "--version"],
                       "upgrade": [name, "upgrade"], "revert": [name, "install", "{version}"],
