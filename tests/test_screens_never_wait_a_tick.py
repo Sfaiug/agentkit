@@ -10,19 +10,19 @@ import sys
 import unittest
 from unittest import mock
 
-import test_add_model
 import test_add_opencode_provider
 import test_add_subscription
 import test_close_and_info
 import test_config_matrix
 import test_model_screen
+import test_models_page
 import test_past_sessions
 import test_provider_screen
 import test_remove_keeps_login
 
 FAR = "from agentkit import menu\nmenu.TICK = 10 ** 6\n"     # never, within the helper's wait
 SCREENS = [test_provider_screen.ProviderScreen("test_the_last_provider_stays"),
-           test_add_model.AddModel("test_the_three_steps_add_a_valid_model"),
+           test_models_page.ModelsPage("test_a_harness_ticks_its_models_in_and_out"),
            test_remove_keeps_login.RemoveKeepsLogin(
                "test_a_removed_subscription_is_offered_by_who_it_is_and_comes_back_without_a_login"),
            test_model_screen.ModelScreen(

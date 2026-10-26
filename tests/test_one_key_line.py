@@ -64,7 +64,7 @@ class OneKeyLine(unittest.TestCase):
             stops[highlighted(lines)] = lines
         stops["Subscriptions' page"] = screen.press(
             ENTER, lambda lines: "subscriptions" in lines[0])
-        self.assertIn("› + add a model", stops)
+        self.assertIn("› Models", stops)
         self.assertEqual({where: lines[-1] for where, lines in stops.items()},
                          {**dict.fromkeys(stops, KEYS), "Subscriptions' page": PAGE_KEYS})
         screen.press(ESC, lambda lines: lines[0].rstrip().endswith("config")

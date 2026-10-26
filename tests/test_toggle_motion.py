@@ -1,11 +1,9 @@
-"""Every mark in ak fills when set and empties when cleared, a refused one shakes, and a model just
-added glows into the highlight.
+"""Every mark in ak fills when set and empties when cleared, and a refused one shakes.
 
 On the `c` screen, the `n` screen and a project's feature switches a mark goes `□ ▣ ■` or
 `○ ◉ ●` over two frames, 80 ms, and back the same way, saved at the key; one ak refuses nudges
-a cell left, right, left and back over 240 ms, the reason under the rows and nothing saved; a
-model just added comes back highlighted on a soft glow that fades over a second into the
-highlight.  All of it is on the menu's one clock, beside the rule gliding while a project's
+a cell left, right, left and back over 240 ms, the reason under the rows and nothing saved.
+All of it is on the menu's one clock, beside the rule gliding while a project's
 switches are asked, and the cell a click lit stays lit through it; a key during it ends it on
 its last frame.
 
@@ -28,20 +26,18 @@ from unittest.mock import patch
 
 import test_features_screen as features
 import test_new_session_screen as new_session
-from test_config_matrix import CHILD, DOWN, ENTER, RIGHT, Screen, highlighted, row
+from test_config_matrix import CHILD, ENTER, RIGHT, Screen, highlighted, row
 from agentkit import motion, terminal
 
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
 MARKS = "●○■□◉▣—"
-BACK = re.compile(r"\x1b\[[0-9;]*48;2;(\d+);(\d+);(\d+)m")   # a background, in true colour
 # the background the pointer lights a cell on, at 256 colours, on the dark one a pty answers with
 LIT = f"48;5;{terminal.xterm_colour(terminal.POINTED[False])}m"
 
 # Completion is observed after the real clock's last frame, including a skipped animation.
 OBSERVE = r'''
-from pathlib import Path
 from agentkit import motion
-start, frame, glowing = motion.Clock.start, motion.Clock.frame, motion.glowing
+start, frame = motion.Clock.start, motion.Clock.frame
 def started(clock, cells, animation, until=None, **kwargs):
     if until is not None:
         clock.test_moving = True
@@ -54,21 +50,6 @@ def framed(clock):
         out += "<motion settled>"
     return out
 motion.Clock.start, motion.Clock.frame = started, framed
-
-def held_glow(line):
-    real = glowing(line)
-    def begin(clock, row, since, before):
-        hold = Path.home() / ".agentkit" / "glow.hold"
-        if hold.exists():
-            class Held:
-                def start(self, cells, animation, until=None, **_kw):
-                    clock.start(cells, lambda now: animation(since + float(hold.read_text())),
-                                float("inf"))
-            real(Held(), row, since, before)
-        else:
-            real(clock, row, since, before)
-    return begin
-motion.glowing = held_glow
 '''
 
 
@@ -189,17 +170,6 @@ class Frames(unittest.TestCase):
         self.assertEqual([text.index("■") - 2 for text in frames], [-1, 1, -1, 0, 0])
         self.assertEqual(frames[-1], "  ■   ")      # back where the draw has it
 
-    def test_a_row_just_added_glows_and_fades_into_it_over_a_second(self):
-        line = terminal.highlight("  claude-haiku  claude")
-        at, lasts, since = self.animation(motion.glowing(line), None, (5, 1))
-        self.assertAlmostEqual(lasts, 1.0)
-        backs = [set(BACK.findall(at(since + t))) for t in (0, 0.5)]
-        glow = terminal.faded("accent", motion.GLOWING)
-        self.assertEqual(backs[0], {tuple(str(int(glow[i:i + 2], 16)) for i in (1, 3, 5))})
-        self.assertEqual(len(backs[1]), 1)
-        self.assertNotEqual(backs[1], backs[0])
-        self.assertEqual(at(since + 1.0), line)     # then the highlight, as drawn
-
     def test_without_utf8_a_mark_lands_at_once(self):
         clock = motion.Clock()
         motion.toggled("x", 4, None, False, 10)(clock, 5, time.monotonic(), ".")
@@ -251,48 +221,6 @@ with closing(""", 1)
         with patch(__name__ + ".Screen", side_effect=lambda *args, **kwargs:
                    create(*args, child=child, **kwargs)):
             self.test_the_last_reviewer_refused_shakes_and_nothing_is_saved()
-
-    def test_a_model_just_added_glows_and_a_key_ends_it_at_once(self):
-        screen = Screen(self, env={"COLORTERM": "truecolor"})     # a glow fades in fine steps
-        lines = screen.frame()
-        heads = next(n for n, line in enumerate(lines) if line.split()[-1:] == ["effort"])
-        down = sum(1 for line in lines[heads + 1:next(n for n, line in enumerate(lines)
-                                                      if "+ add a model" in line)]
-                   if line.startswith(("  ", "›")))
-        screen.press(DOWN * down, lambda lines: highlighted(lines).startswith("› + add a model"))
-        for step in ("harness", "model", "effort"):     # claude, its haiku, at none
-            screen.press(ENTER, lambda lines, step=step: f"  {step}" in lines)
-        hold = screen.path.parent / "glow.hold"
-        hold.write_text("0")
-        mark = len(screen.text())
-        os.write(screen.master, ENTER)
-        lines = screen.frame(lambda lines: highlighted(lines).startswith("› Haiku 4.5"),
-                             after=mark)
-        # claude-haiku, by its full name as the shipped haiku's is: the highlighted one
-        number, line = next((n, line) for n, line in enumerate(lines, 1) if line.startswith("›"))
-
-        def tones():
-            return [sum(map(int, BACK.findall(frame)[0]))
-                    for at, column, text, frame in written(screen, mark)
-                    if (at, column) == (number, 1) and text == line and BACK.search(frame)]
-
-        # Hold each phase until it is seen, so a busy host cannot miss the middle of the glow.
-        for count, phase in enumerate(("0", "0.4", "0.7"), 1):
-            hold.with_suffix(".next").write_text(phase)
-            hold.with_suffix(".next").replace(hold)
-            until(screen, lambda: len(set(tones())) >= count, f"glow phase {phase}")
-        tones = tones()
-        self.assertEqual(tones, sorted(tones, reverse=True))       # fading
-        self.assertGreater(tones[0], tones[-1])
-        # The glow stays held until a key ends it; the key cannot wait for its timer.
-        mark = len(screen.text())
-        moved(screen, RIGHT)
-        lines = screen.frame(lambda lines: highlighted(lines).startswith("› Haiku 4.5"),
-                             after=mark)
-        self.assertNotRegex(screen.text()[mark:].rpartition("<motion settled>")[2], PLACE)
-        self.assertEqual(screen.saved()["models"]["claude-haiku"]["effort"], "none")
-        screen.leave()
-
 
 class NewSessionScreen(Screens):
     def picker(self):

@@ -58,7 +58,8 @@ class Loop:
     """
 
     def __init__(self, cfg, run_dir, state, opts, log, wt, body, cmds, context):
-        self.cfg, self.run_dir, self.state, self.opts, self.log = cfg, run_dir, state, opts, log
+        self.cfg = config.at_efforts(cfg, state)    # each turn at the efforts it launched with
+        self.run_dir, self.state, self.opts, self.log = run_dir, state, opts, log
         path = run_dir / "task.md"
         self.files = taskfile.task_files(path) if path.is_file() else []
         self.wt, self.body, self.cmds, self.context = wt, body, cmds, context

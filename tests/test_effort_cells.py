@@ -197,7 +197,7 @@ class EffortCells(unittest.TestCase):
         entry = {"harness": "acme", "model": "acme-fast"}
         with patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}):
             self.assertEqual(menu.effort_levels(entry), ["low", "medium", "high"])  # unlisted
-            config.catalog("acme")                      # as `add a model` asks it
+            config.catalog("acme")                      # as `Models` asks it
             self.assertEqual(menu.effort_levels(entry), ["none"])
 
     def test_a_wide_word_shimmers_whole_from_its_first_cell(self):
