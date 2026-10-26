@@ -81,11 +81,12 @@ class SessionModels(Sandbox):
         self.assertNotIn("reviewers", config.load_session(self.cfg, "old"))
         with patch.object(terminal, "layout_width", return_value=100):
             lines, places = menu.config_body(self.cfg, selected=self.selected("old"))
-        self.assertEqual(lines[0].split(), ["orch", "builds", "reviews", "effort"])
+        self.assertEqual(lines[0].split(), ["orch", "builds", "reviews"])
         self.assertEqual(self.rows(lines)["Opus"], "●■■")
         self.assertEqual(self.rows(lines)["Fable"], "○□□")
         cells = next(cells for row, cells in places.values() if row == ("model", "opus"))
-        self.assertEqual([cell[2] for cell in cells], [-1, 0, 1, 2, 3])
+        # each role's mark, then its effort
+        self.assertEqual([cell[2] for cell in cells], [-1, 0, 3, 1, 4, 2, 5])
         selected = self.selected("old")
         self.assertEqual(menu.session_mark(self.cfg, "old", selected, "opus", 1, {}), "")
         record = config.load_session(self.cfg, "old")

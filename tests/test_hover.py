@@ -211,11 +211,12 @@ class Screens(Sandbox):
         self.assertOneHighlight(last, "GPT-6-Astra")
         self.assertEqual(marked(last, "lit"), {mark[1]: "○"})
         self.assertEqual(marked(last, "reverse"), {})
-        # a key takes it from there: the next cell is the keys', and nothing is lit
+        # a key takes it from there: the next cell, the mark's effort, is the keys', and
+        # nothing is lit
         last = self.matrix(move(*mark) + RIGHT + ESC)[-1]
         self.assertOneHighlight(last, "GPT-6-Astra")
         self.assertEqual(marked(last, "lit"), {})
-        self.assertEqual(marked(last, "reverse"), {mark[1]: "□"})
+        self.assertEqual(marked(last, "reverse"), {mark[1]: "xhigh"})
         # off every row the row and its cell lose it, a key-line item lighting alone and
         # nothing on no item at all, and an arrow moves it on from where it was
         keys = at(first, "esc back")
@@ -227,7 +228,7 @@ class Screens(Sandbox):
         self.assertEqual(marked(screens[3], "lit"), {})
         self.assertEqual((highlighted(screens[3]), marked(screens[3], "reverse")), ([], {}))
         self.assertOneHighlight(screens[4], "GPT-6-Astra")
-        self.assertEqual(marked(screens[4], "reverse"), {mark[1]: "□"})
+        self.assertEqual(marked(screens[4], "reverse"), {mark[1]: "xhigh"})
 
     def test_the_highlighted_model_opens_no_line_and_nothing_moves(self):
         self.stack.enter_context(patch.object(terminal, "height", return_value=40))  # one page
@@ -304,9 +305,9 @@ class Screens(Sandbox):
         lines = screen.frame()
         row = next(number for number, line in enumerate(lines, 1) if "Fable 5.1" in line)
         line = lines[row - 1]
-        word = line.index("xhigh") + 1
+        word = line.index("xhigh") + 1          # the orchestrator's, beside its mark
         # a click on the word's last letter steps it up, to a word that ends before it
-        screen.click(word + 4, row, lambda lines: lines[row - 1].endswith(" max"))
+        screen.click(word + 4, row, lambda lines: lines[row - 1][word - 1:].startswith("max "))
         screen.press(move(word, row))
         mark = screen.text().rfind("\x1b[H")
         # Let every frame land without a key or pointer move redrawing over the last one.
