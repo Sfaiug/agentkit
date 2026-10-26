@@ -87,20 +87,24 @@ class Talk:
                      kind, nested(1, stamp), varint(1 << 3) + varint(kind) + field)
 
 
-@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
-class QuestionDeliveryAfterStop(unittest.TestCase):
+class Seats:
+    """A Muse, an OpenCode and an Antigravity seat that asked QUESTION; each owns its
+    conversation unless `owned` is False."""
+    owned = True
+
     def setUp(self):
         self.home = home = Home()
         self.addCleanup(home.close)
         akconfig.write(home, ["opus", *(model for model, *_ in SEATS.values())])
         self.seats, self.talks = {}, {}
+        unowned = {"id_source": None, "conversation": None, "resumable": False}
         for harness, (model, composer, *_, conversation) in SEATS.items():
-            launched = harness != "antigravity" and home.write(
+            launched = self.owned and harness != "antigravity" and home.write(
                 f".agentkit/state/{harness}-launch-{TOKEN}/session", conversation)
             self.seats[harness] = Seat(home, harness, model=model, composer=composer,
-                                       screen=f"{harness}-working-pane.txt", record={
-                                           f"{harness}_launch": TOKEN, "id_source": None,
-                                           "conversation": None} if launched else {})
+                                       screen=f"{harness}-working-pane.txt", record=(
+                                           {f"{harness}_launch": TOKEN, **unowned} if launched
+                                           else {} if self.owned else unowned))
             self.talks[harness] = Talk(home, harness)
             self.talks[harness].user("Build the acme parser.")
             self.hook(harness, "UserPromptSubmit", prompt="Build the acme parser.")
@@ -158,6 +162,9 @@ class QuestionDeliveryAfterStop(unittest.TestCase):
             self.hook(harness, "UserPromptSubmit", prompt=line)
             talk.model(closing)
 
+
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
+class QuestionDeliveryAfterStop(Seats, unittest.TestCase):
     def test_a_question_left_out_goes_back_until_the_closing_message_holds_it(self):
         for talk in self.talks.values():
             talk.model("The acme parser is built.")

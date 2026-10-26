@@ -36,13 +36,16 @@ def reminder(name, message):
 def unseen(name, harness, found):
     """`reminder` for a seat with no blocking Stop, its closing message the newest in its
     conversation (`said`) and only if the model's; an unreadable one proves no delivery.  After
-    a turn the owner interrupted (`found`) nothing: it rests."""
+    a turn the owner interrupted (`found`), or for a seat owning no conversation (Antigravity's
+    where open files cannot be read), nothing: it rests, as nothing would ever prove it seen."""
     from . import notify, watch
     if not watch.stop_enforced(harness) or found.get("interrupted") or not pending(name):
         return ""
     seat = notify.conversation_of(name)
+    if not seat or not seat[3]:
+        return ""
     try:
-        said = seat[0].said(*seat[1:]) if seat and seat[3] else None
+        said = seat[0].said(*seat[1:])
     except (OSError, ValueError):
         said = None
     last = said[-1] if said else {}
