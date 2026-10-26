@@ -49,8 +49,7 @@ Words are plain and explain themselves.
 - **Tasks, runs and estimates:** no screen names a task or a run, and none says when work
   will finish.
 - **Progress:** a seat's progress is its line and its count (`terminal.plan_bar`):
-  `━━━━╸──── 3 of 8`; a working seat with no plan draws it with nothing done,
-  `────────── no plan yet`.
+  `━━━━╸──── 3 of 8`.
 
 Nothing explains itself on hover. What a seat asks, or what it did, opens under its row while
 that row is highlighted.
@@ -106,7 +105,7 @@ model on it.
 Something moves only while a model works on it, once when it changes, or under the pointer:
 
 - **While a model works:** a working seat's `●` breathes, and so do the tip of its progress
-  line and its tasks' squares; a soft light goes round the line of one with no plan yet.
+  line and its tasks' squares.
 - **When something changes:** the change moves once. A seat that turns `needs you` pulses,
   one that turns `done` settles, a mark fills over two frames, and a refused change nudges
   its mark.
