@@ -134,7 +134,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-from . import command_help, config, gitcall, history, matrix, motion, notify, orch, plan, staffing, terminal, transitions, update, usage, worker
+from . import command_help, config, gitcall, history, matrix, motion, notify, orch, plan, staffing, terminal, transitions, update, usage
 from . import record
 from . import warm
 
@@ -2830,10 +2830,8 @@ SUBSCRIPTION_ACTS = (("↻ log in again", "log in again"), ("↻ spend a reset",
 COMPANIES = {"anthropic": "Anthropic / Claude Code", "openai": "OpenAI / Codex",
              "meta": "Meta / Muse", "xai": "xAI / Grok Build", "google": "Google / Antigravity"}
 # What `− remove` asks, and what it means; then the same about one subscription of a provider.
-REMOVE_PROVIDER_ASK = ("Remove {} and its models?",
-                       "Its models leave the config with it; its login stays on this machine.")
-REMOVE_SUBSCRIPTION_ASK = ("Remove {}?",
-                           "Nothing new starts on it; its login stays on this machine.")
+REMOVE_PROVIDER_ASK = ("Remove {} and its models?", "Its models leave the config with it.")
+REMOVE_SUBSCRIPTION_ASK = ("Remove {}?", "Nothing new starts on it.")
 # `c`'s cells along a model's row: each role's mark, 0 to 2, and beside it that role's effort, 3
 # to 5 (config.ROLE_EFFORTS's order), the owner's pick of 24 Oct 2026 (config_columns).
 CONFIG_ORDER = (0, 3, 1, 4, 2, 5)
@@ -4223,17 +4221,17 @@ def sign_in(cfg, keyboard, provider, account):
         logins.renewed(cfg, provider, account or config.DEFAULT_ACCOUNT)
 
 
-def _add_subscription(cfg, keyboard, provider, listed, picked, verbs=("login",)):
+def _add_subscription(cfg, keyboard, provider, listed, picked):
     """Another subscription of `provider`, `picked` being the name it will get: its harness's
     login, run on the terminal under the account name last in `listed`, then `listed` as the
-    provider's `accounts` -- the ones it had, `default` when it had none, and that name.  A
-    kept login is given no `verbs`, since it is logged in already.  Its harness is its models'
-    or, with none left, the shipped default's (config.provider_harnesses).  A login that fails
-    adds nothing.  What to say under the matrix, or ""."""
+    provider's `accounts` -- the ones it had, `default` when it had none, and that name.  Its
+    harness is its models' or, with none left, the shipped default's
+    (config.provider_harnesses).  A login that fails adds nothing.  What to say under the
+    matrix, or ""."""
     harnesses = config.provider_harnesses(cfg, provider)
     if not harnesses:
         return f"config: no model names a harness for [providers.{provider}]"
-    failed = _adapter_verbs(keyboard, harnesses[0], verbs, picked, listed[-1], provider)
+    failed = _adapter_verbs(keyboard, harnesses[0], ("login",), picked, listed[-1], provider)
     if failed:
         return failed
     before = copy.deepcopy(cfg)
@@ -4247,13 +4245,9 @@ def config_add_provider(cfg, keyboard):
     picked from a list, then put in the way it ships, so nothing is typed; or, listed after
     them as the name it will get (`ChatGPT II`, config.account_label), another subscription
     of a provider the config has, which is only logged in and listed (_add_subscription), where
-    its harness keeps more than one login (config.one_login); or,
-    last, `Use <who>`, a login `− remove` left on disk (config.kept_logins) whose adapter's
-    `auth` still passes, put back with no login: into its provider's `accounts` under its old
-    name, or, its provider gone too, with that provider as it ships, a subscription as its one
-    login.  <who> is who that `auth` says it is `; logged in as`, else the name the login's
-    usage row had; one several share is followed by that row, then by a number (` (2)`), so
-    every such login is listed, each as itself.  A harness that runs any provider it can log in
+    its harness keeps more than one login (config.one_login).  Each is signed in under a new
+    random account name (`fresh`), so its login starts empty and the owner picks the account
+    signed in to.  A harness that runs any provider it can log in
     to (config.provider_hosts) is listed by its name after the shipped providers, standing in
     for those shipped on it: picked, it is installed where its program is missing, then
     `config_add` through it picks the provider, logs it in, and adds the model.
@@ -4261,7 +4255,8 @@ def config_add_provider(cfg, keyboard):
     A new provider's harness, the shipped default's for it, is installed when its program is
     nowhere to be found, then logged in: each its adapter's own verb, run as install.sh runs
     them, with the terminal given back for it and taken again after.  Then its shipped
-    [providers.*] table goes in, with the first model its harness's catalog lists (_offered),
+    [providers.*] table goes in, listing that one account,
+    with the first model its harness's catalog lists (_offered),
     under the name and at the effort the shipped default gives that provider's first model --
     `spark`, and the effort or the nearest one it takes -- so a `usage_model` in that table
     names it.  It holds no seat's role until it is marked there.  Where a model of that name
@@ -4270,6 +4265,9 @@ def config_add_provider(cfg, keyboard):
     goes back with nothing done.  What to say under the matrix, or "".
     """
     shipped, hosts = config.shipped(), config.provider_hosts()
+    # Random, never `default` nor the next free name: a login once on disk under either would
+    # call the new subscription logged in, on an account nobody chose.
+    fresh = os.urandom(3).hex()
     gone = [name for name in shipped.get("providers") or {} if name not in cfg["providers"]]
     labels = _by_label([name for name in gone
                         if hosts.keys().isdisjoint(config.provider_harnesses(shipped, name))],
@@ -4281,43 +4279,16 @@ def config_add_provider(cfg, keyboard):
         harnesses = config.provider_harnesses(cfg, name)
         if harnesses and config.one_login(harnesses[0]):
             continue                  # _add_subscription's login would be refused
-        # A random name, never the next free one: a removed subscription's login stays on
-        # disk, and a `login` under its old name would find it and call the new one logged in.
-        after = [*(config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]), os.urandom(3).hex()]
+        after = [*(config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]), fresh]
         more[config.account_label({"providers": {name: {"accounts": after}}}, name, after[-1],
                                   text)] = (name, after)
-    offers = []
-    for name, account, label in config.kept_logins():
-        listed = config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]
-        if name in gone:      # listed or not: one on a host harness is listed through it
-            after = None if account == config.DEFAULT_ACCOUNT else [account]
-        elif name in cfg["providers"] and account not in listed:
-            after = [*listed, account]
-        else:
-            continue       # it is in ak again, or has no provider to go back to
-        # its provider's harness even with none of its models left, as _add_subscription finds it
-        harnesses = config.provider_harnesses(cfg, name)
-        passed, said = (worker.auth_ok(harnesses[0], account=account, provider=name)
-                        if harnesses else (0, ""))
-        if passed:
-            who = re.search(r"; logged in as (.+)$", said)
-            offers.append((who[1] if who else "", label, (name, after)))
-    kept = {}
-    for who, label, offer in offers:
-        text = (f"Use {who} ({label})" if who and [other for other, _, _ in offers].count(who) > 1
-                else f"Use {who or label}")
-        shown, number = text, 1
-        while shown in kept:
-            number += 1
-            shown = f"{text} ({number})"
-        kept[shown] = offer
     keys = terminal.keys("esc back")
 
     def around():     # the screen the list is drawn on, drawn again on a resize
         terminal.frame("config · add a subscription",
-                       [""] * (len(labels) + len(through) + len(more) + len(kept)), keys)
+                       [""] * (len(labels) + len(through) + len(more)), keys)
         return 3
-    picked = terminal.choose([*labels, *through, *more, *kept], around=around)
+    picked = terminal.choose([*labels, *through, *more], around=around)
     if picked is None:
         return ""
     if picked in through:
@@ -4327,10 +4298,9 @@ def config_add_provider(cfg, keyboard):
         if not failed:
             config_add(cfg, keyboard, through=harness)
         return failed
-    name, after = {**more, **kept}.get(picked) or (labels[picked], None)
-    if name in cfg["providers"]:
-        return _add_subscription(cfg, keyboard, name, after, picked,
-                                 () if picked in kept else ("login",))
+    if picked in more:
+        return _add_subscription(cfg, keyboard, *more[picked], picked)
+    name = labels[picked]
     try:
         harness, first = config.provider_harness(shipped, name)
     except config.Error as exc:
@@ -4338,8 +4308,7 @@ def config_add_provider(cfg, keyboard):
     if first in cfg["models"]:
         return f"{picked} adds its model as {first}, and a model has that name; nothing added"
     verbs = () if config.harness_present(harness) else ("install",)
-    failed = _adapter_verbs(keyboard, harness, verbs if picked in kept else (*verbs, "login"),
-                            picked, provider=name)
+    failed = _adapter_verbs(keyboard, harness, (*verbs, "login"), picked, fresh, name)
     if failed:
         return failed
     try:
@@ -4349,9 +4318,7 @@ def config_add_provider(cfg, keyboard):
     if not models:
         return f"the {harness} catalog names no model; {picked} is not added"
     model, before = models[0], copy.deepcopy(cfg)
-    cfg["providers"][name] = shipped["providers"][name]
-    if after:                   # a subscription it had, back as its one login
-        cfg["providers"][name]["accounts"] = after
+    cfg["providers"][name] = {**shipped["providers"][name], "accounts": [fresh]}
     cfg["models"][first] = {
         "harness": harness, "model": model["id"],
         "effort": _nearest(shipped["models"][first].get("effort"), model["efforts"]),
@@ -4366,9 +4333,8 @@ def config_remove_provider(cfg, picked):
     only one, `Remove <subscription>?` for another, asked under its name, `Keep` picked and Esc
     keeping it.  config.remove_provider takes a provider's table, its models and their places
     in [defaults], and with its table goes its meter; a subscription leaves only the
-    provider's `accounts`.  The last provider is refused without asking.  Either way no login
-    file goes: the login taken out is recorded (config.keep_login) for `+ add a subscription` to
-    offer back.  What to say under the screen, or "".
+    provider's `accounts`.  The last provider is refused without asking.  What to say under
+    the screen, or "".
     """
     (name, account, label), title = picked, f"config · {picked[2]}"
     # a provider listing no subscription has its usual login, so its last one takes it along
@@ -4385,9 +4351,6 @@ def config_remove_provider(cfg, picked):
         return ""
     before = copy.deepcopy(cfg)
     try:
-        # first, so nothing leaves ak unrecorded; a removal that fails below leaves its login
-        # in ak, and a login in ak is never offered
-        config.keep_login(name, account or config.DEFAULT_ACCOUNT, label)
         if usual:
             config.remove_provider(cfg, name)
         else:
