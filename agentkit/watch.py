@@ -2270,8 +2270,8 @@ def ask_kept_back(name, harness, found, held=False):
     """
     kept = seat_read(name).get("unasked") if harness and found else None
     if (not isinstance(kept, dict) or found.get("state") == "asking"
-            or not _composer_open(harness, found) or questions.unseen(name, harness, found)):
-        return      # a question its closing message left out: its turn goes on (`stop_nudge`)
+            or not _composer_open(harness, found)):
+        return
     turn_ended(name)
     try:
         if held:

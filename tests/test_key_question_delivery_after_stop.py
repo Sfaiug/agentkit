@@ -181,6 +181,15 @@ class QuestionDeliveryAfterStop(unittest.TestCase):
         self.stop("Writing v2.")
         self.reads("idle", 2)                   # the owner's reply answered it
 
+    def test_b_the_owners_reply_answers_a_question_left_out(self):
+        for talk in self.talks.values():
+            talk.model("The acme parser is built.")
+        self.stop("The acme parser is built.")
+        self.reads("working", 1)
+        self.answer("v2.", "Writing v2.", owner=True)
+        self.stop("Writing v2.")
+        self.reads("idle", 1)
+
 
 if __name__ == "__main__":
     unittest.main()
