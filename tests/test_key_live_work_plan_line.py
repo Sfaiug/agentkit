@@ -64,7 +64,8 @@ class LiveWork(unittest.TestCase):
 
     def stop(self):
         """The reason the turn's end is sent back with, or "" where it stands."""
-        out = self.hook("orchestrator-stop.sh", {"hook_event_name": "Stop", "session_id": "conv-acme",
+        out = self.hook("orchestrator-stop.sh", {"hook_event_name": "Stop",
+                                                 "session_id": "conv-acme",
                                                  "transcript_path": str(self.said)})
         return json.loads(out)["reason"] if out.strip() else ""
 

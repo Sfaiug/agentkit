@@ -10,7 +10,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import config, handback, leases, orch, run, transitions, watch, worker, worktrees
+from . import config, guard, handback, leases, orch, run, transitions, watch, worker, worktrees
 from . import job as jobs
 from . import record as run_record
 
@@ -69,7 +69,6 @@ def live_unrecorded(launched):
     """LIVE_LINE where the seat's own ssh reached the live host this turn (`guard.reached_live`,
     under the name it was launched with) and its plan has no open line, else None.  Its callers
     send it back once a turn, past nothing that ends a turn first (`recorded_ending`)."""
-    from . import guard
     return LIVE_LINE if guard.reached_live(launched) and not owed(launched) else None
 
 

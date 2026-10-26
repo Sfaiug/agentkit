@@ -2,8 +2,8 @@
 
 `ak plan add "<outcome>" --check '<cmd>'` runs the check on a clean checkout of the project's
 default branch and refuses one that already passes there: a check that passes before the work
-proves nothing, and one that never finishes there could never tick.  In a turn that reached the
-live host, one that passes is written done instead: the work was done there, not in the repo.  `ak plan check <n> '<cmd>'`
+proves nothing, and one that never finishes there could never tick; in a turn that reached the
+live host, one that passes is written done, the work being done there.  `ak plan check <n> '<cmd>'`
 puts another check in a line's place -- the seat's own test where a review follow-up came
 checked by the reviewer's probe -- when it fails on the commit the line's check was proven
 failing on, which the line names (a line from before lines named one takes it unproven).  `ak plan` ticks each check line whose check now passes on
