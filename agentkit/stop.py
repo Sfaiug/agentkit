@@ -65,11 +65,16 @@ LIVE_LINE = ("You reached the live host this turn and your plan has no open line
              "already passes is written done. If you only read there, end your turn again.")
 
 
-def live_unrecorded(launched):
-    """LIVE_LINE where the seat's own ssh reached the live host this turn (`guard.reached_live`,
-    under the name it was launched with) and its plan has no open line, else None.  Its callers
-    send it back once a turn, past nothing that ends a turn first (`recorded_ending`)."""
-    return LIVE_LINE if guard.reached_live(launched) and not owed(launched) else None
+def live_unrecorded(name):
+    """LIVE_LINE where the seat's own ssh reached the live host this turn (`guard.reached_live`)
+    and its plan has no open line, a run's deferred one included, else None.  Its callers send it
+    back once a turn, past nothing that ends a turn first (`recorded_ending`)."""
+    from . import plan
+    try:
+        written = any(plan.is_open(line) for line in plan.lines(name))
+    except config.Error:
+        return None     # a plan nothing can read shows nothing missing from it
+    return LIVE_LINE if not written and guard.reached_live(name) else None
 
 
 DONE_ASKING = ("Your plan is done: every line is proven, and the owner has written nothing since, "

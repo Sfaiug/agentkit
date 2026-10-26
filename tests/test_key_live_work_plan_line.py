@@ -51,22 +51,22 @@ class LiveWork(unittest.TestCase):
         self.plan.unlink(missing_ok=True)
         self.prompt()
 
-    def hook(self, script, payload, env=None):
+    def hook(self, script, payload, seat):
         done = self.home.run("bash", str(REPO / "hooks" / script), input=json.dumps(payload),
-                             env={"AGENTKIT_SESSION": "acme", **(env or {})})
+                             env={"AGENTKIT_SESSION": seat})
         self.assertEqual(done.code, 0, done.err)
         return done.out
 
-    def prompt(self):
+    def prompt(self, seat="acme"):
         """The owner's prompt starts a turn, as the harness's UserPromptSubmit hook says."""
         self.hook("seat-state.sh", {"hook_event_name": "UserPromptSubmit", "prompt": "go",
-                                    "session_id": "conv-acme"})
+                                    "session_id": "conv-acme"}, seat)
 
-    def stop(self):
+    def stop(self, seat="acme"):
         """The reason the turn's end is sent back with, or "" where it stands."""
         out = self.hook("orchestrator-stop.sh", {"hook_event_name": "Stop",
                                                  "session_id": "conv-acme",
-                                                 "transcript_path": str(self.said)})
+                                                 "transcript_path": str(self.said)}, seat)
         return json.loads(out)["reason"] if out.strip() else ""
 
     def ssh(self, *argv, seat="acme", env=None):
@@ -75,10 +75,10 @@ class LiveWork(unittest.TestCase):
         self.assertEqual((done.code, done.out, done.err), (0, "ssh ran\n", ""))
         self.assertEqual(self.home.calls("ssh")[-1], list(argv))
 
-    def add(self):
+    def add(self, seat="acme"):
         return self.home.ak("plan", "add", "the monitor account is enrolled",
                             "--check", "test -f done.txt",
-                            env={"AGENTKIT_SESSION": "acme"}, cwd=self.rig.path)
+                            env={"AGENTKIT_SESSION": seat}, cwd=self.rig.path)
 
     def assertHeldOnce(self):
         self.assertIn("ak plan add", self.stop())
@@ -102,6 +102,17 @@ class LiveWork(unittest.TestCase):
         self.plan.write_text(OPEN)
         self.ssh("prod", "uptime")
         self.assertNotIn("ak plan add", self.stop())   # judged by its open line, as ever
+        # an open line a fix run of the seat's has on its way is an open line too
+        self.prompt()
+        where = f"{self.rig.path}#{self.rig.head()[:12]}"
+        self.plan.write_text(f"- [ ] the parser parses · check: `false` · {where} · deferred"
+                             " · written 2026-10-09 12:00\n")
+        run = self.home.write(".agentkit/runs/20261026-0800-fix-api/run.json", {
+            "run_id": "20261026-0800-fix-api", "launched_session": "acme", "state": "running",
+            "repo": str(self.rig.path), "followup": {"check": "false"}})
+        self.addCleanup(run.unlink)
+        self.ssh("prod", "uptime")
+        self.assertEqual(self.stop(), "")
 
     def test_no_reach_this_turn_lets_the_turn_end(self):
         self.ssh("prod", "uptime")
@@ -121,6 +132,18 @@ class LiveWork(unittest.TestCase):
         self.config.write_text(self.shipped)
         self.ssh("prod", "uptime")
         self.assertEqual(self.stop(), "")
+
+    def test_a_renamed_seat_counts_only_its_running_launchs_turn(self):
+        Seat(self.home, "atoll", cwd=self.rig.path, record={"repo": str(self.rig.path)},
+             alive=False)
+        self.prompt("atoll")
+        self.ssh("prod", "uptime", seat="atoll")
+        done = self.home.ak("orch", "rename", "atoll", "beta")
+        self.assertEqual(done.code, 0, done.err)
+        self.assertIn("ak plan add", self.stop("atoll"))    # its harness keeps its launch name
+        self.prompt("beta")                                 # opened again under the new name
+        self.assertEqual(self.stop("beta"), "")
+        self.assertEqual((self.add("beta").code, self.add("atoll").code), (2, 2))
 
     def test_plan_add_takes_a_passing_check_only_in_a_turn_that_reached_the_live_host(self):
         done = self.add()

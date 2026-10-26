@@ -440,15 +440,31 @@ def live_reach(args, real):
     return None
 
 
-def reached_live(launched):
+def reached_live(name):
     """Whether that seat's own ssh reached the live host this turn: since the turn's start
-    hooks/seat-state.sh writes in its stop file.  Both are under the name it was launched with."""
+    hooks/seat-state.sh writes in its stop file.  Both are under the name its harness was
+    launched with, which a rename leaves behind: of every name the seat had, the one holding
+    the newest turn is its running launch's, so an earlier launch's reach never counts."""
+    from . import plan        # only now: every seat's git call starts this guard
+    found = []
     try:
-        turn = json.loads(config.stop_path(launched).read_text(encoding="utf-8")).get("turn")
-        at = float(config.seat_file("live", launched).read_text(encoding="utf-8"))
-    except (OSError, ValueError, AttributeError, config.Error):
+        every = plan.names(name)
+    except config.Error:
         return False
-    return isinstance(turn, (int, float)) and not isinstance(turn, bool) and at >= turn
+    for each in every:
+        try:
+            turn = json.loads(config.stop_path(each).read_text(encoding="utf-8")).get("turn")
+        except (OSError, ValueError, AttributeError, config.Error):
+            continue
+        if isinstance(turn, (int, float)) and not isinstance(turn, bool):
+            found.append((turn, each))
+    if not found:
+        return False
+    turn, launched = max(found)
+    try:
+        return float(config.seat_file("live", launched).read_text(encoding="utf-8")) >= turn
+    except (OSError, ValueError, config.Error):
+        return False
 
 
 # What each shim asks: its refusal, called with the call's argv and the real binary's path.

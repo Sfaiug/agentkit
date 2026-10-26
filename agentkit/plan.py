@@ -504,7 +504,7 @@ def _verify_held(name, check=None):
                                   and not fails(tree, found["check"], env))
                 except config.Error:
                     passed = False
-                results[bare] = f"- [x] {bare} · done {commit}" if passed else f"- [ ] {bare}"
+                results[bare] = ticked(f"- [ ] {bare}", commit if passed else None)
     # the checks ran outside the lock; the write-back reads the plan again inside it
     with held(name) as current:
         present = lines(current)
@@ -545,10 +545,10 @@ def add(name, what, check, repo=None, proven=None, deferred=False):
     else:
         failing, found, base = fails_on_main(repo, check)
         if not failing:
-            # The owner, 26 Oct 2026: in a turn whose own ssh reached the live host, under any
-            # name the seat had, work done there proves itself, so a check already passing is
-            # written done on that commit and a job finished in that one turn reads `done`.
-            if not any(guard.reached_live(each) for each in names(name)):
+            # The owner, 26 Oct 2026: in a turn whose own ssh reached the live host, work done
+            # there proves itself, so a check already passing is written done on that commit
+            # and a job finished in that one turn reads `done`.
+            if not guard.reached_live(name):
                 raise config.Error(f"this check already passes on {repo.name}'s default "
                                    "branch, so it proves nothing; write one that fails until "
                                    "the work is done")
@@ -577,7 +577,7 @@ def add(name, what, check, repo=None, proven=None, deferred=False):
 
 
 def ticked(line, commit):
-    """An open `line` ticked as passing on `commit`, as `verify` ticks one; as it is without one."""
+    """An open `line` ticked as passing on `commit`; as it is without one."""
     return f"- [x] {line[6:]} · done {commit}" if commit else line
 
 
