@@ -34,7 +34,6 @@ import itertools
 import json
 import math
 import os
-import re
 import secrets
 import stat
 import sys
@@ -549,11 +548,13 @@ def replied(replies, question, card):
     if card:
         return card in replies
     from .questions import words
-    # the separators a seat lists choices with, and its closing stop, are no choice's words
-    plain = lambda text: " ".join(re.sub(r"[,;.]", " ", words(text)).split()).casefold()
-    return any(plain(question) in {plain(asked), plain(f"{asked} Options: " + " · ".join(shown))}
-               for asked, *shown in ([reply] if isinstance(reply, str) else reply
-                                     for reply in replies))
+    cards = [[reply] if isinstance(reply, str) else reply for reply in replies]
+    # each way a seat lists the choices, with or without its closing stop; a choice's own
+    # punctuation stays its words
+    said = {title for title, *_ in cards} | {
+        f"{title} Options: {sep.join(shown)}{end}" for title, *shown in cards if shown
+        for sep in (", ", "; ", " · ") for end in ("", ".")}
+    return words(question).casefold() in {words(text).casefold() for text in said}
 
 
 def spoken_at(notice):

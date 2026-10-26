@@ -137,7 +137,9 @@ class NativeCardAnswerScope(unittest.TestCase):
     def test_a_cancelled_empty_or_other_card_answers_nothing(self):
         for name, payload in (("gamma", card(LAYOUT)),
                               ("delta", card(LAYOUT, answers={LAYOUT: " "})),
-                              ("epsilon", card(LAYOUT, answers={LAYOUT: "Wide"}, shown=["Wide"]))):
+                              # a choice's own punctuation is its words, not a list's
+                              ("epsilon", card(LAYOUT, answers={LAYOUT: "Wide"},
+                                               shown=["Compact, (Recommended)", "Wide"]))):
             with self.subTest(name):
                 seat = Seat(self.home, name)
                 self.standing(seat, ASKED[LAYOUT])
