@@ -24,8 +24,14 @@ def words(text):
     return " ".join(text.translate(str.maketrans("", "", "*`")).split())
 
 
+def shown(text):
+    # Choices drawn as Markdown bullets drop the inline list's commas and its closing period.
+    # Only delivery reads them so: a native answer's punctuation is the choice's own (`words`).
+    return re.sub(r"[,.](?=\s|$)", "", words(text))
+
+
 def reminder(name, message):
-    missing = [question for question in pending(name) if words(question) not in words(message)]
+    missing = [question for question in pending(name) if shown(question) not in shown(message)]
     if not missing:
         return ""
     return ("Write these unanswered questions and their choices in your closing assistant "
