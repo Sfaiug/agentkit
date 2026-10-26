@@ -164,9 +164,11 @@ class Ladder(unittest.TestCase):
 @unittest.skipUnless(BOXED, "no bwrap able to box the test here")
 class SlotWaiter(unittest.TestCase):
     def test_a_queued_run_whose_waiting_process_died_waits_again_in_a_new_one(self):
-        # one run at a time, and the slot asked every second rather than every half minute
+        # one run at a time, and the slot asked every second rather than every half minute;
+        # a calm host injected, so a small machine (a suite helper's VM) admits the first run
         home = Home()
-        home.env.update(AK_MAX_RUNS="1", AK_SLOT_POLL="1")
+        home.env.update(AK_MAX_RUNS="1", AK_SLOT_POLL="1", AK_HOST_READINGS=json.dumps(
+            {"cpus": 4, "load": 0, "free_mb": 16000}))
         self.addCleanup(home.close)
         first, second = Rig(home, "widgets"), Rig(home, "gadgets")
         akconfig.write(home, ["opus"])
