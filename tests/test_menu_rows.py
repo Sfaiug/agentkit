@@ -128,16 +128,16 @@ class MenuRows(Sandbox):
         self.assertNotIn("running", row)
 
     def test_no_bar_without_plan(self):
-        # Working via a turn, no plan and no runs: the last column is empty.
+        # Working via a turn, no plan and no runs: the line has nothing done.
         self.seat("lonely-work", "atoll", live="working")
         screen, _ = self.draw(100, 30)
         row = next(line for line in screen.splitlines() if "lonely-work" in line)
-        self.assertTrue(row.rstrip().endswith("● working"), row)
+        self.assertTrue(row.rstrip().endswith("─ no plan yet"), row)
         # A plan with zero tasks is no plan at all.
         (config.STATE / "plan-lonely-work.md").write_text("just notes\n")
         screen, _ = self.draw(100, 30)
         row = next(line for line in screen.splitlines() if "lonely-work" in line)
-        self.assertTrue(row.rstrip().endswith("● working"), row)
+        self.assertTrue(row.rstrip().endswith("─ no plan yet"), row)
 
     def test_reason_column_needs_you(self):
         self.seat("ask-seat", "atoll")
@@ -155,7 +155,7 @@ class MenuRows(Sandbox):
         self.assertNotIn("press r", screen)
 
     def test_reason_column_working(self):
-        # Plan wins over runs; runs going are never the last column, which stays empty.
+        # Plan wins over runs; runs going are never the last column, which says no plan.
         planned = self.seat("planned-work", "atoll", live="working")
         self.plan("planned-work", 1, 3)
         self.record("planned-going", owner=planned["name"], repo=planned["repo"],
@@ -174,9 +174,9 @@ class MenuRows(Sandbox):
                          r"[━╸]+─+ 1 of 3$")
         row = next(line for line in screen.splitlines() if "running-work" in line)
         self.assertNotIn("2 running", row)
-        self.assertTrue(row.rstrip().endswith("● working"))
+        self.assertTrue(row.rstrip().endswith("─ no plan yet"))
         idle_row = next(line for line in screen.splitlines() if "idle-work" in line)
-        self.assertTrue(idle_row.rstrip().endswith("● working"))
+        self.assertTrue(idle_row.rstrip().endswith("─ no plan yet"))
 
     def test_reason_column_done(self):
         self.seat("done-seat", "atoll")
