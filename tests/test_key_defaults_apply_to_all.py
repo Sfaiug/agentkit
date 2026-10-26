@@ -100,6 +100,18 @@ class DefaultsApplyToAll(unittest.TestCase):
                                  {"effort": "high", "review_effort": "medium"})
         self.assertEqual(self.config.read_text(), self.given)
 
+    def test_a_seat_s_own_c_has_no_a_though_its_record_is_gone(self):
+        Seat(self.home, "acme-bare", model="fable")
+        (self.home.path / ".agentkit/state/session-acme-bare.json").unlink()
+        term = Terminal(self.home, "attach", "--overlay", size=(100, 30),
+                        env={"NO_COLOR": "1", "AGENTKIT_SESSION": "acme-bare"})
+        self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
+                        server=SERVER)
+        term.wait("c config")
+        term.keys("c")
+        term.wait(lambda screen: "  For  new seats" in lines(screen) and key_line(screen)
+                  == "  ↑↓←→ move   ⏎ choose   r recommended   esc back")
+
 
 if __name__ == "__main__":
     unittest.main()

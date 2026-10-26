@@ -3667,7 +3667,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
 
 
 @terminal.clicks_its_own
-def config_matrix(cfg, keyboard, version, session=None, selected=None, providers=None, note=""):
+def config_matrix(cfg, keyboard, version, session=None, selected=None, providers=None, note="",
+                  fresh=False):
     """The `c` screen read with the keys until Esc; the config as it left it, each
     subscription's meter over its page (config_meters).
 
@@ -3675,8 +3676,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     a click flips one (session_mark), the orchestrator moving the seat once asked, the roles saved
     to the record for the runs it launches next, the mark filling or emptying over two frames
     and one refused shaking (motion.toggled).  With no `session` the marks are new seats',
-    [defaults], what the next `n` starts from (defaults_mark), no open seat changing till `a`
-    gives them to every one, once asked (apply_defaults).
+    [defaults], what the next `n` starts from (defaults_mark), no open seat changing till a
+    `fresh` window's -- one over no seat -- `a` gives them to every one, once asked
+    (apply_defaults).
     ↑/↓, k/j and the wheel move between rows and ←/→ between each mark and the effort beside a
     marked one (config_columns).  Enter or space on an effort steps that role's alone up,
     from its highest round to its lowest, as a click on its
@@ -3720,7 +3722,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         if here[0] == "model" and column not in columns:      # no effort here: onto its mark
             column = column - 3 if column - 3 in columns else columns[0]
         keys = terminal.keys(*([ADVICE_KEY] if selected else []),
-                             *([] if session else [APPLY_KEY]), "esc back")
+                             *([APPLY_KEY] if fresh else []), "esc back")
         # each meter's cells, on the lines over the page counted back from it, washing in and out
         moves = [(line - len(over), ("sub", number), number == lit,
                   motion.washing([(column, text, rest)], colour(cfg, subs[number - 1][0])))
@@ -3749,7 +3751,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             return 3 + len(over) + len(shown)
         if act == "back":
             return cfg
-        if act == "a" and not session:
+        if act == "a" and fresh:
             clock.forget()            # the card: the matrix back from it replays nothing
             note = apply_defaults(cfg, around)
             continue
@@ -4622,6 +4624,7 @@ def show_config(dry_run=False, keyboard=None, session=None):
         pause(f"config: {exc}")
         return None
     scope, selected, note = for_selected(cfg, session or NEW_SEATS)
+    fresh = not session       # a seat with no record shows new seats' marks, yet is no fresh window
     session = None if scope == NEW_SEATS else session
     try:                      # what a seat's flip is refused on, and spent; Esc while it is read
         providers = waited(lambda: usage.collect(cfg), "config",
@@ -4638,7 +4641,8 @@ def show_config(dry_run=False, keyboard=None, session=None):
                         *note_lines(f"Version {version or '?'}")],
                        "esc back")
         return cfg
-    return config_matrix(cfg, keyboard, version, session, selected, providers, note)
+    return config_matrix(cfg, keyboard, version, session, selected, providers, note,
+                         fresh=fresh)
 
 
 def for_selected(cfg, scope):
@@ -4681,11 +4685,12 @@ def defaults_saved(cfg, selected, changed, before):
 
 
 def apply_defaults(cfg, around):
-    """`a` on new seats' `c`: every open seat with a record but the weekly audit's takes
+    """`a` on a fresh window's `c`: every open seat with a record but the weekly audit's takes
     [defaults]'s executors and reviewers and the entries' efforts for the models it then runs,
     once `Apply` is picked on the card `around` draws (terminal.confirm), which names each seat
     that restarts, one on another orchestrator; that one then moves to [defaults]'s
-    (orch.switch_orchestrator), a move refused leaving it on its own, its other changes kept.
+    (orch.switch_orchestrator), a move refused leaving it on its own, at its entry's efforts
+    too, its other changes kept.
     config.toml is not written.  What to say under the rows, one line a seat refused, or ""."""
     from . import audit     # here, not at the top: audit imports this module
     defaults, records = cfg["defaults"], config.session_records()
@@ -4707,9 +4712,13 @@ def apply_defaults(cfg, around):
     taken = {model: config.efforts_of(cfg["models"][model]) for model in runs}
     providers = usage.collect(cfg) if moving else {}
     said = []
-    for name in seats:
+    for name, record in seats.items():
+        # its own orchestrator's too, which it goes on running where its move is refused
+        own = {model: config.efforts_of(cfg["models"][model])
+               for model in (record.get("orchestrator"),) if model in cfg["models"]}
         try:
-            config.change_efforts(name, lambda record: {**(record.get("efforts") or {}), **taken})
+            config.change_efforts(name, lambda held: {**(held.get("efforts") or {}),
+                                                        **own, **taken})
             # reviewers [defaults] does not name follow the executors there and here alike
             config.update_session(name, workers=defaults["workers"],
                                   reviewers=defaults.get("reviewers"))
