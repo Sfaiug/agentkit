@@ -105,7 +105,7 @@ class OrchestratorMarkAsksFirst(Sandbox):
         self.assertEqual((self.asked, self.launched, self.orchestrator()), ([], [], "opus"))
 
     def test_a_builds_mark_saves_at_once_asking_nothing(self):
-        self.screen(Key("right"), Key("enter"))
+        self.screen(Key("right"), Key("right"), Key("enter"))     # past the orchestrator's effort
         self.assertEqual(self.asked, [])
         self.assertEqual(config.load_session(self.cfg, "fix-api")["workers"],
                          ["opus", "astra", "fable"])

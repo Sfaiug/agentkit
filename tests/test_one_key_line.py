@@ -54,7 +54,7 @@ class OneKeyLine(unittest.TestCase):
         stops = {"a model's mark": screen.frame(lambda lines: on_mark(lines, "fable"))}
         stops["a meter"] = screen.press(UP, lambda lines: not any(line.startswith("›")
                                                                   for line in lines))
-        stops["an effort"] = screen.press(DOWN * 2 + RIGHT * 4,
+        stops["an effort"] = screen.press(DOWN * 2 + RIGHT,
                                           lambda lines: on_effort(lines, "opus"))
         stops["a model's name"] = screen.press(LEFT * 4, lambda lines: lit(lines, "opus")
                                                not in (None, "●", "■", "□", "○"))

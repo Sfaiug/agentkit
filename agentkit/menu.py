@@ -3341,25 +3341,33 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     rest = sum(2 + width for width in widths.values())
     tall = max(len(cells) for cells in levelled.values())    # the cells, before every word
     tall = tall if 2 + label + rest + 3 * (2 + tall + 2 + word) <= room else 0
-    # on a phone a mark is its glyph alone, a space before its effort, its head over the two
-    narrow = bool(selected) and 3 + rest + 3 * (2 + word) > room
+    # where a label would be cut, a mark is its glyph alone, a space before its effort, its
+    # head over the two; and where it still would, a space between roles, the effort straight
+    # after the mark's own
+    narrow = bool(selected) and 2 + label + rest + 3 * (2 + word) > room
+    tight = narrow and 2 + label + 3 * (2 + 3 + 1 + word) > room
+    gaps = {number: (0 if tight else 1) if narrow and number >= 3 else 1 if tight else 2
+            for number in order}
     if narrow:
         widths = dict.fromkeys(widths, 3)
-        rest = sum(2 + width for width in widths.values())
-    gaps = {number: 1 if narrow and number >= 3 else 2 for number in order}
+    rest = sum(gaps[number] + width for number, width in widths.items())
     # each role's words in one column after the most cells any model has, a cell-less one's too
     leads = {key: "".join(cells) + " " * (tall + 2 - len(cells)) if tall else ""
              for key, cells in levelled.items()}
     for number in EFFORT_COLUMNS:
         widths[number] = max(terminal.cells(heads[number]), *(terminal.cells(
             leads[name, number] + efforts[name, number]) for name in names))
+        if narrow:          # the head over the mark and its effort fits over the two
+            widths[number] = max(widths[number], terminal.cells(orch.ROLE_HEADS[number % 3])
+                                 - widths[number % 3] - gaps[number])
         rest += gaps[number] + widths[number]
     label = min(label, max(1, room - 2 - rest))
     left = 2 + label                                        # the columns before the marks
     spans = {number: widths[number] + (gaps[number + 3] + widths[number + 3] if narrow else 0)
              for number in order if number < 3 or not narrow}
     lines = [terminal.styled((" " * left + "".join(
-        "  " + terminal.pad(heads[number], spans[number]) for number in spans)).rstrip(), "dim")]
+        " " * gaps[number] + terminal.pad(heads[number], spans[number]) for number in spans))
+        .rstrip(), "dim")]
     places = {}
     if scope is not None:     # cut to the width, never `For`
         named = terminal.cut(scope, max(1, room - 7))
@@ -3472,16 +3480,17 @@ def _saved(cfg, table, before):
     return ""
 
 
-def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, seat=None):
+def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, seat=None,
+                  alone=False):
     """`name`'s effort in `role` (config.role_effort: a worker's is the effort while its own
     key is unset) one step along that model's own efforts (config.efforts), never past either
     end unless `wrap` takes it round to the other, or onto the `to`-th of them, and saved, a
     `seat`'s (name, record) to its record (efforts_saved), else to the entry new seats take; one
     set to an effort it does not take lands on its first, and a worker's stepped onto the
-    effort itself is unset again (_follows), while the effort's own step moves no other role:
-    each role's effort is set beside its own mark.  The efforts are read `now`, off the catalog
-    already in hand (config.catalog_now): a listing never stands between the key and its frame.
-    What to say under the matrix, or ""."""
+    effort itself is unset again (_follows).  `alone`, the matrix's step beside a role's mark,
+    moves no other role: a worker's that followed the effort stays where it stood.  The efforts
+    are read `now`, off the catalog already in hand (config.catalog_now): a listing never stands
+    between the key and its frame.  What to say under the matrix, or ""."""
     entry, key = cfg["models"][name], config.ROLE_EFFORTS[role]
     try:
         levels = config.efforts(entry.get("harness"), entry.get("model"), config.catalog_now)
@@ -3494,10 +3503,10 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
     if not 0 <= at < len(levels) or levels[at] == current:
         return ""
     before = dict(entry)
-    for each in config.ROLE_EFFORTS.values():     # the others stay where they stand
+    for each in config.ROLE_EFFORTS.values() if alone else ():   # the others stay put
         efforts.setdefault(each, efforts.get("effort"))
     efforts[key] = levels[at]
-    _follows(efforts, config.ROLE_EFFORTS.values())
+    _follows(efforts, config.ROLE_EFFORTS.values() if alone else [key])
     return efforts_saved(*seat, {name: efforts}) if seat else _saved(cfg, entry, before)
 
 
@@ -3929,9 +3938,10 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             lead = next((last - first + 1 for row, cells in places.values() if row == here
                          for first, last, at in cells if at == column), 0) - terminal.cells(
                 entry.get(config.ROLE_EFFORTS[role], entry.get("effort", "?")))
-            note = (config_effort(cfg, here[1], 0, to=act, role=role, seat=seat)
+            note = (config_effort(cfg, here[1], 0, to=act, role=role, seat=seat, alone=True)
                     if isinstance(act, int) and act < lead
-                    else config_effort(cfg, here[1], 1, wrap=True, role=role, seat=seat))
+                    else config_effort(cfg, here[1], 1, wrap=True, role=role, seat=seat,
+                                       alone=True))
 
 
 def _runs(cfg, harness, model, effort=None):
