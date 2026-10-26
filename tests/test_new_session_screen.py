@@ -302,8 +302,8 @@ class NewSessionScreen(unittest.TestCase):
         screen.menu()
         screen.models()
         lines = screen.picker()
-        # the row's crew, as it would launch: the default orchestrating and reviewing itself
-        self.assertEqual([marks(row) for row in lines if "●" in row or "■" in row], ["●□■"])
+        # the row's crew, as it would launch: the default orchestrating, building and reviewing
+        self.assertEqual([marks(row) for row in lines if "●" in row or "■" in row], ["●■■"])
         self.assertIn(full("opus"), highlighted(lines))
         # a week at 100% whose reset nobody knows is spent all the same, only with no time
         self.assertEqual(len([row for row in lines if full("astra") in row and "spent" in row]), 1)

@@ -177,6 +177,17 @@ class RoleMarks(Sandbox):
                                  dict(zip(("orchestrator", "workers", "reviewers"),
                                           ("astra", *expected))))
 
+    def test_tab_then_esc_on_the_new_row_keeps_its_picks_spent_ones_too(self):
+        picked = {"orchestrator": "opus", "workers": ["opus", "astra"],
+                  "reviewers": ["opus", "astra"]}
+        born = {"cfg": self.cfg, "providers": {}, "selected": copy.deepcopy(picked)}
+        with patch.object(orch, "spent_note", side_effect=lambda cfg, name, providers:
+                          "spent" if name == "opus" else ""), \
+                patch.object(terminal, "read_key", side_effect=[terminal.Key("esc")]), \
+                redirect_stdout(io.StringIO()):
+            menu.born_models(born)
+        self.assertEqual(born["selected"], picked)
+
 
 class RoleMarksScreen(unittest.TestCase):
     def test_scrolling_keeps_headings_and_clicks_use_the_scrolled_row(self):
