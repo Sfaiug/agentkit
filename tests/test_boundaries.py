@@ -98,12 +98,12 @@ RULES = [
     # quota (`cpu_quota`, systemd's `CPUQuota`, the user unit's `unit_quota`), the
     # usage-limit reset and its credits as the name of a feature, and what a subscription's
     # week holds in tokens (`capacity.json`, `ak usage --json`'s `capacity_tokens` and
-    # `capacity_pairs`).
+    # `capacity_pairs`), and GitHub's own count of its API allowance (`gh api rate_limit`).
     {"name": "provider failure words",
      "flags": ("-i",),
      "pattern": "rate[ _-]?limit|quota|capacity|overload|usage[ _-]?limit",
      "names": r"quota[_-]?dry|run-quota|(cpu|unit)[ _]?quota|usage[ -]limit (reset|credit)"
-              r"|capacity[._](json|tokens|pairs)",
+              r"|capacity[._](json|tokens|pairs)|api[\"', ]+rate_limit",
      "home": ("adapters/", "agentkit/harness/"),
      "max": 59},
     # The run loop, admission and a stop write run.json through its one writer.
