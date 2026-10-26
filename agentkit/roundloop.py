@@ -1804,6 +1804,7 @@ def first_review_ceiling(lp, record=True):
             or transitions.change_reviewed(change=transitions.change_of(lp.state))):
         return
     gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
+    follow_target(lp)
     lines = transitions.diff_lines(lp.wt, lp.base_sha, "HEAD", added_only=True)
     carried = transitions.carried_lines(lp.wt, lp.base_sha, "HEAD")
     why = transitions.first_review_refusal(f"The change on {lp.state.get('branch') or 'its branch'}",
