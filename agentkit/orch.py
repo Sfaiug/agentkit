@@ -2537,9 +2537,10 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None):
         else:
             config.update_session(name, session_title=name if plugin.title_facts["at_launch"] else None,
                                   title_sync=None)
-    # launched under the name again: not the stopped one, and not the owner's closed one
+    # launched under the name again: not the stopped one, and not the owner's closed one, and
+    # running none of the background work the last one's screen showed (`watch.screen_holds`)
     watch.seat_write(name, stopped_at=None, closed_by_owner=None,
-                     usage_wait=None, usage_refusal=None)
+                     usage_wait=None, usage_refusal=None, holds=None)
 
 
 # Seconds a restart keeps a pane's keys off at most: tmux gives them back itself, should ak die

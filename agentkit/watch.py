@@ -498,7 +498,7 @@ def reboot_line(cfg, name, moved=None):
     """
     fact = hook_facts(name)
     line = _cut_line(cfg, name, fact) if moved is None else ACCOUNT_LINE if moved else None
-    work = held_work(fact)
+    work = holding(name, fact)
     return " ".join(filter(None, (line, work and HELD_LINE.format(", ".join(work))))) or None
 
 
@@ -782,6 +782,8 @@ def screen(harness):
              "faint": tuple(colour for colour in block.get("faint") or ()
                             if isinstance(colour, str)),
              "tray": _pattern(block.get("tray"), path),
+             # the background work it draws running, where it draws it (`screen_holds`)
+             "held": _pattern(block.get("held"), path, re.M),
              # it keeps the terminal cursor in its composer's box while keys go there
              # (`off_composer`)
              "cursor": block.get("cursor") is True,
@@ -2115,7 +2117,30 @@ def observed(name, harness, pane, previous, at):
     found["stall"] = (previous.get("stall") if not pane.strip() else
                       stall_mark(harness, pane, name, lambda _: None)
                       if found["state"] == "at_prompt" else None)
+    held = screen_holds(harness, pane_tail(pane))
+    if held is not None:    # unread work is no evidence that none runs: the last read stands
+        found["holds"] = held
     return found
+
+
+def screen_holds(harness, tail):
+    """The background work that screen shows running, one name in Claude's terms (`held_work`)
+    for each row of the `[screen] held` group of that name, or None where it cannot tell: a
+    harness whose manifest reads none, or a screen not drawn as that pattern reads it -- too
+    narrow for it, or a dialog over it."""
+    held = screen(harness)["held"]
+    found = held and held.search("\n".join(_plain_lines(tail)))
+    if not found:
+        return None
+    return [kind for kind, rows in found.groupdict().items() if rows
+            for _ in rows.splitlines()]
+
+
+def holding(name, fact):
+    """The background work that seat holds: what its harness's last Stop listed (`fact`, its
+    hook record), or, for a harness that runs no hooks, what its screen last showed running
+    (`screen_holds`)."""
+    return held_work(fact) or held_work(seat_read(name))
 
 
 def word_from(found):
@@ -4602,8 +4627,9 @@ def between_turns(name, harness, record, opened_at, pane=None):
     """Is that seat, looked at afresh, the one `record` and `opened_at` were read for -- not
     closed, renamed, reopened or moved since -- with its harness's pane (`pane`, or the one a
     respawn would take) at its prompt with nothing in its composer, in no turn, asking nothing,
-    and its terminal given no keys for DRAFT_STILL, none unread?  A capture that failed shows
-    none of that, nor does a terminal that cannot be asked."""
+    showing no background work running, and its terminal given no keys for DRAFT_STILL, none
+    unread?  A capture that failed shows none of that, nor does a terminal that cannot be
+    asked."""
     seat, now = orch.find(name), config.session_records().get(name) or {}
     if (not seat or any(seat.get(key) for key in orch.CLOSED) or seat_closed_by_owner(name)
             or any(now.get(key) != record.get(key)
@@ -4621,6 +4647,7 @@ def between_turns(name, harness, record, opened_at, pane=None):
     pane = pane_text(seat)
     fresh = observed(name, harness, pane, seat_read(name), time.time())
     return (quiet and bool(pane.strip()) and fresh["state"] == "at_prompt"
+            and not fresh.get("holds")
             and not _turn_in_flight(harness, fresh)[0] and not pane_unread(seat))
 
 
@@ -4718,7 +4745,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         moves = [a for a in orch.account_order(cfg, model, readings, home) if a != current
                  and window(a) and (not window(current) or not low(a)
                                     and (a == home or low(current)))]
-        if (moves and live.get("state") == "at_prompt" and not held_work(hook_facts(name))
+        if (moves and live.get("state") == "at_prompt" and not holding(name, hook_facts(name))
                 and not _turn_in_flight(harness, live)[0]
                 and orch.resumable(record)):
             if dry_run:
@@ -4733,7 +4760,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                 # of 21 Oct 2026: a prompt from the phone in that instant may be lost), and
                 # still holding no background work a turn ended on since the first.
                 return (between_turns(name, harness, record, live.get("opened_at"), pane)
-                        and not held_work(hook_facts(name)))
+                        and not holding(name, hook_facts(name)))
             with state_lock():
                 if not still():
                     return True
