@@ -4535,8 +4535,8 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
     if not question and isinstance(wait, dict) and wait.get("over") and not wait.get("told"):
         return      # its wait is over: wait_over says so, and why, before any continue
     ends, undecided = stop.recorded_ending(name, records, question=question)
-    live = ends and not question and stop.live_unrecorded(name)
-    if ends and not live:
+    unrecorded = ends and not question and stop.live_unrecorded(name)
+    if ends and not unrecorded:
         return
     parked = [directory.name for directory, _ in undecided]
     nudged = {}
@@ -4551,7 +4551,7 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
         nudged = {"notice": since,
                   "runs": {**nudged, **{run: nudged.get(run, 0) + 1 for run in parked}}}
     tail = pane_tail(pane)
-    keys = config.name_owed(name) or live or keystroke(harness, tail)
+    keys = config.name_owed(name) or unrecorded or keystroke(harness, tail)
     if dry_run:
         log(f"would resume {name}, stopped with work open, no question and no run, with {keys!r}")
         return
