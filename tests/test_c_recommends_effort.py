@@ -3,10 +3,10 @@ the seat's executor and reviewer, in its record.
 
 A recommended row is a model at an effort; the entry that runs that model on that harness is
 the one running it in that role (`matrix.runs`) or the first such entry, and the line names it
-on both screens.  `r` marks it for the role and sets the row's effort as the seat's
-`exec_effort` or `review_effort` for it, unset where the row's effort is the model's own, so
-the role runs at what the boards recommend while the entries stay as they were; the
-orchestrator's row is only said.
+on both screens.  `r` marks it for the role and sets
+the row's effort as the seat's `exec_effort` or `review_effort` in its record, unset where it
+is the model's own, so the role runs at what the boards recommend while the entries stay
+the owner's; the orchestrator's row is only said.
 
 Offline: a throwaway HOME with a stored matrix written by hand, the keys fed in, the usage faked
 (tests/test_c_recommends.py's).

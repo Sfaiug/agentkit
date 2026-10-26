@@ -2932,12 +2932,12 @@ def take_advice(cfg, name, selected, providers, found):
     """`r`: seat `name`'s executors and reviewers become the recommended rows' models, each at
     the row's effort as the seat's own for that role (`exec_effort`, `review_effort`; a row
     at the model's effort or at none leaves it following the effort, _follows), saved to the
-    seat's record (efforts_saved) and then its marks as a flipped mark is (marks_saved), the
-    entries left alone; efforts that cannot be saved change no mark and say why.  The
-    orchestrator is only said, since moving the seat is its orchestrator mark's.  With no
-    `name`, `selected` being [defaults], the orchestrator is taken too, the efforts are the
-    entries' own, `effort` the orchestrator's, and they and [defaults] are saved in one write
-    (defaults_saved), no open seat changing.  What to say under the rows, or ""."""
+    seat's record (efforts_saved) and then its marks at once as a flipped mark is (marks_saved);
+    efforts that cannot be saved change no mark and say why.  The orchestrator is only
+    said, since moving the seat is its orchestrator mark's.  With no `name`, `selected` being
+    [defaults], the orchestrator is taken too, at the row's effort as the entry's `effort`, and
+    the efforts and [defaults] are saved in one write (defaults_saved), no open seat changing.
+    What to say under the rows, or ""."""
     taken = {role: found.get(role, (None, None, None))[1:] for role in TAKEN
              if name is None or role != "orchestrate"}
     if not any(model for model, _ in taken.values()):
@@ -3454,13 +3454,12 @@ def _saved(cfg, table, before):
 def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, seat=None):
     """`name`'s effort in `role` (config.role_effort: a worker's is the effort while its own
     key is unset) one step along that model's own efforts (config.efforts), never past either
-    end unless `wrap` takes it round to the other, or onto the `to`-th of them, and saved: on
-    `seat`, a seat's (name, record), to that record (efforts_saved), else to the entry, which
-    is what new seats start from.  One set to an effort it does not take lands on its first,
-    and a worker's stepped onto the effort itself is unset again (_follows), while the
-    effort's own step moves no other key.  The efforts are read `now`, off the catalog already
-    in hand (config.catalog_now): a listing never stands between the key and its frame.  What
-    to say under the matrix, or ""."""
+    end unless `wrap` takes it round to the other, or onto the `to`-th of them, and saved, a
+    `seat`'s (name, record) to its record (efforts_saved), else to the entry new seats take; one
+    set to an effort it does not take lands on its first, and a worker's stepped onto the
+    effort itself is unset again (_follows), while the effort's own step moves no other key.
+    The efforts are read `now`, off the catalog already in hand (config.catalog_now): a listing
+    never stands between the key and its frame.  What to say under the matrix, or ""."""
     entry, key = cfg["models"][name], config.ROLE_EFFORTS[role]
     try:
         levels = config.efforts(entry.get("harness"), entry.get("model"), config.catalog_now)
@@ -3539,9 +3538,9 @@ def model_body(cfg, name, at=None, seat=None):
     """A model's own screen's lines, and where its rows sit on them: {line: (row, cells)}, the
     cells `left` and `right` the arrows of the value on that line, counted from 1 (`under`).
 
-    Its model id, its effort and the efforts it executes and reviews at (`seat`'s where it is a
-    seat's, config_effort), each between the arrows that step it, then `Remove` and its
-    reviewing so far; `at` is the highlighted row.
+    Its model id, its effort and the efforts it executes and reviews at (a `seat`'s own), each
+    between the arrows that step it, then `Remove` and its reviewing so far; `at` is the
+    highlighted row.
     On a phone, where a label and its value do not fit on one line, the value goes under its
     label.
     """

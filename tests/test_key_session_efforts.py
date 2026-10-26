@@ -1,13 +1,10 @@
 """Each seat runs at its own efforts, and changing the defaults leaves live seats alone.
 
-A seat's record holds under `efforts` the effort keys (`effort`, `exec_effort`, `review_effort`)
-of a model it runs, and the runs it launches run at them, their receipts saying so; a step on a
-seat's `c` writes that record, one on a fresh window's `c` config.toml, what new seats start
-from.  A record from before it held any runs at its models' entries until one of them changes.
-Black-box: the program `AK_BIN` names, on a project from tests/fixtures/gitrig.py, with seats
-from akseat.py, a person's terminal from akterm.py and scripted harnesses from fakeadapter.py,
-judged by the effort each turn is handed, the records and config.toml; this test fails against
-`/bin/false`.
+A seat's record holds its models' effort keys under `efforts`, and its runs run at them, their
+receipts saying so; a step on a seat's `c` writes that record, one on a fresh window's `c`
+config.toml.  A record from before runs at its models' entries until one of them changes.
+Black-box: `AK_BIN` on a gitrig.py project, akseat.py seats, an akterm.py terminal and
+fakeadapter.py harnesses, judged by the effort each turn is handed, the records and config.toml.
 """
 
 import json

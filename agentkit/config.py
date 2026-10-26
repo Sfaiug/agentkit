@@ -811,8 +811,7 @@ def save(cfg, defaults=None):
     the 0600 install.sh gave it: a replace inherits the temp file's mode, not the old one's.
     `[defaults]` is written as `defaults`, a creation's (remember_defaults), and otherwise as
     the file has it, whatever `cfg` holds: a menu open for hours holds an older one, and a
-    model removed since is only passed over in memory (load).  A seat on a model whose efforts
-    change keeps the ones it ran at (pin_efforts).
+    model removed since is only passed over in memory (load).  No seat's efforts move (pin_efforts).
     """
     path = HOME / CONFIG_NAME
     try:
@@ -865,8 +864,7 @@ def worker_effort(cfg, name, role):
 
 
 def efforts_of(entry):
-    """The effort keys (ROLE_EFFORTS) a model entry sets, as a seat's record holds them for one
-    of its models under `efforts`."""
+    """The effort keys (ROLE_EFFORTS) an entry sets, as a record's `efforts` holds a model's."""
     return {key: entry[key] for key in ROLE_EFFORTS.values() if key in entry}
 
 
@@ -1245,11 +1243,17 @@ def hold_efforts(name, efforts, keep=False):
 def pin_efforts(before, after):
     """Before the model entries' efforts change from `before` to `after`, {name: entry}, each
     seat on a model whose efforts change and of which its record holds none is given them as
-    they were: changing the defaults moves no live seat (save)."""
+    they were: changing the defaults moves no live seat (save).  The weekly audit's seat, whose
+    models are [audit]'s, goes on with the entries' efforts."""
+    from . import audit     # here, not at the top: audit imports this module
     moved = {name: efforts_of(entry) for name, entry in before.items()
              if isinstance(entry, dict) and isinstance(after.get(name), dict)
              and efforts_of(entry) != efforts_of(after[name])}
-    for name, record in session_records().items() if moved else ():
+    if not moved:
+        return
+    records = session_records()
+    records.pop(resolve_session(audit.NAME), None)
+    for name, record in records.items():
         runs = {record.get("orchestrator"), *(record.get("workers") or ()),
                 *(record.get("reviewers") or ())}
         pinned = {model: efforts for model, efforts in moved.items()

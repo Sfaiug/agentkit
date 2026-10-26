@@ -999,10 +999,9 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
     or a done-when command below another run started it.  Nothing is told about it and the
     menu does not offer it -- `ak run status` has it, though never the smoke suite's own runs.
 
-    The session's role lists, and the efforts each model runs at, go on the receipt here too:
-    later edits cannot widen a run's choices nor move its efforts. Defaults with separate
-    reviewers bind both lists outside a session as well; old selections keep their original
-    receipt shape.
+    The session's role lists and efforts go on the receipt here too: later edits cannot widen
+    a run's choices or move its efforts. Defaults with separate reviewers bind both lists
+    outside a session as well; old selections keep their original receipt shape.
 
     A job names itself here, in the same write as the scheduler pid the receipt
     records: the scheduler only writes `task["run_id"]` after preflight, and a stop
