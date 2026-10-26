@@ -70,6 +70,9 @@ def looks(home):
     return found
 
 
+NO_PLAN = "   ──────────────────────── no plan yet"     # a working seat's line with no plan yet
+
+
 class LiveStatus(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix="live-status-")
@@ -192,7 +195,7 @@ class LiveStatus(unittest.TestCase):
         # a turn begins: the look takes three seconds of capture, and the hook waits on none
         self.assertLess(hook({"hook_event_name": "UserPromptSubmit", "prompt": "go"}), 2.0)
         options = published("working")
-        self.assertEqual(drawn(options[statusbar.TOP]), " ● working   herdr   Opus 5.5")
+        self.assertEqual(drawn(options[statusbar.TOP]), " ● working   herdr   Opus 5.5" + NO_PLAN)
         self.assertEqual(watch.seat_read("herdr")["word"], "working")
         # Claude's Stop is written down by hooks/orchestrator-stop.sh, beside this hook, in
         # whichever order the two finish, and that one looks at the seat once its word is down:
@@ -495,7 +498,7 @@ class LiveStatus(unittest.TestCase):
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
         self.assertEqual(watch.seat_read("herdr")["word"], "working")
         self.assertEqual(drawn(self.options[statusbar.TOP]),
-                         " ● working   herdr   Opus 5.5")
+                         " ● working   herdr   Opus 5.5" + NO_PLAN)
         self.assertEqual(self.options["set-titles-string"], "herdr · working")
         self.assertEqual(captures[1], captures[0] + 1)  # the background look came round
 

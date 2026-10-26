@@ -269,7 +269,8 @@ class OnTmux(Sandbox):
         self.until(lambda: self.tmux("list-clients", "-F", "#{client_session}")[1] == "fix-api",
                    "the client never attached")
         whole = " ● working   fix-api   Fable 5.1 "   # 32 cells and the space after
-        self.assertEqual(self.width(100), whole + "! 1 other seat needs you ")
+        line = "  " + "─" * 24 + " no plan yet "      # its line: it is working with no plan
+        self.assertEqual(self.width(100), whole + line + "! 1 other seat needs you ")
         # narrower, the count folds beside the whole left part, and only then is that cut: one
         # `…`, the whole line the client's width
         self.assertEqual(self.width(50), whole.rstrip() + " ! 1 needs you ")

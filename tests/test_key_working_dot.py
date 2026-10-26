@@ -2,7 +2,8 @@
 
 The breath is how a person sees, without reading a word, which seats a model is working in, so
 only those cells may move: every working dot in step, the rest of its row and an idle seat's row
-as they were, whichever row the highlight is on.  Black-box: ak runs in a terminal of its own, in
+as they were, whichever row the highlight is on -- but the light going round a working row's line
+while it has no plan yet (tests/test_no_plan_bar.py).  Black-box: ak runs in a terminal of its own, in
 colour, beside two seats whose panes show a working claude and one at its prompt; what moves is
 read from the terminal's cells and their colours, sampled with no key pressed.
 """
@@ -53,6 +54,12 @@ def mark(row):
     return next(at for at, (char, _) in enumerate(row) if char in "●○")
 
 
+def still(row):
+    """A row's cells but its mark and its line, which a light goes round."""
+    line = next((at for at, (char, _) in enumerate(row) if char in "─━"), len(row))
+    return row[:mark(row)] + row[mark(row) + 1:line]
+
+
 def colour(row):
     return dict(row[mark(row)][1]).get("38")
 
@@ -91,7 +98,7 @@ class WorkingDot(unittest.TestCase):
                 drawn = cells(line)
                 text = "".join(char for char, _ in drawn)
                 # a whole row: a redraw writes a line at a time, and a capture can land inside one
-                if text.rstrip().endswith((" working", " idle")):
+                if text.rstrip().endswith((" working", " idle", " no plan yet")):
                     rows.update((name, drawn) for name in (*WORKING, IDLE) if name in text.split())
             if len(rows) == 3:
                 frames.append(rows)
@@ -110,8 +117,7 @@ class WorkingDot(unittest.TestCase):
             for frame in frames:
                 row = frame[name]
                 self.assertEqual(row[mark(row)][0], "●")
-                self.assertEqual(row[:mark(row)] + row[mark(row) + 1:],
-                                 first[:mark(first)] + first[mark(first) + 1:])
+                self.assertEqual(still(row), still(first))
         self.leave(term)
 
     def test_working_dots_breathe_in_step(self):

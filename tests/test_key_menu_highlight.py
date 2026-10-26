@@ -106,7 +106,7 @@ class Highlight(Menu):
         # the first frame is the records as they stand; each seat's word comes with its look
         def ready(shown):
             rows = {row[2]: line for line in shown if (row := ROW.match(line))}
-            return all(rows.get(name, "").endswith(word) for name, word in WORDS.items())
+            return all(word in rows.get(name, "") for name, word in WORDS.items())
         return self.open((100, 30), ready)
 
     def test_the_menu_opens_on_the_first_seat_with_no_line_open(self):
