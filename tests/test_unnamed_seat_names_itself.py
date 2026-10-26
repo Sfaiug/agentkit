@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from fixtures.seats import cursor_row
+from fixtures.seats import chat, cursor_row
 from agentkit import config, menu, notify, orch, watch
 
 SEAT, SAID = "acme-api", "The parser is in place."
@@ -44,7 +44,9 @@ class UnnamedSeatNamesItself(Sandbox):
                                               side_effect=lambda *_a, **_k: (self.harness, "m")))
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.stack.enter_context(patch.object(watch.time, "sleep", lambda _s: None))
-        self.harness, self.sent = "muse", []
+        self.harness, self.sent, self.message = "muse", [], SAID
+        self.stack.enter_context(patch.object(notify, "conversation_of",
+                                              chat(lambda: self.message)))
 
     def tmux(self, *args, **_kw):
         if args[0] == "send-keys" and "-l" in args:
@@ -86,6 +88,7 @@ class UnnamedSeatNamesItself(Sandbox):
 
     def judged(self, message=SAID):
         """Every harness's answer to the same stop: the hook's reason, then each tick's lines."""
+        self.message = message
         transcript = self.root / "transcript.jsonl"
         transcript.write_text(json.dumps({"type": "assistant", "message": {
             "role": "assistant", "content": [{"type": "text", "text": message}]}}) + "\n")

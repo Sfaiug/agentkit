@@ -110,6 +110,7 @@ class StopParity(unittest.TestCase):
                     f = self.seat(harness)
                     if held == "question":
                         notify.record(fixture.SEAT, "needs", "Which region should acme use?")
+                        f.said = "Which region should acme use?"     # its closing message
                     elif held == "draft":
                         empty, row = fixture.TYPED[harness]
                         f.pane = f.pane.replace(empty, row.format("owner is typing"))

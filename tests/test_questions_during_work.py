@@ -14,6 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
+from fixtures.seats import chat
 from agentkit import config, notify, orch, record, watch
 
 SEAT = "fix-api"
@@ -43,6 +44,9 @@ class QuestionsDuringWork(Sandbox):
             {"name": SEAT, "attached": False}]))
         self.stack.enter_context(patch.object(
             watch, "seat_model", side_effect=lambda *_a, **_k: (self.harness, "acme")))
+        # each stop's closing message says its questions, as a seat's must for them to stand
+        self.stack.enter_context(patch.object(notify, "conversation_of",
+                                              chat(lambda: FIRST + "\n" + SECOND)))
 
     def fact(self, state, mark=None):
         """What the harness's own hooks write down for `state`: the event its manifest marks

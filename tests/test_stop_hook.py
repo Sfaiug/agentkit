@@ -22,6 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, host, job as jobs, menu, notify, orch, watch
+from fixtures.seats import chat
 
 HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT_STATE = REPO / "hooks/seat-state.sh"
@@ -524,6 +525,9 @@ class StopNudge(unittest.TestCase):
         def asked():
             self.pane = self.showing("Shall I merge it?")
             notify.record(SEAT, "needs", "Shall I merge it?")
+            # ... in its chat, where the screen alone proves nothing
+            self.stack.enter_context(patch.object(notify, "conversation_of",
+                                                  chat(lambda: "Shall I merge it?")))
 
         for label, prepare in (
                 ("a question asked with ak notify needs", asked),

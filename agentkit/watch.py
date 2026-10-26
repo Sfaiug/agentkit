@@ -45,7 +45,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, host, notify,
-               orch, seat_tokens, staffing, statusbar, transitions, turns, update, usage, worker)
+               orch, questions, seat_tokens, staffing, statusbar, transitions, turns, update,
+               usage, worker)
 from . import record as run_record
 from . import terminal as terminal_mod
 from .harness import LIMITED, SPENT, entries, says
@@ -2734,6 +2735,11 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         asked = " ".join(str(found.get("evidence") or "").split())
         return {"word": "needs you", "reason": asked or "waiting for you",
                 "since": found.get("began"), "question": True}
+    # A question its closing message left out is not the owner's yet: it goes back (`stop_nudge`)
+    if (not gone and harness and not waiting and _composer_open(harness, found)
+            and questions.unseen(name, harness, found)):
+        return {"word": "working", "reason": "repeating its question in the chat",
+                "since": found.get("began")}
     # ... and so is a question it asked with `ak notify needs` that nothing has answered, once
     # the turn it stood through has stopped: its runs going say nothing of it, but a turn a
     # run's result opened works without him until it stops on the question again (2b).  A
@@ -4475,7 +4481,8 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     An unnamed seat is told to name itself instead (`config.name_owed`), and one whose turn
     reached the live host with no open line in its plan to write that down (`stop.live_unrecorded`).
 
-    An unanswered question of this seat's own keeps it stopped. Otherwise the decision
+    An unanswered question of this seat's own keeps it stopped once its closing message holds
+    it, one left out sent the Stop hook's reminder (`questions.unseen`). Otherwise the decision
     reads the plan and the runs and jobs.
 
     A run of its own parked and undecided holds the stop past a run going, an `ak wait` and a
@@ -4520,7 +4527,7 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
     live = seat_read(name)
     if (live.get("state") != "at_prompt" or live.get("interrupted") or records is None
             or live.get("closed_by_owner") or any(session.get(key) for key in orch.CLOSED)
-            or session.get("legacy") or owner_question(notice)):
+            or session.get("legacy")):
         return          # a failed pass over run.json is no evidence that nothing is running
     stood = _stamp(live.get("stop_said_at"))
     if stood is None:
@@ -4531,19 +4538,25 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
             or (load_state()["stalls"].get(name) or {}).get("told")):
         return
     began = _stamp(live.get("turn_began"))
-    if began is None:
-        return          # nothing has watched this seat finish a turn; there is none to judge
-    question = bool(notice and notice.get("kind") == "needs"
-                    and (_stamp(notice.get("time")) or 0) >= began)
     said = progress_output(harness, pane_tail(pane))
     if not said or live.get("stop_nudged") == [began, said]:
         return
+    # a question left out of the chat goes back, past one standing and with no turn watched to
+    # its end; a reply of the owner's answers it first, the tick's typed-answer pass being later
+    notify.answer_written(name)
+    unseen = questions.unseen(name, harness, live)
+    if began is None and not unseen:
+        return          # nothing has watched this seat finish a turn; there is none to judge
+    if not unseen and owner_question(notice):
+        return
+    question = bool(unseen or notice and notice.get("kind") == "needs"
+                    and (_stamp(notice.get("time")) or 0) >= began)
     wait = live.get("wait")
     if not question and isinstance(wait, dict) and wait.get("over") and not wait.get("told"):
         return      # its wait is over: wait_over says so, and why, before any continue
     ends, undecided = stop.recorded_ending(name, records, question=question)
     unrecorded = ends and not question and stop.live_unrecorded(name)
-    if ends and not unrecorded:
+    if ends and not unrecorded and not unseen:
         return
     parked = [directory.name for directory, _ in undecided]
     nudged = {}
@@ -4558,9 +4571,11 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
         nudged = {"notice": since,
                   "runs": {**nudged, **{run: nudged.get(run, 0) + 1 for run in parked}}}
     tail = pane_tail(pane)
-    keys = config.name_owed(name) or unrecorded or keystroke(harness, tail)
+    keys = unseen or config.name_owed(name) or unrecorded or keystroke(harness, tail)
+    why = ("left its question out of the chat" if unseen
+           else "stopped with work open, no question and no run")
     if dry_run:
-        log(f"would resume {name}, stopped with work open, no question and no run, with {keys!r}")
+        log(f"would resume {name}, {why}, with {keys!r}")
         return
     current = pane_text(session)
     # A prompt hook can precede the composer redraw: the turn must be over too.
@@ -4568,9 +4583,9 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
     if (not _free(harness, found) or found.get("interrupted")
             or progress_output(harness, pane_tail(current)) != said):
         return          # it moved, or the seat is the user's again: neither is this rule's
-    if type_into(session, keys, log):
+    if type_into(session, keys, log, asked=bool(unseen)):
         seat_write(name, stop_nudged=[began, said], **({"parked_nudged": nudged} if nudged else {}))
-        log(f"{name}: stopped with work open, no question and no run; typed {keys!r}")
+        log(f"{name}: {why}; typed {keys!r}")
         return True
 
 
@@ -5021,6 +5036,7 @@ def health(cfg, state, dry_run, log):
                 continue        # auth is read-only on these seats; no catch-all or capacity recovery
             notice = notify.last(name)
             if owner_question(notice):
+                stop_nudge(session, harness, pane, notice, records, dry_run, log)   # its words
                 continue        # an unanswered owner decision is never a reason to type a resume
             if entry.get("told"):
                 continue

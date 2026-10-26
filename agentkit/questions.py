@@ -31,3 +31,19 @@ def reminder(name, message):
     return ("Write these unanswered questions and their choices in your closing assistant "
             "message, in the chat. The owner must see them there before you stop. "
             "They are already recorded; do not register them again.\n\n" + "\n\n".join(missing))
+
+
+def unseen(name, harness, found):
+    """`reminder` for a seat with no blocking Stop, its closing message the newest in its
+    conversation (`said`) and only if the model's; an unreadable one proves no delivery.  After
+    a turn the owner interrupted (`found`) nothing: it rests."""
+    from . import notify, watch
+    if not watch.stop_enforced(harness) or found.get("interrupted") or not pending(name):
+        return ""
+    seat = notify.conversation_of(name)
+    try:
+        said = seat[0].said(*seat[1:]) if seat and seat[3] else None
+    except (OSError, ValueError):
+        said = None
+    last = said[-1] if said else {}
+    return reminder(name, last["text"] if last.get("who") == "model" else "")
