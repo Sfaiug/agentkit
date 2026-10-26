@@ -253,17 +253,18 @@ class OneConfigScreen(unittest.TestCase):
         self.assertIn(full("opus"), highlighted(lines))
         defaults = menu.defaults()
         lines = menu.press(b"c", title("config"))
-        self.assertEqual(lines[3].split(), ["orch", "builds", "reviews", "effort"])
+        self.assertEqual(lines[3].split(), ["orch", "builds", "reviews"])
         self.assertEqual(marks(model(lines, "opus")), "●■□")
         self.assertEqual(marks(model(lines, "astra")), "○■■")
         # fable executes, then opus and astra stop: fable alone executes, astra alone reviews
-        lines = menu.press(RIGHT + ENTER, lambda lines: marks(model(lines, "fable")) == "○■□")
+        lines = menu.press(RIGHT * 2 + ENTER,             # past the orchestrator's effort
+                           lambda lines: marks(model(lines, "fable")) == "○■□")
         self.assertEqual(menu.record()["workers"], ["opus", "astra", "fable"])
         menu.press(DOWN + ENTER + DOWN + ENTER,
                    lambda lines: marks(model(lines, "astra")) == "○□■")
         self.assertEqual(menu.record()["workers"], ["fable"])
         # and fable takes the seat at once, asking nothing
-        lines = menu.press(UP * 2 + LEFT + ENTER,
+        lines = menu.press(UP * 2 + LEFT * 2 + ENTER,
                            lambda lines: marks(model(lines, "fable")) == "●■□")
         self.assertEqual(marks(model(lines, "opus")), "○□□")
         record = menu.record()
@@ -283,11 +284,11 @@ class OneConfigScreen(unittest.TestCase):
         menu = Menu(self, down="claude", own="fix-api")
         menu.screen()
         menu.press(b"c", title("config"))
-        menu.press(DOWN + RIGHT + RIGHT + SPACE,          # opus joins the reviewers
+        menu.press(DOWN + RIGHT * 4 + SPACE,              # opus joins the reviewers
                    lambda lines: marks(model(lines, "opus")) == "●■■")
         # Claude is down in this child, so astra leaving executes leaves no runnable
         # executor: refused in one line, and the record stays as it was
-        lines = menu.press(DOWN + LEFT + SPACE,
+        lines = menu.press(DOWN + LEFT * 2 + SPACE,
                            lambda lines: any("no allowed" in line for line in lines))
         self.assertEqual([line.strip() for line in lines if "no allowed" in line],
                          ["no allowed executor/reviewer pair"])
@@ -306,7 +307,7 @@ class OneConfigScreen(unittest.TestCase):
         del cfg["models"]["opus"]                         # removed while fix-api orchestrates on it
         menu.config.write_text(config.dump(cfg))
         lines = menu.press(b"c", title("config"))
-        self.assertEqual(lines[3].split(), ["orch", "builds", "reviews", "effort"])
+        self.assertEqual(lines[3].split(), ["orch", "builds", "reviews"])
         self.assertEqual(marks(model(lines, "astra")), "○■■")   # its roles, off what is left
         self.assertEqual(marks(model(lines, "fable")), "○□□")
         self.assertFalse(any("●" in marks(line) for line in lines), lines)
@@ -357,8 +358,8 @@ class OneConfigScreen(unittest.TestCase):
             'orchestrator = "astra"\nworkers = ["fable"]\nreviewers = ["opus"]'))
         elsewhere = {"orchestrator": "astra", "workers": ["fable"], "reviewers": ["opus"]}
         self.assertEqual(menu.defaults(), elsewhere)
-        menu.press(RIGHT * 3 + ENTER,                     # an effort saved
-                   lambda lines: model(lines, "fable").endswith(" max"))
+        menu.press(RIGHT + ENTER,                         # an effort saved
+                   lambda lines: "max" in model(lines, "fable").split())
         self.assertEqual(tomllib.loads(menu.config.read_text())["models"]["fable"]["effort"],
                          "max")
         self.assertEqual(menu.defaults(), elsewhere)      # kept, whatever `c` read before

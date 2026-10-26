@@ -209,7 +209,7 @@ class Frames(unittest.TestCase):
 class ConfigScreen(Screens):
     def test_a_mark_fills_when_set_and_empties_when_cleared(self):
         screen = Screen(self)
-        number, line = row(screen.press(RIGHT), "fable")  # fable's exec, not the seat's
+        number, line = row(screen.press(RIGHT * 2), "fable")  # fable's exec, past its effort
         column = mark_column(line, 1)
         cells = moved(screen, ENTER)
         landed(self, glyphs(cells, number), ["▣", "■"])
@@ -255,7 +255,7 @@ with closing(""", 1)
     def test_a_model_just_added_glows_and_a_key_ends_it_at_once(self):
         screen = Screen(self, env={"COLORTERM": "truecolor"})     # a glow fades in fine steps
         lines = screen.frame()
-        heads = next(n for n, line in enumerate(lines) if line.split()[-1:] == ["effort"])
+        heads = next(n for n, line in enumerate(lines) if line.split()[:1] == ["orch"])
         down = sum(1 for line in lines[heads + 1:next(n for n, line in enumerate(lines)
                                                       if "+ add a model" in line)]
                    if line.startswith(("  ", "›")))

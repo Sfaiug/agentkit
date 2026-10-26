@@ -74,12 +74,12 @@ class OneList(unittest.TestCase):
         self.cfg = config.load()
 
     def bar(self, name):
-        """`name`'s effort as `c` draws it, on the row its full name leads: its cells, then its
-        word."""
+        """`name`'s effort as `c` draws it for the orchestrator, the first of the row its full
+        name leads: its cells, then its word."""
         lines, _places = menu.config_body(self.cfg)
         line = next(line for line in (terminal.ANSI.sub("", line) for line in lines)
                     if line.lstrip().startswith(config.model_name(self.cfg, name) + " "))
-        return line.split()[-2:]
+        return line.split()[-6:-4]
 
     def step(self, name, step=1):
         self.assertEqual(menu.config_effort(self.cfg, name, step), "")

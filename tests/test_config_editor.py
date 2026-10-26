@@ -90,7 +90,7 @@ class Editor(unittest.TestCase):
     def test_toggling_a_sessions_workers_writes_its_record_and_not_the_defaults(self):
         # fable in, astra out: the list keeps its order and the new one goes last
         before = self.path.read_bytes()
-        self.drive("right", "enter", "down", "down", "space", session="fix-api")
+        self.drive("right", "right", "enter", "down", "down", "space", session="fix-api")
         self.assertEqual(self.record()["workers"], ["opus", "fable"])
         self.assertEqual(self.path.read_bytes(), before)
 
@@ -98,7 +98,7 @@ class Editor(unittest.TestCase):
         self.path.write_text(OWN)
         config.save_session(config.load(), "fix-api", "solo", ["solo"])
         before = self.path.read_bytes()
-        _, screen = self.drive("right", "enter", session="fix-api")
+        _, screen = self.drive("right", "right", "enter", session="fix-api")
         self.assertNotIn("at least one model reviews", screen)
         self.assertEqual(self.path.read_bytes(), before)
         self.assertEqual((self.record()["workers"], self.record()["reviewers"]), ([], ["solo"]))
@@ -107,7 +107,7 @@ class Editor(unittest.TestCase):
         self.path.write_text(OWN)
         self.drive("down")
         self.assertEqual(self.path.read_text(), OWN)      # nothing changed: nothing to save
-        self.drive("right", "right", "right", "enter")
+        self.drive("right", "enter")          # the orchestrator's effort, beside its mark
         saved = tomllib.loads(self.path.read_text())
         self.assertNotIn("tiers", saved)
         self.assertEqual(saved["defaults"], {"orchestrator": "solo", "workers": ["solo"]})
@@ -120,7 +120,7 @@ class Editor(unittest.TestCase):
         with patch.object(config, "catalog", return_value=levels):
             for keys, want in ((("enter",), "max"), (("enter",), "low"), (("enter", "enter"), "high")):
                 with self.subTest(want=want):
-                    self.drive("right", "right", "right", *keys)
+                    self.drive("right", *keys)
                     effort = tomllib.loads(self.path.read_text())["models"]["fable"]["effort"]
                     self.assertEqual(effort, want)
 
@@ -157,7 +157,7 @@ class Editor(unittest.TestCase):
         levels = [{"id": "claude-fable-5-1", "label": "Fable 5.1",
                    "efforts": ["low", "medium", "high", "xhigh", "max"]}]
         with patch.object(config, "catalog", return_value=levels):
-            self.drive("right", "right", "right", "enter")
+            self.drive("right", "enter")
         again = tomllib.loads(self.path.read_text())
         self.assertEqual(again["mystery"], 7)
         self.assertEqual(again["models"]["fable"]["nickname"], "f")
@@ -201,14 +201,17 @@ class Editor(unittest.TestCase):
                              'model = "m"\neffort = "high"\nprovider = "anthropic"\n')
         with patch.object(menu, "config_discord") as step:
             # fable, opus, then Discord, a Claude
-            self.drive("down", "down", "right", "enter", session="fix-api")
+            self.drive("down", "down", "right", "right", "enter", session="fix-api")
         self.assertEqual(step.call_count, 0)
         self.assertEqual(self.record()["workers"], ["opus", "astra", "Discord"])
 
     def test_main_screen_lists_values(self):
         _, screen = self.drive(session="fix-api")
         self.assertTrue(screen.startswith("agentkit · config "), screen)
-        for bit in ("For  fix-api", "orch  builds  reviews  effort", "Claude", "●", "■", "□",
+        # each role's head over its mark, the effort it runs at beside it
+        self.assertTrue(any(line.split() == ["orch", "builds", "reviews"]
+                            for line in screen.splitlines()), screen)
+        for bit in ("For  fix-api", "Claude", "●", "■", "□",
                     "▰▰▰▰▱", "add a model", "Discord", "Version abc1234 · 2026-09-29",
                     "esc back"):
             self.assertIn(bit, screen)
