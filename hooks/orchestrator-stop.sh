@@ -347,7 +347,7 @@ def main():
         # the stop stands: the turn a kept question was asked in has ended, and that is on
         # record before this harness takes its next prompt (`watch.turn_ended`)
         turn_ended(resolve(launched))
-    # a harness that lists none -- Codex -- has its stops judged, and written down, as before
+    # a harness that lists none has its stops judged, and written down, as before
     if lifecycle.handed_over(payload) is not None:
         written(launched, payload, bool(back))
         # looked at again now its Stop is on record, however long judging it took

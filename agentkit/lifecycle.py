@@ -21,11 +21,8 @@ def facts(name):
 
 
 def handed_over(payload):
-    """The background work a Stop hands over, or None from a harness whose Stop lists none.
-
-    Claude Code hands it as `background_tasks`, an empty list when there is none, and Grok Build
-    as `backgroundTasks`, and a harness plugin may add it (`codex.in_flight`).
-    """
+    """The background work a Stop hands over, as `background_tasks` or `backgroundTasks` -- an
+    empty list when there is none -- or None from a harness whose Stop lists none."""
     found = payload.get("background_tasks")
     found = found if found is not None else payload.get("backgroundTasks")
     return found if isinstance(found, list) else None
@@ -34,15 +31,14 @@ def handed_over(payload):
 def waits_on(payload):
     """Work this seat started in its own harness that has not reported back yet.
 
-    Claude Code hands its Stop hook the agents and commands it still has in flight -- the ones
+    A harness hands its Stop hook the agents and commands it still has in flight -- the ones
     whose task notification has not arrived.  Each of them wakes the seat again when it settles,
     so a stop on them is a wait.  A `monitor` is a watch, not work: the comment watch on an
     artifact the seat published stays in that list for the rest of the session, and counted, it
     held the seat working for days.  Nor is a `shell` in `background_tasks`: a background
     `sleep` or poll loop is no wait, since the harness kills it under memory pressure; a seat
     waits through `ak wait`.  Nor is a `terminal` or an `agent` a plugin adds, whose end starts
-    no turn (`codex.in_flight`).  The other spelling's tasks count as before, their types never
-    captured.
+    no turn.  The other spelling's tasks count as before, their types never captured.
     """
     idle = (("monitor", "shell", "terminal", "agent") if payload.get("background_tasks") is not None
             else ("monitor",))
