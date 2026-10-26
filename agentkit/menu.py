@@ -3778,6 +3778,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     scope = session or NEW_SEATS
     here, column, top, clock = None, 0, 0, motion.Clock(page=True)
     while True:
+        if not session and selected is not None:      # a page that took a model out moved them
+            selected.update(copy.deepcopy(cfg["defaults"]))
         columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
         # the meter the highlight or the pointer is on, lit as the main screen lights one
         lit = here[1] if here and here[0] == "usage" and not terminal.away() else None

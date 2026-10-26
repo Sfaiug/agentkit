@@ -217,8 +217,8 @@ class ModelScreen(unittest.TestCase):
         self.assertIn(FULL["haiku"], highlighted(lines))        # the row under it
         saved = screen.saved()
         self.assertNotIn("opus", saved["models"])
-        # [defaults] is the last creation's, and only a creation writes it
-        self.assertEqual(saved["defaults"], {"orchestrator": "opus", "workers": ["opus", "astra"]})
+        # [defaults] passes over it: the first model left takes the orchestrator's place
+        self.assertEqual(saved["defaults"], {"orchestrator": "fable", "workers": ["astra"]})
         screen.leave()
 
     def test_the_last_model_cannot_be_removed(self):

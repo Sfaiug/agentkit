@@ -379,7 +379,7 @@ def load():
 
     Every model is offered as orchestrator and as worker; `[defaults]` names the orchestrator
     and the workers a new seat starts with, the last created seat's (remember_defaults): a
-    model removed since is passed over here, and stays in the file.  A file from before it said
+    model removed since is passed over here, and in the file once saved.  A file from before it said
     that with two tier lists, and reads as what they meant outside a session: the first of A
     orchestrating for B without it.  Nothing writes it back until the config is next saved,
     which then writes `[defaults]` and the top-level `pace_margin` in their place.
@@ -435,9 +435,9 @@ def load():
                 or len(set(reviewers)) != len(reviewers)):
             raise Error(f"{path}: [defaults].reviewers must list distinct model names "
                         f"(got {reviewers!r})")
-    # Only a creation writes [defaults], so one may name a model removed since: passed over
-    # here, as a default nobody named is, and the first model takes a place it empties, so a
-    # seat can still start with Enter.
+    # [defaults] may name a model removed since by hand: passed over here, as a default nobody
+    # named is, and the first model takes a place it empties, so a seat can still start with
+    # Enter.
     _fall_back(defaults, names, written)
     hosts = provider_hosts()
     for name, entry in cfg["providers"].items():
@@ -475,9 +475,8 @@ def offered(cfg):
 def remove_provider(cfg, name):
     """Take one provider out of `cfg`: its table and its models.
 
-    [defaults] stays as the last creation left it, and load() passes over the models gone from
-    it.  The last provider cannot go, since a config with no model has nothing to start a seat
-    on.  Its usage row goes with its table: the menu and `ak usage` list, and probe, only the
+    [defaults] passes over its models (passed_over), in the file too once saved.  The last
+    provider cannot go, since a config with no model has nothing to start a seat on.  Its usage row goes with its table: the menu and `ak usage` list, and probe, only the
     providers the config has.  The caller saves.
     """
     if name not in cfg["providers"]:
@@ -489,12 +488,14 @@ def remove_provider(cfg, name):
     for model in [model for model, entry in cfg["models"].items()
                   if isinstance(entry, dict) and entry.get("provider") == name]:
         del cfg["models"][model]
+    if "defaults" in cfg:
+        cfg["defaults"] = passed_over(cfg["defaults"], cfg)
     return cfg
 
 
 def remove_model(cfg, name):
     """Take one model out of `cfg`, the way remove_provider takes one provider's: [defaults]
-    stays, and the last model cannot go.  Its provider stays, settings and all, so another of
+    passes over it (passed_over), and the last model cannot go.  Its provider stays, settings and all, so another of
     its models can be added, but a free one, which goes with its last (drop_bare_free); a
     `usage_model` naming it goes, and that usage call falls to the provider's first model.
     The caller saves.
@@ -505,7 +506,24 @@ def remove_model(cfg, name):
     provider = cfg["providers"][cfg["models"].pop(name)["provider"]]
     if provider.get("usage_model") == name:
         del provider["usage_model"]
-    return drop_bare_free(cfg)
+    drop_bare_free(cfg)
+    if "defaults" in cfg:
+        cfg["defaults"] = passed_over(cfg["defaults"], cfg)
+    return cfg
+
+
+def passed_over(defaults, cfg):
+    """`defaults` as load() reads them over `cfg`'s models, the first model left taking a place
+    one gone empties; as given while every model they name is there.  save writes them so: a
+    removed model's place moves on every screen and in the file alike."""
+    left = offered(cfg)
+    named = [defaults.get("orchestrator"), *(defaults.get("workers") or []),
+             *(defaults.get("reviewers") or [])]
+    if not left or all(name in left for name in named):
+        return defaults
+    defaults = dict(defaults)     # _fall_back puts new lists in, never changing one given
+    _fall_back(defaults, left, "workers" in defaults)
+    return defaults
 
 
 def drop_bare_free(cfg):
@@ -819,8 +837,8 @@ def save(cfg, defaults=None):
     place, so a value that will not write leaves the file it found behind.  The file keeps
     the 0600 install.sh gave it: a replace inherits the temp file's mode, not the old one's.
     `[defaults]` is written as `defaults`, a creation's (remember_defaults), and otherwise as
-    the file has it, whatever `cfg` holds: a menu open for hours holds an older one, and a
-    model removed since is only passed over in memory (load).
+    the file has it, whatever `cfg` holds, since a menu open for hours holds an older one: a
+    model `cfg` no longer has passed over (passed_over).
     """
     path = HOME / CONFIG_NAME
     if defaults is None:
@@ -828,6 +846,8 @@ def save(cfg, defaults=None):
             defaults = (_read_toml(path) or {}).get("defaults")
         except Error:
             defaults = None       # nothing readable to keep: `cfg`'s are written
+        if isinstance(defaults, dict):
+            defaults = passed_over(defaults, cfg)
     text = dump(cfg if defaults is None else {**cfg, "defaults": defaults})
     ensure_dirs()
     tmp = path.with_suffix(".tmp")

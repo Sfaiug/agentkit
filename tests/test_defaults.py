@@ -177,14 +177,14 @@ class Defaults(unittest.TestCase):
         self.assertNotIn("anthropic", cfg["providers"])
         self.assertNotIn("fable", cfg["models"])
         self.assertNotIn("opus", cfg["models"])
-        # [defaults] stays the last creation's, in the file too; reading it passes over opus,
-        # so the first model left takes the orchestrator's place, and astra stays
-        before = {"orchestrator": "opus", "workers": ["opus", "astra"]}
-        self.assertEqual(cfg["defaults"], before)
+        # [defaults] passes over opus, so the first model left takes the orchestrator's place,
+        # and astra stays: in memory, in the file once saved, and as it reads again
+        after = {"orchestrator": "astra", "workers": ["astra"]}
+        self.assertEqual(cfg["defaults"], after)
         config.save(cfg)
-        self.assertEqual(tomllib.loads(self.path.read_text())["defaults"], before)
+        self.assertEqual(tomllib.loads(self.path.read_text())["defaults"], after)
         cfg = config.load()
-        self.assertEqual(cfg["defaults"], {"orchestrator": "astra", "workers": ["astra"]})
+        self.assertEqual(cfg["defaults"], after)
         # a fresh cache still holding the provider shows it nowhere and reads it again nowhere
         readings = {name: {"provider": name, "meters": [self.meter("weekly", 30)], "resets": 0}
                     for name in ("anthropic", "openai", "meta", "xai", "mimo", "google")}
@@ -222,7 +222,8 @@ class Defaults(unittest.TestCase):
         for name in ("openai", "meta", "xai", "mimo", "google"):
             config.remove_provider(cfg, name)
         self.assertEqual(list(cfg["providers"]), ["anthropic"])
-        self.assertEqual(cfg["defaults"], {"orchestrator": "opus", "workers": ["opus", "astra"]})
+        # astra went with openai: passed over
+        self.assertEqual(cfg["defaults"], {"orchestrator": "opus", "workers": ["opus"]})
         kept = copy.deepcopy(cfg)
         with self.assertRaisesRegex(config.Error, "last provider"):
             config.remove_provider(cfg, "anthropic")
