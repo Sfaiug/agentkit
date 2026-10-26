@@ -6,7 +6,6 @@ model and harness, in the shared transport."
 Real PTYs and pipes, a fake harness, and an isolated HOME; no model or live seat.
 """
 import errno
-import fcntl
 import hashlib
 import json
 import pty
@@ -27,6 +26,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 WRAPPER = REPO / 'tools/idle-compact.py'
 sys.path.insert(0, str(REPO))
+from fixtures.unread import unread
 
 HARNESS = r'''
 import hashlib, json, os, sys, time, tty
@@ -145,7 +145,7 @@ class RelayIO(unittest.TestCase):
         """The bytes waiting to be read on `fd` once `size` are there, or at `bound` seconds."""
         deadline = time.monotonic() + bound
         while True:
-            waiting = struct.unpack('i', fcntl.ioctl(fd, termios.FIONREAD, b'\0' * 4))[0]
+            waiting = unread(fd)
             if waiting >= size or time.monotonic() > deadline:
                 return waiting
             time.sleep(.01)
