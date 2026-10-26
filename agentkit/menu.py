@@ -4497,8 +4497,14 @@ def models_page(cfg):
     full, empty = ("■", "□") if terminal.utf8() else ("#", "-")
     tables = copy.deepcopy(cfg["providers"])
     gone = {}                 # (harness, model id): [(name, entry)] each taken out here
-    runs = {}                 # harness: the first provider the config has that it runs
-    for provider in cfg["providers"]:
+    harnesses = list(dict.fromkeys(harness for provider in cfg["providers"]
+                                   for harness in config.provider_harnesses(cfg, provider)))
+    runs = {}                 # harness: what a model coming in where none is left takes
+    shipped = config.shipped().get("models")
+    for entry in shipped.values() if isinstance(shipped, dict) else ():
+        if isinstance(entry, dict) and entry.get("provider") in cfg["providers"]:
+            runs.setdefault(entry.get("harness"), entry["provider"])
+    for provider in cfg["providers"]:     # a harness the shipped default runs on none of them
         for harness in config.provider_harnesses(cfg, provider):
             runs.setdefault(harness, provider)
 
@@ -4528,9 +4534,10 @@ def models_page(cfg):
 
     def listing(harness):     # the models a harness's row opens onto
         if harness in config.provider_hosts():
-            return list({cfg["models"][name]["model"]: {"id": cfg["models"][name]["model"],
-                                                        "label": config.model_name(cfg, name)}
-                         for name in on(harness)}.values())
+            kept = [*((name, cfg["models"][name]) for name in on(harness)),
+                    *(kept for (on_, _), taken in gone.items() if on_ == harness for kept in taken)]
+            return list({entry["model"]: {"id": entry["model"], "label": config.model_name(
+                {"models": {name: entry}}, name)} for name, entry in kept}.values())
         return _offered(harness, "config · models")
 
     def ticks(harness):       # the list a harness's row opens
@@ -4555,7 +4562,7 @@ def models_page(cfg):
     def page():
         return [(model_heading(harness), ", ".join(config.model_name(cfg, name)
                                                    for name in on(harness)) or "none",
-                 ticks(harness)) for harness in runs], TICKS_NOTE
+                 ticks(harness)) for harness in harnesses], TICKS_NOTE
     config_page("models", page)
 
 
