@@ -556,10 +556,21 @@ def provider_tokens(record):
 def said(record, cwd, conversation):
     """Each run of the session starts with the prompt it was given and commits every answer it
     showed as an event of its own; its reasoning, tool batches and reminders are other events,
-    and a child session is a log of its own."""
+    and a child session is a log of its own.  Its chat shows a run's first final answer, one
+    with no `phase`, and none after it: Muse 1.4.12 logs a later one its own end-of-turn
+    reminder asked for that no screen of it ever displays."""
     from . import turns
-    return turns(session_log(conversation), typed,
-                 lambda entry: run_event(entry, "assistant_message_committed").get("text"))
+    finals = set()
+
+    def shown(entry):
+        event = run_event(entry, "assistant_message_committed")
+        run = entry["payload"].get("run_id") if event and not event.get("phase") else None
+        if isinstance(run, str):
+            if run in finals:
+                return None
+            finals.add(run)
+        return event.get("text")
+    return turns(session_log(conversation), typed, shown)
 
 
 def user_messages(record, cwd, conversation):
