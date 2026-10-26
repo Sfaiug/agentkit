@@ -817,13 +817,15 @@ def live_tick(log, now, fetched):
     check no later check passed is handed back (`live_hand_back`), wherever main went since,
     once it is the second red in a row (a first red is only logged and waits for its retry),
     unless an older one's notice was typed or told already.
-    A red tip first checks HEAD, reusing a result ended since the tip check began. Only failed
-    labels shared with that result can pass the tip; those standing faults are handed back
-    without holding the move. The comparison stays with the tip result in `baseline`.
-    Offline, no check starts: what was fetched last may be what origin has since moved on from.
+    A red tip with an exit code and failed labels first checks HEAD, reusing a result ended
+    since the tip check began; any other red is held and retried as it is. Only failed labels
+    shared with that result can pass the tip; those standing faults are handed back without
+    holding the move. The comparison stays with the tip result in `baseline`.
+    Offline, the tick decides on the origin/main it fetched last, but no check starts: origin
+    may have moved on from it since.
     """
     from . import watch     # here, not at the top: watch imports this module
-    tip = _git("rev-parse", "--verify", "--quiet", "origin/main")[1] if fetched else ""
+    tip = _git("rev-parse", "--verify", "--quiet", "origin/main")[1]
     head = _git("rev-parse", "HEAD")[1]
     had, running, pruned, done = {}, False, False, []
     for started, commit, check in live_checks():
@@ -853,12 +855,16 @@ def live_tick(log, now, fetched):
     if pruned:
         _git("worktree", "prune")
     mine = [(started, check, code) for started, commit, check, code in done if commit == tip]
-    base = []
+    base, needs_base = [], False
     if mine and mine[-1][2] != 0:
         started, check, code = mine[-1]
+        failed = _live_failed(check)
         base = [(s, c, rc) for s, commit, c, rc in done if commit == head
                 and _live_ended(c, rc) >= started]
-        if base and code is not None and base[-1][2] not in (None, 0):
+        # without an exit code or a failed label, no HEAD result could pass the tip
+        needs_base = (not base and code is not None and bool(failed)
+                      and not _git("cat-file", "-e", f"{head}:tests/live.sh")[0])
+        if base and code is not None and failed and base[-1][2] not in (None, 0):
             s, other, rc = base[-1]
             # Upgrades between the two checks make them incomparable, even after a revert.
             try:
@@ -869,10 +875,8 @@ def live_tick(log, now, fetched):
                 same = True
             except (OSError, ValueError, TypeError):
                 same = False
-            failed = _live_failed(check)
-            if same and failed and failed <= _live_failed(other):
+            if same and failed <= _live_failed(other):
                 _put(check / "baseline", other.name + "\n")
-    needs_base = mine and not base and not _git("cat-file", "-e", f"{head}:tests/live.sh")[0]
     episode = None      # a pass ends what was red before it; one typed or told stands until then
     reds = 0            # red checks in a row since the last pass, whichever commits they checked
     for started, commit, check, code in done:
@@ -891,7 +895,8 @@ def live_tick(log, now, fetched):
         # A first red is logged and waits for its retry: the gate makes real model calls, and
         # one provider blip is not main broken.  The second red in a row goes to a seat.
         live_hand_back(*episode, log, hand=reds > 1 and (episode[0] != tip or not needs_base))
-    if (running or not tip or any(_live_passed(check, started) for started, check, _ in mine)
+    if (running or not fetched or not tip
+            or any(_live_passed(check, started) for started, check, _ in mine)
             or _git("merge-base", "--is-ancestor", tip, "HEAD")[0] != 1
             or _git("cat-file", "-e", f"{tip}:tests/live.sh")[0]):
         return
