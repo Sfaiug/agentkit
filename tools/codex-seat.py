@@ -23,8 +23,9 @@ import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentkit import config
-from agentkit.harness.codex import (drop_closed_seat, first_prompt, main, pairing_home,
-                                    remote_home, seat_conversations)
+from agentkit.harness.codex import (SEAT_STATE, STOP_RULE, drop_closed_seat, first_prompt,
+                                    in_flight, main, pairing_home, remote_home,
+                                    seat_conversations)
 
 
 CONVERSATIONS = ("sessions", "archived_sessions")
@@ -337,14 +338,15 @@ def connected(cmd, home, alive):
                 if proc.poll() is not None:
                     raise config.Error(f"Codex seat server did not start; see {home / 'server.log'}")
                 time.sleep(.05)
+            # Written before the TUI starts a turn, whose Stop asks the server (`in_flight`).
+            with (home / "connection.json").open("w") as fh:
+                json.dump({"socket": str(path)}, fh)
             # --remote is global and must precede the resume subcommand. The server above
             # holds the seat's permissions; since 0.160 a remote resume whose TUI asks for
             # its own is refused.
             tui = subprocess.Popen([cmd[0], "--remote", "unix://" + str(path),
                                     *(word for word in cmd[1:] if word != "--yolo"), *prompt],
                                    env=env)
-            with (home / "connection.json").open("w") as fh:
-                json.dump({"socket": str(path)}, fh)
             check_at = 0
             named = None
             while tui.poll() is None and alive():
@@ -422,6 +424,27 @@ def launch(cmd, receipt):
             signal.signal(sig, handler)
 
 
+def stop_hook():
+    """This seat's Stop, handed on with the background work it holds (`in_flight`), read from
+    the seat's own app server, which runs this hook.  Where the server cannot say, the Stop goes
+    on as it came: unread work is no evidence of none."""
+    payload = sys.stdin.read()
+    try:
+        event = json.loads(payload)
+        with (Path(os.environ["CODEX_HOME"]) / "connection.json").open() as fh:
+            client = Client(json.load(fh)["socket"])
+        try:
+            payload = json.dumps({**event, "background_tasks": in_flight(client,
+                                                                          event["session_id"])})
+        finally:
+            client.close()
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, config.Error):
+        pass
+    for script in (SEAT_STATE, STOP_RULE):
+        subprocess.run(["bash", str(config.REPO / script)], input=payload, text=True)
+    return 0
+
+
 def pair_again(home):
     home = pairing_home(home)
     connection = json.loads((home / "connection.json").read_text())
@@ -440,6 +463,8 @@ if __name__ == "__main__":
             sys.exit(forget(sys.argv[2]))
         if len(sys.argv) == 3 and sys.argv[1] == "--pair":
             sys.exit(pair_again(sys.argv[2]))
+        if sys.argv[1:] == ["stop"]:
+            sys.exit(stop_hook())
         sys.exit(main(sys.argv[1:], launch=launch))
     except (OSError, ValueError, config.Error) as exc:
         print(f"codex seat: {exc}", file=sys.stderr)

@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import runpy
+import select
 import shlex
 import signal
 import socketserver
@@ -12,6 +13,7 @@ import sqlite3
 import struct
 import subprocess
 import sys
+import threading
 import time
 import tomllib
 import uuid
@@ -120,14 +122,27 @@ if args[:1] == ['app-server']:
                     state = home / '.agentkit/state' / ('hook-' + os.environ['AGENTKIT_SESSION'] + '.json')
                     if state.exists():
                         (ch / 'fake-working.json').write_text(state.read_text())
-                    hook({**event, 'hook_event_name': 'Stop', 'last_assistant_message': 'ACME_READY'})
+                    stop.update(event, hook_event_name='Stop', last_assistant_message='ACME_READY')
+                    hook(stop)
                     result = {'thread': {'id': sid}}
+                elif method in ('thread/backgroundTerminals/list', 'thread/list'):
+                    # what the test says the thread runs in the background now, as the server
+                    # lists it, ending with no `nextCursor`
+                    listed = home / 'in-flight.json'
+                    result = (json.loads(listed.read_text()) if listed.exists() else {}).get(
+                        method, {'data': [], 'nextCursor': None})
                 wire = json.dumps({'id': msg['id'], 'result': result}).encode()
                 header = bytes([129, len(wire)]) if len(wire) < 126 else (
                     bytes([129, 126]) + struct.pack('!H', len(wire)))
                 self.wfile.write(header + wire)
             if monitor:
                 (ch / 'fake-monitor-closed').touch()
+
+    # The thread's turn ends again on SIGUSR1, its Stop fired from this server as Codex fires it,
+    # beside the loop that keeps serving.
+    stop = {}
+    signal.signal(signal.SIGUSR1, lambda signum, frame: threading.Thread(
+        target=hook, args=(dict(stop),)).start())
 
     class Server(socketserver.ThreadingUnixStreamServer):
         daemon_threads = True
@@ -156,11 +171,22 @@ else:
     client = Client(args[args.index('--remote') + 1].removeprefix('unix://'))
     try:
         if 'resume' in args:
-            client.call('thread/resume', {'threadId': args[args.index('resume') + 1]})
+            sid = client.call('thread/resume', {'threadId': args[args.index('resume') + 1]})
         else:
-            client.call('thread/start', {})
+            sid = client.call('thread/start', {})
+        sid = sid['thread']['id']
+        if os.environ.get('FAKE_SCREEN'):       # the screen a TUI at its prompt draws
+            print(Path(os.environ['FAKE_SCREEN']).read_text(), end='', flush=True)
         publish('fake-tui', {'argv': args, 'pid': os.getpid()})
         while os.environ.get('FAKE_HOLD'):
             time.sleep(.05)
+            # a TUI at its prompt reads what is typed into it, and names its thread on /rename
+            # where Codex keeps the names (tests/fixtures/codex-title-index.jsonl)
+            if os.environ.get('FAKE_SCREEN') and select.select([0], [], [], 0)[0]:
+                for line in os.read(0, 4096).decode(errors='replace').splitlines():
+                    if line.startswith('/rename '):
+                        with (ch / 'session_index.jsonl').open('a') as index:
+                            index.write(json.dumps({'id': sid, 'thread_name': line[8:].strip(),
+                                                    'updated_at': '2026-09-11T08:00:00Z'}) + '\n')
     finally:
         client.close()

@@ -75,7 +75,10 @@ class HookTrust(unittest.TestCase):
                         matchers[event] = groups[0]["matcher"]
         trusted = [flag for flag in flags if flag.startswith("hooks.state=")]
         self.assertEqual(len(installed), 7, installed)
-        self.assertEqual(sum(map(len, installed.values())), 9)
+        self.assertEqual(sum(map(len, installed.values())), 8)
+        # a Stop goes through the one that hands it on with the background work in flight
+        self.assertEqual(len(installed["Stop"]), 1)
+        self.assertTrue(installed["Stop"][0][0].endswith("tools/codex-seat.py stop"))
         # a compaction's SessionStart reaches the seat's hook (`orch.rulebook_compacted`)
         self.assertIn("hooks/seat-state.sh", installed["SessionStart"][-1][0])
         # the seat's question tools, and only they: the one that waits for nobody goes to its
