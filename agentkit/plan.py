@@ -2,7 +2,8 @@
 
 `ak plan add "<outcome>" --check '<cmd>'` runs the check on a clean checkout of the project's
 default branch and refuses one that already passes there: a check that passes before the work
-proves nothing, and one that never finishes there could never tick.  `ak plan check <n> '<cmd>'`
+proves nothing, and one that never finishes there could never tick.  In a turn that reached the
+live host, one that passes is written done instead: the work was done there, not in the repo.  `ak plan check <n> '<cmd>'`
 puts another check in a line's place -- the seat's own test where a review follow-up came
 checked by the reviewer's probe -- when it fails on the commit the line's check was proven
 failing on, which the line names (a line from before lines named one takes it unproven).  `ak plan` ticks each check line whose check now passes on
@@ -25,7 +26,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import command_help, config, gitcall, terminal
+from . import command_help, config, gitcall, guard, terminal
 
 CHECK_LIMIT = 600    # an unfinished check proves nothing
 # an eye line, from before every line had a check, reads done: how a change looks is the
@@ -535,6 +536,7 @@ def add(name, what, check, repo=None, proven=None, deferred=False):
     repo = Path(repo) if repo else project_of(name)
     check = one_command(check)
     holds_checkout(check, repo)
+    passed = None
     if proven:
         found, base = root(repo, proven), proven[:12]
         if not found:
@@ -543,9 +545,14 @@ def add(name, what, check, repo=None, proven=None, deferred=False):
     else:
         failing, found, base = fails_on_main(repo, check)
         if not failing:
-            raise config.Error(f"this check already passes on {repo.name}'s default "
-                               "branch, so it proves nothing; write one that fails until "
-                               "the work is done")
+            # The owner, 26 Oct 2026: in a turn whose own ssh reached the live host, under any
+            # name the seat had, work done there proves itself, so a check already passing is
+            # written done on that commit and a job finished in that one turn reads `done`.
+            if not any(guard.reached_live(each) for each in names(name)):
+                raise config.Error(f"this check already passes on {repo.name}'s default "
+                                   "branch, so it proves nothing; write one that fails until "
+                                   "the work is done")
+            passed, base = base, None
     where = named(repo, found)
     if "·" in where:
         raise config.Error(f"{where}: a project a line names holds no `·`")
@@ -557,15 +564,21 @@ def add(name, what, check, repo=None, proven=None, deferred=False):
             if (parsed and is_open(old) and parsed["check"] == check
                     and parsed["project"] == where):
                 # the open line already holding this check here is kept, its mark as asked
-                kept = compose(parsed["what"], proof, where, deferred, parsed["when"], parsed["base"])
+                kept = ticked(compose(parsed["what"], proof, where, deferred, parsed["when"],
+                                       parsed["base"]), passed)
                 if kept != old.strip():
                     write(current, [*text[:index], kept, *text[index + 1:]])
                 return kept
         # on the clock a run's `finished_at` reads, which `taken` compares it with
         stamp = time.strftime(STAMP, time.localtime(time.time()))
-        line = compose(what, proof, where, deferred, stamp, base)
+        line = ticked(compose(what, proof, where, deferred, stamp, base), passed)
         write(current, [*text, line])
     return line
+
+
+def ticked(line, commit):
+    """An open `line` ticked as passing on `commit`, as `verify` ticks one; as it is without one."""
+    return f"- [x] {line[6:]} · done {commit}" if commit else line
 
 
 def one_command(check):

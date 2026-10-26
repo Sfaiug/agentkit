@@ -4465,7 +4465,8 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     """The end-of-turn rule where no hook can hold it: a turn ends with a question asked through
     `ak notify needs`, a finished plan or a run or live job to wait on, and a seat that stopped on none
     of the three is told to get on with it.  A question mark on the screen asks nobody anything.
-    An unnamed seat is told to name itself instead (`config.name_owed`).
+    An unnamed seat is told to name itself instead (`config.name_owed`), and one whose turn
+    reached the live host with no open line in its plan to write that down (`stop.live_unrecorded`).
 
     An unanswered question of this seat's own keeps it stopped. Otherwise the decision
     reads the plan and the runs and jobs.
@@ -4534,7 +4535,8 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
     if not question and isinstance(wait, dict) and wait.get("over") and not wait.get("told"):
         return      # its wait is over: wait_over says so, and why, before any continue
     ends, undecided = stop.recorded_ending(name, records, question=question)
-    if ends:
+    live = ends and not question and stop.live_unrecorded(name)
+    if ends and not live:
         return
     parked = [directory.name for directory, _ in undecided]
     nudged = {}
@@ -4549,7 +4551,7 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
         nudged = {"notice": since,
                   "runs": {**nudged, **{run: nudged.get(run, 0) + 1 for run in parked}}}
     tail = pane_tail(pane)
-    keys = config.name_owed(name) or keystroke(harness, tail)
+    keys = config.name_owed(name) or live or keystroke(harness, tail)
     if dry_run:
         log(f"would resume {name}, stopped with work open, no question and no run, with {keys!r}")
         return

@@ -451,7 +451,7 @@ class ClosedSeat(Sandbox):
         for kind in kinds:
             config.seat_file(kind, "atoll").write_text("{}\n")
         config.rename_session("atoll", "beta")
-        for kind in kinds - {"rulebook", "stop", "launch", "handover"}:
+        for kind in kinds - {"rulebook", "stop", "live", "launch", "handover"}:
             self.assertFalse(config.seat_file(kind, "atoll").exists(), kind)
             self.assertTrue(config.seat_file(kind, "beta").exists(), kind)
         self.assertTrue(config.rulebook_path("atoll").exists())   # its orchestrator still reads it

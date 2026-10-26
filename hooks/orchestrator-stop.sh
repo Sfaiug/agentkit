@@ -20,7 +20,8 @@
 # then costs the user nothing but one turn.  A turn that would end on a last message ending in
 # a question mark, with nothing asked through the question prompt or `ak notify needs`, is sent
 # back once: a question left in prose reaches nobody but the terminal, so the seat asks it there
-# or goes on without it.
+# or goes on without it.  So is a turn whose own ssh reached the live host and that leaves its plan
+# no open line (`stop.live_unrecorded`): what it did there is written down, or it only read.
 #
 # Before the harness draws its question prompt (PreToolUse, where its adapter installs it) this
 # refuses the question of a seat whose plan is done with nothing from the owner since
@@ -75,7 +76,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
 from agentkit import config, harness, notify, questions
 from agentkit.handback import handback_reason
-from agentkit.stop import question_refused, recorded_ending, ways_out
+from agentkit.stop import live_unrecorded, question_refused, recorded_ending, ways_out
 from agentkit.watch import owner_question, seat_read, start_look, turn_ended
 
 LIMIT = 2           # blocks in one turn; the third stop stands
@@ -310,7 +311,8 @@ def held(launched, payload):
     background work and the third stop stand past a parked run as they always did, while a
     finished plan, a run going, a merged run not yet live or an `ak wait` ends the turn only with none
     of this seat's runs parked and undecided, and nothing at all is owed with no open line in
-    the seat's plan.  A turn that ends so on a question in prose alone goes back once to ask it.
+    the seat's plan.  A turn that ends so on a question in prose alone goes back once to ask it,
+    and one that reached the live host with no open line once to write it down; neither counts.
     """
     # The latch is this seat's own file, under the name its harness was launched with, the way
     # hooks/seat-state.sh writes it.  What it reads is the toolkit's, and that moved when the
@@ -334,6 +336,10 @@ def held(launched, payload):
              or owner_question(notify.last(seat)))
     ends, undecided = recorded_ending(seat, question=asked, since=turn)
     if ends and not delivery:
+        live = not asked and not record.get("live_back") and live_unrecorded(launched)
+        if live:
+            latched(latch, {**record, "live_back": True})
+            return live
         if (asked or record.get("asked_back") or not trails_question(last_message(payload))
                 or question_refused(seat)):
             return ""

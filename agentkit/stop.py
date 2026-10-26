@@ -58,6 +58,21 @@ def owed_line(name):
     return None
 
 
+# The owner, 26 Oct 2026: work done straight on the live host involves no run, so a seat could
+# finish a whole job there with no plan and read `idle`; the turn goes back once to write it down.
+LIVE_LINE = ("You reached the live host this turn and your plan has no open line. Write what you "
+             "changed there with ak plan add \"<outcome>\" --check '<command>': a check that "
+             "already passes is written done. If you only read there, end your turn again.")
+
+
+def live_unrecorded(launched):
+    """LIVE_LINE where the seat's own ssh reached the live host this turn (`guard.reached_live`,
+    under the name it was launched with) and its plan has no open line, else None.  Its callers
+    send it back once a turn, past nothing that ends a turn first (`recorded_ending`)."""
+    from . import guard
+    return LIVE_LINE if guard.reached_live(launched) and not owed(launched) else None
+
+
 DONE_ASKING = ("Your plan is done: every line is proven, and the owner has written nothing since, "
                "so a question would hold only their attention. Say it in your last message "
                "instead; they read it when they come back.")
