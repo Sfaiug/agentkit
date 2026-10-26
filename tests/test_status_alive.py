@@ -220,7 +220,8 @@ class StatusAlive(Sandbox):
             table = self.status([])
         for text in (table, alone):
             self.assertIn(f"job {name}: 1 queued, 2 interrupted", text)
-            self.assertNotIn("running", text)
+            # the paths carry the checkout's name, which may hold the word
+            self.assertNotIn("running", text.replace(str(REPO), ""))
             self.assertIn(f"launcher gone; ak run resume {name} to continue", text)
         self.assertIn("  a.md interrupted 20260922-0900-job-first  a.md: interrupted", alone)
 
