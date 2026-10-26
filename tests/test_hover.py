@@ -302,11 +302,11 @@ class Screens(Sandbox):
     def test_an_effort_shimmering_under_the_pointer_keeps_its_light(self):
         screen = Screen(self)
         lines = screen.frame()
-        row = next(number for number, line in enumerate(lines, 1) if "Fable 5.1" in line)
+        row = next(number for number, line in enumerate(lines, 1) if "Opus 5.5" in line)
         line = lines[row - 1]
-        word = line.index("xhigh") + 1
+        word = line.index("xhigh") + 1                  # the orchestrator's, beside its mark
         # a click on the word's last letter steps it up, to a word that ends before it
-        screen.click(word + 4, row, lambda lines: lines[row - 1].endswith(" max"))
+        screen.click(word + 4, row, lambda lines: lines[row - 1][word - 1:].startswith("max "))
         screen.press(move(word, row))
         mark = screen.text().rfind("\x1b[H")
         # Let every frame land without a key or pointer move redrawing over the last one.

@@ -253,7 +253,7 @@ class OneConfigScreen(unittest.TestCase):
         self.assertIn(full("opus"), highlighted(lines))
         defaults = menu.defaults()
         lines = menu.press(b"c", title("config"))
-        self.assertEqual(lines[3].split(), ["orch", "builds", "reviews", "effort"])
+        self.assertEqual(lines[3].split(), ["orch", "builds", "reviews"])
         self.assertEqual(marks(model(lines, "opus")), "●■□")
         self.assertEqual(marks(model(lines, "astra")), "○■■")
         # fable executes, then opus and astra stop: fable alone executes, astra alone reviews
@@ -306,7 +306,7 @@ class OneConfigScreen(unittest.TestCase):
         del cfg["models"]["opus"]                         # removed while fix-api orchestrates on it
         menu.config.write_text(config.dump(cfg))
         lines = menu.press(b"c", title("config"))
-        self.assertEqual(lines[3].split(), ["orch", "builds", "reviews", "effort"])
+        self.assertEqual(lines[3].split(), ["orch", "builds", "reviews"])
         self.assertEqual(marks(model(lines, "astra")), "○■■")   # its roles, off what is left
         self.assertEqual(marks(model(lines, "fable")), "○□□")
         self.assertFalse(any("●" in marks(line) for line in lines), lines)

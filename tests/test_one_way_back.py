@@ -58,8 +58,8 @@ class Back(unittest.TestCase):
         # no seat is highlighted from a pipe, so the marks are new seats', under the meters
         self.assertIn("For  new seats", screen)
         lines = terminal.ANSI.sub("", screen).splitlines()
-        heads = next(line for line in lines if line.split()[-1:] == ["effort"])
-        self.assertEqual(heads.split(), ["orch", "builds", "reviews", "effort"])
+        heads = next(line for line in lines if line.split()[:1] == ["orch"])
+        self.assertEqual(heads.split(), ["orch", "builds", "reviews"])
         self.assertIn("  Claude ", "\n".join(lines[2:lines.index(heads)]))  # whatever it reads
 
     def test_v5u_menu_arrow_sequence_is_no_key(self):
