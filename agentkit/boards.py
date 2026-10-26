@@ -4,8 +4,9 @@
 Artificial Analysis, its site's pages (`AA_PAGES`), no key: per model and effort, every
 benchmark's score, index, price and cost its pages hand their scripts, which its free endpoint
 leaves out, and the record's identity (`IDENTITY`) for `catalog`.  Arena, its leaderboard's Hugging Face dataset, no key: each of `ARENA_BOARDS` at its
-category, with its 95% interval as `<column>.lower95ci` and `<column>.upper95ci`.  LiveBench 2.0, its newest release's CSV files, no key: each suite's score and what a
-successful coding task cost.  `ak models --refresh` asks again before the day is up; a board
+category, with its 95% interval as `<column>.lower95ci` and `<column>.upper95ci`, no row of a
+model run inside another harness.  LiveBench 2.0, its newest release's CSV files, no key: each
+suite's score and what a successful coding task cost.  `ak models --refresh` asks again before the day is up; a board
 that cannot answer keeps what it last said, its error beside it, and waits for the day like one
 that answered.  A board another build of ak read is asked again, once, by a build reading a
 column its rows carry none of, or rows lacking the identity this build's reader gives them: its
@@ -179,9 +180,10 @@ def artificial_analysis():
 
 def arena():
     """Arena's rows: each of `ARENA_BOARDS` a column with its interval, for every model its latest
-    leaderboard lists at that category, but one run inside another harness (`HARNESS`).  A board's rows come grouped by category, overall first and the
-    others in their alphabetical order, so the dataset's counts per category say where the
-    wanted ones start, and every row read is checked to be one of them, all of them read."""
+    leaderboard lists at that category, but one run inside another harness (`HARNESS`).  A
+    board's rows come grouped by category, overall first and the others in their alphabetical
+    order, so the dataset's counts per category say where the wanted ones start, and every row
+    read is checked to be one of them, all of them read."""
     rows = {}
     for board, category in ARENA_BOARDS:
         statistics = json.loads(fetch_bytes(ARENA_URL.format(endpoint="statistics", board=board)))
@@ -295,8 +297,8 @@ def collect(*, refresh=False, now=None, needs=None, build=None):
     `asked_at`, answered or not; a board that fails keeps its last rows and their `fetched_at`.
     `needs`, {board: columns} the caller reads, and `build`, ak's build asking: a board held
     from another build whose rows carry none of a needed column, or lack its `IDENTITY` or
-    `ADDED`, is asked again before the day is up, once, since its reader changed.  One caller collects at a time, under `boards.lock`,
-    and the next reads what it wrote."""
+    `ADDED`, is asked again before the day is up, once, since its reader changed.  One caller
+    collects at a time, under `boards.lock`, and the next reads what it wrote."""
     now = time.time() if now is None else now
     with _locked():
         cache = _held()
