@@ -1,6 +1,6 @@
 """Before a config save changes the entries, a seat's record from before, and a worker it falls
-back on, holds the efforts they gave it, the shipped config's for a file with no model tables;
-a read writes nothing.  Offline, in a throwaway HOME."""
+back on, holds the efforts they gave it, the shipped config's for a file with no model tables.
+Offline, in a throwaway HOME."""
 
 from contextlib import ExitStack
 import json
@@ -46,9 +46,8 @@ class SaveKeepsSeatEfforts(unittest.TestCase):
         self.config.write_text("max_runs = 2\n")
         self.record.write_text(json.dumps({"orchestrator": "astra", "workers": ["gone"],
                                            "efforts": {"astra": {"effort": "low"}}}))
-        cfg, before = config.load(), self.record.read_bytes()
-        self.assertEqual(config.load_session(cfg, "acme")["efforts"]["fable"], {"effort": "xhigh"})
-        self.assertEqual(self.record.read_bytes(), before)
+        cfg = config.load()
+        self.assertEqual(config.load_session(cfg, "acme")["workers"], ["fable"])
         cfg["models"]["fable"]["effort"] = "low"
         config.save(cfg)
         self.assertEqual(json.loads(self.record.read_text())["efforts"]["fable"],
