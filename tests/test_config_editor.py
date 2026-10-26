@@ -98,7 +98,7 @@ class Editor(unittest.TestCase):
         self.path.write_text(OWN)
         config.save_session(config.load(), "fix-api", "solo", ["solo"])
         before = self.path.read_bytes()
-        _, screen = self.drive("right", "enter", session="fix-api")
+        _, screen = self.drive("right", "right", "enter", session="fix-api")
         self.assertNotIn("at least one model reviews", screen)
         self.assertEqual(self.path.read_bytes(), before)
         self.assertEqual((self.record()["workers"], self.record()["reviewers"]), ([], ["solo"]))
@@ -107,21 +107,22 @@ class Editor(unittest.TestCase):
         self.path.write_text(OWN)
         self.drive("down")
         self.assertEqual(self.path.read_text(), OWN)      # nothing changed: nothing to save
-        self.drive("right", "right", "right", "enter")
+        self.drive("right", "enter")
         saved = tomllib.loads(self.path.read_text())
         self.assertNotIn("tiers", saved)
         self.assertEqual(saved["defaults"], {"orchestrator": "solo", "workers": ["solo"]})
         self.assertEqual(saved["models"]["solo"]["effort"], "max")
 
     def test_stepping_effort_writes_new_value(self):
-        # fable is a claude, xhigh today; its own words run low to max, and go round
-        levels = [{"id": "claude-fable-5-1", "label": "Fable 5.1",
+        # opus, new seats' orchestrator, is a claude, xhigh today; its own words run low to
+        # max, and go round
+        levels = [{"id": "claude-opus-5-5", "label": "Opus 5.5",
                    "efforts": ["low", "medium", "high", "xhigh", "max"]}]
         with patch.object(config, "catalog", return_value=levels):
             for keys, want in ((("enter",), "max"), (("enter",), "low"), (("enter", "enter"), "high")):
                 with self.subTest(want=want):
-                    self.drive("right", "right", "right", *keys)
-                    effort = tomllib.loads(self.path.read_text())["models"]["fable"]["effort"]
+                    self.drive("down", "right", *keys)
+                    effort = tomllib.loads(self.path.read_text())["models"]["opus"]["effort"]
                     self.assertEqual(effort, want)
 
     def test_add_model_writes_complete_entry(self):
@@ -154,15 +155,15 @@ class Editor(unittest.TestCase):
                                                 '[models.fable]\nnickname = "f"\nharness = "claude"')
         text += '\n[extra]\nanswer = 42\n\n[extra.nested]\ndeep = true\n'
         self.path.write_text(text)
-        levels = [{"id": "claude-fable-5-1", "label": "Fable 5.1",
+        levels = [{"id": "claude-opus-5-5", "label": "Opus 5.5",
                    "efforts": ["low", "medium", "high", "xhigh", "max"]}]
         with patch.object(config, "catalog", return_value=levels):
-            self.drive("right", "right", "right", "enter")
+            self.drive("down", "right", "enter")
         again = tomllib.loads(self.path.read_text())
         self.assertEqual(again["mystery"], 7)
         self.assertEqual(again["models"]["fable"]["nickname"], "f")
         self.assertEqual(again["extra"], {"answer": 42, "nested": {"deep": True}})
-        self.assertEqual(again["models"]["fable"]["effort"], "max")
+        self.assertEqual(again["models"]["opus"]["effort"], "max")
         self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
 
     def test_the_version_is_read_once_per_visit_and_no_harness_is_asked(self):
@@ -184,7 +185,7 @@ class Editor(unittest.TestCase):
                 patch.object(terminal, "width", return_value=40), \
                 patch.object(terminal, "height", return_value=24):
             for keys in (("enter",), ("right", "enter"), ("right", "right", "enter"),
-                         ("right", "right", "right", "enter")):
+                         ("down", "right", "enter")):
                 with self.subTest(keys=keys):
                     left, screen = self.drive(*keys)
                     self.assertEqual(left["defaults"], {"orchestrator": "opus",
@@ -208,7 +209,7 @@ class Editor(unittest.TestCase):
     def test_main_screen_lists_values(self):
         _, screen = self.drive(session="fix-api")
         self.assertTrue(screen.startswith("agentkit · config "), screen)
-        for bit in ("For  fix-api", "orch  builds  reviews  effort", "Claude", "●", "■", "□",
+        for bit in ("For  fix-api", "orch", "Claude", "●", "■", "□",
                     "▰▰▰▰▱", "Models", "Discord", "Version abc1234 · 2026-09-29",
                     "esc back"):
             self.assertIn(bit, screen)

@@ -32,11 +32,11 @@ class RoleMarks(Sandbox):
         before = path.read_bytes()
         with patch.object(terminal, "layout_width", return_value=80):
             lines, places = menu.config_body(self.cfg)
-        self.assertEqual(lines[0].split(), ["effort"])
+        self.assertEqual(lines[0].split(), ["orch", "builds", "reviews"])
         for number, (model, cells) in places.items():
             if model[0] == "model":
                 self.assertEqual(marks(lines[number]), "")
-                self.assertEqual([cell[2] for cell in cells], [-1, 3])
+                self.assertEqual([cell[2] for cell in cells], [-1, 3, 4, 5])
         self.assertEqual(path.read_bytes(), before)
         self.assertNotIn("reviewers", self.cfg["defaults"])
 
@@ -223,7 +223,7 @@ class RoleMarksScreen(unittest.TestCase):
         screen = ConfigScreen(self, workers=["opus"], cols=40, rows=27)
         lines = screen.frame()
         number, line = row(lines, "astra")
-        first = next(line for line in lines if line.split()[-1:] == ["effort"]).index("review") + 1
+        first = next(line for line in lines if line.split()[:1] == ["orch"]).index("review") + 1
         lines = screen.click(first, number,
                              lambda lines: marks(row(lines, "astra")[1]) == "○□■")
         self.assertEqual(screen.record()["reviewers"], ["opus", "astra"])
@@ -234,7 +234,7 @@ class RoleMarksScreen(unittest.TestCase):
         self.assertFalse(any("no allowed" in line for line in lines))
         before = screen.session.read_bytes()
         number, line = row(lines, "opus")
-        lines = screen.click(first + 4, number,
+        lines = screen.click(first, number,
                              lambda lines: any("at least one model reviews" in line for line in lines))
         self.assertEqual([line.strip() for line in lines if "at least one model reviews" in line],
                          ["at least one model reviews"])
