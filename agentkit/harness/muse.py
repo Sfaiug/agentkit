@@ -594,6 +594,46 @@ def user_messages(record, cwd, conversation):
             yield kept
 
 
+def card(record, cwd, conversation):
+    """Muse's own question card in that session, as the fact its hooks write for it (adapters/
+    muse.toml), dated when Muse recorded it; or None where it asked none.  Muse logs each card
+    going up and its settling -- answered, or Esc's `interrupted` -- as run events naming its
+    prompt and tool call, hooks or none (`/new` leaves a launch's behind): the newest card is
+    up until a settling of that same card follows it, and then down from that moment."""
+    from . import last_entry
+    settled, prompted = {}, []
+
+    def named(event):
+        return event.get("prompt_id"), event.get("tool_call_id")
+
+    def asked(entry):
+        if run_event(entry, "started"):     # read newest first: a prompt after what follows
+            prompted.append(entry)
+        done = run_event(entry, "user_input_prompt_settled")
+        if done:
+            settled.setdefault(named(done), (entry.get("recorded_at"), done.get("outcome"),
+                                             bool(prompted)))
+        return bool(run_event(entry, "user_input_prompt_requested"))
+    path = session_log(conversation)
+    entry = last_entry(path, asked) if path else None
+    event = run_event(entry or {}, "user_input_prompt_requested")
+    if not isinstance(event.get("prompt_id"), str):
+        return None
+    at, outcome, since = settled.get(named(event), (entry.get("recorded_at"), None, False))
+    if type(at) is not int:
+        return None
+    if outcome == "answered":
+        return {"event": "PostToolBatch", "kind": "request_user_input", "text": "", "at": at / 1e6}
+    if outcome:
+        # An Esc ends the turn, resting the seat until its next prompt, which Muse reports by no
+        # hook: from that prompt on, the turn the Esc ended is just over.
+        return {"event": "Stop" if since else "Interrupt", "kind": "", "text": "", "at": at / 1e6}
+    first = next(iter(event.get("questions") or ()), None)
+    text = first.get("question") if isinstance(first, dict) else None
+    return {"event": "Notification", "kind": "question_prompt",
+            "text": text if isinstance(text, str) else "", "at": at / 1e6}
+
+
 def session_log(conversation):
     """That session's log, or None where it has none or no such name."""
     if not isinstance(conversation, str) or not SESSION.fullmatch(conversation):

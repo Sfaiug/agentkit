@@ -606,6 +606,13 @@ class Harness:
         hook = self._hook("wrapped_up")
         return hook(record, cwd, conversation) if hook else None
 
+    def card(self, record, cwd):
+        """Its harness's own question card in the conversation that seat owns, as the hook fact
+        {event, kind, text, at} its going up or its settling writes, or None.  OSError where a
+        record exists and cannot be read."""
+        hook = self._hook("card")
+        return hook(record, cwd, self.conversation(record, cwd)) if hook else None
+
     def unanswered(self, record, cwd, conversation):
         """The owner's prompt that is that conversation's last message, as {at, text}, or None:
         one nothing has answered or interrupted yet.  OSError where a record exists and cannot
