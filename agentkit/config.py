@@ -683,22 +683,14 @@ def catalog(harness, cfg=None):
     are asked at once, and each answer cached a minute, because a live listing asks the
     harness's server.
     """
-    now, logins, lists = time.monotonic(), _logins(cfg, harness), {}
-    for account in logins:
-        cached = _CATALOGS.get((harness, account))
-        if cached and now - cached[0] < CATALOG_TTL:
-            lists[account] = cached[1]
-    asked = [account for account in logins if account not in lists]
+    now, logins = time.monotonic(), _logins(cfg, harness)
+    asked = [account for account in logins if now - _CATALOGS.get(
+        (harness, account), (-CATALOG_TTL, []))[0] >= CATALOG_TTL]
     with ThreadPoolExecutor(max(1, len(asked))) as pool:
         for account, listed in zip(asked, pool.map(
                 lambda account: _listed(harness, account, logins[account]), asked)):
-            lists[account] = listed
             _CATALOGS[harness, account] = (now, listed)
-    models = {}
-    for account in logins:
-        for model in lists[account]:
-            models.setdefault(model["id"], model)
-    return list(models.values()) or catalog_table(harness)
+    return catalog_held(harness, cfg)
 
 
 _ASKING = {}      # catalog_now's: the thread asking catalog(), by harness
@@ -718,7 +710,7 @@ def catalog_now(harness, cfg=None):
                                                      daemon=True)
         asking.start()
     asking.join(CATALOG_NOW)
-    return catalog_held(harness)
+    return catalog_held(harness, cfg)
 
 
 def _ask_catalog(harness, cfg):
@@ -728,12 +720,12 @@ def _ask_catalog(harness, cfg):
         pass            # catalog_now falls back to the table, which says the same error
 
 
-def catalog_held(harness):
-    """Every model that harness's logins last listed, however old, else its manifest's table:
-    for a draw, which asks no harness and waits on none."""
+def catalog_held(harness, cfg=None):
+    """catalog(harness, cfg) as its logins last listed it, however old, else its manifest's
+    table: for a draw, which asks no harness and waits on none."""
     models = {}
-    for (listed, _), (_, held) in list(_CATALOGS.items()):    # a thread may be adding one
-        for model in held if listed == harness else ():
+    for account in _logins(cfg, harness):
+        for model in _CATALOGS.get((harness, account), (0, []))[1]:
             models.setdefault(model["id"], model)
     return list(models.values()) or catalog_table(harness)
 

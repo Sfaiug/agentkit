@@ -3327,7 +3327,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     room, utf = terminal.layout_width(), terminal.utf8()
     marks = "●○■□" if utf else "*.x."
     names, models = config_models(cfg), cfg["models"]
-    levels = {name: effort_levels(models[name]) for name in names}
+    levels = {name: effort_levels(models[name], cfg) for name in names}
     efforts, levelled = {}, {}
     for name in names:
         entry, taken = models[name], levels[name]
@@ -3431,12 +3431,13 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     return lines, places
 
 
-def effort_levels(entry):
-    """The efforts a model's bars count: config.efforts off the catalog its harness last listed
-    (config.catalog_held), the one list a step on it walks (config_effort).  None where they
+def effort_levels(entry, cfg):
+    """The efforts a model's bars count: config.efforts off the catalog `cfg`'s logins on its
+    harness last listed (config.catalog_held), the one list a step on it walks (config_effort).  None where they
     cannot be read."""
     try:
-        return config.efforts(entry.get("harness"), entry.get("model"), config.catalog_held)
+        return config.efforts(entry.get("harness"), entry.get("model"),
+                              lambda harness: config.catalog_held(harness, cfg))
     except config.Error:
         return []
 

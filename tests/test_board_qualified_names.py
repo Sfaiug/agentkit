@@ -73,7 +73,8 @@ class QualifiedNames(Sandbox):
     def test_the_variant_s_numbers_reach_the_model_s_row(self):
         self.stack.enter_context(patch.object(config, "manifests", return_value=[("claude", {})]))
         self.stack.enter_context(patch.object(config, "harness_present", return_value=True))
-        self.stack.enter_context(patch.object(config, "catalog", side_effect=CATALOGS.__getitem__))
+        self.stack.enter_context(patch.object(config, "catalog",
+                                              side_effect=lambda harness, cfg=None: CATALOGS[harness]))
         self.cfg["models"] = {"acme": {"harness": "claude", "model": "acme-5", "effort": "max",
                                        "provider": "anthropic"}}
         boards = {"artificialanalysis.ai": {"rows": board(NAMES)},
