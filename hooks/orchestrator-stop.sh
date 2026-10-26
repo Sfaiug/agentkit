@@ -74,7 +74,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
-from agentkit import config, harness, notify, questions
+from agentkit import config, harness, lifecycle, notify, questions
 from agentkit.handback import handback_reason
 from agentkit.stop import live_unrecorded, question_refused, recorded_ending, ways_out
 from agentkit.watch import owner_question, seat_read, start_look, turn_ended
@@ -240,42 +240,6 @@ def latched(latch, record):
     tmp.replace(latch)
 
 
-def tells(payload):
-    """Does this harness hand its Stop hook the background work it has in flight?
-
-    Claude Code does, as `background_tasks`, an empty list when there is none, and Grok Build as
-    `backgroundTasks`, and a harness plugin may add it (`in_flight`).  A harness that does not
-    has its stops judged, and written down, as they always were.
-    """
-    return isinstance(tasks(payload), list)
-
-
-def tasks(payload):
-    """The background work a Stop hands over, under either spelling, or None."""
-    found = payload.get("background_tasks")
-    return found if found is not None else payload.get("backgroundTasks")
-
-
-def background(payload):
-    """Work this seat started in its own harness that has not reported back yet.
-
-    Claude Code hands its Stop hook `background_tasks`, the agents and commands it still has in
-    flight -- the ones whose task notification has not arrived -- and an empty list when there
-    are none.  Each of them wakes the seat again when it settles, so a stop on them is a wait.
-    A `monitor` is a watch, not work: the comment watch on an artifact the seat published stays
-    in that list for the rest of the session, and counted, it held the seat working for days.
-    Nor is a `shell` in `background_tasks`: a background `sleep` or poll loop is no wait, since
-    the harness kills it under memory pressure; a seat waits through `ak wait`.  Nor is a
-    `terminal` or an `agent` a plugin adds, whose end starts no turn (`in_flight`).  The other
-    spelling's tasks count as before, their types never captured.
-    """
-    found = tasks(payload)
-    idle = (("monitor", "shell", "terminal", "agent") if payload.get("background_tasks") is not None
-            else ("monitor",))
-    return isinstance(found, list) and any(
-        isinstance(task, dict) and task.get("type") not in idle for task in found)
-
-
 def told(seat, turn, kind):
     """`ak notify <kind>` recorded for this seat during the turn."""
     note = read(STATE / f"notify-{seat}.json")
@@ -326,7 +290,7 @@ def held(launched, payload):
         return ""    # no turn was written down; nothing here can say what happened during it
     seat = resolve(launched)
     delivery = questions.reminder(seat, last_message(payload))
-    if not delivery and background(payload):
+    if not delivery and lifecycle.waits_on(payload):
         return ""
     if not delivery and last_message(payload) is None:
         return ""    # nothing it said can be read; nothing here can judge the turn
@@ -357,16 +321,13 @@ def held(launched, payload):
     return delivery or (parked_reason(undecided) if undecided else config.name_owed(seat) or REASON)
 
 
-def written(launched, kind, holds):
-    """This Stop, as hooks/seat-state.sh writes every other event down for the seat's row:
-    under the name the seat goes by now, which is the name its row reads, and in the order the
-    two hooks heard their events (`config.record_hook_fact`).  Beside it, where there are any,
-    `holds`: the type of each background task still in flight, shells and monitors too, which
-    no move off an account with usage left cuts off (`lifecycle.held_work`)."""
+def written(launched, payload, held):
+    """This Stop (`lifecycle.stop_fact`), as hooks/seat-state.sh writes every other event down
+    for the seat's row: under the name the seat goes by now, which is the name its row reads,
+    and in the order the two hooks heard their events (`config.record_hook_fact`)."""
     try:
-        config.record_hook_fact(resolve(launched), {"session": launched, "event": "Stop",
-                                                    "kind": kind, "text": "", "at": time.time(),
-                                                    **({"holds": holds} if holds else {})})
+        config.record_hook_fact(resolve(launched), lifecycle.stop_fact(launched, payload,
+                                                                         time.time(), held))
     except (OSError, config.Error):
         pass        # a Stop nobody could write down is no reason to let the turn end
 
@@ -386,10 +347,9 @@ def main():
         # the stop stands: the turn a kept question was asked in has ended, and that is on
         # record before this harness takes its next prompt (`watch.turn_ended`)
         turn_ended(resolve(launched))
-    if tells(payload):
-        written(launched, "held" if back else "background" if background(payload) else "",
-                [str(task.get("type") or "task") for task in tasks(payload)
-                 if isinstance(task, dict)])
+    # a harness that lists none has its stops judged, and written down, as before
+    if lifecycle.handed_over(payload) is not None:
+        written(launched, payload, bool(back))
         # looked at again now its Stop is on record, however long judging it took
         start_look(launched)
     if back:
