@@ -34,10 +34,9 @@ def reminder(name, message):
 
 
 def unseen(name, harness, found):
-    """`reminder` for a seat whose harness holds no blocking Stop, from its conversation as the
-    harness keeps it (`said`): a stopped turn's closing message is the newest one, and only if
-    it is the model's, never a draft, tool output or earlier exchange; an unreadable one proves
-    no delivery.  After a turn the owner interrupted (`found`) nothing: it rests."""
+    """`reminder` for a seat with no blocking Stop, its closing message the newest in its
+    conversation (`said`) and only if the model's; an unreadable one proves no delivery.  After
+    a turn the owner interrupted (`found`) nothing: it rests."""
     from . import notify, watch
     if not watch.stop_enforced(harness) or found.get("interrupted") or not pending(name):
         return ""

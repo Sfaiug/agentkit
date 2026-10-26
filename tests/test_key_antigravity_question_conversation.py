@@ -94,8 +94,7 @@ class AntigravityQuestionConversation(unittest.TestCase):
         return said.read_text()
 
     def said(self, conversation, text, at, kind=USER):
-        """The owner typed `text` into that conversation at `at`, as agy records a user input, or
-        its model answered it (MODEL)."""
+        """The owner typed `text` there at `at`, as agy records a user input, or its MODEL."""
         seconds, fraction = divmod(at, 1)
         stamp = varint(1 << 3) + varint(int(seconds)) + varint(2 << 3) + varint(
             round(fraction * 1e9))

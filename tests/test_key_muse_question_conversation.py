@@ -89,8 +89,7 @@ class MuseQuestionConversation(unittest.TestCase):
         return self.home.path / ".local/share/muse/sessions/2026/10/24" / session / "session.jsonl"
 
     def said(self, session, text, at, event=None):
-        """The user side of that session typed `text` at `at`, as Muse records a run's prompt, or
-        the model said what `event` holds."""
+        """That session's user typed `text` at `at`, as Muse records a prompt, or said `event`."""
         line = {"schema_version": 1, "stream": {"kind": "session", "id": session},
                 "record_type": "event", "recorded_at": round(at * 1_000_000),
                 "payload": {"kind": "run", "run_id": uuid.uuid4().hex,

@@ -118,8 +118,7 @@ class MuseQuestionAfterNew(unittest.TestCase):
         return session
 
     def said(self, session, text, at, event=None):
-        """The user side of that session typed `text` at `at`, as Muse records a run's prompt, or
-        the model said what `event` holds."""
+        """That session's user typed `text` at `at`, as Muse records a prompt, or said `event`."""
         log = self.home.path / DAY / session / "session.jsonl"
         log.parent.mkdir(parents=True, exist_ok=True)
         line = {"schema_version": 1, "stream": {"kind": "session", "id": session},

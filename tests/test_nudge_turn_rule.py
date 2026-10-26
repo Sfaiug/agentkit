@@ -92,8 +92,7 @@ class NudgeTurnRule(Sandbox):
         return (REPO / f"tests/fixtures/{self.harness}-{kind}-pane.txt").read_text()
 
     def stopped(self):
-        """The seat at its prompt, stood long past STALL_WAIT, its closing message its recorded
-        questions, or words that ask nothing."""
+        """The seat at its prompt on words that ask nothing, stood long past STALL_WAIT."""
         now = time.time()
         self.said = "\n\n".join(questions.pending(SEAT)) or SAID
         self.pane = self.screen("prompt")

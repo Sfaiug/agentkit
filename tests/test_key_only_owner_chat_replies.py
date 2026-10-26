@@ -87,8 +87,7 @@ class Conversation:
         self.steps = 0
 
     def said(self, text, at, *, date=..., model=False):
-        """The user side wrote `text` at `at`, and the model then its closing message, which
-        repeats the question as a seat's must for it to stand (`model`: the model wrote `text`);
+        """The user wrote `text` at `at`, the model the question again (`model`: wrote `text`);
         `date`, where given, is what the store keeps as its date, None for nothing."""
         if self.harness == "muse":
             line = {"schema_version": 1, "stream": {"kind": "session", "id": "s"},
