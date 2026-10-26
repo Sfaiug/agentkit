@@ -5,9 +5,7 @@ config.role_effort is the one reader: worker.call hands its answer to the adapte
 orch.command to its `interactive`.  A role effort is checked where `effort` is: `ak doctor`
 names one the model does not take, by its key.  A load asks no harness what a model takes (the
 status bar loads the config every few seconds), so it refuses neither key, as it refuses no
-`effort`.  A model's own screen, stepping its model id (menu.config_model_id), moves each key
-it sets to one the new model takes, as it moves `effort`, and each seat's own efforts of it the
-same way; one that lands on the effort is unset (it reads `same`).
+`effort`.
 
 Offline: a temporary HOME, and a fake harness `acme` in a temporary adapter directory whose
 script prints what it was asked and whose `[catalog]` says what its model takes.  The worker
@@ -16,7 +14,6 @@ turn stops where its sandbox would start, with the command it was handed; nothin
 
 from contextlib import ExitStack, redirect_stdout
 import io
-import json
 import os
 from pathlib import Path
 import sys
@@ -26,7 +23,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, orch, terminal, watch, worker
+from agentkit import config, orch, terminal, watch, worker
 
 ADAPTER = """#!/bin/sh
 case "$1" in
@@ -39,7 +36,6 @@ MANIFEST = """version = 1
 state = []
 [catalog]
 "acme-1" = { efforts = ["low", "medium", "high", "xhigh", "max"] }
-"acme-2" = { efforts = ["low", "medium"] }
 """
 CONFIG = """[defaults]
 orchestrator = "acme"
@@ -137,21 +133,6 @@ class EffortPerRole(Acme):
         block = config.dump(cfg).split("[models.acme]\n")[1].split("\n\n")[0]
         self.assertEqual([line.split(" = ")[0] for line in block.splitlines()],
                          ["harness", "model", "effort", "exec_effort", "review_effort", "provider"])
-
-    def test_a_model_id_step_moves_each_set_role_effort_to_one_the_new_model_takes(self):
-        cfg = self.write('exec_effort = "max"\nreview_effort = "low"\n')
-        config.session_path("atoll").write_text(json.dumps({"efforts": {"acme": {     # a seat's
-            "effort": "xhigh", "exec_effort": "max", "review_effort": "low"}}}))
-        self.assertEqual(menu.config_model_id(cfg, "acme", 1, ("config · acme",)), "")
-        self.assertEqual(config.load()["models"]["acme"], {     # exec_effort landed on effort
-            "harness": "acme", "model": "acme-2", "effort": "medium", "review_effort": "low",
-            "provider": "acme"})
-        self.assertEqual(json.loads(config.session_path("atoll").read_text())["efforts"],
-                         {"acme": {"effort": "medium", "review_effort": "low"}})
-        cfg = self.write("")           # a key the model does not set is not added
-        self.assertEqual(menu.config_model_id(cfg, "acme", 1, ("config · acme",)), "")
-        self.assertEqual(config.load()["models"]["acme"], {
-            "harness": "acme", "model": "acme-2", "effort": "medium", "provider": "acme"})
 
     def test_doctor_names_a_role_effort_the_model_does_not_take_by_its_key(self):
         text = CONFIG.format(roles='exec_effort = "ultra"\nreview_effort = "high"\n')

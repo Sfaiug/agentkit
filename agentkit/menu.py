@@ -2837,16 +2837,6 @@ REMOVE_SUBSCRIPTION_ASK = ("Remove {}?", "Nothing new starts on it.")
 CONFIG_ORDER = (0, 3, 1, 4, 2, 5)
 # The key on the config screen that opens what `ak models` recommends per role.
 ADVICE_KEY = "r recommended"
-# A model's own screen: the values ←/→ step, then the one that asks first; the role whose
-# effort each effort among them sets (its key: config.ROLE_EFFORTS), a worker's reading `same`
-# while its key is unset.
-MODEL_ROWS = ("model id", "effort", "executes at", "reviews at", "Remove")
-EFFORT_ROWS = {"effort": "orchestrator", "executes at": "executor", "reviews at": "reviewer"}
-SAME = "same"
-MODEL_KEYS = {"step": ("↑↓ move   ←→ choose", "arrows move   left/right choose"),
-              "remove": ("↑↓ move   ⏎ remove", "arrows move   enter remove")}
-REMOVE_ASK = ("Remove {} from the config?",   # what `Remove` asks, and what it means
-              "Nothing new starts on it; Models brings it back.")
 # Whom `c`'s marks are for when they are no seat's: [defaults], what the next `n` starts from.
 NEW_SEATS = "new seats"
 MOVE_ASK = "Restart {} on {}?"     # what another model's orchestrator mark asks, and what it means
@@ -3299,12 +3289,12 @@ def models_screen(cfg, session, selected, providers):
 
 
 def config_columns(selected, name):
-    """The cells the keys stop on along `name`'s row of `c`, in CONFIG_ORDER after its label
-    (-1): each role's mark of `selected` and, where it is marked, that role's effort beside it;
-    with no marks, the three efforts."""
+    """The cells the keys stop on along `name`'s row of `c`, in CONFIG_ORDER: each role's mark
+    of `selected` and, where it is marked, that role's effort beside it; with no marks, the
+    three efforts."""
     texts = orch.role_texts(selected, name, "●○■□")[0] if selected else "●●●"
-    return (-1, *(number for number in CONFIG_ORDER
-                  if selected and number < 3 or number >= 3 and texts[number - 3] in "●■"))
+    return tuple(number for number in CONFIG_ORDER
+                 if selected and number < 3 or number >= 3 and texts[number - 3] in "●■")
 
 
 def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=None, subs=(),
@@ -3325,9 +3315,9 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     `Subscriptions`, `Discord` and `Weekly audit` with
     their values. A row is `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
-    the cell on it the keys act on, -1 its label.  `cells` are a model row's (first, last,
-    column), for a click, counted from 1 as the terminal counts. On a phone the cells give
-    way, then the label.  `scope`, whom the marks are for -- NEW_SEATS or a seat's name -- is
+    the cell on it the keys act on.  `cells` are a model row's (first, last, column), -1 its
+    label, for a click, counted from 1 as the terminal counts. On a phone the cells give way,
+    then the label.  `scope`, whom the marks are for -- NEW_SEATS or a seat's name -- is
     the For line over the headings, and a seat's efforts are its record's (config.at_efforts).
     """
     cfg = config.at_efforts(cfg, selected)
@@ -3343,7 +3333,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
             # one effort is nothing to step to and no level to show
             levelled[name, number] = terminal.effort_cells(len(taken), taken.index(
                 effort) + 1 if effort in taken else 0) if len(taken) > 1 else []
-    shows = {name: config_columns(selected, name)[1:] for name in names}
+    shows = {name: config_columns(selected, name) for name in names}
     beside = [(name, number) for name in names for number in shows[name] if number >= 3]
     label = max(terminal.cells(config.model_name(cfg, name)) for name in names)
 
@@ -3381,8 +3371,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
             shown = model_label(cfg, name, label)
             on = [number for number, (each, *_) in enumerate(subs, 1) if each == provider]
             ink = colour(cfg, provider)
-            kind = ("reverse" if at == ("model", name) and column < 0 else ink if lit in on
-                    else "dim" if note else None)
+            kind = ink if lit in on else "dim" if note else None
             # one wash a label, so a step between its provider's subscriptions keeps it lit
             if moves is not None and on:
                 moves.append((len(lines), ("subs", provider), lit in on, motion.washing(
@@ -3552,149 +3541,6 @@ def _offered(harness, *screen, provider=None):
             if provider is None or model["id"].partition("/")[0] in (provider, model["id"])]
 
 
-def config_model_id(cfg, name, step, screen, seat=None):
-    """`name`'s model id one step along the models its harness's catalog lists (_offered),
-    never past either end, and saved with the efforts that follow it (_nearest), each seat's it
-    holds of `name` too, `seat`'s (name, record) in hand as well; an id not among them lands on
-    the first.  `screen` is what waits on the catalog (`waited`).  What to say under the
-    screen, or ""."""
-    entry = cfg["models"][name]
-    try:
-        models = _offered(entry.get("harness"), *screen, provider=entry.get("provider"))
-    except config.Error as exc:
-        return f"config: {exc}"
-    if not models:
-        return f"the {entry.get('harness')} catalog names no model"
-    ids, current = [model["id"] for model in models], entry.get("model")
-    at = ids.index(current) + step if current in ids else 0
-    if not 0 <= at < len(ids) or ids[at] == current:
-        return ""
-    before, levels = dict(entry), models[at]["efforts"]
-    entry["model"] = ids[at]
-    for key in config.ROLE_EFFORTS.values():     # a role's own key follows only where it is set
-        if key == "effort" or key in entry:
-            entry[key] = _nearest(entry.get(key), levels)
-    _follows(entry, config.ROLE_EFFORTS.values())
-    note = _saved(cfg, entry, before)
-
-    def moved(record):      # a seat on the old id runs the new one at the nearest it takes
-        efforts = record.get("efforts") or {}
-        if not isinstance(efforts.get(name), dict):
-            return record.get("efforts")
-        held = {key: _nearest(value, levels) for key, value in efforts[name].items()}
-        _follows(held, config.ROLE_EFFORTS.values())
-        return {**efforts, name: held}
-    for each in () if note else config.session_records():
-        written = config.change_efforts(each, moved)
-        if seat and seat[1] is not None and written and config.resolve_session(seat[0]) == each:
-            seat[1]["efforts"] = written.get("efforts")
-    return note
-
-
-def model_body(cfg, name, at=None, seat=None):
-    """A model's own screen's lines, and where its rows sit on them: {line: (row, cells)}, the
-    cells `left` and `right` the arrows of the value on that line, counted from 1 (`under`).
-
-    Its model id, its effort and the efforts it executes and reviews at (a `seat`'s own), each
-    between the arrows that step it, then `Remove` and its reviewing so far; `at` is the
-    highlighted row.  On a phone, where a label and its value do not fit on one line, the value goes under its
-    label.
-    """
-    entry, room = config.at_efforts(cfg, seat and seat[1])["models"][name], terminal.layout_width()
-    arrows = "‹ {} ›" if terminal.utf8() else "< {} >"
-    values = [arrows.format(value) for value in (
-        entry.get("model", "?"), entry.get("effort", "?"),
-        *(entry.get(config.ROLE_EFFORTS[EFFORT_ROWS[row]], SAME)
-          for row in MODEL_ROWS[2:4]))] + [""]
-    wide = max(terminal.cells(row) for row in MODEL_ROWS)
-    under = 2 + wide + 2 + max(terminal.cells(value) for value in values) > room
-    lines, places = [], {}
-    for row, value in zip(MODEL_ROWS, values):
-        value = terminal.cut(value, room - 4 - (0 if under else wide))
-        first = 5 + (0 if under else wide)
-        parts = ([f"  {row}", f"    {value}"] if under and value
-                 else [f"  {terminal.pad(row, wide)}  {value}".rstrip()])
-        last = first + terminal.cells(value) - 1
-        if row in MODEL_ROWS[2:4] and config.ROLE_EFFORTS[EFFORT_ROWS[row]] not in entry:
-            parts[-1] = parts[-1].replace(SAME, terminal.styled(SAME, "dim"))
-        for number, line in enumerate(parts):
-            places[len(lines)] = (row, [(first, first + 1, "left"), (last - 1, last, "right")]
-                                  if number == len(parts) - 1 and value else [])
-            lines.append(terminal.highlight(line, number == 0) if row == at else line)
-    reviewed, caught, already, unproven = history.review_counts(entry.get("harness"), entry.get("model"))
-    summary = (f"Reviewed {reviewed} time{'s' if reviewed != 1 else ''} · caught {caught} · "
-               f"{already} already on main · {unproven} unproven" if reviewed
-               else "Not used as a reviewer yet")
-    lines.extend(["", *("  " + part for part in terminal.wrap(summary, room - 2))])
-    return lines, places
-
-
-@terminal.clicks_its_own
-def config_model(cfg, name, seat=None):
-    """`config · <name>`: one model's id, its effort, the efforts it executes and reviews at,
-    and `Remove`, read with the matrix's keys until Esc, each change saved and drawn at once,
-    the efforts `seat`'s where it is a seat's (config_effort).
-
-    ↑/↓, k/j and the wheel move between rows and ←/→ step the value on one: the id through
-    its harness's catalog (config.catalog) and nothing else, each effort through that model's
-    own (config.efforts).  Nothing is typed, so no id or effort ak does not offer is ever
-    written.  Enter on `Remove` asks `Keep` or `Remove` under it, `Keep` picked and Esc
-    keeping it; the last model is refused without asking, and one removed goes back to the
-    matrix at once.
-    """
-    here, note = MODEL_ROWS[0], ""
-    while name in cfg["models"]:
-        title = f"config · {config.model_name(cfg, name)}"     # a stepped id renames it
-        keys = (MODEL_KEYS["remove" if here == "Remove" else "step"][0 if terminal.utf8() else 1]
-                + "   esc back")
-        body, places = model_body(cfg, name, None if terminal.away() else here, seat)
-        shown = body + (["", *(terminal.styled("  " + part, "dim") for part in terminal.wrap(
-            note, terminal.layout_width() - 2))] if note else [])
-        spots = terminal.frame(title, shown, keys, places=places)
-        key = terminal.read_key()
-        if key is None:
-            continue                  # a resize: drawn again at the new size
-        spot = terminal.under(key, spots)
-        if key.name == "point":
-            here = spot.what or here  # the highlight on the pointer's row, an arrow lit
-            continue
-        act, note = key.name, ""
-        if act == "click":
-            if spot.what is None:
-                if spot.cell == "esc":
-                    return
-                continue
-            here = spot.what          # on the value an arrow steps it
-            act = "enter" if here == "Remove" else spot.cell or ""
-        if act in ("esc", "eof"):
-            return
-        if terminal.step(key):
-            here = MODEL_ROWS[min(max(MODEL_ROWS.index(here) + terminal.step(key), 0),
-                                  len(MODEL_ROWS) - 1)]
-        elif here == "Remove" and act in ("enter", "space"):
-            if config.offered(cfg) == [name]:
-                note = "the config needs one model"
-                continue
-
-            def around(card):     # the screen around the card, drawn again on a resize
-                lines = model_body(cfg, name, seat=seat)[0]
-                terminal.frame(title, [*lines, *card], "esc back")
-                return 3 + len(lines)
-            if terminal.confirm(REMOVE_ASK[0].format(config.model_name(cfg, name)), REMOVE_ASK[1], "Remove", around):
-                before = copy.deepcopy(cfg)
-                config.remove_model(cfg, name)
-                note = _saved(cfg, cfg, before)
-        elif here != "Remove" and act in ("left", "right") and not terminal.unseen():
-            step = 1 if act == "right" else -1
-            try:
-                note = (config_model_id(cfg, name, step, (
-                    title, lambda: model_body(cfg, name, here, seat)[0], keys), seat)
-                        if here == "model id"
-                        else config_effort(cfg, name, step, role=EFFORT_ROWS[here], seat=seat))
-            except Back:
-                return                # Esc while the catalog was asked
-
-
 def config_meters(cfg, at=None, rows=None, spans=None):
     """The lines over the `c` screen's page, on every page, and where its meters are on them
     (meter_spots): each subscription's meter as the main screen draws it (`usage_lines`, of
@@ -3834,9 +3680,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     seat's record where it is a seat's (config_effort), and drawn at once, each cell it fills lighting and each it empties dimming in turn, and a step onto
     the model's highest sends a light through its word (config_body, on the clock); nothing
     replays after another screen.
-    Enter or a click on a model's label, left of its marks, opens that model's own screen
-    (config_model), and Esc there comes back to its row.  `r`, or a click on `r recommended`,
-    opens the models screen (models_screen), every model against the boards, where `r` takes
+    A click on a model's label puts the highlight on its first mark.  `r`, or a click on
+    `r recommended`, opens the models screen (models_screen), every model against the boards, where `r` takes
     the recommendation for whom the marks are.  Enter or a click
     on `Models` opens its page (models_page), and on `Subscriptions` its page
     (config_subscriptions).  ↑ past the
@@ -3869,7 +3714,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         here = here if here in rows else models[0]    # the highlight is the row itself
         columns = config_columns(selected, here[1]) if here[0] == "model" else ()
         if here[0] == "model" and column not in columns:      # no effort here: onto its mark
-            column = column - 3 if column - 3 in columns else columns[1]
+            column = column - 3 if column - 3 in columns else columns[0]
         keys = terminal.keys(*([ADVICE_KEY] if selected else []), "esc back")
         # each meter's cells, on the lines over the page counted back from it, washing in and out
         moves = [(line - len(over), ("sub", number), number == lit,
@@ -3895,7 +3740,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             clock.forget()            # another screen: the matrix back from it replays nothing
             models_screen(cfg, session, selected, providers)
             continue
-        if act in ("enter", "space") and (here[0] in ("row", "usage") or column < 0):
+        if act in ("enter", "space") and here[0] in ("row", "usage"):
             clock.forget()            # another screen: the matrix back from it replays nothing
         if here == ("row", CONFIG_ROWS[0]):
             if act in ("enter", "space"):
@@ -3918,13 +3763,11 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                 except config.Error as exc:
                     pause(f"config: {exc}")
                     return cfg
+        elif column < 0:          # a click on its label: the highlight on its first mark
+            column = config_columns(selected, here[1])[0]
         elif act in ("left", "right"):
             at = columns.index(column) + (1 if act == "right" else -1)
             column = columns[min(max(at, 0), len(columns) - 1)]
-        elif act in ("enter", "space") and column < 0:
-            config_model(cfg, here[1], seat)
-            if here[1] not in cfg["models"]:
-                here = rows[rows.index(here) + 1]     # removed: the row under it is highlighted
         elif act in ("enter", "space") and column < 3:
             def around(card):     # the matrix laid out at this draw's size, the question under it
                 over, _, body, places, _ = meters_led(config_meters(cfg), *config_body(

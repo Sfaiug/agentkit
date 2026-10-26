@@ -24,7 +24,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_config_matrix import DOWN, ENTER, FULL, LEFT, REPO, RIGHT, Screen, highlighted, on_effort
+from test_config_matrix import DOWN, ENTER, REPO, RIGHT, Screen, on_effort
 from agentkit import config, terminal
 
 CHILD = r"""
@@ -81,11 +81,7 @@ class EffortStep(unittest.TestCase):
         self.assertFalse((adapters / "answered").exists(), "the listing is still asleep")
         drawn(screen, ENTER, "▰▱▱▱▱   low")
         self.assertFalse((adapters / "answered").exists(), "the listing is still asleep")
-        # and on the model's own screen, the listing still asleep
-        screen.press(LEFT * 4 + ENTER,
-                     lambda lines: f"agentkit · config · {FULL['opus']}" in lines[0])
-        screen.press(DOWN, lambda lines: "effort" in highlighted(lines))
-        drawn(screen, RIGHT, "‹ medium ›")
+        drawn(screen, ENTER, "▰▰▱▱▱   medium")
         self.assertTrue((adapters / "asked").exists(), "the listing was asked for")
         self.assertFalse((adapters / "answered").exists(), "the listing is still asleep")
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "medium")
@@ -95,10 +91,9 @@ class EffortStep(unittest.TestCase):
             self.assertLess(time.monotonic(), deadline, "the listing never answered")
             time.sleep(0.05)
         time.sleep(0.2)
-        drawn(screen, RIGHT, "‹ low ›")
-        drawn(screen, RIGHT, "‹ high ›")
+        drawn(screen, ENTER, "▰▱      low")
+        drawn(screen, ENTER, "▰▰      high")
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "high")
-        screen.press(b"\x1b", lambda lines: FULL["opus"] in highlighted(lines))  # to the matrix
         screen.leave()
 
     def test_a_mimo_run_and_seat_at_each_effort_ask_opencode_for_it(self):

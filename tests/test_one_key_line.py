@@ -2,7 +2,7 @@
 
 The walk: `menu.show_config` in a child process on a pty of its own (tests/test_config_matrix.py's
 Screen, a temporary HOME), from a model's mark up onto a meter, over the For line, down to a
-model's effort and name, through every row under the models, and into Subscriptions' page.
+model's effort, through every row under the models, and into Subscriptions' page.
 The main screen's line is pinned by tests/test_menu_keys.py, the past sessions' by
 tests/test_past_sessions.py and the features' by tests/test_features_screen.py.  Every other
 key line is built by `terminal.keys`; the few still spelled by hand are counted here.
@@ -17,13 +17,12 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from agentkit import terminal  # noqa: E402
-from test_config_matrix import (DOWN, ENTER, ESC, KEYS, LEFT, PAGE_KEYS, RIGHT, UP,  # noqa: E402
-                                Screen, highlighted, lit, on_effort, on_mark)
+from test_config_matrix import (DOWN, ENTER, ESC, KEYS, PAGE_KEYS, RIGHT, UP,  # noqa: E402
+                                Screen, highlighted, on_effort, on_mark)
 
 # Key lines spelled outside terminal.keys, where each is, and why it is still spelled there.
 SPELLED = {
     "menu.py MODELS_KEYS": "the `r` screen: another session's #1517 reworks it",
-    "menu.py MODEL_KEYS": "a model's own screen: it goes with c's Models page",
 }
 
 
@@ -55,9 +54,7 @@ class OneKeyLine(unittest.TestCase):
                                                                   for line in lines))
         stops["an effort"] = screen.press(DOWN * 2 + RIGHT,
                                           lambda lines: on_effort(lines, "opus"))
-        stops["a model's name"] = screen.press(LEFT * 4, lambda lines: lit(lines, "opus")
-                                               not in (None, "●", "■", "□", "○"))
-        lines = stops["a model's name"]
+        lines = stops["an effort"]
         while highlighted(lines).split()[1:2] != ["Subscriptions"]:   # each row under the models
             lines = screen.press(DOWN, lambda now, was=highlighted(lines): highlighted(now) != was)
             stops[highlighted(lines)] = lines
@@ -71,7 +68,7 @@ class OneKeyLine(unittest.TestCase):
         screen.leave()
 
     def test_only_the_screens_named_spell_their_own_key_line(self):
-        self.assertLessEqual(len(SPELLED), 2)
+        self.assertLessEqual(len(SPELLED), 1)
         self.assertEqual(spelled(), set(SPELLED))
 
 

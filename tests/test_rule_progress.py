@@ -5,8 +5,8 @@ fetched sooner shows nothing -- a list asked again under rows already drawn, and
 much as a first list; Esc during a glide goes back within 100 ms, and a `set` it leaves behind
 never draws over a later one.  A screen waiting on a fetch draws itself again on a resize, moves
 its rule on the clock's frames however fast keys come, and goes back on a click on `esc back`;
-the model-id step and a `Models` list, waiting on a catalog at 80 columns, are laid out again at
-40: every line fits, and a click on the `esc back` drawn goes back.
+a `Models` list, waiting on a catalog at 80 columns, is laid out again at 40: every line fits,
+and a click on the `esc back` drawn goes back.
 
 The update's progress callback runs against a temporary HOME, every command answered by a
 fake `subprocess.run`, so no checkout moves.  The glide runs a project's feature switches screen
@@ -74,9 +74,9 @@ for _ in range(int(os.environ["RULE_OPENS"])):
     print("<back>", flush=True)
 keyboard.give()
 """
-# The child for a catalog wait: the model `acme`'s own screen (RULE_SCREEN=model) or
-# `Models`, over a config whose one model runs an id 59 characters long, the only one a catalog
-# lists that answers after each of RULE_CATALOG's seconds in turn; it says when it has gone back.
+# The child for a catalog wait: `Models`, over a config whose one model runs an id 59
+# characters long, the only one a catalog lists that answers after each of RULE_CATALOG's
+# seconds in turn; it says when it has gone back.
 CATALOG = r"""
 import os, sys, time
 sys.path.insert(0, os.environ["RULE_REPO"])
@@ -96,10 +96,7 @@ cfg = {"defaults": {"orchestrator": "acme", "workers": ["acme"]},
        "providers": {"anthropic": {"mode": "subscription"}}}
 keyboard = terminal.Keyboard()
 keyboard.take()
-if os.environ["RULE_SCREEN"] == "model":
-    menu.config_model(cfg, "acme")
-else:
-    menu.models_page(cfg)
+menu.models_page(cfg)
 print("<went back>", flush=True)
 keyboard.give()
 """
@@ -320,17 +317,8 @@ class RuleProgress(unittest.TestCase):
         screen.when("<went back>")
         self.assertEqual(screen.proc.wait(10), 0, screen.text()[-2000:])
 
-    def test_the_model_id_step_waited_on_is_laid_out_again_at_forty_columns(self):
-        screen = Screen(self, opens=0, child=CATALOG, RULE_SCREEN="model", RULE_CATALOG="30")
-        screen.when("model id")
-        os.write(screen.master, b"\x1b[C")             # the next id: the catalog is asked
-        screen.when(GLIDE.pattern)
-        click_back_at_forty(self, screen)
-        screen.when("<went back>")
-        self.assertEqual(screen.proc.wait(10), 0, screen.text()[-2000:])
-
     def test_a_models_list_waited_on_is_laid_out_again_at_forty_columns(self):
-        screen = Screen(self, opens=0, child=CATALOG, RULE_SCREEN="models", RULE_CATALOG="30")
+        screen = Screen(self, opens=0, child=CATALOG, RULE_CATALOG="30")
         screen.when("Claude Code")
         os.write(screen.master, b"\r")                  # claude's list: its catalog is asked
         screen.when(GLIDE.pattern)

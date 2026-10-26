@@ -23,7 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, menu, run, staffing, status, turns, usage
+from agentkit import config, run, staffing, status, turns, usage
 from agentkit import record
 
 
@@ -297,14 +297,6 @@ class SelfReviewLast(unittest.TestCase):
                          ("acme-one", "acme-two"))
         self.assertEqual(run.pick_models(cfg, providers, "acme-one", "acme-one",
                                          self.logs.append), ("acme-one", "acme-one"))
-
-    def test_the_model_screen_has_no_review_rule_row(self):
-        self.assertEqual(menu.MODEL_ROWS,
-                         ("model id", "effort", "executes at", "reviews at", "Remove"))
-        lines, places = menu.model_body(self.cfg, "acme-one")
-        self.assertEqual(len(places), 5)
-        self.assertIn("  Not used as a reviewer yet", lines)
-        self.assertNotIn("Reviews its own company's work", "\n".join(lines))
 
     def test_the_launch_line_says_self_reviewed(self):
         line = run.launch_line("20260928-1200-fix-api", "Fix the API", "acme-one", "acme-one")

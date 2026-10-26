@@ -1,4 +1,4 @@
-"""Finished, weighed reviews reach history and the model's own screen under a test HOME."""
+"""Finished, weighed reviews reach history under a test HOME."""
 
 from contextlib import ExitStack, closing
 import json
@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, history, menu, run, staffing, terminal, transitions, turns, worker
+from agentkit import config, hand_in, history, run, staffing, transitions, turns, worker
 
 
 class CatchCounts(unittest.TestCase):
@@ -40,8 +40,6 @@ class CatchCounts(unittest.TestCase):
         for name, harness, model, provider in (
                 ("builder", "test", "build-1", "acme"),
                 ("reviewer", "test", "judge-1", "beta"),
-                ("alias", "test", "judge-1", "beta"),
-                ("other-harness", "other", "judge-1", "beta"),
                 ("spare", "test", "judge-2", "beta")):
             self.cfg["models"][name] = {"harness": harness, "model": model,
                                         "effort": "high", "provider": provider}
@@ -104,21 +102,15 @@ class CatchCounts(unittest.TestCase):
         with patch.object(turns, "call_retrying", side_effect=self.turn(list(rows))):
             return run.review(lp, "API fixed.", True, "$ true\n[exit 0]\n", record=record)
 
-    def screen(self, name="reviewer", width=120):
-        with patch.object(terminal, "layout_width", return_value=width):
-            return menu.model_body(self.cfg, name)
+    def reviews(self):
+        """Each review recorded: the model that ran it, its blocking findings, follow-ups, notes."""
+        with closing(sqlite3.connect(history.path())) as db:
+            return db.execute("SELECT model, blocking, followup, note FROM reviews "
+                              "ORDER BY rowid").fetchall()
 
-    def assert_counts(self, reviewed, caught, already, unproven, name="reviewer"):
-        self.assertIn(f"  Reviewed {reviewed} time{'s' if reviewed != 1 else ''} · caught {caught} · "
-                      f"{already} already on main · {unproven} unproven", self.screen(name)[0])
-
-    def assert_unused(self, name="reviewer"):
-        self.assertIn("  Not used as a reviewer yet", self.screen(name)[0])
-
-    def test_weighed_counts_reach_the_database_and_model_screen(self):
+    def test_weighed_counts_reach_the_database(self):
         lp = self.loop()
         self.assertEqual(self.review(lp, self.records()), "FAIL")
-        self.assert_counts(1, 1, 1, 1)
         with closing(sqlite3.connect(history.path())) as db:
             rows = db.execute("SELECT run_id, harness, model, blocking, followup, note, round, "
                               "verdict, effort FROM reviews").fetchall()
@@ -129,9 +121,7 @@ class CatchCounts(unittest.TestCase):
         lp.reviewer = "spare"
         self.assertEqual(self.review(lp), "FAIL")      # ak's own replay blocks: no catch of the spare's
         run.history_finish({**lp.state, "state": "pass"})
-        self.assert_counts(1, 1, 1, 1)
-        self.assert_counts(1, 0, 0, 0, "spare")
-        self.assert_unused("builder")
+        self.assertEqual(self.reviews(), [("judge-1", 1, 1, 1), ("judge-2", 0, 0, 0)])
 
     def test_a_clean_landing_review_counts_without_spending_a_round(self):
         lp = self.loop()
@@ -140,41 +130,7 @@ class CatchCounts(unittest.TestCase):
         self.assertEqual(len(lp.state["round_summaries"]), 1)
         for _ in range(2):
             run.history_finish({**lp.state, "state": "pass"})
-        self.assert_counts(2, 1, 1, 1)
-
-    def test_the_model_id_step_and_aliases_read_the_identity_that_ran(self):
-        lp = self.loop()
-        self.review(lp, self.records())
-        self.assert_counts(1, 1, 1, 1, "alias")
-        self.assert_unused("other-harness")
-        catalog = [{"id": model, "efforts": ["high"]} for model in ("judge-1", "judge-2")]
-        with patch.object(menu, "_offered", return_value=catalog):
-            self.assertEqual(menu.config_model_id(self.cfg, "reviewer", 1, ()), "")
-            self.assert_unused()
-            self.review(lp)
-            self.assert_counts(1, 0, 0, 0)
-            self.assertEqual(menu.config_model_id(self.cfg, "reviewer", -1, ()), "")
-        self.assert_counts(1, 1, 1, 1)
-
-    def test_suite_and_stopped_runs_never_contribute(self):
-        for name, fields in (("smoke", {"repo": str(self.root / "agentkit-smoke")}),
-                             ("temporary", {"repo": str(config.TMP / "clone/acme")}),
-                             ("sink", {"notify_sink": "fixture"})):
-            with self.subTest(name=name):
-                lp = self.loop(name, **fields)
-                self.review(lp)
-                self.assert_unused()
-        lp = self.loop("stopped")
-        self.review(lp, self.records())
-        self.assert_counts(1, 1, 1, 1)
-        run.history_finish({**lp.state, "state": "stopped"})
-        self.assert_unused()
-        # Old suite rows can have only the basename in SQLite; REAL_WORK reads run.json.
-        lp = self.loop("old-suite")
-        self.review(lp, self.records())
-        lp.state["repo"] = str(config.TMP / "clone/acme")
-        lp.save()
-        self.assert_unused()
+        self.assertEqual(self.reviews(), [("judge-1", 1, 1, 1), ("judge-1", 0, 0, 0)])
 
     def test_an_unfinished_reviewer_contributes_nothing(self):
         lp = self.loop()
@@ -189,21 +145,9 @@ class CatchCounts(unittest.TestCase):
                 patch.object(staffing, "ready_order", return_value=[]):
             with self.assertRaises(run.Exhausted):
                 run.review(lp, "API fixed.", True, "$ true\n[exit 0]\n")
-        self.assert_unused()
+        self.assertEqual(self.reviews(), [])
 
-    def test_phone_wraps_the_plain_line_and_keeps_only_the_action_rows(self):
-        self.review(self.loop(), self.records())
-        lines, places = self.screen(width=40)
-        self.assertEqual([row for row, _ in places.values()], list(menu.MODEL_ROWS))
-        self.assertGreater(len(lines), 6)
-        self.assertEqual(lines[5], "")
-        self.assertEqual(" ".join(line.strip() for line in lines[6:]),
-                         "Reviewed 1 time · caught 1 · 1 already on main · 1 unproven")
-        for line in lines:
-            self.assertLessEqual(terminal.cells(line), 40, line)
-
-    def test_an_old_database_and_missing_history_read_as_unused(self):
-        self.assert_unused()
+    def test_an_old_database_takes_a_review_and_keeps_its_runs(self):
         self.assertFalse(history.path().exists())
         with closing(sqlite3.connect(history.path())) as db, db:
             db.execute(history.SCHEMA)
@@ -211,9 +155,8 @@ class CatchCounts(unittest.TestCase):
             columns = ",".join(row[1] for row in db.execute("PRAGMA table_info(runs)"))
             db.execute("INSERT INTO runs (run_id, repo, reviewer) VALUES ('old', 'acme', 'reviewer')")
             before = db.execute(f"SELECT {columns} FROM runs WHERE run_id='old'").fetchone()
-        self.assert_unused()
         self.review(self.loop())
-        self.assert_counts(1, 0, 0, 0)
+        self.assertEqual(self.reviews(), [("judge-1", 0, 0, 0)])
         with closing(sqlite3.connect(history.path())) as db:
             self.assertEqual(db.execute(f"SELECT {columns} FROM runs WHERE run_id='old'").fetchone(), before)
 
