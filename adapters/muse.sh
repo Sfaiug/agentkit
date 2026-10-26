@@ -284,15 +284,13 @@ hook)
   # where its launch named the pane; python3, which every host has, bounds the read.
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   payload=$(cat)
-  # The session this launch opened goes into its receipt, linked so the first id stands; a
-  # receipt already gone takes nothing.  It is no state of the seat's.
+  # The session this launch opened goes into its receipt (agentkit/harness/muse.py `started`).
+  # It is no state of the seat's.
   if [ "$(jq -r '.hook_event_name // empty' <<<"$payload" 2>/dev/null)" = SessionStart ]; then
-    sid=$(jq -r '.session_id // empty' <<<"$payload" 2>/dev/null)
-    if [ -n "$sid" ] && [ -n "${AGENTKIT_MUSE_RECEIPT:-}" ] &&
-        tmp=$(mktemp "$AGENTKIT_MUSE_RECEIPT/.session.XXXXXX" 2>/dev/null); then
-      printf '%s' "$sid" >"$tmp" && ln -- "$tmp" "$AGENTKIT_MUSE_RECEIPT/session" 2>/dev/null
-      rm -f -- "$tmp"
-    fi
+    [ -z "${AGENTKIT_MUSE_RECEIPT:-}" ] || python3 -c 'import json, sys
+sys.path.insert(0, sys.argv[1])
+from agentkit.harness import muse
+muse.started(sys.argv[2], json.load(sys.stdin))' "$REPO" "$AGENTKIT_MUSE_RECEIPT" <<<"$payload" 2>/dev/null
     exit 0
   fi
   asked=""
