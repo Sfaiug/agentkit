@@ -11,7 +11,8 @@ the receipt its SessionStart hook writes its session into and its registry moves
 the session store its tokens and messages are in and the sessions gc ends,
 `opencode.py` the receipt its seat plugin writes its session into, the endpoint that says
 how a model is paid and the sessions gc ends,
-`antigravity.py` the database each of its conversations is.  A script its adapter runs on its
+`antigravity.py` the database each of its conversations is, and which one a seat's agy holds
+open.  A script its adapter runs on its
 own sits beside its module, named for it: `muse_usage.py` is Muse's billed usage probe.
 
 No module outside this package names a harness: the core asks

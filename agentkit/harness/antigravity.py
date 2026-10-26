@@ -69,6 +69,7 @@ def owned(record):
 
 
 def resumable(record, cwd, conversation):
+    """A conversation the seat owns is one `--conversation` reopens it on."""
     return bool(conversation)
 
 
