@@ -42,6 +42,7 @@ import time
 
 from . import command_help, config, record, terminal
 from .boards import EFFORT_ORDER, PREFIX, TASK_COST, collect, lines as board_lines
+from .quality import SCALES
 
 INTEL = "aa.intelligenceIndex"       # every model has it per effort
 COST = "aa.intelligenceIndexCostPerTask.cost.total"      # dollars a task of its index run cost
@@ -51,15 +52,6 @@ PRICES = (COST, TASK_COST)          # what a row reads only off a board's row at
 # 2026), so no row the boards agree is worse gets in.  `within` in config.toml overrides it;
 # it goes to 0 the day the boards publish their intervals.
 WITHIN = 5
-# How a value is behind its board's best, in points out of 100, per kind of number: (which
-# value is the best, the points behind it).  A percent in percentage points, a share from 0 to 1
-# in hundredths, and a rating as how far under half its wins against the best would be (35
-# behind is 45% of wins, 5 points).
-SCALES = {
-    "percent": (max, lambda best, value: best - value),
-    "share": (max, lambda best, value: 100 * (best - value)),
-    "rating": (max, lambda best, value: 100 * (0.5 - 1 / (1 + 10 ** ((best - value) / 400)))),
-}
 # What each role is scored on: a column (board.field), its kind (`SCALES`) and, in plain words,
 # what it tests.  Pinned by tests/test_matrix_measures.py: it changes only with the owner's yes.
 ROLES = {
