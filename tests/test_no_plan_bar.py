@@ -49,18 +49,20 @@ class NoPlanBar(Sandbox):
 
     def draw(self):
         """The menu as it has the keyboard, plain line by line, and its clock."""
-        clock = motion.Clock()
-        with redirect_stdout(io.StringIO()) as out:
+        clock, out = motion.Clock(), io.StringIO()
+        out.isatty = lambda: True           # a terminal, as far as colour is concerned
+        with redirect_stdout(out):
             menu.draw(self.cfg, orch.listing(), drawn={}, clock=clock)
         screen = out.getvalue().partition("\033[H")[2].rpartition("\033[J")[0]
-        return [terminal.plain(line.replace("\033[K", "")) for line in screen.split("\n")], clock
+        return ([terminal.ANSI.sub("", line.replace("\033[K", "")) for line in screen.split("\n")],
+                clock)
 
     def test_a_its_row_ends_in_a_dim_line_and_no_plan_yet_as_wide_as_a_plans(self):
         lines, _ = self.draw()
         row = next(line for line in lines if " fix-api " in line).rstrip()
         planned = next(line for line in lines if " add-tab " in line).rstrip()
-        self.assertRegex(row, r"● working  ─+ no plan yet$")
-        self.assertRegex(planned, r"● working  ━+╸?─+ 3 of 8$")
+        self.assertRegex(row, r"● working +─+ no plan yet$")
+        self.assertRegex(planned, r"● working +━+╸?─+ 3 of 8$")
         self.assertEqual(terminal.cells(row), terminal.cells(planned))
         # the line itself, cell for cell, as a plan's would be with nothing done
         self.assertEqual(terminal.plain(menu.last_column("working", 0, 0, 30)), "─" * 18 + " no plan yet")
@@ -124,9 +126,9 @@ class NoPlanBar(Sandbox):
                                   self.cfg)
         self.assertEqual(len(bars), 2)
         self.assertEqual(bars[0], bars[1])
-        for cells, last in zip(statusbar.BARS, bars[0]):
-            shown = re.sub(r"#\[[^\]]*\]", "", last)
-            self.assertEqual(shown, "─" * (cells - 12) + " no plan yet")
+        for cells, last in zip(statusbar.BARS, bars[0]):     # 12 cells: the words alone
+            self.assertEqual(re.sub(r"#\[[^\]]*\]", "", last),
+                             "─" * (cells - 12) + " no plan yet" if cells > 12 else "no plan yet")
 
     def test_c_every_other_word_and_a_plan_draw_as_before(self):
         for word in ("idle", "done", "needs you", None):
