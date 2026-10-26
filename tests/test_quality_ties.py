@@ -17,9 +17,10 @@ from agentkit import quality
 
 F, T, W = "aa.frontierCode", "aa.terminalBench40", "arena.webdev"
 I, C = quality.INTEL, quality.COSTS["execute"]
-ALPHA, OMNI = (quality.EVALUATION + slug + ".score" for slug in ("alpha", "omniscience"))
+ALPHA, BETA, OMNI = (quality.EVALUATION + slug + ".score"
+                     for slug in ("alpha", "beta", "omniscience"))
 NAMES = {"F": F, "T": T, "W": W, "I": I, "C": C, "WL": W + ".lower95ci", "WU": W + ".upper95ci",
-         "alpha": ALPHA, "omni": OMNI, "B": "aa.briefcaseBreakdown.overall.elo",
+         "alpha": ALPHA, "beta": BETA, "omni": OMNI, "B": "aa.briefcaseBreakdown.overall.elo",
          "BL": "aa.briefcaseBreakdown.overall.lower95ci",
          "BU": "aa.briefcaseBreakdown.overall.upper95ci",
          "G": "aa.gdpval", "GL": "aa.gdpvalInterval.lower", "GU": "aa.gdpvalInterval.upper",
@@ -40,7 +41,9 @@ ROWS = [row("acme-5", "high", I=50, F=1.0, T=0.5, W=1400, WL=1380.4, WU=1419.6, 
         row("bolt-2", "high", I=40, F=0.9, T=0.4, W=1400),               # 10 10 0
         row("bolt-2", "low", I=40, F=0.9),                               # no evaluations
         row("dune-3", "high", I=30, F=0.8, T=0.3),                       # W estimated
-        row("dune-3", "low", I=30, F=0.7, T=0.3)]                        # W estimated
+        row("dune-3", "low", I=30, F=0.7, T=0.3),                        # W estimated
+        row("echo-1", "high", F=0.5, T=0.5, beta=0.4, omni=20),          # no index
+        row("echo-1", "max", F=0.35, beta=0.2, omni=20)]                 # changes 20, 0: 10
 
 # complete rows acme-5 high (0 0 0) and bolt-2 high (10 10 0): spreads F and T (10/3)/√2, W
 # (20/3)/√2
@@ -106,6 +109,8 @@ class QualityTies(unittest.TestCase):
                                   W: math.hypot(SE_W, 1)}))
         self.assertAlmostEqual(found(self.rated, "acme-5", "medium")["measures"][T]["own"], 2)
         self.assertEqual(found(self.rated, "acme-5", "low")["measures"][T]["from"], "high")
+        # an evaluation counts though no row with the index has it
+        self.assertAlmostEqual(found(self.rated, "echo-1", "max")["measures"][T]["own"], 10)
         # under two evaluations, the shift's error is the measure's spread
         self.assertEqual(errors(self.rated, "bolt-2", "low"),
                          rounded({F: share(0.9, 100), T: math.hypot(share(0.4, 66), SPREAD_T),

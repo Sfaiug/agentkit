@@ -103,11 +103,15 @@ def rated(rows, role):
     estimated (with the error of the row's own level, its "own")."""
     measures = ROLES[role]
     kinds = {column: kind for column, kind, _ in measures}
-    evaluations = {column: EVALUATION_KINDS.get(column[len(EVALUATION):-len(".score")], "share")
-                   for row in rows for column in row["values"]
-                   if column.startswith(EVALUATION) and column.endswith(".score")}
+    # each evaluation's kind and best, of every row scored on it: only its changes count
+    evaluations = {column: (kind, SCALES[kind][0](row["values"][column] for row in rows
+                                                  if column in row["values"]))
+                   for column in {column for row in rows for column in row["values"]
+                                  if column.startswith(EVALUATION) and column.endswith(".score")}
+                   for kind in [EVALUATION_KINDS.get(column[len(EVALUATION):-len(".score")],
+                                                     "share")]}
     indexed = [row for row in rows if INTEL in row["values"]]
-    best = {column: SCALES[kind][0](found) for column, kind in {**kinds, **evaluations}.items()
+    best = {column: SCALES[kind][0](found) for column, kind in kinds.items()
             for found in [[row["values"][column] for row in indexed if column in row["values"]]]
             if found}
     points_of = {id(row): {column: SCALES[kind][1](best[column], row["values"][column])
@@ -129,10 +133,10 @@ def rated(rows, role):
     def shift(row, source, column):
         # how far the measure's change between two efforts can be off, from how unevenly the
         # index's evaluations changed between them
-        changes = [SCALES[kind][1](best[name], row["values"][name])
-                   - SCALES[kind][1](best[name], source["values"][name])
-                   for name, kind in evaluations.items()
-                   if name in best and name in row["values"] and name in source["values"]]
+        changes = [SCALES[kind][1](top, row["values"][name])
+                   - SCALES[kind][1](top, source["values"][name])
+                   for name, (kind, top) in evaluations.items()
+                   if name in row["values"] and name in source["values"]]
         if len(changes) < 2:
             return shape.get(column, (0.0, 0.0))[1]
         return statistics.stdev(changes) / math.sqrt(len(changes))
