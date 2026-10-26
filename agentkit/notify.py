@@ -482,7 +482,8 @@ def answered(session, at, typed=None, replies=None):
     at its stop and answers: it is asked here first, whoever held this lock when it ended.
     `typed` dates a message of the owner's read from the seat's conversation (`answer_written`):
     it answers only what was asked before it (`asked_at`), judged here, where the seat cannot
-    ask another meanwhile.  True once a question was answered.
+    ask another meanwhile.  `replies` name what a native card's answer answered (`replied`):
+    only those questions, the rest standing.  True once a question was answered.
     """
     from . import watch    # here, not at the top: watch imports this module
     with session_lock(session) as session:
@@ -499,10 +500,10 @@ def answered(session, at, typed=None, replies=None):
         if previous and previous.get("watcher") is True:
             return
         if replies is not None and previous:
-            keys = set(replies)
             ids = {**(previous.get("question_ids") or {}), **renewed}
             dates = previous.get("question_times") or previous.get("asked_at") or {}
-            matched = [q for q in questions(previous) if ids.get(question_key(q)) in keys
+            matched = [q for q in questions(previous)
+                       if replied(replies, q, ids.get(question_key(q)))
                        and dates.get(question_key(q), previous["time"]) < (typed or at)]
             if not matched:
                 return partial
@@ -518,8 +519,8 @@ def answered(session, at, typed=None, replies=None):
                 record(session, previous["kind"], previous["text"],
                        **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
                 return True
-        if replies is not None and not previous:
-            return partial
+        if replies is not None and typed is not None and not previous:
+            return partial      # a reply read again from the conversation: its question is gone
         # the needs you he answered has its card retired now, before a retry can take this lock
         card = _card_read(session)
         if not previous:
@@ -538,6 +539,22 @@ def answered(session, at, typed=None, replies=None):
                **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
     watch.forget(session, acknowledge=False)    # after the notice lock: forget takes the state lock
     return True
+
+
+def replied(replies, question, card):
+    """Does a native card's reply name that question: by its card's id (`question_ids`), or,
+    asked on none, by its words, alone or followed by exactly the choices that card showed
+    with them, however the seat listed those; first words alone are another question's."""
+    if card:
+        return card in replies
+    from .questions import words
+    cards = [[reply] if isinstance(reply, str) else reply for reply in replies]
+    # each way a seat lists the choices, with or without its closing stop; a choice's own
+    # punctuation stays its words
+    said = {title for title, *_ in cards} | {
+        f"{title} Options: {sep.join(shown)}{end}" for title, *shown in cards if shown
+        for sep in (", ", "; ", " · ") for end in ("", ".")}
+    return words(question).casefold() in {words(text).casefold() for text in said}
 
 
 def spoken_at(notice):

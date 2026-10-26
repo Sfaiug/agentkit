@@ -36,6 +36,7 @@ import json
 import os
 from pathlib import Path
 import re
+import select
 
 from .akbin import AK, Done
 
@@ -80,16 +81,25 @@ class Hooks:
                 if tool is None or _matches(group.get("matcher"), tool)
                 for entry in group.get("hooks") or [] if entry.get("type") == "command"]
 
-    def fire(self, event, payload=None, *, seat="acme", pane=None, env=None):
+    def fire(self, event, payload=None, *, seat="acme", pane=None, env=None, finished=False):
         """Run every command registered for the event with `payload` on stdin, its
         `hook_event_name` set to the event unless given, and only those a tool-matcher takes
-        when it names a tool."""
+        when it names a tool.  With `finished`, return once every process they started has
+        ended, what one left running in the background too, as a harness's model goes on
+        after the event before its next: each inherits a pipe, read here to its end."""
         assert self.commands(event), f"{self.harness} registers nothing for {event}"
         payload = {"hook_event_name": event, **(payload or {})}
         tool = payload.get("tool_name") or payload.get("toolName")
-        runs = [self.home.run("sh", "-c", command, input=json.dumps(payload),
-                              env=_env(self.home, seat, pane, env))
-                for command in self.commands(event, tool)]
+        end, held = os.pipe() if finished else (None, None)
+        try:
+            runs = [self.home.run("sh", "-c", command, input=json.dumps(payload),
+                                  env=_env(self.home, seat, pane, env), keep=(held,) * finished)
+                    for command in self.commands(event, tool)]
+        finally:
+            if finished:
+                os.close(held)
+        if finished:
+            _drained(end)
         return _fired(runs)
 
     def prompt(self, text, seat):
@@ -144,6 +154,16 @@ def _env(home, seat, pane, env):
         assert done.code == 0, done.err
         extra.update(TMUX=done.out.strip().replace("$", ""), TMUX_PANE=pane.pane)
     return {**extra, **(env or {})}
+
+
+def _drained(end, bound=120):
+    """Read a pipe until the last process holding it has ended; a hang fails the test."""
+    with os.fdopen(end, "rb", buffering=0) as pipe:
+        while True:
+            assert select.select([pipe], [], [], bound)[0], \
+                f"a process a hook started still runs after {bound} s"
+            if not pipe.read(4096):
+                return
 
 
 def _fired(runs):
