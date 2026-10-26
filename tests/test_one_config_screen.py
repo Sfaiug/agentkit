@@ -325,7 +325,8 @@ class OneConfigScreen(unittest.TestCase):
         # the shipped [defaults]: opus orchestrates, and it and astra build and review
         self.assertEqual([marks(model(lines, name)) for name in ("fable", "opus", "astra")],
                          ["○□□", "●■■", "○■■"])
-        self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ choose   r recommended   esc back")
+        self.assertEqual(lines[-1],
+                         "  ↑↓←→ move   ⏎ choose   r recommended   a apply to all sessions   esc back")
         menu.press(ESC)
         menu.leave()
 

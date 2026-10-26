@@ -26,6 +26,7 @@ NOW = int(time.time())
 SEATS = {"atoll-fix": NOW - 900, "atoll-ask": NOW - 600}     # made first, so it is 1
 MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"
 MARK_KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"
+NEW_KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   a apply to all sessions   esc back"   # new seats'
 
 
 def lines(screen):
@@ -70,7 +71,8 @@ class ConfigScope(unittest.TestCase):
     def mark_builds(self, term, scope):
         """`c`, saying whom it edits, then Fable's builds mark flipped on."""
         term.keys("c")
-        screen = term.wait(lambda screen: key_line(screen) == MARK_KEYS and "› Fable 5.1" in screen)
+        keys = NEW_KEYS if scope == "new seats" else MARK_KEYS
+        screen = term.wait(lambda screen: key_line(screen) == keys and "› Fable 5.1" in screen)
         self.assertIn(f"  For  {scope}", lines(screen))
         term.keys("Right", "Right")         # past its effort
         term.wait("› Fable 5.1     ●  ▰▰▰▰▱   xhigh   [□]                  □")

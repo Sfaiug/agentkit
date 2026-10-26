@@ -26,7 +26,7 @@ from fixtures.akterm import SERVER, Terminal
 
 NOW = int(time.time())
 MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"
-MARK_KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"
+MARK_KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   a apply to all sessions   esc back"
 OFFLINE = {"https_proxy": "http://127.0.0.1:9", "http_proxy": "http://127.0.0.1:9"}
 # Each model perfect in one role on the boards, at an effort above the one the config runs it at:
 # Opus orchestrates at xhigh, Fable builds at max, Astra reviews at xhigh.
