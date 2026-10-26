@@ -1,5 +1,5 @@
 """`c` in the popup opens the config screen for the seat it is over, named over its headings and
-laid out as a matrix of its roles and each model's effort, and marking a role there rewrites the
+laid out as a matrix of its roles, each marked one's effort beside its mark, and marking a role there rewrites the
 seat's record at once.
 
 The config screen is where a person changes which models a seat orchestrates, builds and
@@ -24,11 +24,11 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
-HEADS = "               orch  builds  reviews  effort"
+HEADS = "               orch                builds              reviews"
 ROWS = ["Claude Code",
-        "› Fable 5.1    [●]     □        □     ▰▰▰▰▱   xhigh",
+        "› Fable 5.1    [●] ▰▰▰▰▱   xhigh    □                   □",
         "Codex",
-        "  GPT-6-Astra   ○      ■        ■     ▰▰▰▱▱▱  high",
+        "  GPT-6-Astra   ○                   ■  ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high",
         "",
         "  Models",
         "  Subscriptions",
@@ -103,23 +103,23 @@ class ConfigScreen(unittest.TestCase):
         self.leave()
 
     def test_the_key_line_stays_as_the_highlight_moves(self):
-        self.term.keys("Right", "Right", "Right")
-        on_effort = self.term.wait("› Fable 5.1     ●      □        □     ▰▰▰▰▱   xhigh")
+        self.term.keys("Right")
+        on_effort = self.term.wait("› Fable 5.1     ●  ▰▰▰▰▱   xhigh    □                   □")
         self.assertEqual(key_line(on_effort), KEYS)
         self.term.keys("Down", "Down")
         on_row = self.term.wait("› Models")
         self.assertEqual(block(on_row)[1:7],
-                         [ROWS[0], "  Fable 5.1     ●      □        □     ▰▰▰▰▱   xhigh",
+                         [ROWS[0], "  Fable 5.1     ●  ▰▰▰▰▱   xhigh    □                   □",
                           *ROWS[2:5], "› Models"])
         self.assertEqual(key_line(on_row), KEYS)
         self.leave()
 
     def test_marking_a_model_for_builds_rewrites_the_seats_record_at_once(self):
         defaults = akconfig.read(self.home)["defaults"]
-        self.term.keys("Right")
-        self.term.wait("› Fable 5.1     ●     [□]       □")
+        self.term.keys("Right", "Right")
+        self.term.wait("› Fable 5.1     ●  ▰▰▰▰▱   xhigh   [□]                  □")
         self.term.keys("Enter")
-        self.term.wait("› Fable 5.1     ●     [■]       □")
+        self.term.wait("› Fable 5.1     ●  ▰▰▰▰▱   xhigh   [■] ▰▰▰▰▱   xhigh    □")
         deadline = time.monotonic() + 30
         while self.record().get("workers") != ["astra", "fable"] and time.monotonic() < deadline:
             time.sleep(0.05)

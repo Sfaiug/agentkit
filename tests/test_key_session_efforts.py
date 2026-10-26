@@ -72,8 +72,9 @@ class SeatsFromBefore(unittest.TestCase):
              record={"reviewers": ["astra"]})
 
     def step_fable(self):
-        """Enter on Fable's effort on a fresh window's `c`, waited on until saved, a seat from
-        before made while it is open."""
+        """A step of Fable's effort on its own screen, off a fresh window's `c`, where the
+        shipped config marks it for nothing; waited on until saved, a seat from before made
+        while it is open."""
         config = self.home.path / ".agentkit/config.toml"
         term = Terminal(self.home, size=(100, 30), env={"NO_COLOR": "1"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
@@ -83,7 +84,9 @@ class SeatsFromBefore(unittest.TestCase):
         term.wait("› Fable 5.1")
         before = config.read_bytes()
         self.seat("atoll-new")
-        term.keys("Right", "Right", "Right", "Enter")      # onto the effort, and a step
+        term.keys("Left", "Enter")      # its label opens its own screen
+        term.wait("model id")
+        term.keys("Down", "Right")      # onto its effort, and a step
         deadline = time.monotonic() + 30
         while config.read_bytes() == before:
             self.assertLess(time.monotonic(), deadline, "the step was never saved")

@@ -91,11 +91,11 @@ class ConfigScreenEdits(unittest.TestCase):
 
     def test_enter_on_an_effort_steps_it_up_in_the_seat_s_record(self):
         self.fakes["claude"].answer("models", FABLE_LISTED)
-        self.term.keys("Right", "Right", "Right")
-        self.term.wait(lambda screen: "› Fable 5.1     ●      □        □     ▰▰▰▰▱   xhigh"
+        self.term.keys("Right")
+        self.term.wait(lambda screen: "› Fable 5.1     ●  ▰▰▰▰▱   xhigh    □                   □"
                        in rows(screen))
         self.term.keys("Enter")
-        self.term.wait(lambda screen: "› Fable 5.1     ●      □        □     ▰▰▰▰▰   max"
+        self.term.wait(lambda screen: "› Fable 5.1     ●  ▰▰▰▰▰   max      □                   □"
                        in rows(screen))
         self.assertEqual(json.loads(self.record.read_text())["efforts"]["fable"], {"effort": "max"})
         self.assertEqual(tomllib.loads(self.config.read_text()), self.given)
@@ -121,7 +121,7 @@ class ConfigScreenEdits(unittest.TestCase):
         # as Codex's adapter does: its TUI takes no conversation id of ak's making
         self.fakes["codex"].answer("interactive", "", 3, given=["new"])
         self.term.keys("j")
-        self.term.wait(lambda screen: "› GPT-6-Astra  [○]     ■        ■     ▰▰▰▱▱▱  high"
+        self.term.wait(lambda screen: "› GPT-6-Astra  [○]                  ■  ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high"
                        in rows(screen))
         pane, record = self.pane(), self.record.read_text()
         opened = len(self.fakes["codex"].calls("interactive"))
@@ -130,7 +130,7 @@ class ConfigScreenEdits(unittest.TestCase):
         self.assertEqual((self.pane(), self.record.read_text()), (pane, record))
         self.term.keys("Escape")
         screen = self.term.wait(lambda screen: key_line(screen) == KEYS)
-        self.assertIn("› GPT-6-Astra  [○]     ■        ■     ▰▰▰▱▱▱  high", rows(screen))
+        self.assertIn("› GPT-6-Astra  [○]                  ■  ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high", rows(screen))
         self.assertEqual((self.pane(), self.record.read_text()), (pane, record))
         self.assertEqual(len(self.fakes["codex"].calls("interactive")), opened)
         self.assertFalse(ran.exists())
@@ -138,9 +138,9 @@ class ConfigScreenEdits(unittest.TestCase):
         # asked again, and `Move` moves it
         self.asked("GPT-6-Astra")
         self.term.keys("Down", "Enter")
-        screen = self.term.wait(lambda screen: "› GPT-6-Astra  [●]     ■        ■     ▰▰▰▱▱▱  high"
+        screen = self.term.wait(lambda screen: "› GPT-6-Astra  [●] ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high"
                                 in rows(screen))
-        self.assertIn("  Fable 5.1     ○      □        □     ▰▰▰▰▱   xhigh", rows(screen))
+        self.assertIn("  Fable 5.1     ○                   □                   □", rows(screen))
         self.assertEqual(key_line(screen), KEYS)
         now = json.loads(self.record.read_text())
         self.assertEqual((now["orchestrator"], now["workers"]), ("astra", ["astra"]))
@@ -158,7 +158,7 @@ class ConfigScreenEdits(unittest.TestCase):
         self.term.keys("k")
         self.asked("Fable 5.1")
         self.term.keys("Down", "Enter")
-        self.term.wait(lambda screen: "› Fable 5.1    [●]     □        □     ▰▰▰▰▱   xhigh"
+        self.term.wait(lambda screen: "› Fable 5.1    [●] ▰▰▰▰▱   xhigh    □                   □"
                        in rows(screen))
         self.assertEqual(json.loads(self.record.read_text())["orchestrator"], "fable")
 

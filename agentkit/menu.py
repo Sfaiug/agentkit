@@ -3352,10 +3352,12 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     label = max(terminal.cells(config.model_name(cfg, name)) for name in names)
     mark = 4 if selected else 0                 # a mark is ` ● ` and a space, then its effort
 
-    def widths(tall):      # each role's mark, then its efforts' cells and words, under its head
-        wide = {number: max([terminal.cells(head) - mark, *((tall + 2 if tall else 0) + terminal.cells(
-            efforts[key]) for key in beside if key[1] == number)])
-            for number, head in enumerate(orch.ROLE_HEADS, 3)}
+    def widths(tall):
+        """Each role's mark, then its efforts' cells and words under its head, a word as wide as
+        its model's widest effort, so a step moves no column after it."""
+        wide = {number: max([terminal.cells(head) - mark, *(
+            (tall + 2 if tall else 0) + max(map(terminal.cells, (efforts[key], *levels[key[0]])))
+            for key in beside if key[1] == number)]) for number, head in enumerate(orch.ROLE_HEADS, 3)}
         return {**{number - 3: mark for number in wide if mark}, **wide}
     tall = max((len(levelled[key]) for key in beside), default=0)   # the cells, before every word
     width = widths(tall)
@@ -3484,15 +3486,15 @@ def _saved(cfg, table, before):
 
 
 def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, seat=None,
-                  alone=False):
+                  hold=()):
     """`name`'s effort in `role` (config.role_effort: a worker's is the effort while its own
     key is unset) one step along that model's own efforts (config.efforts), never past either
     end unless `wrap` takes it round to the other, or onto the `to`-th of them, and saved, a
     `seat`'s (name, record) to its record (efforts_saved), else to the entry new seats take; one
     set to an effort it does not take lands on its first, and a worker's stepped onto the
     effort itself is unset again (_follows), while the effort's own step moves no other key;
-    `alone`, the matrix's step beside a role's mark, moves no other role, a worker's that
-    followed the effort keeping the one it had.  The efforts are read `now`, off the catalog already in hand (config.catalog_now): a listing
+    the efforts of the keys in `hold` stay where they stand, one that followed the effort
+    keeping the one it had.  The efforts are read `now`, off the catalog already in hand (config.catalog_now): a listing
     never stands between the key and its frame.  What to say under the matrix, or ""."""
     entry, key = cfg["models"][name], config.ROLE_EFFORTS[role]
     try:
@@ -3505,9 +3507,8 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
     at = at % len(levels) if wrap else at
     if not 0 <= at < len(levels) or levels[at] == current:
         return ""
-    steps = [(name, key, levels[at]), *((name, each, shown.get(each, current))
-                                        for each in config.ROLE_EFFORTS.values()
-                                        if alone and key == "effort" != each)]
+    steps = [(name, key, levels[at]),
+             *((name, each, shown.get(each, shown.get("effort"))) for each in hold)]
     if seat:
         return efforts_saved(cfg, *seat, steps)
     before = dict(entry)
@@ -3943,13 +3944,16 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             # a click on one of its cells takes that level, and one on its word steps it on
             role, key = list(config.ROLE_EFFORTS.items())[column - 3]
             entry = config.at_efforts(cfg, selected)["models"][here[1]]
+            # the row's other efforts stay as they are shown
+            hold = [list(config.ROLE_EFFORTS.values())[number - 3] for number in
+                    config_columns(selected, here[1]) if number >= 3 and number != column]
             lead = next((last - first + 1 for row, cells in places.values() if row == here
                          for first, last, at in cells if at == column), 0) - terminal.cells(
                 entry.get(key, entry.get("effort", "?")))
-            note = (config_effort(cfg, here[1], 0, to=act, role=role, seat=seat, alone=True)
+            note = (config_effort(cfg, here[1], 0, to=act, role=role, seat=seat, hold=hold)
                     if isinstance(act, int) and act < lead
                     else config_effort(cfg, here[1], 1, wrap=True, role=role, seat=seat,
-                                       alone=True))
+                                       hold=hold))
 
 
 def _runs(cfg, harness, model, effort=None):

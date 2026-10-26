@@ -59,8 +59,8 @@ def key_line(screen):
 
 
 def opus_effort(screen):
-    """The effort Opus 5.5's row shows, the last word on it."""
-    return next(line.split()[-1] for line in lines(screen) if line.lstrip("› ").startswith("Opus 5.5"))
+    """The effort Opus 5.5's row shows beside its orchestrator mark, after that mark's bar."""
+    return next(line.split()[5] for line in lines(screen) if line.lstrip("› ").startswith("Opus 5.5"))
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -111,9 +111,11 @@ class SeatEfforts(unittest.TestCase):
     def test_a_step_on_a_seat_s_c_is_that_seat_s_alone(self):
         term, screen = self.c("acme-fix")
         self.assertEqual(opus_effort(screen), "xhigh")
-        term.keys("Right", "Right", "Right", "Enter")      # onto the effort, and a step
+        term.keys("Right", "Enter")      # onto the orchestrator's effort, and a step
         term.wait(lambda screen: opus_effort(screen) == "max")
-        self.until(lambda: self.record("acme-fix")["efforts"]["opus"] == {"effort": "max"},
+        # the build effort beside it stays where it was
+        self.until(lambda: self.record("acme-fix")["efforts"]["opus"] == {
+            "effort": "max", "exec_effort": "xhigh"},
                    "acme-fix's record never took the step")
         self.assertEqual(self.record("acme-fix")["efforts"]["astra"], EFFORTS["astra"])
         self.others_kept()
