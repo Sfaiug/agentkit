@@ -1016,8 +1016,8 @@ def stop_ended_logins(log):
     and left.  logind abandons a login's scope the moment the login ends, so the scope's last
     state change is that moment.  logind began stopping the login then, so `terminate-session`
     now does nothing and answers 0; `kill-session` reaches the scope, with SIGKILL since a day
-    was grace enough and a leftover may catch TERM, as OpenCode's server does.  The pids read
-    only name what ran: the kill is the whole login's.
+    was grace enough and a leftover server may catch TERM.  The pids read only name what ran:
+    the kill is the whole login's.
     """
     # install.sh stamps `installed-at` on a server and records the server's alias on a client;
     # with no user manager, seats start plainly, inside the login that opened them
