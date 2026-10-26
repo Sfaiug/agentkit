@@ -6,6 +6,7 @@ model and harness, in the shared transport."
 Real PTYs and pipes, a fake harness, and an isolated HOME; no model or live seat.
 """
 import errno
+import fcntl
 import hashlib
 import json
 import pty
@@ -140,6 +141,24 @@ class RelayIO(unittest.TestCase):
         except BlockingIOError:
             return b''
 
+    def wait_buffered(self, fd, size, bound=5):
+        """The bytes waiting to be read on `fd` once `size` are there, or at `bound` seconds."""
+        deadline = time.monotonic() + bound
+        while True:
+            waiting = struct.unpack('i', fcntl.ioctl(fd, termios.FIONREAD, b'\0' * 4))[0]
+            if waiting >= size or time.monotonic() > deadline:
+                return waiting
+            time.sleep(.01)
+
+    def read_until(self, fd, size, bound=5):
+        """What `fd` gives within `bound` seconds, stopping once `size` bytes are in."""
+        data, deadline = b'', time.monotonic() + bound
+        while len(data) < size:
+            if not select.select([fd], [], [], max(0, deadline - time.monotonic()))[0]:
+                break
+            data += self.read(fd)
+        return data
+
     def test_one_poll_delivers_new_input_to_the_harness(self):
         from agentkit.pty_relay import Relay
         outer_master, outer_slave = pty.openpty()
@@ -163,14 +182,16 @@ class RelayIO(unittest.TestCase):
                     return original(fd, data)
 
                 os.write(outer_master, draft)
-                self.assertTrue(select.select([outer_slave], [], [], 5)[0])
+                # A pty hands bytes over in pieces: a slow kernel (a suite helper's VM) can
+                # wake select with part of the draft, so both ends wait for all of it.
+                self.assertEqual(self.wait_buffered(outer_slave, len(draft)), len(draft))
                 with patch('agentkit.pty_relay.os.write', side_effect=write):
                     self.relay.poll(0)
                 # Do not poll the relay again: a delayed wrapper must leave the
                 # draft in the harness's terminal, where the typing guard sees it.
                 self.assertTrue(select.select([self.slave], [], [], 5)[0],
                                 'input waited in the relay for a second poll')
-                self.assertEqual(self.read(self.slave), draft)
+                self.assertEqual(self.read_until(self.slave, len(draft)), draft)
 
     def test_short_writes_and_retries_keep_both_streams_in_order(self):
         incoming = b'owner draft\x1b[<35;12;6M\x1b' * 20
