@@ -3509,10 +3509,11 @@ def _offered(harness, *screen, provider=None):
             if provider is None or model["id"].partition("/")[0] in (provider, model["id"])]
 
 
-def config_model_id(cfg, name, step, screen):
+def config_model_id(cfg, name, step, screen, seat=None):
     """`name`'s model id one step along the models its harness's catalog lists (_offered),
-    never past either end, and saved with the efforts that follow it (_nearest); an id not
-    among them lands on the first.  `screen` is what waits on the catalog (`waited`).  What to
+    never past either end, and saved with the efforts that follow it (_nearest), each seat's it
+    holds of `name` too, `seat`'s (name, record) in hand as well; an id not among them lands on
+    the first.  `screen` is what waits on the catalog (`waited`).  What to
     say under the screen, or ""."""
     entry = cfg["models"][name]
     try:
@@ -3531,7 +3532,16 @@ def config_model_id(cfg, name, step, screen):
         if key == "effort" or key in entry:
             entry[key] = _nearest(entry.get(key), levels)
     _follows(entry, config.ROLE_EFFORTS.values())
-    return _saved(cfg, entry, before)
+    note = _saved(cfg, entry, before)
+    for each, record in ({} if note else config.session_records()).items():
+        held = (record.get("efforts") or {}).get(name)
+        if isinstance(held, dict):      # a seat on the old id runs the new one at what it takes
+            held = {key: _nearest(value, levels) for key, value in held.items()}
+            _follows(held, config.ROLE_EFFORTS.values())
+            written = config.hold_efforts(each, {name: held})
+            if seat and seat[1] is not None and written and config.resolve_session(seat[0]) == each:
+                seat[1]["efforts"] = written["efforts"]
+    return note
 
 
 def model_body(cfg, name, at=None, seat=None):
@@ -3632,7 +3642,7 @@ def config_model(cfg, name, seat=None):
             step = 1 if act == "right" else -1
             try:
                 note = (config_model_id(cfg, name, step, (
-                    title, lambda: model_body(cfg, name, here, seat)[0], keys))
+                    title, lambda: model_body(cfg, name, here, seat)[0], keys), seat)
                         if here == "model id"
                         else config_effort(cfg, name, step, role=EFFORT_ROWS[here], seat=seat))
             except Back:

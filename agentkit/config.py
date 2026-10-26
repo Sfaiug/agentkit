@@ -811,17 +811,15 @@ def save(cfg, defaults=None):
     the 0600 install.sh gave it: a replace inherits the temp file's mode, not the old one's.
     `[defaults]` is written as `defaults`, a creation's (remember_defaults), and otherwise as
     the file has it, whatever `cfg` holds: a menu open for hours holds an older one, and a
-    model removed since is only passed over in memory (load).  No seat's efforts move (pin_efforts).
+    model removed since is only passed over in memory (load).
     """
     path = HOME / CONFIG_NAME
-    try:
-        held = _read_toml(path) or {}
-    except Error:
-        held = {}           # nothing readable to keep: `cfg`'s are written
     if defaults is None:
-        defaults = held.get("defaults")
+        try:
+            defaults = (_read_toml(path) or {}).get("defaults")
+        except Error:
+            defaults = None       # nothing readable to keep: `cfg`'s are written
     text = dump(cfg if defaults is None else {**cfg, "defaults": defaults})
-    pin_efforts(held.get("models") or {}, cfg.get("models") or {})
     ensure_dirs()
     tmp = path.with_suffix(".tmp")
     tmp.write_text(text)
@@ -870,9 +868,8 @@ def efforts_of(entry):
 
 def at_efforts(cfg, record):
     """`cfg` as the seat or run `record` runs it: each model its `efforts` names at those
-    efforts in place of its entry's own, every other at its entry's.  A seat's record is the
-    one home of its efforts once it holds them (pin_efforts), a run's receipt holds every
-    model's as launched, and new seats run at the entries'."""
+    efforts in place of its entry's own, every other at its entry's: a seat's record holds those
+    of each model it runs (own_efforts), and a run's receipt every model's as launched."""
     held = (record or {}).get("efforts") or {}
     if not held:
         return cfg
@@ -1153,6 +1150,7 @@ def save_session(cfg, name, orchestrator, workers, extra=None):
                                               **({"reviewers": list(reviewers)}
                                                  if reviewers is not None else {}),
                                               **(extra or {})})
+    selection = own_efforts(cfg, name, selection)
     ensure_dirs()
     with _record_lock(session_path(name)):
         _write_json(session_path(name), selection, prepare=False)
@@ -1219,6 +1217,11 @@ def update_session(name, **fields):
                 data.pop(key, None)
             else:
                 data[key] = value
+        if fields.keys() & {"orchestrator", "workers", "reviewers"}:
+            try:        # a model the seat takes on runs at its entry's efforts as of now
+                data = own_efforts(load(), name, data)
+            except Error:
+                pass
         # The record's directory already exists. In particular, project inference while
         # listing seats must not prepare or change metadata on run/worktree directories.
         _write_json(path, data, prepare=False)
@@ -1240,26 +1243,19 @@ def hold_efforts(name, efforts, keep=False):
     return data
 
 
-def pin_efforts(before, after):
-    """Before the model entries' efforts change from `before` to `after`, {name: entry}, each
-    seat on a model whose efforts change and of which its record holds none is given them as
-    they were: changing the defaults moves no live seat (save).  The weekly audit's seat, whose
-    models are [audit]'s, goes on with the entries' efforts."""
+def own_efforts(cfg, name, data):
+    """Seat `name`'s record `data` holding the efforts of each model it runs: one it holds none
+    for takes its entry's, the defaults, once -- at the seat's creation, a model added to it, or
+    the first read of a record from before -- so an entry changed since moves no seat.  The
+    weekly audit's seat, whose models are [audit]'s, goes on with the entries'."""
     from . import audit     # here, not at the top: audit imports this module
-    moved = {name: efforts_of(entry) for name, entry in before.items()
-             if isinstance(entry, dict) and isinstance(after.get(name), dict)
-             and efforts_of(entry) != efforts_of(after[name])}
-    if not moved:
-        return
-    records = session_records()
-    records.pop(resolve_session(audit.NAME), None)
-    for name, record in records.items():
-        runs = {record.get("orchestrator"), *(record.get("workers") or ()),
-                *(record.get("reviewers") or ())}
-        pinned = {model: efforts for model, efforts in moved.items()
-                  if model in runs and model not in (record.get("efforts") or {})}
-        if pinned:
-            hold_efforts(name, pinned, keep=True)
+    held = data.get("efforts") or {}
+    runs = [data.get("orchestrator"), *(data.get("workers") or ()), *(data.get("reviewers") or ())]
+    taken = {model: efforts_of(cfg["models"][model]) for model in runs
+             if model in cfg["models"] and model not in held}
+    if not taken or normalize_session(name) == resolve_session(audit.NAME):
+        return data
+    return {**data, "efforts": {**held, **taken}}
 
 
 def _session_files():
@@ -1304,7 +1300,7 @@ def load_session(cfg, name, required=True):
 
     A model the config no longer has is passed over in what comes back
     (_validate_session), so a seat whose models changed under it still reads; the file
-    itself is left as it was.
+    itself is left as it was, but for the efforts a record from before is given (own_efforts).
     """
     name = resolve_session(name)
     path = session_path(name)
@@ -1313,7 +1309,14 @@ def load_session(cfg, name, required=True):
         if not required:
             return None
         raise Error(f"{SESSION_ENV}={name!r}, but {path} does not exist")
-    return _validate_session(cfg, name, data, prune=True)
+    selection = _validate_session(cfg, name, data, prune=True)
+    owned = own_efforts(cfg, name, selection)
+    if owned is not selection:
+        try:
+            hold_efforts(name, owned["efforts"], keep=True)
+        except OSError:
+            pass        # unwritable: held for this read alone
+    return owned
 
 
 def rename_session(old, new):

@@ -62,7 +62,8 @@ class StepsOnC(unittest.TestCase):
         cls.rig = Rig(cls.home, "widgets")
         cls.fakes = fakeadapter.install(cls.home, claude="work", codex="pass")
         cls.seat = Seat(cls.home, "atoll-own", model="fable",
-                        record={"reviewers": ["astra"], "efforts": {"fable": {"effort": "high"}}})
+                        record={"reviewers": ["astra"], "efforts": {"fable": {"effort": "high"},
+                                                                    "astra": {"effort": "xhigh"}}})
 
     def setUp(self):
         self.config = akconfig.write(self.home, {"fable": "claude", "astra": "codex"})
@@ -92,7 +93,7 @@ class StepsOnC(unittest.TestCase):
 
     def test_a_step_on_a_seat_s_c_writes_its_record_and_not_config_toml(self):
         config, _ = self.step_fable({"AGENTKIT_SESSION": "atoll-own"})
-        self.assertEqual(self.efforts(), {"fable": {"effort": "xhigh"}})
+        self.assertEqual(self.efforts()["fable"], {"effort": "xhigh"})
         self.assertEqual(self.config.read_bytes(), config)
 
     def test_a_step_on_new_seats_c_writes_config_toml_and_no_record(self):
@@ -107,6 +108,9 @@ class StepsOnC(unittest.TestCase):
         self.step_fable()
         self.assertEqual(akconfig.read(self.home)["models"]["fable"]["effort"], "max")
         self.assertEqual(run_in(self, "atoll-old", "Build after")[1], {"xhigh"})
+        # and an entry edited by hand, not through ak, moves it no more
+        akconfig.write(self.home, {"fable": {"harness": "claude", "effort": "low"}, "astra": "codex"})
+        self.assertEqual(run_in(self, "atoll-old", "Build by hand")[1], {"xhigh"})
 
 
 if __name__ == "__main__":
