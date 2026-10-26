@@ -923,8 +923,10 @@ def _fitted(head, titles, tail):
         left = len(titles) - shown
         named = [*titles[:shown], *([f"{left} more failed checks left out"] if left else [])]
         line = f"{head}: {' / '.join(named)}. {tail}" if named else f"{head}. {tail}"
-        if not (shown and watch.too_long(line)):
+        refusal = watch.too_long(line)
+        if not refusal:
             return line
+    raise config.Error(refusal)     # its fixed words alone are too long: a fault to fix here
 
 
 def _fail_titles(said):
@@ -967,14 +969,15 @@ def live_hand_back(commit, check, code, log, hand=True, *, standing=False):
             f"WARN agentkit stays as it is: tests/live.sh failed at {commit[:12]}{stopped}:")
         for line in titles:
             log(f"  {line}")
+        where = f"Output: {config.tilde(output)}."
         record = dict(line=_fitted(f"tests/live.sh has standing faults on agentkit's main at "
                                    f"{commit[:12]}, also failed on the running install{stopped}",
-                                   titles, f"Output: {output}. Fix the standing faults.")
+                                   titles, f"{where} Fix the standing faults.")
                       if standing else
                       _fitted(f"tests/live.sh failed on agentkit's main at {commit[:12]}{stopped}, "
                               "so this host stays on the agentkit it runs", titles,
-                              f"Output: {output}. Fix main: your next agentkit PR review goes "
-                              "first in line, so make it the fix."),
+                              f"{where} Fix main: your next agentkit PR review goes first in "
+                              "line, so make it the fix."),
                       typed=None, told=False, standing=standing)
         _put(check / "handed", json.dumps(record))
     if hand and _gate_hand_back(check, record, log, first=not record.get("standing")):
@@ -1047,7 +1050,8 @@ def harness_gate_result(plan, passed, gate, log_path):
             record.update(line=_fitted(
                 f"The {harness['name']} harness upgrade failed its gate twice in a row ({gate})",
                 _fail_titles(log_path.read_text(errors="replace")),
-                f"Log: {log_path}. Fix the harness upgrade gate."), typed=None, told=False)
+                f"Log: {config.tilde(log_path)}. Fix the harness upgrade gate."),
+                typed=None, told=False)
         check.mkdir(parents=True, exist_ok=True)
         _put(check / "handed", json.dumps(record))
 

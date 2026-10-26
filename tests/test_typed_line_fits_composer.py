@@ -32,7 +32,8 @@ def smoke_log(count):
 class TypedLineFitsComposer(Sandbox):
     def assertFits(self, line, titles, path):
         self.assertIsNone(watch.too_long(line))
-        self.assertIn(str(path), line)
+        self.assertTrue(config.tilde(path).startswith("~/"))  # as short however deep HOME is
+        self.assertIn(config.tilde(path), line)
         self.assertNotIn("acme row", line)
         named = [title for title in titles if title in line]
         left = len(titles) - len(named)
@@ -45,7 +46,7 @@ class TypedLineFitsComposer(Sandbox):
 
     def test_a_harness_gate_failing_twice_hands_back_titles_and_its_log(self):
         self.assertEqual(watch.longest(config.load()), watch.screen("claude")["folds_over"])
-        for count in (2, 40):
+        for count in (0, 2, 40):
             with self.subTest(failed=count):
                 titles, log = smoke_log(count)
                 path = config.TMP / f"update-{count}.log"
@@ -56,11 +57,11 @@ class TypedLineFitsComposer(Sandbox):
                 line = update._handed(config.STATE / update.HARNESS_GATES / f"acme{count}")["line"]
                 self.assertIn(f"acme{count} harness upgrade", line)
                 named = self.assertFits(line, titles, path)
-                self.assertEqual(len(named) == count, count == 2)
+                self.assertEqual(len(named) == count, count < 40)
 
     def test_tests_live_sh_failures_hand_back_titles_and_its_output(self):
         for standing in (False, True):
-            for count, code in ((2, 1), (40, 1), (6, None)):
+            for count, code in ((0, 1), (2, 1), (40, 1), (6, None)):
                 with self.subTest(standing=standing, failed=count, code=code):
                     titles, log = smoke_log(count)
                     check = config.STATE / update.LIVE / f"{COMMIT}-{count}-{standing}-{code}"

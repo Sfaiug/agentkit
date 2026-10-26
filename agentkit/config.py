@@ -38,6 +38,15 @@ def __getattr__(name):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
+def tilde(path):
+    """`path` as `~/...` under the home directory: what a typed line names stays short
+    however deep that directory is."""
+    try:
+        return f"~/{Path(path).relative_to(Path.home())}"
+    except ValueError:
+        return str(path)
+
+
 JOB_DIR_ENV = "AGENTKIT_JOB_DIR"  # the `ak run --bg` job child this receipt belongs to
 KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_]*$")
 HARNESS = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")   # a harness name is one path component
