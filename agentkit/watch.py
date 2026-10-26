@@ -497,18 +497,18 @@ def reboot_line(cfg, name, moved=None):
     idle or done and held nothing.
     """
     fact = hook_facts(name)
-    line = _cut_line(cfg, name, fact) if moved is None else ACCOUNT_LINE if moved else None
+    line = _cut_line(cfg, name) if moved is None else ACCOUNT_LINE if moved else None
     work = holding(name, fact)
     return " ".join(filter(None, (line, work and HELD_LINE.format(", ".join(work))))) or None
 
 
-def _cut_line(cfg, name, fact):
+def _cut_line(cfg, name):
     harness = seat_model(cfg, name)[0]
     if not harness:
         return None
     looked = seat_read(name)
     try:
-        hooked, _event, _text, when = hook_state(harness, fact)
+        hooked, _event, _text, when = hook_state(harness, seat_fact(name, harness))
     except config.Error:
         return None
     if when is not None and when != looked.get("hooked_at"):
@@ -561,7 +561,7 @@ def resume_after_boot(cfg, dry_run=False, log=print):
                     or seat_closed_by_owner(name)):
                 continue
             # background work alone owes nothing: its words go only to a seat that comes back
-            if (not _cut_line(cfg, name, hook_facts(name))
+            if (not _cut_line(cfg, name)
                     and not owes_work(name, own_runs(name, records), index, now)):
                 continue
             line = reboot_line(cfg, name)   # read before the relaunch writes anything
@@ -1574,6 +1574,23 @@ def interrupted_at(harness, name):
         return None
 
 
+def seat_fact(name, harness):
+    """That seat's hook fact, or the question card its harness recorded open since, as the fact
+    that card's going up writes: a card no hook of the seat's launch hears, as after Muse's
+    `/new`, still blocks it."""
+    fact = hook_facts(name)
+    record = config.session_records().get(name) if harness else None
+    if not record:
+        return fact
+    try:
+        card = orch.harness_plugin(harness).card(record, record.get("cwd"))
+    except OSError:
+        return fact
+    standing = _stamp(fact.get("at"))
+    return ({"session": name, **card} if card and (standing is None or card["at"] > standing)
+            else fact)
+
+
 def follow_model(cfg, name):
     """Make the model that seat's harness says its latest answer ran on its orchestrator:
     `/model` typed inside a seat moves its row, its bar and `c`'s mark as a move on `c` would,
@@ -2098,7 +2115,7 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
 def observed(name, harness, pane, previous, at):
     """`classify` of that pane with the seat's hook facts and an interruption its harness
     recorded, and the stall the tick would type it back past (`stall`), writing nothing."""
-    fact = hook_facts(name)
+    fact = seat_fact(name, harness)
     # only a turn its hooks say runs, or asked in, can have ended unreported; and a prompt
     # whose hook lands while the record is read is a newer turn, which the record may not
     # show yet
@@ -2108,7 +2125,7 @@ def observed(name, harness, pane, previous, at):
         if ended is None and cancelled(harness, name, pane):
             # seen now, and never before the turn it ends
             ended = max(at, _stamp(fact.get("at")) or at)
-    if ended is not None and hook_facts(name) != fact:
+    if ended is not None and seat_fact(name, harness) != fact:
         ended = None
     found = classify(harness, pane_tail(pane), fact, previous.get("opened_at"), previous, at,
                      interrupted=ended)
@@ -3239,7 +3256,7 @@ def _decided_state(name, harness, pane):
         return None
     try:
         previous = seat_read(name)
-        found = classify(harness, pane_tail(pane), hook_facts(name),
+        found = classify(harness, pane_tail(pane), seat_fact(name, harness),
                          previous.get("opened_at"), previous, time.time())
     except (config.Error, OSError):
         return None
@@ -6527,7 +6544,7 @@ def revive_seats(cfg, log):
     orch.file_projectless([{**record, "name": name} for name, record in kept.items()], states)
     cut = {name for name, record in kept.items()
            if not (seat_stopped_at(name) or seat_closed_by_owner(name))
-           and _cut_line(cfg, name, hook_facts(name)) and orch.resumable(record)}
+           and _cut_line(cfg, name) and orch.resumable(record)}
     if not going and not cut and not any(seat_read(name).get("reopened_at") for name in kept):
         return
     for session in orch.listing():

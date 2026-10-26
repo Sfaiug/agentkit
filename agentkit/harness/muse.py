@@ -594,6 +594,35 @@ def user_messages(record, cwd, conversation):
             yield kept
 
 
+def card(record, cwd, conversation):
+    """The question Muse's own card holds open in that session, as the fact its Notification
+    hook writes (adapters/muse.toml), dated when Muse recorded it; or None.  Muse logs each
+    card going up and its settling -- answered, or Esc's `interrupted` -- as run events naming
+    its prompt and tool call, hooks or none (`/new` leaves a launch's behind): the newest card
+    is open until a settling of that same card follows it."""
+    from . import last_entry
+    settled = set()
+
+    def named(event):
+        return event.get("prompt_id"), event.get("tool_call_id")
+
+    def asked(entry):
+        done = run_event(entry, "user_input_prompt_settled")
+        if done:
+            settled.add(named(done))
+        return bool(run_event(entry, "user_input_prompt_requested"))
+    path = session_log(conversation)
+    entry = last_entry(path, asked) if path else None
+    event = run_event(entry or {}, "user_input_prompt_requested")
+    at = entry and entry.get("recorded_at")
+    if not isinstance(event.get("prompt_id"), str) or named(event) in settled or type(at) is not int:
+        return None
+    first = next(iter(event.get("questions") or ()), None)
+    text = first.get("question") if isinstance(first, dict) else None
+    return {"event": "Notification", "kind": "question_prompt",
+            "text": text if isinstance(text, str) else "", "at": at / 1_000_000}
+
+
 def session_log(conversation):
     """That session's log, or None where it has none or no such name."""
     if not isinstance(conversation, str) or not SESSION.fullmatch(conversation):
