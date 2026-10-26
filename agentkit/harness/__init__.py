@@ -11,8 +11,9 @@ the receipt its SessionStart hook writes its session into and its registry moves
 the session store its tokens and messages are in and the sessions gc ends,
 `opencode.py` the receipt its seat plugin writes its session into, the endpoint that says
 how a model is paid and the sessions gc ends,
-`antigravity.py` the database each of its conversations is.  A script its adapter runs on its
-own sits beside its module, named for it: `muse_usage.py` is Muse's billed usage probe.
+`antigravity.py` the database each of its conversations is, and which one a seat's agy holds
+open.  A script its adapter runs on its own sits beside its module, named for it:
+`muse_usage.py` is Muse's billed usage probe.
 
 No module outside this package names a harness: the core asks
 `harness.load(config.model(cfg, m)["harness"]).<hook>(...)` and takes the answer.
@@ -228,6 +229,12 @@ def token_family(paths, roots, metadata):
             seen.add(session)
             pending.extend(children.get(session, ()))
     return [found[session] for session in seen if session in found]
+
+
+def issued(name, conversation, **fields):
+    """Write down the launcher's own id as what that launch owns, beside `fields`."""
+    config.update_session(name, conversation=conversation, resumable=bool(conversation),
+                          id_source=LAUNCHER if conversation else None, before=None, **fields)
 
 
 def user_message(at, text):
@@ -464,8 +471,7 @@ class Harness:
         hook = self._hook("launched")
         if hook:
             return hook(name, cwd, conversation)
-        config.update_session(name, conversation=conversation, resumable=bool(conversation),
-                              id_source=LAUNCHER if conversation else None, before=None)
+        issued(name, conversation)
         return {}
 
     def title_command(self, name):

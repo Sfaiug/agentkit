@@ -64,15 +64,6 @@ seat_state() {
   if [[ -z $ts ]]; then
     ts=$(/usr/bin/env python3 -c 'import time; print(time.time())' 2>/dev/null) || ts=$(/bin/date +%s)
   fi
-  # A Stop that hands over the background work in flight -- Claude Code's, Grok Build's, a Codex
-  # seat's -- is written down by hooks/orchestrator-stop.sh, which runs beside this and knows
-  # whether the turn ended there.  Written here too, it would read as the turn over until that
-  # one decided; that one looks at the seat once its word is down, however long it took.
-  if [[ $event = Stop ]] &&
-    "$jq" -e '(.background_tasks // .backgroundTasks) | type == "array"' <<<"$payload" \
-      >/dev/null 2>&1; then
-    return 0
-  fi
   # the payload field that tells one kind of that event from another: Claude's Notification
   # carries notification_type, a PermissionRequest the tool it wants -- and one harness spells
   # both camelCase, so the twins are read beside them -- and a compaction its trigger
@@ -91,6 +82,26 @@ seat_state() {
     case "$next" in */*|.|..|"") break ;; esac
     row=$next
   done
+  # A Stop that hands over the background work in flight -- Claude Code's, Grok Build's, a Codex
+  # seat's -- is written down by hooks/orchestrator-stop.sh, which runs beside this and knows
+  # whether the turn ended there.  Written here too, it would read as the turn over until that
+  # one decided; that one looks at the seat once its word is down, however long it took.  A
+  # harness that is nudged instead (`watch.stop_enforced`) runs no such hook: its Stop is here.
+  if [[ $event = Stop ]] &&
+    "$jq" -e '(.background_tasks // .backgroundTasks) | type == "array"' <<<"$payload" \
+      >/dev/null 2>&1; then
+    /usr/bin/env python3 -c '
+import json, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
+from agentkit import config, lifecycle, watch
+row, seat, at = sys.argv[2:]
+if not watch.stop_enforced(watch.seat_model(config.load(), row)[0]):
+    sys.exit(1)
+config.record_hook_fact(row, lifecycle.stop_fact(seat, json.load(sys.stdin), float(at)))
+' "${BASH_SOURCE[0]}" "$row" "$seat" "$ts" <<<"$payload" && look "$seat"
+    return 0
+  fi
   # The fact standing is read, judged and replaced by one writer at a time, as
   # hooks/orchestrator-stop.sh replaces it with its Stop (`config.record_hook_fact`): an event its
   # harness does not wait on can finish after a newer one, and is never put back over it.

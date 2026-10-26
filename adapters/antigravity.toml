@@ -42,8 +42,8 @@ exec curl -fsSL https://antigravity-cli-auto-updater-974169037036.us-central1.ru
 
 # An Antigravity seat owns only the conversation its own TUI opened: `--conversation` resumes
 # one that exists and nothing names one that does not, so `interactive` refuses a
-# launcher-issued id and the seat starts a new conversation.  Past ones stay in agy's own
-# store, resumable by hand with `/resume`.
+# launcher-issued id and the seat starts a new conversation, the one its agy holds open
+# (agentkit/harness/antigravity.py).
 [conversation]
 fresh_words = "no conversation recorded; it starts a new conversation"
 

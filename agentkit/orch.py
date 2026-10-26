@@ -2447,8 +2447,8 @@ def resume_command(cfg, model, conversation, cwd, seat=None, account=None, line=
 # harness's receipt, and the title that launch takes. A restart that fails puts these
 # back from the record as it was, so the seat keeps its own conversation.
 LAUNCH_KEYS = ("conversation", "resumable", "id_source", "before", "codex_launch",
-               "codex_history", "opencode_launch", "muse_launch", "session_title",
-               "title_sync")
+               "codex_history", "opencode_launch", "muse_launch", "antigravity_launch",
+               "antigravity_open", "session_title", "title_sync")
 
 
 def launch(name, model, cwd, cmd, conversation, session=None, still=None):
