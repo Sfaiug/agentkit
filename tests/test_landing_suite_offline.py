@@ -111,7 +111,8 @@ class LandingSuiteOffline(unittest.TestCase):
             "sys.exit(int(e('ACME_EVERY', '0')))\n")
         cases = (({}, 0, "ns=1 caps=dropped"), ({"ACME_SMOKE": "3"}, 3, "ns=1 caps=dropped"),
                  ({"ACME_SMOKE": "3", "ACME_EVERY": "1"}, 1, "ns=1 caps=dropped"),
-                 ({"ACME_NO_NAMESPACE": "1", "ACME_SMOKE": "3"}, 3, "ns= caps="))
+                 # a host refusing the namespace runs no suite at all
+                 ({"ACME_NO_NAMESPACE": "1", "ACME_SMOKE": "3"}, 1, None))
         for extra, code, where in cases:
             with self.subTest(**extra):
                 self.log.unlink(missing_ok=True)
@@ -122,10 +123,13 @@ class LandingSuiteOffline(unittest.TestCase):
                                       capture_output=True, text=True, timeout=60)
                 self.assertEqual(proc.returncode, code, proc.stdout + proc.stderr)
                 ran = self.ran()
+                if where is None:
+                    self.assertEqual(ran, [])
+                    continue
                 self.assertCountEqual([entry for entry in ran if entry != "lo up"],
                                       [f"smoke {where} required=1", f"every_file {where} required=1"])
                 # the probe and the suite each bring loopback up in their own namespace
-                self.assertEqual(ran.count("lo up"), 0 if extra.get("ACME_NO_NAMESPACE") else 2)
+                self.assertEqual(ran.count("lo up"), 2)
 
 
 if __name__ == "__main__":
