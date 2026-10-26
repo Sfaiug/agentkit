@@ -34,7 +34,7 @@ look() {
   [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] || return 0
   # the owner's words go on its stdin: on its command line, a long one would never run it
   ( printf '%s' "$said" | /usr/bin/env python3 -c '
-import os, sys
+import json, os, sys
 from pathlib import Path
 try:
     os.setsid()     # a session of its own: a harness ending the hook group ends none of this
@@ -42,8 +42,9 @@ except OSError:
     pass
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
 from agentkit import watch
-watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None, sys.stdin.read(),
-                prompt=sys.argv[4] == "UserPromptSubmit")
+said, card = sys.stdin.read(), sys.argv[4] == "PostToolUse"
+watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None, "" if card else said,
+                prompt=sys.argv[4] == "UserPromptSubmit", card=json.loads(said) if card else None)
 ' "${BASH_SOURCE[0]}" "$seat" "$answered" "$event" >/dev/null 2>&1 & )
 }
 
@@ -178,13 +179,19 @@ main() {
     said=$("$jq" -r '[(.prompt // empty), (.message // empty)] | map(strings)
                      | first // ""' <<<"$payload" 2>/dev/null) || said=''
     news "$payload" "$owner" "$said"
-  # The owner's answer to the harness's own question tool is their word as a prompt is, its
-  # answers what they said; any other event, and a sub-agent's tool, says nothing of theirs.
+  # The owner's answer to the harness's own question tool is their word as a prompt is, and
+  # answers only the questions it names: Claude's by their words, Codex's by an id its call
+  # gives the words of.  A card cancelled or left empty, any other event, and a sub-agent's
+  # tool say nothing of theirs.
   elif [[ $event != PostToolUse ]] ||
     "$jq" -e -f "${BASH_SOURCE[0]%/*}/sub-agent.jq" <<<"$payload" >/dev/null 2>&1 ||
-    ! said=$("$jq" -er '(.tool_input.answers // .tool_response.answers) | objects
-                          | [.. | strings] | join("\n")' \
-      <<<"$payload" 2>/dev/null); then
+    ! said=$("$jq" -ec '.tool_input as $asked | (.tool_input.answers // .tool_response.answers)
+                        | objects | [to_entries[] | select([.value | .. | strings
+                                                           | select(test("\\S"))] != [])
+                          | .key as $id | first(($asked.questions[]? | objects
+                                                | select(.id == $id) | .question | strings),
+                                               $id)]
+                        | select(. != [])' <<<"$payload" 2>/dev/null); then
     owner=false
   fi
   seat_state "$payload" "$jq" "$owner" "$said" "$ts" >/dev/null 2>&1

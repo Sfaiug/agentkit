@@ -2245,10 +2245,10 @@ def answered_kept(name, replies, at):
     with seat_lock(name):
         data = seat_read(name)
         kept = questions_kept(data.get("unasked"))
-        keys = set(replies)
         latest = {notify.question_key(q["text"]): q.get("id") for q in kept}
-        remaining = [q for q in kept if not (q.get("at", at) < at and (
-                     q.get("id") in keys or latest[notify.question_key(q["text"])] in keys))]
+        remaining = [q for q in kept if not (q.get("at", at) < at and any(
+                     notify.replied(replies, q["text"], card)
+                     for card in (q.get("id"), latest[notify.question_key(q["text"])])))]
         if remaining != kept:
             _seat_put(name, data, {"unasked": _kept(remaining)})
             return True
@@ -2520,7 +2520,7 @@ def announce_state(session, cfg=None, look=False, **facts):
     return answer
 
 
-def hook_look(launched, answered_at=None, said="", prompt=False):
+def hook_look(launched, answered_at=None, said="", prompt=False, card=None):
     """Look at that one seat again and publish what it is: its own hook's word, at once.
 
     hooks/seat-state.sh starts this in the background on every event it hears -- a turn
@@ -2540,7 +2540,8 @@ def hook_look(launched, answered_at=None, said="", prompt=False):
     it as it reports the owner's words.  A `prompt`, unlike an answer through the harness's
     question tool, is the owner's only where the seat's conversation says so
     (`notify.answer_written`), which every other look also asks: the owner's message reaches it
-    after their prompt hook ran.
+    after their prompt hook ran.  An answer on the harness's own question `card` names the
+    questions it answers, and answers only those (`notify.answered`).
     """
     name = config.resolve_session(launched)
     number, session = next(((number, session) for number, session
@@ -2551,7 +2552,9 @@ def hook_look(launched, answered_at=None, said="", prompt=False):
             "display-message", "-p", "-t", pane, "#{socket_path}\t#{session_name}",
             socket=orch.seat_socket(session)) != (0, f"{here}\t{name}"):
         return None
-    if answered_at is not None and not notify.ak_prompt(name, said, notify.last(name)):
+    if answered_at is not None and card is not None:
+        notify.answered(name, answered_at, replies=card)
+    elif answered_at is not None and not notify.ak_prompt(name, said, notify.last(name)):
         if not prompt or notify.answer_written(name, answered_at, notify.PROMPT_WRITTEN) is None:
             notify.answered(name, answered_at)
     else:

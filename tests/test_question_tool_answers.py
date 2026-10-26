@@ -19,12 +19,13 @@ SEAT = "acme"
 QUESTION = "Which schema should acme use?"
 # What Claude Code 2.1.292 hands PostToolUse as the owner answers, cut to the fields ak reads.
 ASKED = {"tool_name": "AskUserQuestion", "tool_input": {
-    "questions": [{"question": "Which colour do you prefer?", "header": "Colour",
+    "questions": [{"question": QUESTION, "header": "Schema",
                    "options": [{"label": "Red"}, {"label": "Blue"}]}],
-    "answers": {"Which colour do you prefer?": "Red"}}}
+    "answers": {QUESTION: "Red"}}}
 # ... and what Codex hands it as the owner answers its Plan-mode question.
 CODEX = {"tool_name": "request_user_input", "tool_use_id": "call_1",
-         "tool_response": {"answers": {"color": {"answers": ["Red"]}}}}
+         "tool_input": {"questions": [{"id": "schema", "question": QUESTION}]},
+         "tool_response": {"answers": {"schema": {"answers": ["Red"]}}}}
 PLAN = {"tool_name": "ExitPlanMode", "tool_input": {"plan": "# Plan: write hello.txt\n"}}
 
 # No command falls through to the host's tmux.
