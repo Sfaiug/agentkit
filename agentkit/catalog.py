@@ -5,7 +5,7 @@ replaced it (`deprecatedTo`), which may itself be replaced.  The record's shape 
 those chains, the default effort being the row whose slug is the release's own) stays here.
 """
 
-from .boards import EFFORT_ORDER
+from .boards import effort_rank
 
 BOARD = "artificialanalysis.ai"
 
@@ -23,8 +23,7 @@ def _releases(boards):
 def _release(slug, rows):
     """A release as callers see it: its slug, name and maker, and its efforts weakest first,
     each with its row's slug and whether it is the default."""
-    rows = sorted(rows, key=lambda row: EFFORT_ORDER.index(row["effort"])
-                  if row["effort"] in EFFORT_ORDER else -1)
+    rows = sorted(rows, key=lambda row: effort_rank(row["effort"]))
     return {"slug": slug, "name": rows[0]["release"]["name"], "maker": rows[0]["maker"],
             "efforts": [{"effort": row["effort"], "slug": row["slug"],
                          "default": row["slug"] == slug} for row in rows]}

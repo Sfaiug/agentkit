@@ -10,7 +10,7 @@ standard error of that estimate.  Reads no board, config or clock: rows come in,
 import math
 import statistics
 
-from .boards import EFFORT_ORDER
+from .boards import effort_rank
 
 INTEL = "aa.intelligenceIndex"
 # How a value is behind its board's best, in points out of 100, per kind of number: (which
@@ -56,10 +56,6 @@ COSTS = {
 }
 
 
-def _rank(effort):
-    return EFFORT_ORDER.index(effort) if effort in EFFORT_ORDER else -1
-
-
 def rated(rows, role):
     """Each of `rows` ({"release", "effort", "values": {column: number}}) that has at least two
     of `role`'s measures measured or carried, as itself with its "quality" (100 less its mean
@@ -82,13 +78,13 @@ def rated(rows, role):
         # effort's as they are, as a lower effort is never better
         others = [other for other in rows if other["release"] == row["release"]
                   and other is not row and column in measured(other)]
-        above = [other for other in others if _rank(other["effort"]) > _rank(row["effort"])]
-        nearest = min(above, key=lambda other: _rank(other["effort"]), default=None)
+        above = [other for other in others if effort_rank(other["effort"]) > effort_rank(row["effort"])]
+        nearest = min(above, key=lambda other: effort_rank(other["effort"]), default=None)
         if nearest and INTEL in nearest["values"] and INTEL in row["values"]:
             drop = nearest["values"][INTEL] - row["values"][INTEL]
             return measured(nearest)[column] + max(0.0, drop)
-        below = [other for other in others if _rank(other["effort"]) < _rank(row["effort"])]
-        nearest = max(below, key=lambda other: _rank(other["effort"]), default=None)
+        below = [other for other in others if effort_rank(other["effort"]) < effort_rank(row["effort"])]
+        nearest = max(below, key=lambda other: effort_rank(other["effort"]), default=None)
         return measured(nearest)[column] if nearest else None
 
     # per measure, (offset, spread) of how its points stand from a row's mean, over the rows

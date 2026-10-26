@@ -41,7 +41,7 @@ import sys
 import time
 
 from . import command_help, config, record, terminal
-from .boards import EFFORT_ORDER, PREFIX, TASK_COST, collect, lines as board_lines
+from .boards import EFFORT_ORDER, PREFIX, TASK_COST, collect, effort_rank, lines as board_lines
 from .quality import SCALES
 
 INTEL = "aa.intelligenceIndex"       # every model has it per effort
@@ -260,12 +260,6 @@ def rows(cfg, boards, harnesses):
                                                      "effort": source["effort"]}
                 table.append(row)
     return table
-
-
-def effort_rank(effort):
-    """Where an effort stands among the words ak knows, the highest last; a word ak does not
-    know, or no effort, stands below them all."""
-    return EFFORT_ORDER.index(effort) if effort in EFFORT_ORDER else -1
 
 
 def bests(boards):

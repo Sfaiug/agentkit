@@ -86,6 +86,12 @@ def fetch_bytes(url, headers=None):
         time.sleep(wait)
 
 
+def effort_rank(effort):
+    """Where an effort stands among the words ak knows, the highest last; a word ak does not
+    know, or no effort, stands below them all."""
+    return EFFORT_ORDER.index(effort) if effort in EFFORT_ORDER else -1
+
+
 def split_effort(name):
     """(the model's name without its effort, the effort or None) off a board's model name:
     `Acme 5 (max)` is Acme 5 at max, `Acme 5 (max) (0813)` is Acme 5 (0813) at max, and a
