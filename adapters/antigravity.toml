@@ -82,6 +82,11 @@ footer = ['(?:\? for shortcuts|esc to cancel|press ctrl\+c again to exit)?\s*(?:
 # shows is its last rows, never proof of all it holds.  Only its prompt row starts at the left
 # edge, so a `>` an owner typed in an indented row stays text.
 draft = '(?:(?P<opening>^─+\n)> ?|\A(?:> ?)?(?!─))(?P<text>.*(?:\n(?!─+$).*)*)\n─+$(?:(?:\n\s*● \[\d\d:\d\d:\d\d\] .+)+\n─+$)?(?![\s\S]*^─)'
+# The background work a turn left running: the commands agy lists under the composer, each a
+# `shell` in Claude's terms.  Read only off the composer's closing rule, that list and the footer
+# as captured at rest; under a turn's or a dialog's `esc to cancel`, or a footer too narrow to
+# name the model, nothing is evidence either way.
+held = '^─+\n(?:(?P<shell>(?:● \[\d\d:\d\d:\d\d\] .+ running\n)+)─+\n)?(?!esc to cancel).*(?:/agents| · (?:low|medium|high))(?: · \d+ task\(s\) · /tasks)?\Z'
 # A line taller than the composer scrolls in it, its last rows showing, and the prompt row says
 # how many are above (`> ↑ 13 more lines`, captured at 40 columns): never typed text.
 scrolled = '^(?:> ?)?[↑↓] \d+ more lines?$'
