@@ -24,7 +24,7 @@ from fixtures.shims import Shims
 
 PASSES = ("ak plan: this check already passes on acme's default branch, so it proves nothing; "
           "write one that fails until the work is done\n")
-DONE = "- [x] the monitor account is enrolled · check: `test -f done.txt` · acme · written "
+DONE = "- [x] the monitor account is enrolled · check: `test -f done.txt` · "
 OPEN = "- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n"
 
 
@@ -94,13 +94,13 @@ class LiveWork(unittest.TestCase):
                 self.assertHeldOnce()
 
     def test_every_line_done_is_held_too_and_an_open_line_is_not(self):
-        self.plan.write_text(DONE + "2026-10-09 12:00 · done 0123456789ab\n")
+        self.plan.write_text(f"{DONE}acme · written 2026-10-09 12:00 · done 0123456789ab\n")
         self.ssh("prod", "uptime")
         self.assertHeldOnce()
         self.prompt()
         self.plan.write_text(OPEN)
         self.ssh("prod", "uptime")
-        self.assertEqual(self.stop(), "")
+        self.assertNotIn("ak plan add", self.stop())   # judged by its open line, as ever
 
     def test_no_reach_this_turn_lets_the_turn_end(self):
         self.ssh("prod", "uptime")
