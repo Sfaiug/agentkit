@@ -95,7 +95,7 @@ numbered after the live ones, says how long ago it stopped; Enter reopens it whe
 `x` takes it off at once.  `c` holds
 the orchestrator, executors and reviewers of the seat the popup is over, or of new seats in a
 window of its own: the orchestrator moves the seat at once, the roles flip with the same keys
-and save at once.
+and save at once; new seats' `a` gives theirs to every open seat (apply_defaults).
 `ak run status` and `ak browser` stay as commands for
 orchestrators; the menu no longer offers them. A gone session reads `session closed: press N
 to reopen`; one you stopped has no row under its project, only its row on the past screen; an
@@ -2837,6 +2837,9 @@ REMOVE_SUBSCRIPTION_ASK = ("Remove {}?", "Nothing new starts on it.")
 CONFIG_ORDER = (0, 3, 1, 4, 2, 5)
 # The key on the config screen that opens what `ak models` recommends per role.
 ADVICE_KEY = "r recommended"
+APPLY_KEY = "a apply to all sessions"     # new seats' `c` alone: a seat's marks are its own
+APPLY_ASK = "Give new seats' models and efforts to {}?"
+APPLY_ANSWER = "Apply"
 # Whom `c`'s marks are for when they are no seat's: [defaults], what the next `n` starts from.
 NEW_SEATS = "new seats"
 MOVE_ASK = "Restart {} on {}?"     # what another model's orchestrator mark asks, and what it means
@@ -3672,7 +3675,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     a click flips one (session_mark), the orchestrator moving the seat once asked, the roles saved
     to the record for the runs it launches next, the mark filling or emptying over two frames
     and one refused shaking (motion.toggled).  With no `session` the marks are new seats',
-    [defaults], what the next `n` starts from (defaults_mark), no open seat changing.
+    [defaults], what the next `n` starts from (defaults_mark), no open seat changing till `a`
+    gives them to every one, once asked (apply_defaults).
     ↑/↓, k/j and the wheel move between rows and ←/→ between each mark and the effort beside a
     marked one (config_columns).  Enter or space on an effort steps that role's alone up,
     from its highest round to its lowest, as a click on its
@@ -3715,7 +3719,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         columns = config_columns(selected, here[1]) if here[0] == "model" else ()
         if here[0] == "model" and column not in columns:      # no effort here: onto its mark
             column = column - 3 if column - 3 in columns else columns[0]
-        keys = terminal.keys(*([ADVICE_KEY] if selected else []), "esc back")
+        keys = terminal.keys(*([ADVICE_KEY] if selected else []),
+                             *([] if session else [APPLY_KEY]), "esc back")
         # each meter's cells, on the lines over the page counted back from it, washing in and out
         moves = [(line - len(over), ("sub", number), number == lit,
                   motion.washing([(column, text, rest)], colour(cfg, subs[number - 1][0])))
@@ -3734,8 +3739,20 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         if act is None:
             continue                  # a resize or the pointer: drawn again
         note = ""
+
+        def around(card):         # the matrix laid out at this draw's size, the question under it
+            over, _, body, places, _ = meters_led(config_meters(cfg), *config_body(
+                cfg, here, column, selected, providers, scope=scope), card, "esc back")
+            first, room = matrix_page(body, places, here, top, card, "esc back", over)
+            shown = body[first:first + room]
+            terminal.frame("config", [*over, *shown, *card], "esc back")
+            return 3 + len(over) + len(shown)
         if act == "back":
             return cfg
+        if act == "a" and not session:
+            clock.forget()            # the card: the matrix back from it replays nothing
+            note = apply_defaults(cfg, around)
+            continue
         if act == "r" and selected:     # a record that will not read has nobody to take it
             clock.forget()            # another screen: the matrix back from it replays nothing
             models_screen(cfg, session, selected, providers)
@@ -3769,13 +3786,6 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             at = columns.index(column) + (1 if act == "right" else -1)
             column = columns[min(max(at, 0), len(columns) - 1)]
         elif act in ("enter", "space") and column < 3:
-            def around(card):     # the matrix laid out at this draw's size, the question under it
-                over, _, body, places, _ = meters_led(config_meters(cfg), *config_body(
-                    cfg, here, column, selected, providers, scope=scope), card, "esc back")
-                first, room = matrix_page(body, places, here, top, card, "esc back", over)
-                shown = body[first:first + room]
-                terminal.frame("config", [*over, *shown, *card], "esc back")
-                return 3 + len(over) + len(shown)
             note = (session_mark(cfg, session, selected, here[1], column, providers, around)
                     if session else defaults_mark(cfg, selected, here[1], column))
             if note:
@@ -4668,6 +4678,49 @@ def defaults_saved(cfg, selected, changed, before):
     cfg["defaults"] = copy.deepcopy(changed)
     selected.update(changed)
     return ""
+
+
+def apply_defaults(cfg, around):
+    """`a` on new seats' `c`: every open seat with a record but the weekly audit's takes
+    [defaults]'s executors and reviewers and the entries' efforts for the models it then runs,
+    once `Apply` is picked on the card `around` draws (terminal.confirm), which names each seat
+    that restarts, one on another orchestrator; that one then moves to [defaults]'s
+    (orch.switch_orchestrator), a move refused leaving it on its own, its other changes kept.
+    config.toml is not written.  What to say under the rows, one line a seat refused, or ""."""
+    from . import audit     # here, not at the top: audit imports this module
+    defaults, records = cfg["defaults"], config.session_records()
+    skip = config.resolve_session(audit.NAME)
+    seats = {s["name"]: records[s["name"]] for s in orch.sessions()
+             if s["name"] in records and s["name"] != skip}
+    if not seats:
+        return "no open session to apply them to"
+    moving = [name for name, record in seats.items()
+              if record.get("orchestrator") != defaults["orchestrator"]]
+    count = f"{len(seats)} open session{'s' * (len(seats) > 1)}"
+    means = (f"{', '.join(moving)} restart{'s' * (len(moving) == 1)} on "
+             f"{config.model_name(cfg, defaults['orchestrator'])}." if moving
+             else "No session restarts.")
+    if not terminal.confirm(APPLY_ASK.format(count), means, APPLY_ANSWER, around):
+        return ""
+    runs = [defaults["orchestrator"], *defaults["workers"],
+            *defaults.get("reviewers", defaults["workers"])]
+    taken = {model: config.efforts_of(cfg["models"][model]) for model in runs}
+    providers = usage.collect(cfg) if moving else {}
+    said = []
+    for name in seats:
+        try:
+            config.change_efforts(name, lambda record: {**(record.get("efforts") or {}), **taken})
+            # reviewers [defaults] does not name follow the executors there and here alike
+            config.update_session(name, workers=defaults["workers"],
+                                  reviewers=defaults.get("reviewers"))
+        except (config.Error, OSError) as exc:
+            said.append(f"{name}: {exc}")
+            continue
+        if name in moving:
+            note = orch.switch_orchestrator(cfg, name, defaults["orchestrator"], providers)
+            if note:
+                said.append(f"{name}: {note}")
+    return "\n".join(said)
 
 
 def session_mark(cfg, name, selected, model, column, providers, around=None):

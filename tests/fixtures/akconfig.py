@@ -27,12 +27,13 @@ SHIPPED = _SHIPPED["models"]               # name -> its [models.<name>] table a
 PROVIDER = {entry["harness"]: entry["provider"] for entry in reversed(SHIPPED.values())}
 
 
-def write(home, models, *, workers=None, orchestrator=None, providers=None, settings=None,
-          audit=False, extra=""):
+def write(home, models, *, workers=None, orchestrator=None, reviewers=None, providers=None,
+          settings=None, audit=False, extra=""):
     """Write HOME/.agentkit/config.toml and return its path.  `models` maps a name to its
     harness or to keys of its table, or is a list of shipped names; `workers` (all of them
-    unless given) and `orchestrator` (the first unless given) are [defaults]; `providers` maps
-    a provider to its table's keys; `settings` are top-level keys; `extra` is TOML appended."""
+    unless given), `orchestrator` (the first unless given) and `reviewers` (the workers unless
+    given) are [defaults]; `providers` maps a provider to its table's keys; `settings` are
+    top-level keys; `extra` is TOML appended."""
     models = {name: {} for name in models} if isinstance(models, (list, tuple)) else models
     tables = {}
     for name, spec in models.items():
@@ -51,7 +52,8 @@ def write(home, models, *, workers=None, orchestrator=None, providers=None, sett
     if not audit:
         tables["audit"] = {"on": False}
     defaults = {"orchestrator": orchestrator or next(iter(models)),
-                "workers": list(models) if workers is None else workers}
+                "workers": list(models) if workers is None else workers,
+                **({"reviewers": reviewers} if reviewers else {})}
     text = _keys(settings or {}) + "\n[defaults]\n" + _keys(defaults)
     for table, keys in tables.items():
         text += f"\n[{table}]\n" + _keys(keys)
