@@ -4,10 +4,12 @@
 PostToolBatch; Muse still logs each card going up and its settling, answered or interrupted, as
 run events of the session the seat owns.  The card on screen reads `needs you` in its own words;
 its own settling ends that wait, and only its own: an older card's does not, nor a request in
-another session or quoted in a message; and a settled card stays closed, its seat neither reopened
-to ask it again after its process dies nor shown it once reopened on that session.  Black-box: a seat opened by `ak orch` from a person's terminal on a fake muse
-that fires its line's SessionStart hooks as Muse 1.4.12 does and lists its sessions in Muse's
-registry, its log in Muse's store, under the Home; this test fails against `/bin/false`.
+another session or quoted in a message.  An Esc rests the seat, its plan unfinished, until its
+next prompt.  A settled card stays closed, its seat neither reopened to ask it again after its
+process dies nor shown it once reopened on that session.  Black-box: a seat opened by `ak orch`
+from a person's terminal on a fake muse that fires its line's SessionStart hooks as Muse 1.4.12
+does and lists its sessions in Muse's registry, its log in Muse's store, under the Home; this
+test fails against `/bin/false`.
 """
 
 import json
@@ -21,7 +23,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
 from fixtures.akbin import REAL_TMUX, Home, boxable
-from fixtures.akseat import PANE
+from fixtures.akseat import PANE, PLAN_LINE
 from fixtures.akterm import Terminal
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -100,6 +102,14 @@ class MuseNativeQuestionAfterNew(unittest.TestCase):
         (self.home.root / "screen.txt").write_text(
             screen.replace("Which colour should the acme banner use?", ASKED))
 
+    def esc(self, session, prompt):
+        """The owner presses Esc on that card: Muse puts it down as it logs it settled, so a
+        look between the two reads either the card up or no card at all, never a screen
+        nothing reads."""
+        self.show("muse-prompt-pane.txt")
+        self.drawn()
+        self.logs(session, card(prompt, "settled", outcome="interrupted"))
+
     def drawn(self):
         """Once the seat's pane shows Muse's prompt whole: its status line, and no card."""
         deadline = time.monotonic() + 30
@@ -147,6 +157,7 @@ class MuseNativeQuestionAfterNew(unittest.TestCase):
 
     def test_its_own_card_blocks_until_that_card_settles(self):
         muse = self.launch("--model", "spark", "--workers", "spark")
+        self.home.write(".agentkit/state/plan-acme.md", PLAN_LINE + "\n")     # work owed
         self.logs(muse["session"], {"kind": "started", "prompt": "Build the acme parser."},
                   {"kind": "terminal", "terminal": "completed"})
         session = self.new(muse)
@@ -173,18 +184,16 @@ class MuseNativeQuestionAfterNew(unittest.TestCase):
         self.logs(session, card("next-prompt", "requested", **ASK),
                   card("acme-prompt", "settled", outcome="answered", answers=[]))
         self.reads("needs you")     # an older card's settling leaves the newer one up
-        self.logs(session, card("next-prompt", "settled", outcome="interrupted"))
-        self.show("muse-prompt-pane.txt")
+        self.esc(session, "next-prompt")
         self.assertNotIn(ASKED, self.reads("idle"))
+        self.logs(session, {"kind": "started", "prompt": "Make it round."},
+                  {"kind": "terminal", "terminal": "completed"})
+        self.reads("needs you")     # its next prompt ended the rest: its plan is owed again
 
         self.show("muse-question-pane.txt")
         self.logs(session, card("last-prompt", "requested", **ASK))
         self.reads("needs you")
-        # Esc puts the card down as it is logged settled: a look between the two reads either
-        # the card up or no card at all, never a screen nothing reads
-        self.show("muse-prompt-pane.txt")
-        self.drawn()
-        self.logs(session, card("last-prompt", "settled", outcome="interrupted"))
+        self.esc(session, "last-prompt")
         done = self.home.tmux("kill-session", "-t", "=acme")
         self.assertEqual(done.code, 0, done.err)
         done = self.home.tick()
