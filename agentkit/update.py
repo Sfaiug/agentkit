@@ -47,7 +47,6 @@ E2E_CAP = 90 * 60           # a fresh account, three harness installs and one re
 FETCH_CAP = 60              # the tick's look at origin; one not back by then is offline
 START_WAIT = 2              # the detached start-up check's deadline for origin
 UPDATE_TAIL = 10            # how many of a failed start-up update's last lines the menu shows
-LIVE_REPORT_CAP = 4 * 1024  # a typed hand-back stays readable even with long diagnostics
 ASK_EVERY = 60 * 60         # how often the tick asks a harness's latest release, at most
 RETRY_AFTER = 24 * 60 * 60  # a gate can fail for what the release did not cause: try it daily
 
@@ -916,37 +915,21 @@ def live_tick(log, now, fetched):
          worker.RUN_MARKER: str(check)}, os.devnull, log, target_slice=orch.slice_name())
 
 
-def _live_excerpt(said):
-    """Failure blocks before the closing tail, each with a share of the message's cap."""
-    output = said.splitlines()
-    failures, following = [], False
-    for n, line in enumerate(output):
-        if line.startswith("FAIL  "):
-            failures.append([])
-            following = True
-        elif not line[:1].isspace():
-            following = False
-        if following and line.strip():
-            failures[-1].append(n)
-    covered = {n for block in failures for n in block}
-    tail = [n for n, line in enumerate(output) if line.strip()][-UPDATE_TAIL:]
-    blocks = [*failures[:UPDATE_TAIL], [n for n in tail if n not in covered]]
-    omitted = ([f"[{len(failures) - UPDATE_TAIL} more failed checks omitted]"]
-               if len(failures) > UPDATE_TAIL else [])
-    cap = (LIVE_REPORT_CAP - sum(map(len, omitted)) - 3 * len(blocks)) // len(blocks)
-    lines = []
-    for n, block in enumerate(blocks):
-        part = [output[i] for i in block]
-        text = " / ".join(part)
-        closing = n == len(blocks) - 1
-        if len(text) > cap:
-            note = "[output truncated]"
-            room = cap - len(note) - 3
-            part = [f"{note} / {text[-room:]}" if closing else f"{text[:room]} / {note}"]
-        if closing:
-            lines.extend(omitted)
-        lines.extend(part)
-    return lines
+def _fitted(head, titles, tail):
+    """`head`, the failed checks' `titles` and `tail` as one line a composer shows whole
+    (`watch.too_long`): each title whole or left out, and those left out counted."""
+    from . import watch     # here, not at the top: watch imports this module
+    for shown in range(len(titles), -1, -1):
+        left = len(titles) - shown
+        named = [*titles[:shown], *([f"{left} more failed checks left out"] if left else [])]
+        line = f"{head}: {' / '.join(named)}. {tail}" if named else f"{head}. {tail}"
+        if not (shown and watch.too_long(line)):
+            return line
+
+
+def _fail_titles(said):
+    """Each failed check's `FAIL` line, without the output its check printed under it."""
+    return [line.rstrip() for line in said.splitlines() if line.startswith("FAIL  ")]
 
 
 def live_hand_back(commit, check, code, log, hand=True, *, standing=False):
@@ -962,33 +945,35 @@ def live_hand_back(commit, check, code, log, hand=True, *, standing=False):
     if record is None or (standing and not record.get("standing")
                           and not (record["typed"] or record["told"])):
         output = check / "output"
-        try:    # one that never finished has only what it was writing
-            said = (output if output.exists() else check / "output.tmp").read_text(
-                errors="replace")
+        output = output if output.exists() else check / "output.tmp"  # one never finished
+        try:
+            said = output.read_text(errors="replace")
         except OSError:
             said = ""
-        lines = _live_excerpt(said)
+        titles = _fail_titles(said)
         if standing:
             labels = sorted(_live_failed(check))
             heads = [(line, line[6:].split(":", 1)[0]) for line in said.splitlines()
                      if line.startswith(("FAIL  ", "SKIP  "))]
             # A whole label first: check 3's own line, not `3 acme`'s, which shares its first token
             # that acceptance.sh records each `/`-joined label of.
-            lines = [next((line for whole in (True, False) for line, head in heads
-                           if head == label or not whole and label in head.split(" ", 1)[0].split("/")),
-                          f"{label}: no failure line recorded")[:LIVE_REPORT_CAP // len(labels)]
-                     for label in labels]
-        lines += [] if code is not None else ["[stopped before it finished]"]
-        log(f"WARN tests/live.sh has standing faults at {commit[:12]}:" if standing else
-            f"WARN agentkit stays as it is: tests/live.sh failed at {commit[:12]}:")
-        for line in lines:
+            titles = [next((line for whole in (True, False) for line, head in heads
+                            if head == label or not whole and label in head.split(" ", 1)[0].split("/")),
+                           f"{label}: no failure line recorded")
+                      for label in labels]
+        stopped = "" if code is not None else ", stopped before it finished"
+        log(f"WARN tests/live.sh has standing faults at {commit[:12]}{stopped}:" if standing else
+            f"WARN agentkit stays as it is: tests/live.sh failed at {commit[:12]}{stopped}:")
+        for line in titles:
             log(f"  {line}")
-        record = dict(line=(f"tests/live.sh has standing faults on agentkit's main at {commit[:12]}, "
-                            f"also failed on the running install: {' / '.join(lines)}. Fix the standing faults."
-                            if standing else
-                           f"tests/live.sh failed on agentkit's main at {commit[:12]}, so this host "
-                           f"stays on the agentkit it runs: {' / '.join(lines)}. Fix main: your "
-                           "next agentkit PR review goes first in line, so make it the fix."),
+        record = dict(line=_fitted(f"tests/live.sh has standing faults on agentkit's main at "
+                                   f"{commit[:12]}, also failed on the running install{stopped}",
+                                   titles, f"Output: {output}. Fix the standing faults.")
+                      if standing else
+                      _fitted(f"tests/live.sh failed on agentkit's main at {commit[:12]}{stopped}, "
+                              "so this host stays on the agentkit it runs", titles,
+                              f"Output: {output}. Fix main: your next agentkit PR review goes "
+                              "first in line, so make it the fix."),
                       typed=None, told=False, standing=standing)
         _put(check / "handed", json.dumps(record))
     if hand and _gate_hand_back(check, record, log, first=not record.get("standing")):
@@ -1058,10 +1043,10 @@ def harness_gate_result(plan, passed, gate, log_path):
             continue
         record["reds"] += 1
         if record["reds"] == 2:
-            lines = _live_excerpt(log_path.read_text(errors="replace"))
-            record.update(line=f"The {harness['name']} harness upgrade failed its gate twice in "
-                               f"a row ({gate}): {' / '.join(lines)}. Log: {log_path}. "
-                               "Fix the harness upgrade gate.", typed=None, told=False)
+            record.update(line=_fitted(
+                f"The {harness['name']} harness upgrade failed its gate twice in a row ({gate})",
+                _fail_titles(log_path.read_text(errors="replace")),
+                f"Log: {log_path}. Fix the harness upgrade gate."), typed=None, told=False)
         check.mkdir(parents=True, exist_ok=True)
         _put(check / "handed", json.dumps(record))
 

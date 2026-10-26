@@ -2933,9 +2933,9 @@ def longest(cfg):
     return min([fold for fold in folds if fold] or [MAX_BYTES])
 
 
-def too_long(line):
+def too_long(line, cfg=None):
     """Why `line` is more than a typed line may hold, else None."""
-    most = longest(config.load())
+    most = longest(config.load() if cfg is None else cfg)
     if len(line) > most or len(line.encode("utf-8")) > MAX_BYTES:
         return (f"{len(line):,} characters is more than a composer shows whole ({most:,}); "
                 "write the rest to a file and name its path")
@@ -4135,7 +4135,8 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     read empty is the one typed into, whichever pane the owner selects meanwhile.  A
     question the seat asked with
     `ak notify needs` holds none of this back: the seat works on what does not wait on the
-    answer, which only the owner's own prompt gives (`notify.progress`).
+    answer, which only the owner's own prompt gives (`notify.progress`).  A line `too_long`
+    refuses is never typed, only logged; one typed before that still gets its Enter.
     """
     session = pinned(session)
     text = terminal_mod.keyed(text)    # as `type_checked` types it: marks match
@@ -4153,6 +4154,10 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
                 kept_asked_first(dict(session, name=held))
                 _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
+    refusal = too_long(text, cfg)
+    if refusal:     # its builder's fault: a folded line reads as the owner's paste
+        log(f"WARN {text[:60]}… not typed into {session['name']}: {refusal}")
+        return False
     where = _past_text(session, cfg)
     if where:
         with seat_held(session["name"]) as held:
