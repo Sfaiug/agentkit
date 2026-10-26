@@ -2951,27 +2951,30 @@ def take_advice(cfg, name, selected, providers, found):
         for role, (model, _) in taken.items() if model})
     if note:
         return note
-    before, held, seat = copy.deepcopy(cfg), {}, config.at_efforts(cfg, selected)["models"]
     # the orchestrator's `effort` first, so a worker's set to it then follows it (_follows)
-    for role, (model, effort) in taken.items():
-        if model:
-            entry = (held.setdefault(model, config.efforts_of(seat[model])) if name
-                     else cfg["models"][model])
-            key = config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]]
-            entry[key] = effort or entry["effort"]
-            _follows(entry, [key])
-    if name is None:
-        return defaults_saved(cfg, selected, changed, before)
-    return efforts_saved(name, selected, held) or marks_saved(name, selected, changed)
+    steps = [(model, config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]], effort)
+             for role, (model, effort) in taken.items() if model]
+    if name is not None:
+        return efforts_saved(cfg, name, selected, steps) or marks_saved(name, selected, changed)
+    before = copy.deepcopy(cfg)
+    for model, key, effort in steps:
+        _set_effort(cfg["models"][model], key, effort)
+    return defaults_saved(cfg, selected, changed, before)
 
 
-def efforts_saved(name, selected, efforts):
-    """Seat `name`'s efforts on each model `efforts` names, saved to its record at once
-    (config.change_efforts) and into `selected`, the model entries left alone.  What to say
-    under the rows, or ""."""
+def efforts_saved(cfg, name, selected, steps):
+    """Seat `name`'s efforts with each (model, key, effort) of `steps` set (_set_effort), saved
+    to its record at once and into `selected`, the model entries left alone.  Each is set on the
+    record as it stands, under its lock (config.change_efforts), so a key saved since is kept;
+    a model it holds none for starts from its entry's.  What to say under the rows, or ""."""
+    def stepped(record):
+        efforts = dict(record.get("efforts") or {})
+        for model, key, effort in steps:
+            efforts[model] = dict(efforts.get(model) or config.efforts_of(cfg["models"][model]))
+            _set_effort(efforts[model], key, effort)
+        return efforts
     try:
-        saved = config.change_efforts(config.resolve_session(name), lambda record: {
-            **(record.get("efforts") or {}), **efforts})
+        saved = config.change_efforts(config.resolve_session(name), stepped)
     except (config.Error, OSError) as exc:
         return f"session: {exc}"
     if saved is None:
@@ -2992,7 +2995,8 @@ def marks_saved(name, selected, changed):
         return f"session: {exc}"
     if saved is None:
         return f"session: {name} has no saved models"
-    selected.update(changed)
+    # the groups alone: `changed` holds the rest of `selected` as it was, efforts and all
+    selected.update(workers=changed["workers"], reviewers=changed["reviewers"])
     return ""
 
 
@@ -3470,16 +3474,24 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
         levels = config.efforts(entry.get("harness"), entry.get("model"), config.catalog_now)
     except config.Error as exc:
         return f"config: {exc}"
-    efforts = config.efforts_of(config.at_efforts(cfg, seat[1])["models"][name]) if seat else entry
-    current = efforts.get(key, efforts.get("effort"))
+    shown = config.at_efforts(cfg, seat[1])["models"][name] if seat else entry
+    current = shown.get(key, shown.get("effort"))
     at = to if to is not None else levels.index(current) + step if current in levels else 0
     at = at % len(levels) if wrap else at
     if not 0 <= at < len(levels) or levels[at] == current:
         return ""
+    if seat:
+        return efforts_saved(cfg, *seat, [(name, key, levels[at])])
     before = dict(entry)
-    efforts[key] = levels[at]
-    _follows(efforts, [key])
-    return efforts_saved(*seat, {name: efforts}) if seat else _saved(cfg, entry, before)
+    _set_effort(entry, key, levels[at])
+    return _saved(cfg, entry, before)
+
+
+def _set_effort(entry, key, effort):
+    """`entry`'s `key` at `effort`, None being its own effort, a role's key that lands on the
+    effort unset again (_follows)."""
+    entry[key] = effort or entry["effort"]
+    _follows(entry, [key])
 
 
 def _follows(entry, keys):
