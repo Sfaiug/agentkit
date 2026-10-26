@@ -12,6 +12,7 @@ tests/fixtures/akseat.py, and this test fails against `/bin/false`.
 
 import sys
 from pathlib import Path
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -54,11 +55,18 @@ class Frame(unittest.TestCase):
         home.write(".agentkit/state/plan-atoll-fix.md", PLAN)
         menu = Terminal(home, size=(WIDTH, HEIGHT))
 
+        held = {}
+
         def at_rest(screen):
             said = {name: next((row for row in screen.split("\n") if f" {name} " in row), "")
                     for name in ("atoll-fix", "atoll-ask")}
+            # the plan's line eases out to its share and its count counts up with it
+            # (agentkit/motion.py), so a fast host reads `0 of 3` mid-way: the row is at rest
+            # once it has held still for a second
+            if held.get("row") != said["atoll-fix"]:
+                held.update(row=said["atoll-fix"], since=time.monotonic())
             return (KEY_LINE in screen and "working" in said["atoll-fix"]
-                    and "needs you" in said["atoll-ask"])
+                    and "needs you" in said["atoll-ask"] and time.monotonic() - held["since"] >= 1)
         cls.shown = rows(menu.wait(at_rest, bound=60), HEIGHT)
 
     def test_the_header_is_the_name_and_the_clock_over_a_rule_the_full_width(self):
