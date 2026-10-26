@@ -884,10 +884,11 @@ def efforts_of(entry):
 
 
 def at_efforts(cfg, record):
-    """`cfg` as the seat or run `record` runs it: each model its `efforts` names at those
-    efforts in place of its entry's own, every other at its entry's: a seat's record holds those
-    of each model it runs (own_efforts), and a run's receipt every model's as launched."""
+    """`cfg` as the seat or run `record` runs it: each model its `efforts` names (own_efforts, a
+    receipt's every model's as launched) at those, every other at its entry's own."""
     held = (record or {}).get("efforts") or {}
+    if not held:
+        return cfg      # nothing to run at, and a config of no models stays as it is
     return {**cfg, "models": {
         name: {**{key: value for key, value in entry.items() if key not in ROLE_EFFORTS.values()},
                **held[name]} if name in held and isinstance(entry, dict) else entry
