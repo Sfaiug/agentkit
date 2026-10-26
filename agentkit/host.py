@@ -176,7 +176,7 @@ def _unit_memory(readings):
     """(used, high, raw, name, swap) for the cgroup the gate reads, or None.
 
     ``used`` excludes reclaimable file cache; ``raw`` includes it or is None
-    where the readings predate it; both include ``swap``. A list carries the nearest
+    where the readings predate it; neither includes ``swap``. A list carries the nearest
     limit first, so the first valid entry wins.
     """
     limits = readings.get("unit_limits")
@@ -236,8 +236,10 @@ def _read_number(path, *, bytes_to_mb=False):
 def _swap_mb(cgroup):
     """A cgroup's memory in swap in MB, 0 where none is accounted.
 
-    `memory.current` leaves swap out, yet a page swapped out is still in use: a slice at its
-    cap swaps rather than reclaims, and reading only RAM saw room the whole time it thrashed.
+    Named beside RAM, never added to it: a cap bounds RAM alone, the kernel moves cold pages
+    to swap to make room, and what paging them back costs shows as memory pressure, which the
+    gate reads over a minute.  Counted as RAM, seats' cold swap kept every run out of a calm
+    slice for a day (25 Oct 2026).
     """
     return _read_number(Path(cgroup) / "memory.swap.current", bytes_to_mb=True) or 0.0
 
@@ -268,8 +270,8 @@ def _reclaimable_mb(path):
 def _unit_memory_limits(cgroup_file=None, cgroup_root=None, *, all_limits=False, hard=False):
     """The nearest ancestor with a finite memory.high, as one (used, high, raw, name, swap).
 
-    The used figure excludes reclaimable file cache; it and raw include swap. An empty list means
-    no finite limit or no reading of its use. With `all_limits`, include each
+    The used figure excludes reclaimable file cache; neither it nor raw includes swap. An empty
+    list means no finite limit or no reading of its use. With `all_limits`, include each
     enclosing limit, memory.max too: a child cannot spend its parent's headroom.
     With `hard`, read only enclosing memory.max caps; reclaim frees file cache before an
     OOM kill there too, and where memory.stat cannot say how much, all of it counts.
@@ -297,7 +299,7 @@ def _unit_memory_limits(cgroup_file=None, cgroup_root=None, *, all_limits=False,
                 cache = 0.0
             if raw is not None and cache is not None:
                 swap = _swap_mb(current)
-                limits.append((max(0.0, raw - cache) + swap, high, raw + swap,
+                limits.append((max(0.0, raw - cache), high, raw,
                                current.name if current != root else "/", swap))
             if not (all_limits or hard):
                 return limits
@@ -479,7 +481,7 @@ def kept_cpu(slice_dir, delay=0.1):
 
 
 def _slice_memory(cgroup):
-    """(used, high, swap) of the cgroup in MB, used without reclaimable cache, with swap.
+    """(used, high, swap) of the cgroup in MB, used without reclaimable cache or swap.
 
     `memory.high` first, `memory.max` where high sets none;
     None where neither answers.
@@ -495,7 +497,7 @@ def _slice_memory(cgroup):
             return None
         used = held_mb(base)
         swap = _swap_mb(base)
-        return None if used is None else (used + swap, high, swap)
+        return None if used is None else (used, high, swap)
     except OSError:
         return None
 
