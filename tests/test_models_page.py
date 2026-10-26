@@ -17,9 +17,7 @@ TO_MAX = ["low", "medium", "high", "xhigh", "max"]
 CATALOGS = {"claude": [("claude-opus-5-5", "Opus 5.5", TO_MAX),
                        ("claude-sonnet-5-5", "Sonnet 5.5", TO_MAX[:3]),
                        ("claude-haiku-5", "Haiku 5", TO_MAX)],
-            "opencode": [("opencode/deepseek-v4.1-flash-free", "DeepSeek V4.1 Flash Free",
-                          ["low", "high", "max"]), ("anthropic/lyra-1", "Lyra 1", ["low", "high"]),
-                         ("zeta/comet-2", "Comet 2", ["high"])]}
+            "opencode": [("anthropic/lyra-1", "Lyra 1", ["low", "high"])]}
 CHILD = r"""
 import os, sys
 sys.path.insert(0, os.environ["MATRIX_REPO"])
@@ -103,7 +101,7 @@ class ModelsPage(unittest.TestCase):
         # OpenCode lists only its own: out, its free provider with it, and back as both were
         lines = screen.press(ESC + DOWN + ENTER, lambda lines: any("■ DeepSeek" in line
                                                                    for line in lines))
-        self.assertFalse(any("Lyra" in line or "Comet" in line for line in lines), lines)
+        self.assertFalse(any("Lyra" in line for line in lines), lines)
         self.assertEqual(opened(screen, ENTER, "□ DeepSeek"), "□ DeepSeek V4.1 Flash Free")
         self.assertNotIn("opencode", screen.saved()["providers"])
         # listed still once its list is closed and opened again

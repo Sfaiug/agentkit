@@ -4486,14 +4486,12 @@ AUDIT_NOTE = "Once a week ak opens a seat named audit with the week's largest lo
 
 def models_page(cfg):
     """`Models`: a row per harness the config's providers run on (config.provider_harnesses),
-    its value the models the config runs there, opening `■` each of those and `□` each other
-    its catalog offers (_offered); a harness that runs any provider it logs in to
-    (config.provider_hosts) lists only its own and those taken out here, its others coming in
-    through `Subscriptions`.  Enter takes one out (remove_model), the last model kept, or in:
-    one taken out since the page opened as it was, under its own name, its provider's table as
-    the page opened if it went with it; any other named from its label (_short_name), at its
-    harness's first model's effort, else `high`, as near as it goes (_nearest), under that
-    model's provider, else one the shipped default runs there.  Saved at once."""
+    opening `■` each model the config runs there and `□` each other its catalog offers
+    (_offered), or for a harness that logs in to providers (config.provider_hosts) each taken
+    out here.  Enter takes one out (remove_model), the last model kept, or in: one taken out
+    here as it was, its provider's table as the page opened; any other named from its label
+    (_short_name), at its harness's first model's effort, else `high`, as near as it goes
+    (_nearest), under that model's provider, else one shipped to run there.  Saved at once."""
     full, empty = ("■", "□") if terminal.utf8() else ("#", "-")
     tables = copy.deepcopy(cfg["providers"])
     gone = {}                 # (harness, model id): [(name, entry)] each taken out here
