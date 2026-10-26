@@ -62,12 +62,15 @@ class SeatsFromBefore(unittest.TestCase):
         self.addCleanup(self.home.close)
         self.rig = Rig(self.home, "widgets")
         self.fakes = fakeadapter.install(self.home, claude="work", codex="pass")
-        for name in ("atoll-ran", "atoll-new"):
-            Seat(self.home, name, model="fable", cwd=self.rig.path, alive=False, planned=True,
-                 record={"reviewers": ["astra"]})
+        self.seat("atoll-ran")
+
+    def seat(self, name):
+        Seat(self.home, name, model="fable", cwd=self.rig.path, alive=False, planned=True,
+             record={"reviewers": ["astra"]})
 
     def step_fable(self):
-        """Enter on Fable's effort on a fresh window's `c`, waited on until saved."""
+        """Enter on Fable's effort on a fresh window's `c`, waited on until saved, a seat from
+        before made under it that nothing has read."""
         config = self.home.path / ".agentkit/config.toml"
         term = Terminal(self.home, size=(100, 30), env={"NO_COLOR": "1"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
@@ -76,6 +79,7 @@ class SeatsFromBefore(unittest.TestCase):
         term.keys("c")
         term.wait("› Fable 5.1")
         before = config.read_bytes()
+        self.seat("atoll-new")
         term.keys("Right", "Right", "Right", "Enter")      # onto the effort, and a step
         deadline = time.monotonic() + 30
         while config.read_bytes() == before:
