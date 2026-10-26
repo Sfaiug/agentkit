@@ -6,7 +6,8 @@ line's last passes (`land.passes`), and half an hour at least, while its lander 
 stacks narrowed with whole suites, a suite that hangs, or a cause nobody has met yet.  So is the
 run first in line for a slot as long, against the waits there of the last firsts let in, while
 the queue is polled (`gate.first_in_line`): a gate that never opens, or a dead run the waiters
-behind it wait on.  So is ~/agentkit half an hour short of going live at a commit it owes
+behind it wait on.  The gate lets that run in unless the host strains (`slot_stall`), the audit
+on or off.  So is ~/agentkit half an hour short of going live at a commit it owes
 (`update.owed_live`): a move a killed git left half done kept it so for ten hours.  The seat is told one stall at a time, each once (`told`); `state/stuck.json`
 keeps the line being told and how far its delivery got, as `state/audit.json` does the week's,
 which goes first (`watch.tell_audit`).
@@ -53,6 +54,13 @@ def _far_past(took):
     return max(FLOOR, SLOWER * statistics.median(took)) if len(took) >= SAMPLES else FLOOR
 
 
+def slot_stall(now):
+    """The run first in line for a slot while its wait there is a stall, else None."""
+    from . import gate
+    first = gate.first_in_line(now)
+    return first[0] if first and now - first[1] > _far_past(first[3]) else None
+
+
 def stalls(now):
     """(key, what, line) for each landing pass and slot wait running at `now`, the line None
     while it is not stuck: its key names it while it runs (`scan`)."""
@@ -94,7 +102,7 @@ def stalls(now):
                f"ak stalled: {run_id} has been first in line for a slot for "
                f"{orch.span(now - since)}, more than {orch.span(past)}, with {behind} behind "
                f"it; `ak run status` shows what it waits on. {ASKED}"
-               if now - since > past else None)
+               if slot_stall(now) == run_id else None)
 
 
 def scan(cfg, log, now=None):

@@ -16,7 +16,8 @@ from contextlib import ExitStack, contextmanager, nullcontext
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import config, gitcall, handback, helper, history, host, orch, transitions, turns, watch
+from . import config, gitcall, handback, helper, history, host, orch, stuck, transitions, turns
+from . import watch
 from . import worker
 from . import land as landing
 from . import record as run_record
@@ -195,7 +196,8 @@ def _save_queue(running, queue, let_in=None, turns=None):
         seat = _slot_seat(let_in)
         count, pending = turns.get(seat, (0, []))
         turns[seat] = (count + 1, pending)
-    if waits and let_in and let_in.get("run_id") == waits[0]:
+    # A stall's wait is no pace: counted, each one let in would raise the next one's bar.
+    if waits and let_in and let_in.get("run_id") == waits[0] and not let_in.get("slot_stall"):
         took = [*took, now - waits[1]][-20:]
     since = waits[1] if waits and queue[:1] == [waits[0]] else now
     remaining = set(queue)
@@ -305,13 +307,38 @@ def _in_swap(memory):
     return f" · {host._g(memory[4])} G in swap" if memory and memory[4] else ""
 
 
+def _free_reason(readings, minimum):
+    free = host._reading(readings, "free_mb", "mem_available_mb", "mem_available")
+    if minimum and free is not None and free < minimum:
+        return f"waiting for memory · {host._g(free)} G free, needs {host._g(minimum)} G", "memory"
+    return None, None
+
+
+def _memory_pressure_reason(readings):
+    pressure = host._reading(readings, "slice_memory_pressure")
+    if pressure is not None and pressure > MEMORY_PRESSURE_LIMIT:
+        return (f"waiting for ak's memory · pressure {pressure:g}%, limit {MEMORY_PRESSURE_LIMIT}%"
+                f"{_in_swap(host._slice_or_unit_memory(readings))}", "unit memory")
+    return None, None
+
+
+def _strain(readings, minimum):
+    """(reason, kind) while the host really strains, else (None, None): its available memory or
+    the kernel's own stall readings, all that holds a run stalled first in line."""
+    for reason, kind in (_free_reason(readings, minimum), _memory_pressure_reason(readings),
+                         _slice_cpu_reason(readings)):
+        if reason:
+            return reason, kind
+    return None, None
+
+
 def _wait_reason(readings, minimum, maximum, frozen=0):
     # An unreadable gate fails open, as the memory check before it did: a host
     # that cannot answer (no /proc on macOS, no cgroup file in a container)
     # must not queue every run forever.
-    free = host._reading(readings, "free_mb", "mem_available_mb", "mem_available")
-    if minimum and free is not None and free < minimum:
-        return f"waiting for memory · {host._g(free)} G free, needs {host._g(minimum)} G", "memory"
+    reason, kind = _free_reason(readings, minimum)
+    if reason:
+        return reason, kind
     load = host._reading(readings, "load", "load1", "load_1m")
     if maximum and load is not None and load + frozen > maximum:
         if frozen:
@@ -319,11 +346,10 @@ def _wait_reason(readings, minimum, maximum, frozen=0):
             return (f"waiting for the host to calm · load {_load(load)} + {frozen} "
                     f"frozen {noun}, limit {_load(maximum)}", "load")
         return f"waiting for the host to calm · load {_load(load)}, limit {_load(maximum)}", "load"
+    reason, kind = _memory_pressure_reason(readings)
+    if reason:
+        return reason, kind
     unit = host._slice_or_unit_memory(readings)
-    pressure = host._reading(readings, "slice_memory_pressure")
-    if pressure is not None and pressure > MEMORY_PRESSURE_LIMIT:
-        return (f"waiting for ak's memory · pressure {pressure:g}%, "
-                f"limit {MEMORY_PRESSURE_LIMIT}%{_in_swap(unit)}", "unit memory")
     peak = history.recent_peak_rss_mb() if unit else None
     if unit and peak is not None:
         room = unit[1] - unit[0]
@@ -341,8 +367,25 @@ def _wait_reason(readings, minimum, maximum, frozen=0):
 
 
 def _host_admits(state, readings, is_first):
-    """The host gates and two steady polls: False, the wait written on `state`, while one holds."""
+    """The host gates and two steady polls: False, the wait written on `state`, while one holds.
+
+    A run stalled first in line (`stuck.slot_stall`) goes past every gate but the host's strain
+    (`_strain`), `slot_stall` naming the one it went past: the gates derived from those readings
+    were retuned again and again, and one held every run for 22 hours of a calm host."""
     readings = _run_readings() if readings is None else readings
+    if _gates_admit(state, readings, is_first):
+        return True
+    if stuck.slot_stall(time.time()) != state.get("run_id"):
+        return False
+    reason, kind = _strain(readings, resource_limits(readings)[0])
+    if reason:
+        state["slot_wait_reason"], state["slot_wait_kind"] = reason, kind
+        return False
+    state["slot_stall"] = f"went in on a stall, past: {state['slot_wait_reason']}"
+    return True
+
+
+def _gates_admit(state, readings, is_first):
     minimum, maximum = resource_limits(readings)
     if is_first:
         maximum = 0
@@ -408,6 +451,7 @@ def claim_slot(state, limit, readings=None):
         return False
     # A green delivery only merges a tree its line already checked: it spends no headroom a
     # gate guards, and every member behind it in the line waits on it.
+    state.pop("slot_stall", None)
     if not landing.green_delivery(state.get("waiting_on") or {}) and not _host_admits(
             state, readings, is_first):
         return False
@@ -501,7 +545,8 @@ def wait_for_slot(run_dir, between=None):
     if state.get("slot_waited"):
         minutes = max(0, int((time.time() - state["queued_at"]) / 60))
         kind = wait_kind or "count"
-        line = f"waited {minutes} min for a slot ({kind})\n"
+        stall = f" · {state['slot_stall']}" if state.get("slot_stall") else ""
+        line = f"waited {minutes} min for a slot ({kind}){stall}\n"
         # Preflight and a detached waiter's stdout already live here. Keep the waiting
         # receipt first, without replacing the inode the background child's stdout owns.
         path = run_dir / "log.txt"

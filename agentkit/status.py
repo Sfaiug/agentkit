@@ -552,6 +552,8 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
         lines.append(f"  {gate.slot_note(state)}")
     elif gate.gate_turn_note(state):
         lines.append(f"  {gate.gate_turn_note(state)}")
+    if state.get("slot_stall"):
+        lines.append(f"  {state['slot_stall']}")
     if transitions.needs_recovery(state):
         reason = transitions.recovery_reason(state)
         wait = staffing.waiting(state, providers=providers, cfg=cfg)
