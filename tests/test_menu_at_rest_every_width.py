@@ -155,7 +155,7 @@ class V5oMenu(Sandbox):
         self.assertLess(screen.index("\nagentkit\n"), screen.index("\nnot assigned yet\n"))
         # Each needing row carries its number and its one-line reason.
         self.assertRegex(screen, r"3\s+herdr-quiet\s+Fable 5\.1\s+! needs you\s+session closed: press 3")
-        self.assertRegex(screen, re.compile(r"4\s+herdr-long\s+Fable 5\.1\s+● working\s*$", re.M))
+        self.assertRegex(screen, re.compile(r"4\s+herdr-long\s+Fable 5\.1\s+● working\s+─+ no plan yet$", re.M))
         self.assertRegex(screen, r"5\s+scribe\s+Fable 5\.1\s+! needs you\s+session closed: press 5")
         # Nothing needs you when nothing does.
         with patch("agentkit.watch.live_state", return_value={"state": "working", "rule": "fixture",
@@ -222,20 +222,20 @@ class V5oMenu(Sandbox):
 
     def test_v5o_d_long_turn_plan_and_no_plan_rows(self):
         screen, _ = self.draw(100, 30)
-        # A seat on a long turn with no plan and no runs reads empty, never another task.
+        # A seat on a long turn with no plan and no runs reads `no plan yet`, never a task.
         long_turn = next(line for line in screen.splitlines() if "herdr-long" in line)
-        self.assertTrue(long_turn.rstrip().endswith("● working"))
+        self.assertTrue(long_turn.rstrip().endswith("─ no plan yet"))
         self.assertNotIn("Fix the", long_turn)
-        # Runs going without a plan or a job read empty, never `N running`.
+        # Runs going without a plan or a job read `no plan yet`, never `N running`.
         quiet = next(line for line in screen.splitlines() if "atoll-solo" in line)
-        self.assertTrue(quiet.rstrip().endswith("● working"))
+        self.assertTrue(quiet.rstrip().endswith("─ no plan yet"))
         # A working seat without a plan reads its unfinished job's bar, the orchestrator,
         # no title.
         job = next(line for line in screen.splitlines() if "atoll-job" in line)
         self.assertRegex(job, r"[━╸]+─+ 3 of 7$")
         self.assertIn("Fable 5.1", job)
         self.assertNotIn("Rebuild the dashboard filters", screen)
-        # A plan draws the bar; without a plan or a job there is no bar and no fake one.
+        # A plan draws the bar; without a plan or a job the line has nothing done.
         (config.STATE / "plan-atoll-job.md").write_text("- [x] a\n- [x] b\n- [x] c\n"
                                                         "- [ ] d\n- [ ] e\n- [ ] f\n"
                                                         "- [ ] g\n")
@@ -243,7 +243,7 @@ class V5oMenu(Sandbox):
         self.assertRegex(screen, r"[━╸]+─+ 3 of 7")
         solo = next(line for line in screen.splitlines() if "atoll-solo" in line)
         self.assertNotIn("2 running", solo)
-        self.assertTrue(solo.rstrip().endswith("● working"))
+        self.assertTrue(solo.rstrip().endswith("─ no plan yet"))
         solo_lines = [line for line in screen.splitlines() if "atoll-solo" in line]
         self.assertTrue(solo_lines and "/" not in solo_lines[0])
 

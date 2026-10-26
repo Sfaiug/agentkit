@@ -91,7 +91,7 @@ class PlanBar(Sandbox):
         self.assertEqual(menu.last_column("working", 3, 7, 10, narrow=True), "━╸─ 3 of 7")
         self.assertEqual(menu.last_column("working", 3, 7, 6, narrow=True), "3 of 7")
         self.assertEqual(menu.last_column("working", 3, 7, 6), "━━━╸──── 3 of 7")
-        self.assertEqual(menu.last_column("working", 0, 0), "")     # no plan, no line
+        self.assertEqual(menu.last_column("working", 0, 0), "──────── no plan yet")
 
     def going(self, run_id, owner, ran=0, **extra):
         """A run that seat launched, its first `ran` rounds' directories made as the loop makes
