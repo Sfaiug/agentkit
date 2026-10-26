@@ -9,10 +9,12 @@ session a seat owns.
 
 Its TUI rejects `--session-id`, so a seat's session is learned rather than issued, as OpenCode's
 is: every launch gets a receipt, a directory named in its environment, and the SessionStart hook
-that launch's line carries (`adapters/muse.sh hook`) links into it the id Muse reported.  The
-first id stands: a link never replaces one, a stale launch writes only into its own receipt, and
-a receipt this launch replaced is gone.  The receipt's token is kept in the seat's record, so no
-other seat -- not one in the same directory -- reads or writes it.
+that launch's line carries (`adapters/muse.sh hook`) links into it the id Muse reported and the
+processes the hook runs under, each with its birth.  The first of each stands: a link never
+replaces one, a stale launch writes only into its own receipt, and a receipt this launch replaced
+is gone.  The receipt's token is kept in the seat's record, so no other seat -- not one in the
+same directory -- reads or writes it.  Muse's `/new` fires no hook, but its own registry moves
+the launch's process to the new session, and the receipt follows it there.
 
 No title hooks: 1.4.0-R4302.1 refuses /rename before and after a completed turn and
 mid-turn ("naming is unavailable"), and rejects --name at launch. See the title fixtures;
@@ -32,7 +34,7 @@ import stat
 import tempfile
 import uuid
 
-from .. import config
+from .. import config, host
 
 RECEIPT_ENV = "AGENTKIT_MUSE_RECEIPT"
 SESSION = re.compile(r"[\w-]+")     # a session's folder name, never a path
@@ -415,13 +417,78 @@ def path_for(record):
 
 
 def conversation(record, cwd=None):
-    """The session this seat's launch reported, or None where it reported none yet."""
+    """The session this seat's launch reported, or None where it reported none yet; the one
+    Muse's registry has since moved that launch's process to, once the registry says so, kept
+    in the receipt for the seat to reopen on after that process is gone."""
     path = path_for(record)
     try:
         sid = (path / "session").read_text(encoding="utf-8") if path else ""
     except OSError:
         return None
-    return sid if SESSION.fullmatch(sid) else None
+    if not SESSION.fullmatch(sid):
+        return None
+    now = followed(path)
+    if now and now != sid:
+        with contextlib.suppress(OSError):
+            _write(path, "session", now, os.replace)
+        return now
+    return sid
+
+
+def registry():
+    """Muse's live sessions, one `<session>.json` each naming the process that holds it:
+    `{"session_id": ..., "process_generation_hint": "pid=<pid>", ...}` (1.4.12)."""
+    return sessions().parent / "runtime/muse/sessions"
+
+
+def followed(path):
+    """The one session the registry gives a process of that receipt's lineage still alive as
+    it was then, or None: no evidence, or more than one, picks nothing."""
+    try:
+        lineage = {f"pid={pid}": (pid, birth)
+                   for pid, birth in json.loads((path / "lineage").read_text())}
+    except (OSError, ValueError, TypeError):
+        return None
+    found = set()
+    for entry in registry().glob("*.json"):
+        try:
+            data = json.loads(entry.read_text())
+            pid, birth = lineage[data["process_generation_hint"]]
+        except (OSError, ValueError, TypeError, KeyError):
+            continue
+        sid = data.get("session_id")
+        if sid == entry.stem and SESSION.fullmatch(sid) and host.process_identity(pid) == birth:
+            found.add(sid)
+    return found.pop() if len(found) == 1 else None
+
+
+def started(receipt, event):
+    """A SessionStart into that launch's receipt: the session Muse reported, and the processes
+    this hook runs under -- the Muse that fired it among them -- each with its birth, so a
+    recycled pid is none of them.  Each is linked, so the first stands; a receipt gone takes
+    nothing."""
+    sid = event.get("session_id") if isinstance(event, dict) else None
+    if not isinstance(sid, str) or not SESSION.fullmatch(sid):
+        return
+    lineage, pid = [], os.getppid()
+    while pid > 1 and (stat := host.proc_stat(pid)) and (birth := host.process_identity(pid)):
+        lineage.append([pid, birth])
+        pid = stat.ppid
+    for name, text in (("session", sid), ("lineage", json.dumps(lineage))):
+        with contextlib.suppress(OSError):
+            _write(Path(receipt), name, text, os.link)
+
+
+def _write(receipt, name, text, place):
+    """`text` as the receipt's file `name`, put there whole by `place`: a link, or a replace."""
+    fd, tmp = tempfile.mkstemp(dir=receipt, prefix=f".{name}.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        place(tmp, receipt / name)
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
 
 
 def resumable(record, cwd, conversation):
