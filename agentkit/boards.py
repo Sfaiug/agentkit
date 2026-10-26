@@ -3,12 +3,13 @@
 
 Artificial Analysis, its site's pages (`AA_PAGES`), no key: per model and effort, every
 benchmark's score, index, price and cost its pages hand their scripts, which its free endpoint
-leaves out.  Arena, its leaderboard's Hugging Face dataset, no key: each of `ARENA_BOARDS` at its
+leaves out, and the record's identity (`IDENTITY`) for `catalog`.  Arena, its leaderboard's Hugging Face dataset, no key: each of `ARENA_BOARDS` at its
 category.  LiveBench 2.0, its newest release's CSV files, no key: each suite's score and what a
 successful coding task cost.  `ak models --refresh` asks again before the day is up; a board
 that cannot answer keeps what it last said, its error beside it, and waits for the day like one
 that answered.  A board another build of ak read is asked again, once, by a build reading a
-column its rows carry none of: its reader changed, and a day of nothing is stale state.
+column its rows carry none of, or rows lacking the identity this build's reader gives them: its
+reader changed, and a day of nothing is stale state.
 Callers at once share one collection: each writer of `state/boards.json` holds
 `boards.lock` from reading it to replacing it.  A board's row is one model at one effort (`Acme
 5 (max)` is Acme 5 at max, `Acme 5 (Max, Default Fallback)` is Acme 5 (Default Fallback) at
@@ -60,6 +61,10 @@ TASK_COST = "livebench.cost_coding"       # dollars per successful coding task, 
 EFFORT_ORDER = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 # the words a board writes an effort as, each to ak's own
 EFFORT_WORDS = {"x-high": "xhigh", "extra high": "xhigh", "non-reasoning": "none"}
+# what each board's rows carry beside their numbers, every row all of it: the row's slug, its
+# release's slug, name and the release that replaced it (`deprecatedTo`), its maker's name and
+# whether it is deprecated
+IDENTITY = {"artificialanalysis.ai": {"slug", "release", "maker", "deprecated"}}
 
 
 def fetch_bytes(url, headers=None):
@@ -111,7 +116,7 @@ def _numbers(entry, prefix, into):
 
 def artificial_analysis():
     """Artificial Analysis's rows, one per model and effort, every number its pages give as
-    `aa.*`: each model's record in the data a page hands its scripts, those of all `AA_PAGES`
+    `aa.*` beside the record's `IDENTITY`: each model's record in the data a page hands its scripts, those of all `AA_PAGES`
     merged by the record's slug.  A page with no model's record is a ValueError: the site
     changed, and the board keeps what it last said."""
     records = {}
@@ -140,7 +145,11 @@ def artificial_analysis():
                                     ("elo", "lower95ci", "upper95ci") if field in briefcase}
         values = {}
         _numbers(record, "aa", values)
-        rows.append({"model": name, "effort": effort, "values": values})
+        rows.append({"model": name, "effort": effort, "values": values, "slug": record["slug"],
+                     "release": {field: record["release"].get(field)
+                                 for field in ("slug", "name", "deprecatedTo")},
+                     "maker": (record.get("creator") or {}).get("name"),
+                     "deprecated": record.get("deprecated") is True})
     return rows
 
 
@@ -255,8 +264,8 @@ def collect(*, refresh=False, now=None, needs=None, build=None):
     them: {board: {"asked_at", "fetched_at", "rows", "error", "build"}}.  The day counts from
     `asked_at`, answered or not; a board that fails keeps its last rows and their `fetched_at`.
     `needs`, {board: columns} the caller reads, and `build`, ak's build asking: a board held
-    from another build whose rows carry none of a needed column is asked again before the day
-    is up, once, since its reader changed.  One caller collects at a time, under `boards.lock`,
+    from another build whose rows carry none of a needed column, or lack its `IDENTITY`, is
+    asked again before the day is up, once, since its reader changed.  One caller collects at a time, under `boards.lock`,
     and the next reads what it wrote."""
     now = time.time() if now is None else now
     with _locked():
@@ -267,8 +276,10 @@ def collect(*, refresh=False, now=None, needs=None, build=None):
             held = cache.get(board) or {}
             fresh = held.get("asked_at") and now - held["asked_at"] < FRESH_FOR
             if fresh and build is not None and held.get("build") != build:
-                carried = {column for row in held.get("rows") or [] for column in row["values"]}
-                fresh = not ((needs or {}).get(board, set()) - carried)
+                carried = {column for row in held.get("rows") or []
+                           for column in (*row, *row["values"])}
+                fresh = not (((needs or {}).get(board, set()) | IDENTITY.get(board, set()))
+                             - carried)
             if not refresh and fresh:
                 continue
             try:
