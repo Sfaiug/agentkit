@@ -72,9 +72,8 @@ class SeatsFromBefore(unittest.TestCase):
              record={"reviewers": ["astra"]})
 
     def step_fable(self):
-        """A step of Fable's effort on its own screen, off a fresh window's `c`, where the
-        shipped config marks it for nothing; waited on until saved, a seat from before made
-        while it is open."""
+        """A step of Fable's effort on its own screen off a fresh window's `c`, waited on until
+        saved, a seat from before made while it is open."""
         config = self.home.path / ".agentkit/config.toml"
         term = Terminal(self.home, size=(100, 30), env={"NO_COLOR": "1"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",

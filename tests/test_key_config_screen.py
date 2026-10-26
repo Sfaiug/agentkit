@@ -1,6 +1,6 @@
 """`c` in the popup opens the config screen for the seat it is over, named over its headings and
-laid out as a matrix of its roles, each marked one's effort beside its mark, and marking a role there rewrites the
-seat's record at once.
+laid out as a matrix of its roles, each marked one's effort beside its mark, and marking a role
+there rewrites the seat's record at once.
 
 The config screen is where a person changes which models a seat orchestrates, builds and
 reviews with, so a person must read the same rows, marks and keys there, and a mark must land
