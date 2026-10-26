@@ -536,7 +536,7 @@ def plan_bar(done, total, room=8, least=8, word="working", tmux=False):
     if size < 1:
         return count
     full, half, empty = "━╸─" if utf8() else "=--"
-    share = done / total if total else 0
+    share = done / (total or 1)
     halves = round(2 * size * share) if utf8() else 2 * round(size * share)
     ends = (halves + 1) // 2
     cells = [full if n < halves // 2 else half for n in range(ends)]

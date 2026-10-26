@@ -1327,8 +1327,8 @@ def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", 
     colour, while `seat_progress` finds a plan or an unfinished job and it is not at rest, its
     work waiting in the line to land too, which its squares say (`detail`); a `working` seat
     with neither draws that line with nothing done and `no plan yet`, a light going round it
-    on the menu alone (`motion.circling`); else empty -- never `N running`, and no other sentence: what a seat asks or did opens under its
-    row (`detail`).  Where the owner left text `unsent`, `✎ unsent` follows two cells after,
+    on the menu alone (`motion.circling`); else empty -- never `N running`, and no other
+    sentence: what a seat asks or did opens under its row (`detail`).  Where the owner left text `unsent`, `✎ unsent` follows two cells after,
     in the needs-you colour.  The line keeps 8 cells at least, which a row too short for them
     draws under itself; where `room` is all there is -- a `narrow` screen's line, each width of
     a seat's bar -- it takes that room and never more, the mark alone where both do not fit.
