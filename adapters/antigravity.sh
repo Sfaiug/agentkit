@@ -174,11 +174,15 @@ usage)
   # agy's `/usage` panel draws what `retrieveUserQuotaSummary` answers for the project
   # `loadCodeAssist` names: groups of models, each with its windows, the share of one left and
   # when it refills.  Both are asked the way agy asks them; the endpoint serves only a client
-  # that calls itself antigravity, so the User-Agent carries agy's own version.  Only the Gemini
-  # group is a meter here: the Claude-and-GPT group is a quota of its own that no gemini turn
-  # draws on, and a spent one must not park Gemini.  No login -- an API key included, which has
-  # no windows -- is a failed probe, not a missing meter: an unauthenticated google read as
-  # neutral would be picked ahead of logged-in ones, only for the turn to fail authentication.
+  # that calls itself antigravity, so the User-Agent carries agy's own version -- and since agy
+  # 1.4 the Gemini groups only to `antigravity/cli/<version>`: `antigravity/<version>` is
+  # answered with the Claude-and-GPT group alone (both captured 26 Oct, agy 1.4.7).  Only the
+  # Gemini Models group is a meter here: on a Pro plan Gemini 4 Argon has a week of its own, and
+  # a spent one must not park Flash; the Claude-and-GPT group is a quota of its own that no
+  # gemini turn draws on, and a spent one must not park Gemini.  No login -- an API key
+  # included, which has no windows -- is a failed probe, not a missing meter: an
+  # unauthenticated google read as neutral would be picked ahead of logged-in ones, only for
+  # the turn to fail authentication.
   command -v agy >/dev/null || err "agy is not installed"
   command -v jq >/dev/null && command -v curl >/dev/null || err "jq and curl are required"
   GEMINI_API_KEY= logged_in || err "no login in $TOKEN; run $SIGNIN once to sign in"
@@ -203,7 +207,7 @@ usage)
     [ "$n" -eq 0 ] || rc=124
     return "$rc"
   }
-  ua="User-Agent: antigravity/$(within agy --version 2>/dev/null | head -1)"
+  ua="User-Agent: antigravity/cli/$(within agy --version 2>/dev/null | head -1)"
   post() {   # post <method> <body>: sets $code and $body; the header goes down a pipe
     body=$(jq -r '"Authorization: Bearer " + (.token.access_token // "")' "$TOKEN" 2>/dev/null |
         within curl -s -w $'\n%{http_code}' "$API:$1" -H @- -H "$ua" \
@@ -225,11 +229,11 @@ usage)
   # it could not replace, a spent window included, as it does for any probe refused
   [ "$code" = "timed out" ] && err "timed out asking ${API#https://}"
   [ "$code" = 200 ] || err "HTTP ${code:-000} from ${API#https://}; run $SIGNIN once to sign in again"
-  jq -c '{provider:"google", error:null, meters:[.groups[]? | select(.displayName // "" | test("gemini"; "i"))
+  jq -c '{provider:"google", error:null, meters:[.groups[]? | select(.displayName // "" | test("^gemini models$"; "i"))
       | .buckets[]? | select(.disabled != true and .remainingFraction != null and .resetTime != null)
       | {name:.bucketId, used:(100 - .remainingFraction * 100),
          resets_at:(.resetTime | sub("\\.[0-9]+"; "") | fromdateiso8601),
-         window_secs:(if .window == "weekly" then 604800 else null end)}]}' <<<"$body" \
+         window_secs:({weekly: 604800, "5h": 18000}[.window // ""])}]}' <<<"$body" \
     2>/dev/null || err "unparsable response from ${API#https://}" ;;
 install)
   if command -v agy >/dev/null; then echo "agy: already installed ($(agy --version 2>/dev/null | head -1))"; exit 0; fi
@@ -245,8 +249,9 @@ login-end)
   # A Google refresh token ends only when revoked, which shows only once `auth` says so.  The
   # email is the id token's own claim, decoded here and never printed with the token.
   command -v jq >/dev/null || { echo "antigravity.sh login-end: jq is required" >&2; exit 2; }
-  email=$(jq -r '.id_token // empty | split(".")[1] // empty | gsub("-"; "+") | gsub("_"; "/")
-                 | @base64d | fromjson | .email // empty' "$TOKEN" 2>/dev/null)
+  # agy 1.4 writes the email beside the token as `id_token_email`, and no id token
+  email=$(jq -r '.id_token_email // (.id_token // empty | split(".")[1] // empty | gsub("-"; "+")
+                 | gsub("_"; "/") | @base64d | fromjson | .email) // empty' "$TOKEN" 2>/dev/null)
   jq -nc --arg email "$email" '{email: (if $email == "" then null else $email end), ends: null}' ;;
 auth)
   # Can a headless turn authenticate right now?  Exit 0 and say so, or exit 1 with one line

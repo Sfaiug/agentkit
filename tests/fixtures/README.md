@@ -293,6 +293,10 @@ is drawn from, `POST https://daily-cloudcode-pa.googleapis.com/v1internal:retrie
 (the host and method agy's own log names), taken minutes earlier with agy's login and the
 `project` agy's `loadCodeAssist` answer names, the request `antigravity.sh usage` makes; it
 carries neither, and is unedited. Its Gemini window, 0.917436 left, is the panel's 91.74%.
+`antigravity-quota-summary-1.4.json` is the same call's wire body on 2026-10-26 under agy 1.4.7
+for a Google AI Pro login, unedited, asked with the User-Agent agy 1.4 sends
+(`antigravity/cli/1.4.7 (...)`); asked as `antigravity/1.4.7` it held the Claude-and-GPT group
+alone. Gemini 4 Argon is a group of its own, with its own week.
 
 The agy 1.3.5 panes, captured 2026-10-14 as `capture-pane -p -e -J` from seats opened the way
 `adapters/antigravity.sh interactive` opens one, on a private tmux socket at 120×40, keep each
