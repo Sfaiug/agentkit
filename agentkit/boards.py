@@ -4,18 +4,20 @@
 Artificial Analysis, its site's pages (`AA_PAGES`), no key: per model and effort, every
 benchmark's score, index, price and cost its pages hand their scripts, which its free endpoint
 leaves out, and the record's identity (`IDENTITY`) for `catalog`.  Arena, its leaderboard's Hugging Face dataset, no key: each of `ARENA_BOARDS` at its
-category.  LiveBench 2.0, its newest release's CSV files, no key: each suite's score and what a
+category, with its 95% interval as `<column>.lower95ci` and `<column>.upper95ci`.  LiveBench 2.0, its newest release's CSV files, no key: each suite's score and what a
 successful coding task cost.  `ak models --refresh` asks again before the day is up; a board
 that cannot answer keeps what it last said, its error beside it, and waits for the day like one
 that answered.  A board another build of ak read is asked again, once, by a build reading a
 column its rows carry none of, or rows lacking the identity this build's reader gives them: its
-reader changed, and a day of nothing is stale state.
+reader changed, and a day of nothing is stale state; so is a board held from a build before its
+reader gave `ADDED`.
 Callers at once share one collection: each writer of `state/boards.json` holds
 `boards.lock` from reading it to replacing it.  A board's row is one model at one effort (`Acme
 5 (max)` is Acme 5 at max, `Acme 5 (Max, Default Fallback)` is Acme 5 (Default Fallback) at
 max), or at none where the board names no effort, with every number the board gives as
 `<board>.<field>`, a table's fields under the table's name
-(`aa.intelligenceIndexCostPerTask.cost.total`).
+(`aa.intelligenceIndexCostPerTask.cost.total`), a list's tables under each one's slug
+(`aa.intelligenceIndexEvaluations.aa-briefcase.costPerTask`).
 Attribution: Source: Artificial Analysis (artificialanalysis.ai); Arena (lmarena-ai), leaderboard-dataset, CC-BY-4.0;
 livebench.ai, Apache 2.0.
 """
@@ -48,12 +50,19 @@ AA_CHUNK = re.compile(r'self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)')
 ARENA_URL = ("https://datasets-server.huggingface.co/{endpoint}"
              "?dataset=lmarena-ai/leaderboard-dataset&config={board}&split=latest")
 # Arena's boards ak reads, each at one category, a column `arena.<board>` (`.<category>` past
-# overall): sessions that ended in the user's confirmed success, taking a correction mid-task,
-# shell commands that run, web apps people pick, and coding answers judged for facts and on
-# their own, its style aside
-ARENA_BOARDS = (("agent_task_outcome_explicit", "overall"), ("agent_steerability", "overall"),
-                ("agent_bash_reliability", "overall"), ("webdev", "overall"),
-                ("text_factuality", "coding"), ("text_style_control", "coding"))
+# overall): agent sessions, those that ended in the user's confirmed success, taking a correction
+# mid-task, shell commands that run, web apps people pick, and coding answers judged for facts
+# and on their own, its style aside
+ARENA_BOARDS = (("agent", "overall"), ("agent_task_outcome_explicit", "overall"),
+                ("agent_steerability", "overall"), ("agent_bash_reliability", "overall"),
+                ("webdev", "overall"), ("text_factuality", "coding"),
+                ("text_style_control", "coding"))
+# an Arena row's number and the ends of its 95% interval: a rate on the agent boards, a rating
+# on the others
+ARENA_FIELDS = (("score", "score_ci_lower", "score_ci_upper"),
+                ("rating", "rating_lower", "rating_upper"))
+# a model run inside another program than Arena's own, which measures that program too
+HARNESS = re.compile(r"(?<!arena[-\s])\bharness\b", re.IGNORECASE)
 LIVEBENCH = "https://livebench.ai/"
 BOARDS = ("artificialanalysis.ai", "arena.ai", "livebench.ai")
 PREFIX = dict(zip(BOARDS, ("aa", "arena", "livebench")))   # each board's columns start with it
@@ -65,6 +74,10 @@ EFFORT_WORDS = {"x-high": "xhigh", "extra high": "xhigh", "non-reasoning": "none
 # release's slug, name and the release that replaced it (`deprecatedTo`), its maker's name and
 # whether it is deprecated
 IDENTITY = {"artificialanalysis.ai": {"slug", "release", "maker", "deprecated"}}
+# what each board's reader gives since 26 Oct 2026, a table carried where any of its fields is:
+# Artificial Analysis's evaluations, and Arena's agent board with its interval
+ADDED = {"artificialanalysis.ai": {"aa.intelligenceIndexEvaluations"},
+         "arena.ai": {"arena.agent.lower95ci"}}
 
 
 def fetch_bytes(url, headers=None):
@@ -110,7 +123,8 @@ def split_effort(name):
 
 
 def _numbers(entry, prefix, into):
-    """Every number of `entry` as `prefix.field`, a table's fields under the table's name."""
+    """Every number of `entry` as `prefix.field`, a table's fields under the table's name and a
+    list's tables under each one's slug."""
     for field, value in entry.items():
         if isinstance(value, bool):
             continue
@@ -118,6 +132,10 @@ def _numbers(entry, prefix, into):
             into[f"{prefix}.{field}"] = value
         elif isinstance(value, dict):
             _numbers(value, f"{prefix}.{field}", into)
+        elif isinstance(value, list):
+            for table in value:
+                if isinstance(table, dict) and isinstance(table.get("slug"), str):
+                    _numbers(table, f"{prefix}.{field}.{table['slug']}", into)
 
 
 def artificial_analysis():
@@ -160,8 +178,8 @@ def artificial_analysis():
 
 
 def arena():
-    """Arena's rows: each of `ARENA_BOARDS` a column, for every model its latest leaderboard
-    lists at that category.  A board's rows come grouped by category, overall first and the
+    """Arena's rows: each of `ARENA_BOARDS` a column with its interval, for every model its latest
+    leaderboard lists at that category, but one run inside another harness (`HARNESS`).  A board's rows come grouped by category, overall first and the
     others in their alphabetical order, so the dataset's counts per category say where the
     wanted ones start, and every row read is checked to be one of them, all of them read."""
     rows = {}
@@ -187,12 +205,18 @@ def arena():
             raise ValueError(f"arena.ai: {board}'s {category} rows are not where its counts "
                              "put them")
         for row in found:
-            score = row.get("score", row.get("rating"))     # a rate, or a rating
-            if not isinstance(score, (int, float)) or not row.get("model_name"):
+            fields = next((fields for fields in ARENA_FIELDS
+                           if isinstance(row.get(fields[0]), (int, float))), None)
+            if (not fields or not row.get("model_name")
+                    or any(HARNESS.search(str(row.get(name) or ""))
+                           for name in ("model_name", "model_key"))):
                 continue
             model, effort = split_effort(str(row["model_name"]))
-            rows.setdefault((model, effort), {"model": model, "effort": effort, "values": {}})
-            rows[(model, effort)]["values"][column] = score
+            values = rows.setdefault((model, effort), {"model": model, "effort": effort,
+                                                       "values": {}})["values"]
+            for name, field in zip((column, f"{column}.lower95ci", f"{column}.upper95ci"), fields):
+                if isinstance(row.get(field), (int, float)):
+                    values[name] = row[field]
     return list(rows.values())
 
 
@@ -270,8 +294,8 @@ def collect(*, refresh=False, now=None, needs=None, build=None):
     them: {board: {"asked_at", "fetched_at", "rows", "error", "build"}}.  The day counts from
     `asked_at`, answered or not; a board that fails keeps its last rows and their `fetched_at`.
     `needs`, {board: columns} the caller reads, and `build`, ak's build asking: a board held
-    from another build whose rows carry none of a needed column, or lack its `IDENTITY`, is
-    asked again before the day is up, once, since its reader changed.  One caller collects at a time, under `boards.lock`,
+    from another build whose rows carry none of a needed column, or lack its `IDENTITY` or
+    `ADDED`, is asked again before the day is up, once, since its reader changed.  One caller collects at a time, under `boards.lock`,
     and the next reads what it wrote."""
     now = time.time() if now is None else now
     with _locked():
@@ -282,10 +306,11 @@ def collect(*, refresh=False, now=None, needs=None, build=None):
             held = cache.get(board) or {}
             fresh = held.get("asked_at") and now - held["asked_at"] < FRESH_FOR
             if fresh and build is not None and held.get("build") != build:
-                carried = {column for row in held.get("rows") or []
-                           for column in (*row, *row["values"])}
-                fresh = not (((needs or {}).get(board, set()) | IDENTITY.get(board, set()))
-                             - carried)
+                carried = {".".join(parts[:n]) for row in held.get("rows") or []
+                           for column in (*row, *row["values"])
+                           for parts in [column.split(".")] for n in range(1, len(parts) + 1)}
+                fresh = not (((needs or {}).get(board, set()) | IDENTITY.get(board, set())
+                              | ADDED.get(board, set())) - carried)
             if not refresh and fresh:
                 continue
             try:

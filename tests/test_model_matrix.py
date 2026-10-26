@@ -38,11 +38,14 @@ AA = [
      "briefcaseBreakdown": {"elo": 1800.0, "rubricPassRate": 0.6},    # flat, as the newest are
      "intelligenceIndexCostPerTask": {"cost": {"total": 5.98}}},
     {"name": "Claude Opus 5.5 (xhigh)", "intelligenceIndex": 56},
-    {"name": "Claude Haiku 4.5 (Non-reasoning)", "intelligenceIndex": 9.0},
+    {"name": "Claude Haiku 4.5 (Non-reasoning)", "intelligenceIndex": 9.0,
+     "intelligenceIndexEvaluations": [{"slug": "acme-bench", "score": 0.3}]},
     {"name": "Claude Sonnet 4.6 (Thinking)", "briefcaseBreakdown": {"overall": {"elo": 1500.0}}}]
 DEEPSEC = [{"name": "Claude Opus 5.5 (max)", "deepsecBench": 0.27, "intelligenceIndex": None}]
-# each Arena board's rows as (model, category, the board's number), in the order it serves them
-ARENA = {"agent_task_outcome_explicit": [("Claude Opus 5.5 (Max)", "overall", 0.17),
+# each Arena board's rows as (model, category, the board's number, any other fields), in the
+# order it serves them
+ARENA = {"agent": [("Acme 9", "overall", 0.3, {"score_ci_lower": 0.25, "score_ci_upper": 0.35})],
+         "agent_task_outcome_explicit": [("Claude Opus 5.5 (Max)", "overall", 0.17),
                                          ("GPT 6 Astra (xHigh)", "overall", 0.137)],
          "agent_steerability": [("Claude Opus 5.5 (Max)", "overall", 0.2)],
          "agent_bash_reliability": [("Claude Opus 5.5 (Max)", "overall", 0.1)],
@@ -110,7 +113,8 @@ class Boards:
         """The dataset's counts per category, or a page of a board's rows, at most two."""
         name = url.split("config=")[1].split("&")[0]
         rows = [{"model_name": m, "category": c, ("score" if name.startswith("agent") else
-                                                  "rating"): n} for m, c, n in ARENA[name]]
+                                                  "rating"): n, **dict(*other)}
+                for m, c, n, *other in ARENA[name]]
         if "/statistics?" in url:
             counts = {}
             for row in rows:

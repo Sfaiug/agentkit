@@ -41,10 +41,12 @@ RECORDS = [
 
 
 def page(records):
-    """A page of the board's site: each record in the data the page hands its scripts."""
+    """A page of the board's site: each record, its index's evaluations listed, in the data the
+    page hands its scripts."""
     data = json.dumps({"models": [
         {"id": f"{n:08x}-0000-4000-8000-000000000000", "slug": slug, "name": name,
          "intelligenceIndex": index, "deprecated": deprecated,
+         "intelligenceIndexEvaluations": [{"slug": "acme-bench", "score": index}],
          "release": {"slug": release, "name": release_name, "deprecatedTo": replaced_by},
          "creator": {"id": "00000000-0000-4000-8000-0000000000ac", "name": maker}}
         for n, (slug, name, release, release_name, maker, deprecated, replaced_by, index)
@@ -70,7 +72,8 @@ class Catalog(Sandbox):
     def test_each_row_keeps_its_record_s_identity_beside_its_numbers(self):
         rows = {row["slug"]: row for row in boards.collect(now=10000)[catalog.BOARD]["rows"]}
         self.assertEqual(rows["acme-6"], {
-            "model": "Acme 6", "effort": "max", "values": {"aa.intelligenceIndex": 40},
+            "model": "Acme 6", "effort": "max", "values": {"aa.intelligenceIndex": 40,
+                                                       "aa.intelligenceIndexEvaluations.acme-bench.score": 40},
             "slug": "acme-6", "release": {"slug": "acme-6", "name": "Acme 6",
                                           "deprecatedTo": "acme-6-5"},
             "maker": "Acme", "deprecated": True})
