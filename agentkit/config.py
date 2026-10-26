@@ -542,11 +542,15 @@ def provider_harnesses(cfg, provider):
     """The harnesses `provider` runs on, for the `c` screen's `Models`: the ones its
     models in `cfg` run on, then the ones the shipped default runs it on, each once.  A
     provider neither names a harness for is offered none, never a guess."""
+    return list(dict.fromkeys(harness for named, harness in _runs_on(cfg) if named == provider))
+
+
+def _runs_on(cfg):
+    """(provider, harness) of each model in `cfg`, then of each the shipped default has."""
     models = shipped().get("models")
     entries = [*cfg["models"].values(), *(models.values() if isinstance(models, dict) else ())]
-    return list(dict.fromkeys(entry["harness"] for entry in entries
-                              if isinstance(entry, dict) and entry.get("provider") == provider
-                              and isinstance(entry.get("harness"), str)))
+    return [(entry.get("provider"), entry["harness"]) for entry in entries
+            if isinstance(entry, dict) and isinstance(entry.get("harness"), str)]
 
 
 def provider_hosts():
@@ -648,8 +652,9 @@ def _logins(cfg, harness):
     none.  The usual login alone without `cfg`, where it runs no provider there, or where the
     harness keeps one login (one_login)."""
     logins = {}
-    for provider in cfg["providers"] if cfg and not one_login(harness) else ():
-        if harness in provider_harnesses(cfg, provider):
+    if cfg and not one_login(harness):
+        on = {provider for provider, runs in _runs_on(cfg) if runs == harness}
+        for provider in (provider for provider in cfg["providers"] if provider in on):
             for account in accounts(cfg, provider) or [DEFAULT_ACCOUNT]:
                 logins.setdefault(account, []).append(provider)
     return logins or {DEFAULT_ACCOUNT: []}
@@ -723,9 +728,11 @@ def _ask_catalog(harness, cfg):
 def catalog_held(harness, cfg=None):
     """catalog(harness, cfg) as its logins last listed it, however old, else its manifest's
     table: for a draw, which asks no harness and waits on none."""
+    held = {account: listed for (on, account), (_, listed) in list(_CATALOGS.items())
+            if on == harness}         # a list: a thread may be adding one
     models = {}
-    for account in _logins(cfg, harness):
-        for model in _CATALOGS.get((harness, account), (0, []))[1]:
+    for account in _logins(cfg, harness) if held else ():    # a draw reads no config for none
+        for model in held.get(account, ()):
             models.setdefault(model["id"], model)
     return list(models.values()) or catalog_table(harness)
 
