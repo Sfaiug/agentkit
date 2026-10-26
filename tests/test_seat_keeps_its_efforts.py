@@ -1,6 +1,6 @@
-"""A config save first leaves a seat's record from before, unread, holding the efforts the
-entries gave it: the file's, or the shipped config's for a file with no model tables.  Offline,
-in a throwaway HOME."""
+"""A seat's record from before, or a model it falls back on, holds the efforts the entries gave
+it: before a config save changes them, the shipped config's for a file with no model tables,
+and at the read that falls back.  Offline, in a throwaway HOME."""
 
 from contextlib import ExitStack
 import json
@@ -30,24 +30,22 @@ class SaveKeepsSeatEfforts(unittest.TestCase):
         self.config = home / config.CONFIG_NAME
         self.record = config.session_path("acme")
 
-    def saved(self):
-        """The record's efforts once Fable's entry is saved at `low`, its record from before."""
+    def test_a_save_on_the_shipped_entries(self):
+        self.config.write_text("max_runs = 2\n")
         cfg = config.load()
         self.record.write_text(json.dumps({"orchestrator": "fable", "workers": ["fable"]}))
         cfg["models"]["fable"]["effort"] = "low"
         config.save(cfg)
-        self.assertEqual(config.load()["models"]["fable"]["effort"], "low")
-        return json.loads(self.record.read_text())["efforts"]
+        self.assertEqual(json.loads(self.record.read_text())["efforts"],
+                         {"fable": {"effort": "xhigh"}})
 
-    def test_the_file_s_entry(self):
-        self.config.write_text(config.REPO.joinpath(config.DEFAULT_CONFIG_NAME).read_text()
-                               .replace('model = "claude-fable-5-1"\neffort = "xhigh"',
-                                        'model = "claude-fable-5-1"\neffort = "high"'))
-        self.assertEqual(self.saved(), {"fable": {"effort": "high"}})
-
-    def test_the_shipped_entry_for_a_file_with_no_model_tables(self):
+    def test_a_read_falling_back_on_a_worker(self):
         self.config.write_text("max_runs = 2\n")
-        self.assertEqual(self.saved(), {"fable": {"effort": "xhigh"}})
+        self.record.write_text(json.dumps({"orchestrator": "astra", "workers": ["gone"],
+                                           "efforts": {"astra": {"effort": "low"}}}))
+        self.assertEqual(config.load_session(config.load(), "acme")["workers"], ["fable"])
+        self.assertEqual(json.loads(self.record.read_text())["efforts"]["fable"],
+                         {"effort": "xhigh"})
 
 
 if __name__ == "__main__":

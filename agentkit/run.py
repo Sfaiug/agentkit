@@ -2034,12 +2034,13 @@ def pr_writer(cfg, state, session_name, author):
     independence check would judge another model than the one that wrote this -- and a record
     with none asks the seat (`own_pr_orchestrator`).  A captured model the config no longer
     names is unknown, as the seat's would be.  The effort is the writer's as it was captured
-    (the config's for its orchestrator role then; a record from before it was kept has none),
+    (the seat's for its orchestrator role at launch, on the receipt; a record from before it
+    was kept has none),
     never the config's since: `ak models` counts the pull request under it."""
     if "own_pr" not in state:
         is_own, orchestrator = own_pr_orchestrator(cfg, session_name, author)
-        return is_own, orchestrator, config.seat_effort(cfg, session_name, orchestrator,
-                                                        "orchestrator")
+        return is_own, orchestrator, config.worker_effort(config.at_efforts(cfg, state),
+                                                          orchestrator, "orchestrator")
     orchestrator = state.get("own_orchestrator") if state["own_pr"] else None
     if orchestrator:
         try:

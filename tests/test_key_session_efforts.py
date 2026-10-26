@@ -1,9 +1,11 @@
-"""Each seat's runs run at the efforts its record holds, their receipts saying so; a record from
-before at its entries', kept once a fresh window's `c` changes one, the shipped config's too.
-Black-box: `AK_BIN` on a gitrig.py project, akseat.py seats, an akterm.py terminal and
-fakeadapter.py harnesses, judged by the effort each turn is handed."""
+"""Each seat and its runs run at the efforts its record holds, their receipts saying so; a new
+seat on an old one's name, and a record from before, at its entries', the latter kept once a
+fresh window's `c` changes one, the shipped config's too.  Black-box: `AK_BIN` on a gitrig.py
+project, akseat.py seats, an akterm.py terminal and fakeadapter.py harnesses, judged by the
+effort each turn or launch is handed."""
 
 import json
+import shlex
 import sys
 from pathlib import Path
 import time
@@ -47,6 +49,13 @@ class TwoSeatsOnOneModel(unittest.TestCase):
                 receipt, handed = run_in(self, f"acme-{effort}", f"Build at {effort}")
                 self.assertEqual(handed, {effort})
                 self.assertEqual(receipt["efforts"]["opus"], {"effort": effort})
+
+    def test_a_seat_opens_at_its_effort_and_a_new_one_on_its_name_at_the_entry_s(self):
+        for args, effort in ((["acme-max"], "max"), (["acme-max", "--model", "opus"], "xhigh")):
+            done = self.home.ak("orch", *args, "--dry-run", cwd=self.rig.path)
+            self.assertEqual(done.code, 0, done.err)
+            words = shlex.split(done.out.splitlines()[-1])
+            self.assertEqual(words[words.index("--effort") + 1], effort)
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")

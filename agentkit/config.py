@@ -902,16 +902,6 @@ def run_efforts(cfg, record):
             if isinstance(entry, dict)}
 
 
-def seat_effort(cfg, seat, name, role):
-    """The effort seat `seat` runs model `name` at in `role`: at_efforts of its record, the
-    entry's for no seat or one with no record yet; None where `name` is no entry."""
-    try:
-        record = load_session(cfg, seat, required=False) if seat else None
-    except Error:
-        record = None
-    return worker_effort(at_efforts(cfg, record), name, role)
-
-
 def model_name(cfg, name):
     """The full name every screen shows the configured model `name` by: `Opus 5.5` for one
     running `claude-opus-5-5` -- its harness's catalog label for its id, read off the manifest's
@@ -1325,7 +1315,7 @@ def load_session(cfg, name, required=True):
 
     A model the config no longer has is passed over in what comes back
     (_validate_session), so a seat whose models changed under it still reads; the file
-    itself is left as it was, but for the efforts a record from before is given (own_efforts).
+    itself is left as it was, but for the efforts each model read here is given (own_efforts).
     """
     name = resolve_session(name)
     path = session_path(name)
@@ -1337,8 +1327,9 @@ def load_session(cfg, name, required=True):
     selection = _validate_session(cfg, name, data, prune=True)
     owned = own_efforts(cfg["models"], name, selection)
     if owned is not selection:
-        try:
-            written = keep_efforts(cfg["models"], name)
+        try:    # those of the models read here, a fallback's too, under any written since
+            written = change_efforts(name, lambda data: {**owned["efforts"],
+                                                         **(data.get("efforts") or {})})
         except OSError:
             written = None      # unwritable: held for this read alone
         owned = {**owned, "efforts": (written or {}).get("efforts") or owned["efforts"]}

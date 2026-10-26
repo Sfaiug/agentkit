@@ -277,8 +277,7 @@ def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=No
             config.FIRST_PROMPT_ENV: line or ""}
     told.update(harness_plugin(entry["harness"]).checked(told[config.ACCOUNT_ENV]))
     proc = subprocess.run([str(adapter), "interactive", entry["model"],
-                           config.seat_effort(cfg, os.environ.get(config.SESSION_ENV), name,
-                                              "orchestrator"),
+                           config.role_effort(entry, "orchestrator"),
                            *([conversation] if conversation else []),
                            *(["new"] if conversation and fresh else [])],
                           capture_output=True, encoding="utf-8", errors="replace",
@@ -2334,13 +2333,14 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     if detached and (not record.get("cwd") or not ran_in.is_dir()):
         raise config.Error(f"{name}: recorded directory is unavailable: {ran_in}")
     cwd = ran_in if ran_in.is_dir() else seat_cwd()
+    held = config.at_efforts(cfg, record)      # at the seat's own efforts
     with scratch(dry_run):
         if recorded:
-            cmd = resume_command(cfg, orchestrator, recorded, ran_in, seat=name, account=account,
+            cmd = resume_command(held, orchestrator, recorded, ran_in, seat=name, account=account,
                                  line=line)
             conversation = recorded
         else:
-            cmd, conversation = fresh_command(cfg, orchestrator, seat=name, account=account)
+            cmd, conversation = fresh_command(held, orchestrator, seat=name, account=account)
     where = "in the same window" if session else f"in {cwd}"
     log(f"orch: resuming {name} on {orchestrator} {where}"
         + (f" (conversation {recorded})" if recorded
@@ -4221,9 +4221,10 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
         ran_in = Path(record.get("cwd") or (session or {}).get("path") or "")
         cwd = ran_in if ran_in.is_dir() else seat_cwd()
         at = time.time()
-        cmd, conversation = ((resume_command(cfg, model, kept, ran_in, seat=name,
+        held = config.at_efforts(cfg, record)      # at the seat's own efforts
+        cmd, conversation = ((resume_command(held, model, kept, ran_in, seat=name,
                                              account=account, line=line), kept) if kept
-                             else fresh_command(cfg, model, seat=name, account=account,
+                             else fresh_command(held, model, seat=name, account=account,
                                                 line=line))
     except (config.Error, OSError) as exc:
         unhanded(handed, before)
