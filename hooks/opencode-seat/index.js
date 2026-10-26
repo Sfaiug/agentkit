@@ -13,7 +13,9 @@
 // What it reports, translated to the one protocol hooks/seat-state.sh speaks for every
 // harness (adapters/opencode.toml maps the names to states):
 //   session.inbox.enqueued where the item is a user message -> UserPromptSubmit, with its text
-//   session.execution.{succeeded,failed}                   -> Stop, with the session id
+//   session.execution.{succeeded,failed}                   -> Stop, with the session id and
+//     the background work OpenCode records for it still running; none for a subagent's
+//     session (`recorded`)
 //   session.execution.interrupted                         -> Interrupt, with the session id
 //   permission.asked                                         -> PermissionRequest, with the
 //     action as the kind (a seat opened with --auto is never asked, but the fact is wired
@@ -32,7 +34,8 @@
 // Every failure is silent: a hook that fails loudly is a harness that stops.
 import { spawnSync } from "node:child_process";
 import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // The hook beside this plugin in the checkout, whatever directory the seat runs from.
@@ -41,6 +44,9 @@ const SEAT_STATE = fileURLToPath(new URL("../seat-state.sh", import.meta.url));
 const GATE = fileURLToPath(new URL("../orchestrator-stop.sh", import.meta.url));
 // This launch's receipt, or none where the seat was not opened by agentkit.
 const RECEIPT = process.env.AGENTKIT_OPENCODE_RECEIPT || "";
+// OpenCode 2.1.1 runs its plugins on Bun 1.4.2, which offers Node's SQLite module.  A runtime
+// offering none leaves OpenCode's record unread.
+const sqlite = await import("node:sqlite").catch(() => null);
 
 function send(payload) {
   // Synchronously: an end-of-turn fact handed to a background child races the server's own
@@ -148,6 +154,46 @@ function confirmed(title, id, sessionID) {
   }
 }
 
+// That Stop once OpenCode's own record of its session is read.  A subagent's session names its
+// parent there, and its end is no end of the seat's turn: sent, it would read the seat as
+// stopped while its turn goes on, dropping the work the seat holds.  Any other Stop goes with the
+// background work still running for its session, in the shape Claude Code hands its Stop:
+// from the moment a background shell or subagent leaves its turn until its end is handed back,
+// OpenCode keeps a `job.background/<notification>` row in opencode.db's kv table
+// (Job.background), `running` until it ends.  The plugin API reads neither.  A record that
+// cannot be read leaves the Stop as it is: unread work is no evidence that none is running.
+// The database is found as OpenCode finds it, the way agentkit/harness/opencode.py `database`
+// reads it too.
+function recorded(stop) {
+  if (!sqlite) return stop;
+  const share = process.env.XDG_DATA_HOME || join(homedir(), ".local/share");
+  const file = resolve(share, "opencode", process.env.OPENCODE_DB || "opencode.db");
+  let db;
+  try {
+    db = new sqlite.DatabaseSync(file, { readOnly: true });
+    const parent = db.prepare("SELECT parent_id FROM session_v2 WHERE id = ?");
+    if (parent.get(stop.session_id)?.parent_id) return null;
+    const jobs = db.prepare("SELECT value FROM kv WHERE key LIKE 'job.background/%'").all();
+    const work = [];
+    for (const { value } of jobs) {
+      const job = JSON.parse(value);
+      const how = job?.status === "running" ? job.recovery : null;
+      if (how?.kind === "shell" && how.sessionID === stop.session_id) {
+        work.push({ id: how.shellID, type: "shell", status: "running",
+          description: how.command, command: how.command });
+      } else if (how?.kind === "subagent" && how.parentSessionID === stop.session_id) {
+        work.push({ id: how.childSessionID, type: "subagent", status: "running",
+          description: how.description, agent_type: how.agent });
+      }
+    }
+    return { ...stop, background_tasks: work };
+  } catch {
+    return stop;
+  } finally {
+    db?.close();
+  }
+}
+
 // The session that event shows a prompt going into, or null.  Only a prompt says which
 // conversation the seat is in: an older turn still running ends whenever it ends, and its end
 // must not take the seat back from the session prompted since.
@@ -242,7 +288,8 @@ export default {
             // to ak's name; neither is evidence that the owner renamed the seat.
             if (event.type === "session.renamed") void syncTitle(true);
             const fact = seatFact(event);
-            if (fact) send(fact);
+            const sent = fact?.hook_event_name === "Stop" ? recorded(fact) : fact;
+            if (sent) send(sent);
           } catch {
             // One fact that cannot be shaped costs that fact, never the subscription.
           }
