@@ -22,10 +22,9 @@ var commitID = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 var dropped = []string{"BASH_ENV", "ENV", "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
 	"GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE"}
 
-// environ is what git and a check run with: nothing inherited routes git to another
-// repository or brings back seat variables, and the project's env file comes last, as exec
-// keeps a key's last value.
-func environ(extra map[string]string) ([]string, error) {
+// environ is what git runs with: nothing inherited routes it to another repository or
+// brings back seat variables.
+func environ() ([]string, error) {
 	seat, err := config.SeatEnv()
 	if err != nil {
 		return nil, err
@@ -38,11 +37,7 @@ func environ(extra map[string]string) ([]string, error) {
 			env = append(env, pair)
 		}
 	}
-	env = append(env, "GIT_TERMINAL_PROMPT=0")
-	for key, value := range extra {
-		env = append(env, key+"="+value)
-	}
-	return env, nil
+	return append(env, "GIT_TERMINAL_PROMPT=0"), nil
 }
 
 func git(ctx context.Context, env []string, dir string, args ...string) (string, error) {
@@ -93,18 +88,21 @@ func place(project string, env []string) (repo, root string) {
 
 // A branch is a project's default branch as just fetched, what its checks run on.
 type branch struct {
-	repo, root, sha, commit string // commit is `<sha12> <subject>`, as a tick names it
-	env                     []string
+	repo, root, sha, commit string   // commit is `<sha12> <subject>`, as a tick names it
+	clean, env              []string // env adds the project's env file to clean
 }
 
-func defaultBranch(ctx context.Context, repo, root string) (*branch, error) {
+// defaultBranch fetches the project's default branch.  Git there and its checks get the
+// project's env file, as a run's checks do: what git does not hold, such as the project's
+// interpreter, it names there; which repository a checkout holds is read without it.
+func defaultBranch(ctx context.Context, repo, root string, clean []string) (*branch, error) {
 	extra, err := config.RepoEnv(repo)
 	if err != nil {
 		return nil, err
 	}
-	on := &branch{repo: repo, root: root}
-	if on.env, err = environ(extra); err != nil {
-		return nil, err
+	on := &branch{repo: repo, root: root, clean: clean, env: slices.Clone(clean)}
+	for key, value := range extra {
+		on.env = append(on.env, key+"="+value) // exec keeps a key's last value
 	}
 	run := func(args ...string) string {
 		if err != nil {
@@ -149,7 +147,7 @@ func (on *branch) passes(ctx context.Context, check string) bool {
 	if _, err := git(ctx, on.env, on.repo, "worktree", "add", "--detach", tree, on.sha); err != nil {
 		return false
 	}
-	if !holds(on.env, tree, on.root, "HEAD") {
+	if !holds(on.clean, tree, on.root, "HEAD") {
 		return false
 	}
 	ctx, cancel := context.WithTimeout(ctx, checkLimit)

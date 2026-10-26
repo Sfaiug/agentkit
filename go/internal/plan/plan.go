@@ -218,7 +218,7 @@ func verify(ctx context.Context, name string) error {
 	}); err != nil {
 		return err
 	}
-	env, err := environ(nil)
+	env, err := environ()
 	if err != nil {
 		return err
 	}
@@ -231,7 +231,7 @@ func verify(ctx context.Context, name string) error {
 		on, seen := branches[line.Project]
 		if !seen {
 			if repo, root := place(line.Project, env); repo != "" {
-				if on, err = defaultBranch(ctx, repo, root); err != nil {
+				if on, err = defaultBranch(ctx, repo, root, env); err != nil {
 					return err
 				}
 			}
