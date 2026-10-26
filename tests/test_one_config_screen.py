@@ -283,11 +283,11 @@ class OneConfigScreen(unittest.TestCase):
         menu = Menu(self, down="claude", own="fix-api")
         menu.screen()
         menu.press(b"c", title("config"))
-        menu.press(DOWN + RIGHT + RIGHT + SPACE,          # opus joins the reviewers
+        menu.press(DOWN + RIGHT * 4 + SPACE,               # opus joins the reviewers
                    lambda lines: marks(model(lines, "opus")) == "●■■")
         # Claude is down in this child, so astra leaving executes leaves no runnable
         # executor: refused in one line, and the record stays as it was
-        lines = menu.press(DOWN + LEFT + SPACE,
+        lines = menu.press(DOWN + LEFT * 2 + SPACE,
                            lambda lines: any("no allowed" in line for line in lines))
         self.assertEqual([line.strip() for line in lines if "no allowed" in line],
                          ["no allowed executor/reviewer pair"])
@@ -357,9 +357,9 @@ class OneConfigScreen(unittest.TestCase):
             'orchestrator = "astra"\nworkers = ["fable"]\nreviewers = ["opus"]'))
         elsewhere = {"orchestrator": "astra", "workers": ["fable"], "reviewers": ["opus"]}
         self.assertEqual(menu.defaults(), elsewhere)
-        menu.press(RIGHT * 3 + ENTER,                     # an effort saved
-                   lambda lines: model(lines, "fable").endswith(" max"))
-        self.assertEqual(tomllib.loads(menu.config.read_text())["models"]["fable"]["effort"],
+        menu.press(DOWN + RIGHT + ENTER,                  # an effort saved
+                   lambda lines: " max " in model(lines, "opus"))
+        self.assertEqual(tomllib.loads(menu.config.read_text())["models"]["opus"]["effort"],
                          "max")
         self.assertEqual(menu.defaults(), elsewhere)      # kept, whatever `c` read before
         menu.press(ESC)
