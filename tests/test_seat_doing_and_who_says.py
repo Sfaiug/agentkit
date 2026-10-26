@@ -37,6 +37,7 @@ class SeatStates(unittest.TestCase):
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, root / name.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
+            "HOME": str(root),     # a host ~/agentkit elsewhere stops every bar (update.publishes)
             "AGENTKIT_TMUX_SOCKET": "agentkit-test", "TMUX_TMPDIR": str(root),
             "AK_RUN_ROLE": "orchestrator", "AGENTKIT_DISCORD_WEBHOOK": "",
             notify.SINK_ENV: "",   # this fixture is the one naming the destination
