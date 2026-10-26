@@ -353,12 +353,34 @@ class Antigravity(unittest.TestCase):
         self.assertAlmostEqual(100 - used, left, delta=0.005)
         # asked as agy asks, of the project it was given, and nothing but a renewal ran
         asked = (self.fake / "asked").read_text()
-        self.assertIn("User-Agent: antigravity/1.2.9-test", asked)
+        self.assertIn("User-Agent: antigravity/cli/1.2.9-test", asked)
         self.assertIn('{"project":"fixture-project"}', asked)
         self.assertEqual(self.argv_log.read_text().splitlines(), ["--version", "models"])
         # and no token is printed or left behind
         self.assertNotRegex(proc.stdout + proc.stderr + asked, r"\w-access")
         self.assertFalse((self.home / ".agentkit").exists())   # nor written to any file
+
+    def test_usage_reads_agy_1_4_s_gemini_windows_and_no_other(self):
+        # retrieveUserQuotaSummary's wire body under agy 1.4.7 on 2026-10-26, a Google AI Pro
+        # login, unedited but for `jq -c`: the Gemini Models group's week and five hours are the
+        # meters; Argon's own week and the Claude-and-GPT group's are not
+        self.fake_endpoint((FIXTURES / "antigravity-quota-summary-1.4.json").read_text(),
+                           live="dummy-access")
+        usage = json.loads(self.adapter("usage").stdout)
+        self.assertIsNone(usage["error"])
+        self.assertEqual([(meter["name"], meter["window_secs"], meter["used"])
+                          for meter in usage["meters"]],
+                         [("gemini-weekly", 604800, 0), ("gemini-5h", 18000, 0)])
+
+    def test_login_end_names_whose_login_agy_1_4_keeps(self):
+        # agy 1.4 writes the address beside the token, and no id token
+        self.write_token("dummy-refresh")
+        token = json.loads(self.token.read_text())
+        del token["id_token"]
+        self.token.write_text(json.dumps({**token, "id_token_email": "owner@example.com"}))
+        proc = self.adapter("login-end")
+        self.assertEqual(json.loads(proc.stdout), {"email": "owner@example.com", "ends": None})
+        self.assertNotIn("dummy", proc.stdout)
 
     def test_usage_answers_inside_its_deadline_whatever_hangs(self):
         # An endpoint that never answers, and a call that ignores TERM: the probe still says
