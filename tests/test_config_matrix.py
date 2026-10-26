@@ -188,6 +188,10 @@ class Screen:
     def record(self):
         return json.loads(self.session.read_text())
 
+    def effort(self, name):
+        """`name`'s effort as the seat's record holds it, where a step on its `c` is saved."""
+        return self.record()["efforts"][name]["effort"]
+
     def leave(self):
         mark = len(self.text())
         os.write(self.master, ESC)
@@ -335,13 +339,13 @@ class Matrix(unittest.TestCase):
     def test_arrows_move_through_every_column_the_effort_s_too(self):
         screen = Screen(self)
         screen.frame()
-        before = screen.path.read_bytes()
+        before = screen.session.read_bytes()
         # → through opus's role marks reaches its effort, and past it there is nothing
         lines = screen.press(DOWN + RIGHT * 3, lambda lines: on_effort(lines, "opus"))
         self.assertIn("Opus 5.5", highlighted(lines))
         lines = screen.press(RIGHT)
         self.assertTrue(on_effort(lines, "opus"), lines.lit)
-        self.assertEqual(screen.path.read_bytes(), before)    # no arrow steps an effort
+        self.assertEqual(screen.session.read_bytes(), before)    # no arrow steps an effort
         # ← comes back to the reviewer mark, which Enter flips
         lines = screen.press(LEFT, lambda lines: on_mark(lines, "opus"))
         screen.press(ENTER, lambda lines: "□" in row(lines, "opus")[1])
@@ -352,7 +356,8 @@ class Matrix(unittest.TestCase):
     def test_enter_steps_an_effort_up_and_round_from_its_highest(self):
         screen = Screen(self)
         screen.frame()
-        efforts = lambda: {name: model["effort"] for name, model in screen.saved()["models"].items()}
+        given = screen.path.read_bytes()
+        efforts = lambda: {name: model["effort"] for name, model in screen.record()["efforts"].items()}
         # opus takes low to max: up from xhigh is max, and up from max is low again
         screen.press(DOWN + RIGHT * 3 + ENTER, lambda lines: effort(lines, "opus") == "max")
         self.assertEqual(efforts()["opus"], "max")
@@ -364,11 +369,12 @@ class Matrix(unittest.TestCase):
         # there is
         screen.press(DOWN + ENTER, lambda lines: row(lines, "haiku")[1].endswith("  none"))
         self.assertEqual(efforts()["haiku"], "none")
-        before = screen.path.read_bytes()
+        before = screen.session.read_bytes()
         lines = screen.press(ENTER)
         self.assertTrue(row(lines, "haiku")[1].endswith("  none"), row(lines, "haiku")[1])
-        self.assertEqual(screen.path.read_bytes(), before)
-        self.assertEqual(efforts()["fable"], "xhigh")
+        self.assertEqual(screen.session.read_bytes(), before)
+        self.assertEqual(efforts()["astra"], "xhigh")
+        self.assertEqual(screen.path.read_bytes(), given)     # the seat's, not new seats'
         screen.leave()
 
     def test_a_click_on_an_effort_s_cell_takes_that_level(self):
@@ -378,7 +384,7 @@ class Matrix(unittest.TestCase):
         lines = screen.click(line.index("▰") + 3, number,
                              lambda lines: effort(lines, "opus") == "high")
         self.assertIn("Opus 5.5", highlighted(lines))
-        self.assertEqual(screen.saved()["models"]["opus"]["effort"], "high")
+        self.assertEqual(screen.effort("opus"), "high")
         screen.leave()
 
     def test_tab_changes_nothing(self):
@@ -414,7 +420,7 @@ class Matrix(unittest.TestCase):
         number, line = row(lines, "opus")                 # a click on an effort's word steps it
         lines = screen.click(line.index("xhigh") + 1, number,
                              lambda lines: effort(lines, "opus") == "max")
-        self.assertEqual(screen.saved()["models"]["opus"]["effort"], "max")
+        self.assertEqual(screen.effort("opus"), "max")
         column = KEYS.index("esc back") + 3      # and one on `esc back` leaves
         os.write(screen.master, f"\x1b[<0;{column};{len(lines)}M\x1b[<0;{column};{len(lines)}m"
                  .encode())

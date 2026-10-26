@@ -1,14 +1,15 @@
 """The `c` screen steps an effort, moves a seat once asked, and ticks models in and out of config.
 
 `c` is where the owner changes the models without opening a file: Enter on a model's effort
-steps it one up and config.toml is rewritten at once, whole, with the menu's header, every
-other value and an unknown key kept; Enter on another model's orchestrator mark asks under the
+steps it one up, saved to the seat's record at once, config.toml as it was; Enter on another
+model's orchestrator mark asks under the
 matrix first, as the owner said on 24 Oct ("when pressing a different orch, it should ask me
 to confirm. As this restarts the session."): Esc keeps the record and the pane as they were,
 and `Move` moves the seat, its record naming the new orchestrator and its tmux session running
 that model's harness, config.toml as it was; and `Models` opens
 a harness's row onto the models its adapter lists, `□` one the config does not run: Enter ticks
-it in, `■`, written to config.toml under its provider, and out again, config.toml as it was.
+it in, `■`, config.toml rewritten at once, whole, with the menu's header, every other value
+and an unknown key kept, the model under its provider, and out again, config.toml as it was.
 Black-box: the program `AK_BIN` names, as the popup over a seat as ak leaves it
 (tests/fixtures/akseat.py) in a person's terminal (tests/fixtures/akterm.py), its harnesses the
 fakes of tests/fixtures/fakeadapter.py, judged by what the terminal shows, config.toml, the
@@ -74,9 +75,10 @@ class ConfigScreenEdits(unittest.TestCase):
         cls.record = cls.home.path / ".agentkit" / "state" / f"session-{SEAT}.json"
 
     def setUp(self):
-        # Each case starts from the same config, in a menu of its own: one reads its harnesses'
-        # model lists once and keeps them.
+        # Each case starts from the same config and record, in a menu of its own: one reads
+        # its harnesses' model lists once and keeps them.
         self.config = akconfig.write(self.home, MODELS, workers=["fable", "astra"])
+        self.record.write_text(json.dumps(self.seat.record))
         self.given = tomllib.loads(self.config.read_text())
         self.term = Terminal(self.home, "attach", "--overlay", size=(100, 30),
                              env={"NO_COLOR": "1", "AGENTKIT_SESSION": SEAT})
@@ -87,7 +89,7 @@ class ConfigScreenEdits(unittest.TestCase):
         self.term.keys("c")
         self.term.wait(lambda screen: key_line(screen) == KEYS and "› Fable 5.1" in screen)
 
-    def test_enter_on_an_effort_steps_it_up_and_rewrites_config_toml_keeping_the_rest(self):
+    def test_enter_on_an_effort_steps_it_up_in_the_seat_s_record(self):
         self.fakes["claude"].answer("models", FABLE_LISTED)
         self.term.keys("Right", "Right", "Right")
         self.term.wait(lambda screen: "› Fable 5.1     ●      □        □     ▰▰▰▰▱   xhigh"
@@ -95,11 +97,8 @@ class ConfigScreenEdits(unittest.TestCase):
         self.term.keys("Enter")
         self.term.wait(lambda screen: "› Fable 5.1     ●      □        □     ▰▰▰▰▰   max"
                        in rows(screen))
-        text = self.config.read_text()
-        self.assertTrue(text.startswith(HEADER), text)
-        expected = self.given
-        expected["models"]["fable"]["effort"] = "max"
-        self.assertEqual(tomllib.loads(text), expected)
+        self.assertEqual(json.loads(self.record.read_text())["efforts"]["fable"], {"effort": "max"})
+        self.assertEqual(tomllib.loads(self.config.read_text()), self.given)
 
     def pane(self):
         return self.home.tmux("display-message", "-p", "-t", f"={SEAT}:",
@@ -181,7 +180,9 @@ class ConfigScreenEdits(unittest.TestCase):
                                             "  Codex        GPT-6-Astra"])
         self.term.keys("Enter")
         self.term.wait(lambda screen: "›   ■ Model One" in rows(screen))
-        models = tomllib.loads(self.config.read_text())["models"]
+        text = self.config.read_text()
+        self.assertTrue(text.startswith(HEADER), text)
+        models = tomllib.loads(text)["models"]
         # at the effort of its harness's first model, as near as it goes
         self.assertEqual(models["model-one"], {"harness": "claude", "model": "m1",
                                                "effort": "high", "provider": "anthropic"})
