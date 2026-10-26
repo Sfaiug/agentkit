@@ -5,6 +5,7 @@ completed tool check whether it answered a question without starting the watcher
 """
 import json
 import math
+import time
 
 from . import config
 
@@ -20,9 +21,53 @@ def facts(name):
     return data if isinstance(data, dict) else {}
 
 
+def handed_over(payload):
+    """The background work a Stop hands over, or None from a harness whose Stop lists none.
+
+    Claude Code hands it as `background_tasks`, an empty list when there is none, and Grok Build
+    as `backgroundTasks`, and a harness plugin may add it (`codex.in_flight`).
+    """
+    found = payload.get("background_tasks")
+    found = found if found is not None else payload.get("backgroundTasks")
+    return found if isinstance(found, list) else None
+
+
+def waits_on(payload):
+    """Work this seat started in its own harness that has not reported back yet.
+
+    Claude Code hands its Stop hook the agents and commands it still has in flight -- the ones
+    whose task notification has not arrived.  Each of them wakes the seat again when it settles,
+    so a stop on them is a wait.  A `monitor` is a watch, not work: the comment watch on an
+    artifact the seat published stays in that list for the rest of the session, and counted, it
+    held the seat working for days.  Nor is a `shell` in `background_tasks`: a background
+    `sleep` or poll loop is no wait, since the harness kills it under memory pressure; a seat
+    waits through `ak wait`.  Nor is a `terminal` or an `agent` a plugin adds, whose end starts
+    no turn (`codex.in_flight`).  The other spelling's tasks count as before, their types never
+    captured.
+    """
+    idle = (("monitor", "shell", "terminal", "agent") if payload.get("background_tasks") is not None
+            else ("monitor",))
+    return any(isinstance(task, dict) and task.get("type") not in idle
+               for task in handed_over(payload) or ())
+
+
+def stop_fact(session, payload, held=False):
+    """The Stop of a payload handing over background work, as its one writer puts it down:
+    hooks/orchestrator-stop.sh where the harness runs it, hooks/seat-state.sh on a harness that
+    is nudged instead (`watch.stop_enforced`).  Its kind is `held` for a stop sent back and
+    `background` for one waiting on work in flight; beside it, where there are any, `holds`: the
+    type of each task still in flight, shells and monitors too (`held_work`)."""
+    holds = [str(task.get("type") or "task") for task in handed_over(payload) or ()
+             if isinstance(task, dict)]
+    return {"session": session, "event": "Stop",
+            "kind": "held" if held else "background" if waits_on(payload) else "",
+            "text": "", "at": time.time(), **({"holds": holds} if holds else {})}
+
+
 def held_work(fact):
     """The type of each background task the seat's harness listed in flight at its last Stop
-    (hooks/orchestrator-stop.sh), or [] -- as for a harness whose Stop lists none."""
+    (`stop_fact`), or [] -- as for a harness whose Stop lists none.  No move off an account
+    with usage left cuts that work off."""
     holds = fact.get("holds") if isinstance(fact, dict) else None
     return [str(task) for task in holds] if isinstance(holds, list) else []
 
