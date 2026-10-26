@@ -42,14 +42,19 @@ fi
 exec {python} {tui} "$@"
 """
 
-# The TUI: opens a session (the one `resume` names, or a new one), fires its line's SessionStart
-# hooks, lists the session in the registry under its own pid, says which in `<seat>.json`, and
-# becomes the pane showing Muse's prompt -- the same process, as Muse stays the one holding it.
+# The TUI: opens a session (the one `resume` names, or a new one), lists it in the registry under
+# its own pid, fires its line's SessionStart hooks, says which in `<seat>.json`, and becomes the
+# pane showing Muse's prompt -- the same process, as Muse stays the one holding it.
 TUI = """import json, os, subprocess, sys, time, uuid
 from pathlib import Path
 root, home, argv = Path({root!r}), Path(os.environ["HOME"]), sys.argv[1:]
 seat = os.environ["AGENTKIT_SESSION"]
 session = argv[argv.index("resume") + 1] if "resume" in argv else str(uuid.uuid4())
+registry = home / {registry!r}
+registry.mkdir(parents=True, exist_ok=True)
+(registry / f"{{session}}.json").write_text(json.dumps({{"schema_version": 1, "session_id": session,
+    "endpoint_hint": f"ms-{{uuid.uuid4().hex[:12]}}.sock", "target_eligibility": "message_capable",
+    "process_generation_hint": f"pid={{os.getpid()}}"}}))
 payload = json.dumps({{"hook_event_name": "SessionStart", "session_id": session,
                       "source": "resume" if "resume" in argv else "startup",
                       "cwd": os.getcwd(), "transcript_path": None, "model": "unknown"}})
@@ -66,11 +71,6 @@ if not log.exists():
         "record_type": "event", "recorded_at": round((time.time() - 60) * 1_000_000),
         "payload": {{"kind": "run", "run_id": uuid.uuid4().hex,
                     "event": {{"kind": "started", "prompt": "Build the acme parser."}}}}}}) + "\\n")
-registry = home / {registry!r}
-registry.mkdir(parents=True, exist_ok=True)
-(registry / f"{{session}}.json").write_text(json.dumps({{"schema_version": 1, "session_id": session,
-    "endpoint_hint": f"ms-{{uuid.uuid4().hex[:12]}}.sock", "target_eligibility": "message_capable",
-    "process_generation_hint": f"pid={{os.getpid()}}"}}))
 (root / f"{{seat}}.json").write_text(json.dumps({{"argv": argv, "pid": os.getpid(),
                                                   "session": session}}))
 os.execv(sys.executable, [sys.executable, {pane!r}, str(root / "prompt.txt"),

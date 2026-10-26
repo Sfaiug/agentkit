@@ -435,38 +435,60 @@ def conversation(record, cwd=None):
     return sid
 
 
-def registry():
-    """Muse's live sessions, one `<session>.json` each naming the process that holds it:
-    `{"session_id": ..., "process_generation_hint": "pid=<pid>", ...}` (1.4.12)."""
-    return sessions().parent / "runtime/muse/sessions"
+def registered():
+    """Each (session, process) Muse's registry of live sessions lists, under its data home: one
+    `<session>.json` each, `{"session_id": ..., "process_generation_hint": "pid=<pid>", ...}`
+    (1.4.12).  A crashed Muse leaves its entries behind."""
+    for entry in (sessions().parent / "runtime/muse/sessions").glob("*.json"):
+        try:
+            data = json.loads(entry.read_text())
+            sid, hint = data["session_id"], data["process_generation_hint"]
+        except (OSError, ValueError, TypeError, KeyError):
+            continue
+        if sid == entry.stem and SESSION.fullmatch(sid) and isinstance(hint, str):
+            yield sid, hint
 
 
 def followed(path):
-    """The one session the registry gives a process of that receipt's lineage still alive as
-    it was then, or None: no evidence, or more than one, picks nothing."""
+    """The one session the registry gives this launch's Muse, while it lives as it was bound,
+    or None: no evidence, or more than one, picks nothing."""
     try:
-        lineage = {f"pid={pid}": (pid, birth)
+        pid, birth = bound(path)
+    except (TypeError, ValueError):
+        return None
+    found = {sid for sid, hint in registered() if hint == f"pid={pid}"}
+    if len(found) == 1 and host.process_identity(pid) == birth:
+        return found.pop()
+    return None
+
+
+def bound(path):
+    """[pid, birth] of this launch's Muse: the process of the receipt's lineage the registry
+    lists holding the receipt's own session, alive as the hook saw it.  Bound once and kept: an
+    entry under that pid for any other session -- one a crashed Muse left before the pid was
+    reused -- proves nothing."""
+    with contextlib.suppress(OSError, ValueError):
+        return json.loads((path / "muse").read_text())
+    try:
+        sid = (path / "session").read_text(encoding="utf-8")
+        lineage = {f"pid={pid}": [pid, birth]
                    for pid, birth in json.loads((path / "lineage").read_text())}
     except (OSError, ValueError, TypeError):
         return None
-    found = set()
-    for entry in registry().glob("*.json"):
-        try:
-            data = json.loads(entry.read_text())
-            pid, birth = lineage[data["process_generation_hint"]]
-        except (OSError, ValueError, TypeError, KeyError):
-            continue
-        sid = data.get("session_id")
-        if sid == entry.stem and SESSION.fullmatch(sid) and host.process_identity(pid) == birth:
-            found.add(sid)
-    return found.pop() if len(found) == 1 else None
+    held = [lineage[hint] for session, hint in registered() if session == sid and hint in lineage]
+    if len(held) != 1 or host.process_identity(held[0][0]) != held[0][1]:
+        return None
+    with contextlib.suppress(OSError):
+        _write(path, "muse", json.dumps(held[0]), os.link)
+    return held[0]
 
 
 def started(receipt, event):
     """A SessionStart into that launch's receipt: the session Muse reported, and the processes
     this hook runs under -- the Muse that fired it among them -- each with its birth, so a
     recycled pid is none of them.  Each is linked, so the first stands; a receipt gone takes
-    nothing."""
+    nothing.  Its Muse is bound now if the registry already lists the session, else when the
+    receipt is next read."""
     sid = event.get("session_id") if isinstance(event, dict) else None
     if not isinstance(sid, str) or not SESSION.fullmatch(sid):
         return
@@ -474,9 +496,11 @@ def started(receipt, event):
     while pid > 1 and (stat := host.proc_stat(pid)) and (birth := host.process_identity(pid)):
         lineage.append([pid, birth])
         pid = stat.ppid
+    receipt = Path(receipt)
     for name, text in (("session", sid), ("lineage", json.dumps(lineage))):
         with contextlib.suppress(OSError):
-            _write(Path(receipt), name, text, os.link)
+            _write(receipt, name, text, os.link)
+    bound(receipt)
 
 
 def _write(receipt, name, text, place):
