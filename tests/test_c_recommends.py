@@ -118,12 +118,12 @@ class Recommends(Sandbox):
 
     def test_a_recommended_model_removed_on_the_screen_is_not_configured_at_once(self):
         # the matrix still names fable: the config as this screen left it decides, and r
-        # takes the other.  Its label, Enter, down to `Remove`, Enter asks, `Remove` picked.
+        # takes the other.  `Models`, Claude's list, Fable ticked out, and back to the matrix.
         self.store([row("claude", "claude-fable-5-1", "xhigh", "fable", execute=100),
                     row("claude", "claude-opus-5-5", "xhigh", "opus", review=100)])
-        text = self.screen([Key("left"), Key("enter"), *[Key("down")] * 4, Key("enter"),
-                            Key("down"), Key("enter"), Key("char", "r"), Key("char", "r"),
-                            Key("esc"), Key("esc")])
+        text = self.screen([*[Key("down")] * len(config.offered(self.cfg)), Key("enter"),
+                            Key("enter"), Key("enter"), Key("esc"), Key("esc"),
+                            Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])
         self.assertNotIn("fable", config.load()["models"])
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["opus"]))
