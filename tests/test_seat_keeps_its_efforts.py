@@ -30,14 +30,17 @@ class SaveKeepsSeatEfforts(unittest.TestCase):
         self.config = home / config.CONFIG_NAME
         self.record = config.session_path("acme")
 
-    def test_a_save_on_the_shipped_entries(self):
-        self.config.write_text("max_runs = 2\n")
-        cfg = config.load()
-        self.record.write_text(json.dumps({"orchestrator": "fable", "workers": ["fable"]}))
-        cfg["models"]["fable"]["effort"] = "low"
-        config.save(cfg)
-        self.assertEqual(json.loads(self.record.read_text())["efforts"],
-                         {"fable": {"effort": "xhigh"}})
+    def test_a_save_on_the_file_s_entries_or_the_shipped_ones(self):
+        shipped = config.REPO.joinpath(config.DEFAULT_CONFIG_NAME).read_text()
+        fable = shipped.replace('effort = "xhigh"', 'effort = "high"', 1)    # its first model
+        for text, effort in ((fable, "high"), ("max_runs = 2\n", "xhigh")):
+            self.config.write_text(text)
+            cfg = config.load()
+            self.record.write_text(json.dumps({"orchestrator": "fable", "workers": ["fable"]}))
+            cfg["models"]["fable"]["effort"] = "low"
+            config.save(cfg)
+            self.assertEqual(json.loads(self.record.read_text())["efforts"],
+                             {"fable": {"effort": effort}})
 
     def test_a_read_falling_back_on_a_worker(self):
         self.config.write_text("max_runs = 2\n")
