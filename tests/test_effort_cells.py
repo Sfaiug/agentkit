@@ -28,6 +28,7 @@ from agentkit import config, menu, motion, terminal
 
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
 CELL = re.compile(r"(\x1b\[[0-9;]*m)?([▰▱])")
+BAR = re.compile(r"(?:(?:\x1b\[[0-9;]*m)*[▰▱])+")
 LIT = "38;"     # a colour of its own: a dim cell's, or the light's on a letter
 
 
@@ -38,11 +39,12 @@ def drawn(screen):
 
 
 def filled(screen, name):
-    """How many of `name`'s cells are drawn full in the foreground, with no colour of their own:
-    its row is the one its full name opens."""
+    """How many cells of `name`'s first effort are drawn full in the foreground, with no colour
+    of their own: its row is the one its full name opens."""
     line = next(line for line in drawn(screen)
                 if terminal.ANSI.sub("", line)[2:].split("  ")[0] == FULL[name])
-    return sum(1 for codes, cell in CELL.findall(line) if cell == "▰" and LIT not in codes)
+    return sum(1 for codes, cell in CELL.findall(BAR.search(line)[0])
+               if cell == "▰" and LIT not in codes)
 
 
 def shone(written):
@@ -69,14 +71,15 @@ def moved(screen, keys):
 
 
 def places(lines, name):
-    """`name`'s row on the terminal, the column of its effort word and of its first cell."""
+    """`name`'s row on the terminal, the column of its first effort's word and of its first cell."""
     number, line = row(lines, name)
-    return number, line.rindex(" ") + 2, line.index(next(c for c in line if c in "▰▱")) + 1
+    bar = re.search("[▰▱]+ +", line)
+    return number, bar.end() + 1, bar.start() + 1
 
 
 class EffortCells(unittest.TestCase):
     def test_each_model_has_a_cell_a_level_full_to_its_effort_and_its_word_after(self):
-        screen = Screen(self)
+        screen = Screen(self, workers=list(FULL))
         lines = screen.frame()
         # Claude's five, Codex's and Muse's six, Grok's four, Gemini Flash's three and MiMo's
         # two, each full to its effort in the shipped default
@@ -92,24 +95,24 @@ class EffortCells(unittest.TestCase):
         screen.leave()
 
     def test_a_model_with_one_effort_is_its_word_alone(self):
-        screen = Screen(self)
+        screen = Screen(self, workers=["opus", "haiku"])
         lines = screen.frame()
-        self.assertEqual(row(lines, "haiku")[1].split(), [*FULL["haiku"].split(), "○", "□", "□",
-                                                          "xhigh"])
+        self.assertEqual(row(lines, "haiku")[1].split(), [*FULL["haiku"].split(), "○",
+                                                          *("■", "xhigh") * 2])
         # its word still in the column the others' stand in
-        self.assertEqual(row(lines, "haiku")[1].rindex(" "), row(lines, "fable")[1].rindex(" "))
-        screen.press(DOWN * 2 + RIGHT * 3, lambda lines: on_effort(lines, "haiku"))
+        self.assertEqual(row(lines, "haiku")[1].rindex(" "), row(lines, "opus")[1].rindex(" "))
+        screen.press(DOWN * 2 + RIGHT * 2, lambda lines: on_effort(lines, "haiku"))
         cells = moved(screen, ENTER)                    # onto none, its only effort
         lines = screen.frame()
         self.assertEqual(row(lines, "haiku")[1].split(),
-                         ["›", *FULL["haiku"].split(), "○", "□", "□", "none"])
+                         ["›", *FULL["haiku"].split(), "○", "■", "none", "■", "xhigh"])
         self.assertEqual([cell for cell in cells if cell[0] == row(lines, "haiku")[0]], [])
-        self.assertEqual(screen.effort("haiku"), "none")
+        self.assertEqual(screen.record()["efforts"]["haiku"]["exec_effort"], "none")
         screen.leave()
 
     def test_a_step_moves_the_cells_it_changes_in_turn_and_the_highest_shimmers_once(self):
         screen = Screen(self)
-        lines = screen.press(DOWN + RIGHT * 3, lambda lines: on_effort(lines, "opus"))
+        lines = screen.press(DOWN + RIGHT, lambda lines: on_effort(lines, "opus"))
         number, word, first = places(lines, "opus")
         # a click on its second cell, down from xhigh: its fourth cell, then its third, stay
         # full but dim and then stand open and dim
@@ -150,7 +153,7 @@ class EffortCells(unittest.TestCase):
         screen.leave()
 
     def test_without_utf8_a_full_cell_is_a_hash_and_an_open_one_a_dash(self):
-        screen = Screen(self, env={"LANG": "C", "LC_ALL": ""})
+        screen = Screen(self, workers=list(FULL), env={"LANG": "C", "LC_ALL": ""})
         lines = screen.frame()
         self.assertEqual(row(lines, "opus")[1].split()[-2:], ["####-", "xhigh"])
         self.assertEqual(row(lines, "gemini")[1].split()[-2:], ["###", "high"])
@@ -163,7 +166,7 @@ class EffortCells(unittest.TestCase):
         lines = screen.frame()
         self.assertEqual(row(lines, "opus")[1].split()[-2:], ["▰▰▰▰▱", "xhigh"])
         # with no colour to reverse, the effort is the highlighted row's cell with no mark bracketed
-        screen.press(DOWN + RIGHT * 3, lambda lines: row(lines, "opus")[1].startswith("›")
+        screen.press(DOWN + RIGHT * 5, lambda lines: row(lines, "opus")[1].startswith("›")
                      and "[" not in row(lines, "opus")[1])
         self.assertEqual(moved(screen, ENTER), [])
         self.assertEqual(row(screen.frame(), "opus")[1].split()[-2:], ["▰▰▰▰▰", "max"])
