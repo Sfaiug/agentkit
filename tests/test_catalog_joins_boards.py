@@ -47,6 +47,7 @@ BOARDS = {
         arena("acme-7", None, 1300, 1290, 1310),              # none named: the default
         arena("Acme 7 (32K, 20261101)", None, 1280, 1250, 1320),   # lower: kept, its interval
         arena("ACME 7 (2026-11-01)", None, 1290, 1285, 1295),
+        arena("Acme 7 (64K 20261101)", "low", 1150),             # spaces part them too
         arena("Acme 7 (Instant)", None, 900),                 # a variant: joins nothing
         arena("Acme 7", "medium", 800),                       # no such effort, two: nothing
         arena("Acme-7-Flash-20261017", None, 1250),           # the date as its last four digits
@@ -64,7 +65,7 @@ class JoinsBoards(unittest.TestCase):
     def test_each_effort_carries_every_board_s_numbers_for_it(self):
         releases = {release["slug"]: release for release in catalog.current(BOARDS)}
         self.assertEqual(self.efforts(releases["acme-7"]), {
-            "low": {"aa.intelligenceIndex": 50, "arena.webdev": 1200, "livebench.coding": 70.0},
+            "low": {"aa.intelligenceIndex": 50, "arena.webdev": 1150, "livebench.coding": 70.0},
             "max": {"aa.intelligenceIndex": 60, "arena.webdev": 1280,
                     "arena.webdev.lower95ci": 1250, "arena.webdev.upper95ci": 1320}})
         self.assertEqual(self.efforts(releases["acme-7-flash"]),

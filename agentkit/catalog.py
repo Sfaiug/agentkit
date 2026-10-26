@@ -50,9 +50,9 @@ def _names(name):
 def _board_names(name):
     """`_names` of another board's model name, its brackets of dates and sizes dropped; none
     where another bracket is left, which names a variant of the model (`Acme 7 (Instant)`)."""
-    name = BRACKET.sub(lambda found: "" if all(DATE_OR_SIZE.fullmatch(part.strip()) for part
-                                                in found.group(1).split(",")) else found.group(0),
-                       name)
+    name = BRACKET.sub(lambda found: "" if all(DATE_OR_SIZE.fullmatch(part) for part
+                                                in found.group(1).replace(",", " ").split())
+                       else found.group(0), name)
     return set() if "(" in name else _names(name)
 
 
