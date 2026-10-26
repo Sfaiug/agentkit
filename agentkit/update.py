@@ -36,7 +36,8 @@ import tempfile
 import time
 from datetime import datetime
 
-from . import command_help, config, gitcall, host, orch, retention, versions, worker
+from . import command_help, config, gitcall, host, orch, retention, transitions, versions, worker
+from . import record as run_record
 from .harness import load as harness_plugin
 
 VERSION = re.compile(r"\d+\.\d+\.\d+[^\s()]*")
@@ -946,8 +947,8 @@ def live_hand_back(commit, check, code, log, hand=True, *, standing=False):
 
     Its record is `handed` in the check's directory, the tick's own file: the line, the
     composer's mark while its Enter has not landed, so it is entered and never typed twice,
-    and `told` once it has.  A red that holds the install also records the seat told as
-    `first`, the place its next agentkit review takes (`take_first_place`).
+    and `told` once it has.  A red that holds the install also records the seat told and
+    when, which its first place is read from (`first_place`).
     """
     record = _handed(check)
     if record is None or (standing and not record.get("standing")
@@ -981,8 +982,8 @@ def live_hand_back(commit, check, code, log, hand=True, *, standing=False):
                       if standing else
                       _fitted(f"tests/live.sh failed on agentkit's main at {commit[:12]}{stopped}, "
                               "so this host stays on the agentkit it runs", titles,
-                              f"{where} Fix main: your next agentkit PR review goes first in "
-                              "line, so make it the fix."),
+                              f"{where} Fix main: your next agentkit run goes first in line until "
+                              "the install moves, so make it the fix."),
                       typed=None, told=False, standing=standing)
         _put(check / "handed", json.dumps(record))
     if hand and _gate_hand_back(check, record, log, first=not record.get("standing")):
@@ -991,7 +992,7 @@ def live_hand_back(commit, check, code, log, hand=True, *, standing=False):
 
 def _gate_hand_back(check, record, log, first=False):
     """Deliver a gate's saved line with the same composer receipt across ticks; with `first`,
-    the seat told is recorded with it."""
+    the seat told and when are recorded with it."""
     from . import deliver, watch  # here, not at the top: both import this module
 
     def keep(**change):
@@ -1004,36 +1005,67 @@ def _gate_hand_back(check, record, log, first=False):
     seat = watch.after_merge_deliver(None, {}, key, record["line"], log, typed=record["typed"],
                                      receipt=lambda mark: keep(typed=mark))
     if seat:
-        keep(told=True, **({"first": seat} if first else {}))
+        keep(told=True, **({"seat": seat, "at": time.time()} if first else {}))
         return True
     return False
 
 
-def take_first_place(seat, url, run_id):
-    """The held commit whose first place that seat's review of that PR takes, or None.
+def first_place(state):
+    """Whether that run goes first as the fix of a red that holds the install (`live_hand_back`).
 
-    Only an agentkit PR's review takes it, once, under the slot lock (`run.capture_launch`),
-    and only while the install still lacks the commit: past it, nothing is held, and the tick
-    may prune the check (`live_tick`) at any moment, under no lock of the launch's.
+    While the install lacks a held commit, the seat told of it owns one place: its earliest
+    agentkit run of any kind launched since it was told that has not ended.  Read from the
+    runs as they stand, never written at a launch, so no refusal, stop, park or relaunch can
+    lose it; a record or session that cannot be read gives no place.
     """
-    from . import deliver, transitions  # here, not at the top: both import this module
-    found = transitions.PR_PARTS.match(url or "")
-    for _, commit, check in live_checks():
-        record = _handed(check)
-        if not (record and record.get("first") and not record.get("taken")
-                and config.resolve_session(record["first"]) == seat
-                and _git("merge-base", "--is-ancestor", commit, "HEAD")[0] == 1):
-            continue
-        if not (found and deliver.remote_key(f"https://github.com/{found[1]}/{found[2]}")
-                == deliver.remote_key(_git("remote", "get-url", "origin")[1])):
-            return None
-        record["taken"] = run_id
+    try:
+        seat = transitions.launched_session(state)
+        since = min((at for _, commit, check in live_checks()
+                     if seat and (at := _told(check, seat)) is not None
+                     and _git("merge-base", "--is-ancestor", commit, "HEAD")[0] == 1),
+                    default=None)
+        if since is None or not _contender(state, seat, since):
+            return False
+        mine, resolved = (transitions.first_started(state), state.get("run_id") or ""), {}
+    except (config.Error, OSError, TypeError):
+        return False
+    for directory in run_record.run_dirs():
+        other = run_record.read_state(directory) or {}
         try:
-            _put(check / "handed", json.dumps(record))
-        except OSError:
+            if ((transitions.first_started(other), other.get("run_id") or "") < mine
+                    and _contender(other, seat, since, resolved)):
+                return False
+        except (config.Error, OSError, TypeError):
             continue
-        return commit
+    return True
+
+
+def _told(check, seat):
+    """When that check's hand-back told that seat, or None: one whose record or seat's session
+    cannot be read told nobody, and takes no other hand-back's place with it."""
+    record = _handed(check)
+    try:
+        if (isinstance(record, dict) and isinstance(record.get("seat"), str)
+                and isinstance(record.get("at"), (int, float))
+                and config.resolve_session(record["seat"]) == seat):
+            return record["at"]
+    except (config.Error, OSError):
+        pass
     return None
+
+
+def _contender(state, seat, since, resolved=None):
+    """Whether that run is the seat's, on agentkit's repository, launched since then and not
+    ended: a review of an agentkit PR, or a task in a clone of agentkit."""
+    if (state.get("state") in run_record.ENDED or transitions.first_started(state) < since
+            or transitions.launched_session(state, resolved) != seat):
+        return False
+    found = transitions.PR_PARTS.match(state.get("review_pr") or "")
+    where = (f"{found[1]}/{found[2]}" if found else
+             gitcall.git(state["repo"], "remote", "get-url", "origin", check=False)
+             if state.get("repo") else "")
+    return bool(where) and (gitcall.owner_name(where)
+                            == gitcall.owner_name(_git("remote", "get-url", "origin")[1]))
 
 
 def harness_gate_result(plan, passed, gate, log_path):

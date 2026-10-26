@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import config, gitcall, handback, helper, history, host, orch, stuck, transitions, turns
+from . import update
 from . import watch
 from . import worker
 from . import land as landing
@@ -58,8 +59,10 @@ def slot_order(state):
     # A green member only needs delivery before the target moves.  A run started again after a
     # park (`leases.restart`) waits from where its first attempt queued, not behind the queue.
     # Finished rounds precede fresh launches without joining the first element's gate bypass.
+    # A held install's fix (`update.first_place`) is admitted as `--first` is.
     wait = state.get("waiting_on") or {}
-    return (not (state.get("first") or "land" in wait or "fix" in wait),
+    return (not (state.get("first") or "land" in wait or "fix" in wait
+                 or update.first_place(state)),
             not landing.green_delivery(wait),
             not (state.get("round_summaries") or (state.get("own_pr") and state.get("own_pr_wait"))),
             transitions.first_queued(state),

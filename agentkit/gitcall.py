@@ -440,6 +440,12 @@ def round_commands(cmds, wt, target, *, scratch, landing):
     return with_suite(cmds, wt, target, landing=landing)
 
 
+def owner_name(url):
+    """`owner/name`, lowercase, of a clone's URL or path: a GitHub slug, and a local origin's
+    last two parts."""
+    return "/".join(url.rstrip("/").removesuffix(".git").replace(":", "/").split("/")[-2:]).lower()
+
+
 def slugify(title):
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:40].strip("-")
     return slug or "task"

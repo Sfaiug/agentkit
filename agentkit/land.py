@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import config, gitcall, prompts, record, transitions, turns
+from . import config, gitcall, prompts, record, transitions, turns, update
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 CHECKED = 60        # a pass shorter than a minute checked nothing: it says nothing of the pace
@@ -160,7 +160,7 @@ def member(state):
 
 def line(turn):
     """Green deliveries in tested stack order, then the rest in join order, a held install's
-    fix (`first_place`, `update.take_first_place`) ahead of those that joined without one."""
+    fix (`update.first_place`) ahead of those."""
     members = []
     for directory in record.run_dirs():
         state = record.read_state(directory) or {}
@@ -174,7 +174,7 @@ def line(turn):
         not green_delivery(member[1]["waiting_on"]),
         sum(deliveries.get(name) == tree
             for name, tree in member[1]["waiting_on"].get("after", {}).items())
-        if green_delivery(member[1]["waiting_on"]) else not member[1].get("first_place"),
+        if green_delivery(member[1]["waiting_on"]) else not update.first_place(member[1]),
         member[1]["waiting_on"]["joined"], member[0].name))
 
 
