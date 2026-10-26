@@ -16,7 +16,7 @@ import sys
 import threading
 import time
 from collections import Counter
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import datetime
 from pathlib import Path
 
@@ -478,20 +478,44 @@ def redress_seat(session):
         config.runs_moved_path().touch()
     except OSError:
         pass   # the next draw's own read, or the menu's timer, catches up
+    pending = _bar_pending(session)
+    try:
+        # A job handed over that has not yet read the facts reads this change too: every run
+        # of a seat waiting for a slot moves to new code at once, and one job each was a
+        # python of 170 MB per run.  A mark no job took up within BAR_JOB_START costs one
+        # more job, never a bar.
+        if time.time() - pending.stat().st_mtime < BAR_JOB_START:
+            return
+    except OSError:
+        pass
     publish = shlex.join([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
                           "from agentkit import handback; handback.publish_seat(sys.argv[2])",
                           str(config.REPO), session])
+    with suppress(OSError):
+        pending.touch()
     try:
         # silent and always 0: tmux shows a job's output, or its failure, in the seat's pane
-        orch.tmux_out("run-shell", "-b", "-t", f"={session}:",
-                      orch.tmux_text(f"{publish} >/dev/null 2>&1; true"),
-                      socket=orch.socket_name(), timeout=1)
+        handed = orch.tmux_out("run-shell", "-b", "-t", f"={session}:",
+                               orch.tmux_text(f"{publish} >/dev/null 2>&1; true"),
+                               socket=orch.socket_name(), timeout=1)[0] == 0
     except Exception:  # noqa: BLE001 - the bar is dressing; the run beneath it is what matters
-        pass
+        handed = False
+    if not handed:
+        with suppress(OSError):
+            pending.unlink(missing_ok=True)   # no job took it: the next change hands one over
+
+
+BAR_JOB_START = 10   # seconds a handed-over job takes to start, at most, on a loaded host
+
+
+def _bar_pending(session):
+    return config.STATE / f"bar-{session}.pending"
 
 
 def publish_seat(session):
     """`redress_seat`'s job: that seat's bar, if tmux still holds it on agentkit's own server."""
+    with suppress(OSError):
+        _bar_pending(session).unlink(missing_ok=True)   # before the facts are read: redress_seat
     from . import watch  # here, not at the top: it reaches run
     seat = orch.find(session)
     if seat is not None and orch.on_own_server(seat):

@@ -4,7 +4,8 @@ Not three minutes later at the next tick: every step a run enters (a new round e
 executor step again) and every ending rewrites the bar of the seat that launched it, through
 `watch.announce_state`, without looking at the seat's screen.  A job on the seats' tmux server
 does the writing, so a writer that is busy holds up neither the run nor its exit, and the bar
-still lands after the command that started it is gone.  A run without a seat, a legacy seat and
+still lands after the command that started it is gone; changes made before a job handed over
+has started share that job.  A run without a seat, a legacy seat and
 a seat tmux has lost get nothing written.  Offline: a temporary HOME and a fake tmux on PATH.
 """
 
@@ -30,7 +31,7 @@ os.environ.update(HOME=str(HOME), PATH=f"{HOME / 'bin'}{os.pathsep}{os.environ['
 for key in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_SESSION", "TMUX"):
     os.environ.pop(key, None)
 sys.path.insert(0, str(REPO))
-from agentkit import config, orch, record, run, statusbar, watch
+from agentkit import config, handback, orch, record, run, statusbar, watch
 from agentkit.guard import commands  # noqa: E402
 
 # Answers list-sessions and list-panes as tmux 3.5a does, from the seats each server holds
@@ -149,10 +150,24 @@ class BarFollowsRuns(unittest.TestCase):
                            check=True, timeout=20, capture_output=True)
             self.assertEqual(record.read_state(self.run_dir)["state"], "error")
             self.assertEqual(self.bars(), [])
-        # A bar lands before its job finishes; both jobs must finish before the next test
+        # A bar lands before its job finishes; every job must finish before the next test
         # resets HOME, even though the run has already exited.
         self.settle()
-        self.assertEqual(len(self.bars()), 2)
+        self.assertTrue(self.bars())
+
+    def test_changes_before_a_job_has_started_share_it(self):
+        # every run of a seat waiting for a slot picks up new code at once
+        handed = patch.object(orch, "tmux_out", return_value=(0, ""))
+        with handed as hand:
+            for _ in range(5):
+                handback.redress_seat("acme")
+        self.assertEqual(hand.call_count, 1)
+        handback.publish_seat("acme")    # the job begins: a change from now needs another
+        with handed as hand:
+            handback.redress_seat("acme")
+            os.utime(config.STATE / "bar-acme.pending", (1, 1))   # a job that never started
+            handback.redress_seat("acme")
+        self.assertEqual(hand.call_count, 2)
 
     def test_a_tmux_that_fails_never_reaches_the_run(self):
         with patch.object(orch, "tmux_out", side_effect=OSError("no tmux")):
