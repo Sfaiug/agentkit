@@ -143,16 +143,16 @@ class SeatBar(Sandbox):
         self.assertNotIn("running", row)
         self.assertNotIn("running", bar)
 
-    def test_e_nothing_to_show_is_an_empty_column(self):
+    def test_e_no_plan_and_no_job_is_a_line_with_nothing_done(self):
         seat = self.seat("fix-api")
         self.going("20260101-0900-going", "fix-api")
         self.job("job-finished", "fix-api", ["merged"], finished_at=NOW - DAY)
         self.job("fix-api", "web-portal", ["queued"])      # its directory's name is no owner
         word, last, row, bar = self.drawn(seat)
         self.assertEqual(word, "working")
-        self.assertEqual(last, "")
-        self.assertTrue(row.rstrip().endswith("● working"), row)
-        self.assertTrue(bar.endswith("Fable 5.1#[default]"), bar)
+        self.assertRegex(last, r"^─+ no plan yet$")
+        self.assertIn(last, row)
+        self.assertIn(" no plan yet", bar)
         self.assertEqual(menu.seat_progress("fix-api"), (0, 0))
         # any word but idle draws its line where it has a plan, and never its reason
         self.assertRegex(menu.last_column("needs you", 3, 7), r"^[━╸]+─+ 3 of 7$")

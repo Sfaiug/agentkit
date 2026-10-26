@@ -358,7 +358,8 @@ class CloseAndInfo(unittest.TestCase):
         mark = menu.mark()
         menu.resize(24, 40)                       # the question now wraps onto three lines,
                                                   # and what it means onto two
-        asked = menu.frame(lambda lines: len(lines[0]) == 40, keys="esc back", after=mark)
+        asked = menu.frame(lambda lines: "  and everything it runs?" in lines, keys="esc back",
+                           after=mark)
         top, answers = menu.choices(after=mark)
         self.assertGreater(top, before)
         at = asked.index("  and everything it runs?")

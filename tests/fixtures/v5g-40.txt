@@ -1,11 +1,7 @@
 agentkit                           14:02
 ────────────────────────────────────────
-  Claude   ▰▰▱▱▱▱▱▱▱▱  21% left
-  MiMo     — no reading yet
-  Muse     ▰▰▰▰▰▱▱▱▱▱  50% left
-  Gemini   — no reading yet
-  Grok     — no reading yet
-  ChatGPT  ▰▰▰▰▰▰▰▱▱▱  69% left
+  Claude 21% · MiMo — · Muse 50%
+  Gemini — · Grok — · ChatGPT 69%
 
 
 atoll
@@ -15,6 +11,7 @@ atoll
 
 agentkit
   3  herdr        Fable 5.1  ● working
+    ──────────────────────── no plan yet
 
 not assigned yet
   4  scribe       Fable 5.1  ○ idle

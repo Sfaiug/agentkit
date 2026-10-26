@@ -6,7 +6,7 @@ agentkit                                                                        
 
 
 ATOLL
-  1  atoll-fix   Fable 5.1  ● working
+  1  atoll-fix   Fable 5.1  ● working    ─────────────────────────────────────────────── no plan yet
   2  atoll-plan  Fable 5.1  ! needs you
      waiting for you
 

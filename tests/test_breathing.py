@@ -1,4 +1,5 @@
-"""A working session's dot breathes, every one in step, and nothing else on the screen moves.
+"""A working session's dot breathes, every one in step, and nothing else on the screen moves
+but the light going round each one's line with no plan yet (tests/test_no_plan_bar.py).
 
 `menu.loop` on a scripted wait over a true-colour terminal with two working seats and one that
 needs you: between draws only the two working `●` are rewritten, each frame both in one colour,
@@ -28,6 +29,8 @@ WORKING = (0x89, 0xb4, 0xfa)       # `working` on a dark background
 # one dot rewritten: its cell, its colour, and on the highlighted row the row's brightness too
 DOT = re.compile(r"\x1b\[(\d+);(\d+)H(?:\x1b\[1m)?\x1b\[38;2;(\d+);(\d+);(\d+)m●"
                  r"\x1b\[0(?:;1m\x1b\[0)?m")
+# one cell of a line with no plan yet rewritten, as its light goes round it: set aside here
+LIGHT = re.compile(r"\x1b\[\d+;\d+H(?:\x1b\[[\d;]*m)*[━─](?:\x1b\[[\d;]*m)*")
 WORDS = {"fix-api": "working", "tidy-docs": "working", "web-portal": "needs you"}
 
 
@@ -105,9 +108,10 @@ class Breathing(Sandbox):
         dots = self.dots(screen)
         self.assertEqual(len(dots), 2, screen)
         self.assertTrue(all(0 <= timeout <= motion.FRAME for timeout, _, _ in waits), waits)
-        frames = [written for _, _, written in waits if written]
+        frames = [written for _, _, written in waits if LIGHT.sub("", written)]
         self.assertTrue(frames)
         for written in frames:
+            written = LIGHT.sub("", written)
             self.assertRegex(written, rf"^(?:{DOT.pattern})+$")
             found = DOT.findall(written)
             self.assertEqual({(int(r), int(c)) for r, c, *_ in found}, dots)
@@ -129,7 +133,8 @@ class Breathing(Sandbox):
         tail = screen.rpartition("\033[J")[2]
         self.assertEqual({(int(r), int(c)) for r, c, *_ in DOT.findall(tail)}, dots)
         colours = []
-        for written in filter(None, drawn):     # a frame the colour did not move writes nothing
+        # a frame the colour did not move writes nothing
+        for written in filter(None, (LIGHT.sub("", written) for written in drawn)):
             # a frame is the working dots and nothing else: no other cell, no other row
             self.assertRegex(written, rf"^(?:{DOT.pattern})+$")
             found = DOT.findall(written)

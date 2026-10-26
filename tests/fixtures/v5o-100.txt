@@ -7,12 +7,12 @@ agentkit                                                                        
 
 atoll
   1  atoll-job    Fable 5.1  ● working    ━━━━━━━━━━━━━━━━━━━━━━───────────────────────────── 3 of 7
-  2  atoll-solo   Fable 5.1  ● working
+  2  atoll-solo   Fable 5.1  ● working    ────────────────────────────────────────────── no plan yet
 
 agentkit
   3  herdr-quiet  Fable 5.1  ! needs you
      session closed: press 3 to reopen
-  4  herdr-long   Fable 5.1  ● working
+  4  herdr-long   Fable 5.1  ● working    ────────────────────────────────────────────── no plan yet
 
 not assigned yet
   5  scribe       Fable 5.1  ! needs you

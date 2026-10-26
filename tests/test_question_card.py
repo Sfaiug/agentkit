@@ -101,7 +101,8 @@ class QuestionCard(unittest.TestCase):
                               for line in terminal.wrap(text, min(cols, 120) - 2)), "", "", ""]
                 first = top - len(card) + 2           # its first line's index on the screen
                 self.assertEqual(asked[first:first + len(card)], card)
-                self.assertIn("alpha", asked[first - 1])            # right under its row
+                # right under its row, and under the line a phone draws under that row
+                self.assertIn("alpha", asked[first - (2 if cols == 40 else 1)])
                 self.assertIn("beta", asked[first + len(card)])     # the row below, moved down
                 self.assertEqual(answers, ["› ✓ Keep", "  ✗ Stop"])
                 for line in asked:

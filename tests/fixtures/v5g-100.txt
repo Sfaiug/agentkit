@@ -11,7 +11,7 @@ atoll
      session closed: press 2 to reopen
 
 agentkit
-  3  herdr        Fable 5.1  ● working
+  3  herdr        Fable 5.1  ● working    ────────────────────────────────────────────── no plan yet
 
 not assigned yet
   4  scribe       Fable 5.1  ○ idle

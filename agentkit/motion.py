@@ -1,7 +1,8 @@
 """The one animation clock: which cells move, and what each shows at every frame.
 
 At rest only what a model works on moves, breathing: a working session's `●`, the tip of its line
-and its moving tasks' squares (`menu.tips`); news moves once and is then still --
+and its moving tasks' squares (`menu.tips`), a light going round its line while it has no plan
+yet; news moves once and is then still --
 a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles from bright and a
 light crosses its line, either's row glowing in its word's colour as it fades; the line a row
 opens comes up as the highlight comes to it, a question the first time it is shown writing
@@ -47,6 +48,7 @@ WRITE = 0.33        # ... a question shown the first time takes to write itself 
 GROW = 0.45         # ... a seat's progress line takes to grow to its length as ak opens
 STAGGER = 0.04      # ... and each row after the one above it
 GLIDE = 0.7         # ... and to glide to a new length as its plan moves, a light at its head
+ROUND = 2.0         # ... a light takes along a working seat's line with no plan yet, and again
 STEP = 0.15         # ... a task's next square takes to fill, through its half
 HALF = {"□": "▣", "■": "▣", "○": "◉", "●": "◉"}     # a mark half way between empty and full
 BRIGHTER = 0.5      # how lit news is: half way from its colour to the foreground
@@ -243,6 +245,27 @@ def growing(cells, began, took=GROW, start=0, light=None):
             return terminal.styled(full, light)
         return at
     return [cell(n, text) for n, text in enumerate(cells)], began + took
+
+
+def circling(cells, bright=False):
+    """A working seat's line with no plan yet, `cells` each of its cells as the draw wrote it: a
+    soft light three cells long goes along it left to right in ROUND seconds, in at the left and
+    out at the right, and round again -- its middle brighter than the working colour, its ends
+    half way to the background -- its place the clock's alone, so every such line moves in one
+    phase; an animation for each cell, for as long as it is drawn.  `bright` on the highlighted
+    row."""
+    full = "━" if terminal.utf8() else "="
+    inks = [terminal.faded("working", amount) for amount in (DIMMER, -BRIGHTER, DIMMER)]
+
+    def cell(n, text):
+        def at(now):
+            behind = int(now % ROUND / ROUND * (len(cells) + len(inks))) - n
+            if not 0 <= behind < len(inks):
+                return text
+            lit = terminal.styled(full, inks[behind])
+            return terminal.highlight(lit, mark=False) if bright else lit
+        return at
+    return [cell(n, text) for n, text in enumerate(cells)], None
 
 
 def counting(cells, before, began, took=GROW):
