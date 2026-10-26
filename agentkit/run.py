@@ -854,13 +854,15 @@ def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=Non
     it names -- and `opts` over the defaults."""
     session = launched_session(state)
     try:
-        lists = (config.load_session(config.load(), session, required=False) if session
+        now = config.load()
+        lists = (config.load_session(now, session, required=False) if session
                  else None) or state
     except config.Error:
-        lists = state
+        now, lists = None, state
     receipt = {**origin, "launched_session": session,
                **{role: list(lists[role]) for role in ("workers", "reviewers")
                   if isinstance(lists.get(role), list) and lists[role]},
+               **({"efforts": config.run_efforts(now, lists)} if now else {}),
                **({"notify_sink": state["notify_sink"]} if state.get("notify_sink") else {})}
     opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
             "--no-worktree": False, "--no-merge": False, **(opts or {}), "--bg": True}
@@ -997,9 +999,9 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
     or a done-when command below another run started it.  Nothing is told about it and the
     menu does not offer it -- `ak run status` has it, though never the smoke suite's own runs.
 
-    The session's role lists go on the receipt here too: later edits cannot widen a run's
-    choices. Defaults with separate reviewers bind both lists outside a session as well;
-    old selections keep their original receipt shape.
+    The session's role lists and efforts go on the receipt here too: later edits cannot widen
+    a run's choices or move its efforts. Defaults with separate reviewers bind both lists
+    outside a session as well; old selections keep their original receipt shape.
 
     A job names itself here, in the same write as the scheduler pid the receipt
     records: the scheduler only writes `task["run_id"]` after preflight, and a stop
@@ -1026,6 +1028,8 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
         groups = {"workers": workers} if workers else {}
         if "reviewers" in selection:
             groups = {role: list(selection[role]) for role in ("workers", "reviewers")}
+        if cfg is not None:     # what each of them runs at, as bound as whom (Loop)
+            groups["efforts"] = config.run_efforts(cfg, selection)
     limit = config.max_runs()
     url = (opts or {}).get("--review-pr")
     with gate.slot_lock():
@@ -2030,11 +2034,13 @@ def pr_writer(cfg, state, session_name, author):
     independence check would judge another model than the one that wrote this -- and a record
     with none asks the seat (`own_pr_orchestrator`).  A captured model the config no longer
     names is unknown, as the seat's would be.  The effort is the writer's as it was captured
-    (the config's for its orchestrator role then; a record from before it was kept has none),
+    (the seat's for its orchestrator role at launch, on the receipt; a record from before it
+    was kept has none),
     never the config's since: `ak models` counts the pull request under it."""
     if "own_pr" not in state:
         is_own, orchestrator = own_pr_orchestrator(cfg, session_name, author)
-        return is_own, orchestrator, config.worker_effort(cfg, orchestrator, "orchestrator")
+        return is_own, orchestrator, config.worker_effort(config.at_efforts(cfg, state),
+                                                          orchestrator, "orchestrator")
     orchestrator = state.get("own_orchestrator") if state["own_pr"] else None
     if orchestrator:
         try:

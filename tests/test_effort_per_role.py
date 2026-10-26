@@ -6,8 +6,8 @@ orch.command to its `interactive`.  A role effort is checked where `effort` is: 
 names one the model does not take, by its key.  A load asks no harness what a model takes (the
 status bar loads the config every few seconds), so it refuses neither key, as it refuses no
 `effort`.  A model's own screen, stepping its model id (menu.config_model_id), moves each key
-it sets to one the new model takes, as it moves `effort`; one that lands on the effort is unset
-(it reads `same`).
+it sets to one the new model takes, as it moves `effort`, and each seat's own efforts of it the
+same way; one that lands on the effort is unset (it reads `same`).
 
 Offline: a temporary HOME, and a fake harness `acme` in a temporary adapter directory whose
 script prints what it was asked and whose `[catalog]` says what its model takes.  The worker
@@ -16,6 +16,7 @@ turn stops where its sandbox would start, with the command it was handed; nothin
 
 from contextlib import ExitStack, redirect_stdout
 import io
+import json
 import os
 from pathlib import Path
 import sys
@@ -139,10 +140,14 @@ class EffortPerRole(Acme):
 
     def test_a_model_id_step_moves_each_set_role_effort_to_one_the_new_model_takes(self):
         cfg = self.write('exec_effort = "max"\nreview_effort = "low"\n')
+        config.session_path("atoll").write_text(json.dumps({"efforts": {"acme": {     # a seat's
+            "effort": "xhigh", "exec_effort": "max", "review_effort": "low"}}}))
         self.assertEqual(menu.config_model_id(cfg, "acme", 1, ("config · acme",)), "")
         self.assertEqual(config.load()["models"]["acme"], {     # exec_effort landed on effort
             "harness": "acme", "model": "acme-2", "effort": "medium", "review_effort": "low",
             "provider": "acme"})
+        self.assertEqual(json.loads(config.session_path("atoll").read_text())["efforts"],
+                         {"acme": {"effort": "medium", "review_effort": "low"}})
         cfg = self.write("")           # a key the model does not set is not added
         self.assertEqual(menu.config_model_id(cfg, "acme", 1, ("config · acme",)), "")
         self.assertEqual(config.load()["models"]["acme"], {

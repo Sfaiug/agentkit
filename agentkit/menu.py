@@ -3492,9 +3492,9 @@ def _offered(harness, *screen, provider=None):
 
 def config_model_id(cfg, name, step, screen):
     """`name`'s model id one step along the models its harness's catalog lists (_offered),
-    never past either end, and saved with the efforts that follow it (_nearest); an id not
-    among them lands on the first.  `screen` is what waits on the catalog (`waited`).  What to
-    say under the screen, or ""."""
+    never past either end, and saved with the efforts that follow it (_nearest), each seat's it
+    holds of `name` too; an id not among them lands on the first.  `screen` is what waits on
+    the catalog (`waited`).  What to say under the screen, or ""."""
     entry = cfg["models"][name]
     try:
         models = _offered(entry.get("harness"), *screen, provider=entry.get("provider"))
@@ -3512,7 +3512,18 @@ def config_model_id(cfg, name, step, screen):
         if key == "effort" or key in entry:
             entry[key] = _nearest(entry.get(key), levels)
     _follows(entry, config.ROLE_EFFORTS.values())
-    return _saved(cfg, entry, before)
+    note = _saved(cfg, entry, before)
+
+    def moved(record):      # a seat on the old id runs the new one at the nearest it takes
+        efforts = record.get("efforts") or {}
+        if not isinstance(efforts.get(name), dict):
+            return record.get("efforts")
+        held = {key: _nearest(value, levels) for key, value in efforts[name].items()}
+        _follows(held, config.ROLE_EFFORTS.values())
+        return {**efforts, name: held}
+    for seat in () if note else config.session_records():
+        config.change_efforts(seat, moved)
+    return note
 
 
 def model_body(cfg, name, at=None):
