@@ -14,6 +14,7 @@ were read off agy 1.2.13's own databases.
 """
 
 import contextlib
+import fcntl
 import os
 from pathlib import Path
 import re
@@ -47,15 +48,26 @@ def conversation(record, cwd=None):
     mine, token = owned(record), record.get("antigravity_launch")
     if mine or not isinstance(token, str):
         return mine
-    records = config.session_records()
-    name = next((name for name, kept in records.items()
-                 if kept.get("antigravity_launch") == token), None)
-    held = held_open(token) - {owned(kept) for other, kept in records.items() if other != name}
-    if name is None or len(held) != 1:
+    # One claim at a time, from the records as they stand: a caller's copy may predate this
+    # launch's claim, and another seat's may land while the fds are read.
+    try:
+        lock = open(config.STATE / "antigravity-claim.lock", "a")
+    except OSError:
         return None
-    found = held.pop()
-    config.update_session(name, antigravity_open={"launch": token, "conversation": found})
-    return found
+    with lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        records = config.session_records()
+        name = next((name for name, kept in records.items()
+                     if kept.get("antigravity_launch") == token), None)
+        mine = owned(records.get(name, {}))
+        if name is None or mine:
+            return mine
+        held = held_open(token) - {owned(kept) for other, kept in records.items() if other != name}
+        if len(held) != 1:
+            return None
+        found = held.pop()
+        config.update_session(name, antigravity_open={"launch": token, "conversation": found})
+        return found
 
 
 def owned(record):

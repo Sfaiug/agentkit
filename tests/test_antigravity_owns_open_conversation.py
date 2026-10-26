@@ -6,7 +6,9 @@ held by a stale launch, one another seat owns, or one of two held at once is nev
 """
 
 import json
+import shutil
 import sys
+import threading
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -46,11 +48,27 @@ class OwnsOpenConversation(Sandbox):
         return antigravity.conversation(config.session_records()[name])
 
     def test_what_its_agy_holds_is_its_own_after_the_process_ends(self):
-        process = self.agy(self.seat("acme"), "c-acme")
+        self.agy(self.seat("acme"), "c-acme")
+        before = config.session_records()["acme"]     # a caller's copy from before the claim
         self.assertEqual(self.owns("acme"), "c-acme")
-        for path in sorted(process.rglob("*"), reverse=True):
-            path.rmdir() if path.is_dir() and not path.is_symlink() else path.unlink()
-        self.assertEqual(self.owns("acme"), "c-acme")
+        shutil.rmtree(self.proc)
+        self.assertEqual(antigravity.conversation(before), "c-acme")
+
+    def test_a_claim_waits_for_the_one_another_seat_is_making(self):
+        self.agy(self.seat("acme"), "c-shared")
+        self.agy(self.seat("beta"), "c-shared")
+        scan, beta = antigravity.held_open, []
+
+        def held_open(token):     # beta asks while acme reads its fds
+            if not beta:
+                beta.append(threading.Thread(target=lambda: beta.append(self.owns("beta"))))
+                beta[0].start()
+                beta[0].join(0.2)
+            return scan(token)
+        with patch.object(antigravity, "held_open", held_open):
+            self.assertEqual(self.owns("acme"), "c-shared")
+            beta[0].join()
+        self.assertEqual(beta[1:], [None])
 
     def test_another_seats_a_stale_launchs_or_one_of_two_is_never_its_own(self):
         stale = self.seat("acme")
