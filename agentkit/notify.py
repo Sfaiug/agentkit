@@ -543,7 +543,7 @@ def answered(session, at, typed=None, replies=None):
 
 def replied(replies, question, card):
     """Does a native card's reply name that question: by its card's id (`question_ids`), or,
-    asked on none, by its words, as Claude Code's answer names what its card asked."""
+    asked on none, by its words, as a card's answer may name what it asked."""
     return card in replies if card else question_key(question) in map(question_key, replies)
 
 

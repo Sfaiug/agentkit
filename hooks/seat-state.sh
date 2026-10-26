@@ -180,9 +180,9 @@ main() {
                      | first // ""' <<<"$payload" 2>/dev/null) || said=''
     news "$payload" "$owner" "$said"
   # The owner's answer to the harness's own question tool is their word as a prompt is, and
-  # answers only the questions it names: Claude's by their words, Codex's by an id its call
-  # gives the words of.  A card cancelled or left empty, any other event, and a sub-agent's
-  # tool say nothing of theirs.
+  # answers only the questions it names: by their words, or by an id its call gives the words
+  # of.  A card cancelled or left empty, any other event, and a sub-agent's tool say nothing
+  # of theirs.
   elif [[ $event != PostToolUse ]] ||
     "$jq" -e -f "${BASH_SOURCE[0]%/*}/sub-agent.jq" <<<"$payload" >/dev/null 2>&1 ||
     ! said=$("$jq" -ec '.tool_input as $asked | (.tool_input.answers // .tool_response.answers)
