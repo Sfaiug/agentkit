@@ -72,10 +72,10 @@ class ConfigScope(unittest.TestCase):
         term.keys("c")
         screen = term.wait(lambda screen: key_line(screen) == MARK_KEYS and "› Fable 5.1" in screen)
         self.assertIn(f"  For  {scope}", lines(screen))
-        term.keys("Right")
-        term.wait("› Fable 5.1     ●     [□]       □")
+        term.keys("Right", "Right")         # past its effort
+        term.wait("› Fable 5.1     ●  ▰▰▰▰▱   xhigh   [□]                  □")
         term.keys("Enter")
-        term.wait("› Fable 5.1     ●     [■]       □")
+        term.wait("› Fable 5.1     ●  ▰▰▰▰▱   xhigh   [■] ▰▰▰▰▱   xhigh    □")
 
     def record(self, name):
         return json.loads((self.home.path / f".agentkit/state/session-{name}.json").read_text())
