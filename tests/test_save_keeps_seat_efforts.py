@@ -1,9 +1,6 @@
-"""A config save first leaves every seat holding the efforts the entries gave it.  Offline.
-
-A record from before efforts lived on records, which nothing has read yet, keeps the effort
-its entry had before the save changed it: the file's own entry, and the shipped config's where
-the file has no model tables.  A throwaway HOME holds the config and the records.
-"""
+"""A config save first leaves a seat's record from before, unread, holding the efforts the
+entries gave it: the file's, or the shipped config's for a file with no model tables.  Offline,
+in a throwaway HOME."""
 
 from contextlib import ExitStack
 import json
@@ -22,11 +19,10 @@ class SaveKeepsSeatEfforts(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".efforts-")
         self.addCleanup(tmp.cleanup)
-        root = Path(tmp.name)
         stack = ExitStack()
         self.addCleanup(stack.close)
-        stack.enter_context(patch.dict(os.environ, {"HOME": str(root), "AGENTKIT_SESSION": ""}))
-        home = root / ".agentkit"
+        stack.enter_context(patch.dict(os.environ, {"HOME": tmp.name, "AGENTKIT_SESSION": ""}))
+        home = Path(tmp.name) / ".agentkit"
         stack.enter_context(patch.object(config, "HOME", home))
         for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             stack.enter_context(patch.object(config, name, home / name.lower()))

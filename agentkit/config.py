@@ -1262,12 +1262,6 @@ def change_efforts(name, change):
     return data
 
 
-def hold_efforts(name, efforts):
-    """Seat `name`'s efforts on each model `efforts`, {model: its effort keys}, names, every
-    other as its record holds it (change_efforts)."""
-    return change_efforts(name, lambda data: {**(data.get("efforts") or {}), **efforts})
-
-
 def own_efforts(models, name, data):
     """Seat `name`'s record `data` holding the efforts of each model it runs: one it holds none
     for takes its entry's in `models`, the defaults, once -- at the seat's creation, a model

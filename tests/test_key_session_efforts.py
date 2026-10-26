@@ -1,11 +1,7 @@
-"""Each seat runs at its own efforts, and changing the defaults moves no live session.
-
-A seat's record holds its models' effort keys under `efforts`, and its runs run at them, their
-receipts saying so.  A record from before runs at the efforts its entries give it, and keeps
-them once a fresh window's `c` changes an entry, also where config.toml has no model tables
-and the shipped config's answer.  Black-box: `AK_BIN` on a gitrig.py project, akseat.py seats,
-an akterm.py terminal and fakeadapter.py harnesses, judged by the effort each turn is handed.
-"""
+"""Each seat's runs run at the efforts its record holds, their receipts saying so; a record from
+before at its entries', kept once a fresh window's `c` changes one, the shipped config's too.
+Black-box: `AK_BIN` on a gitrig.py project, akseat.py seats, an akterm.py terminal and
+fakeadapter.py harnesses, judged by the effort each turn is handed."""
 
 import json
 import sys
@@ -70,7 +66,7 @@ class SeatsFromBefore(unittest.TestCase):
 
     def step_fable(self):
         """Enter on Fable's effort on a fresh window's `c`, waited on until saved, a seat from
-        before made under it that nothing has read."""
+        before made while it is open."""
         config = self.home.path / ".agentkit/config.toml"
         term = Terminal(self.home, size=(100, 30), env={"NO_COLOR": "1"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
