@@ -2,9 +2,8 @@
 
 A seat's question, recorded with `ak notify needs` mid-turn, lets its turn end once the closing
 assistant message shows the title, the recommendation and every choice: as recorded, or as a
-Markdown list, which drops the inline list's commas and closing period.  A choice left out or
-its label changed (`snake case` for `snake_case`) is not the question, and the Stop goes back
-with it.  Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py,
+Markdown list, read as the recorded `a, b.`  A choice left out, its label changed (`snake case`
+for `snake_case`) or a comma dropped is not the question, and the Stop goes back with it.  Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py,
 before seats of tests/fixtures/akseat.py whose hooks fire as their harness fires them
 (tests/fixtures/hookdrive.py).
 """
@@ -24,7 +23,9 @@ ASKED = "Which naming should acme use? Options: snake_case (Recommended), camelC
 BULLETS = "Which naming should acme use?\n\n- snake_case (Recommended)\n- camelCase"
 SHOWN = {"inline": ASKED, "bullets": BULLETS}
 UNSHOWN = {"a choice left out": "Which naming should acme use?\n\n- snake_case (Recommended)",
-           "a label changed": BULLETS.replace("snake_case", "snake case")}
+           "a label changed": BULLETS.replace("snake_case", "snake case"),
+           # inline, a comma can as well be a label's own as the list's
+           "a comma dropped": ASKED.replace(",", "")}
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
