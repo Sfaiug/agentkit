@@ -1575,9 +1575,9 @@ def interrupted_at(harness, name):
 
 
 def seat_fact(name, harness):
-    """That seat's hook fact, or the question card its harness recorded open since, as the fact
-    that card's going up writes: a card no hook of the seat's launch hears, as after Muse's
-    `/new`, still blocks it."""
+    """That seat's hook fact, or the question card its harness recorded since, as the fact that
+    card's going up or settling writes: a card no hook of the seat's launch hears, as after
+    Muse's `/new`, still blocks it, and its settling still ends that."""
     fact = hook_facts(name)
     record = config.session_records().get(name) if harness else None
     if not record:

@@ -595,13 +595,13 @@ def user_messages(record, cwd, conversation):
 
 
 def card(record, cwd, conversation):
-    """The question Muse's own card holds open in that session, as the fact its Notification
-    hook writes (adapters/muse.toml), dated when Muse recorded it; or None.  Muse logs each
-    card going up and its settling -- answered, or Esc's `interrupted` -- as run events naming
-    its prompt and tool call, hooks or none (`/new` leaves a launch's behind): the newest card
-    is open until a settling of that same card follows it."""
+    """Muse's own question card in that session, as the fact its hooks write for it (adapters/
+    muse.toml), dated when Muse recorded it; or None where it asked none.  Muse logs each card
+    going up and its settling -- answered, or Esc's `interrupted` -- as run events naming its
+    prompt and tool call, hooks or none (`/new` leaves a launch's behind): the newest card is
+    up until a settling of that same card follows it, and then down from that moment."""
     from . import last_entry
-    settled = set()
+    settled = {}
 
     def named(event):
         return event.get("prompt_id"), event.get("tool_call_id")
@@ -609,18 +609,26 @@ def card(record, cwd, conversation):
     def asked(entry):
         done = run_event(entry, "user_input_prompt_settled")
         if done:
-            settled.add(named(done))
+            settled.setdefault(named(done), (entry.get("recorded_at"), done.get("outcome")))
         return bool(run_event(entry, "user_input_prompt_requested"))
     path = session_log(conversation)
     entry = last_entry(path, asked) if path else None
     event = run_event(entry or {}, "user_input_prompt_requested")
-    at = entry and entry.get("recorded_at")
-    if not isinstance(event.get("prompt_id"), str) or named(event) in settled or type(at) is not int:
+    if not isinstance(event.get("prompt_id"), str):
         return None
+    at, outcome = settled.get(named(event), (entry.get("recorded_at"), None))
+    if type(at) is not int:
+        return None
+    if outcome == "answered":
+        return {"event": "PostToolBatch", "kind": "request_user_input", "text": "", "at": at / 1e6}
+    if outcome:
+        # An Esc ends the turn.  As the Interrupt it is, it would rest the seat until a Stop
+        # that, its hooks gone, never comes.
+        return {"event": "Stop", "kind": "", "text": "", "at": at / 1e6}
     first = next(iter(event.get("questions") or ()), None)
     text = first.get("question") if isinstance(first, dict) else None
     return {"event": "Notification", "kind": "question_prompt",
-            "text": text if isinstance(text, str) else "", "at": at / 1_000_000}
+            "text": text if isinstance(text, str) else "", "at": at / 1e6}
 
 
 def session_log(conversation):

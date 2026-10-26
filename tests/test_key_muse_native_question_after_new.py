@@ -4,8 +4,8 @@
 PostToolBatch; Muse still logs each card going up and its settling, answered or interrupted, as
 run events of the session the seat owns.  The card on screen reads `needs you` in its own words;
 its own settling ends that wait, and only its own: an older card's does not, nor a request in
-another session or quoted in a message; and a settled card stays closed once the seat reopens on
-that session.  Black-box: a seat opened by `ak orch` from a person's terminal on a fake muse
+another session or quoted in a message; and a settled card stays closed, its seat neither reopened
+to ask it again after its process dies nor shown it once reopened on that session.  Black-box: a seat opened by `ak orch` from a person's terminal on a fake muse
 that fires its line's SessionStart hooks as Muse 1.4.12 does and lists its sessions in Muse's
 registry, its log in Muse's store, under the Home; this test fails against `/bin/false`.
 """
@@ -19,6 +19,7 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import akconfig
 from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import PANE
 from fixtures.akterm import Terminal
@@ -86,6 +87,13 @@ class MuseNativeQuestionAfterNew(unittest.TestCase):
         self.home.fake("muse", MUSE.format(python=shlex.quote(sys.executable),
                                            tui=shlex.quote(str(tui))))
         self.show("muse-prompt-pane.txt")
+        # no audit seat of ak's own, nor a collection due, to outlive a tick's box
+        akconfig.write(self.home, ["opus", "spark"])
+        self.home.write(".agentkit/state/gc.json", {"started_at": time.time()})
+        # the owner's own session keeps ak's tmux server up outside the box: a seat a tick
+        # reopened is still there once the tick has ended
+        done = self.home.tmux("-f", "/dev/null", "new-session", "-d", "-s", "notes", "sleep 3600")
+        self.assertEqual(done.code, 0, done.err)
 
     def show(self, fixture):
         screen = (FIXTURES / fixture).read_text()
@@ -161,8 +169,17 @@ class MuseNativeQuestionAfterNew(unittest.TestCase):
         self.show("muse-prompt-pane.txt")
         self.assertNotIn(ASKED, self.reads("idle"))
 
-        done = self.home.tmux("kill-session", "-t", "=acme")
+        self.show("muse-question-pane.txt")
+        self.logs(session, card("last-prompt", "requested", **ASK))
+        self.reads("needs you")
+        self.logs(session, card("last-prompt", "settled", outcome="interrupted"))
+        done = self.home.tmux("kill-session", "-t", "=acme")    # gone before any look since
         self.assertEqual(done.code, 0, done.err)
+        done = self.home.tick()
+        self.assertEqual(done.code, 0, done.out + done.err)
+        seat = json.loads((self.home.path / ".agentkit/state/seat-acme.json").read_text())
+        self.assertNotIn("reopened_at", seat, "the tick reopened it to ask its settled card again")
+        self.show("muse-prompt-pane.txt")
         argv = self.launch()["argv"]
         self.assertEqual(argv[argv.index("resume") + 1], session, argv)
         self.reads("idle")          # its settled card stays closed on the reopened session

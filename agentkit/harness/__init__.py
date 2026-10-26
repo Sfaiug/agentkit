@@ -607,8 +607,8 @@ class Harness:
         return hook(record, cwd, conversation) if hook else None
 
     def card(self, record, cwd):
-        """The question card its harness recorded open in the conversation that seat owns, as
-        the hook fact {event, kind, text, at} its going up writes, or None.  OSError where a
+        """Its harness's own question card in the conversation that seat owns, as the hook fact
+        {event, kind, text, at} its going up or its settling writes, or None.  OSError where a
         record exists and cannot be read."""
         hook = self._hook("card")
         return hook(record, cwd, self.conversation(record, cwd)) if hook else None
