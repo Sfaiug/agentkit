@@ -19,12 +19,13 @@ from agentkit import record
 FRESH = (REPO / "tests/e2e-fresh.sh").read_text()
 D2 = FRESH[FRESH.index("# ==== d, closing:"):FRESH.index("# ==== h)")]
 
-# Stand-ins for the gate's helpers: the pty drive reached `stopped atoll`, `as` answers with
-# the listing under test, and the verdict is the exit code.
+# Stand-ins for the gate's helpers: the pty drive reached `p past`, `as` answers with
+# the listing under test, the wait for the stop takes no time, and the verdict is the exit code.
 FAKES = r'''
 doing() { true; }
 drive() { true; }
 as() { cat "$LISTING"; }
+sleep() { true; }
 bad=""
 must() { local what=$1; shift; "$@" || bad="$bad; $what"; }
 verdict() { [ -z "$bad" ] || { echo "$1:$bad" >&2; exit 1; }; }

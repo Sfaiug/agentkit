@@ -635,12 +635,18 @@ EXP
   LIST=$(as 'ak orch list' 2>&1)
   must "ak orch list does not show the seat" grep -q '^atoll ' <<<"$LIST"
   # The orchestrator is the picker's, which live quota chooses: the model marked ● (* on an
-  # ASCII terminal) in its last frame, before Esc took it back to the row.  A frame's rows are drawn by cursor
-  # moves, so in the transcript they can run together on one line.
-  PICKED=$(python3 -I -c 'import re, sys
-text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
-marked = re.findall(r"([\w.-]+) +[●*] ", text[:text.rfind("choose   esc back")])
-print(marked[-1].lower() if marked else "")' "$WORK/pty/menu1.txt")
+  # ASCII terminal) in its last frame, before Esc took it back to the row.  A frame's rows are
+  # drawn by cursor moves, so in the transcript they can run together on one line.  The picker
+  # names a model in full (`Opus 5.5`) and the list by its key (`opus`), so the list's key counts
+  # as picked when its full name is what the last mark follows.
+  PICKED=$(env -i HOME="$UH" PATH="$EPATH" PYTHONPATH="$UH/agentkit" python3 -c 'import re, sys
+from agentkit import config
+key, text = sys.argv[1], open(sys.argv[2], encoding="utf-8", errors="replace").read()
+frame = text[:text.rfind("choose   esc back")]
+marks = list(re.finditer(r" +[●*] ", frame))
+name = config.model_name(config.load(), key) if key else ""
+print(key.lower() if name and marks and frame[:marks[-1].start()].endswith(name) else "")' \
+    "$(awk -F'  +' '/^atoll /{print $5}' <<<"$LIST")" "$WORK/pty/menu1.txt" 2>/dev/null </dev/null)
   must "ak orch list does not show the models the picker chose${PICKED:+ (orchestrator $PICKED)}" \
     awk -F'  +' -v m="$PICKED" '/^atoll /{ok = (m != "" && tolower($5) == m && $6 != "" && $6 != "—")} END{exit !ok}' <<<"$LIST"
   SEAT=atoll
@@ -791,20 +797,26 @@ fi
 
 # ==== d, closing: x and Stop stop the seat ==================================
 if doing d && [ -n "$SEATLOGIN" ]; then
+  # x takes the row off at once and stops the seat in a process of its own, which the menu
+  # does not wait for: `p past` on the key line says only that the row went.
   cat >"$WORK/menu3.exp" <<EXP
 expect 120 $MENU
 send x
 expect 60 Keep
 send j
 send \n
-expect 60 stopped atoll
+expect 60 p past
 send \x1b
 EXP
   drive menu3 xterm-256color ak
   D3=$?
   # A stopped seat stays listed, `idle`; only a seat whose process is gone reads closed by
-  # the owner, so one Stop left running fails here whatever its word.
-  as 'ak orch why atoll' >"$WORK/orch-after.txt" 2>&1
+  # the owner, so one Stop still running after a minute fails here whatever its word.
+  for _ in $(seq 60); do
+    as 'ak orch why atoll' >"$WORK/orch-after.txt" 2>&1
+    grep -q '^  reason: *session closed by the owner' "$WORK/orch-after.txt" && break
+    sleep 1
+  done
   must "x and Stop did not stop the seat" test "$D3" = 0
   must "atoll does not read closed by the owner" \
     grep -q '^  reason: *session closed by the owner' "$WORK/orch-after.txt"
