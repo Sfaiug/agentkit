@@ -1,8 +1,8 @@
-"""The `c` screen steps an effort, moves a seat once asked, and adds a model, each into config.
+"""A seat's `c` steps its effort, moves it once asked, and adds a model to config.toml.
 
 `c` is where the owner changes the models without opening a file: Enter on a model's effort
-steps it one up and config.toml is rewritten at once, whole, with the menu's header, every
-other value and an unknown key kept; Enter on another model's orchestrator mark asks under the
+steps the seat's own one up, into its record at once, config.toml as it was; Enter on another
+model's orchestrator mark asks under the
 matrix first, as the owner said on 24 Oct ("when pressing a different orch, it should ask me
 to confirm. As this restarts the session."): Esc keeps the record and the pane as they were,
 and `Move` moves the seat, its record naming the new orchestrator and its tmux session running
@@ -37,7 +37,6 @@ CATALOG = "m1\tModel One\tlow medium high"     # what the claude adapter's `mode
 # A step reads the adapter's list if it answers at once, else the manifest's: both name fable's
 # efforts the same, as a real Claude's does, so the bar reads the same either way.
 FABLE_LISTED = "claude-fable-5-1\tFable 5.1\tlow medium high xhigh max"
-HEADER = "# agentkit's config, written by the menu's `c` screen."
 KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"   # wherever the highlight is
 PAGE_KEYS = "  ↑↓←→ move   ⏎ choose   esc back"   # a page under it, with no `r`
 
@@ -87,7 +86,7 @@ class ConfigScreenEdits(unittest.TestCase):
         self.term.keys("c")
         self.term.wait(lambda screen: key_line(screen) == KEYS and "› Fable 5.1" in screen)
 
-    def test_enter_on_an_effort_steps_it_up_and_rewrites_config_toml_keeping_the_rest(self):
+    def test_enter_on_an_effort_steps_the_seat_s_up_into_its_record_not_config_toml(self):
         self.fakes["claude"].answer("models", FABLE_LISTED)
         self.term.keys("Right", "Right", "Right")
         self.term.wait(lambda screen: "› Fable 5.1     ●      □        □     ▰▰▰▰▱   xhigh"
@@ -95,11 +94,8 @@ class ConfigScreenEdits(unittest.TestCase):
         self.term.keys("Enter")
         self.term.wait(lambda screen: "› Fable 5.1     ●      □        □     ▰▰▰▰▰   max"
                        in rows(screen))
-        text = self.config.read_text()
-        self.assertTrue(text.startswith(HEADER), text)
-        expected = self.given
-        expected["models"]["fable"]["effort"] = "max"
-        self.assertEqual(tomllib.loads(text), expected)
+        self.assertEqual(json.loads(self.record.read_text())["efforts"], {"fable": {"effort": "max"}})
+        self.assertEqual(tomllib.loads(self.config.read_text()), self.given)
 
     def pane(self):
         return self.home.tmux("display-message", "-p", "-t", f"={SEAT}:",

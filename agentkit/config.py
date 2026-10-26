@@ -811,15 +811,18 @@ def save(cfg, defaults=None):
     the 0600 install.sh gave it: a replace inherits the temp file's mode, not the old one's.
     `[defaults]` is written as `defaults`, a creation's (remember_defaults), and otherwise as
     the file has it, whatever `cfg` holds: a menu open for hours holds an older one, and a
-    model removed since is only passed over in memory (load).
+    model removed since is only passed over in memory (load).  A seat on a model whose efforts
+    change keeps the ones it ran at (pin_efforts).
     """
     path = HOME / CONFIG_NAME
+    try:
+        held = _read_toml(path) or {}
+    except Error:
+        held = {}           # nothing readable to keep: `cfg`'s are written
     if defaults is None:
-        try:
-            defaults = (_read_toml(path) or {}).get("defaults")
-        except Error:
-            defaults = None       # nothing readable to keep: `cfg`'s are written
+        defaults = held.get("defaults")
     text = dump(cfg if defaults is None else {**cfg, "defaults": defaults})
+    pin_efforts(held.get("models") or {}, cfg.get("models") or {})
     ensure_dirs()
     tmp = path.with_suffix(".tmp")
     tmp.write_text(text)
@@ -859,6 +862,42 @@ def worker_effort(cfg, name, role):
         return role_effort(model(cfg, name), role) if name else None
     except (Error, KeyError):       # no such entry, or a config that configures no models
         return None
+
+
+def efforts_of(entry):
+    """The effort keys (ROLE_EFFORTS) a model entry sets, as a seat's record holds them for one
+    of its models under `efforts`."""
+    return {key: entry[key] for key in ROLE_EFFORTS.values() if key in entry}
+
+
+def at_efforts(cfg, record):
+    """`cfg` as the seat or run `record` runs it: each model its `efforts` names at those
+    efforts in place of its entry's own, every other at its entry's.  A seat's record is the
+    one home of its efforts once it holds them (pin_efforts), a run's receipt holds every
+    model's as launched, and new seats run at the entries'."""
+    held = (record or {}).get("efforts") or {}
+    if not held:
+        return cfg
+    return {**cfg, "models": {
+        name: {**{key: value for key, value in entry.items() if key not in ROLE_EFFORTS.values()},
+               **held[name]} if name in held and isinstance(entry, dict) else entry
+        for name, entry in cfg["models"].items()}}
+
+
+def run_efforts(cfg, record):
+    """What a run's receipt records as `efforts`: every model's, at the seat `record`'s."""
+    return {name: efforts_of(entry) for name, entry in at_efforts(cfg, record)["models"].items()
+            if isinstance(entry, dict)}
+
+
+def seat_effort(cfg, seat, name, role):
+    """The effort seat `seat` runs model `name` at in `role`: at_efforts of its record, the
+    entry's for no seat or one with no record yet; None where `name` is no entry."""
+    try:
+        record = load_session(cfg, seat, required=False) if seat else None
+    except Error:
+        record = None
+    return worker_effort(at_efforts(cfg, record), name, role)
 
 
 def model_name(cfg, name):
@@ -1066,6 +1105,10 @@ def _validate_session(cfg, name, data, prune=False):
                     model(cfg, worker)
                 except Error as exc:
                     raise Error(f"{session_path(name)}: {exc}") from None
+    efforts = data.get("efforts", {})
+    if not isinstance(efforts, dict) or any(not isinstance(held, dict) or not isinstance(
+            held.get("effort"), str) for held in efforts.values()):
+        raise Error(f"{session_path(name)}: efforts must give each model its effort")
     # the orchestrator's own model may work for it too: nothing here excludes one from the other
     # Whatever else the record carries -- where the seat ran, when, and the conversation the
     # harness kept -- is handed back untouched: only the model fields are this file's to judge.
@@ -1182,6 +1225,37 @@ def update_session(name, **fields):
         # listing seats must not prepare or change metadata on run/worktree directories.
         _write_json(path, data, prepare=False)
     return data
+
+
+def hold_efforts(name, efforts, keep=False):
+    """Merge `efforts`, {model: its effort keys}, into seat `name`'s record under its lock, so
+    no other writer's model is lost; `keep` keeps one the record holds already.  The record as
+    written, or None for a seat with no record."""
+    path = session_path(name)
+    with _record_lock(path):
+        data = _read_json(path)
+        if not isinstance(data, dict) or "renamed" in data:
+            return None
+        held = data.get("efforts") or {}
+        data["efforts"] = {**efforts, **held} if keep else {**held, **efforts}
+        _write_json(path, data, prepare=False)
+    return data
+
+
+def pin_efforts(before, after):
+    """Before the model entries' efforts change from `before` to `after`, {name: entry}, each
+    seat on a model whose efforts change and of which its record holds none is given them as
+    they were: changing the defaults moves no live seat (save)."""
+    moved = {name: efforts_of(entry) for name, entry in before.items()
+             if isinstance(entry, dict) and isinstance(after.get(name), dict)
+             and efforts_of(entry) != efforts_of(after[name])}
+    for name, record in session_records().items() if moved else ():
+        runs = {record.get("orchestrator"), *(record.get("workers") or ()),
+                *(record.get("reviewers") or ())}
+        pinned = {model: efforts for model, efforts in moved.items()
+                  if model in runs and model not in (record.get("efforts") or {})}
+        if pinned:
+            hold_efforts(name, pinned, keep=True)
 
 
 def _session_files():

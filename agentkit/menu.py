@@ -2930,14 +2930,14 @@ def advice(cfg, held):
 
 def take_advice(cfg, name, selected, providers, found):
     """`r`: seat `name`'s executors and reviewers become the recommended rows' models, each at
-    the row's effort as its entry's own for that role (`exec_effort`, `review_effort`; a row
-    at the entry's effort or at none leaves it following the effort, _follows), saved to the
-    config (_saved) and then to the seat's record at once as a flipped mark is (marks_saved);
-    a config that cannot be saved changes no mark and says why.  The orchestrator is only
-    said, since moving the seat is its orchestrator mark's.  With no `name`, `selected` being
-    [defaults], the orchestrator is taken too, at the row's effort as the entry's `effort`, and
-    the efforts and [defaults] are saved in one write (defaults_saved), no open seat changing.
-    What to say under the rows, or ""."""
+    the row's effort as the seat's own for that role (`exec_effort`, `review_effort`; a row
+    at the model's effort or at none leaves it following the effort, _follows), saved to the
+    seat's record (efforts_saved) and then its marks as a flipped mark is (marks_saved), the
+    entries left alone; efforts that cannot be saved change no mark and say why.  The
+    orchestrator is only said, since moving the seat is its orchestrator mark's.  With no
+    `name`, `selected` being [defaults], the orchestrator is taken too, the efforts are the
+    entries' own, `effort` the orchestrator's, and they and [defaults] are saved in one write
+    (defaults_saved), no open seat changing.  What to say under the rows, or ""."""
     taken = {role: found.get(role, (None, None, None))[1:] for role in TAKEN
              if name is None or role != "orchestrate"}
     if not any(model for model, _ in taken.values()):
@@ -2947,17 +2947,33 @@ def take_advice(cfg, name, selected, providers, found):
         for role, (model, _) in taken.items() if model})
     if note:
         return note
-    before = copy.deepcopy(cfg)
+    before, held = copy.deepcopy(cfg), {}
     # the orchestrator's `effort` first, so a worker's set to it then follows it (_follows)
     for role, (model, effort) in taken.items():
         if model:
-            entry, key = cfg["models"][model], config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]]
+            entry = (held.setdefault(model, config.efforts_of(
+                config.at_efforts(cfg, selected)["models"][model])) if name else cfg["models"][model])
+            key = config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]]
             entry[key] = effort or entry["effort"]
             _follows(entry, [key])
     if name is None:
         return defaults_saved(cfg, selected, changed, before)
-    note = _saved(cfg, cfg, before) if cfg != before else ""
-    return note or marks_saved(name, selected, changed)
+    return efforts_saved(name, selected, held) or marks_saved(name, selected, changed)
+
+
+def efforts_saved(name, selected, efforts):
+    """Seat `name`'s efforts on each model `efforts` names, saved to its record at once
+    (config.hold_efforts) and into `selected`, the model entries left alone.  What to say
+    under the rows, or ""."""
+    try:
+        saved = config.hold_efforts(config.resolve_session(name), efforts)
+    except (config.Error, OSError) as exc:
+        return f"session: {exc}"
+    if saved is None:
+        return f"session: {name} has no saved models"
+    if selected is not None:      # a record that will not read is written all the same
+        selected["efforts"] = saved["efforts"]
+    return ""
 
 
 def marks_saved(name, selected, changed):
@@ -3297,8 +3313,9 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     the cell on it the keys act on, -1 its label.  `cells` are a model row's (first, last,
     column), for a click, counted from 1 as the terminal counts. On a phone the cells give
     way, then the label.  `scope`, whom the marks are for -- NEW_SEATS or a seat's name -- is
-    the For line over the headings.
+    the For line over the headings, and a seat's efforts are its record's (config.at_efforts).
     """
+    cfg = config.at_efforts(cfg, selected)
     room, utf = terminal.layout_width(), terminal.utf8()
     marks = "●○■□" if utf else "*.x."
     names, models = config_models(cfg), cfg["models"]
@@ -3434,28 +3451,31 @@ def _saved(cfg, table, before):
     return ""
 
 
-def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None):
+def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, seat=None):
     """`name`'s effort in `role` (config.role_effort: a worker's is the effort while its own
     key is unset) one step along that model's own efforts (config.efforts), never past either
-    end unless `wrap` takes it round to the other, or onto the `to`-th of them, and saved; one
-    set to an effort it does not take lands on its first, and a worker's stepped onto the
-    effort itself is unset again (_follows), while the effort's own step moves no other key.
-    The efforts are read `now`, off the catalog already in hand (config.catalog_now): a listing
-    never stands between the key and its frame.  What to say under the matrix, or ""."""
+    end unless `wrap` takes it round to the other, or onto the `to`-th of them, and saved: on
+    `seat`, a seat's (name, record), to that record (efforts_saved), else to the entry, which
+    is what new seats start from.  One set to an effort it does not take lands on its first,
+    and a worker's stepped onto the effort itself is unset again (_follows), while the
+    effort's own step moves no other key.  The efforts are read `now`, off the catalog already
+    in hand (config.catalog_now): a listing never stands between the key and its frame.  What
+    to say under the matrix, or ""."""
     entry, key = cfg["models"][name], config.ROLE_EFFORTS[role]
     try:
         levels = config.efforts(entry.get("harness"), entry.get("model"), config.catalog_now)
     except config.Error as exc:
         return f"config: {exc}"
-    current = entry.get(key, entry.get("effort"))
+    efforts = config.efforts_of(config.at_efforts(cfg, seat[1])["models"][name]) if seat else entry
+    current = efforts.get(key, efforts.get("effort"))
     at = to if to is not None else levels.index(current) + step if current in levels else 0
     at = at % len(levels) if wrap else at
     if not 0 <= at < len(levels) or levels[at] == current:
         return ""
     before = dict(entry)
-    entry[key] = levels[at]
-    _follows(entry, [key])
-    return _saved(cfg, entry, before)
+    efforts[key] = levels[at]
+    _follows(efforts, [key])
+    return efforts_saved(*seat, {name: efforts}) if seat else _saved(cfg, entry, before)
 
 
 def _follows(entry, keys):
@@ -3515,16 +3535,17 @@ def config_model_id(cfg, name, step, screen):
     return _saved(cfg, entry, before)
 
 
-def model_body(cfg, name, at=None):
+def model_body(cfg, name, at=None, seat=None):
     """A model's own screen's lines, and where its rows sit on them: {line: (row, cells)}, the
     cells `left` and `right` the arrows of the value on that line, counted from 1 (`under`).
 
-    Its model id, its effort and the efforts it executes and reviews at, each between the
-    arrows that step it, then `Remove` and its reviewing so far; `at` is the highlighted row.
+    Its model id, its effort and the efforts it executes and reviews at (`seat`'s where it is a
+    seat's, config_effort), each between the arrows that step it, then `Remove` and its
+    reviewing so far; `at` is the highlighted row.
     On a phone, where a label and its value do not fit on one line, the value goes under its
     label.
     """
-    entry, room = cfg["models"][name], terminal.layout_width()
+    entry, room = config.at_efforts(cfg, seat and seat[1])["models"][name], terminal.layout_width()
     arrows = "‹ {} ›" if terminal.utf8() else "< {} >"
     values = [arrows.format(value) for value in (
         entry.get("model", "?"), entry.get("effort", "?"),
@@ -3554,9 +3575,10 @@ def model_body(cfg, name, at=None):
 
 
 @terminal.clicks_its_own
-def config_model(cfg, name):
+def config_model(cfg, name, seat=None):
     """`config · <name>`: one model's id, its effort, the efforts it executes and reviews at,
-    and `Remove`, read with the matrix's keys until Esc, each change saved and drawn at once.
+    and `Remove`, read with the matrix's keys until Esc, each change saved and drawn at once,
+    the efforts `seat`'s where it is a seat's (config_effort).
 
     ↑/↓, k/j and the wheel move between rows and ←/→ step the value on one: the id through
     its harness's catalog (config.catalog) and nothing else, each effort through that model's
@@ -3570,7 +3592,7 @@ def config_model(cfg, name):
         title = f"config · {config.model_name(cfg, name)}"     # a stepped id renames it
         keys = (MODEL_KEYS["remove" if here == "Remove" else "step"][0 if terminal.utf8() else 1]
                 + "   esc back")
-        body, places = model_body(cfg, name, None if terminal.away() else here)
+        body, places = model_body(cfg, name, None if terminal.away() else here, seat)
         shown = body + (["", *(terminal.styled("  " + part, "dim") for part in terminal.wrap(
             note, terminal.layout_width() - 2))] if note else [])
         spots = terminal.frame(title, shown, keys, places=places)
@@ -3600,7 +3622,7 @@ def config_model(cfg, name):
                 continue
 
             def around(card):     # the screen around the card, drawn again on a resize
-                lines = model_body(cfg, name)[0]
+                lines = model_body(cfg, name, seat=seat)[0]
                 terminal.frame(title, [*lines, *card], "esc back")
                 return 3 + len(lines)
             if terminal.confirm(REMOVE_ASK[0].format(config.model_name(cfg, name)), REMOVE_ASK[1], "Remove", around):
@@ -3611,9 +3633,9 @@ def config_model(cfg, name):
             step = 1 if act == "right" else -1
             try:
                 note = (config_model_id(cfg, name, step, (
-                    title, lambda: model_body(cfg, name, here)[0], keys))
+                    title, lambda: model_body(cfg, name, here, seat)[0], keys))
                         if here == "model id"
-                        else config_effort(cfg, name, step, role=EFFORT_ROWS[here]))
+                        else config_effort(cfg, name, step, role=EFFORT_ROWS[here], seat=seat))
             except Back:
                 return                # Esc while the catalog was asked
 
@@ -3777,6 +3799,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     from . import watch   # here, not at the top: the menu draws without the tick
     standing = watch.token_standing() or ""     # a file's date, read once a visit
     scope = session or NEW_SEATS
+    seat = (session, selected) if session else None     # whose efforts a step changes
     here, column, top, clock = None, 0, 0, motion.Clock(page=True)
     while True:
         columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
@@ -3847,7 +3870,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             at = columns.index(column) + (1 if act == "right" else -1)
             column = columns[min(max(at, 0), len(columns) - 1)]
         elif act in ("enter", "space") and column < 0:
-            config_model(cfg, here[1])
+            config_model(cfg, here[1], seat)
             if here[1] not in cfg["models"]:
                 here = rows[rows.index(here) + 1]     # removed: the row under it is highlighted
         elif act in ("enter", "space") and column < 3:
@@ -3866,9 +3889,10 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             # a click on one of its cells takes that level, and one on its word steps it on
             lead = next((last - first + 1 for row, cells in places.values() if row == here
                          for first, last, at in cells if at == 3), 0) - terminal.cells(
-                cfg["models"][here[1]].get("effort", "?"))
-            note = (config_effort(cfg, here[1], 0, to=act) if isinstance(act, int) and act < lead
-                    else config_effort(cfg, here[1], 1, wrap=True))
+                config.at_efforts(cfg, selected)["models"][here[1]].get("effort", "?"))
+            note = (config_effort(cfg, here[1], 0, to=act, seat=seat)
+                    if isinstance(act, int) and act < lead
+                    else config_effort(cfg, here[1], 1, wrap=True, seat=seat))
 
 
 def _runs(cfg, harness, model, effort=None):
