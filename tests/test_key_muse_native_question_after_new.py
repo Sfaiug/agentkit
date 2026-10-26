@@ -100,6 +100,14 @@ class MuseNativeQuestionAfterNew(unittest.TestCase):
         (self.home.root / "screen.txt").write_text(
             screen.replace("Which colour should the acme banner use?", ASKED))
 
+    def drawn(self):
+        """Once the seat's pane shows Muse's prompt whole: its status line, and no card."""
+        deadline = time.monotonic() + 30
+        while (not (screen := self.home.tmux("capture-pane", "-p", "-t", "=acme").out)
+                .rstrip().endswith("YOLO") or "to interrupt" in screen):
+            self.assertLess(time.monotonic(), deadline, "the prompt was never drawn")
+            time.sleep(0.05)
+
     def launch(self, *opening):
         started = self.home.root / "acme.json"
         started.unlink(missing_ok=True)
@@ -172,14 +180,17 @@ class MuseNativeQuestionAfterNew(unittest.TestCase):
         self.show("muse-question-pane.txt")
         self.logs(session, card("last-prompt", "requested", **ASK))
         self.reads("needs you")
+        # Esc puts the card down as it is logged settled: a look between the two reads either
+        # the card up or no card at all, never a screen nothing reads
+        self.show("muse-prompt-pane.txt")
+        self.drawn()
         self.logs(session, card("last-prompt", "settled", outcome="interrupted"))
-        done = self.home.tmux("kill-session", "-t", "=acme")    # gone before any look since
+        done = self.home.tmux("kill-session", "-t", "=acme")
         self.assertEqual(done.code, 0, done.err)
         done = self.home.tick()
         self.assertEqual(done.code, 0, done.out + done.err)
         seat = json.loads((self.home.path / ".agentkit/state/seat-acme.json").read_text())
         self.assertNotIn("reopened_at", seat, "the tick reopened it to ask its settled card again")
-        self.show("muse-prompt-pane.txt")
         argv = self.launch()["argv"]
         self.assertEqual(argv[argv.index("resume") + 1], session, argv)
         self.reads("idle")          # its settled card stays closed on the reopened session
