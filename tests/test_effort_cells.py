@@ -38,11 +38,30 @@ def drawn(screen):
 
 
 def filled(screen, name):
-    """How many of `name`'s cells are drawn full in the foreground, with no colour of their own:
-    its row is the one its full name opens."""
+    """How many of `name`'s orchestrator's cells, the first on its row, are drawn full in the
+    foreground, with no colour of their own: its row is the one its full name opens."""
     line = next(line for line in drawn(screen)
                 if terminal.ANSI.sub("", line)[2:].split("  ")[0] == FULL[name])
-    return sum(1 for codes, cell in CELL.findall(line) if cell == "▰" and LIT not in codes)
+    first = []
+    for match in CELL.finditer(line):
+        if first and terminal.ANSI.sub("", line[first[-1].end():match.start()]):
+            break                                 # past them: the word, then another role's
+        first.append(match)
+    return sum(1 for match in first if match[2] == "▰" and LIT not in ink(line, match.start(2)))
+
+
+def ink(line, at):
+    """The colours in force at `at` on a line as written: every code since the last reset."""
+    codes = re.findall(r"\x1b\[[0-9;]*m", line[:at])
+    resets = [n for n, code in enumerate(codes) if code[2:3] in ("0", "m")]
+    return "".join(codes[resets[-1] if resets else 0:])
+
+
+def beside(lines, name):
+    """What stands beside `name`'s orchestrator mark: its effort's cells, if any, and word."""
+    words = row(lines, name)[1].split()
+    at = next(n for n, word in enumerate(words) if word in ("●", "○"))
+    return words[at + 1:at + 3] if words[at + 1][0] in "▰▱" else words[at + 1:at + 2]
 
 
 def shone(written):
@@ -69,9 +88,12 @@ def moved(screen, keys):
 
 
 def places(lines, name):
-    """`name`'s row on the terminal, the column of its effort word and of its first cell."""
+    """`name`'s row on the terminal, the column of its orchestrator's effort word and of its
+    first cell."""
     number, line = row(lines, name)
-    return number, line.rindex(" ") + 2, line.index(next(c for c in line if c in "▰▱")) + 1
+    first = line.index(next(c for c in line if c in "▰▱"))
+    after = first + len(line[first:].split()[0])
+    return number, after + len(line[after:]) - len(line[after:].lstrip()) + 1, first + 1
 
 
 class EffortCells(unittest.TestCase):
@@ -85,8 +107,10 @@ class EffortCells(unittest.TestCase):
                 ("astra", "xhigh", "▰▰▰▰▱▱"), ("spark", "xhigh", "▰▰▰▰▰▱"),
                 ("grok", "xhigh", "▰▰▰▰"), ("gemini", "high", "▰▰▰"), ("mimo", "high", "▰▰")):
             with self.subTest(name=name):
-                self.assertEqual(row(lines, name)[1].split()[-2:], [cells, effort])
-                self.assertEqual(filled(screen, name), cells.count("▰"))
+                self.assertEqual(beside(lines, name), [cells, effort])
+                # beside an open mark the cells are dim, the full ones too: only the
+                # orchestrator's are in the foreground
+                self.assertEqual(filled(screen, name), cells.count("▰") if name == "opus" else 0)
         # every word in one column, after the most cells any model has
         self.assertEqual(len({places(lines, name)[1] for name in ("fable", "astra", "mimo")}), 1)
         screen.leave()
@@ -94,28 +118,28 @@ class EffortCells(unittest.TestCase):
     def test_a_model_with_one_effort_is_its_word_alone(self):
         screen = Screen(self)
         lines = screen.frame()
-        self.assertEqual(row(lines, "haiku")[1].split(), [*FULL["haiku"].split(), "○", "□", "□",
-                                                          "xhigh"])
+        self.assertEqual(row(lines, "haiku")[1].split(), [*FULL["haiku"].split(),
+                                                          *["○", "xhigh"], *["□", "xhigh"] * 2])
         # its word still in the column the others' stand in
         self.assertEqual(row(lines, "haiku")[1].rindex(" "), row(lines, "fable")[1].rindex(" "))
-        screen.press(DOWN * 2 + RIGHT * 3, lambda lines: on_effort(lines, "haiku"))
+        screen.press(DOWN * 2 + RIGHT, lambda lines: on_effort(lines, "haiku"))
         cells = moved(screen, ENTER)                    # onto none, its only effort
         lines = screen.frame()
         self.assertEqual(row(lines, "haiku")[1].split(),
-                         ["›", *FULL["haiku"].split(), "○", "□", "□", "none"])
+                         ["›", *FULL["haiku"].split(), *["○", "none"], *["□", "xhigh"] * 2])
         self.assertEqual([cell for cell in cells if cell[0] == row(lines, "haiku")[0]], [])
-        self.assertEqual(screen.saved()["models"]["haiku"]["effort"], "none")
+        self.assertEqual(screen.record()["efforts"]["haiku"]["effort"], "none")
         screen.leave()
 
     def test_a_step_moves_the_cells_it_changes_in_turn_and_the_highest_shimmers_once(self):
         screen = Screen(self)
-        lines = screen.press(DOWN + RIGHT * 3, lambda lines: on_effort(lines, "opus"))
+        lines = screen.press(DOWN + RIGHT, lambda lines: on_effort(lines, "opus"))
         number, word, first = places(lines, "opus")
         # a click on its second cell, down from xhigh: its fourth cell, then its third, stay
         # full but dim and then stand open and dim
         cells = moved(screen, f"\x1b[<0;{first + 1};{number}M\x1b[<0;{first + 1};{number}m"
                       .encode())
-        self.assertEqual(screen.saved()["models"]["opus"]["effort"], "medium")
+        self.assertEqual(screen.record()["efforts"]["opus"]["effort"], "medium")
         self.assertEqual({(at, column) for at, column, _, _ in cells},
                          {(number, first + 3), (number, first + 2)})
         self.assertEqual([column for _, column, text, _ in cells if text == "▱"],
@@ -135,7 +159,7 @@ class EffortCells(unittest.TestCase):
         # the word, written whole from its first cell
         moved(screen, ENTER)
         cells = moved(screen, f"\x1b[<0;{word};{number}M\x1b[<0;{word};{number}m".encode())
-        self.assertEqual(screen.saved()["models"]["opus"]["effort"], "max")
+        self.assertEqual(screen.record()["efforts"]["opus"]["effort"], "max")
         self.assertEqual({column for at, column, _, _ in cells if at == number},
                          {first + 4, word})
         words = [cell for cell in cells if cell[1] == word]
@@ -163,10 +187,10 @@ class EffortCells(unittest.TestCase):
         lines = screen.frame()
         self.assertEqual(row(lines, "opus")[1].split()[-2:], ["▰▰▰▰▱", "xhigh"])
         # with no colour to reverse, the effort is the highlighted row's cell with no mark bracketed
-        screen.press(DOWN + RIGHT * 3, lambda lines: row(lines, "opus")[1].startswith("›")
+        screen.press(DOWN + RIGHT, lambda lines: row(lines, "opus")[1].startswith("›")
                      and "[" not in row(lines, "opus")[1])
         self.assertEqual(moved(screen, ENTER), [])
-        self.assertEqual(row(screen.frame(), "opus")[1].split()[-2:], ["▰▰▰▰▰", "max"])
+        self.assertEqual(beside(screen.frame(), "opus"), ["▰▰▰▰▰", "max"])
         screen.leave()
 
     def test_a_cell_takes_about_150_ms_and_the_light_about_600(self):

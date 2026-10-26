@@ -75,7 +75,7 @@ class EffortStep(unittest.TestCase):
         with patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}):
             screen = Screen(self, child=CHILD)
         screen.frame()
-        screen.press(DOWN + RIGHT * 3, lambda lines: on_effort(lines, "opus"))   # opus's effort
+        screen.press(DOWN + RIGHT, lambda lines: on_effort(lines, "opus"))   # opus's effort
         # the manifest's table while the listing sleeps: xhigh, max, then round to low
         drawn(screen, ENTER, "▰▰▰▰▰   max")
         self.assertFalse((adapters / "answered").exists(), "the listing is still asleep")
