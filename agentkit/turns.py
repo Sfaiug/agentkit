@@ -576,7 +576,13 @@ def cannot_run(code, text, stderr, out_dir=None, harness=None):
 
 
 def transient_wait(out_dir, delay):
-    """Sleep out one transient wait, with the run's record saying until when.
+    """Sleep out one transient wait of the turn writing into `out_dir` (`run_wait`)."""
+    run_wait(Path(out_dir).parent.parent, delay)
+
+
+def run_wait(run_dir, delay):
+    """Sleep out `delay` seconds the run waits on something outside it, with its record saying
+    until when.
 
     The tick reads a run's silence off its newest write, and a wait writes nothing: the
     30-minute wait read as a 20-minute silence, the tick killed the loop, its resume began the
@@ -585,7 +591,6 @@ def transient_wait(out_dir, delay):
     starts that clock instead.  A turn with no run record above its round (a direct caller's)
     only sleeps.
     """
-    run_dir = Path(out_dir).parent.parent
     if (run_dir / "run.json").is_file():
         try:
             with run_record.recovery_lock(run_dir):

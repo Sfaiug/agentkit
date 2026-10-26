@@ -10,6 +10,7 @@ The run's child environment, depth and logger live here too, as every leaf start
 import codecs
 import fcntl
 import hashlib
+import json
 import os
 import re
 import shlex
@@ -20,7 +21,7 @@ import tempfile
 import threading
 import time
 from contextlib import ExitStack, contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -295,9 +296,50 @@ def gh(cwd, *args, timeout=None):
     The PR commands are handed the PR's own URL and run from the run directory rather than the
     worktree: outside a checkout `gh pr merge --delete-branch` has no local branch to switch
     away from, and deleting the branch out from under the run's own worktree is not what it means.
+
+    A run's call that fails while GitHub's own count says its API allowance is spent waits
+    for the reset and asks again, for as long as GitHub says spent, so a checks wait, merge,
+    PR read or review post finishes late instead of failing.  Said once per reset.
     """
-    code, out, err = tool_run(["gh", *args], cwd=cwd, timeout=timeout)
-    return code, (out + err).strip()
+    said = None
+    while True:
+        code, out, err = tool_run(["gh", *args], cwd=cwd, timeout=timeout)
+        reset = allowance_reset(cwd) if code else None
+        if reset is None:
+            return code, (out + err).strip()
+        from . import turns     # turns imports this module
+        run_dir = config.RUNS / _RUN_CONTEXT.state["run_id"]
+        if reset != said:
+            logger(run_dir)(f"waiting for GitHub's API allowance until "
+                            f"{datetime.fromtimestamp(reset, timezone.utc):%H:%M} UTC")
+            said = reset
+        # a reset that looks past while GitHub still counts it spent is a clock apart from
+        # GitHub's, asked again after a floor rather than at once
+        turns.run_wait(run_dir, max(ALLOWANCE_FLOOR, reset - time.time()))
+
+
+ALLOWANCE_FLOOR = 60    # seconds a run waits before asking a spent allowance again
+
+
+def allowance_reset(cwd):
+    """When the spent GitHub API allowance comes back, the latest reset of `core` and `graphql`
+    with none left, or None: not a run's call (the tick asks again next tick), none spent, or
+    no count to read.
+
+    Read off GitHub's own count, which `gh api rate_limit` spends none of, never gh's words.
+    Every gh command spends one or both, and which is not mapped: a failure of another cause
+    while one is spent waits for its reset once, then fails as before.
+    """
+    if not getattr(_RUN_CONTEXT, "state", {}).get("run_id"):
+        return None
+    code, out, _err = tool_run(["gh", "api", "rate_limit"], cwd=cwd)
+    try:
+        counts = json.loads(out)["resources"]
+        spent = [float(counts[name]["reset"]) for name in ("core", "graphql")
+                 if counts[name]["remaining"] == 0]
+    except (ValueError, KeyError, TypeError):
+        return None
+    return max(spent) if code == 0 and spent else None
 
 
 def project_env(repo):
