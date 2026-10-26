@@ -4,8 +4,8 @@ A seat's questions recorded with `ak notify needs`, standing or kept back mid-tu
 the owner.  Claude Code's AskUserQuestion card hands its PostToolUse hook the owner's answers
 keyed by the card's own question words, the choices it showed beside them: a recorded question
 it names is answered, whether recorded with those choices or without, every other stands, and
-the turn's end shows it as `needs you` again.  A card cancelled or left empty, or showing other
-choices, answers nothing.  Black-box: the program `AK_BIN` names runs from outside through
+the turn's end shows it as `needs you` again until the owner answers it.  A card cancelled or
+left empty, or showing other choices, answers nothing.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, before seats of tests/fixtures/akseat.py whose hooks fire as their
 harness fires them (tests/fixtures/hookdrive.py).
 """
@@ -76,7 +76,8 @@ class NativeCardAnswerScope(unittest.TestCase):
             self.assertEqual(done.code, 0, done.err)
 
     def answer(self, seat, payload):
-        fired = self.hooks.fire("PostToolUse", payload, seat=seat.name, pane=seat)
+        """The owner answers the card; its model then goes on, while the hook's work ends."""
+        fired = self.hooks.fire("PostToolUse", payload, seat=seat.name, pane=seat, finished=True)
         self.assertEqual(fired.code, 0, fired.err)
 
     def stop(self, seat, said=""):
@@ -89,7 +90,6 @@ class NativeCardAnswerScope(unittest.TestCase):
                                              **({"transcript_path": chat} if chat else {})},
                                     seat=seat.name, pane=seat)
             back = [out["reason"] for out in fired.said if out.get("decision") == "block"]
-            print("STOP", seat.name, again, time.monotonic(), [b[:60] for b in back], file=sys.stderr)
             if not back:
                 return
             seat.show("claude-working-pane.txt")
@@ -106,15 +106,25 @@ class NativeCardAnswerScope(unittest.TestCase):
         self.hooks.fire("UserPromptSubmit", {"prompt": UPDATE}, seat=seat.name, pane=seat)
         seat.show("claude-working-pane.txt")
 
+    def naming_remains(self, seat):
+        """The turn ends on naming alone, `needs you`; the owner's chat answers it, as it always
+        has, and the seat is left idle."""
+        self.stop(seat, ASKED[NAMING])
+        self.assertEqual(settled(self.home, seat.name, "needs you", ASKED[NAMING]),
+                         (f"{seat.name}  needs you", ASKED[NAMING]))
+        self.hooks.prompt("snake_case", seat)
+        seat.show("claude-working-pane.txt")
+        self.assertEqual(settled(self.home, seat.name, "working", "-"), (f"{seat.name}  working", "-"))
+        self.stop(seat)
+        self.assertEqual(settled(self.home, seat.name, "idle", "-"), (f"{seat.name}  idle", "-"))
+
     def test_a_card_answers_only_the_standing_question_it_asked(self):
         seat = Seat(self.home, "acme")
         self.standing(seat, ASKED[LAYOUT], ASKED[NAMING])
-        self.answer(seat, card(NAMING, SCOPE, answers={NAMING: "snake_case (Recommended)",
+        self.answer(seat, card(LAYOUT, SCOPE, answers={LAYOUT: "Compact (Recommended)",
                                                        SCOPE: "Local (Recommended)"}))
         self.assertEqual(settled(self.home, "acme", "working"), ("acme  working", "-"))
-        self.stop(seat, ASKED[LAYOUT])
-        self.assertEqual(settled(self.home, "acme", "needs you", ASKED[LAYOUT]),
-                         ("acme  needs you", ASKED[LAYOUT]))
+        self.naming_remains(seat)
 
     def test_a_card_answers_its_kept_question_and_leaves_the_other_kept(self):
         seat = Seat(self.home, "beta", screen="claude-working-pane.txt")
@@ -122,15 +132,7 @@ class NativeCardAnswerScope(unittest.TestCase):
         self.ask(seat, ASKED[LAYOUT], ASKED[NAMING])
         self.assertEqual(why(self.home, "beta"), ("beta  working", "-"))
         self.answer(seat, card(LAYOUT, answers={LAYOUT: "Compact (Recommended)"}))
-        self.stop(seat, ASKED[NAMING])
-        self.assertEqual(settled(self.home, "beta", "needs you", ASKED[NAMING]),
-                         ("beta  needs you", ASKED[NAMING]))
-        # the owner's chat answers what still stands, as it always has
-        self.hooks.prompt("snake_case", seat)
-        seat.show("claude-working-pane.txt")
-        self.assertEqual(settled(self.home, "beta", "working", "-"), ("beta  working", "-"))
-        self.stop(seat)
-        self.assertEqual(settled(self.home, "beta", "idle", "-"), ("beta  idle", "-"))
+        self.naming_remains(seat)
 
     def test_a_cancelled_empty_or_other_card_answers_nothing(self):
         for name, payload in (("gamma", card(LAYOUT)),
