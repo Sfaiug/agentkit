@@ -1,7 +1,8 @@
 """`c` is a matrix of models moved through with the keys: a session's mark flipped is saved to
 its record at once, there is always one orchestrator and one reviewer, an effort steps only within
 its model's own list, a click flips a mark, and the rows under the models run their steps.
-Without a session the matrix is the efforts alone.
+Each role's mark has the effort the model runs it at beside it; without a session the matrix is
+the efforts alone.
 
 Each test runs `menu.show_config` with a real `terminal.Keyboard` in a child process on a pty of
 its own, the way tests/test_close_and_info.py runs the menu, in a temporary HOME whose
@@ -210,9 +211,15 @@ def row(lines, name):
     return next((number, line) for number, line in enumerate(lines, 1) if drawn(line))
 
 
+def efforts(lines, name):
+    """The efforts `name`'s model row shows, orchestrator's, builds' and reviews': each its word,
+    after its cells."""
+    return [word for word in row(lines, name)[1].split() if word in menu.EFFORT_RANK]
+
+
 def effort(lines, name):
-    """The effort `name`'s model row shows: its word, after its cells."""
-    return row(lines, name)[1].split()[-1]
+    """The effort `name`'s model row shows for its orchestrator."""
+    return efforts(lines, name)[0]
 
 
 def lit(lines, name):
@@ -236,7 +243,7 @@ def highlighted(lines):
 
 def headings(lines):
     """Where the column headings are: under the meters, over the models."""
-    return next(number for number, line in enumerate(lines) if line.split()[-1:] == ["effort"])
+    return next(number for number, line in enumerate(lines) if line.split()[:1] == ["orch"])
 
 
 class Matrix(unittest.TestCase):
@@ -246,7 +253,7 @@ class Matrix(unittest.TestCase):
         self.assertTrue(lines[0].startswith("agentkit · config "), lines[0])
         # whom the marks are for, over their headings: the seat it was opened on
         self.assertEqual(lines[headings(lines) - 1].split(), ["For", "fix-api"])
-        self.assertEqual(lines[headings(lines)].split(), ["orch", "builds", "reviews", "effort"])
+        self.assertEqual(lines[headings(lines)].split(), ["orch", "builds", "reviews"])
         # each subscription's meter over the models, as on the main screen, once
         meters = " ".join(" ".join(lines[2:headings(lines) - 1]).split())
         for name in ("Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"):
@@ -256,10 +263,11 @@ class Matrix(unittest.TestCase):
         for heading in ("Claude Code", "Codex", "Muse Code", "Grok Build", "Antigravity",
                         "OpenCode"):           # each model under its harness
             self.assertIn(f"\n{heading}\n", body)
-        self.assertEqual(row(lines, "fable")[1].split(), ["›", "Fable", "5.1", "○", "□", "□", "▰▰▰▰▱",
-                                                          "xhigh"])
-        self.assertEqual(row(lines, "opus")[1].split(), ["Opus", "5.5", "●", "■", "■", "▰▰▰▰▱",
-                                                         "xhigh"])
+        # each role's mark, then the effort the model runs it at
+        self.assertEqual(row(lines, "fable")[1].split(), ["›", "Fable", "5.1", *["○", "▰▰▰▰▱", "xhigh"],
+                                                          *["□", "▰▰▰▰▱", "xhigh"] * 2])
+        self.assertEqual(row(lines, "opus")[1].split(), ["Opus", "5.5", "●", "▰▰▰▰▱", "xhigh",
+                                                         *["■", "▰▰▰▰▱", "xhigh"] * 2])
         self.assertEqual(row(lines, "haiku")[0], row(lines, "opus")[0] + 1)   # under Claude
         tail = [line.strip() for line in lines]
         self.assertIn("+ add a model", tail)
@@ -282,9 +290,9 @@ class Matrix(unittest.TestCase):
         lines = screen.frame()
         self.assertTrue(lines[0].startswith("agentkit · config "), lines[0])
         self.assertEqual(lines[headings(lines) - 1].split(), ["For", "new", "seats"])
-        self.assertEqual(row(lines, "opus")[1].split()[2:5], ["●", "■", "■"])
+        self.assertEqual(row(lines, "opus")[1].split()[2::3], ["●", "■", "■"])
         self.assertEqual(lines[-1], KEYS)
-        lines = screen.press(RIGHT * 3, lambda lines: on_effort(lines, "fable"))
+        lines = screen.press(RIGHT, lambda lines: on_effort(lines, "fable"))
         self.assertEqual(screen.path.read_bytes(), before)
         screen.press(DOWN + ENTER, lambda lines: effort(lines, "opus") == "max")
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "max")
@@ -295,7 +303,7 @@ class Matrix(unittest.TestCase):
         screen = Screen(self)
         screen.frame()
         defaults = screen.saved()["defaults"]
-        lines = screen.press(RIGHT + ENTER, lambda lines: "■" in row(lines, "fable")[1])
+        lines = screen.press(RIGHT * 2 + ENTER, lambda lines: "■" in row(lines, "fable")[1])
         self.assertEqual(screen.record()["workers"], ["opus", "astra", "fable"])
         lines = screen.press(DOWN + b" ", lambda lines: "□" in row(lines, "opus")[1])
         self.assertIn("Opus 5.5", highlighted(lines))
@@ -324,7 +332,8 @@ class Matrix(unittest.TestCase):
     def test_the_last_worker_may_go_and_the_orchestrator_builds(self):
         screen = Screen(self, workers=["opus"])
         screen.frame()
-        lines = screen.press(DOWN + RIGHT + ENTER, lambda lines: screen.record()["workers"] == [])
+        lines = screen.press(DOWN + RIGHT * 2 + ENTER,
+                             lambda lines: screen.record()["workers"] == [])
         self.assertIn("■", row(lines, "opus")[1])     # the orchestrator's own mark: it builds
         self.assertEqual(screen.record()["reviewers"], ["opus"])
         lines = screen.press(UP + ENTER, lambda lines: "■" in row(lines, "fable")[1])
@@ -336,8 +345,11 @@ class Matrix(unittest.TestCase):
         screen = Screen(self)
         screen.frame()
         before = screen.path.read_bytes()
-        # → through opus's role marks reaches its effort, and past it there is nothing
-        lines = screen.press(DOWN + RIGHT * 3, lambda lines: on_effort(lines, "opus"))
+        # → through opus's role marks and their efforts reaches its reviewers' effort, and past
+        # it there is nothing
+        lines = screen.press(DOWN + RIGHT, lambda lines: on_effort(lines, "opus"))
+        lines = screen.press(RIGHT, lambda lines: on_mark(lines, "opus"))
+        lines = screen.press(RIGHT * 3, lambda lines: on_effort(lines, "opus"))
         self.assertIn("Opus 5.5", highlighted(lines))
         lines = screen.press(RIGHT)
         self.assertTrue(on_effort(lines, "opus"), lines.lit)
@@ -354,7 +366,7 @@ class Matrix(unittest.TestCase):
         screen.frame()
         efforts = lambda: {name: held["effort"] for name, held in screen.record()["efforts"].items()}
         # opus takes low to max: up from xhigh is max, and up from max is low again
-        screen.press(DOWN + RIGHT * 3 + ENTER, lambda lines: effort(lines, "opus") == "max")
+        screen.press(DOWN + RIGHT + ENTER, lambda lines: effort(lines, "opus") == "max")
         self.assertEqual(efforts()["opus"], "max")
         screen.press(ENTER, lambda lines: effort(lines, "opus") == "low")
         self.assertEqual(efforts()["opus"], "low")
@@ -362,11 +374,11 @@ class Matrix(unittest.TestCase):
         self.assertEqual(efforts()["opus"], "medium")
         # haiku takes only none, its word alone: from xhigh it lands there, and none is all
         # there is
-        screen.press(DOWN + ENTER, lambda lines: row(lines, "haiku")[1].endswith("  none"))
+        screen.press(DOWN + ENTER, lambda lines: effort(lines, "haiku") == "none")
         self.assertEqual(efforts()["haiku"], "none")
         before = screen.path.read_bytes()
         lines = screen.press(ENTER)
-        self.assertTrue(row(lines, "haiku")[1].endswith("  none"), row(lines, "haiku")[1])
+        self.assertEqual(effort(lines, "haiku"), "none", row(lines, "haiku")[1])
         self.assertEqual(screen.path.read_bytes(), before)
         self.assertNotIn("fable", efforts())         # the seat's own: config.toml as it was
         screen.leave()
@@ -390,7 +402,7 @@ class Matrix(unittest.TestCase):
         self.assertEqual(screen.path.read_bytes(), before)
         screen.press(ENTER,                               # still that mark: it moves the seat
                      lambda lines: "●" in row(lines, "fable")[1])
-        screen.press(DOWN + RIGHT * 3, lambda lines: on_effort(lines, "opus"))
+        screen.press(DOWN + RIGHT, lambda lines: on_effort(lines, "opus"))
         before = screen.path.read_bytes()
         lines = screen.press(TAB)                         # on opus's effort
         self.assertTrue(on_effort(lines, "opus"), lines.lit)
@@ -449,9 +461,9 @@ class Matrix(unittest.TestCase):
         self.assertIn("Version abc1234 · 2026-09-29", [line.strip() for line in lines])      # on the first page
         for line in lines:
             self.assertLessEqual(terminal.cells(line), 40, line)
-        self.assertEqual(lines[headings(lines)].split(), ["orch", "builds", "reviews", "effort"])
+        self.assertEqual(lines[headings(lines)].split(), ["orch", "builds", "reviews"])
         # what a key could not do has lines of its own, however little room the rows leave
-        lines = screen.press(DOWN + RIGHT + RIGHT + ENTER,
+        lines = screen.press(DOWN + RIGHT * 4 + ENTER,
                              lambda lines: "at least one model reviews" in "\n".join(lines))
         self.assertLessEqual(len(lines), 23)
         self.assertTrue(highlighted(lines).startswith("› Opus"), lines)     # cut, on a phone
@@ -472,7 +484,7 @@ class Matrix(unittest.TestCase):
             screen = Screen(self, workers=["opus"], rows=rows, cols=40)
             lines = screen.frame()
             self.assertLessEqual(len(lines), rows, lines)
-            self.assertTrue(highlighted(lines).startswith("› Fable"), lines)
+            self.assertEqual(highlighted(lines), row(lines, "fable")[1], lines)
             self.assertTrue(lines[-1].endswith("esc back"), lines)
             screen.leave()
         self.assertIn("Claude Code", lines)               # the harness over the highlight

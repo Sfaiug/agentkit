@@ -3315,7 +3315,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
     the cell on it the keys act on, -1 its label.  `cells` are a model row's (first, last,
     column), for a click, counted from 1 as the terminal counts. On a phone the cells give
-    way, then the label.  `scope`, whom the marks are for -- NEW_SEATS or a seat's name -- is
+    way, then the room a mark's head took (it goes over the mark and its effort), then the label.  `scope`, whom the marks are for -- NEW_SEATS or a seat's name -- is
     the For line over the headings, and a seat's efforts are its record's (config.at_efforts).
     """
     cfg = config.at_efforts(cfg, selected)
@@ -3341,17 +3341,25 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     rest = sum(2 + width for width in widths.values())
     tall = max(len(cells) for cells in levelled.values())    # the cells, before every word
     tall = tall if 2 + label + rest + 3 * (2 + tall + 2 + word) <= room else 0
+    # on a phone a mark is its glyph alone, a space before its effort, its head over the two
+    narrow = bool(selected) and 3 + rest + 3 * (2 + word) > room
+    if narrow:
+        widths = dict.fromkeys(widths, 3)
+        rest = sum(2 + width for width in widths.values())
+    gaps = {number: 1 if narrow and number >= 3 else 2 for number in order}
     # each role's words in one column after the most cells any model has, a cell-less one's too
     leads = {key: "".join(cells) + " " * (tall + 2 - len(cells)) if tall else ""
              for key, cells in levelled.items()}
     for number in EFFORT_COLUMNS:
         widths[number] = max(terminal.cells(heads[number]), *(terminal.cells(
             leads[name, number] + efforts[name, number]) for name in names))
-        rest += 2 + widths[number]
+        rest += gaps[number] + widths[number]
     label = min(label, max(1, room - 2 - rest))
     left = 2 + label                                        # the columns before the marks
+    spans = {number: widths[number] + (gaps[number + 3] + widths[number + 3] if narrow else 0)
+             for number in order if number < 3 or not narrow}
     lines = [terminal.styled((" " * left + "".join(
-        "  " + terminal.pad(heads[number], widths[number]) for number in order)).rstrip(), "dim")]
+        "  " + terminal.pad(heads[number], spans[number]) for number in spans)).rstrip(), "dim")]
     places = {}
     if scope is not None:     # cut to the width, never `For`
         named = terminal.cut(scope, max(1, room - 7))
@@ -3387,22 +3395,23 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                     lead = terminal.styled(terminal.plain(lead, True), kind) if (
                         kind == "dim" and lead) else lead
                     text = lead + (terminal.styled(text, kind) if kind else text)
-                line += "  " + (terminal.toggle(text, width, kind) if number < 3 else
+                line += " " * gaps[number] + (terminal.toggle(text, width, kind) if number < 3 else
                                 text + " " * (width - terminal.cells(text)))
+                first += gaps[number]
                 if number < 3 and moves is not None:
                     moves.append((len(lines), ("mark", name, number), text, motion.toggled(
-                        text, width, kind, at == ("model", name), first + 2)))
+                        text, width, kind, at == ("model", name), first)))
                 # a mark is its whole column; an effort is its own text, cells and all
-                cells.append((first + 2, first + 1 + (width if number < 3
-                                                      else terminal.cells(text)), number))
+                cells.append((first, first - 1 + (width if number < 3
+                                                  else terminal.cells(text)), number))
                 if number >= 3 and moves is not None and len(levels[name]) > 1:
                     moves.append((len(lines), ("effort", name, number), efforts[name, number],
                                   _effort_moves(levels[name], efforts[name, number], kind,
                                                 at == ("model", name),
-                                                first + 2 + terminal.cells(leads[name, number]),
-                                                first + 2 if leads[name, number] and not note
+                                                first + terminal.cells(leads[name, number]),
+                                                first if leads[name, number] and not note
                                                 else None)))
-                first += 2 + width
+                first += width
             places[len(lines)] = (("model", name), cells)
             lines.append(terminal.highlight(line.rstrip()) if at == ("model", name)
                          else line.rstrip())
@@ -3470,8 +3479,9 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
     `seat`'s (name, record) to its record (efforts_saved), else to the entry new seats take; one
     set to an effort it does not take lands on its first, and a worker's stepped onto the
     effort itself is unset again (_follows), while the effort's own step moves no other role:
-    each role's effort is set beside its own mark.  The efforts are read `now`, off the catalog already in hand (config.catalog_now): a listing
-    never stands between the key and its frame.  What to say under the matrix, or ""."""
+    each role's effort is set beside its own mark.  The efforts are read `now`, off the catalog
+    already in hand (config.catalog_now): a listing never stands between the key and its frame.
+    What to say under the matrix, or ""."""
     entry, key = cfg["models"][name], config.ROLE_EFFORTS[role]
     try:
         levels = config.efforts(entry.get("harness"), entry.get("model"), config.catalog_now)
