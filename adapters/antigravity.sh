@@ -13,7 +13,7 @@
 #                                  one that does not, so an Antigravity seat is given no id
 #                     install      -> Google's installer, unless agy is already here
 #                     login        -> `agy` in the terminal (a URL, then the code pasted back),
-#                                  unless already logged in
+#                                  ended once signed in, unless already logged in
 #                     login-end    -> {"email","ends"}: whose the login is; `ends` is null, since a
 #                                  Google refresh token ends only when revoked
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
@@ -243,8 +243,16 @@ login)
   command -v agy >/dev/null || { echo "antigravity.sh login: agy is not installed" >&2; exit 2; }
   logged_in && { echo "agy: already logged in"; exit 0; }
   [ -t 0 ] || { echo "agy: not logged in; run \`$SIGNIN\` in a terminal, open the URL it prints and paste the code back" >&2; exit 1; }
-  echo "agy: choose Google OAuth, open the URL, paste the code back, then leave with /exit"
-  agy ${DATA:+"$DATA"} ;;
+  echo "agy: choose Google OAuth, open the URL and paste the code back"
+  # agy 1.4.7 has no login of its own, only the TUI, so the sign-in ends here: once the token
+  # file holds a refresh token, which it held none of above, agy is sent TERM -- it then
+  # leaves the screen and the terminal as it found them.  Behind `&` and still in this
+  # script's process group, agy keeps the terminal, and `<&0` hands it this stdin, not the
+  # /dev/null a background command gets.  An owner who quits first is signed in or not.
+  agy ${DATA:+"$DATA"} <&0 & pid=$!
+  while kill -0 "$pid" 2>/dev/null && ! logged_in; do sleep 0.5; done
+  kill "$pid" 2>/dev/null; wait "$pid"
+  logged_in || exit 1 ;;
 login-end)
   # A Google refresh token ends only when revoked, which shows only once `auth` says so.  The
   # email is the id token's own claim, decoded here and never printed with the token.

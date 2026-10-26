@@ -36,12 +36,17 @@ STUB = """#!/usr/bin/env bash
 # canned agy for tests/test_antigravity.py: --version answers, `models` renews the login the
 # way agy does -- $STUB_RENEWED, when set, written over the token file of the data directory
 # it was given -- and anything else prints $STUB_STDERR on stderr, cats $STUB_EVENTS and exits
-# $STUB_RC.  Every argv lands in $STUB_ARGV_LOG, the session bus and API key it was handed in
+# $STUB_RC.  No argument is the TUI: on a terminal, its pid in $STUB_PID, it signs in a moment
+# later -- $STUB_SIGNIN, when set, written over the token file -- and waits as the TUI does,
+# or, with none, the owner quits.  Every argv lands in $STUB_ARGV_LOG, the session bus and API key it was handed in
 # $STUB_ENV_LOG and whatever stdin held in $STUB_STDIN_LOG, for the assertions.
 [ -n "${STUB_ARGV_LOG:-}" ] && printf '%s\\n' "$*" >>"$STUB_ARGV_LOG"
 [ -n "${STUB_ENV_LOG:-}" ] &&
   printf '%s|%s\\n' "${DBUS_SESSION_BUS_ADDRESS-}" "${GEMINI_API_KEY-}" >>"$STUB_ENV_LOG"
 data=antigravity-cli; case "${1:-}" in --app_data_dir=*) data=${1#*=}; shift ;; esac
+[ $# -eq 0 ] && { [ -t 0 ] || exit 3; echo $$ >"$STUB_PID"; sleep 0.3
+  [ -n "${STUB_SIGNIN:-}" ] || exit 0
+  cp -- "$STUB_SIGNIN" "$HOME/.gemini/$data/antigravity-oauth-token"; exec sleep 60; }
 [ "${1:-}" = --version ] && { echo "1.2.9-test"; exit 0; }
 [ "${1:-}" = models ] && { [ -z "${STUB_RENEWED:-}" ] ||
   cp -- "$STUB_RENEWED" "$HOME/.gemini/$data/antigravity-oauth-token"; exit 0; }
@@ -448,6 +453,27 @@ class Antigravity(unittest.TestCase):
         self.assertIn("no hooks installed", proc.stdout)
         self.assertEqual([p.name for p in (self.home / ".gemini").rglob("*")
                           if p.is_file()], ["antigravity-oauth-token"])
+
+    def test_login_returns_once_signed_in(self):
+        # signed in, agy is ended long before its own wait would; quit unsigned, login fails
+        self.write_token("dummy-refresh")
+        signed = self.root / "signed-in"
+        self.token.rename(signed)
+        self.write_token("")
+        pid = self.root / "agy.pid"
+        for env, rc in (({"STUB_SIGNIN": str(signed)}, 0), ({}, 1)):
+            master, tty = os.openpty()
+            try:
+                proc = self.adapter("login", stdin=tty, timeout=30,
+                                    env={"STUB_PID": str(pid), **env})
+            finally:
+                os.close(tty)
+                os.close(master)
+            self.assertEqual(proc.returncode, rc, proc.stderr)
+            self.assertIn("paste the code back", proc.stdout)
+            with self.assertRaises(ProcessLookupError):
+                os.kill(int(pid.read_text()), 0)
+            self.write_token("")
 
     # --- accounts ------------------------------------------------------------
     def test_a_named_account_uses_its_own_login_and_the_usual_conversations(self):
