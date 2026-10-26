@@ -797,8 +797,8 @@ fi
 
 # ==== d, closing: x and Stop stop the seat ==================================
 if doing d && [ -n "$SEATLOGIN" ]; then
-  # x takes the row off at once and stops the seat in a process of its own; `p past` comes
-  # on the key line once a read finds the seat the owner stopped, so the stop has ended.
+  # x takes the row off at once and stops the seat in a process of its own, which the menu
+  # does not wait for: `p past` on the key line says only that the row went.
   cat >"$WORK/menu3.exp" <<EXP
 expect 120 $MENU
 send x
@@ -811,8 +811,12 @@ EXP
   drive menu3 xterm-256color ak
   D3=$?
   # A stopped seat stays listed, `idle`; only a seat whose process is gone reads closed by
-  # the owner, so one Stop left running fails here whatever its word.
-  as 'ak orch why atoll' >"$WORK/orch-after.txt" 2>&1
+  # the owner, so one Stop still running after a minute fails here whatever its word.
+  for _ in $(seq 60); do
+    as 'ak orch why atoll' >"$WORK/orch-after.txt" 2>&1
+    grep -q '^  reason: *session closed by the owner' "$WORK/orch-after.txt" && break
+    sleep 1
+  done
   must "x and Stop did not stop the seat" test "$D3" = 0
   must "atoll does not read closed by the owner" \
     grep -q '^  reason: *session closed by the owner' "$WORK/orch-after.txt"
