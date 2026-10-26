@@ -104,7 +104,7 @@ class EffortCells(unittest.TestCase):
         self.assertEqual(row(lines, "haiku")[1].split(),
                          ["›", *FULL["haiku"].split(), "○", "□", "□", "none"])
         self.assertEqual([cell for cell in cells if cell[0] == row(lines, "haiku")[0]], [])
-        self.assertEqual(screen.saved()["models"]["haiku"]["effort"], "none")
+        self.assertEqual(screen.effort("haiku"), "none")
         screen.leave()
 
     def test_a_step_moves_the_cells_it_changes_in_turn_and_the_highest_shimmers_once(self):
@@ -115,7 +115,7 @@ class EffortCells(unittest.TestCase):
         # full but dim and then stand open and dim
         cells = moved(screen, f"\x1b[<0;{first + 1};{number}M\x1b[<0;{first + 1};{number}m"
                       .encode())
-        self.assertEqual(screen.saved()["models"]["opus"]["effort"], "medium")
+        self.assertEqual(screen.effort("opus"), "medium")
         self.assertEqual({(at, column) for at, column, _, _ in cells},
                          {(number, first + 3), (number, first + 2)})
         self.assertEqual([column for _, column, text, _ in cells if text == "▱"],
@@ -135,7 +135,7 @@ class EffortCells(unittest.TestCase):
         # the word, written whole from its first cell
         moved(screen, ENTER)
         cells = moved(screen, f"\x1b[<0;{word};{number}M\x1b[<0;{word};{number}m".encode())
-        self.assertEqual(screen.saved()["models"]["opus"]["effort"], "max")
+        self.assertEqual(screen.effort("opus"), "max")
         self.assertEqual({column for at, column, _, _ in cells if at == number},
                          {first + 4, word})
         words = [cell for cell in cells if cell[1] == word]
