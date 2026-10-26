@@ -277,7 +277,8 @@ def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=No
             config.FIRST_PROMPT_ENV: line or ""}
     told.update(harness_plugin(entry["harness"]).checked(told[config.ACCOUNT_ENV]))
     proc = subprocess.run([str(adapter), "interactive", entry["model"],
-                           config.role_effort(entry, "orchestrator"),
+                           config.seat_effort(cfg, os.environ.get(config.SESSION_ENV), name,
+                                              "orchestrator"),
                            *([conversation] if conversation else []),
                            *(["new"] if conversation and fresh else [])],
                           capture_output=True, encoding="utf-8", errors="replace",

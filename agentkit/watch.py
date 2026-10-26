@@ -1596,7 +1596,7 @@ def follow_model(cfg, name):
     launched = _stamp(record.get("launched"))
     if not ran or launched is not None and not (ran[2] or 0) > launched:
         return
-    kept, models = record["orchestrator"], cfg["models"]
+    kept, models = record["orchestrator"], config.at_efforts(cfg, record)["models"]
     runs = [each for each in (kept, *config.offered(cfg))
             if (models[each]["harness"], models[each]["model"]) == (entry["harness"], ran[0])]
     chosen = next((each for each in runs if models[each].get("effort") == ran[1]),

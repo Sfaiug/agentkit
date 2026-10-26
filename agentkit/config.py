@@ -820,7 +820,9 @@ def save(cfg, defaults=None):
     the 0600 install.sh gave it: a replace inherits the temp file's mode, not the old one's.
     `[defaults]` is written as `defaults`, a creation's (remember_defaults), and otherwise as
     the file has it, whatever `cfg` holds: a menu open for hours holds an older one, and a
-    model removed since is only passed over in memory (load).
+    model removed since is only passed over in memory (load).  Every seat first holds the
+    efforts the entries load gives it, the shipped default's for a file with none
+    (keep_efforts), so none moves with them.
     """
     path = HOME / CONFIG_NAME
     if defaults is None:
@@ -829,6 +831,12 @@ def save(cfg, defaults=None):
         except Error:
             defaults = None       # nothing readable to keep: `cfg`'s are written
     text = dump(cfg if defaults is None else {**cfg, "defaults": defaults})
+    try:
+        models = load()["models"]
+    except Error:
+        models = {}         # no entries readable: no seat had efforts off them to keep
+    for name in session_records():
+        keep_efforts(models, name)
     ensure_dirs()
     tmp = path.with_suffix(".tmp")
     tmp.write_text(text)
@@ -868,6 +876,40 @@ def worker_effort(cfg, name, role):
         return role_effort(model(cfg, name), role) if name else None
     except (Error, KeyError):       # no such entry, or a config that configures no models
         return None
+
+
+def efforts_of(entry):
+    """The effort keys (ROLE_EFFORTS) an entry sets, as a record's `efforts` holds a model's."""
+    return {key: entry[key] for key in ROLE_EFFORTS.values() if key in entry}
+
+
+def at_efforts(cfg, record):
+    """`cfg` as the seat or run `record` runs it: each model its `efforts` names at those
+    efforts in place of its entry's own, every other at its entry's: a seat's record holds those
+    of each model it runs (own_efforts), and a run's receipt every model's as launched."""
+    held = (record or {}).get("efforts") or {}
+    if not held:
+        return cfg
+    return {**cfg, "models": {
+        name: {**{key: value for key, value in entry.items() if key not in ROLE_EFFORTS.values()},
+               **held[name]} if name in held and isinstance(entry, dict) else entry
+        for name, entry in cfg["models"].items()}}
+
+
+def run_efforts(cfg, record):
+    """What a run's receipt records as `efforts`: every model's, at the seat `record`'s."""
+    return {name: efforts_of(entry) for name, entry in at_efforts(cfg, record)["models"].items()
+            if isinstance(entry, dict)}
+
+
+def seat_effort(cfg, seat, name, role):
+    """The effort seat `seat` runs model `name` at in `role`: at_efforts of its record, the
+    entry's for no seat or one with no record yet; None where `name` is no entry."""
+    try:
+        record = load_session(cfg, seat, required=False) if seat else None
+    except Error:
+        record = None
+    return worker_effort(at_efforts(cfg, record), name, role)
 
 
 def model_name(cfg, name):
@@ -1076,6 +1118,10 @@ def _validate_session(cfg, name, data, prune=False):
                     model(cfg, worker)
                 except Error as exc:
                     raise Error(f"{session_path(name)}: {exc}") from None
+    efforts = data.get("efforts", {})
+    if not isinstance(efforts, dict) or any(not isinstance(held, dict) or not isinstance(
+            held.get("effort"), str) for held in efforts.values()):
+        raise Error(f"{session_path(name)}: efforts must give each model its effort")
     # the orchestrator's own model may work for it too: nothing here excludes one from the other
     # Whatever else the record carries -- where the seat ran, when, and the conversation the
     # harness kept -- is handed back untouched: only the model fields are this file's to judge.
@@ -1122,6 +1168,7 @@ def save_session(cfg, name, orchestrator, workers, extra=None):
                                               **({"reviewers": list(reviewers)}
                                                  if reviewers is not None else {}),
                                               **(extra or {})})
+    selection = own_efforts(cfg["models"], name, selection)
     ensure_dirs()
     with _record_lock(session_path(name)):
         _write_json(session_path(name), selection, prepare=False)
@@ -1188,10 +1235,58 @@ def update_session(name, **fields):
                 data.pop(key, None)
             else:
                 data[key] = value
+        if fields.keys() & {"orchestrator", "workers", "reviewers"}:
+            try:        # a model the seat takes on runs at its entry's efforts as of now
+                data = own_efforts(load()["models"], name, data)
+            except Error:
+                pass
         # The record's directory already exists. In particular, project inference while
         # listing seats must not prepare or change metadata on run/worktree directories.
         _write_json(path, data, prepare=False)
     return data
+
+
+def change_efforts(name, change):
+    """Seat `name`'s `efforts` as `change` makes them of its record as it stands, read, changed
+    and written under the record's lock, so no other writer's step is lost or undone: the
+    record as written, or None for a seat with no record."""
+    path = session_path(name)
+    with _record_lock(path):
+        data = _read_json(path)
+        if not isinstance(data, dict) or "renamed" in data:
+            return None
+        efforts = change(data)
+        if efforts != data.get("efforts"):
+            data["efforts"] = efforts
+            _write_json(path, data, prepare=False)
+    return data
+
+
+def hold_efforts(name, efforts):
+    """Seat `name`'s efforts on each model `efforts`, {model: its effort keys}, names, every
+    other as its record holds it (change_efforts)."""
+    return change_efforts(name, lambda data: {**(data.get("efforts") or {}), **efforts})
+
+
+def own_efforts(models, name, data):
+    """Seat `name`'s record `data` holding the efforts of each model it runs: one it holds none
+    for takes its entry's in `models`, the defaults, once -- at the seat's creation, a model
+    added to it, the first read of a record from before, or before the entries change (save)
+    -- so an entry changed since moves no seat.  The weekly audit's seat, whose models are
+    [audit]'s, goes on with the entries'."""
+    from . import audit     # here, not at the top: audit imports this module
+    held = data.get("efforts") or {}
+    runs = [data.get("orchestrator"), *(data.get("workers") or ()), *(data.get("reviewers") or ())]
+    taken = {model: efforts_of(models[model]) for model in runs if isinstance(model, str)
+             and isinstance(models.get(model), dict) and model not in held}
+    if not taken or normalize_session(name) == resolve_session(audit.NAME):
+        return data
+    return {**data, "efforts": {**held, **taken}}
+
+
+def keep_efforts(models, name):
+    """own_efforts for seat `name`'s record as it stands, under its lock (change_efforts)."""
+    return change_efforts(name, lambda data: own_efforts(models, name, data).get("efforts"))
 
 
 def _session_files():
@@ -1236,7 +1331,7 @@ def load_session(cfg, name, required=True):
 
     A model the config no longer has is passed over in what comes back
     (_validate_session), so a seat whose models changed under it still reads; the file
-    itself is left as it was.
+    itself is left as it was, but for the efforts a record from before is given (own_efforts).
     """
     name = resolve_session(name)
     path = session_path(name)
@@ -1245,7 +1340,15 @@ def load_session(cfg, name, required=True):
         if not required:
             return None
         raise Error(f"{SESSION_ENV}={name!r}, but {path} does not exist")
-    return _validate_session(cfg, name, data, prune=True)
+    selection = _validate_session(cfg, name, data, prune=True)
+    owned = own_efforts(cfg["models"], name, selection)
+    if owned is not selection:
+        try:
+            written = keep_efforts(cfg["models"], name)
+        except OSError:
+            written = None      # unwritable: held for this read alone
+        owned = {**owned, "efforts": (written or {}).get("efforts") or owned["efforts"]}
+    return owned
 
 
 def rename_session(old, new):
