@@ -64,7 +64,13 @@ def read_state(run_dir):
 
 
 def run_dirs():
-    return sorted(d for d in config.RUNS.iterdir() if d.is_dir()) if config.RUNS.exists() else []
+    # Sorted as strings: comparing thousands of Paths was most of a tick's reads of the runs.
+    try:
+        with os.scandir(config.RUNS) as entries:
+            return [Path(name) for name in sorted(entry.path for entry in entries
+                                                  if entry.is_dir())]
+    except FileNotFoundError:
+        return []
 
 
 def process_owner(pid=None):
