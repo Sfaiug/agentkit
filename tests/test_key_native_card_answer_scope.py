@@ -2,9 +2,10 @@
 
 A seat's questions recorded with `ak notify needs`, standing or kept back mid-turn, wait for
 the owner.  Claude Code's AskUserQuestion card hands its PostToolUse hook the owner's answers
-keyed by the card's own question words: a recorded question it names is answered, every other
-stands, and the turn's end shows it as `needs you` again.  A card cancelled or left empty
-answers nothing.  Black-box: the program `AK_BIN` names runs from outside through
+keyed by the card's own question words, the choices it showed beside them: a recorded question
+it names is answered, whether recorded with those choices or without, every other stands, and
+the turn's end shows it as `needs you` again.  A card cancelled or left empty, or showing other
+choices, answers nothing.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, before seats of tests/fixtures/akseat.py whose hooks fire as their
 harness fires them (tests/fixtures/hookdrive.py).
 """
@@ -23,14 +24,19 @@ STOP = {"background_tasks": [], "stop_hook_active": False}
 LAYOUT = "Which layout should acme use?"
 NAMING = "Which naming should acme use?"
 SCOPE = "Which audit scope should acme use?"
+CHOICES = {LAYOUT: ["Compact (Recommended)", "Wide"], NAMING: ["snake_case (Recommended)", "camelCase"],
+           SCOPE: ["Local (Recommended)", "Global"]}
+# each as the seat records it, its choices in its words, as Claude Code 2.1.305 seats did
+ASKED = {q: f"{q} Options: {', '.join(shown)}." for q, shown in CHOICES.items()}
 UPDATE = "Run fix-api ended: merged."     # a run update ak types, the owner's words in none
 
 
-def card(*asked, answers=None):
-    """Claude Code's PostToolUse for its AskUserQuestion card, with the owner's `answers`
-    keyed by the question each answers, as its native result keeps them."""
+def card(*asked, answers=None, shown=None):
+    """Claude Code 2.1.305's PostToolUse for its AskUserQuestion card, each question showing
+    its choices (or `shown`), with the owner's `answers` keyed by the question alone."""
     questions = [{"question": q, "header": "Pick", "multiSelect": False,
-                  "options": [{"label": "Local (Recommended)"}, {"label": "Global"}]}
+                  "options": [{"label": label, "description": f"{label} for acme."}
+                              for label in shown or CHOICES[q]]}
                  for q in asked]
     return {"tool_name": "AskUserQuestion", "tool_use_id": "toolu_acme",
             "tool_input": {"questions": questions},
@@ -46,10 +52,12 @@ def why(home, seat):
                           if line.strip().startswith("reason:"))
 
 
-def settled(home, seat, word, bound=10):
-    """`why` once the seat reads that word: a hook's look at the seat runs a moment after it."""
+def settled(home, seat, word, reason=None, bound=10):
+    """`why` once the seat reads that word, and that reason where one is given: a hook's look at
+    the seat, an answer's too, runs a moment after it."""
     deadline = time.monotonic() + bound
-    while (got := why(home, seat))[0] != f"{seat}  {word}" and time.monotonic() < deadline:
+    while ((got := why(home, seat))[0] != f"{seat}  {word}" or reason not in (None, got[1])) \
+            and time.monotonic() < deadline:
         time.sleep(0.1)
     return got
 
@@ -71,12 +79,22 @@ class NativeCardAnswerScope(unittest.TestCase):
         fired = self.hooks.fire("PostToolUse", payload, seat=seat.name, pane=seat)
         self.assertEqual(fired.code, 0, fired.err)
 
-    def stop(self, seat, *said):
-        """The turn ends, its closing chat saying `said`."""
-        seat.show("claude-prompt-pane.txt")
-        chat = hookdrive.transcript(self.home, seat.name, *said) if said else None
-        self.hooks.fire("Stop", {**STOP, **({"transcript_path": chat} if chat else {})},
-                        seat=seat.name, pane=seat)
+    def stop(self, seat, said=""):
+        """The turn ends, its closing chat saying `said`; a Stop sent back goes on as Claude
+        Code's turn does, its model closing again with what the hook asked, until one stands."""
+        for again in range(4):
+            seat.show("claude-prompt-pane.txt")
+            chat = hookdrive.transcript(self.home, seat.name, said) if said else None
+            fired = self.hooks.fire("Stop", {**STOP, "stop_hook_active": again > 0,
+                                             **({"transcript_path": chat} if chat else {})},
+                                    seat=seat.name, pane=seat)
+            back = [out["reason"] for out in fired.said if out.get("decision") == "block"]
+            print("STOP", seat.name, again, time.monotonic(), [b[:60] for b in back], file=sys.stderr)
+            if not back:
+                return
+            seat.show("claude-working-pane.txt")
+            said = " ".join((said, *back))
+        self.fail(f"every Stop was sent back: {back}")
 
     def standing(self, seat, *questions):
         """Questions recorded and shown at a turn's end, then a run update starts a new turn."""
@@ -90,38 +108,41 @@ class NativeCardAnswerScope(unittest.TestCase):
 
     def test_a_card_answers_only_the_standing_question_it_asked(self):
         seat = Seat(self.home, "acme")
-        self.standing(seat, LAYOUT, NAMING)
-        self.answer(seat, card(NAMING, SCOPE, answers={NAMING: "Local (Recommended)",
+        self.standing(seat, ASKED[LAYOUT], ASKED[NAMING])
+        self.answer(seat, card(NAMING, SCOPE, answers={NAMING: "snake_case (Recommended)",
                                                        SCOPE: "Local (Recommended)"}))
         self.assertEqual(settled(self.home, "acme", "working"), ("acme  working", "-"))
-        self.stop(seat, LAYOUT)
-        self.assertEqual(settled(self.home, "acme", "needs you"), ("acme  needs you", LAYOUT))
+        self.stop(seat, ASKED[LAYOUT])
+        self.assertEqual(settled(self.home, "acme", "needs you", ASKED[LAYOUT]),
+                         ("acme  needs you", ASKED[LAYOUT]))
 
     def test_a_card_answers_its_kept_question_and_leaves_the_other_kept(self):
         seat = Seat(self.home, "beta", screen="claude-working-pane.txt")
         self.hooks.prompt("go", seat)
-        self.ask(seat, LAYOUT, NAMING)
+        self.ask(seat, ASKED[LAYOUT], ASKED[NAMING])
         self.assertEqual(why(self.home, "beta"), ("beta  working", "-"))
-        self.answer(seat, card(LAYOUT, answers={LAYOUT: "Global"}))
-        self.stop(seat, NAMING)
-        self.assertEqual(settled(self.home, "beta", "needs you"), ("beta  needs you", NAMING))
+        self.answer(seat, card(LAYOUT, answers={LAYOUT: "Compact (Recommended)"}))
+        self.stop(seat, ASKED[NAMING])
+        self.assertEqual(settled(self.home, "beta", "needs you", ASKED[NAMING]),
+                         ("beta  needs you", ASKED[NAMING]))
         # the owner's chat answers what still stands, as it always has
         self.hooks.prompt("snake_case", seat)
         seat.show("claude-working-pane.txt")
-        self.assertEqual(settled(self.home, "beta", "working"), ("beta  working", "-"))
+        self.assertEqual(settled(self.home, "beta", "working", "-"), ("beta  working", "-"))
         self.stop(seat)
-        self.assertEqual(settled(self.home, "beta", "idle"), ("beta  idle", "-"))
+        self.assertEqual(settled(self.home, "beta", "idle", "-"), ("beta  idle", "-"))
 
-    def test_a_cancelled_or_empty_card_answers_nothing(self):
+    def test_a_cancelled_empty_or_other_card_answers_nothing(self):
         for name, payload in (("gamma", card(LAYOUT)),
-                              ("delta", card(LAYOUT, answers={LAYOUT: " "}))):
+                              ("delta", card(LAYOUT, answers={LAYOUT: " "})),
+                              ("epsilon", card(LAYOUT, answers={LAYOUT: "Wide"}, shown=["Wide"]))):
             with self.subTest(name):
                 seat = Seat(self.home, name)
-                self.standing(seat, LAYOUT)
+                self.standing(seat, ASKED[LAYOUT])
                 self.answer(seat, payload)
-                self.stop(seat, LAYOUT)
-                self.assertEqual(settled(self.home, name, "needs you"),
-                                 (f"{name}  needs you", LAYOUT))
+                self.stop(seat, ASKED[LAYOUT])
+                self.assertEqual(settled(self.home, name, "needs you", ASKED[LAYOUT]),
+                                 (f"{name}  needs you", ASKED[LAYOUT]))
 
 
 if __name__ == "__main__":

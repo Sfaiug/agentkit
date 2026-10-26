@@ -181,16 +181,17 @@ main() {
     news "$payload" "$owner" "$said"
   # The owner's answer to the harness's own question tool is their word as a prompt is, and
   # answers only the questions it names: by their words, or by an id its call gives the words
-  # of.  A card cancelled or left empty, any other event, and a sub-agent's tool say nothing
-  # of theirs.
+  # of, each beside the choices the card showed with it (`notify.replied`).  A card cancelled
+  # or left empty, any other event, and a sub-agent's tool say nothing of theirs.
   elif [[ $event != PostToolUse ]] ||
     "$jq" -e -f "${BASH_SOURCE[0]%/*}/sub-agent.jq" <<<"$payload" >/dev/null 2>&1 ||
-    ! said=$("$jq" -ec '.tool_input as $asked | (.tool_input.answers // .tool_response.answers)
+    ! said=$("$jq" -ec '. as $call | (.tool_input.answers // .tool_response.answers)
                         | objects | [to_entries[] | select([.value | .. | strings
                                                            | select(test("\\S"))] != [])
-                          | .key as $id | first(($asked.questions[]? | objects
-                                                | select(.id == $id) | .question | strings),
-                                               $id)]
+                          | .key as $id
+                          | (first($call.tool_input.questions[]?, $call.tool_response.questions[]?
+                                   | objects | select(.id == $id or .question == $id)) // {})
+                          | [(.question | strings) // $id, (.options[]? | .label? // . | strings)]]
                         | select(. != [])' <<<"$payload" 2>/dev/null); then
     owner=false
   fi

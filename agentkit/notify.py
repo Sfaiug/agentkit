@@ -34,6 +34,7 @@ import itertools
 import json
 import math
 import os
+import re
 import secrets
 import stat
 import sys
@@ -543,8 +544,16 @@ def answered(session, at, typed=None, replies=None):
 
 def replied(replies, question, card):
     """Does a native card's reply name that question: by its card's id (`question_ids`), or,
-    asked on none, by its words, as a card's answer may name what it asked."""
-    return card in replies if card else question_key(question) in map(question_key, replies)
+    asked on none, by its words, alone or followed by exactly the choices that card showed
+    with them, however the seat listed those; first words alone are another question's."""
+    if card:
+        return card in replies
+    from .questions import words
+    # the separators a seat lists choices with, and its closing stop, are no choice's words
+    plain = lambda text: " ".join(re.sub(r"[,;.]", " ", words(text)).split()).casefold()
+    return any(plain(question) in {plain(asked), plain(f"{asked} Options: " + " · ".join(shown))}
+               for asked, *shown in ([reply] if isinstance(reply, str) else reply
+                                     for reply in replies))
 
 
 def spoken_at(notice):
