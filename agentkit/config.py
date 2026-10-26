@@ -1,6 +1,5 @@
 """config.toml loading, model resolution, and every agentkit path."""
 
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 import datetime
 import fcntl
@@ -691,10 +690,16 @@ def catalog(harness, cfg=None):
     now, logins = time.monotonic(), _logins(cfg, harness)
     asked = [account for account in logins if now - _CATALOGS.get(
         (harness, account), (-CATALOG_TTL, []))[0] >= CATALOG_TTL]
-    with ThreadPoolExecutor(max(1, len(asked))) as pool:
-        for account, listed in zip(asked, pool.map(
-                lambda account: _listed(harness, account, logins[account]), asked)):
-            _CATALOGS[harness, account] = (now, listed)
+
+    def ask(account):
+        _CATALOGS[harness, account] = (now, _listed(harness, account, logins[account]))
+    # threads of its own, never concurrent.futures: importing that registers an exit hook, and
+    # config is imported at exit too (a fake adapter writing its hand-in), where that raises
+    asking = [threading.Thread(target=ask, args=(account,), daemon=True) for account in asked]
+    for thread in asking:
+        thread.start()
+    for thread in asking:
+        thread.join()
     return catalog_held(harness, cfg)
 
 
