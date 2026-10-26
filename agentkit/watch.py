@@ -7242,22 +7242,32 @@ def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None, typed
 
     As a finished run is: only at its prompt, so a turn in flight means the next tick
     tries again, and with the composer's mark kept across retries, so a line whose Enter
-    did not land is entered and never typed a second time.  The seat's name when the line was
-    told, else None.
+    did not land is entered there and never typed a second time, into it or another seat.
+    The seat's name when the line was told, else None.
     """
     if run_dir is not None:
         line = handback.seat_notice(line, {}, run_dir,
                                   f"run {run_dir.name}: a check failed after its merge.",
                                   "Fix the target.")
-    seat = after_merge_seat(run_state, repo_key)
+    seat = after_merge_seat(run_state, repo_key, typed)
     if seat is None:
         return None
     return seat["name"] if type_at_prompt(seat, line, log, cfg=cfg, typed=typed,
                                           receipt=receipt) else None
 
 
-def after_merge_seat(run_state, repo_key):
-    """The seat an after-merge notice goes to: its own when live, else the fallback."""
+def after_merge_seat(run_state, repo_key, typed=None):
+    """The seat an after-merge notice goes to: the one its line was typed into (`typed`, the
+    mark naming it by its `created`) while that is live, else its own when live, else the
+    fallback."""
+    marked = typed.get("seat") if isinstance(typed, dict) else None
+    if marked is not None:
+        try:
+            seat = next((s for s in orch.sessions() if s.get("created") == marked), None)
+        except (config.Error, OSError, ValueError, AttributeError):
+            return None     # the seat holding the line cannot be told from another: next pass
+        if after_merge_live(seat):
+            return seat
     try:
         session = transitions.launched_session(run_state)
     except config.Error:
