@@ -38,8 +38,8 @@ CATALOG = "m1\tModel One\tlow medium high"     # what the claude adapter's `mode
 # efforts the same, as a real Claude's does, so the bar reads the same either way.
 FABLE_LISTED = "claude-fable-5-1\tFable 5.1\tlow medium high xhigh max"
 HEADER = "# agentkit's config, written by the menu's `c` screen."
-# a seat's `c` always offers `r recommended`: opening the models screen is what reads the boards
-MARK_KEYS = "  ↑↓←→ move   ⏎ mark   r recommended   esc back"
+KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"   # wherever the highlight is
+PAGE_KEYS = "  ↑↓←→ move   ⏎ choose   esc back"   # a page under it, with no `r`
 
 def rows(screen):
     return [line.rstrip() for line in screen.split("\n")]
@@ -85,13 +85,13 @@ class ConfigScreenEdits(unittest.TestCase):
                         "sleep 86400", server=SERVER)
         self.term.wait(lambda screen: f"› 1  {SEAT}" in screen and "esc leave" in screen)
         self.term.keys("c")
-        self.term.wait(lambda screen: key_line(screen) == MARK_KEYS and "› Fable 5.1" in screen)
+        self.term.wait(lambda screen: key_line(screen) == KEYS and "› Fable 5.1" in screen)
 
     def test_enter_on_an_effort_steps_it_up_and_rewrites_config_toml_keeping_the_rest(self):
         self.fakes["claude"].answer("models", FABLE_LISTED)
         self.term.keys("Right", "Right", "Right")
-        self.term.wait(lambda screen: key_line(screen)
-                       == "  ↑↓←→ move   ⏎ effort   r recommended   esc back")
+        self.term.wait(lambda screen: "› Fable 5.1     ●      □        □     ▰▰▰▰▱   xhigh"
+                       in rows(screen))
         self.term.keys("Enter")
         self.term.wait(lambda screen: "› Fable 5.1     ●      □        □     ▰▰▰▰▰   max"
                        in rows(screen))
@@ -130,7 +130,7 @@ class ConfigScreenEdits(unittest.TestCase):
         self.asked("GPT-6-Astra")
         self.assertEqual((self.pane(), self.record.read_text()), (pane, record))
         self.term.keys("Escape")
-        screen = self.term.wait(lambda screen: key_line(screen) == MARK_KEYS)
+        screen = self.term.wait(lambda screen: key_line(screen) == KEYS)
         self.assertIn("› GPT-6-Astra  [○]     ■        ■     ▰▰▰▱▱▱  high", rows(screen))
         self.assertEqual((self.pane(), self.record.read_text()), (pane, record))
         self.assertEqual(len(self.fakes["codex"].calls("interactive")), opened)
@@ -142,7 +142,7 @@ class ConfigScreenEdits(unittest.TestCase):
         screen = self.term.wait(lambda screen: "› GPT-6-Astra  [●]     ■        ■     ▰▰▰▱▱▱  high"
                                 in rows(screen))
         self.assertIn("  Fable 5.1     ○      □        □     ▰▰▰▰▱   xhigh", rows(screen))
-        self.assertEqual(key_line(screen), MARK_KEYS)
+        self.assertEqual(key_line(screen), KEYS)
         now = json.loads(self.record.read_text())
         self.assertEqual((now["orchestrator"], now["workers"]), ("astra", ["astra"]))
         # the seat's pane runs what Codex's adapter says opens astra, in place of Fable's harness
@@ -166,34 +166,35 @@ class ConfigScreenEdits(unittest.TestCase):
     def test_add_a_model_walks_harness_model_and_effort_and_writes_the_model(self):
         self.fakes["claude"].answer("models", CATALOG)
         self.term.keys("j", "j")
-        self.term.wait(lambda screen: key_line(screen) == "  ↑↓ move   ⏎ open   r recommended   esc back")
+        screen = self.term.wait(lambda screen: "› + add a model" in rows(screen))
+        self.assertEqual(key_line(screen), KEYS)
         self.term.keys("Enter")
         # each list draws once its choices are in hand; a harness's models are asked of it
         screen = self.term.wait(lambda screen: "›   claude  Claude" in rows(screen))
         self.assertTrue(rows(screen)[0].startswith("agentkit · config · add a model"), screen)
         self.assertEqual(body(screen), ["  harness", "›   claude  Claude", "    codex   ChatGPT"])
-        self.assertEqual(key_line(screen), "  ↑↓ move   ⏎ choose   esc back")
+        self.assertEqual(key_line(screen), PAGE_KEYS)
         self.term.keys("Enter")
         screen = self.term.wait(lambda screen: "›   Model One  m1" in rows(screen))
         self.assertEqual(body(screen), ["  harness  claude · Claude", "  model",
                                         "›   Model One  m1"])
-        self.assertEqual(key_line(screen), "  ↑↓ move   ⏎ choose   esc back")
+        self.assertEqual(key_line(screen), PAGE_KEYS)
         self.term.keys("Enter")
         screen = self.term.wait(lambda screen: "›   low" in rows(screen))
         self.assertEqual(body(screen), ["  harness  claude · Claude", "  model    Model One · m1",
                                         "  effort", "›   low", "    medium", "    high"])
-        self.assertEqual(key_line(screen), "  ↑↓ move   ⏎ add   esc back")
+        self.assertEqual(key_line(screen), PAGE_KEYS)
         self.term.keys("Enter")
         # the row's cells, under whichever name the screen gives a model it has just added
         cells = "[○]     □        □     ▰▱▱     low"
-        screen = self.term.wait(lambda screen: any(line.startswith("› ") and line.endswith(cells)
-                                                   for line in rows(screen)))
+        # read once the frame is drawn down to its key line
+        screen = self.term.wait(lambda screen: key_line(screen) == KEYS and any(
+            line.startswith("› ") and line.endswith(cells) for line in rows(screen)))
         lines = rows(screen)
         row = next(line for line in lines if line.startswith("› ") and line.endswith(cells))
         # the new model sits with its harness's others, after them
         self.assertEqual(lines.index("Codex") - lines.index("Claude Code"), 3)
         self.assertEqual(lines.index(row), lines.index("Codex") - 1)
-        self.assertEqual(key_line(screen), MARK_KEYS)
         models = tomllib.loads(self.config.read_text())["models"]
         self.assertEqual(models["model-one"], {"harness": "claude", "model": "m1",
                                                "effort": "low", "provider": "anthropic"})

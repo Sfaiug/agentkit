@@ -335,7 +335,7 @@ class RuleProgress(unittest.TestCase):
         os.write(screen.master, b"\r")                  # claude, its catalog had at once
         screen.when("acme-model-x")
         os.write(screen.master, b"\r")                  # the model, its line 70 columns wide
-        screen.when(r"⏎\S* add")
+        screen.when(r"\x1b\[K  effort\r\n")              # its efforts' list, by its heading
         after = len(screen.text())
         os.write(screen.master, b"\x1b")                # back to the models, asked again
         screen.when(GLIDE.pattern, after)

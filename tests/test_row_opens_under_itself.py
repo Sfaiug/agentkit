@@ -48,7 +48,7 @@ class RowOpens(Sandbox):
 
     def screen(self, cursor=None, owned=True):
         drawn = {} if owned else None
-        keys = f"{menu.move_keys()}   {menu.KEYS}" if owned else menu.KEYS
+        keys = terminal.keys(menu.KEYS) if owned else menu.KEYS
         with patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "height", return_value=30), \
                 redirect_stdout(io.StringIO()) as out:

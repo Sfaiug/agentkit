@@ -74,12 +74,17 @@ provider = "anthropic"
 """
 ESC, UP, DOWN, RIGHT, LEFT, ENTER = b"\x1b", b"\x1b[A", b"\x1b[B", b"\x1b[C", b"\x1b[D", b"\r"
 TAB = b"\t"
-# the key lines on a seat's effort and mark: a seat's open the models screen with `r`
-EFFORT_KEYS = "  ↑↓←→ move   ⏎ effort   r recommended   esc back"
-MARK_KEYS = "  ↑↓←→ move   ⏎ mark   r recommended   esc back"
+KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"   # wherever the highlight is
+PAGE_KEYS = "  ↑↓←→ move   ⏎ choose   esc back"   # the pages under it, with no `r`
 # What a worker's own run leaves in the environment; nothing here may act on that run.
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
              "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLORTERM", "COLUMNS", "LINES")
+
+
+class Lines(list):
+    """A drawn screen's lines as they show, and `lit`: (the line, its text) of the cell the keys
+    reverse, or None: the one place the screen says which cell is at hand."""
+    lit = None
 
 
 class Screen:
@@ -158,8 +163,10 @@ class Screen:
             for part in reversed(text[after:].split("\x1b[H")[1:]):
                 if "\x1b[J" not in part:
                     continue                  # still being written
-                lines = [terminal.ANSI.sub("", line).rstrip("\r")
-                         for line in part.split("\x1b[J")[0].split("\n")[:-1]]
+                raw = part.split("\x1b[J")[0].split("\n")[:-1]
+                lines = Lines(terminal.ANSI.sub("", line).rstrip("\r") for line in raw)
+                lines.lit = next(((number, line.split("\x1b[7m")[1].split("\x1b[")[0].strip())
+                                  for number, line in enumerate(raw) if "\x1b[7m" in line), None)
                 if lines and "agentkit · config" in lines[0]:
                     return lines if where is None or where(lines) else None
             return None
@@ -208,6 +215,21 @@ def effort(lines, name):
     return row(lines, name)[1].split()[-1]
 
 
+def lit(lines, name):
+    """The text of the cell the keys reverse on `name`'s model row, or None."""
+    return lines.lit[1] if lines.lit and lines.lit[0] + 1 == row(lines, name)[0] else None
+
+
+def on_effort(lines, name):
+    """Whether the keys' highlight is on `name`'s effort: its word reversed."""
+    return lit(lines, name) in menu.EFFORT_RANK
+
+
+def on_mark(lines, name):
+    """Whether the keys' highlight is on one of `name`'s role marks."""
+    return lit(lines, name) in ("●", "■", "□", "○")
+
+
 def highlighted(lines):
     return next(line for line in lines if line.startswith("›"))
 
@@ -248,8 +270,8 @@ class Matrix(unittest.TestCase):
         version = tail.index("Version abc1234 · 2026-09-29")
         self.assertTrue(tail[version - 2].startswith("Weekly audit"), tail)
         self.assertEqual(tail[version - 1:], ["", "Version abc1234 · 2026-09-29", "",
-                                              MARK_KEYS.strip()])
-        self.assertEqual(lines[-1], MARK_KEYS)
+                                              KEYS.strip()])
+        self.assertEqual(lines[-1], KEYS)
         screen.leave()
         self.assertIn("\x1b[?1049l", screen.text())       # the terminal given back
         self.assertNotIn("<harness version>", screen.text())
@@ -261,8 +283,8 @@ class Matrix(unittest.TestCase):
         self.assertTrue(lines[0].startswith("agentkit · config "), lines[0])
         self.assertEqual(lines[headings(lines) - 1].split(), ["For", "new", "seats"])
         self.assertEqual(row(lines, "opus")[1].split()[2:5], ["●", "■", "■"])
-        self.assertEqual(lines[-1], MARK_KEYS)
-        lines = screen.press(RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
+        self.assertEqual(lines[-1], KEYS)
+        lines = screen.press(RIGHT * 3, lambda lines: on_effort(lines, "fable"))
         self.assertEqual(screen.path.read_bytes(), before)
         screen.press(DOWN + ENTER, lambda lines: effort(lines, "opus") == "max")
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "max")
@@ -315,13 +337,13 @@ class Matrix(unittest.TestCase):
         screen.frame()
         before = screen.path.read_bytes()
         # → through opus's role marks reaches its effort, and past it there is nothing
-        lines = screen.press(DOWN + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
+        lines = screen.press(DOWN + RIGHT * 3, lambda lines: on_effort(lines, "opus"))
         self.assertIn("Opus 5.5", highlighted(lines))
         lines = screen.press(RIGHT)
-        self.assertEqual(lines[-1], EFFORT_KEYS)
+        self.assertTrue(on_effort(lines, "opus"), lines.lit)
         self.assertEqual(screen.path.read_bytes(), before)    # no arrow steps an effort
         # ← comes back to the reviewer mark, which Enter flips
-        lines = screen.press(LEFT, lambda lines: lines[-1] == MARK_KEYS)
+        lines = screen.press(LEFT, lambda lines: on_mark(lines, "opus"))
         screen.press(ENTER, lambda lines: "□" in row(lines, "opus")[1])
         self.assertEqual(screen.record()["reviewers"], ["astra"])
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "xhigh")
@@ -364,14 +386,14 @@ class Matrix(unittest.TestCase):
         screen.frame()
         before = screen.path.read_bytes()
         lines = screen.press(TAB)                         # on fable's orchestrator mark
-        self.assertEqual(lines[-1], MARK_KEYS)
+        self.assertEqual(lines[-1], KEYS)
         self.assertEqual(screen.path.read_bytes(), before)
         screen.press(ENTER,                               # still that mark: it moves the seat
                      lambda lines: "●" in row(lines, "fable")[1])
-        screen.press(DOWN + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
+        screen.press(DOWN + RIGHT * 3, lambda lines: on_effort(lines, "opus"))
         before = screen.path.read_bytes()
         lines = screen.press(TAB)                         # on opus's effort
-        self.assertEqual(lines[-1], EFFORT_KEYS)
+        self.assertTrue(on_effort(lines, "opus"), lines.lit)
         self.assertIn("Opus 5.5", highlighted(lines))
         self.assertEqual(screen.path.read_bytes(), before)
         screen.press(ENTER, lambda lines: effort(lines, "opus") == "max")  # still the effort
@@ -393,8 +415,7 @@ class Matrix(unittest.TestCase):
         lines = screen.click(line.index("xhigh") + 1, number,
                              lambda lines: effort(lines, "opus") == "max")
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "max")
-        column = EFFORT_KEYS.index("esc back") + 3      # and one on `esc back` leaves, where
-                                                        # the effort's key line has it
+        column = KEYS.index("esc back") + 3      # and one on `esc back` leaves
         os.write(screen.master, f"\x1b[<0;{column};{len(lines)}M\x1b[<0;{column};{len(lines)}m"
                  .encode())
         screen.saw("<left>")
@@ -408,13 +429,13 @@ class Matrix(unittest.TestCase):
                                                 if "+ add a model" in line)]
         down = sum(1 for line in models if line.startswith(("  ", "›"))) + 2
         lines = screen.press(DOWN * down, lambda lines: highlighted(lines).startswith("› Discord"))
-        self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   r recommended   esc back")
+        self.assertEqual(lines[-1], KEYS)
         mark = len(screen.text())
         screen.press(ENTER)                               # the step, then the screen again
         screen.saw("<discord step>", after=mark)
         self.assertNotIn("\x1b[?1049l", screen.text()[mark:])   # typed on the matrix's keys
         lines = screen.press(DOWN, lambda lines: highlighted(lines).startswith("› Weekly audit"))
-        self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   r recommended   esc back")   # its step, like Discord's
+        self.assertEqual(lines[-1], KEYS)   # its step, like Discord's
         # the last stop: the build under the page is read, and never highlighted
         lines = screen.press(DOWN, lambda lines: highlighted(lines).startswith("› Weekly audit"))
         self.assertIn("Version abc1234 · 2026-09-29", [line.strip() for line in lines])

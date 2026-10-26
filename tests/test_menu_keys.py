@@ -246,7 +246,7 @@ class MenuKeys(unittest.TestCase):
         menu = Menu(self, ["seat-a", "seat-b", "seat-c"])
         lines = menu.frame()
         self.assertIn("seat-a", menu.highlighted(lines))
-        self.assertRegex(lines[-1], r"^  ↑↓ move   ⏎ open   n new   x stop   c config")
+        self.assertRegex(lines[-1], r"^  ↑↓←→ move   ⏎ choose   n new   x stop   c config")
         menu.send(DOWN)
         menu.frame(lambda lines: "seat-b" in menu.highlighted(lines))
         menu.send(b"j")
@@ -441,7 +441,7 @@ class MenuKeys(unittest.TestCase):
         self.assertIn("<lines None>", out)
         self.assertIn("<answered 'q'>", out)
         self.assertIn("<opened seat-b>", out)
-        for taken in ("\x1b[?1049h", "\x1b[?1003h", "›", "↑↓ move"):
+        for taken in ("\x1b[?1049h", "\x1b[?1003h", "›", "↑↓←→ move"):
             self.assertNotIn(taken, out)
 
     def test_the_list_selector_picks_one_or_several_and_esc_goes_back(self):

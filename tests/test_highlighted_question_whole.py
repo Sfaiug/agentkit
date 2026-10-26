@@ -120,7 +120,7 @@ class SeatQuestionWhole(Sandbox):
                             patch.object(terminal, "height", return_value=height), \
                             redirect_stdout(out):
                         menu.draw(self.cfg, [], cursor="fix-api", drawn={}, groups=groups,
-                                  keys=f"{menu.move_keys()}   {menu.KEYS}", look=False)
+                                  keys=terminal.keys(menu.KEYS), look=False)
                     lines = [terminal.ANSI.sub("", line) for line in
                              out.getvalue().split("\033[J")[0].split("\n")[:-1]]
                     # the usage and the keys stay, over the two lines every draw keeps

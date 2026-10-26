@@ -22,7 +22,7 @@ from fixtures.akbin import Home
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
-KEYS = "  ↑↓ move   ⏎ open   n new   x stop   c config   esc leave"
+KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"
 SHOWS = {"atoll-fix": "Baking…", "atoll-ask": "(shift+tab to cycle) · ← for agents"}
 NOW = int(time.time())
 

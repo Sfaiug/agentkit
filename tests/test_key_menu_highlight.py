@@ -22,7 +22,7 @@ from fixtures.akterm import Terminal
 
 PROJECT = "atoll"
 ROW = re.compile(r"([› ]) +\d+  (\S+)  ")
-PAGE = re.compile(r"  ←  (\d+) / (\d+)  →   ↑↓ move   ⏎ open")
+PAGE = re.compile(r"  ←  (\d+) / (\d+)  →   ↑↓←→ move   ⏎ choose")
 SUBSCRIPTIONS = ("Claude", "ChatGPT", "Gemini", "Grok", "MiMo", "Muse")
 WORDS = {"acme": "working", "beta": "needs you", "fix-api": "idle"}
 # Seen only on its screen, a Claude chooser is asked by the line it waits on.

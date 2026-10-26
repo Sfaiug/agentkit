@@ -100,7 +100,7 @@ class ModelsScreen(Screen):
         self.assertIn(f"Claude Code › ■ {opus} claude-opus-5-5 □ Sonnet 5.5 claude-sonnet-5-5 Codex", text)
         self.assertIn("↑↓ move space mark r take recommended esc back", text)
         # back on `c`, whose key opens the screen
-        self.assertRegex(text, r"esc back.* ↑↓←→ move ⏎ mark r recommended esc back")
+        self.assertRegex(text, r"esc back.* ↑↓←→ move ⏎ choose r recommended esc back")
         self.assertNotIn("r takes exec and review", text)
 
     def test_the_knob_steps_within_saved_at_once_and_the_recommendation_follows(self):

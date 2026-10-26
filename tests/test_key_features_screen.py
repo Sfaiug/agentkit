@@ -44,7 +44,7 @@ SWITCHES = ["               you  everyone",
             "  Beta search   ●      ○",
             "  Locked        —      ○",
             "",
-            "  ↑↓←→ move   ⏎ flip   esc back"]
+            "  ↑↓←→ move   ⏎ choose   esc back"]
 
 
 def row(screen, name):
