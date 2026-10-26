@@ -22,7 +22,6 @@ from test_config_matrix import (DOWN, ENTER, ESC, KEYS, LEFT, PAGE_KEYS, RIGHT, 
 
 # Key lines spelled outside terminal.keys, where each is, and why it is still spelled there.
 SPELLED = {
-    "orch.py _picking": "n's model picker: Enter starts there, its own task",
     "menu.py MODELS_KEYS": "the `r` screen: another session's #1517 reworks it",
     "menu.py MODEL_KEYS": "a model's own screen: it goes with c's Models page",
 }
@@ -72,7 +71,7 @@ class OneKeyLine(unittest.TestCase):
         screen.leave()
 
     def test_only_the_screens_named_spell_their_own_key_line(self):
-        self.assertLessEqual(len(SPELLED), 3)
+        self.assertLessEqual(len(SPELLED), 2)
         self.assertEqual(spelled(), set(SPELLED))
 
 

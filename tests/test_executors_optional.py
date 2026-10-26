@@ -23,14 +23,6 @@ from agentkit import config, gitcall, menu, orch, plan, run, terminal, usage
 from agentkit import record
 
 
-class Keys:
-    def take(self):
-        return True
-
-    def close(self):
-        pass
-
-
 class ExecutorsOptional(Sandbox):
     def setUp(self):
         super().setUp()
@@ -171,8 +163,7 @@ class ExecutorsOptional(Sandbox):
         self.cfg["defaults"] = {"orchestrator": "opus", "workers": [], "reviewers": ["astra"]}
         config._fall_back(self.cfg["defaults"], list(self.cfg["models"]))
         self.assertEqual(self.cfg["defaults"]["workers"], [])
-        with patch.object(terminal, "Keyboard", Keys), \
-                patch.object(terminal, "read_key", side_effect=[terminal.Key("enter")]), \
+        with patch.object(terminal, "read_key", side_effect=[terminal.Key("esc")]), \
                 patch.object(orch, "spent_note", return_value=""), redirect_stdout(io.StringIO()):
             chosen = orch.pick(self.cfg, {}, "opus")
         self.assertEqual(chosen, ("opus", [], ["astra"]))

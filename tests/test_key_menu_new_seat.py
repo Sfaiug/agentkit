@@ -24,7 +24,7 @@ from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
 ROW_KEYS = "  ⏎ start   tab models   esc back"
-PICKER_KEYS = "  ↑↓←→ move   space choose   ⏎ start   esc back"
+PICKER_KEYS = "  ↑↓←→ move   ⏎ choose   esc back"
 # The born row before a key: the pointer, its number, the caret, the name Enter alone gives it.
 BORN = re.compile(r"› 2  ▏[a-z0-9-]+ +Fable 5.1  new")
 
@@ -111,14 +111,19 @@ class NewRow(unittest.TestCase):
         records = (self.home.path / ".agentkit/state").glob("session-*.json")
         self.assertEqual([path.name for path in records], ["session-acme.json"])
 
-    def test_enter_in_the_picker_starts_the_seat_with_the_models_picked_there(self):
+    def test_enter_in_the_picker_marks_and_esc_brings_the_picks_to_the_row(self):
         self.menu.type("fix-api")
         self.menu.keys("Tab")
         self.menu.wait(PICKER_KEYS)
-        self.menu.keys("Right", "Down", "Space")    # astra no longer builds
+        self.menu.keys("Right", "Down", "Enter")    # astra no longer builds
         screen = self.menu.wait("[□]")
         self.assertEqual(under(screen, "Codex"),
                          "› GPT-6-Astra   ○     [□]       ■     high")
+        self.menu.keys("Escape")
+        screen = self.menu.wait(ROW_KEYS)
+        # the row's line names the picks: astra only reviews
+        self.assertEqual(under(screen, "› 2  fix-api▏  Fable 5.1  new"),
+                         "     Fable 5.1 ⚒◎   GPT-6-Astra ◎")
         self.menu.keys("Enter")
         record = self.opened("fix-api")
         self.assertEqual((record["orchestrator"], record["workers"], record["reviewers"]),
