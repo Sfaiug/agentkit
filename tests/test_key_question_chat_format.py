@@ -3,8 +3,9 @@
 A seat's question, recorded with `ak notify needs` mid-turn, lets its turn end once the closing
 assistant message shows the title, the recommendation and every choice: as recorded, or as a
 Markdown list, read as the recorded `a, b.`  A choice left out, its label changed (`snake case`
-for `snake_case`) or a comma dropped is not the question, and the Stop goes back with it.  Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py,
-before seats of tests/fixtures/akseat.py whose hooks fire as their harness fires them
+for `snake_case`) or a comma dropped is not the question, and the Stop goes back with it.
+Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, before
+seats of tests/fixtures/akseat.py whose hooks fire as their harness fires them
 (tests/fixtures/hookdrive.py).
 """
 
