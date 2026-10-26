@@ -326,7 +326,7 @@ def allowance_reset(cwd):
     with none left, or None: not a run's call (the tick asks again next tick), none spent, or
     no count to read.
 
-    Read off GitHub's own count, which `gh api rate_limit` spends none of, never gh's words.
+    Read off GitHub's own count, whose read spends none of it, never gh's words.
     Every gh command spends one or both, and which is not mapped: a failure of another cause
     while one is spent waits for its reset once, then fails as before.
     """

@@ -1874,8 +1874,8 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
     except (Exhausted, Stopped) as exc:
         # Both leave work a later run can pick up -- a provider that is spent, or a git or gh
         # that stopped -- and `exhausted` is the state the menu and `ak run resume` offer
-        # recovery for.  An `error` here would be a remedy nothing can act on.  Only the
-        # quota kind waits on a window: the tick resumes nothing else by itself.
+        # recovery for.  An `error` here would be a remedy nothing can act on.  Which of them
+        # the tick resumes by itself is `transitions.park_exhausted`'s to say.
         log(f"exhausted: {exc}")
         state = mark_state(run_dir, "exhausted", exc, log)
         record_result(run_dir, state, log, cfg)
