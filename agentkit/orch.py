@@ -4331,16 +4331,15 @@ def picker_lines(cfg, notes, selected, at, column, room, moves=None):
     return lines, rows, cells
 
 
-def default_crew(cfg, providers, default, like=None):
-    """(each offered model's spent note, what a new seat starts from): `default` orchestrating,
-    and `like`'s executors and reviewers -- a seat's saved selection, else [defaults] -- each
-    with something left to spend.  A group all spent falls back by tier -- a fresh model not
-    the other group's own first -- among those a run could start from, else any fresh one."""
+def default_crew(cfg, providers, default):
+    """What a new seat starts from: `default` orchestrating, and [defaults]' executors and
+    reviewers, each with something left to spend.  A group all spent falls back by tier -- a
+    fresh model not the other group's own first -- among those a run could start from, else any
+    fresh one."""
     names = config.offered(cfg)
-    notes = {name: spent_note(cfg, name, providers) for name in names}
-    fresh = [name for name in names if not notes[name]]
+    fresh = [name for name in names if not spent_note(cfg, name, providers)]
     model = next((name for name in [default, *names] if name in fresh), None)
-    base = like or cfg["defaults"]
+    base = cfg["defaults"]
     selected = {"orchestrator": model,
                 "workers": [name for name in base["workers"] if name in fresh],
                 "reviewers": [name for name in base.get("reviewers", base["workers"])
@@ -4365,17 +4364,17 @@ def default_crew(cfg, providers, default, like=None):
                 return min(tiers) if tiers else 3
 
             selected[role] = [min(pool, key=lambda name: (tier(name), fresh.index(name)))]
-    return notes, selected
+    return selected
 
 
-def pick(cfg, providers, default, like=None):
+def pick(cfg, providers, selected):
     """(orchestrator, workers, reviewers) off one screen, the new row's (`menu.born_models`).
 
-    `agentkit · new session`, Tab on the menu's new row, starts from `default_crew`'s, so with
-    every model spent nothing is chosen.  ↑/↓, k/j and the wheel move through models, ←/→
-    through roles; space, Enter or a click chooses, as on `c`, and Esc goes back to the row with
-    what is chosen.  Reviewers keep one model; executors may be empty."""
-    notes, selected = default_crew(cfg, providers, default, like)
+    `agentkit · new session`, Tab on the menu's new row, starts from the row's `selected`, spent
+    models among them.  ↑/↓, k/j and the wheel move through models, ←/→ through roles; space,
+    Enter or a click chooses, as on `c`, and Esc goes back to the row with what is chosen.
+    Reviewers keep one model; executors may be empty."""
+    notes = {name: spent_note(cfg, name, providers) for name in config.offered(cfg)}
     return _picking(cfg, providers, notes, selected)
 
 

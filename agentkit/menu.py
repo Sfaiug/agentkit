@@ -2136,7 +2136,7 @@ def born(found):
     cfg = config.load()           # the last creation's [defaults], whichever process made it
     providers = waited(lambda: usage.collect(cfg), "new session", doing=LEFT)
     default, reason = orch.choose(cfg, providers)
-    _notes, selected = orch.default_crew(cfg, providers, default)
+    selected = orch.default_crew(cfg, providers, default)
     # every model spent: launched anyway, as `orch.choose` launches its default
     selected["orchestrator"] = selected["orchestrator"] or default
     selected["reviewers"] = selected["reviewers"] or [selected["orchestrator"]]
@@ -2229,13 +2229,9 @@ def born_key(born, key, drawn):
 
 def born_models(born):
     """Tab on the born row: its models chosen on `orch.pick`'s screen, which starts from the
-    row's, and brought back to the row with Esc.  A role nothing was chosen for on a screen of
-    every model spent keeps the row's, launched anyway (`born`)."""
-    selected = born["selected"]
-    orchestrator, workers, reviewers = orch.pick(born["cfg"], born["providers"],
-                                                 selected["orchestrator"], selected)
-    born["selected"] = {"orchestrator": orchestrator or selected["orchestrator"],
-                        "workers": workers, "reviewers": reviewers or selected["reviewers"]}
+    row's, and brought back to the row with Esc."""
+    born["selected"] = dict(zip(("orchestrator", "workers", "reviewers"),
+                                orch.pick(born["cfg"], born["providers"], born["selected"])))
 
 
 def start_born(born, dry_run):

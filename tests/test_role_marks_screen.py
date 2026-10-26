@@ -172,10 +172,10 @@ class RoleMarks(Sandbox):
             self.cfg["defaults"].update(workers=workers, reviewers=reviewers)
             with self.subTest(workers=workers, reviewers=reviewers), \
                     patch.object(orch, "spent_note", side_effect=lambda cfg, name, providers:
-                                 "" if name in ("astra", "spark") else "spent"), \
-                    patch.object(terminal, "read_key", side_effect=[terminal.Key("esc")]), \
-                    redirect_stdout(io.StringIO()):
-                self.assertEqual(orch.pick(self.cfg, {}, "astra"), ("astra", *expected))
+                                 "" if name in ("astra", "spark") else "spent"):
+                self.assertEqual(orch.default_crew(self.cfg, {}, "astra"),
+                                 dict(zip(("orchestrator", "workers", "reviewers"),
+                                          ("astra", *expected))))
 
 
 class RoleMarksScreen(unittest.TestCase):

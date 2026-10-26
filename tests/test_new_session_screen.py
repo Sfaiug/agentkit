@@ -65,7 +65,7 @@ if not dry_run:     # a dry run keeps the real listing, rows, probe, notices, cr
 sys.exit(menu.loop(config.load(), dry_run=dry_run))
 """
 RIGHT, LEFT = b"\x1b[C", b"\x1b[D"
-DOWN, ENTER, ESC, SPACE, TAB = b"\x1b[B", b"\r", b"\x1b", b" ", b"\t"
+UP, DOWN, ENTER, ESC, SPACE, TAB = b"\x1b[A", b"\x1b[B", b"\r", b"\x1b", b" ", b"\t"
 SPENT = {"anthropic": {"meters": [{"name": "weekly_all", "used": 100, "exhausted": True,
                                    "resets_at": time.time() + 3 * 86400}]}}
 # every provider at 100%, openai's week with no reset anybody knows
@@ -297,18 +297,21 @@ class NewSessionScreen(unittest.TestCase):
         screen.saw("<created new astra astra astra>")
         screen.leave()
 
-    def test_with_everything_spent_nothing_is_chosen_until_a_mark_is(self):
+    def test_with_everything_spent_the_row_launches_its_default_and_marks_move_it(self):
         screen = Screen(self, providers=EVERYTHING_SPENT)
         screen.menu()
         screen.models()
         lines = screen.picker()
-        self.assertEqual([row for row in lines if "●" in row or "■" in row], [])
+        # the row's crew, as it would launch: the default orchestrating and reviewing itself
+        self.assertEqual([marks(row) for row in lines if "●" in row or "■" in row], ["●□■"])
+        self.assertIn(full("opus"), highlighted(lines))
         # a week at 100% whose reset nobody knows is spent all the same, only with no time
         self.assertEqual(len([row for row in lines if full("astra") in row and "spent" in row]), 1)
-        screen.send(ENTER)                     # Fable orchestrates
-        screen.send(RIGHT * 2 + DOWN * 2 + SPACE)  # Astra reviews
-        screen.picker(lambda lines: full("astra") in highlighted(lines)
-                      and marks(highlighted(lines)) == "○□■")
+        screen.send(UP + ENTER)                    # Fable orchestrates
+        screen.send(RIGHT * 2 + DOWN * 2 + ENTER)  # Astra reviews
+        screen.send(UP + ENTER)                    # and Opus no longer does
+        screen.picker(lambda lines: full("opus") in highlighted(lines)
+                      and marks(highlighted(lines)) == "○□□")
         screen.start()
         screen.saw("<created new fable  astra>")
         self.assertEqual(json.loads((screen.home / ".agentkit/state/session-new.json")
