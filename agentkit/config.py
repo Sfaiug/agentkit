@@ -832,11 +832,11 @@ def save(cfg, defaults=None):
             defaults = None       # nothing readable to keep: `cfg`'s are written
     text = dump(cfg if defaults is None else {**cfg, "defaults": defaults})
     try:
-        models = load()["models"]
+        before = load()
     except Error:
-        models = {}         # no entries readable: no seat had efforts off them to keep
-    for name in session_records():
-        keep_efforts(models, name)
+        before = None       # no entries readable: no seat had efforts off them to keep
+    for name in session_records() if before else ():
+        keep_efforts(before, name)
     ensure_dirs()
     tmp = path.with_suffix(".tmp")
     tmp.write_text(text)
@@ -1255,8 +1255,8 @@ def change_efforts(name, change):
 def own_efforts(models, name, data):
     """Seat `name`'s record `data` holding the efforts of each model it runs: one it holds none
     for takes its entry's in `models`, the defaults, once -- at the seat's creation, a model
-    added to it, the first read of a record from before, or before the entries change (save)
-    -- so an entry changed since moves no seat.  The weekly audit's seat, whose models are
+    added to it, or before the entries change (save), a read holding them for itself alone --
+    so an entry changed since moves no seat.  The weekly audit's seat, whose models are
     [audit]'s, goes on with the entries'."""
     from . import audit     # here, not at the top: audit imports this module
     held = data.get("efforts") or {}
@@ -1268,9 +1268,16 @@ def own_efforts(models, name, data):
     return {**data, "efforts": {**held, **taken}}
 
 
-def keep_efforts(models, name):
-    """own_efforts for seat `name`'s record as it stands, under its lock (change_efforts)."""
-    return change_efforts(name, lambda data: own_efforts(models, name, data).get("efforts"))
+def keep_efforts(cfg, name):
+    """own_efforts of `cfg` for seat `name`'s record as it stands, read as load_session reads
+    it (a fallen-back worker's too), under its lock (change_efforts)."""
+    def kept(data):
+        try:
+            return own_efforts(cfg["models"], name, _validate_session(
+                cfg, name, data, prune=True)).get("efforts")
+        except Error:
+            return data.get("efforts")      # a record that will not read is left as it is
+    return change_efforts(name, kept)
 
 
 def _session_files():
@@ -1315,7 +1322,8 @@ def load_session(cfg, name, required=True):
 
     A model the config no longer has is passed over in what comes back
     (_validate_session), so a seat whose models changed under it still reads; the file
-    itself is left as it was, but for the efforts each model read here is given (own_efforts).
+    itself is left as it was, each model read here at the efforts it holds or else its entry's
+    (own_efforts): a dry run or a tick's read writes nothing.
     """
     name = resolve_session(name)
     path = session_path(name)
@@ -1324,16 +1332,7 @@ def load_session(cfg, name, required=True):
         if not required:
             return None
         raise Error(f"{SESSION_ENV}={name!r}, but {path} does not exist")
-    selection = _validate_session(cfg, name, data, prune=True)
-    owned = own_efforts(cfg["models"], name, selection)
-    if owned is not selection:
-        try:    # those of the models read here, a fallback's too, under any written since
-            written = change_efforts(name, lambda data: {**owned["efforts"],
-                                                         **(data.get("efforts") or {})})
-        except OSError:
-            written = None      # unwritable: held for this read alone
-        owned = {**owned, "efforts": (written or {}).get("efforts") or owned["efforts"]}
-    return owned
+    return own_efforts(cfg["models"], name, _validate_session(cfg, name, data, prune=True))
 
 
 def rename_session(old, new):
