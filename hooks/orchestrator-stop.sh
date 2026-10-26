@@ -244,8 +244,8 @@ def tells(payload):
     """Does this harness hand its Stop hook the background work it has in flight?
 
     Claude Code does, as `background_tasks`, an empty list when there is none, and Grok Build as
-    `backgroundTasks`.  A harness that does not -- Codex -- has its stops judged, and written
-    down, as they always were.
+    `backgroundTasks`, and a harness plugin may add it (`in_flight`).  A harness that does not
+    has its stops judged, and written down, as they always were.
     """
     return isinstance(tasks(payload), list)
 
@@ -265,11 +265,13 @@ def background(payload):
     A `monitor` is a watch, not work: the comment watch on an artifact the seat published stays
     in that list for the rest of the session, and counted, it held the seat working for days.
     Nor is a `shell` in `background_tasks`: a background `sleep` or poll loop is no wait, since
-    the harness kills it under memory pressure; a seat waits through `ak wait`.  The other
+    the harness kills it under memory pressure; a seat waits through `ak wait`.  Nor is a
+    `terminal` or an `agent` a plugin adds, whose end starts no turn (`in_flight`).  The other
     spelling's tasks count as before, their types never captured.
     """
     found = tasks(payload)
-    idle = ("monitor", "shell") if payload.get("background_tasks") is not None else ("monitor",)
+    idle = (("monitor", "shell", "terminal", "agent") if payload.get("background_tasks") is not None
+            else ("monitor",))
     return isinstance(found, list) and any(
         isinstance(task, dict) and task.get("type") not in idle for task in found)
 

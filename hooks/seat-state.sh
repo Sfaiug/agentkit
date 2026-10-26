@@ -64,8 +64,8 @@ seat_state() {
   if [[ -z $ts ]]; then
     ts=$(/usr/bin/env python3 -c 'import time; print(time.time())' 2>/dev/null) || ts=$(/bin/date +%s)
   fi
-  # A Stop that hands over the background work in flight -- Claude Code's, Grok Build's -- is
-  # written down by hooks/orchestrator-stop.sh, which runs beside this and is the one that knows
+  # A Stop that hands over the background work in flight -- Claude Code's, Grok Build's, a Codex
+  # seat's -- is written down by hooks/orchestrator-stop.sh, which runs beside this and knows
   # whether the turn ended there.  Written here too, it would read as the turn over until that
   # one decided; that one looks at the seat once its word is down, however long it took.
   if [[ $event = Stop ]] &&
