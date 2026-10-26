@@ -203,9 +203,8 @@ class Screens(Sandbox):
         last = self.matrix(move(*beside) + ESC)[-1]
         self.assertOneHighlight(last, "GPT-6-Astra")
         self.assertEqual(marked(last, "lit"), {})
-        # its label is a cell, Enter's to open
-        self.assertEqual(marked(self.matrix(move(*label) + ESC)[-1], "lit"),
-                         {label[1]: "GPT-6-Astra"})
+        # its label is no cell: it lights nothing either
+        self.assertEqual(marked(self.matrix(move(*label) + ESC)[-1], "lit"), {})
         # on a mark the cell lights, in place of the keys' reverse: one highlight, not two
         last = self.matrix(move(*mark) + ESC)[-1]
         self.assertOneHighlight(last, "GPT-6-Astra")
@@ -241,16 +240,16 @@ class Screens(Sandbox):
                 self.assertOneHighlight(last, name)
                 self.assertFalse(any(" runs on " in text for text in texts(last)))
                 self.assertEqual({text: at(last, text) for text in rows}, rows)
-        # on a screen too short for them all, a click where the pointer found the last model
-        # opens it, the page as it was
+        # on a screen too short for them all, a click where the pointer found the last model's
+        # label puts the highlight on its first mark, the page as it was
         self.stack.enter_context(patch.object(terminal, "height", return_value=28))
         first = self.matrix()[0]
         label = at(first, names[-1])
         click = "\x1b[<0;{0};{1}M\x1b[<0;{0};{1}m".format(*label).encode()
-        with patch.object(menu, "config_model") as opened:
-            screens = self.matrix(move(*label), click + ESC)
-        self.assertEqual(at(screens[1], names[-1]), label)
-        opened.assert_called_once()
+        screens = self.matrix(move(*label), click + ESC)
+        self.assertEqual(at(screens[-1], names[-1]), label)
+        self.assertOneHighlight(screens[-1], names[-1])
+        self.assertEqual(marked(screens[-1], "reverse"), {label[1]: "○"})
 
     def test_on_a_short_screen_the_page_keeps_its_place_under_the_highlight(self):
         self.stack.enter_context(patch.object(terminal, "height", return_value=19))
@@ -436,24 +435,6 @@ class Screens(Sandbox):
         self.assertOneHighlight(screens[1], "Grok")
         self.assertOneHighlight(screens[2], "ChatGPT")
         self.assertEqual(highlighted(screens[-1]), [])
-
-    def test_a_models_own_screen(self):
-        first = run(lambda: menu.config_model(self.cfg, "opus"), ESC)[1][0]
-        right = at(first, "›", 1)                       # the effort's, after the id's
-        last = run(lambda: menu.config_model(self.cfg, "opus"), move(*right) + ESC)[1][-1]
-        self.assertOneHighlight(last, "effort")
-        self.assertEqual(marked(last, "lit"), {right[1]: "›"})
-        # off every row ←/→ only bring the highlight back; a click on an arrow names its row
-        stepped = []
-        click = "\x1b[<0;{0};{1}M\x1b[<0;{0};{1}m".format(*right).encode()
-        with patch.object(menu, "config_effort",
-                          lambda cfg, name, step, **_kw: stepped.append(step) or ""):
-            run(lambda: menu.config_model(self.cfg, "opus"), move(*right), move(1, 1), RIGHT,
-                ESC)
-            self.assertEqual(stepped, [])
-            run(lambda: menu.config_model(self.cfg, "opus"), move(*right), move(1, 1),
-                click + ESC)
-        self.assertEqual(stepped, [1])
 
     def test_a_screens_key_line_lights_the_item_under_the_pointer(self):
         def screen():
