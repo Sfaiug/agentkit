@@ -965,9 +965,9 @@ def live_hand_back(commit, check, code, log, hand=True, *, standing=False):
                            f"{label}: no failure line recorded")
                       for label in labels]
         stopped = "" if code is not None else ", stopped before it finished"
-        log(f"WARN tests/live.sh has standing faults at {commit[:12]}{stopped}:" if standing else
-            f"WARN agentkit stays as it is: tests/live.sh failed at {commit[:12]}{stopped}:")
-        for line in titles:
+        log(f"WARN tests/live.sh has standing faults at {commit[:12]}:" if standing else
+            f"WARN agentkit stays as it is: tests/live.sh failed at {commit[:12]}:")
+        for line in [*titles, *([f"[{stopped[2:]}]"] if stopped else [])]:
             log(f"  {line}")
         where = f"Output: {config.tilde(output)}."
         record = dict(line=_fitted(f"tests/live.sh has standing faults on agentkit's main at "

@@ -256,7 +256,7 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         self.assertEqual(worker.marked_pids(str(check)), [])      # every process it started
         self.assertEqual(said, [
             f"WARN agentkit stays as it is: tests/live.sh failed at {new[:12]}:",
-            "  live: waiting", "  [exit 124]", "  [stopped before it finished]"])
+            "  [stopped before it finished]"])
         self.assertEqual(self.handed, [])                         # a first red waits for its retry
         self.assertFalse((check / "tree").exists())               # its runner outlived it
         retry = self.cap(check) + watch.RETRY_BACKOFF[0]          # from its cap
@@ -300,7 +300,7 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
             worker.kill_marked(str(check), grace=2)
         seen = self.cap(check) - update.LIVE_CAP + 60
         said = self.tick(now=seen)
-        self.assertEqual(said[1:3], ["  live: waiting", "  [stopped before it finished]"])
+        self.assertEqual(said[1:2], ["  [stopped before it finished]"])
         self.assertEqual(self.tick(now=seen + watch.RETRY_BACKOFF[0] - 1), [])
         self.assertEqual(self.tick(now=seen + watch.RETRY_BACKOFF[0]), [
             f"checking agentkit at {new[:12]} with tests/live.sh before it goes live"])
@@ -338,7 +338,7 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         self.assertEqual(worker.marked_pids(str(check)), [])
         self.assertEqual(said, [                                  # the cap made it red
             f"WARN agentkit stays as it is: tests/live.sh failed at {new[:12]}:",
-            "  live: check 3 green", "  [exit 0]", "  [stopped before it finished]",
+            "  [stopped before it finished]",
             f"checking agentkit at {third[:12]} with tests/live.sh before it goes live"])
 
     def test_a_check_the_tick_caps_as_a_caller_reads_it_is_never_moved_to(self):
@@ -422,7 +422,7 @@ try:
         self.assertEqual((self.finish(new) / "exit").read_text(), "124\n")
         self.assertEqual(tick(now=self.cap(check) + worker.MARK_KILL_GRACE), [
             f"WARN agentkit stays as it is: tests/live.sh failed at {new[:12]}:",
-            "  live: waiting", "  [exit 124]", "  [stopped before it finished]",
+            "  [stopped before it finished]",
             f"checking agentkit at {third[:12]} with tests/live.sh before it goes live"])
 
     def test_children_its_script_left_forking_end_before_its_exit_code(self):
@@ -457,7 +457,8 @@ try:
         self.tick()
         ended = time.time()
         os.utime(self.finish(new) / "exit", (ended, ended))
-        self.assertIn("  live: check 4 red", self.tick(now=ended + 1))
+        self.assertEqual(self.tick(now=ended + 1), [
+            f"WARN agentkit stays as it is: tests/live.sh failed at {new[:12]}:"])
         (self.root / "red").unlink()
         self.assertEqual(self.tick(now=ended + watch.RETRY_BACKOFF[0]), [
             f"checking agentkit at {new[:12]} with tests/live.sh before it goes live"])
@@ -475,7 +476,6 @@ try:
         said = self.tick(now=ended + 1)
         self.assertEqual(said[0], f"WARN agentkit stays as it is: tests/live.sh failed at "
                                   f"{new[:12]}:")
-        self.assertIn("  live: check 4 red", said)
         self.assertEqual(self.tick(now=ended + 2), [])            # a first red waits for its retry
         self.assertEqual(self.handed, [])
         self.assertEqual(len(self.checks()), 1)                   # not before its backoff
@@ -494,7 +494,7 @@ try:
         self.assertEqual((line, typed), (first, {"line": first, "seat": 1}))
         self.assertEqual(key, str(self.origin))                   # agentkit's own repository
         self.assertIn(new[:12], line)
-        self.assertIn("live: check 3 green / live: check 4 red / [exit 1]", line)
+        self.assertIn(f"Output: {config.tilde(self.checks()[-1][1] / 'output')}.", line)
         self.assertEqual(self.tick(now=ended + 3), [])            # once
         self.assertEqual(len(self.handed), 2)
         for tries, wait in enumerate(watch.RETRY_BACKOFF[1:] + (3600,), start=2):
