@@ -62,8 +62,10 @@ ARENA_BOARDS = (("agent", "overall"), ("agent_task_outcome_explicit", "overall")
 # on the others
 ARENA_FIELDS = (("score", "score_ci_lower", "score_ci_upper"),
                 ("rating", "rating_lower", "rating_upper"))
-# a model run inside another program than Arena's own, which measures that program too
-HARNESS = re.compile(r"(?<!arena[-\s])\bharness\b", re.IGNORECASE)
+# a model run inside another program than Arena's own, which measures that program too: the
+# word `harness` between any separators, `_` among them, but not as the word after `arena`
+HARNESS = re.compile(r"(?<![a-z0-9])(?<!(?<![a-z0-9])arena[^a-z0-9])harness(?![a-z0-9])",
+                     re.IGNORECASE)
 LIVEBENCH = "https://livebench.ai/"
 BOARDS = ("artificialanalysis.ai", "arena.ai", "livebench.ai")
 PREFIX = dict(zip(BOARDS, ("aa", "arena", "livebench")))   # each board's columns start with it

@@ -94,6 +94,8 @@ class QualifiedNames(Sandbox):
         with patch.dict(ARENA, agent=[
                 ("Zeta 6 (xHigh, Codex Harness)", "overall", 0.5),
                 ("Zeta 6 Max Code", "overall", 0.45, {"model_key": "zeta-6-max-code-codex-harness"}),
+                ("Zeta 6 Low", "overall", 0.35, {"model_key": "zeta_6_low_codex_harness"}),
+                ("Zeta 6 (Low, AcmeArena Harness)", "overall", 0.3),
                 ("Zeta 6 (xHigh)", "overall", 0.4, {"model_key": "zeta-6-xhigh-arena-harness"})]):
             rows = boards.collect(now=10000)["arena.ai"]["rows"]
         self.assertEqual([row["values"] for row in rows if row["model"].startswith("Zeta 6")],
