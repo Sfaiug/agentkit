@@ -349,6 +349,11 @@ if [ "$SANDBOX" = 0 ]; then
     else note "tailscale is not up; \`sudo tailscale up\` (or the app) joins the tailnet"; fi
   fi
 fi
+# A seat's PATH begins at $AK/bin, whose shims guard its own calls (agentkit/guard.py).  Linked
+# by every install, which every update runs, so a shim an update adds guards the seats already
+# open; linked only as a seat started, the ssh shim waited for the next seat to start.
+python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); from agentkit import guard; guard.install_shim()' "$REPO" ||
+  note "the seat guards in $AK/bin were not linked; the next seat started links them"
 
 # --- (3b) the shared browser: the stack and MCP servers on the server only ----
 # Two halves with two homes.  The stack is the machine's -- apt packages, systemd units, a
