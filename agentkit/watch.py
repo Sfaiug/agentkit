@@ -7563,7 +7563,8 @@ def doctor(argv):
     wrong = []
     for name in config.offered(cfg):
         entry = cfg["models"][name]
-        takes = config.efforts(entry.get("harness"), entry.get("model"))
+        takes = config.efforts(entry.get("harness"), entry.get("model"),
+                               lambda harness: config.catalog(harness, cfg))
         for key in config.ROLE_EFFORTS.values():
             if (key == "effort" or key in entry) and entry.get(key) not in takes:
                 wrong.append(f"{key}  {name}: {entry.get('model')} takes {' '.join(takes)}, "

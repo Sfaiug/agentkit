@@ -61,7 +61,7 @@ for harness, program in %r.items():
 (home / "bin" / "codex").touch(0o755)            # Codex is here already; Grok is not
 os.environ["AGENTKIT_ADAPTER_DIR"] = str(home / "adapters")
 config.harness_binary = lambda name: shutil.which(name, path=str(home / "bin")) or ""
-config.catalog = lambda harness: [{"id": model, "label": label, "efforts": efforts}
+config.catalog = lambda harness, cfg=None: [{"id": model, "label": label, "efforts": efforts}
                                   for model, label, efforts in %r.get(harness, [])]
 update.version = lambda harness: ""
 update.agentkit_version = lambda: "abc1234"

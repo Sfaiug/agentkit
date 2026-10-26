@@ -85,7 +85,7 @@ from agentkit import config, menu, terminal
 ID = "acme-model-" + "x" * 48
 sleeps = [float(seconds) for seconds in os.environ["RULE_CATALOG"].split(",")]
 
-def catalog(harness):
+def catalog(harness, cfg=None):
     time.sleep(sleeps.pop(0))
     return [{"id": ID, "label": ID, "efforts": ["low", "high"]}]
 

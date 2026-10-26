@@ -3486,7 +3486,8 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
     never stands between the key and its frame.  What to say under the matrix, or ""."""
     entry, key = cfg["models"][name], config.ROLE_EFFORTS[role]
     try:
-        levels = config.efforts(entry.get("harness"), entry.get("model"), config.catalog_now)
+        levels = config.efforts(entry.get("harness"), entry.get("model"),
+                                lambda harness: config.catalog_now(harness, cfg))
     except config.Error as exc:
         return f"config: {exc}"
     shown = config.at_efforts(cfg, seat[1])["models"][name] if seat else entry
@@ -3531,13 +3532,13 @@ def _nearest(effort, levels):
                if word in EFFORT_RANK else len(EFFORT_RANK))
 
 
-def _offered(harness, *screen, provider=None):
-    """Every model that harness's catalog lists for `provider`, asked while `screen` waits on
-    it (`waited`), each with the efforts it is offered at (config.efforts), read off that
-    listing without asking the catalog a second time.  A `<provider>/<model>` id is that
-    provider's, the way OpenCode names every provider's models, and any other id is every
-    provider's the harness runs."""
-    listed = waited(lambda: config.catalog(harness), *screen,
+def _offered(harness, *screen, provider=None, cfg=None):
+    """Every model that harness's catalog lists for `provider`, its logins `cfg`'s
+    subscriptions' there, asked while `screen` waits on it (`waited`), each with the efforts
+    it is offered at (config.efforts), read off that listing without asking the catalog a
+    second time.  A `<provider>/<model>` id is that provider's, the way OpenCode names every
+    provider's models, and any other id is every provider's the harness runs."""
+    listed = waited(lambda: config.catalog(harness, cfg), *screen,
                     doing=f"reading the models {harness} offers")
     return [dict(model, efforts=config.efforts(harness, model["id"], lambda _harness: listed))
             for model in listed
@@ -3827,7 +3828,7 @@ def _through_choices(cfg, harness, listed, screen):
     shows, so typing a model's name after `/` finds it before a provider that shares it."""
     ready = {provider: name for provider, name, mode in listed if mode}
     choices = []
-    for model in _offered(harness, *screen):
+    for model in _offered(harness, *screen, cfg=cfg):
         provider = model["id"].partition("/")[0]
         if provider in ready:
             choices.append((((harness, provider), model),
@@ -4166,14 +4167,16 @@ def config_add_provider(cfg, keyboard):
     failed = _adapter_verbs(keyboard, harness, (*verbs, "login"), picked, fresh, name)
     if failed:
         return failed
-    try:
-        models = _offered(harness, "config · add a subscription", provider=name)
+    table = {**shipped["providers"][name], "accounts": [fresh]}
+    try:              # its models are the ones its new login lists
+        models = _offered(harness, "config · add a subscription", provider=name,
+                          cfg={**cfg, "providers": {**cfg["providers"], name: table}})
     except Back:
         return ""                     # Esc while its catalog was asked: nothing added
     if not models:
         return f"the {harness} catalog names no model; {picked} is not added"
     model, before = models[0], copy.deepcopy(cfg)
-    cfg["providers"][name] = {**shipped["providers"][name], "accounts": [fresh]}
+    cfg["providers"][name] = table
     cfg["models"][first] = {
         "harness": harness, "model": model["id"],
         "effort": _nearest(shipped["models"][first].get("effort"), model["efforts"]),
@@ -4444,7 +4447,7 @@ def models_page(cfg):
                     *(kept for (on_, _), taken in gone.items() if on_ == harness for kept in taken)]
             return list({entry["model"]: {"id": entry["model"], "label": config.model_name(
                 {"models": {name: entry}}, name)} for name, entry in kept}.values())
-        return _offered(harness, "config · models")
+        return _offered(harness, "config · models", cfg=cfg)
 
     def ticks(harness):       # the list a harness's row opens
         got = []

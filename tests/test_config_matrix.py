@@ -41,7 +41,7 @@ from agentkit import config, menu, orch, terminal, update, usage
 
 EFFORTS = {"claude-haiku-4-5": ["none"],
            "claude-opus-5-5": ["low", "medium", "high", "xhigh", "max"]}
-config.catalog = lambda harness: [{"id": model, "label": model, "efforts": efforts}
+config.catalog = lambda harness, cfg=None: [{"id": model, "label": model, "efforts": efforts}
                                   for model, efforts in EFFORTS.items() if harness == "claude"]
 update.version = lambda harness: print("<harness version>", flush=True)
 update.agentkit_version = lambda: "abc1234 · 2026-09-29"

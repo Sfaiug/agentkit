@@ -52,7 +52,8 @@ def prepare(case):
         (harness, {}) for harness in (*CATALOGS, "acme")]))
     case.stack.enter_context(patch.object(config, "harness_present",
                                           side_effect=lambda harness: harness in CATALOGS))
-    case.stack.enter_context(patch.object(config, "catalog", side_effect=CATALOGS.__getitem__))
+    case.stack.enter_context(patch.object(config, "catalog",
+                                          side_effect=lambda harness, cfg=None: CATALOGS[harness]))
     case.stack.enter_context(patch.object(terminal, "width", return_value=100))
     case.cfg["models"]["wonder"] = {"harness": "muse", "model": "muse-wonder-full-1.0",
                                     "effort": "max", "provider": "meta"}

@@ -56,7 +56,7 @@ fake.write_text(%r)
 fake.chmod(0o755)
 os.environ["AGENTKIT_ADAPTER_DIR"] = str(home / "adapters")
 config.harness_binary = lambda name: shutil.which(name, path=str(home / "bin")) or ""
-config.catalog = lambda harness: [
+config.catalog = lambda harness, cfg=None: [
     {"id": "opencode/rocket-1", "label": "Rocket 1", "efforts": ["high", "max"]},
     {"id": "opencode/zeta-free", "label": "Zeta Free", "efforts": ["none"]},
     {"id": "zeta/comet-2", "label": "Comet 2", "efforts": ["none"]},
