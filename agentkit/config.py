@@ -476,8 +476,9 @@ def remove_provider(cfg, name):
     """Take one provider out of `cfg`: its table and its models.
 
     [defaults] passes over its models (passed_over), in the file too once saved.  The last
-    provider cannot go, since a config with no model has nothing to start a seat on.  Its usage row goes with its table: the menu and `ak usage` list, and probe, only the
-    providers the config has.  The caller saves.
+    provider cannot go, since a config with no model has nothing to start a seat on.  Its usage
+    row goes with its table: the menu and `ak usage` list, and probe, only the providers the
+    config has.  The caller saves.
     """
     if name not in cfg["providers"]:
         raise Error(f"no provider {name!r}; the config has {', '.join(cfg['providers'])}")
@@ -495,10 +496,10 @@ def remove_provider(cfg, name):
 
 def remove_model(cfg, name):
     """Take one model out of `cfg`, the way remove_provider takes one provider's: [defaults]
-    passes over it (passed_over), and the last model cannot go.  Its provider stays, settings and all, so another of
-    its models can be added, but a free one, which goes with its last (drop_bare_free); a
-    `usage_model` naming it goes, and that usage call falls to the provider's first model.
-    The caller saves.
+    passes over it (passed_over), and the last model cannot go.  Its provider stays, settings
+    and all, so another of its models can be added, but a free one, which goes with its last
+    (drop_bare_free); a `usage_model` naming it goes, and that usage call falls to the
+    provider's first model.  The caller saves.
     """
     left = [model for model in offered(cfg) if model != name]
     if not left:
