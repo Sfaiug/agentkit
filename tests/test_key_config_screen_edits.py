@@ -1,7 +1,7 @@
 """A seat's `c` steps its effort, moves it once asked, and adds a model to config.toml.
 
-`c` is where the owner changes the models without opening a file: Enter on a model's effort
-steps the seat's own one up, into its record at once, config.toml as it was; Enter on another
+`c` is where the owner changes the models without opening a file: Enter on the effort beside a
+model's orchestrator mark steps the seat's own one up, into its record at once, config.toml as it was; Enter on another
 model's orchestrator mark asks under the
 matrix first, as the owner said on 24 Oct ("when pressing a different orch, it should ask me
 to confirm. As this restarts the session."): Esc keeps the record and the pane as they were,
@@ -38,6 +38,9 @@ CATALOG = "m1\tModel One\tlow medium high"     # what the claude adapter's `mode
 # efforts the same, as a real Claude's does, so the bar reads the same either way.
 FABLE_LISTED = "claude-fable-5-1\tFable 5.1\tlow medium high xhigh max"
 KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"   # wherever the highlight is
+# each model's marks after its label, each with the effort it runs that role at beside it
+FABLE = "▰▰▰▰▱   xhigh    □     ▰▰▰▰▱   xhigh     □     ▰▰▰▰▱   xhigh"
+ASTRA = "▰▰▰▱▱▱  high     ■     ▰▰▰▱▱▱  high      ■     ▰▰▰▱▱▱  high"
 PAGE_KEYS = "  ↑↓←→ move   ⏎ choose   esc back"   # a page under it, with no `r`
 
 def rows(screen):
@@ -88,13 +91,14 @@ class ConfigScreenEdits(unittest.TestCase):
 
     def test_enter_on_an_effort_steps_the_seat_s_up_into_its_record_not_config_toml(self):
         self.fakes["claude"].answer("models", FABLE_LISTED)
-        self.term.keys("Right", "Right", "Right")
-        self.term.wait(lambda screen: "› Fable 5.1     ●      □        □     ▰▰▰▰▱   xhigh"
-                       in rows(screen))
+        self.term.keys("Right")        # the effort beside the orchestrator's mark
+        self.term.wait(lambda screen: f"› Fable 5.1     ●    {FABLE}" in rows(screen))
         self.term.keys("Enter")
-        self.term.wait(lambda screen: "› Fable 5.1     ●      □        □     ▰▰▰▰▰   max"
-                       in rows(screen))
-        self.assertEqual(json.loads(self.record.read_text())["efforts"]["fable"], {"effort": "max"})
+        # that role's alone: builds and reviews stay where they stood
+        self.term.wait(lambda screen: "› Fable 5.1     ●    ▰▰▰▰▰   max     □     ▰▰▰▰▱   xhigh"
+                       "     □     ▰▰▰▰▱   xhigh" in rows(screen))
+        self.assertEqual(json.loads(self.record.read_text())["efforts"]["fable"],
+                         {"effort": "max", "exec_effort": "xhigh", "review_effort": "xhigh"})
         self.assertEqual(tomllib.loads(self.config.read_text()), self.given)
 
     def pane(self):
@@ -118,7 +122,7 @@ class ConfigScreenEdits(unittest.TestCase):
         # as Codex's adapter does: its TUI takes no conversation id of ak's making
         self.fakes["codex"].answer("interactive", "", 3, given=["new"])
         self.term.keys("j")
-        self.term.wait(lambda screen: "› GPT-6-Astra  [○]     ■        ■     ▰▰▰▱▱▱  high"
+        self.term.wait(lambda screen: f"› GPT-6-Astra  [○]   {ASTRA}"
                        in rows(screen))
         pane, record = self.pane(), self.record.read_text()
         opened = len(self.fakes["codex"].calls("interactive"))
@@ -127,7 +131,7 @@ class ConfigScreenEdits(unittest.TestCase):
         self.assertEqual((self.pane(), self.record.read_text()), (pane, record))
         self.term.keys("Escape")
         screen = self.term.wait(lambda screen: key_line(screen) == KEYS)
-        self.assertIn("› GPT-6-Astra  [○]     ■        ■     ▰▰▰▱▱▱  high", rows(screen))
+        self.assertIn(f"› GPT-6-Astra  [○]   {ASTRA}", rows(screen))
         self.assertEqual((self.pane(), self.record.read_text()), (pane, record))
         self.assertEqual(len(self.fakes["codex"].calls("interactive")), opened)
         self.assertFalse(ran.exists())
@@ -135,9 +139,9 @@ class ConfigScreenEdits(unittest.TestCase):
         # asked again, and `Move` moves it
         self.asked("GPT-6-Astra")
         self.term.keys("Down", "Enter")
-        screen = self.term.wait(lambda screen: "› GPT-6-Astra  [●]     ■        ■     ▰▰▰▱▱▱  high"
+        screen = self.term.wait(lambda screen: f"› GPT-6-Astra  [●]   {ASTRA}"
                                 in rows(screen))
-        self.assertIn("  Fable 5.1     ○      □        □     ▰▰▰▰▱   xhigh", rows(screen))
+        self.assertIn(f"  Fable 5.1     ○    {FABLE}", rows(screen))
         self.assertEqual(key_line(screen), KEYS)
         now = json.loads(self.record.read_text())
         self.assertEqual((now["orchestrator"], now["workers"]), ("astra", ["astra"]))
@@ -155,7 +159,7 @@ class ConfigScreenEdits(unittest.TestCase):
         self.term.keys("k")
         self.asked("Fable 5.1")
         self.term.keys("Down", "Enter")
-        self.term.wait(lambda screen: "› Fable 5.1    [●]     □        □     ▰▰▰▰▱   xhigh"
+        self.term.wait(lambda screen: f"› Fable 5.1    [●]   {FABLE}"
                        in rows(screen))
         self.assertEqual(json.loads(self.record.read_text())["orchestrator"], "fable")
 
@@ -182,7 +186,7 @@ class ConfigScreenEdits(unittest.TestCase):
         self.assertEqual(key_line(screen), PAGE_KEYS)
         self.term.keys("Enter")
         # the row's cells, under whichever name the screen gives a model it has just added
-        cells = "[○]     □        □     ▰▱▱     low"
+        cells = "[○]   ▰▱▱     low      □     ▰▱▱     low       □     ▰▱▱     low"
         # read once the frame is drawn down to its key line
         screen = self.term.wait(lambda screen: key_line(screen) == KEYS and any(
             line.startswith("› ") and line.endswith(cells) for line in rows(screen)))

@@ -84,7 +84,7 @@ class StepsOnC(unittest.TestCase):
         term.keys("c")
         term.wait("› Fable 5.1")
         files = (self.config.read_bytes(), self.efforts())
-        term.keys("Right", "Right", "Right", "Enter")      # onto the effort, and a step
+        term.keys("Right", "Enter")      # onto the effort beside its orchestrator mark, a step
         deadline = time.monotonic() + 30
         while files == (self.config.read_bytes(), self.efforts()):
             self.assertLess(time.monotonic(), deadline, "the step was never saved")
@@ -93,7 +93,8 @@ class StepsOnC(unittest.TestCase):
 
     def test_a_step_on_a_seat_s_c_writes_its_record_and_not_config_toml(self):
         config, _ = self.step_fable({"AGENTKIT_SESSION": "atoll-own"})
-        self.assertEqual(self.efforts()["fable"], {"effort": "xhigh"})
+        self.assertEqual(self.efforts()["fable"],      # the other roles stay where they stood
+                         {"effort": "xhigh", "exec_effort": "high", "review_effort": "high"})
         self.assertEqual(self.config.read_bytes(), config)
 
     def test_a_step_on_new_seats_c_writes_config_toml_and_no_record(self):

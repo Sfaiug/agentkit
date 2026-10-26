@@ -3469,8 +3469,8 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
     end unless `wrap` takes it round to the other, or onto the `to`-th of them, and saved, a
     `seat`'s (name, record) to its record (efforts_saved), else to the entry new seats take; one
     set to an effort it does not take lands on its first, and a worker's stepped onto the
-    effort itself is unset again (_follows), while the effort's own step moves no other key.
-    The efforts are read `now`, off the catalog already in hand (config.catalog_now): a listing
+    effort itself is unset again (_follows), while the effort's own step moves no other role:
+    each role's effort is set beside its own mark.  The efforts are read `now`, off the catalog already in hand (config.catalog_now): a listing
     never stands between the key and its frame.  What to say under the matrix, or ""."""
     entry, key = cfg["models"][name], config.ROLE_EFFORTS[role]
     try:
@@ -3484,8 +3484,10 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
     if not 0 <= at < len(levels) or levels[at] == current:
         return ""
     before = dict(entry)
+    for each in config.ROLE_EFFORTS.values():     # the others stay where they stand
+        efforts.setdefault(each, efforts.get("effort"))
     efforts[key] = levels[at]
-    _follows(efforts, [key])
+    _follows(efforts, config.ROLE_EFFORTS.values())
     return efforts_saved(*seat, {name: efforts}) if seat else _saved(cfg, entry, before)
 
 
