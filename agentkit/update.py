@@ -933,8 +933,9 @@ def _fail_titles(said):
 
 
 def live_hand_back(commit, check, code, log, hand=True, *, standing=False):
-    """Hand that red check of that commit back to fix, once, with its failures and summary;
-    with `hand` false it is only logged, as a first red waiting for its retry is.
+    """Hand that red check of that commit back to fix, once, with its failed checks' titles
+    and its output's path; with `hand` false it is only logged, as a first red waiting for its
+    retry is.
 
     Its record is `handed` in the check's directory, the tick's own file: the line, the
     composer's mark while its Enter has not landed, so it is entered and never typed twice,
@@ -951,7 +952,7 @@ def live_hand_back(commit, check, code, log, hand=True, *, standing=False):
         except OSError:
             said = ""
         titles = _fail_titles(said)
-        if standing:
+        if standing:    # each failed label's own line, `SKIP` too: a skip fails this gate
             labels = sorted(_live_failed(check))
             heads = [(line, line[6:].split(":", 1)[0]) for line in said.splitlines()
                      if line.startswith(("FAIL  ", "SKIP  "))]
