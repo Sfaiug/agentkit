@@ -10,7 +10,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import config, handback, leases, orch, run, transitions, watch, worker, worktrees
+from . import config, guard, handback, leases, orch, run, transitions, watch, worker, worktrees
 from . import job as jobs
 from . import record as run_record
 
@@ -56,6 +56,25 @@ def owed_line(name):
     except config.Error:
         return ""
     return None
+
+
+# The owner, 26 Oct 2026: work done straight on the live host involves no run, so a seat could
+# finish a whole job there with no plan and read `idle`; the turn goes back once to write it down.
+LIVE_LINE = ("You reached the live host this turn and your plan has no open line. Write what you "
+             "changed there with ak plan add \"<outcome>\" --check '<command>': a check that "
+             "already passes is written done. If you only read there, end your turn again.")
+
+
+def live_unrecorded(name):
+    """LIVE_LINE where the seat's own ssh reached the live host this turn (`guard.reached_live`)
+    and its plan has no open line, a run's deferred one included, else None.  Its callers send it
+    back once a turn, past nothing that ends a turn first (`recorded_ending`)."""
+    from . import plan
+    try:
+        written = any(plan.is_open(line) for line in plan.lines(name))
+    except config.Error:
+        return None     # a plan nothing can read shows nothing missing from it
+    return LIVE_LINE if not written and guard.reached_live(name) else None
 
 
 DONE_ASKING = ("Your plan is done: every line is proven, and the owner has written nothing since, "

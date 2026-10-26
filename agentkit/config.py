@@ -899,6 +899,7 @@ SEAT_FILES = {
     "hook": "json",      # what its harness's own lifecycle hooks say it is doing
     "plan": "md",        # its plan, which the menu row reads its bar from
     "stop": "json",      # this turn's start, for the stop hook's rule
+    "live": "txt",       # when its own ssh last reached the live host (`guard.live_reach`)
     "title": "json",     # the title last read from its conversation
     "input": "jsonl",    # each line ak typed, with its source and conversation
     "rulebook": "md",    # the rulebook its orchestrator was started on
@@ -1278,12 +1279,12 @@ def rename_session(old, new):
             if isinstance(pointer, dict) and normalize_session(pointer.get("renamed")) == leads:
                 _write_json(session_path(name), {"renamed": new}, prepare=False)
     # The running orchestrator keeps reading the rulebook it was started on, its hooks keep the
-    # turn's latch under the name it was started with, and a pane still starting reads the
-    # launch file it was given.  Back to a name it had, what the
+    # turn's latch and its ssh shim the turn's live reach under the name it was started with,
+    # and a pane still starting reads the launch file it was given.  Back to a name it had, what the
     # seat wrote under it since is kept rather than moved over: a seat renamed still writes its
     # plan under the name it was launched with, and `plan.path` reads the plan under every name
     # the seat had, the newest one winning.
-    for kind in SEAT_FILES.keys() - {"session", "rulebook", "stop", "launch"}:
+    for kind in SEAT_FILES.keys() - {"session", "rulebook", "stop", "live", "launch"}:
         was, now = seat_file(kind, old), seat_file(kind, new)
         if kind == "handover" and was.exists():
             # the rulebook it runs on names it under the old name, and a move only adds to it:

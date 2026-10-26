@@ -60,16 +60,23 @@ value-option's argument (`scp -i key live:/x .`), and a write run inside `ssh li
 remote shell tokenizes the command the shim never sees.  A transfer to any other host, a read from
 live, and any transfer when the seat reaches no live host, run.
 
+An `ssh` shim on the same PATH refuses nothing: a seat's ssh naming the live host is written down
+(`live_reach`), so a turn that worked there and left its plan no open line goes back once to record
+it (`stop.live_unrecorded`).  Like the scp/rsync/sftp shims it reads the final argv, never a
+command's text, and with no live host named it writes nothing.
+
 Every shim is one sh body, tools/shim (each `tools/<name>-shim` links to it, and `install_shim` links
 each as `<HOME>/bin/<name>`): it runs the real binary at once for a worker and for whatever runs
 seatless, and asks `main` here only for a seat's own call, so no hot call pays for a Python start.
 A new shim is a link to that body and an entry in `REFUSALS`.
 """
 
+import json
 import os
 import stat
 import subprocess
 import sys
+import time
 
 from . import config
 
@@ -420,9 +427,50 @@ def transfer_refusal(args, real):
     return None
 
 
+def live_reach(args, real):
+    """None, always: a seat's ssh runs wherever it goes.  One that names the live host in any
+    argument (`prod`, `deploy@prod`) is written down as reaching it, the moment kept under the
+    name its harness was launched with, as its hooks keep its turn (`reached_live`)."""
+    alias, launched = config.live_host(), os.environ.get(config.SESSION_ENV)
+    if alias and any(arg_host(arg, "sftp") == alias for arg in args):
+        path = config.seat_file("live", launched)
+        tmp = path.with_name(f"{path.name}.{os.getpid()}")
+        tmp.write_text(f"{time.time()}\n")
+        tmp.replace(path)
+    return None
+
+
+def reached_live(name):
+    """Whether that seat's own ssh reached the live host this turn: since the turn's start
+    hooks/seat-state.sh writes in its stop file.  Both are under the name its harness was
+    launched with, which a rename leaves behind: of every name the seat had, the one holding
+    the newest turn is its running launch's, so an earlier launch's reach never counts."""
+    from . import plan        # only now: every seat's git call starts this guard
+    found = []
+    try:
+        every = plan.names(name)
+    except config.Error:
+        return False
+    for each in every:
+        try:
+            turn = json.loads(config.stop_path(each).read_text(encoding="utf-8")).get("turn")
+        except (OSError, ValueError, AttributeError, config.Error):
+            continue
+        if isinstance(turn, (int, float)) and not isinstance(turn, bool):
+            found.append((turn, each))
+    if not found:
+        return False
+    turn, launched = max(found)
+    try:
+        return float(config.seat_file("live", launched).read_text(encoding="utf-8")) >= turn
+    except (OSError, ValueError, config.Error):
+        return False
+
+
 # What each shim asks: its refusal, called with the call's argv and the real binary's path.
 REFUSALS = {"tmux": refusal, "gh": gh_refusal, "git": worktree_refusal,
-            "scp": transfer_refusal, "rsync": transfer_refusal, "sftp": transfer_refusal}
+            "scp": transfer_refusal, "rsync": transfer_refusal, "sftp": transfer_refusal,
+            "ssh": live_reach}
 
 
 def main(args):
