@@ -1,7 +1,7 @@
 """ak knows Artificial Analysis's current models, and what replaced each older one.
 
 Each of the board's rows keeps its record's identity beside its numbers; `catalog.current` gives
-the releases none of whose rows is deprecated, strongest first, each with its efforts, the
+the releases not replaced, nor variants of replaced ones, strongest first, each with its efforts, the
 default one and each one's numbers, and `catalog.successor` follows a release's `deprecatedTo` chain to the current
 release it ends at.  A reading an older build stored, its rows carrying no identity, is asked
 again once by this build, and until then nothing is current.
@@ -108,6 +108,20 @@ class Catalog(Sandbox):
         self.assertEqual(catalog.successor(held, "beta-2"), catalog.current(held)[0])
         for slug in ("omega-1", "omega-0", "loop-a", "nowhere", "acme-7-low"):
             self.assertIsNone(successor(slug), slug)
+
+    def test_a_variant_listed_under_a_replaced_release_s_name_is_replaced_with_it(self):
+        records = RECORDS + [     # a variant, a model listed anew, and rows that disagree
+            ("acme-6-5-fast", "Acme 6.5 (Fast)", "acme-6-5-fast", "Acme 6.5", "Acme", False, None, 44),
+            ("zeta-1-old", "Zeta 1", "zeta-1-old", "Zeta 1", "Zeta", True, "zeta-1", 8),
+            ("zeta-1", "Zeta 1", "zeta-1", "Zeta 1", "Zeta", False, None, 9),
+            ("eta-1", "Eta 1", "eta-1", "Eta 1", "Eta", True, None, 3),
+            ("eta-1-low", "Eta 1 (Low)", "eta-1", "Eta 1", "Eta", True, "zeta-1", 2)]
+        with patch(f"{__name__}.RECORDS", records):
+            held = boards.collect(now=10000)
+        self.assertEqual([release["slug"] for release in catalog.current(held)],
+                         ["beta-3", "acme-7", "zeta-1", "delta-1", "gamma-1"])
+        self.assertEqual([catalog.successor(held, slug)["slug"] for slug
+                          in ("acme-6-5-fast", "zeta-1-old", "eta-1")], ["acme-7", "zeta-1", "zeta-1"])
 
     def test_a_reading_an_older_build_stored_is_asked_again_once(self):
         boards.collect(now=10000, build="abc1234")
