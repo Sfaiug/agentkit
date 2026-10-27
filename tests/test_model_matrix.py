@@ -1,14 +1,14 @@
-"""`ak models` reads the three public boards once a day into `state/boards.json`.
+"""`ak models` reads the two public boards once a day into `state/boards.json`.
 
 Artificial Analysis is read off its site's pages, Arena through its dataset's pages, each of its
-boards at its category, and LiveBench 2.0 off its newest release that answers; a board's
-row is one model at one effort, or at none where the board names no effort; within a day nothing
+boards at its category; a board's row is one model at one effort, or at none where the board names no effort; within a day nothing
 is asked again, `--refresh` asks now, and a board that fails keeps its last rows with the error
 beside them.  An install upgraded from before 20 Oct 2026 reads them once out of
 `state/matrix.json`, where they were kept beside the matrix, whole.
 
 Offline: the boards' answers are handed in as bytes, counted, and a throwaway HOME holds the
-cache.  Artificial Analysis's pages hand their scripts the records split across two strings,
+cache, and a measure on Arena's factuality board at its coding category beside `quality`'s.
+Artificial Analysis's pages hand their scripts the records split across two strings,
 Arena's dataset answers in pages of two, its rows grouped by category as Hugging Face serves them: overall first, then the others
 in their alphabetical order.
 """
@@ -29,7 +29,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
-from agentkit import boards, config, matrix
+from agentkit import boards, config, matrix, quality
 
 # Artificial Analysis's records on its retired model's page, and on DeepsecBench's
 AA = [
@@ -45,23 +45,13 @@ DEEPSEC = [{"name": "Claude Opus 5.5 (max)", "deepsecBench": 0.27, "intelligence
 # each Arena board's rows as (model, category, the board's number, any other fields), in the
 # order it serves them
 ARENA = {"agent": [("Acme 9", "overall", 0.3, {"score_ci_lower": 0.25, "score_ci_upper": 0.35})],
-         "agent_task_outcome_explicit": [("Claude Opus 5.5 (Max)", "overall", 0.17),
-                                         ("GPT 6 Astra (xHigh)", "overall", 0.137)],
-         "agent_steerability": [("Claude Opus 5.5 (Max)", "overall", 0.2)],
-         "agent_bash_reliability": [("Claude Opus 5.5 (Max)", "overall", 0.1)],
          "webdev": [("Claude Opus 5.5 (Max)", "overall", 1600.0), ("Acme 8", "overall", 1500.0),
                     ("Claude Opus 5.5 (Max)", "webdev", 1590.0)],
          "text_factuality": [("Claude Opus 5.5 (Max)", "overall", 1500.0),
                              ("Claude Opus 5.5 (Max)", "chinese", 1400.0),
                              ("Claude Opus 5.5 (Max)", "coding", 1550.0),
                              ("Acme 8", "coding", 1540.0), ("Acme 9", "coding", 1400.0),
-                             ("Claude Opus 5.5 (Max)", "math", 1450.0)],
-         "text_style_control": [("Claude Opus 5.5 (Max)", "overall", 1510.0),
-                                ("Claude Opus 5.5 (Max)", "coding", 1560.0)]}
-# LiveBench 2.0 names its releases by date in its script; the v1 dates beside them are no 2.0's
-SCRIPT = '_e=["20261020","20261014"],Oe=["2026-06-25"]'
-TABLE = "model,coding,long_agentic\nclaude-opus-5.5,96.3,85.0\ngpt-6-astra,93.7,\n"
-COST = "model,coding,nq_coding\nclaude-opus-5.5,113.0,29\ngpt-6-astra,,29\n"
+                             ("Claude Opus 5.5 (Max)", "math", 1450.0)]}
 
 
 def aa_page(records):
@@ -78,7 +68,7 @@ def aa_page(records):
 
 
 class Boards:
-    """The three boards' answers, as bytes per URL, counting the asks."""
+    """The two boards' answers, as bytes per URL, counting the asks."""
     def __init__(self):
         self.asked = []
         self.down = set()           # parts of a URL that refuse
@@ -98,14 +88,6 @@ class Boards:
                 except threading.BrokenBarrierError:
                     pass
             return self.arena(url)
-        if url == boards.LIVEBENCH:
-            return b'<html><script defer="defer" src="./static/js/main.1.js"></script></html>'
-        if url.endswith(".js"):
-            return SCRIPT.encode()
-        if url.endswith("data/20261014/table.csv"):
-            return TABLE.encode()
-        if url.endswith("data/20261014/cost.csv"):
-            return COST.encode()
         raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
 
     @staticmethod
@@ -132,6 +114,9 @@ class ModelBoards(Sandbox):
         super().setUp()
         self.boards = Boards()
         self.stack.enter_context(patch.object(boards, "fetch_bytes", self.boards))
+        factuality = ("arena.text_factuality.coding", "rating", "coding answers judged for facts")
+        self.stack.enter_context(patch.dict(quality.ROLES,
+                                            review=(*quality.ROLES["review"], factuality)))
 
     def test_artificial_analysis_s_pages_give_each_model_s_record_whole(self):
         held = boards.collect(now=10000)
@@ -156,11 +141,7 @@ class ModelBoards(Sandbox):
         held = boards.collect(now=10000)
         arena = {(row["model"], row["effort"]): row["values"] for row in held["arena.ai"]["rows"]}
         self.assertEqual(arena[("Claude Opus 5.5", "max")],     # each board at its category
-                         {"arena.agent_task_outcome_explicit": 0.17, "arena.agent_steerability": 0.2,
-                          "arena.agent_bash_reliability": 0.1, "arena.webdev": 1600.0,
-                          "arena.text_factuality.coding": 1550.0,
-                          "arena.text_style_control.coding": 1560.0})
-        self.assertEqual(arena[("GPT 6 Astra", "xhigh")], {"arena.agent_task_outcome_explicit": 0.137})
+                         {"arena.webdev": 1600.0, "arena.text_factuality.coding": 1550.0})
         self.assertEqual(arena[("Acme 8", None)],
                          {"arena.webdev": 1500.0, "arena.text_factuality.coding": 1540.0})
         self.assertIn(("Acme 9", None), arena)                       # read past the first page
@@ -168,15 +149,6 @@ class ModelBoards(Sandbox):
         self.assertEqual([u.split("offset=")[1] for u, _ in self.boards.asked
                           if "config=text_factuality" in u and "/rows?" in u],
                          ["2&length=3", "4&length=1"])
-        live = {row["model"]: row for row in held["livebench.ai"]["rows"]}
-        self.assertEqual(live["claude-opus-5.5"]["effort"], None)
-        self.assertEqual(live["claude-opus-5.5"]["release"], "2026-10-14")   # the newest that answers
-        self.assertEqual(live["claude-opus-5.5"]["values"],
-                         {"livebench.coding": 96.3, "livebench.long_agentic": 85.0,
-                          boards.TASK_COST: round(113 / (29 * .963), 2)})
-        self.assertEqual(live["gpt-6-astra"]["values"], {"livebench.coding": 93.7})
-        self.assertTrue(any(u.endswith("data/20261020/table.csv") for u, _ in self.boards.asked))
-        self.assertFalse(any("2026_06_25" in u or "2026-06-25" in u for u, _ in self.boards.asked))
         self.assertEqual(boards.split_effort("GPT 5 (Non-reasoning)"), ("GPT 5", "none"))
         self.assertEqual(boards.split_effort("Gemini 4 Argon (High)"), ("Gemini 4 Argon", "high"))
         self.assertEqual(boards.split_effort("Acme Pro (High) (0813)"), ("Acme Pro (0813)", "high"))
@@ -191,9 +163,10 @@ class ModelBoards(Sandbox):
         held = boards.collect(now=10000 + boards.FRESH_FOR)
         self.assertGreater(len(self.boards.asked), asked)
         self.assertEqual(held["arena.ai"]["error"], "datasets-server.huggingface.co refused")
-        self.assertEqual(len(held["arena.ai"]["rows"]), 4)       # what it last said stays
+        self.assertEqual(len(held["arena.ai"]["rows"]), 3)       # what it last said stays
         self.assertEqual(held["arena.ai"]["fetched_at"], 10000)
-        self.assertEqual((held["livebench.ai"]["error"], held["livebench.ai"]["fetched_at"]),
+        self.assertEqual((held["artificialanalysis.ai"]["error"],
+                          held["artificialanalysis.ai"]["fetched_at"]),
                          (None, 10000 + boards.FRESH_FOR))
         asked = len(self.boards.asked)                           # a failed ask waits for the day too
         self.assertEqual(boards.collect(now=10000 + 2 * boards.FRESH_FOR - 1), held)
@@ -202,10 +175,6 @@ class ModelBoards(Sandbox):
         held = boards.collect(now=20000, refresh=True)
         self.assertIsNone(held["arena.ai"]["error"])
         self.assertGreater(len(self.boards.asked), asked)
-        self.boards.down.add("data/20261014/cost.csv")           # the costs are part of the answer
-        self.assertEqual(boards.collect(now=20000, refresh=True)["livebench.ai"],
-                         {**held["livebench.ai"], "error": "data/20261014/cost.csv refused"})
-        self.boards.down.clear()
         # rows that are not where the counts put them are no answer: the coding rows were read
         # off another category
         with patch.dict(ARENA, text_factuality=[*ARENA["text_factuality"][:2],
@@ -240,7 +209,7 @@ class ModelBoards(Sandbox):
         first = boards.collect(now=10000)
         matrix.cache_path().write_text(json.dumps({**first, "matrix": {"rows": []}}))
         boards.cache_path().unlink()
-        hosts = ("artificialanalysis.ai", "datasets-server.huggingface.co", "livebench.ai")
+        hosts = ("artificialanalysis.ai", "datasets-server.huggingface.co")
         self.boards.down.update(hosts)
         asked = len(self.boards.asked)
         self.assertEqual(boards.collect(now=10000 + boards.FRESH_FOR - 1), first)
@@ -257,12 +226,12 @@ class ModelBoards(Sandbox):
         self.stack.enter_context(patch.object(config, "manifests", return_value=[]))
         with redirect_stdout(io.StringIO()):
             self.assertEqual(matrix.main([]), 0)
-        self.boards.down.add("livebench.ai")
+        self.boards.down.add("datasets-server.huggingface.co")
         with redirect_stdout(io.StringIO()):
             self.assertEqual(matrix.main(["--refresh", "--json"]), 0)
-        held = json.loads(boards.cache_path().read_text())["livebench.ai"]
-        self.assertEqual(held["error"], "livebench.ai refused")
-        self.assertEqual(held["rows"][0]["model"], "claude-opus-5.5")   # what it last said stays
+        held = json.loads(boards.cache_path().read_text())["arena.ai"]
+        self.assertEqual(held["error"], "datasets-server.huggingface.co refused")
+        self.assertEqual(len(held["rows"]), 3)                   # what it last said stays
         with self.assertRaises(config.Error):
             matrix.main(["--all"])
 

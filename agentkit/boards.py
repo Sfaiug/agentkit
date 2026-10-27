@@ -1,17 +1,17 @@
-"""The public boards whose numbers export, each asked at most once a day and kept in
+"""The public boards ak rates models on (`quality`), each asked at most once a day and kept in
 `state/boards.json`.
 
 Artificial Analysis, its site's pages (`AA_PAGES`), no key: per model and effort, every
 benchmark's score, index, price and cost its pages hand their scripts, which its free endpoint
-leaves out, and the record's identity (`IDENTITY`) for `catalog`.  Arena, its leaderboard's Hugging Face dataset, no key: each of `ARENA_BOARDS` at its
-category, with its 95% interval as `<column>.lower95ci` and `<column>.upper95ci`, no row of a
-model run inside another harness.  LiveBench 2.0, its newest release's CSV files, no key: each
-suite's score and what a successful coding task cost.  `ak models --refresh` asks again before the day is up; a board
+leaves out, and the record's identity (`IDENTITY`) for `catalog`.  Arena, its leaderboard's
+Hugging Face dataset, no key: each board `quality` rates on at its category (`arena_boards`),
+with its 95% interval as `<column>.lower95ci` and `<column>.upper95ci`, no row of a model run
+inside another harness.  `ak models --refresh` asks again before the day is up; a board
 that cannot answer keeps what it last said, its error beside it, and waits for the day like one
 that answered.  A board another build of ak read is asked again, once, by a build reading a
 column its rows carry none of, or rows lacking the identity this build's reader gives them: its
 reader changed, and a day of nothing is stale state; so is a board held from a build before its
-reader gave `ADDED`.
+reader gave `ADDED`.  A board ak no longer reads leaves the cache at its next write.
 Callers at once share one collection: each writer of `state/boards.json` holds
 `boards.lock` from reading it to replacing it.  A board's row is one model at one effort (`Acme
 5 (max)` is Acme 5 at max, `Acme 5 (Max, Default Fallback)` is Acme 5 (Default Fallback) at
@@ -19,14 +19,12 @@ max), or at none where the board names no effort, with every number the board gi
 `<board>.<field>`, a table's fields under the table's name
 (`aa.intelligenceIndexCostPerTask.cost.total`), a list's tables under each one's slug
 (`aa.intelligenceIndexEvaluations.aa-briefcase.costPerTask`).
-Attribution: Source: Artificial Analysis (artificialanalysis.ai); Arena (lmarena-ai), leaderboard-dataset, CC-BY-4.0;
-livebench.ai, Apache 2.0.
+Attribution: Source: Artificial Analysis (artificialanalysis.ai); Arena (lmarena-ai),
+leaderboard-dataset, CC-BY-4.0.
 """
 
 import contextlib
-import csv
 import fcntl
-import io
 import json
 import re
 import time
@@ -50,14 +48,6 @@ AA_RECORD = re.compile(r'\{"id":"[0-9a-f-]{36}","slug":"[^"]+","name":"')
 AA_CHUNK = re.compile(r'self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)')
 ARENA_URL = ("https://datasets-server.huggingface.co/{endpoint}"
              "?dataset=lmarena-ai/leaderboard-dataset&config={board}&split=latest")
-# Arena's boards ak reads, each at one category, a column `arena.<board>` (`.<category>` past
-# overall): agent sessions, those that ended in the user's confirmed success, taking a correction
-# mid-task, shell commands that run, web apps people pick, and coding answers judged for facts
-# and on their own, its style aside
-ARENA_BOARDS = (("agent", "overall"), ("agent_task_outcome_explicit", "overall"),
-                ("agent_steerability", "overall"), ("agent_bash_reliability", "overall"),
-                ("webdev", "overall"), ("text_factuality", "coding"),
-                ("text_style_control", "coding"))
 # an Arena row's number and the ends of its 95% interval: a rate on the agent boards, a rating
 # on the others
 ARENA_FIELDS = (("score", "score_ci_lower", "score_ci_upper"),
@@ -66,10 +56,8 @@ ARENA_FIELDS = (("score", "score_ci_lower", "score_ci_upper"),
 # word `harness` between any separators, `_` among them, but not as the word after `arena`
 HARNESS = re.compile(r"(?<![a-z0-9])(?<!(?<![a-z0-9])arena[^a-z0-9])harness(?![a-z0-9])",
                      re.IGNORECASE)
-LIVEBENCH = "https://livebench.ai/"
-BOARDS = ("artificialanalysis.ai", "arena.ai", "livebench.ai")
-PREFIX = dict(zip(BOARDS, ("aa", "arena", "livebench")))   # each board's columns start with it
-TASK_COST = "livebench.cost_coding"       # dollars per successful coding task, at one effort
+BOARDS = ("artificialanalysis.ai", "arena.ai")
+PREFIX = dict(zip(BOARDS, ("aa", "arena")))   # each board's columns start with it
 EFFORT_ORDER = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 # the words a board writes an effort as, each to ak's own
 EFFORT_WORDS = {"x-high": "xhigh", "extra high": "xhigh", "non-reasoning": "none"}
@@ -180,14 +168,23 @@ def artificial_analysis():
     return rows
 
 
+def arena_boards():
+    """Arena's boards `quality` rates on, each (board, category): `arena.<board>` at overall,
+    `arena.<board>.<category>` at that category."""
+    from . import quality        # here, not at the top: quality reads `effort_rank` off this module
+    return sorted({(*parts, "overall")[:2] for role in quality.ROLES.values()
+                   for column, _, _ in role
+                   for prefix, *parts in [column.split(".")] if prefix == "arena"})
+
+
 def arena():
-    """Arena's rows: each of `ARENA_BOARDS` a column with its interval, for every model its latest
+    """Arena's rows: each of `arena_boards()` a column with its interval, for every model its latest
     leaderboard lists at that category, but one run inside another harness (`HARNESS`).  A
     board's rows come grouped by category, overall first and the others in their alphabetical
     order, so the dataset's counts per category say where the wanted ones start, and every row
     read is checked to be one of them, all of them read."""
     rows = {}
-    for board, category in ARENA_BOARDS:
+    for board, category in arena_boards():
         statistics = json.loads(fetch_bytes(ARENA_URL.format(endpoint="statistics", board=board)))
         counts = next((column["column_statistics"]["frequencies"]
                        for column in statistics["statistics"]
@@ -221,43 +218,6 @@ def arena():
             for name, field in zip((column, f"{column}.lower95ci", f"{column}.upper95ci"), fields):
                 if isinstance(row.get(field), (int, float)):
                     values[name] = row[field]
-    return list(rows.values())
-
-
-def livebench():
-    """LiveBench 2.0's rows off its newest release: each suite's score as `livebench.<suite>`,
-    and the cost of a successful coding task.  The releases are named by their date in its
-    page's script (`"20261014"`), each one's files under `data/<release>/`; the newest whose
-    table answers is the one, and its costs are part of the answer."""
-    index = fetch_bytes(LIVEBENCH).decode("utf-8", "replace")
-    script = re.search(r'src="\./?([^"]+\.js)"', index)
-    if not script:
-        raise ValueError("livebench.ai: no script on its page")
-    code = fetch_bytes(LIVEBENCH + script.group(1)).decode("utf-8", "replace")
-    for release in sorted(set(re.findall(r'"(20\d{6})"', code)), reverse=True):
-        try:
-            table = fetch_bytes(f"{LIVEBENCH}data/{release}/table.csv").decode("utf-8", "replace")
-        except OSError:
-            continue
-        cost = fetch_bytes(f"{LIVEBENCH}data/{release}/cost.csv").decode("utf-8", "replace")
-        date = f"{release[:4]}-{release[4:6]}-{release[6:]}"
-        break
-    else:
-        raise ValueError("livebench.ai: no release's table answers")
-    rows = {}
-    for line in csv.DictReader(io.StringIO(table)):
-        model = line.pop("model", "")
-        values = {f"livebench.{suite}": float(value) for suite, value in line.items()
-                  if value not in ("", None)}
-        rows[model] = {"model": model, "effort": None, "values": values, "release": date}
-    for line in csv.DictReader(io.StringIO(cost)):
-        row = rows.get(line.get("model", ""))
-        try:          # the suite's spend over the tasks it passed
-            passed = float(line["nq_coding"]) * row["values"]["livebench.coding"] / 100
-            if passed > 0:
-                row["values"][TASK_COST] = round(float(line["coding"]) / passed, 2)
-        except (KeyError, TypeError, ValueError):
-            continue
     return list(rows.values())
 
 
@@ -304,8 +264,7 @@ def collect(*, refresh=False, now=None, needs=None, build=None):
     now = time.time() if now is None else now
     with _locked():
         cache = _held()
-        asks = {"artificialanalysis.ai": artificial_analysis, "arena.ai": arena,
-                "livebench.ai": livebench}
+        asks = {"artificialanalysis.ai": artificial_analysis, "arena.ai": arena}
         for board, ask in asks.items():
             held = cache.get(board) or {}
             fresh = held.get("asked_at") and now - held["asked_at"] < FRESH_FOR

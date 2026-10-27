@@ -33,7 +33,7 @@ class MatrixMeasures(unittest.TestCase):
         self.assertEqual(quality.COSTS, COSTS)
         for measures in quality.ROLES.values():
             for column, kind, why in measures:
-                self.assertRegex(column, r"^(aa|arena|livebench)\.[A-Za-z0-9_.]+$")
+                self.assertRegex(column, r"^(aa|arena)\.[A-Za-z0-9_.]+$")
                 self.assertIn(kind, quality.SCALES)
                 self.assertTrue(why and why[0].islower() and not why.endswith("."), why)
 

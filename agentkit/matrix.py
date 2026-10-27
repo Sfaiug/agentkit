@@ -3,7 +3,7 @@ models that are it (`lineup`), answered per role on quality and cost alone (`ans
 cheapest within `within` of the best the pick; `rank` places each configured model off it.  ak's
 own run numbers stand beside, per configured model, the effort its runs recorded and role, with
 their count, and never rank (AGENTS.md, Owner rules).
-Attribution: Source: Artificial Analysis (artificialanalysis.ai); arena.ai; livebench.ai.
+Attribution: Source: Artificial Analysis (artificialanalysis.ai); arena.ai.
 """
 
 import contextlib
