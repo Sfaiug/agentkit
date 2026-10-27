@@ -1,5 +1,5 @@
-"""A run's unit and a lander's may swap a quarter of their memory cap, and admission lets ak's
-slice hold that quarter of its own cap in swap before swap takes a run's room.
+"""A run's unit and a lander's may swap a quarter of their memory cap, and admission lets the runs
+hold a quarter of ak's slice's cap in swap before swap takes a run's room.
 
 With swap as large as the cap, a lander and several runs sat at both caps for hours, paging
 their test pieces, until the host's load reached 290 (24 Oct 2026); with no swap allowed at
@@ -87,7 +87,7 @@ class Slice:
     def __init__(self, home):
         root = home.root / "cgroup"
         self.dir = root / SERVICE / "agentkit.slice" / "agentkit-test.slice"
-        runs = self.dir / "agentkit-test-runs.slice"
+        self.runs = runs = self.dir / "agentkit-test-runs.slice"
         runs.mkdir(parents=True)
         membership = home.root / "membership"
         membership.write_text(f"0::/{SERVICE}/app.slice/acme.service\n")
@@ -102,7 +102,9 @@ class Slice:
         (self.dir / "memory.stat").write_text("active_file 0\ninactive_file 0\n")
 
     def swaps(self, mb):
-        (self.dir / "memory.swap.current").write_text(str(mb * MB))
+        """Swap the runs hold, which the slice's counts too."""
+        for directory in (self.dir, self.runs):
+            (directory / "memory.swap.current").write_text(str(mb * MB))
 
 
 class RunSwapShare(unittest.TestCase):

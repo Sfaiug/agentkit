@@ -45,7 +45,7 @@ class Slice:
     def __init__(self, home):
         root = home.root / "cgroup"
         self.dir = root / SERVICE / "agentkit.slice" / "agentkit-test.slice"
-        runs = self.dir / "agentkit-test-runs.slice"
+        self.runs = runs = self.dir / "agentkit-test-runs.slice"
         runs.mkdir(parents=True)
         membership = home.root / "membership"
         membership.write_text(f"0::/{SERVICE}/app.slice/acme.service\n")
@@ -60,7 +60,9 @@ class Slice:
         self.holds(swap_mb=0)
 
     def holds(self, *, swap_mb, pressure=CALM):
-        (self.dir / "memory.swap.current").write_text(str(swap_mb * MB))
+        """Swap the runs hold, which the slice's counts too."""
+        for directory in (self.dir, self.runs):
+            (directory / "memory.swap.current").write_text(str(swap_mb * MB))
         (self.dir / "memory.pressure").write_text(pressure)
 
 

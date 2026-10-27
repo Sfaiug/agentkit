@@ -137,7 +137,7 @@ def host_status_line():
     if unit and len(unit) > 3 and unit[3]:
         segment = f" · {unit[3]} {host._g(unit[0])} of {host._g(unit[1])} G in use{_in_swap(unit)}"
     ours, name = host._slice_or_unit_memory(readings), orch.slice_cgroup().name
-    # From a shell outside it, ak's slice is not the unit above, yet its swap is what admission reads.
+    # From a shell outside it, ak's slice is not the unit above, yet its swap is what a wait names.
     if ours and ours[4] and ours != unit and not (unit and unit[3] == name):
         segment += f" · {name} {host._g(ours[0])} of {host._g(ours[1])} G in use{_in_swap(ours)}"
     first = (f"host: {int(cpus)} cpus{signal} · "
@@ -334,8 +334,10 @@ def _wait_reason(readings, minimum, maximum, frozen=0):
         return reason, kind
     unit = host._slice_or_unit_memory(readings)
     peak = history.recent_peak_rss_mb() if unit else None
-    # Swap past its allowance takes room: seats' cold pages never hold a run, a runaway does.
-    used = unit[0] + max(0.0, unit[4] - host.swap_allowance_mb(unit[1])) if unit else None
+    # The runs' swap past the slice's allowance takes room, as runs paging their test pieces
+    # ran away (24 Oct 2026); seats' swap is bounded by their own caps and never holds a run.
+    runs_swap = host._reading(readings, "runs_memory_swap_mb") or 0.0
+    used = unit[0] + max(0.0, runs_swap - host.swap_allowance_mb(unit[1])) if unit else None
     if unit and peak is not None:
         room = unit[1] - used
         if room < peak:

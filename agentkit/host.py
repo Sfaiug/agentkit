@@ -239,7 +239,8 @@ def _swap_mb(cgroup):
     Named beside RAM, never added to it: a cap bounds RAM alone, the kernel moves cold pages
     to swap to make room, and what paging them back costs shows as memory pressure, which the
     gate reads over a minute.  Counted as RAM, seats' cold swap kept every run out of a calm
-    slice for a day (25 Oct 2026); only what is past `swap_allowance_mb` takes a run's room.
+    slice for a day (25 Oct 2026); only the runs slice's swap past `swap_allowance_mb` takes a
+    run's room.
     """
     return _read_number(Path(cgroup) / "memory.swap.current", bytes_to_mb=True) or 0.0
 
@@ -540,7 +541,7 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
     """Host and caller-named cgroup readings; an injected snapshot avoids all reads.
 
     `slice_dir` may be a directory or a callable locating it after injection is checked.
-    `cpu_dir` selects a child for CPU readings only; memory and CPU used outside
+    `cpu_dir` selects a child for CPU readings and the runs' swap; memory and CPU used outside
     the containing slice still read `slice_dir`, so sibling CPU is reclaimable.
     `pressure_window` samples live CPU stalls on the host, slice and caller's cgroup;
     `all_limits` includes hard memory caps and enclosing groups.
@@ -620,6 +621,7 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
         mem = _slice_memory(slice_dir)
     except Exception:
         mem = None
+    readings["runs_memory_swap_mb"] = _swap_mb(cpu_dir) if cpu_dir not in (None, slice_dir) else None
     readings["slice_cpu_quota"] = cpu_quota
     readings["slice_cpu_used"] = cpu_used
     readings["outside_cpu_used"] = outside
