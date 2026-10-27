@@ -13,7 +13,7 @@ from . import config, history, record, seat_tokens, terminal, transitions
 # holds it: a model turn, else ak's own work (a check, or a merge step, which runs from the run's
 # place in its landing line), else a wait.
 PARTS = (("model", ("executor", "reviewer")), ("ak", ("done-when", "merge")),
-         ("waiting", tuple(f"{wait} wait" for wait in history.WAIT_COLUMNS)))
+         ("waiting", tuple(f"{wait} wait" for wait in history.WAITS)))
 
 # What the board measures, row by row: the board's key, the row's label, and the parts each
 # week's cell is built from, in the vision's order (quality and speed, then cost, then size).

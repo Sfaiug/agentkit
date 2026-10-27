@@ -19,6 +19,7 @@ from pathlib import Path
 
 from . import config, gitcall, handback, helper, history, host, orch, stuck, transitions, turns
 from . import update
+from . import waiter
 from . import watch
 from . import worker
 from . import land as landing
@@ -236,13 +237,11 @@ def first_in_line(now):
 
 
 def behind_first(run_id):
-    """Whether the queue still has this run waiting behind its first, who alone can be admitted.
+    """Whether the queue still has this run waiting behind its first (`waiter.behind_first`).
 
-    Such a run skips its poll: it reads no record and takes no lock. A queue no poll rewrote
-    for two polls -- its first stopped or died -- is counted again by whoever polls next.
+    Such a run skips its poll: it reads no record and takes no lock.
     """
-    at, _, queue, *_ = slot_queue()
-    return 0 <= time.time() - at < 2 * SLOT_POLL and run_id in queue[1:]
+    return waiter.behind_first(config.RUNS / ".slots.queue", run_id, time.time(), SLOT_POLL)
 
 
 def frozen_runs(state):
@@ -470,21 +469,26 @@ def count_wait(run_id, wait, counted):
 def wait_for_slot(run_dir, between=None):
     """Reserve a slot in run.json before work starts; no process-local semaphore can do this.
 
-    `between` runs after each poll's wait, while the wait holds nothing: it may replace this
-    process with the same launch on newer code (`run.pickup_while_queued`)."""
+    `between` runs after each poll's wait, while the wait holds nothing, with the wait counted
+    so far where this run waits behind the first: it may replace this process with the same
+    launch on newer code, or with a waiter that execs that launch back (`run.pickup_while_queued`),
+    which counts as it waits and hands the count back (`waiter.SLOT_WAIT_ENV`)."""
     announced = False
     first_poll = True
-    behind = False
+    handed = os.environ.pop(waiter.SLOT_WAIT_ENV, "").split()
+    # back from the waiter: it waited behind the first, uncounted since `counted`
+    behind = len(handed) == 2
     wait_kind = None
-    counted = None
+    counted = tuple(map(float, handed)) if behind else None
     while True:
         if not first_poll:
             counted = counted or (time.time(), time.monotonic())
             time.sleep(SLOT_POLL)
             counted = count_wait(run_dir.name, "slot", counted)
+            waiting_behind = behind_first(run_dir.name)
             if between is not None:
-                between()
-            if behind_first(run_dir.name):
+                between(counted if waiting_behind else None)
+            if waiting_behind:
                 behind = True
                 continue
         limit = config.max_runs()
