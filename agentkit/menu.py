@@ -4329,7 +4329,8 @@ def config_subscriptions(cfg, keyboard):
     (config_add_provider).  The row the keys or the pointer are on opens a line: whose login it
     is and its plan (logins.whose; one ending as login_notes says it, amber), resets with no room
     beside its meter, then its acts (subscription_acts), ←/→ or the pointer moving, Enter or a
-    click running one, the key line naming it.  One an act adds is asked whose it is (logins.renewed), then pointed at."""
+    click running one, the key line naming it.  One an act adds is asked whose it is
+    (logins.renewed), then pointed at."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     here, column, top, said = ("sub", 1), None, 0, ""     # column None: as the line opens
     while True:
@@ -4490,10 +4491,10 @@ def config_page(name, page):
                   for line, (row, _) in places.items()}
         space, enter = does(here)
         keys = terminal.keys("esc back", space=space, enter=enter)
-        act, moved, clicked, top = matrix_key(title, body, places, ids, here, top,
-                                              "\n".join(filter(None, (said, note))), keys, marks=1)
+        act, moved, _, top = matrix_key(title, body, places, ids, here, top,
+                                        "\n".join(filter(None, (said, note))), keys, marks=1)
         # the pointer on a row off-list, unless it clicked it
-        here = moved if moved in ids or act == "enter" or clicked is not None else here
+        here = moved if moved in ids or act in ("enter", "space") else here
         if act is None:
             continue                  # a resize or the pointer: drawn again
         said, (space, enter) = "", does(here)

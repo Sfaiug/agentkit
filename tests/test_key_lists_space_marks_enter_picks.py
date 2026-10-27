@@ -22,7 +22,8 @@ from fixtures.akterm import SERVER, Terminal
 
 MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave"
 MARK, OPEN = "  ↑↓←→ move   ␣ mark   esc back", "  ↑↓←→ move   ⏎ open   esc back"
-PICK, CLOSE = "  ↑↓←→ move   ␣ mark   ⏎ pick   esc back", "  ↑↓←→ move   ␣ mark   ⏎ close   esc back"
+PICK = "  ↑↓←→ move   ␣ mark   ⏎ pick   esc back"
+CLOSE = "  ↑↓←→ move   ␣ mark   ⏎ close   esc back"
 FABLE_LISTED = "claude-fable-5-1\tFable 5.1\tlow medium high xhigh max"
 
 
@@ -78,7 +79,9 @@ class ListsSpaceMarksEnterPicks(unittest.TestCase):
         self.term.keys("Space")
         self.to("  □ Fable 5.1", CLOSE)                # the list open still
         self.assertNotIn("fable", akconfig.read(self.home)["models"])
-        self.term.keys("Space")
+        shown = lines(self.term.screen())             # a click on a mark does as Space does
+        row = next(n for n, line in enumerate(shown) if "□ Fable 5.1" in line) + 1
+        self.term.type(f"\x1b[<0;20;{row}M\x1b[<0;20;{row}m")
         self.to("  ■ Fable 5.1", CLOSE)
         before = akconfig.read(self.home)
         self.assertIn("fable", before["models"])
