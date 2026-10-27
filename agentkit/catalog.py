@@ -9,7 +9,7 @@ nothing of releases.
 
 import re
 
-from .boards import effort_rank
+from .boards import effort_rank, split_effort
 
 BOARD = "artificialanalysis.ai"
 # an eight-digit date in a name, which matches as its last four digits too
@@ -81,21 +81,19 @@ def _join(values, row):
 
 def _replaced(releases):
     """{slug: what replaced it, or None}: each release with a row deprecated, by the first
-    `deprecatedTo` its rows name, and each other release listed under the name of one, unless
-    one of those names it: a variant (`Acme 6 (Fast)` under Acme 6), which the board leaves
-    current when it replaces the model, is replaced with it; where nothing replaced the model,
-    only a variant no release names as its replacement goes, since the board says that one is
-    current."""
+    `deprecatedTo` its rows name, and each other release listed under a name its rows do not
+    bear once every release whose rows bear it is replaced, with the first they name: a variant
+    (`Acme 6 (Fast)` under Acme 6), which the board leaves current when it replaces the model."""
     name = lambda slug: releases[slug][0]["release"]["name"]
     replaced = {slug: next(filter(None, (row["release"]["deprecatedTo"] for row in rows)), None)
                 for slug, rows in releases.items() if any(row["deprecated"] for row in rows)}
-    named = {}
-    for slug, to in replaced.items():
-        named.setdefault(name(slug), []).append(to)
-    variants = {slug: next(filter(None, named[name(slug)]), None) for slug in releases
-                if slug not in named.get(name(slug), [slug])}
-    return {**{slug: to for slug, to in variants.items() if to or slug not in replaced.values()},
-            **replaced}
+    models = {}
+    for slug, rows in releases.items():
+        if any(row["model"] == split_effort(name(slug))[0] for row in rows):
+            models.setdefault(name(slug), []).append(slug)
+    return {**{slug: next(filter(None, map(replaced.get, models[name(slug)])), None)
+               for slug in releases.keys() - replaced
+               if all(model in replaced for model in models.get(name(slug), [slug]))}, **replaced}
 
 
 def current(boards):
