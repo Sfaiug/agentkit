@@ -1,7 +1,7 @@
 """The menu's past sessions screen, `p`: the seats the owner stopped, removed or reopened there.
 
 A stopped seat keeps its record and its conversation, so it can come back where it stopped; it
-leaves its project's rows on the main screen for this one, numbered after every live seat, and
+leaves its project's rows on the main screen for this one, numbered from 1 there, and
 `p past` is a key only while there is such a seat.  `x` there removes the seat for good, all but
 the stop mark a hand-back of its runs still reads.  Enter asks its harness's adapter for the
 command that reopens its own conversation and puts the owner in the seat; an adapter that gives
@@ -29,7 +29,7 @@ ADAPTER = """#!/bin/sh
 printf '%s' {command}
 """
 HARNESS = "sh -c 'echo the harness is back; exec sleep 300'\n"
-PAST_KEYS = "  ↑↓←→ move   ⏎ choose   x remove   esc back"
+PAST_KEYS = "  ↑↓←→ move   ⏎ reopen   x remove   esc back"
 
 
 class Stopped:
@@ -94,6 +94,8 @@ class PastSessions(unittest.TestCase):
         cls.back = seats.menu.wait(main_screen)
         seats.to_past()
         seats.menu.keys("x")
+        seats.menu.wait("Remove beta from past sessions?")
+        seats.menu.keys("Down", "Enter")
         cls.removed = seats.menu.wait(lambda screen: main_screen(screen)
                                       and "p past" not in screen)
 
@@ -102,12 +104,11 @@ class PastSessions(unittest.TestCase):
         self.assertIn("1  fix-api  Opus 5.5", self.main)
         self.assertIn("p past", last_line(self.main))
 
-    def test_p_lists_it_under_its_project_numbered_after_the_live_ones(self):
+    def test_p_lists_it_under_the_day_it_closed_numbered_from_1(self):
         lines = [line.rstrip() for line in self.past.split("\n")]
         self.assertTrue(lines[0].startswith("agentkit · past sessions"), lines[0])
-        # a model the config lacks, by its full name as the shipped catalog gives it
-        row = lines.index("› 2  beta  Fable 5.1  stopped 2h ago")
-        self.assertEqual(lines[row - 1], "acme")
+        row = next(n for n, line in enumerate(lines) if line.startswith("› 1  beta  acme  no plan"))
+        self.assertIn(lines[row - 1], ("today", "yesterday"))
         self.assertNotIn("fix-api", self.past)
         # the usage is the main screen's: no subscription's cell is drawn here
         self.assertNotIn("Claude", self.past)

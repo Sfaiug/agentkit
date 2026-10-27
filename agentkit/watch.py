@@ -2925,7 +2925,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         title = " ".join(str(newest.get("title") or newest.get("run_id") or "").split())
         return {"word": "working", "reason": f"waiting on the live check · {title}".rstrip(" ·"),
                 "since": min(state["finished_at"] for state in pending)}
-    # 4. nobody is in it: its number is the way back into the conversation.  A seat the
+    # 4. nobody is in it: its number is the way back into the conversation, past sessions for
+    # one the owner closed.  A seat the
     # owner closed is `idle`: he ended it, so nothing in it is his to unblock, and a hand-back
     # waiting on it waits for him to want it back; one that went on its own is the owner's
     # only while it owes work (`owes_work`).
@@ -2947,7 +2948,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         # One the owner closed rests: they closed it, and nothing in it is asking them anything.
         if seat_closed_by_owner(name):
             waiting = sum(1 for _, st in mine if st.get("handback_pending"))
-            reason = f"{OWNER_CLOSED_REASON}: press {where} to reopen"
+            reason = f"{OWNER_CLOSED_REASON}: reopen it from past sessions"
             if waiting:
                 reason += f" · {waiting} hand-backs waiting"
             return {"word": "idle", "since": None, "reason": closed(reason)}

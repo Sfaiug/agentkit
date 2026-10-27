@@ -175,7 +175,7 @@ class Cards(unittest.TestCase):
         # ... and the menu still shows it, idle, with the number that reopens it
         found = watch.session_state("seat", session={"name": "seat", "exited": True}, number=3)
         self.assertEqual(found["word"], "idle")
-        self.assertEqual(found["reason"], "session closed by the owner: press 3 to reopen")
+        self.assertEqual(found["reason"], "session closed by the owner: reopen it from past sessions")
 
     def test_resolved_questions_do_not_renew_an_old_episode(self):
         for resolution in ("clear", "progress"):

@@ -110,7 +110,8 @@ class PageComesUp(Sandbox):
         as `c` is back from its models."""
         seats = [{"name": name, "repo": None, "path": "/", "created": 9000, "closed": 9500}
                  for name in ("fix-api", "fix-web")]
-        keys = iter([terminal.Key("char", "x"), terminal.Key("esc")])
+        keys = iter([terminal.Key("char", "x"), terminal.Key("down"), terminal.Key("enter"),
+                     terminal.Key("esc")])
 
         def read_key(*_args, **_kwargs):
             self.time.now += motion.FADE / 6        # each key well inside the opening

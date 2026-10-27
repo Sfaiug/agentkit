@@ -5,7 +5,7 @@ The walk: `menu.show_config` in a child process on a pty of its own (tests/test_
 Screen, a temporary HOME), from a model's mark up onto a meter, over the For line, down to a
 model's effort, through every row under the models, and into Subscriptions' page.
 The main screen's line is pinned by tests/test_menu_keys.py, the past sessions' by
-tests/test_past_sessions.py and the features' by tests/test_features_screen.py.  Every other
+tests/test_key_past_sessions_by_day.py and the features' by tests/test_features_screen.py.  Every other
 key line is built by `terminal.keys`; the few still spelled by hand are counted here.
 """
 
