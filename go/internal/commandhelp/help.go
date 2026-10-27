@@ -18,7 +18,7 @@ var internal = []string{"orch", "worker", "hand-in", "watch", "update", "macbrid
 var entries = map[string]entry{
 	"models": {
 		"usage: ak models [--json] [--refresh]",
-		"Score every model and effort per role from the public boards and recommend one per\nrole: Artificial Analysis, Arena and LiveBench, each asked once a day; --refresh\nasks now, --json prints the scored rows, the recommendation and when each board\nwas asked and answered, or its error.",
+		"Answer each role over every current model on the public boards as the models screen\ndoes, then ak's own run numbers: Artificial Analysis and Arena, each asked once\na day; --refresh asks now, --json prints each role's best and its line\nof best quality for the money, with ak's own numbers.",
 		"ak models",
 	},
 	"usage": {
