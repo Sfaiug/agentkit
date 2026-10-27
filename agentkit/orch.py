@@ -4191,13 +4191,15 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
 
     def at_effort(data, was=None):
         """`data`'s efforts with `model`'s orchestrator effort at `effort`, the one replaced
-        put in `was`, every other key kept; a model it holds none for starts from its
+        put in `was`, every other key kept and one that followed it set where it stood, so
+        its builds and reviews stay as they were; a model it holds none for starts from its
         entry's."""
         efforts = dict(data.get("efforts") or {})
         own = efforts.get(model) or config.efforts_of(cfg["models"][model])
         if was is not None:
             was[:] = [own["effort"]]
-        return {**efforts, model: {**own, "effort": effort}}
+        return {**efforts, model: {**dict.fromkeys(config.ROLE_EFFORTS.values(), own["effort"]),
+                                   **own, "effort": effort}}
 
     def given_back():
         """The effort `taken` back, the launch at `effort` having failed, where the record

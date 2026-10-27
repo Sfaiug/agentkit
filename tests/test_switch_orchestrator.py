@@ -296,8 +296,15 @@ class Switch(Sandbox):
         self.assertIn("max", respawns[0][-1].split())
         self.assertIn(CONVERSATION, respawns[0][-1])     # its conversation goes on
         after = config.load_session(self.cfg, "fix-api")
-        self.assertEqual(after["efforts"]["opus"], {"effort": "max"})
+        self.assertEqual(after["efforts"]["opus"]["effort"], "max")
         self.assertEqual(after["conversation"], CONVERSATION)
+
+    def test_a_restart_at_an_effort_keeps_its_builds_and_reviews_where_they_stood(self):
+        self.at_xhigh()       # its builds and reviews follow the effort
+        self.assertEqual(orch.switch_orchestrator(self.cfg, "fix-api", "opus", {},
+                                                  effort="max"), "")
+        self.assertEqual(config.load_session(self.cfg, "fix-api")["efforts"]["opus"],
+                         {"effort": "max", "exec_effort": "xhigh", "review_effort": "xhigh"})
 
     def test_a_restart_at_an_effort_whose_login_is_refused_writes_nothing(self):
         before = self.at_xhigh()
@@ -318,7 +325,7 @@ class Switch(Sandbox):
             note = orch.switch_orchestrator(self.cfg, "fix-api", "opus", {}, effort="max")
         self.assertEqual(note, "respawn failed")
         self.assertEqual(config.load_session(self.cfg, "fix-api")["efforts"]["opus"],
-                         {"effort": "xhigh", "exec_effort": "low"})
+                         {"effort": "xhigh", "exec_effort": "low", "review_effort": "xhigh"})
 
     def test_runs_that_end_later_report_to_the_new_seat(self):
         selected = self.selected()
