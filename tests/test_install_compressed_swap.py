@@ -94,6 +94,12 @@ class CompressedSwap(unittest.TestCase):
         self.log.unlink()
         self.install(DISK)
         self.assertEqual(self.sudo_calls(), [])
+        # a value changed live since is put back by the next install
+        (self.params / "compressor").write_text("lzo\n")
+        (self.params / "shrinker_enabled").write_text("N\n")
+        self.install(DISK)
+        self.assertEqual(self.param("compressor"), "zstd")
+        self.assertEqual(self.param("shrinker_enabled"), "Y")
 
     def test_b_no_swap_and_zram_are_left_alone(self):
         for swaps in ("Filename\tType\tSize\tUsed\tPriority\n", ZRAM):
