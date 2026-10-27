@@ -3478,8 +3478,8 @@ with open(sys.argv[1], "w") as fh:
 PY
 MENU=0
 printf '\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-q.log" 2>&1 || MENU=1
-# the key line is those four letter keys and nothing else; numbers open seats
-grep -q '^  n new   x stop   c config   esc leave' "$WORK/menu-q.log" || MENU=1
+# the key line is those letter keys and nothing else; numbers open seats
+grep -q '^  n new   c config   esc leave' "$WORK/menu-q.log" || MENU=1
 grep -q 'p preview\|b browser\|r runs\|u update\|s shell' "$WORK/menu-q.log" && MENU=1
 # `c` lists the config with its values, with no seat new seats' marks;
 # `i`/`r`/`p`/`b`/`s`/`u` are not keys
@@ -3505,7 +3505,7 @@ grep -q '^would start [a-z][a-z0-9-]*: ' "$WORK/menu-n-eof.log" || MENU=1
 ls "$MHOME/.agentkit/state" | grep -qE '^(session|rulebook)-' && MENU=1
 printf 'zz\n\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-bad.log" 2>&1 || MENU=1
 grep -q "not a key: 'zz'" "$WORK/menu-bad.log" || MENU=1
-[ "$MENU" = 0 ] && ok "20 the menu: numbers and n/x/c/esc on the line, c placeholder, i/r/p/b/s/u refused, an empty line leaves, n asks Name, Orchestrator and Workers with defaults and would start ${MSESSION:-?} creating no session, and a stray key is refused" \
+[ "$MENU" = 0 ] && ok "20 the menu: numbers and n/c/esc on the line, c placeholder, i/r/p/b/s/u refused, an empty line leaves, n asks Name, Orchestrator and Workers with defaults and would start ${MSESSION:-?} creating no session, and a stray key is refused" \
               || no "20 the menu"; [ "$MENU" = 0 ] || sed 's/^/      /' "$WORK/menu-n.log" | head -12
 
 # --- 20c: the menu offers only what makes sense, and works from any terminal (offline) ---
@@ -5306,7 +5306,7 @@ def menu_lines(keys):
     return [line.rstrip() for line in out.getvalue().splitlines() if line.strip()]
 
 
-assert menu.KEYS == "n new   x stop   c config   esc leave", menu.KEYS
+assert menu.KEYS == "n new   c config   esc leave", menu.KEYS
 assert not hasattr(menu, "runs_listing") and not hasattr(menu, "runs")
 assert not hasattr(menu, "recover_run") and not hasattr(menu, "watch_run")
 lines = menu_lines("\n")

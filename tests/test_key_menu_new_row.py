@@ -19,7 +19,7 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
-MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"
+MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave"
 ROW_KEYS = "  ⏎ start   tab models   esc back"
 UNFILED = "not assigned yet"
 CREW = "     Fable 5.1 ⚒◎   GPT-6-Astra ⚒◎"

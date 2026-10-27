@@ -119,16 +119,17 @@ class Sandbox(unittest.TestCase):
         self.stack.enter_context(patch.object(gc, "VAR_TMP_BASE", system_tmp))
 
     def x_from_a_pipe(self, seats, *answers, stop=None):
-        """The main screen's `x` read from a pipe over `seats`, answered with `answers`, then the
-        menu left: its reads and `Live.stop`, a mock doing `stop` in place of the stop's own
-        process (`teardown`), which would see none of a test's patches."""
+        """`x` read from a pipe in the popup over the first of `seats`, answered with `answers`,
+        then the menu left: its reads and `menu.stop_behind`, a mock doing `stop` in place of the
+        stop's own process (`teardown`), which would see none of a test's patches."""
         with patch.object(orch, "listing", return_value=[dict(seat) for seat in seats]), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu, "draw", return_value=(0, 1)), \
-                patch.object(menu.Live, "stop", side_effect=stop) as stopped, \
+                patch.object(menu, "stop_behind", side_effect=stop) as stopped, \
+                patch.object(config, "current_session", return_value=seats[0]["name"]), \
                 menu_input(side_effect=["x", *answers, ""]) as read, \
                 redirect_stdout(io.StringIO()):
-            menu.loop(self.cfg)
+            menu.loop(self.cfg, overlay=True)
         return read, stopped
 
     def ended(self, name, owner="gone-seat", **extra):

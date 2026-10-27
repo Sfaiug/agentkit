@@ -17,8 +17,8 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
-ASCII_KEYS = "  arrows move   enter choose   n new   x stop   c config   esc leave"
-UTF8_KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"
+ASCII_KEYS = "  arrows move   enter choose   n new   c config   esc leave"
+UTF8_KEYS = "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave"
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")

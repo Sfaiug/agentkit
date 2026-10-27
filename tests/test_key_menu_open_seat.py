@@ -22,7 +22,8 @@ from fixtures.akbin import Home
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
-KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"
+KEYS = "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave"
+POPUP_KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"   # x: its own seat's
 SHOWS = {"atoll-fix": "Baking…", "atoll-ask": "(shift+tab to cycle) · ← for agents"}
 NOW = int(time.time())
 
@@ -126,10 +127,10 @@ class Overlay(unittest.TestCase):
         seats(cls.home)
 
     def popup(self, seat):
-        """The menu as the popup over `seat` runs it: the main screen's keys at its foot."""
+        """The menu as the popup over `seat` runs it: the main screen's keys and `x` at its foot."""
         menu = Terminal(self.home, "attach", "--overlay", size=(100, 30),
                         env={"AGENTKIT_SESSION": seat})
-        self.assertIn(KEYS, menu.wait(KEYS).splitlines())
+        self.assertIn(POPUP_KEYS, menu.wait(POPUP_KEYS).splitlines())
         return menu
 
     def test_the_popup_closes_once_it_has_opened_a_seat(self):
@@ -140,17 +141,9 @@ class Overlay(unittest.TestCase):
         self.home.tmux("detach-client", "-s", "=atoll-ask")
         self.assertEqual(menu.exit_code(), 0)
 
-    def test_the_popup_starts_on_its_own_seat_and_its_x_asks_about_the_highlighted_one(self):
+    def test_the_popup_starts_on_its_own_seat(self):
         menu = self.popup("atoll-ask")
         menu.wait("› 2  atoll-ask  ")
-        menu.keys("k")
-        menu.wait("› 1  atoll-fix  ")
-        menu.keys("x")
-        lines = menu.wait("  Stop atoll-fix and everything it runs?").splitlines()
-        self.assertEqual([line for line in lines if line][-1], "  esc back")
-        menu.keys("Escape")
-        menu.wait(KEYS)
-        self.assertEqual(self.home.tmux("has-session", "-t", "=atoll-fix").code, 0)
         menu.keys("Escape")
         self.assertEqual(menu.exit_code(), 0)
 

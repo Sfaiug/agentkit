@@ -301,23 +301,21 @@ class Pages(Sandbox):
 
     def test_the_loop_turns_pages_and_answers_a_number_from_any_page(self):
         seats = self.seats(12)
-        opened, stopped = [], []
+        opened = []
         # short enough to page: the loop turns whole seat blocks and answers a
         # number from whichever page is up
         with patch.object(menu.orch, "listing", return_value=seats), \
                 patch.object(menu.orch, "job_notices", return_value=[]), \
-                menu_input(side_effect=["j", "k", "j", "j", "j", "12", "3", "x", "11", "y", ""]), \
+                menu_input(side_effect=["j", "k", "j", "j", "j", "12", "3", ""]), \
                 patch.object(menu, "open_session", side_effect=lambda cfg, s, dry: opened.append(s["name"])), \
-                patch.object(menu.Live, "stop", side_effect=lambda name, dry: stopped.append(name)), \
                 patch.object(terminal, "width", return_value=40), \
                 patch.object(terminal, "height", return_value=12), \
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(menu.loop(self.cfg), 0)
         marks = re.findall(r"(?m)^  (\d+) / 6\b", out.getvalue())
         # six pages of two seats each: the usage's one line keeps its row on every page
-        self.assertEqual(marks, ["1", "2", "1", "2", "3", "4", "4", "4", "4"])
+        self.assertEqual(marks, ["1", "2", "1", "2", "3", "4", "4", "4"])
         self.assertEqual(opened, [LONG_NAME, "seat-03"])   # 12 answered from the first page
-        self.assertEqual(stopped, ["seat-11"])
 
     def test_the_menu_has_no_runs_list(self):
         self.assertFalse(hasattr(menu, "runs_listing"))
@@ -854,14 +852,18 @@ class Phone(Sandbox):
         # the frame is back at the new size, on the page the highlight is on
         screen = phone.redraw("agentkit", "esc leave")
         self.whole_page(screen, width, height)
-        # x stops the highlighted seat, on whichever page it is, once `Stop` answers the question
-        # under its row; Esc leaves without a word of error
+        # x in the popup over the twelfth seat stops it once `Stop` answers the question under
+        # its row, on whichever page it is; Esc leaves without a word of error
         screen = self.moved(phone, "j", screen)          # from phone-audit, eleventh, to twelfth
         self.assertEqual(self.marked(screen), 12)
+        phone.press("12")
+        phone.until(STAND_IN, absent=["esc leave"])
+        phone.settled()
+        phone.menu()
         phone.press("x")
         screen = "\n".join(phone.until("everything it runs?", "Keep", prompt="esc back"))
         if narrow:   # the name is wider than the question's room, so it breaks where it must
-            self.assertIn("zz-very-long-session-name-for-a-narrow", screen)
+            self.assertIn(LONG_NAME[:30], screen)
         else:
             self.assertIn(f"Stop {LONG_NAME} and everything it runs?", screen)
         self.stop_answered(phone)

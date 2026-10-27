@@ -185,7 +185,7 @@ class SessionModels(Sandbox):
         self.assertEqual(self.rows(screen.splitlines())["Opus"], "●■■")     # [defaults]'
 
     def test_no_key_line_or_sentence_offers_m(self):
-        self.assertEqual(menu.KEYS, "n new   x stop   c config   esc leave")
+        self.assertEqual(menu.KEYS, "n new   c config   esc leave")
 
 
 if __name__ == "__main__":

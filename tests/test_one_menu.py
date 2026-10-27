@@ -1,12 +1,13 @@
-"""Ctrl-b m is the main screen: the popup draws the menu's own key line, its highlight starts on
-the seat it is over, and `x` acts on the highlighted seat there as it does on the menu, while `c`
-edits the seat the popup is over, whichever is highlighted (tests/test_key_config_scope.py).
+"""Ctrl-b m is the main screen: the popup draws the menu's own key line, `x` added, its highlight
+starts on the seat it is over, and `x` and `c` act on the seat the popup is over, whichever is
+highlighted (tests/test_key_x_stops_only_its_own_seat.py, tests/test_key_config_scope.py).
 
 The owner (20 Oct 2026): "There should be no differentiation between the full menu screen, or
 the menu screen when opened from inside a session."  And on 24 Oct 2026: "when inside a session
 and I open the menu, only that session models should be able to be edited … when I open a new
 ak window … and go in the config, the changes I make should just reflect the next default
-settings for new sessions I start."  The real loop runs in a child on a pty of
+settings for new sessions I start."  And on 27 Oct 2026: "pressing x should always only apply
+to the session in which we are in."  The real loop runs in a child on a pty of
 its own through tests/test_close_and_info.py's Menu, with the seats, the stop and `c` faked, in
 a throwaway HOME.  Nothing here starts a seat or signals any process but the test's own child.
 """
@@ -39,10 +40,10 @@ class OneMenu(unittest.TestCase):
         popup = Menu(self, SEATS, own="omega")
         lines = popup.frame()
         self.assertIn("omega", popup.highlighted(lines))
-        self.assertEqual(lines[-1], keys)
+        self.assertEqual(lines[-1], keys.replace("n new", "n new   x stop"))
         popup.leave()
 
-    def test_x_in_the_popup_acts_on_the_highlighted_seat_and_c_on_its_own(self):
+    def test_x_and_c_in_the_popup_act_on_its_own_seat(self):
         popup = Menu(self, SEATS, own="alpha")
         popup.frame(lambda lines: "alpha" in popup.highlighted(lines))
         popup.send(b"j")
@@ -50,9 +51,11 @@ class OneMenu(unittest.TestCase):
         mark = popup.mark()
         popup.send(b"x")
         asked = popup.frame(keys="esc back", after=mark)
-        self.assertIn("  Stop omega and everything it runs?", asked)
+        self.assertIn("  Stop alpha and everything it runs?", asked)
         mark = popup.mark()
         popup.send(ESC)                   # kept, and the popup is still up
+        popup.frame(lambda lines: "alpha" in popup.highlighted(lines), after=mark)
+        popup.send(b"j")
         popup.frame(lambda lines: "omega" in popup.highlighted(lines), after=mark)
         popup.send(b"c")
         popup.saw("<config alpha>", after=mark)

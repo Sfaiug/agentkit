@@ -16,4 +16,4 @@ agentkit
 not assigned yet
   4  scribe       Fable 5.1  ○ idle
 
-  n new   x stop   c config   esc leave
+  n new   c config   esc leave

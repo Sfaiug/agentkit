@@ -269,7 +269,7 @@ class EscBack(unittest.TestCase):
         self.assertEqual(wait.call_args_list, [(([42], [], [], 0),)])
 
     def test_every_screen_under_the_menu_goes_back_on_esc_and_never_on_q(self):
-        menu_ = Menu(self)
+        menu_ = Menu(self, own="alpha")
         menu_.highlight("alpha")
         menu_.send(b"x")                                  # alpha is working: asked under its row
         menu_.back("choose", lambda lines: lines[-1].strip() == "esc back")

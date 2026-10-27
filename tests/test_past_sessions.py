@@ -1,12 +1,11 @@
 """A seat the owner stopped has no row under its project: it keeps its number on the past
 screen, `p`, offered on the key line while there is one, where Enter reopens it where it stopped
 and `x` removes it at once, the rest staying up; from a pipe a number reopens, `x` asks which to
-remove by the numbers on the screen, and `x` on the main screen never offers a stopped seat and
-asks by the main screen's numbers.
+remove by the numbers on the screen.
 
 The keyboard tests run `menu.loop` in a child on a pty of its own, the way
 tests/test_close_and_info.py does (its `Menu`), with the listing, each seat's word, the opening
-and the stop faked; the line tests call `show_past` and `stop_session` in this process with the
+and the stop faked; the line tests call `show_past` in this process with the
 line reader patched.  Nothing here starts a seat or a tmux server.
 """
 
@@ -41,7 +40,7 @@ class Keys(unittest.TestCase):
         lines = shown.frame()
         self.assertIn("alpha", shown.highlighted(lines))
         self.assertFalse(any("omega" in line for line in lines), lines)
-        self.assertRegex(lines[-1], r"   x stop   p past   c config   ")
+        self.assertRegex(lines[-1], r"   n new   p past   c config   ")
         shown.leave()
         alone = Menu(self, {"alpha": "working"})
         self.assertNotIn("p past", "\n".join(alone.frame()))
@@ -131,18 +130,6 @@ class Lines(unittest.TestCase):
         self.paused.assert_called_once_with("no past session 1", "x remove   esc back")
         self.opened.assert_not_called()
         self.closed.assert_not_called()
-
-    def test_x_on_the_main_screen_never_offers_a_stopped_seat_and_keeps_its_numbers(self):
-        # omega, stopped, has no row on the main screen, and alpha is 2 there as it is here
-        with patch.object(menu, "read", side_effect=["2", "n"]) as read:
-            menu.stop_session([OMEGA, ALPHA], False)
-        self.assertIn("2 alpha", self.out.getvalue())
-        self.assertNotIn("omega", self.out.getvalue())
-        self.assertEqual(read.call_args_list[-1].args[0], menu.stop_question("alpha"))
-        with patch.object(menu, "read", side_effect=["1", "y"]):
-            self.assertIsNone(menu.stop_session([OMEGA], False))
-        self.paused.assert_called_once_with("no session to stop")
-        self.assertNotIn("stop omega", self.out.getvalue())
 
     def test_more_than_a_page_keeps_each_row_under_its_projects_heading(self):
         # with the keys, on a 100x24 screen: 18 lines between the frame and the keys for 20 seats

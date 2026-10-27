@@ -17,7 +17,7 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import Terminal
 
-MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"
+MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave"
 MARK_KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   a apply to all sessions   esc back"
 FABLE_LISTED = "claude-fable-5-1\tFable 5.1\tlow medium high xhigh max"
 

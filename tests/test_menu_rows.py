@@ -192,7 +192,7 @@ class MenuRows(Sandbox):
         self.seat("only-seat", "atoll", live="working")
         screen, pages = self.draw(100, 30)
         self.assertEqual(pages[1], 1)
-        for phrase in ("n new", "x stop", "c config", "esc leave"):
+        for phrase in ("n new", "c config", "esc leave"):
             self.assertIn(phrase, screen)
         for gone in ("i info", "p preview", "b browser", "r runs", "j more", "k previous"):
             self.assertNotIn(gone, screen)

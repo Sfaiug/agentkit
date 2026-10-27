@@ -91,7 +91,7 @@ class QuestionCard(unittest.TestCase):
     def test_the_stop_card_opens_under_its_row_at_120_and_40_columns(self):
         for cols in (120, 40):
             with self.subTest(cols=cols):
-                shown = Menu(self, {"alpha": "working", "beta": "working"}, cols=cols)
+                shown = Menu(self, {"alpha": "working", "beta": "working"}, cols=cols, own="alpha")
                 shown.frame()
                 mark = shown.mark()
                 shown.send(b"x")
@@ -121,7 +121,7 @@ class QuestionCard(unittest.TestCase):
                     == len(terminal.wrap(menu.stop_means(3), width - 2)) + 1)
         with patch.object(test_close_and_info, "CHILD", test_close_and_info.CHILD.replace(
                 "sys.exit(menu.loop(", SLOW + "sys.exit(menu.loop(")):
-            shown = Menu(self, {"alpha": "working"}, rows=24, cols=cols)
+            shown = Menu(self, {"alpha": "working"}, rows=24, cols=cols, own="alpha")
         shown.frame()
         mark, pressed = shown.mark(), time.monotonic()
         shown.send(b"x")

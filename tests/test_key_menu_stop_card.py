@@ -1,6 +1,6 @@
-"""`x` on the menu asks under a seat's row whether to stop it: Esc keeps it, and `Stop` ends its
-tmux session and marks it stopped by its owner, so it leaves the list for past sessions: its
-row goes at once, and the seat behind it ends a moment later.
+"""`x` in the popup over a seat asks under that seat's row whether to stop it: Esc keeps it, and
+`Stop` ends its tmux session and marks it stopped by its owner, so it leaves the list for past
+sessions: the popup over it goes at once, and the seat behind it ends a moment later.
 
 Stopping ends the terminal a conversation lives in, so it is the one key on the menu that asks
 first, says what goes with it and where the seat goes, and stands on Keep until told otherwise.
@@ -22,7 +22,6 @@ from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
 KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"
-PAST_KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   p past   c config   esc leave"
 CARD = ["  Stop atoll-fix and everything it runs?",
         "  No runs stop with it; the session moves to past sessions, p, where it reopens where"
         " it stopped.",
@@ -39,7 +38,8 @@ class StopCard(unittest.TestCase):
              record={"created": NOW - 900})
         Seat(self.home, "atoll-ask", screen="claude-prompt-pane.txt",
              record={"created": NOW - 600})
-        self.menu = Terminal(self.home, size=(100, 30))
+        self.menu = Terminal(self.home, "attach", "--overlay", size=(100, 30),
+                             env={"AGENTKIT_SESSION": "atoll-fix"})
         self.menu.wait(lambda screen: "› 1  atoll-fix  " in screen and "● working" in screen)
 
     def alive(self, name):
@@ -78,10 +78,7 @@ class StopCard(unittest.TestCase):
         self.menu.keys("j")
         self.menu.wait("› ✗ Stop")
         self.menu.keys("Enter")
-        screen = self.menu.wait(PAST_KEYS)
-        self.assertIn(PAST_KEYS, screen.splitlines())
-        self.assertNotIn("atoll-fix", screen)
-        self.assertRegex(screen, r"(?m)^. \d  atoll-ask  ")
+        self.assertEqual(self.menu.exit_code(), 0)
         deadline = time.monotonic() + 30
         while (self.alive("atoll-fix") or "stopped_at" not in self.seat_file("atoll-fix")) \
                 and time.monotonic() < deadline:

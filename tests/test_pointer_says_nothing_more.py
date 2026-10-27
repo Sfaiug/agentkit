@@ -89,7 +89,7 @@ class MainMenu(unittest.TestCase):
         child = menu_child(self)
         lines = child.frame()
         keys = lines[-1]
-        self.assertEqual(keys, "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave")
+        self.assertEqual(keys, "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave")
         seat = next(row for row, line in enumerate(lines, 1) if "fix-api" in line)
         heading = lines.index("acme") + 1
         says_nothing(self, child, [
