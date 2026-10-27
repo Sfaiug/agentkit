@@ -81,13 +81,13 @@ class SeatsFromBefore(unittest.TestCase):
         term.wait("c config")
         term.keys("c")
         term.wait("› Fable 5.1")
-        term.keys("Enter")      # Fable orchestrates new seats: that effort is beside its mark
+        term.keys("Space")      # Fable orchestrates new seats: that effort is beside its mark
         term.wait(lambda screen: any(line[2:].startswith("Fable 5.1 ")
                                      and line[11:].split()[0].strip("[]") == "●"
                                      for line in screen.split("\n")))
         before = config.read_bytes()
         self.seat("atoll-new")
-        term.keys("Right", "Enter")     # onto that effort, and a step
+        term.keys("Right", "Space")     # onto that effort, and a step
         deadline = time.monotonic() + 30
         while config.read_bytes() == before:
             self.assertLess(time.monotonic(), deadline, "the step was never saved")

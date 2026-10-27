@@ -1033,7 +1033,7 @@ def read_key(timeout=None, wake=None):
     _UNSEEN, _AWAY = _AWAY and spot.what is None, False     # a click on a row names its own
     _POINTER = key if key.name == "click" and not _UNSEEN else None
     if _UNSEEN and (key.name in ("enter", "space") or spot.what is None
-                    and spot.cell in ("⏎", "enter", "space")):
+                    and spot.cell in ("⏎", "enter", "␣", "space")):
         _ASKED = True
         return None                # the highlight back where the keys left it, and drawn
     return key

@@ -54,9 +54,9 @@ class ForRow(Sandbox):
         self.assertEqual(self.screen("up", "right", "left", "down"), ["new seats"])
 
     def test_a_flip_is_for_whom_the_row_names_asking_nothing(self):
-        self.screen("enter")                                             # new seats': fable
+        self.screen("space")                                             # new seats': fable
         self.assertEqual((config.load()["defaults"]["orchestrator"], self.moved), ("fable", []))
-        self.screen("enter", session="acme")                             # acme's own
+        self.screen("space", session="acme")                             # acme's own
         self.assertEqual(self.moved, [("acme", "fable")])
 
 

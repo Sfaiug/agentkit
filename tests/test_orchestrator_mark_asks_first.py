@@ -2,7 +2,7 @@
 builds and reviews marks save at once, asking nothing.
 
 The owner (24 Oct): "when pressing a different orch, it should ask me to confirm. As this
-restarts the session. for exec and review should be instant."  Enter on that mark asks on the
+restarts the session. for exec and review should be instant."  Space on that mark asks on the
 card `x` asks on (terminal.confirm), nothing moved yet; Esc keeps the seat, and `Move` moves
 it (menu.session_mark, orch.switch_orchestrator).  A move ak refuses (orch._switch_plan) is
 said with no question.
@@ -64,12 +64,12 @@ class OrchestratorMarkAsksFirst(Sandbox):
 
     def test_the_mark_asks_esc_keeps_the_seat_and_move_moves_it(self):
         # the highlight opens on the first model's orchestrator mark: fable's, the seat on opus
-        self.screen(Key("enter"), Key("esc"))
+        self.screen(Key("space"), Key("esc"))
         self.assertEqual(self.asked, [("Restart fix-api on Fable 5.1?",
                                        "It starts a new conversation, handed the one it had.",
                                        "opus", [])])
         self.assertEqual((self.orchestrator(), self.launched), ("opus", []))
-        self.screen(Key("enter"), Key("down"), Key("enter"))
+        self.screen(Key("space"), Key("down"), Key("enter"))
         self.assertEqual(len(self.asked), 2)
         self.assertEqual((self.orchestrator(), self.launched), ("fable", ["fable"]))
 
@@ -78,7 +78,7 @@ class OrchestratorMarkAsksFirst(Sandbox):
 
         def resized():          # the terminal narrows while the question is up
             size[0] = 40
-        keys = iter([Key("enter"), resized, Key("esc"), Key("esc")])
+        keys = iter([Key("space"), resized, Key("esc"), Key("esc")])
 
         def read(*_a, **_kw):
             key = next(keys)
@@ -99,13 +99,13 @@ class OrchestratorMarkAsksFirst(Sandbox):
 
     def test_the_seat_s_own_mark_and_a_refused_move_ask_nothing(self):
         self.refusal = "fable: claude is not installed"
-        self.screen(Key("enter"))
+        self.screen(Key("space"))
         self.refusal = ""
-        self.screen(Key("down"), Key("enter"))      # opus's mark: the seat is on it
+        self.screen(Key("down"), Key("space"))      # opus's mark: the seat is on it
         self.assertEqual((self.asked, self.launched, self.orchestrator()), ([], [], "opus"))
 
     def test_a_builds_mark_saves_at_once_asking_nothing(self):
-        self.screen(Key("right"), Key("enter"))
+        self.screen(Key("right"), Key("space"))
         self.assertEqual(self.asked, [])
         self.assertEqual(config.load_session(self.cfg, "fix-api")["workers"],
                          ["opus", "astra", "fable"])

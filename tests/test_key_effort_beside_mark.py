@@ -1,5 +1,5 @@
 """On a seat's `c` each role its one model is marked for shows that role's effort after its mark,
-under no effort column, and Enter on a build or review one, or a click on its bar, steps that
+under no effort column, and Space on a build or review one, or a click on its bar, steps that
 role's key alone in the seat's record (the owner, 24 Oct 2026).  Black-box: `AK_BIN` as the popup over an akseat.py
 seat in an akterm.py terminal, its harnesses fakeadapter.py's; it fails against `/bin/false`."""
 
@@ -55,8 +55,8 @@ class EffortBesideMark(unittest.TestCase):
         heads = [line.split() for line in self.opened.split("\n") if line.split()[:1] == ["orch"]]
         self.assertEqual(heads, [["orch", "builds", "reviews"]])
 
-    def test_enter_steps_the_build_effort_and_a_click_takes_a_review_level(self):
-        self.term.keys("Right", "Right", "Right", "Enter")    # past orch's effort, build's mark
+    def test_space_steps_the_build_effort_and_a_click_takes_a_review_level(self):
+        self.term.keys("Right", "Right", "Right", "Space")    # past orch's effort, build's mark
         self.stepped_to(exec_effort="xhigh")
         line, row = opus(self.term.wait(lambda screen: "xhigh" in opus(screen)[0]))
         column = list(re.finditer("[▰▱]+", line))[2].start() + 5   # the review bar's fifth

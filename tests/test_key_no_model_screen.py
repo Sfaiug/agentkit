@@ -1,4 +1,4 @@
-"""On `c` a model's label is no stop: ← on a row's first mark stays there, so Enter flips that
+"""On `c` a model's label is no stop: ← on a row's first mark stays there, so Space flips that
 mark and no screen of the model's own opens.
 
 Before, ← reached the label and Enter opened `config · <model>`, which only repeated what the
@@ -40,7 +40,7 @@ class NoModelScreen(unittest.TestCase):
         term.wait(lambda screen: key_line(screen) == MARK_KEYS and "› Fable 5.1" in screen)
         term.keys("Down")
         term.wait(lambda screen: "› GPT-6-Astra" in screen)
-        term.keys("Left", "Enter")
+        term.keys("Left", "Space")
         screen = term.wait(lambda screen: "config · GPT-6-Astra" in screen
                            or mark(screen, "GPT-6-Astra") == "●")
         self.assertEqual(lines(screen)[0].split()[:-1], ["agentkit", "·", "config"], screen)
