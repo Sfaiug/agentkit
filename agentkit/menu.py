@@ -3609,7 +3609,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             clock.forget()            # another screen: the matrix back from it replays nothing
         if here == ("row", CONFIG_ROWS[0]):
             if act in ("enter", "space"):
-                models_page(cfg)
+                models_page(cfg, keyboard)
         elif here[0] == "usage":
             if act in ("enter", "space"):
                 note = meter_acts(cfg, keyboard, here[1],
@@ -3856,21 +3856,28 @@ def config_add(cfg, keyboard, through):
                 note = f"{', '.join(taken)} runs {model['id']} at {effort} already"
                 continue
             name, before = _short_name(cfg, model["label"]), copy.deepcopy(cfg)
-            cfg["models"][name] = {"harness": harness, "model": model["id"], "effort": effort,
-                                   "provider": provider}
-            row = next(row for row in listed if row[0] == provider)
-            if provider not in cfg["providers"]:
-                tables = config.shipped().get("providers") or {}
-                cfg["providers"][provider] = (copy.deepcopy(tables[provider])
-                                              if provider in tables
-                                              else {"mode": row[2], "name": row[1]})
-            # a table that came with another harness's login: Codex's plan pays for no
-            # call OpenCode makes on an OpenAI key
-            if row[2] != cfg["providers"][provider].get("mode", "subscription"):
-                cfg["models"][name]["mode"] = row[2]
+            _take_in(cfg, name, {"harness": harness, "model": model["id"], "effort": effort,
+                                 "provider": provider},
+                     next(row for row in listed if row[0] == provider))
             note = _saved(cfg, cfg, before)
             if not note:
                 return name
+
+
+def _take_in(cfg, name, entry, row):
+    """`entry` in `cfg` as `name`, its provider the one a harness lists as `row` (id, name,
+    mode), with that provider's table where the config has none: the shipped one where the
+    shipped default has it, else that mode under that name.  The model takes that mode as its
+    own where its provider's table says another."""
+    cfg["models"][name] = entry
+    if row[0] not in cfg["providers"]:
+        tables = config.shipped().get("providers") or {}
+        cfg["providers"][row[0]] = (copy.deepcopy(tables[row[0]]) if row[0] in tables
+                                    else {"mode": row[2], "name": row[1]})
+    # a table that came with another harness's login: Codex's plan pays for no
+    # call OpenCode makes on an OpenAI key
+    if row[2] != cfg["providers"][row[0]].get("mode", "subscription"):
+        entry["mode"] = row[2]
 
 
 def _by_label(names, label):
@@ -4211,6 +4218,8 @@ def config_page(name, page):
             said = listed[here[2]][1]() or ""
             if opened[2]:
                 listed = opened[1]()
+                # a login's list asked again can be shorter: the highlight stays on a choice
+                here = (*here[:2], min(here[2], max(0, len(listed) - 1)))
             else:
                 here, opened = here[:2], None
         elif isinstance(rows[here[1]][2], tuple):
@@ -4240,14 +4249,17 @@ DISCORD_NOTE = "A card reads only Needs you · <seat> or Done · <seat>, and men
 AUDIT_NOTE = "Once a week ak opens a seat named audit with the week's largest loss."
 
 
-def models_page(cfg):
+def models_page(cfg, keyboard):
     """`Models`: a row per harness the config's providers run on (config.provider_harnesses),
     opening `■` each model the config runs there and `□` each other its catalog offers
-    (_offered), or for a harness that logs in to providers (config.provider_hosts) each taken
-    out here.  Enter takes one out (remove_model), the last model kept, or in: one taken out
-    here as it was, its provider's table as the page opened; any other named from its label
-    (_short_name), at its harness's first model's effort, else `high`, as near as it goes
-    (_nearest), under that model's provider, else one shipped to run there.  Saved at once."""
+    (_offered), or for a harness that logs in to providers (config.provider_hosts) each it runs
+    now, then each of the config's providers it lists with no login (_through_choices).  Enter
+    takes one out (remove_model), the last model kept, or in: one taken out here as it was, its
+    provider's table as the page opened; any other named from its label (_short_name), at its
+    harness's first model's effort, else `high`, as near as it goes (_nearest), under that
+    model's provider, else one shipped to run there, or the one it is listed under, taken in
+    as `add a subscription` takes it (_take_in).  Enter on a provider logs in to it on
+    `keyboard`'s terminal, and its models are listed.  Saved at once."""
     full, empty = ("■", "□") if terminal.utf8() else ("#", "-")
     tables = copy.deepcopy(cfg["providers"])
     gone = {}                 # (harness, model id): [(name, entry)] each taken out here
@@ -4266,7 +4278,7 @@ def models_page(cfg):
         return [name for name in config.offered(cfg) if cfg["models"][name]["harness"] == harness
                 and model in (None, cfg["models"][name]["model"])]
 
-    def tick(harness, model):
+    def tick(harness, model, row=None):     # `row`: the provider it is listed under
         key, names, before = (harness, model["id"]), on(harness, model["id"]), copy.deepcopy(cfg)
         if names and len(names) == len(config.offered(cfg)):
             return "the config needs one model"
@@ -4278,24 +4290,37 @@ def models_page(cfg):
         first = next((cfg["models"][name] for name in on(harness)), {})
         # never a name one taken out here comes back under
         taken = {"models": [*cfg["models"], *(name for kept in gone.values() for name, _ in kept)]}
-        for name, entry in gone.get(key) or [(_short_name(taken, model["label"]), {
-                "harness": harness, "model": model["id"],
-                "effort": _nearest(first.get("effort", "high"), model["efforts"]),
-                "provider": first.get("provider", runs[harness])})]:
+        entries = gone.get(key) or [(_short_name(taken, model["label"]), {
+            "harness": harness, "model": model["id"],
+            "effort": _nearest(first.get("effort", "high"), model["efforts"]),
+            "provider": row[0] if row else first.get("provider", runs[harness])})]
+        if row and key not in gone:
+            _take_in(cfg, *entries[0], row)
+            tables.setdefault(row[0], copy.deepcopy(cfg["providers"][row[0]]))
+        for name, entry in entries:
             cfg["models"][name] = entry
             cfg["providers"].setdefault(entry["provider"], copy.deepcopy(tables[entry["provider"]]))
         return _saved(cfg, cfg, before)
 
-    def listing(harness):     # the models a harness's row opens onto
-        if harness in config.provider_hosts():
-            kept = [*((name, cfg["models"][name]) for name in on(harness)),
-                    *(kept for (on_, _), taken in gone.items() if on_ == harness for kept in taken)]
-            return list({entry["model"]: {"id": entry["model"], "label": config.model_name(
-                {"models": {name: entry}}, name)} for name, entry in kept}.values())
-        return _offered(harness, "config · models", cfg=cfg)
+    def listing(harness):     # what a harness's row opens onto: (model, the provider it is
+        if harness not in config.provider_hosts():      # listed under) each, (None, one to log in)
+            return [(model, None) for model in _offered(harness, "config · models", cfg=cfg)]
+        listed = waited(lambda: config.listed_providers(harness), "config · models",
+                        doing=f"asking {config.provider_hosts()[harness]} which providers it has")
+        rows = {row[0]: row for row in listed}
+        return [(model, rows[provider]) for (((_, provider), model), _)
+                in _through_choices(cfg, harness, listed, ("config · models",))
+                if model or provider in cfg["providers"]]
 
     def ticks(harness):       # the list a harness's row opens
         got = []
+
+        def log_in(row):
+            said = _adapter_verbs(keyboard, harness, ("login",), row[1], provider=row[0])
+            if not said:
+                config.forget_catalog(harness)       # its models are listed now
+                got.clear()
+            return said
 
         def choices():
             if not got:
@@ -4309,8 +4334,10 @@ def models_page(cfg):
                 return [([(got[0], "dim")], lambda: "", False)]
             return [([(full, "accent") if on(harness, model["id"]) else (empty, "dim"),
                       (model["label"], None)],
-                     lambda model=model: tick(harness, model), bool(on(harness, model["id"])))
-                    for model in got[0]]
+                     lambda model=model, row=row: tick(harness, model, row),
+                     bool(on(harness, model["id"]))) if model else
+                    ([(row[1], None), ("log in", "dim")], lambda row=row: log_in(row), False)
+                    for model, row in got[0]]
         return choices, True
 
     def page():
