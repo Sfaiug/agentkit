@@ -1584,9 +1584,9 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
 
     The rank is `matrix.rank`'s for the role (`execute` for an executor, `review` for a
     reviewer) among the candidates: those within `within` of the best of them, the cheapest
-    first, then the others by quality, off the matrix as the models screen or `ak models` last
-    computed it; a model the boards have nothing on, or a matrix nobody computed yet, ranks after
-    every ranked model.  Among models ranked alike, budget decides:
+    first, then the others by quality, off the lineup the models screen or `ak models` last
+    stored; a model no row of it is, or a lineup nobody stored yet, ranks after every ranked
+    model.  Among models ranked alike, budget decides:
     the fraction unspent over the fraction of the window still to go, unknown readings after
     every known one; a model on credits (`on_credits`) after every one with a window left;
     equal on all of it keeps list order.  The one exclusion is a gate meter at 100% used with

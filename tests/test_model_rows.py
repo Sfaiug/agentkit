@@ -1,21 +1,11 @@
-"""`ak models` lists every model and effort the installed harnesses offer with the public boards'
-numbers for each.
-
-A row is a model at an effort a board lists or the config runs it at in any role; a board naming
-no effort stands at the model's highest effort with an intelligence index; a row reads a board's
-row at a higher effort, never its price (tests/test_nearest_effort.py); a board's model is
-matched by its letters and digits, else by the board's name the id extends with a version, else,
-on a board where neither finds it, by `benchmark` on the config entry; the table scores each row
-per role (tests/test_role_formula.py) and names the rows no board has.
+"""A board's model is never found by a shorter name of another version; `prepare` fakes the
+boards and harnesses the matrix's tests read.
 
 Offline: the boards' answers are handed in as bytes (tests/test_model_matrix.py's), the harness
 manifests, catalogs and the installed harnesses are faked, and a throwaway HOME holds the
 cache.
 """
 
-from contextlib import redirect_stdout
-import io
-import json
 from pathlib import Path
 import sys
 import unittest
@@ -24,7 +14,6 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
-from fixtures.sandbox import Sandbox
 from agentkit import boards, config, matrix, terminal
 import test_model_matrix as boards_test
 
@@ -59,115 +48,13 @@ def prepare(case):
                                     "effort": "max", "provider": "meta"}
 
 
-class ModelRows(Sandbox):
-    def setUp(self):
-        super().setUp()
-        prepare(self)
-
-    def table(self):
-        held = boards.collect(now=10000)
-        return {matrix.row_label(row): row
-                for row in matrix.rows(self.cfg, held, matrix.present())}
-
-    def test_a_row_per_effort_the_boards_list_or_the_config_runs(self):
-        self.cfg["models"]["astra"]["exec_effort"] = "medium"
-        rows = self.table()
-        self.assertEqual({row["harness"] for row in rows.values()}, set(CATALOGS))
-        self.assertEqual(sorted(name for name in rows if "opus-5-5" in name or name[:5] == "opus "),
-                         ["claude-opus-5-5 @ max", "opus @ xhigh"])
-        both = rows["claude-opus-5-5 @ max"]
-        self.assertEqual(both["matched"], {
-            "artificialanalysis.ai": {"model": "Claude Opus 5.5", "effort": "max"},
-            "arena.ai": {"model": "Claude Opus 5.5", "effort": "max"},
-            "livebench.ai": {"model": "claude-opus-5.5", "effort": None}})
-        self.assertEqual(both["values"]["arena.agent_steerability"], 0.2)
-        self.assertEqual(both["values"]["aa.price1mInputTokens"], 4.0)
-        self.assertEqual(both["name"], None)
-        # LiveBench names no effort: its numbers stand at max, the highest effort Artificial
-        # Analysis has an index for, its cost of a task beside Artificial Analysis's of the run
-        self.assertEqual((both["values"][boards.TASK_COST], both["values"][matrix.COST]),
-                         (round(113 / (29 * .963), 2), 5.98))
-        # the configured xhigh reads LiveBench's and Arena's max rows, adding the 2 points the
-        # index loses from max to xhigh, and never their prices
-        xhigh = rows["opus @ xhigh"]
-        self.assertEqual((xhigh["values"]["livebench.coding"], xhigh["drops"]["livebench.coding"],
-                          xhigh["drops"]["arena.agent_task_outcome_explicit"]), (96.3, 2, 2))
-        self.assertNotIn(boards.TASK_COST, xhigh["values"])
-        self.assertEqual(xhigh["matched"]["arena.ai"], {"model": "Claude Opus 5.5", "effort": "max"})
-        # the boards' efforts count only among those the harness offers: Astra's xhigh does
-        self.assertIn("astra @ xhigh", rows)
-        self.assertEqual(rows["astra @ xhigh"]["values"]["arena.agent_task_outcome_explicit"], 0.137)
-        # an effort one role runs it at is a row too, saying which, and Arena's xhigh row never
-        # stands in
-        self.assertEqual((rows["astra @ medium"]["name"], rows["astra @ medium"]["roles"], rows["astra @ medium"]["matched"]),
-                         ("astra", ["execute"], {"livebench.ai": {"model": "gpt-6-astra", "effort": None}}))
-        self.assertEqual((rows["astra @ xhigh"]["roles"], both["roles"]), (["orchestrate", "review"], []))
-        # a board's `(Non-reasoning)` is ak's `none`, an effort Haiku offers
-        self.assertEqual(rows["claude-haiku-4-5 @ none"]["matched"],
-                         {"artificialanalysis.ai": {"model": "Claude Haiku 4.5", "effort": "none"}})
-        # a model no board lists at any effort is one row at none
-        self.assertEqual((rows["claude-opus-4-7"]["values"], rows["claude-opus-4-7"]["effort"]),
-                         ({}, None))
-
-    def test_a_board_s_model_is_found_by_its_name_a_version_or_benchmark(self):
-        rows = self.table()
-        # the id extends the board's name with a version: muse-wonder-full-1.0
-        self.assertEqual(rows["wonder @ max"]["matched"],
-                         {"artificialanalysis.ai": {"model": "Muse Wonder Full", "effort": "max"}})
-        # `contributor` is no version: Artificial Analysis's `Muse Spark 1.3` is not found
-        # until the entry says what to look for, and LiveBench's exact id is found either way
-        lb = {"livebench.ai": {"model": "muse-spark-1.3-contributor", "effort": None}}
-        self.assertEqual(rows["spark @ xhigh"]["matched"], lb)
-        self.cfg["models"]["spark"]["benchmark"] = "Muse Spark 1.3"
-        rows = self.table()
-        self.assertEqual(rows["spark @ xhigh"]["matched"], {
-            "artificialanalysis.ai": {"model": "Muse Spark 1.3", "effort": "xhigh"}, **lb})
-        self.assertEqual(rows["spark @ xhigh"]["values"]["aa.terminalBench40"], 0.4)
-        # a shorter board name never stands for a longer id of another version
+class ModelRows(unittest.TestCase):
+    def test_a_shorter_board_name_never_stands_for_a_longer_id_of_another_version(self):
         index = {"claudesonnet5": [{"model": "Claude Sonnet 5", "effort": None, "values": {}}],
                  "claudesonnet55": [{"model": "Claude Sonnet 5.5", "effort": None, "values": {}}]}
         self.assertEqual(matrix.found(index, "claude-sonnet-5-5")[0]["model"], "Claude Sonnet 5.5")
         self.assertEqual(matrix.found({"claudesonnet5": index["claudesonnet5"]},
                                       "claude-sonnet-5-5"), [])
-
-    def test_the_table_scores_the_rows_the_boards_make_and_names_the_rest(self):
-        held = boards.collect(now=10000)
-        with patch.object(matrix.time, "time", return_value=10000):
-            table = matrix.scored(matrix.rows(self.cfg, held, matrix.present()),
-                                  matrix.bests(held))
-            lines = [terminal.plain(line) for line in matrix.render(table, held).splitlines()]
-        text = "\n".join(lines)
-        self.assertEqual(lines[0].split()[:3], ["model", "harness", "id"])
-        self.assertTrue(all(terminal.cells(line) <= 100 for line in lines))
-        # the configured xhigh reads every measure only the max rows have 2 points further
-        # behind, as the intelligence index is, and Artificial Analysis's own xhigh row, unpriced
-        self.assertRegex(lines[1], r"^- +claude +claude-opus-5-5 @ max +100 of 4 +100 of 5 +100 of 3 +5\.98 +4\.05$")
-        self.assertRegex(lines[2], r"^opus +claude +claude-opus-5-5 @ xhigh +98 of 4 +98 of 5 +98 of 3 +- +-$")
-        self.assertRegex(text, r"\nastra +codex +gpt-6-astra @ xhigh +- +- +- +- +-\n")
-        # the run Artificial Analysis priced before the one it did not, whatever LiveBench charges
-        self.assertIn("recommended: orchestrate claude-opus-5-5 @ max (100 of 4) · "
-                      "execute claude-opus-5-5 @ max (100 of 5)", text)
-        self.assertRegex(text, r"no board row: .*claude-opus-4-7")
-        self.assertIn("arena.ai: 4 rows as of", text)
-        out = io.StringIO()
-        with redirect_stdout(out), patch.object(config, "load", return_value=self.cfg):
-            self.assertEqual(matrix.main(["--json"]), 0)
-        data = json.loads(out.getvalue())
-        self.assertEqual(sorted(data), ["boards", "live", "recommended", "rows", "within"])
-        self.assertNotIn("rows", data["boards"]["arena.ai"])
-        rows = {matrix.row_label(row): row for row in data["rows"]}
-        self.assertEqual(rows["claude-opus-5-5 @ max"]["scores"]["orchestrate"], {"score": 100.0, "measures": 4})
-        self.assertEqual(rows["claude-opus-5-5 @ max"]["scores"]["review"], {"score": 100.0, "measures": 3})
-
-    def test_a_board_row_s_effort_is_kept_apart_from_a_bracket_of_its_name(self):
-        # a bracket naming no effort stays on the board's name: `Acme Pro (0813)` is at none
-        held = {"livebench.ai": {"rows": [{"model": "Acme Pro (0813)", "effort": None,
-                                           "values": {"livebench.coding": 1.0}}]}}
-        self.cfg["models"]["opus"]["benchmark"] = "Acme Pro (0813)"
-        table = [row for row in matrix.rows(self.cfg, held, matrix.present())
-                 if row["name"] == "opus"]
-        self.assertEqual(table[0]["matched"],
-                         {"livebench.ai": {"model": "Acme Pro (0813)", "effort": None}})
 
 
 if __name__ == "__main__":

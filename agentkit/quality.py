@@ -77,21 +77,29 @@ EVALUATION_KINDS = {"aa-briefcase": "rating", "gdpval-aa": "rating", "omniscienc
 Z = 1.645       # qualities closer than Z errors of their difference are inside its 90% interval
 
 
+def reads(column):
+    """The columns beside its own a measure's error is read off (`_error`)."""
+    if column in TASKS:
+        return ()
+    if column == OMNISCIENCE[0]:
+        return OMNISCIENCE[1:3]
+    return INTERVALS.get(column, tuple(column + end for end in INTERVAL))
+
+
 def _error(values, column, kind, best):
     """A measured value's standard error in points, None when its row lacks what it needs."""
-    lower, upper = (values.get(name)
-                    for name in INTERVALS.get(column, [column + end for end in INTERVAL]))
-    if lower is not None and upper is not None:
-        return (upper - lower) / 3.92 * SCALES[kind][2](best, values[column])
     if column in TASKS:
         share = values[column]
         return 100 * math.sqrt(share * (1 - share) / TASKS[column])
-    index, accuracy, rate, questions = OMNISCIENCE
-    if column == index and accuracy in values and rate in values:
-        right = values[accuracy]
-        wrong = values[rate] * (1 - right)
-        return 100 * math.sqrt((right + wrong - (right - wrong) ** 2) / questions)
-    return None
+    found = [values.get(name) for name in reads(column)]
+    if None in found:
+        return None
+    if column == OMNISCIENCE[0]:
+        right, rate = found
+        wrong = rate * (1 - right)
+        return 100 * math.sqrt((right + wrong - (right - wrong) ** 2) / OMNISCIENCE[3])
+    lower, upper = found
+    return (upper - lower) / 3.92 * SCALES[kind][2](best, values[column])
 
 
 def rated(rows, role):
