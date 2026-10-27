@@ -1,6 +1,5 @@
-"""The past sessions screen, `p`, black-box: `AK_BIN` in a person's terminal
-(tests/fixtures/akterm.py), its clock injected as a time zone where it is past noon, and a fake
-Claude adapter (`AGENTKIT_ADAPTER_DIR`) reopening a seat into a harness that says so."""
+"""The past sessions screen, `p`, black-box: `AK_BIN` in a terminal (fixtures/akterm.py), its clock
+a time zone where it is past noon, and a fake adapter reopening a seat into a harness saying so."""
 
 import os
 import sys
@@ -26,9 +25,8 @@ def at(days, hour, minute=0):
 
 SEATS = {"fix-api": at(0, 10), "fix-web": at(1, 9), "add-docs": at(3, 15, 30),
          "old-search": at(10, 8)}
-TEN = time.localtime(SEATS["old-search"])
 SHOWN = ("10:00", "09:00", time.strftime("%a 15:30", time.localtime(SEATS["add-docs"])),
-         f"{TEN.tm_mday} {time.strftime('%b', TEN)}")
+         time.strftime("%-d %b", time.localtime(SEATS["old-search"])))
 
 
 def opened(test):

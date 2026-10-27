@@ -3609,8 +3609,7 @@ def matrix_page(body, places, here, top, under, keys, over=(), lead=None):
     own above and below the rows, and its key line: (top, room), the first line of `body` shown
     and how many are.  `top` stays where it was while the page holds every line of `here`, or
     any of them for a row taller than the page, else moves the least that makes it so, and
-    never past the last page; a cell that is a row of its own (terminal.under) is on its line.
-    `lead` leads the key line."""
+    never past the last page; a cell that is a row of its own (terminal.under) is on its line."""
     room = max(1, terminal.height() - 5 - len(terminal.key_line(keys, first=lead)) - len(under)
                - len(over))
     drawn = [number for number, (row, cells) in places.items()
@@ -3646,13 +3645,12 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     on nothing, the cell it is on lit.  `act` is `back` for Esc or a click on `esc back`, None when the screen wants drawing again -- a
     resize, the pointer, or `timeout` seconds with no key -- a character key's character, its
     key-line item's too (`r recommended`), and any other key's name, `enter` a click on `⏎`'s
-    and `space` one on `␣`'s, `left` and `right` one on a page mark's arrow (`page_mark`).
+    and `space` one on `␣`'s, `left` and `right` one on an arrow of `lead`, a page mark.
     `fetched()` says since when the screen's content is being fetched, or None: while it is, the
     rule under the header glides (`motion.fetching`) and the read ends, None, once it lands.
     `clock` moves what `moves` -- (line, key, value, start) -- says is news (`motion.Clock.look`)
     on the lines shown, `over`'s counted back from the page's first, -1 its last, each by `start(clock, row, since, before)`, its frames drawn while the
-    key is waited for; a key, not the pointer, ends them on their last frames.  `lead` leads the
-    key line (`page_mark`).
+    key is waited for; a key, not the pointer, ends them on their last frames.
     """
     said = note_lines(note)
     top, room = matrix_page(body, places, here, top, [*under, *said], keys, over, lead)
@@ -5164,15 +5162,8 @@ def past_offered(found):
     return any(session.get("closed") for session in found)
 
 
-def past_sessions(found):
-    """The seats you closed (`closed`), newest closed first, numbered from 1."""
-    return list(enumerate(sorted((session for session in found if session.get("closed")),
-                                 key=lambda session: -session["closed"]), 1))
-
-
 def closed_when(closed, now=None):
-    """`closed`'s day and time: `today`/`yesterday` `10:24`, `this week` `Sat 12:31`, `earlier`
-    `20 Oct`."""
+    """`closed`'s day and time: `today` `10:24`, `this week` `Sat 12:31`, `earlier` `20 Oct`."""
     at = time.localtime(closed)
     days = max(0, (datetime.date.fromtimestamp(time.time() if now is None else now)
                    - datetime.date.fromtimestamp(closed)).days)
@@ -5206,9 +5197,8 @@ def past_body(past, at=None, room=None, said=None, now=None):
         for seat, (sentence, restart) in (said or {}).items()}
     lit, days, spans = not terminal.away(), {}, {}
     for number, seat, home, day, closed, (done, total) in rows:
-        bar = (terminal.plan_bar(done, total, 0 if fold else free, 0,
-                                 "done" if done == total else "idle")
-               if total else terminal.styled("no plan", "dim"))
+        bar = (terminal.plan_bar(done, total, 0 if fold else free, 0, "done" if done == total
+                                 else "idle") if total else terminal.styled("no plan", "dim"))
         head = "  " + _styled_cell(number, num, "dim", right=True) + "  " + _styled_cell(seat, name)
         tail = [_styled_cell(home, project, "dim"), bar + " " * max(0, free - terminal.cells(bar)),
                 closed.rjust(clock)]
@@ -5255,7 +5245,8 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
     for session in found:
         clock.touch(("bar", session["name"]))     # news once, as the screen opens
     while True:
-        past = past_sessions(found)
+        past = list(enumerate(sorted((session for session in found if session.get("closed")),
+                                     key=lambda session: -session["closed"]), 1))
         if not past:
             return
         names = [session["name"] for _, session in past]
@@ -5299,9 +5290,6 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
         if act in ("left", "right"):
             here = turned(turns, page, here, 1 if act == "right" else -1)
             continue
-        if act.isdecimal() and act.isascii() and int(act) * 10 <= len(past):
-            more = terminal.read_key(0.5)      # 1 then 2 within half a second is row 12
-            act += more.char if more and more.name == "char" and more.char.isdecimal() else ""
         if act == "enter" or act.isdecimal() and act.isascii() and 1 <= int(act) <= len(past):
             keyboard.give()       # the seat has the terminal while he is in it
             open_session(cfg, past[names.index(here) if act == "enter" else int(act) - 1][1], dry_run)
@@ -5316,7 +5304,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
                 return 3 + at - skip
             if terminal.confirm(f"Remove {here} from past sessions?",
                                 "It can no longer be reopened.", "Remove", around):
-                keyboard.give()       # the removal says what it did where it can be read
+                keyboard.give()       # the stop says what it did where it can be read
                 clock.forget()        # another screen: the page back from it is drawn as it is
                 remove_seat(here, dry_run)
                 keyboard.take()
@@ -5331,13 +5319,15 @@ def remove_seat(name, dry_run):
 
 
 def page_mark(page, pages, arrows=True, needs=(False, False)):
-    """Where the owner is, in front of the keys, `←  2 / 3  →`: each arrow a key a click turns
-    the page with, amber where a seat that needs the owner is that way (`needs`, back and on),
-    the place between them none.  From a pipe, which turns pages with `j` and `k`, `2 / 3`."""
+    """Where the owner is, `←  2 / 3  →`, for the key line to lead the keys with, wrapped with
+    them as one more item: each arrow a key a click turns the page with, amber where a seat that
+    needs the owner is that way (`needs`, back and on), the place between them none.  From a
+    pipe, which turns pages with `j` and `k`, the place alone, `2 / 3`."""
     arrow, ahead = ("←", "→") if terminal.utf8() else ("<", ">")
     tone = ["amber" if need else "dim" for need in needs]
-    return (f"{terminal.styled(arrow, tone[0])}  {page + 1} / {pages}  "
-            f"{terminal.styled(ahead, tone[1])}" if arrows else f"{page + 1} / {pages}")
+    return (
+        f"{terminal.styled(arrow, tone[0])}  {page + 1} / {pages}  "
+        f"{terminal.styled(ahead, tone[1])}" if arrows else f"{page + 1} / {pages}")
 
 
 def turned(turns, page, cursor, step):

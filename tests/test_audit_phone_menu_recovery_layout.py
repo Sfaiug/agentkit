@@ -728,8 +728,7 @@ class Phone(Sandbox):
         phone.until("Stop acme and everything it runs?", "Keep", prompt="esc back")
         self.stop_answered(phone)
         # the session is gone, so the attach is over: the menu is back, no box, the stopped seat
-        # off its project and on the past screen, numbered from 1 there, where `x`
-        # asks before it takes it off
+        # off its project and on the past screen, numbered from 1 there, where `x` asks first
         screen = phone.until("1  phone-audit", "p past", absent=["│", "acme"],
                              prompt="esc leave")
         self.whole_page(screen, width, height)
