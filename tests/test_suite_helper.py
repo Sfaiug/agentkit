@@ -119,6 +119,9 @@ class SuiteHelper(unittest.TestCase):
         self.stack.enter_context(patch.object(gate, "time", clock))
         self.stack.enter_context(patch.object(gate, "_acquire_gate_turn", side_effect=self.turn))
         (config.HOME / config.CONFIG_NAME).write_text('suite_helper = "acme-mac"\n')
+        # A question a suite left the helper ends before the checkout it reads goes.
+        self.addCleanup(lambda: [thread.join() for thread in threading.enumerate()
+                                 if thread.name == gate.ASKING])
 
     def turn(self, *args, **_kw):
         if not _kw.get("wait", True):

@@ -38,6 +38,7 @@ GATE_POLL = 15      # seconds between a waiting gate's tries for a turn; each re
 HEAVY_CPUS = 0.7      # initial measured estimates; a repository's pieces may cost more
 HEAVY_MEM_MB = 410
 SUITE_BUSY = 75       # sysexits' EX_TEMPFAIL: a heavy suite's own host-wide lock is another copy's
+ASKING = "ak-asks-the-suite-helper"    # a suite's late question to it, which nothing joins
 OUT_OF_MEMORY = "ran out of memory"   # `run_suite(pieces=)`: no exit tells it (`_SuiteMeasure.starved`)
 # A piece on the suite helper runs in a clone there, which land._check's look at this checkout
 # never sees: the piece checks that clone itself and fails, as land._check does, if it changed.
@@ -1776,12 +1777,29 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             pieces_left.cond.wait(GATE_POLL)
                             if pieces_left.there or not pieces_left.mine(False):
                                 continue
-                        said = []
-                        if joined := helper.start(cpu, mem, cwd, said.append)[0]:
+                        said, answer = [], []
+                        # The suite never waits on an answer (a probe, a copy sent) past its
+                        # last piece: one that comes later finishes the helper it joined.
+                        threading.Thread(target=start, args=(said, answer), daemon=True,
+                                         name=ASKING).start()
+                        with pieces_left.cond:
+                            while not answer and not over() and (
+                                    pieces_left.waiting or pieces_left.out):
+                                pieces_left.cond.wait(GATE_POLL)
+                            answer.append(None)
+                        if joined := answer[0]:
                             files.callback(helper.finish, joined)
                             for line in said if log else ():
                                 log(line)
                             run_there(joined)
+
+                def start(said, answer):
+                    joined = helper.start(cpu, mem, cwd, said.append)[0]
+                    with pieces_left.cond:
+                        answer.append(joined)
+                        pieces_left.cond.notify_all()
+                    if joined and answer[0] is None:
+                        helper.finish(joined)
 
                 def run_there(there):
                     with pieces_left.cond:
