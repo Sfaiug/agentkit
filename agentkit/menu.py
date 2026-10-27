@@ -4776,9 +4776,10 @@ def apply_defaults(cfg, around):
     """`a` on a fresh window's `c`: every open seat with a record but the weekly audit's takes
     [defaults]'s executors and reviewers and the entries' efforts for the models it then runs,
     once `Apply` is picked on the card `around` draws (terminal.confirm), which names each seat
-    that restarts, one on another orchestrator; that one then moves to [defaults]'s
-    (orch.switch_orchestrator), a move refused leaving it on its own, at its entry's efforts
-    too, its other changes kept.
+    that restarts, one not running [defaults]'s orchestrator at its entry's effort; that one
+    then restarts on it at that effort (orch.switch_orchestrator), the only way a seat's
+    orchestrator effort changes, so a restart refused or failed leaves its record on the one
+    its harness runs, its other changes kept.
     config.toml is not written.  What to say under the rows, one line a seat refused, or ""."""
     from . import audit     # here, not at the top: audit imports this module
     defaults, records = cfg["defaults"], config.session_records()
@@ -4787,26 +4788,37 @@ def apply_defaults(cfg, around):
              if s["name"] in records and s["name"] != skip}
     if not seats:
         return "no open session to apply them to"
-    moving = [name for name, record in seats.items()
-              if record.get("orchestrator") != defaults["orchestrator"]]
+    lead = defaults["orchestrator"]
+    effort = config.efforts_of(cfg["models"][lead])["effort"]
+    moving = [name for name, record in seats.items() if record.get("orchestrator") != lead
+              or config.at_efforts(cfg, record)["models"][lead]["effort"] != effort]
     count = f"{len(seats)} open session{'s' * (len(seats) > 1)}"
     means = (f"{', '.join(moving)} restart{'s' * (len(moving) == 1)} on "
-             f"{config.model_name(cfg, defaults['orchestrator'])}." if moving
+             f"{config.model_name(cfg, lead)} at {effort}." if moving
              else "No session restarts.")
     if not terminal.confirm(APPLY_ASK.format(count), means, APPLY_ANSWER, around):
         return ""
-    runs = [defaults["orchestrator"], *defaults["workers"],
-            *defaults.get("reviewers", defaults["workers"])]
+    runs = [lead, *defaults["workers"], *defaults.get("reviewers", defaults["workers"])]
     taken = {model: config.efforts_of(cfg["models"][model]) for model in runs}
     providers = usage.collect(cfg) if moving else {}
+
+    def given(held):
+        """`held`'s efforts at the entries', its orchestrator's own effort where it stands."""
+        own = held.get("orchestrator")
+        # its orchestrator's entry too, as before, but for the effort it runs at, which only a
+        # restart at another changes
+        efforts = {**(held.get("efforts") or {}), **{
+            model: config.efforts_of(cfg["models"][model])
+            for model in (own,) if model in cfg["models"]}, **taken}
+        if own not in cfg["models"]:
+            return efforts
+        at = config.at_efforts(cfg, held)["models"][own]["effort"]
+        return config.orchestrating_at(cfg["models"], {"efforts": efforts}, own, at)
+
     said = []
-    for name, record in seats.items():
-        # its own orchestrator's too, which it goes on running where its move is refused
-        own = {model: config.efforts_of(cfg["models"][model])
-               for model in (record.get("orchestrator"),) if model in cfg["models"]}
+    for name in seats:
         try:
-            config.change_efforts(name, lambda held: {**(held.get("efforts") or {}),
-                                                        **own, **taken})
+            config.change_efforts(name, given)
             # reviewers [defaults] does not name follow the executors there and here alike
             config.update_session(name, workers=defaults["workers"],
                                   reviewers=defaults.get("reviewers"))
@@ -4814,7 +4826,7 @@ def apply_defaults(cfg, around):
             said.append(f"{name}: {exc}")
             continue
         if name in moving:
-            note = orch.switch_orchestrator(cfg, name, defaults["orchestrator"], providers)
+            note = orch.switch_orchestrator(cfg, name, lead, providers, effort=effort)
             if note:
                 said.append(f"{name}: {note}")
     return "\n".join(said)
