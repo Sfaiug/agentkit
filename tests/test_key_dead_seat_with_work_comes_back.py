@@ -5,10 +5,11 @@ On 24 Oct 2026 the OOM killer ended a seat while it waited on four background ag
 run going, so it sat dead for two hours until the owner opened it and typed "continue".  Every
 tick now judges a gone seat as a reboot does: one cut off in its turn, a Stop on background
 agents among them, is reopened on its own conversation and told to go on, once per death.  One
-that died idle, though it held a shell, and one the owner closed stay closed.  Black-box: the
-program `AK_BIN` names runs `ak watch` from outside through tests/fixtures/akbin.py, beside seats
-of tests/fixtures/akseat.py whose hooks are fired as Claude fires them
-(tests/fixtures/hookdrive.py), each reopened by a scripted harness of fakeadapter.py.
+the owner closed stays closed; one that died idle is
+tests/test_key_dead_seat_holding_work_comes_back.py's.  Black-box: the program `AK_BIN` names
+runs `ak watch` from outside through tests/fixtures/akbin.py, beside seats of
+tests/fixtures/akseat.py whose hooks are fired as Claude fires them (tests/fixtures/hookdrive.py),
+each reopened by a scripted harness of fakeadapter.py.
 """
 
 import re
@@ -28,7 +29,7 @@ from fixtures.hookdrive import Hooks
 PROXIES = ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
 AGENT = {"id": "a1", "type": "subagent", "status": "running", "description": "slow check"}
 SHELL = {"id": "b1", "type": "shell", "status": "running", "description": "sleep 600"}
-SEATS = ("midturn", "agents", "idle", "closed")
+SEATS = ("midturn", "agents", "closed")
 MIDTURN = "in the middle of a turn"
 
 
@@ -76,17 +77,16 @@ class DeadSeatWithWork(unittest.TestCase):
                         given=(conversation(n),))
             fired = hooks.fire("UserPromptSubmit", {"prompt": "go"}, seat=name, pane=seat)
             assert fired.code == 0, fired
-        for name, work in (("agents", [AGENT, SHELL]), ("idle", [SHELL])):
-            fired = hooks.fire("Stop", {"background_tasks": work, "transcript_path": "",
-                                        "last_assistant_message": "Started it."},
-                               seat=name, pane=cls.seats[name])
-            assert fired.code == 0, fired
+        fired = hooks.fire("Stop", {"background_tasks": [AGENT, SHELL], "transcript_path": "",
+                                    "last_assistant_message": "Started it."},
+                           seat="agents", pane=cls.seats["agents"])
+        assert fired.code == 0, fired
         closed = home.ak("orch", "stop", "closed")
         assert closed.code == 0, closed.err
-        for name in ("midturn", "agents", "idle"):
+        for name in ("midturn", "agents"):
             end(home, name)
         cls.tick = home.ak("watch", boxed=True)
-        cls.after = {name: dead(home, name) for name in ("midturn", "agents", "idle")}
+        cls.after = {name: dead(home, name) for name in ("midturn", "agents")}
         cls.told = {name: cls.seats[name].wait_lines(1) for name in ("midturn", "agents")}
         # dead again before any tick saw them live: the same death, not a new one
         for name in ("midturn", "agents"):
@@ -113,13 +113,8 @@ class DeadSeatWithWork(unittest.TestCase):
         self.assertIn("background work: subagent, shell", line)
         self.assertEqual(self.seats["agents"].lines(), self.told["agents"])
 
-    def test_a_seat_that_died_idle_holding_a_shell_stays_closed(self):
-        self.assertEqual(self.after["idle"], "1")
-        self.assertNotIn(conversation(2), self.opened)
-        self.assertEqual(self.seats["idle"].lines(), [])
-
     def test_a_seat_the_owner_closed_stays_closed(self):
-        self.assertNotIn(conversation(3), self.opened)
+        self.assertNotIn(conversation(2), self.opened)
         self.assertEqual(self.seats["closed"].lines(), [])
 
 
