@@ -627,6 +627,12 @@ class Harness:
         hook = self._hook("running")
         return hook(record, cwd, conversation) if hook else None
 
+    def holds(self, record):
+        """The type of each piece of background work that seat's harness says it runs now, in
+        `held_work`'s terms, or None where it cannot be asked: its last Stop's list stands."""
+        hook = self._hook("holds")
+        return hook(record) if hook else None
+
     @property
     def keeps_errors(self):
         """Whether `error` reads anything: a transcript alone may hold no error a reader knows."""

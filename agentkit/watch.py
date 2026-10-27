@@ -498,7 +498,7 @@ def reboot_line(cfg, name, moved=None):
     """
     fact = hook_facts(name)
     line = _cut_line(cfg, name) if moved is None else ACCOUNT_LINE if moved else None
-    work = holding(name, fact)
+    work = holding(cfg, name, fact)
     return " ".join(filter(None, (line, work and HELD_LINE.format(", ".join(work))))) or None
 
 
@@ -2160,11 +2160,17 @@ def screen_holds(harness, tail):
             for _ in rows.splitlines()]
 
 
-def holding(name, fact):
+def holding(cfg, name, fact):
     """The background work that seat holds: what its harness's last Stop listed (`fact`, its
     hook record), or, for a harness that runs no hooks, what its screen last showed running
-    (`screen_holds`)."""
-    return held_work(fact) or held_work(seat_read(name))
+    (`screen_holds`) -- unless its harness, asked now, says what still runs: work whose end
+    starts no turn outlives the Stop that listed it.  A seat that held nothing is not asked."""
+    work = held_work(fact) or held_work(seat_read(name))
+    harness, record = seat_model(cfg, name)[0], config.session_records().get(name)
+    if not (work and harness and record):
+        return work
+    now = orch.harness_plugin(harness).holds(record)
+    return work if now is None else now
 
 
 def word_from(found):
@@ -4788,7 +4794,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         moves = [a for a in orch.account_order(cfg, model, readings, home) if a != current
                  and window(a) and (not window(current) or not low(a)
                                     and (a == home or low(current)))]
-        if (moves and live.get("state") == "at_prompt" and not holding(name, hook_facts(name))
+        if (moves and live.get("state") == "at_prompt" and not holding(cfg, name, hook_facts(name))
                 and not _turn_in_flight(harness, live)[0]
                 and orch.resumable(record)):
             if dry_run:
@@ -4803,7 +4809,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                 # of 21 Oct 2026: a prompt from the phone in that instant may be lost), and
                 # still holding no background work a turn ended on since the first.
                 return (between_turns(name, harness, record, live.get("opened_at"), pane)
-                        and not holding(name, hook_facts(name)))
+                        and not holding(cfg, name, hook_facts(name)))
             with state_lock():
                 if not still():
                     return True
