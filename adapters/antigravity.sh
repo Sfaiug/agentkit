@@ -226,11 +226,16 @@ usage)
       { code="timed out"; return; }
     code=${body##*$'\n'}; body=${body%$'\n'*}
   }
+  # A plan is kept only as this read found it: none where the endpoint did not answer, and
+  # none where the login changed while it was asked, as the answer may be either login's.
   quota() {
+    local whose; whose=$(email)
+    rm -f -- "$PLAN"
     post loadCodeAssist '{}'
     [ "$code" = 200 ] || return
-    jq -c --arg email "$(email)" '{email: $email, plan: (.paidTier.name // .currentTier.name)}' \
-      <<<"$body" >"$PLAN.$$" 2>/dev/null && mv -f -- "$PLAN.$$" "$PLAN" || rm -f -- "$PLAN.$$"
+    [ "$(email)" = "$whose" ] &&
+      jq -c --arg email "$whose" '{email: $email, plan: (.paidTier.name // .currentTier.name)}' \
+        <<<"$body" >"$PLAN.$$" 2>/dev/null && mv -f -- "$PLAN.$$" "$PLAN" || rm -f -- "$PLAN.$$"
     post retrieveUserQuotaSummary "$(jq -c '{project: .cloudaicompanionProject}' <<<"$body" 2>/dev/null)"
   }
   # The access token lives an hour and agy renews it only when it runs, so a refusal is first a

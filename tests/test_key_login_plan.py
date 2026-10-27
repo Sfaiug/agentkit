@@ -28,6 +28,7 @@ CURL = """#!/bin/sh
 for a; do case "$a" in https://*:*) answer="$HOME/fake/${a##*:}";; esac; done
 printf '%s\\n200' "$(cat "$answer")"
 """
+REFUSING = "#!/bin/sh\nexit 7\n"
 TOKEN = ".gemini/antigravity-cli/antigravity-oauth-token"
 
 
@@ -102,11 +103,23 @@ class Adapters(unittest.TestCase):
             "access_token": "dummy-access", "id_token": jwt({"email": "owner@acme.test"})}})
         self.assertEqual(self.adapter("codex"),
                          {"email": "owner@acme.test", "ends": None, "plan": None})
-        # the endpoint out of reach: this Home's curl refuses every call
-        self.antigravity("owner@acme.test", {})
+        # the endpoint out of reach (this Home's curl refuses every call) after it named one
+        self.antigravity("owner@acme.test", {"paidTier": {"name": "Google AI Pro"}})
+        self.home.fake("curl", CURL)
+        self.adapter("antigravity", "usage")
+        self.home.fake("curl", REFUSING)
         self.adapter("antigravity", "usage")
         self.assertEqual(self.adapter("antigravity"),
                          {"email": "owner@acme.test", "ends": None, "plan": None})
+        # a login made while the endpoint was asked: the answer may be the one before it's
+        answering = self.home.fake("answering", CURL)
+        self.home.fake("curl", f'#!/bin/sh\ncp "$HOME/fake/next" "$HOME/{TOKEN}"\n'
+                               f'exec {answering} "$@"\n')
+        self.home.write("fake/next", {"token": {"refresh_token": "dummy-refresh"},
+                                      "id_token_email": "free@acme.test"})
+        self.adapter("antigravity", "usage")
+        self.assertEqual(self.adapter("antigravity"),
+                         {"email": "free@acme.test", "ends": None, "plan": None})
         for harness in ("muse", "grokbuild"):
             self.assertEqual(self.adapter(harness), {"email": None, "ends": None, "plan": None})
 
