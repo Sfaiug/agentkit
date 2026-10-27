@@ -757,10 +757,13 @@ if [ "$SANDBOX" = 1 ] || [ ! -e "$ZSWAP/enabled" ] || [ -z "$swaps" ] ||
 else
   # compressor and pool before enabled, so the pool is made once with the right ones
   zswap_entry="# Written by agentkit's install.sh: swapped pages compressed in RAM first"$'\n'
+  zswap_live=1   # every value already in force, so a repeat install writes nothing
   for kv in compressor=zstd zpool=zsmalloc shrinker_enabled=Y enabled=Y; do
-    [ ! -e "$ZSWAP/${kv%%=*}" ] || zswap_entry+="w /sys/module/zswap/parameters/${kv%%=*} - - - - ${kv#*=}"$'\n'
+    [ -e "$ZSWAP/${kv%%=*}" ] || continue
+    zswap_entry+="w /sys/module/zswap/parameters/${kv%%=*} - - - - ${kv#*=}"$'\n'
+    [ "$(cat -- "$ZSWAP/${kv%%=*}")" = "${kv#*=}" ] || zswap_live=0
   done
-  if [ "$(cat -- "$ZSWAP/enabled")" = Y ] && [ "$(cat -- "$ZSWAP_TMPFILES" 2>/dev/null)"$'\n' = "$zswap_entry" ]; then
+  if [ "$zswap_live" = 1 ] && [ "$(cat -- "$ZSWAP_TMPFILES" 2>/dev/null)"$'\n' = "$zswap_entry" ]; then
     :
   elif ! have sudo || ! sudo -n true 2>/dev/null; then
     note "zswap: no passwordless sudo, so swap is not compressed in RAM; run \`sudo -v\` and re-run ./install.sh"
