@@ -5356,7 +5356,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             past = past_offered(found)
             # `x` is only the popup's, for its own seat while that has a row: no screen stops
             # another seat (the owner, 27 Oct 2026)
-            word = {info["name"]: info["word"] for info in groups[1]}.get(own)
+            word = next((info["word"] for info in (groups or [(), ()])[1]
+                         if info["name"] == own), None)       # no groups: draw reads them
             keys = KEYS if word is None else KEYS.replace(
                 "n new", f"n new   x {'close' if word == 'done' else 'stop'}", 1)
             actions = ("n", "c") + ("p",) * past + ("x",) * (word is not None)
