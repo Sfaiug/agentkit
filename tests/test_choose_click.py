@@ -41,7 +41,7 @@ class ChooseClick(unittest.TestCase):
                 patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "colour_depth", return_value=0), \
                 patch.object(terminal, "utf8", return_value=True):
-            def around():
+            def around(_):
                 spots = terminal.frame("config · add a subscription", [""] * len(CHOICES), keyline)
                 if not writer.closed:
                     writer.write(events(spots))
