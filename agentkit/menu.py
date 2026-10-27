@@ -3508,8 +3508,8 @@ def _set_effort(entry, key, effort, hold=()):
     """`entry`'s `key` at `effort`, None being its own effort, a role's key that lands on the
     effort unset again (_follows); each key of `hold` that follows the effort keeps the one it
     followed, read off `entry` as it stands."""
-    for each in hold if "effort" in entry else ():
-        entry.setdefault(each, entry["effort"])
+    if "effort" in entry:
+        entry.update(config.held_efforts(entry, hold))
     entry[key] = effort or entry["effort"]
     _follows(entry, [key, *hold])
 

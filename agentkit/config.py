@@ -942,6 +942,12 @@ def efforts_of(entry):
     return {key: entry[key] for key in ROLE_EFFORTS.values() if key in entry}
 
 
+def held_efforts(entry, keys):
+    """`entry` with each of `keys` (ROLE_EFFORTS) that follows its effort set to that effort,
+    every key it sets kept: a new effort then leaves those where they stood."""
+    return {**dict.fromkeys(keys, entry["effort"]), **entry}
+
+
 def at_efforts(cfg, record):
     """`cfg` as the seat or run `record` runs it: each model its `efforts` names (own_efforts, a
     receipt's every model's as launched) at those, every other at its entry's own."""
