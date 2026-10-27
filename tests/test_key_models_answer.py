@@ -1,6 +1,6 @@
 """`r recommended` on `c` answers each role over every current model on the boards: its best,
 then its line of best quality for the money around the pick, each row's notes, and under a pick
-no harness of yours runs what `r` takes.  ←/→ step `within` and the answer follows; on 40 cells
+no harness of yours runs what `r` takes, the pointer on the first role's pick.  ←/→ step `within` and the answer follows; on 40 cells
 each row's numbers take a line under its name.  `r` takes each role's take at its effort: into
 new seats' [defaults] in a window of its own, and into a seat's record alone, its orchestrator
 only said, over a seat; a save that fails changes nothing and says why.
@@ -25,7 +25,7 @@ from fixtures.akterm import SERVER, Terminal
 NOW = int(time.time())
 ENV = {"NO_COLOR": "1", "TZ": "UTC", **{name: "http://127.0.0.1:9" for name in (
     "http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}}
-KEYS = "  ←→ points   r take   esc back"
+KEYS = "  ↑↓ move   ←→ points   ⏎ why   r take   esc back"
 EVALUATIONS = ("aa-briefcase", "terminalbench-4-0", "gdp-pdf")     # each role's cost a task
 # Per release and effort: intelligence index, frontier-code and terminal shares, DeepSec Bench,
 # documents passing every check, Arena's agent share and cost a task; each but Crux 2 at Arena's
@@ -145,7 +145,8 @@ class ModelsAnswer(unittest.TestCase):
     def test_each_role_is_answered_and_a_knob_step_moves_the_pick(self):
         term, shown = self.models()
         at = shown.index(ORCH[0])
-        self.assertEqual(shown[at:at + 21], [*ORCH, *BUILDS, *REVIEWS, "", *LEGEND])
+        pointed = [*ORCH[:3], "›" + ORCH[3][1:], *ORCH[4:]]    # the pointer starts on the pick
+        self.assertEqual(shown[at:at + 21], [*pointed, *BUILDS, *REVIEWS, "", *LEGEND])
         self.assertEqual(next(line for line in reversed(shown) if line), KEYS)
         term.keys("Left")
         shown = lines(term.wait("within ‹ 4 ›"))
