@@ -1,7 +1,8 @@
 """Which models exist now, and what replaced what, read off Artificial Analysis's records as
 `boards.collect` holds them.  A release is one model, its efforts each a row of the board; it is
-current while none of its rows is deprecated, and a deprecated one names the release that
-replaced it (`deprecatedTo`), which may itself be replaced.  The record's shape (releases,
+current while none of its rows is deprecated and its series names no successor for it
+(`_superseded`), and a deprecated one names the release that replaced it (`deprecatedTo`),
+which may itself be replaced.  The record's shape (releases,
 those chains, the default effort being the row whose slug is the release's own) stays here, and
 so does which release another board's model is: boards name models their own way and know
 nothing of releases.
@@ -83,6 +84,20 @@ def _current(rows):
     return not any(row["deprecated"] for row in rows)
 
 
+def _superseded(releases):
+    """{slug: its successor} for each release the board leaves current under the name of a
+    deprecated release naming a successor, but those named: a release name is a series, and a
+    variant (`Acme 6 (Fast)` under Acme 6) goes with the model the board replaced.  One naming
+    none takes nothing with it, as a retired preview (`Acme 7 (Preview)`) leaves its model."""
+    named = {}
+    for rows in releases.values():
+        for row in rows:
+            if row["deprecated"] and row["release"]["deprecatedTo"]:
+                named.setdefault(row["release"]["name"], []).append(row["release"]["deprecatedTo"])
+    return {slug: named[rows[0]["release"]["name"]][0] for slug, rows in releases.items()
+            if _current(rows) and slug not in named.get(rows[0]["release"]["name"], [slug])}
+
+
 def current(boards):
     """Artificial Analysis's current releases, strongest first by their best
     `aa.intelligenceIndex`; those without one last, by name.  Each effort's `values` carry,
@@ -93,8 +108,10 @@ def current(boards):
         best = max((row["values"]["aa.intelligenceIndex"] for row in rows
                     if "aa.intelligenceIndex" in row["values"]), default=None)
         return best is None, -(best or 0), str(rows[0]["release"]["name"])
-    releases = [_release(slug, rows) for slug, rows
-                in sorted(_releases(boards).items(), key=strength) if _current(rows)]
+    found = _releases(boards)
+    superseded = _superseded(found)
+    releases = [_release(slug, rows) for slug, rows in sorted(found.items(), key=strength)
+                if _current(rows) and slug not in superseded]
     named = {}
     for release in releases:
         for name in _names(release["name"]):
@@ -111,13 +128,14 @@ def current(boards):
 
 
 def successor(boards, slug):
-    """The current release the release `slug`'s `deprecatedTo` chain ends at, itself when it is
-    current; None when the chain ends anywhere else: a slug the board does not list, a
-    deprecated release naming no successor, or a loop."""
+    """The current release the release `slug`'s `deprecatedTo` chain ends at, through
+    `_superseded`, itself when it is current; None when the chain ends anywhere else: a slug the
+    board does not list, a deprecated release naming no successor, or a loop."""
     releases, seen = _releases(boards), set()
+    superseded = _superseded(releases)
     while slug in releases and slug not in seen:
-        if _current(releases[slug]):
+        if _current(releases[slug]) and slug not in superseded:
             return next(release for release in current(boards) if release["slug"] == slug)
         seen.add(slug)
-        slug = releases[slug][0]["release"]["deprecatedTo"]
+        slug = superseded.get(slug) or releases[slug][0]["release"]["deprecatedTo"]
     return None

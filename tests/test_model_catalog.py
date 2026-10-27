@@ -1,9 +1,9 @@
 """ak knows Artificial Analysis's current models, and what replaced each older one.
 
 Each of the board's rows keeps its record's identity beside its numbers; `catalog.current` gives
-the releases none of whose rows is deprecated, strongest first, each with its efforts, the
-default one and each one's numbers, and `catalog.successor` follows a release's `deprecatedTo` chain to the current
-release it ends at.  A reading an older build stored, its rows carrying no identity, is asked
+the releases none of whose rows is deprecated and no series supersedes, strongest first, each
+with its efforts, the default one and each one's numbers, and `catalog.successor` follows a
+release's `deprecatedTo` chain to the current release it ends at.  A reading an older build stored, its rows carrying no identity, is asked
 again once by this build, and until then nothing is current.
 
 Offline: the board's pages are handed in through `boards.fetch_bytes`, the other boards refuse,
@@ -108,6 +108,22 @@ class Catalog(Sandbox):
         self.assertEqual(catalog.successor(held, "beta-2"), catalog.current(held)[0])
         for slug in ("omega-1", "omega-0", "loop-a", "nowhere", "acme-7-low"):
             self.assertIsNone(successor(slug), slug)
+
+    def test_a_series_goes_for_the_successor_a_deprecated_release_of_it_names(self):
+        records = RECORDS + [     # a release name is a series
+            ("acme-6-5-fast", "Acme 6.5 (Fast)", "acme-6-5-fast", "Acme 6.5", "Acme", False, None, 44),
+            ("acme-5", "Acme 5", "acme-5", "Acme 5", "Acme", True, "acme-6-5-fast", 30),
+            ("acme-7-preview", "Acme 7 (Preview)", "acme-7-preview", "Acme 7", "Acme", True, None, 55),
+            ("omega-0-fast", "Omega 0 (Fast)", "omega-0-fast", "Omega 0", "Omega", False, None, 6),
+            ("zeta-1-old", "Zeta 1", "zeta-1-old", "Zeta 1", "Zeta", True, "zeta-1", 8),
+            ("zeta-1", "Zeta 1", "zeta-1", "Zeta 1", "Zeta", False, None, 9)]
+        with patch(f"{__name__}.RECORDS", records):
+            held = boards.collect(now=10000)
+        self.assertEqual([release["slug"] for release in catalog.current(held)],
+                         ["beta-3", "acme-7", "zeta-1", "omega-0-fast", "delta-1", "gamma-1"])
+        self.assertEqual([(catalog.successor(held, slug) or {}).get("slug") for slug in (
+            "acme-6-5-fast", "acme-5", "omega-0-fast", "zeta-1-old")],
+            ["acme-7", "acme-7", "omega-0-fast", "zeta-1"])
 
     def test_a_reading_an_older_build_stored_is_asked_again_once(self):
         boards.collect(now=10000, build="abc1234")
