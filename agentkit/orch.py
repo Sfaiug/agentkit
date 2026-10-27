@@ -4198,8 +4198,8 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
         own = efforts.get(model) or config.efforts_of(cfg["models"][model])
         if was is not None:
             was[:] = [own["effort"]]
-        return {**efforts, model: {**dict.fromkeys(config.ROLE_EFFORTS.values(), own["effort"]),
-                                   **own, "effort": effort}}
+        return {**efforts, model: {**config.held_efforts(own, config.ROLE_EFFORTS.values()),
+                                   "effort": effort}}
 
     def given_back():
         """The effort `taken` back, the launch at `effort` having failed, where the record
