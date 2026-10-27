@@ -242,8 +242,8 @@ def stored():
 
 def needed():
     """The columns `quality` reads, by board, for `collect`: each role's measures and the cost
-    of its task, the index and what each measure's error is read off.  A board whose cached rows
-    carry none of one is read again by a new build, since its reader changed."""
+    of its task, the index and what each measure's error cannot be had without.  A board whose
+    cached rows carry none of one is read again by a new build, since its reader changed."""
     columns = {quality.INTEL, *quality.COSTS.values()} | {
         name for role in quality.ROLES.values() for column, _, _ in role
         for name in (column, *quality.reads(column))}

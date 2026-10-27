@@ -77,16 +77,24 @@ EVALUATION_KINDS = {"aa-briefcase": "rating", "gdpval-aa": "rating", "omniscienc
 Z = 1.645       # qualities closer than Z errors of their difference are inside its 90% interval
 
 
+def interval(column):
+    """The columns of a measure's 95% interval, (lower, upper)."""
+    return INTERVALS.get(column, tuple(column + end for end in INTERVAL))
+
+
 def reads(column):
-    """The columns beside its own a measure's error is read off (`_error`): its 95% interval,
-    (lower, upper), then Omniscience's accuracy and hallucination rate."""
-    return (*INTERVALS.get(column, [column + end for end in INTERVAL]),
-            *(OMNISCIENCE[1:3] if column == OMNISCIENCE[0] else ()))
+    """The columns beside its own a measure's error cannot be had without (`_error`): its
+    interval, but none for a share of `TASKS` and Omniscience's accuracy and hallucination rate
+    for it, as Artificial Analysis publishes no interval for these: naming one would read the
+    board again at every new build."""
+    if column in TASKS:
+        return ()
+    return OMNISCIENCE[1:3] if column == OMNISCIENCE[0] else interval(column)
 
 
 def _error(values, column, kind, best):
     """A measured value's standard error in points, None when its row lacks what it needs."""
-    lower, upper = (values.get(name) for name in reads(column)[:2])
+    lower, upper = (values.get(name) for name in interval(column))
     if lower is not None and upper is not None:
         return (upper - lower) / 3.92 * SCALES[kind][2](best, values[column])
     if column in TASKS:
