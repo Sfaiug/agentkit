@@ -23,9 +23,8 @@ from test_config_matrix import (DOWN, ENTER, ESC, NEW_KEYS, PAGE_KEYS, RIGHT, UP
 # Key lines spelled outside terminal.keys, where each is, and why it is still spelled there.
 SPELLED = {
     "menu.py MODELS_KEYS": "the models screen: its arrows split, ↑↓ moving the pointer and ←→ "
-                           "stepping `within`, as its task spells them",
-    "menu.py PICK_KEYS": "the models to compare: Space marks and every other key typed finds, "
-                         "so it has no Enter, as its task spells it",
+                           "stepping `within`, and on `p` Space marking and every other key "
+                           "typed finding, as their tasks spell them",
 }
 
 
