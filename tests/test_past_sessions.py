@@ -40,6 +40,8 @@ class Lines(unittest.TestCase):
         self.stack.enter_context(patch.object(orch, "checkout_of",
                                               lambda repo, **_kw: repo and Path(repo)))
         self.stack.enter_context(patch.object(menu, "seat_progress", return_value=(0, 0)))
+        self.stack.enter_context(patch.object(menu, "past_said", lambda session: (
+            "", session.get("restart") or "")))
 
     def test_a_number_reopens_a_stopped_seat_and_x_asks_which_to_remove(self):
         with patch.object(menu, "read", side_effect=["x", "1", "1"]):
@@ -49,7 +51,7 @@ class Lines(unittest.TestCase):
         screens = self.out.getvalue().split("past sessions")[1:]
         self.assertEqual(len(screens), 2)
         self.assertRegex(screens[0], r"\n  1  zeta\s+no plan\s+\d\d:\d\d\n"
-                                     r"(.*\n)?  2  omega  atoll  no plan\s+\d\d:\d\d\n")
+                                     r"(.*\n)*  2  omega  atoll  no plan\s+\d\d:\d\d\n")
         self.assertNotIn("alpha", screens[0])
         self.assertIn("x remove   esc back", screens[0])
         self.assertIn("1 zeta · 2 omega", screens[0])
@@ -61,6 +63,20 @@ class Lines(unittest.TestCase):
         self.paused.assert_called_once_with("not a key: '2'", "x remove   esc back")
         self.opened.assert_not_called()
         self.closed.assert_not_called()
+
+    def test_at_every_width_a_page_is_under_its_day_and_a_tall_opened_row_keeps_every_line(self):
+        past = [(n, dict(OMEGA, name=f"fix-api-{n}", closed=NOW - n * 80000)) for n in range(1, 13)]
+        said = {"fix-api-7": (" ".join(["The docs site ships"] * 20), "starts fresh")}
+        for width in (20, 30, 60, 100):
+            with self.subTest(width=width), patch.object(terminal, "width", return_value=width), \
+                    patch.object(terminal, "away", return_value=False):
+                lines = [terminal.plain(line, True)
+                         for line in menu.past_body(past, "fix-api-7", 8, said)[0]]
+                self.assertTrue(all(terminal.cells(line) <= width for line in lines), lines)
+                self.assertIn(lines[0], ("today", "yesterday", "this week", "earlier"))
+                self.assertRegex(lines[1], r"^›\s+7  fix-api-7(\s|$)")     # its name whole
+                self.assertEqual(sum(line.startswith("›") for line in lines), 1)
+                self.assertEqual(lines[-1].strip(), "starts fresh")
 
     def test_a_dry_run_draws_the_screen_once(self):
         with patch.object(menu, "read", side_effect=AssertionError("read")):

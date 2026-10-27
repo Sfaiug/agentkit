@@ -3648,7 +3648,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     on nothing, the cell it is on lit.  `act` is `back` for Esc or a click on `esc back`, None when the screen wants drawing again -- a
     resize, the pointer, or `timeout` seconds with no key -- a character key's character, its
     key-line item's too (`r recommended`), and any other key's name, `enter` a click on `⏎`'s
-    and `space` one on `␣`'s.
+    and `space` one on `␣`'s, `left` and `right` one on a page mark's arrow (`page_mark`).
     `fetched()` says since when the screen's content is being fetched, or None: while it is, the
     rule under the header glides (`motion.fetching`) and the read ends, None, once it lands.
     `clock` moves what `moves` -- (line, key, value, start) -- says is news (`motion.Clock.look`)
@@ -3687,8 +3687,10 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
         if act == "point":
             return None, here, column, top
         if spot.what is None:         # a key-line item does what its key does
-            item = {"esc": "back", "⏎": "enter", "␣": "space"}.get(spot.cell, spot.cell or "")
-            return (item if item in ("back", "enter", "space") or len(item) == 1 and item.isalpha()
+            item = {"esc": "back", "⏎": "enter", "␣": "space", "←": "left", "<": "left",
+                    "→": "right", ">": "right"}.get(spot.cell, spot.cell or "")
+            return (item if item in ("back", "enter", "space", "left", "right")
+                    or len(item) == 1 and item.isalpha()
                     else ""), here, None, top
         act = "enter" if here[0] in ("row", "usage") else ""      # a row runs its step
         if column is not None:
@@ -5198,33 +5200,39 @@ def past_body(past, at=None, room=None, said=None, now=None):
         session.get("repo"), stands=stands), ""), *closed_when(session["closed"], now),
         seat_progress(session["name"])) for number, session in past]
     num, name, project, clock = (max(terminal.cells(row[n]) for row in rows) for n in (0, 1, 2, 4))
-    name = min(name, 24)
-    # the line gives way first, to its count alone, then the name and the project
-    least = max(len(f"{done} of {total}") if total else 7 for *_, (done, total) in rows)
-    while width - (2 + num + 2 + name + 2 + project + 6 + clock) < least and max(name, project) > 1:
-        name, project = (name - 1, project) if name >= project else (name, project - 1)
+    name = min(name, 24, width - (2 + num + 2))
     free = width - (2 + num + 2 + name + 2 + project + 6 + clock)
-    lit, days, spans = not terminal.away(), {}, {}
-    for number, seat, home, day, closed, (done, total) in rows:
-        bar = (terminal.plan_bar(done, total, free, 0, "done" if done == total else "idle")
-               if total else terminal.styled("no plan", "dim"))
-        line = "  ".join(["  " + _styled_cell(number, num, "dim", right=True),
-                          _styled_cell(seat, name), _styled_cell(home, project, "dim"),
-                          bar + " " * max(0, free - terminal.cells(bar)), closed.rjust(clock)])
-        spans[seat] = line_at(line)
-        days.setdefault(day, []).append([(terminal.highlight(line) if lit and seat == at
-                                          else line, seat)])
+    # no room for a row on one line: what follows its name goes under it, the count alone
+    fold = free < max(len(f"{done} of {total}") if total else 7 for *_, (done, total) in rows)
     indent, under = " " * (2 + num + 2), width - (2 + num + 2)
     opened = {seat: terminal.wrap(sentence, under) + [
         terminal.styled(line, "dim") for line in terminal.wrap(restart, under)]
         for seat, (sentence, restart) in (said or {}).items()}
+    lit, days, spans = not terminal.away(), {}, {}
+    for number, seat, home, day, closed, (done, total) in rows:
+        bar = (terminal.plan_bar(done, total, 0 if fold else free, 0,
+                                 "done" if done == total else "idle")
+               if total else terminal.styled("no plan", "dim"))
+        head = "  " + _styled_cell(number, num, "dim", right=True) + "  " + _styled_cell(seat, name)
+        tail = [_styled_cell(home, project, "dim"), bar + " " * max(0, free - terminal.cells(bar)),
+                closed.rjust(clock)]
+        block = ([head + "  " + "  ".join(tail)] if not fold else [head, *(
+            "    " + line for line in packed([part.strip() for part in tail if part.strip()],
+                                             "  ", width - 4))])
+        block += [indent + line for line in opened.get(seat, [])] if at is None else []
+        spans[seat] = line_at(block[0])
+        days.setdefault(day, []).append([(terminal.highlight(line, mark=n == 0)
+                                          if lit and seat == at else line, seat)
+                                         for n, line in enumerate(block)])
     pages = project_pages([((terminal.styled(day, "bold"), None), blocks)
                            for day, blocks in days.items()],
-                          max(2, (room or sys.maxsize) - max(map(len, opened.values()), default=0)),
+                          # a page holds a heading and its row whatever the row opens
+                          max(1 + max(len(block) for blocks in days.values() for block in blocks),
+                              (room or sys.maxsize) - max(map(len, opened.values()), default=0)),
                           apart=False)
     page = next((n for n, lines in enumerate(pages) if any(seat == at for _, seat in lines)), 0)
     shown = pages[page]
-    where = next((n for n, (_, seat) in enumerate(shown, 1) if seat == at), 0)
+    where = max((n for n, (_, seat) in enumerate(shown, 1) if seat == at), default=0)
     told = opened.get(at, []) if lit and where else []
     shown = shown[:where] + [(terminal.highlight(indent + line, mark=False), at)
                              for line in told] + shown[where:]
@@ -5258,7 +5266,9 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
         names = [session["name"] for _, session in past]
         if not terminal.taken():
             keys = "x remove   esc back"
-            terminal.frame("past sessions", past_body(past)[0], keys)
+            # every row opens what it got done, as there is no highlight to open it
+            terminal.frame("past sessions", past_body(past, said={
+                session["name"]: past_said(session) for _, session in past})[0], keys)
             if dry_run:
                 return
             line = read("> ", "")
@@ -5280,7 +5290,8 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
         here = here if here in names else names[0]
         said.update((session["name"], past_said(session)) for _, session in past
                     if session["name"] not in said)
-        room = matrix_page([], {}, None, 0, [], keys)[1]      # the lines a page holds
+        # the lines a page holds, under the keys led by where the owner is, at its widest
+        room = matrix_page([], {}, None, 0, [], keys, lead=page_mark(98, 99))[1]
         body, places, moves, page, turns = past_body(past, here, room, said)
         first = page_mark(page, len(turns)) if len(turns) > 1 else None
         act, row, _column, top = matrix_key("past sessions", body, places,
