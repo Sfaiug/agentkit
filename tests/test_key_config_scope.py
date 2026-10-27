@@ -26,8 +26,8 @@ NOW = int(time.time())
 SEATS = {"atoll-fix": NOW - 900, "atoll-ask": NOW - 600}     # made first, so it is 1
 MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave"
 POPUP_KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"
-MARK_KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"
-NEW_KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   a apply to all sessions   esc back"   # new seats'
+MARK_KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"
+NEW_KEYS = "  ↑↓←→ move   ␣ mark   r recommended   a apply to all sessions   esc back"   # new seats'
 
 
 def lines(screen):
@@ -78,7 +78,7 @@ class ConfigScope(unittest.TestCase):
         self.assertIn(f"  For  {scope}", lines(screen))
         term.keys("Right", "Right")         # past its effort
         term.wait("› Fable 5.1     ●  ▰▰▰▰▱   xhigh   [□]                  □")
-        term.keys("Enter")
+        term.keys("Space")
         term.wait("› Fable 5.1     ●  ▰▰▰▰▱   xhigh   [■] ▰▰▰▰▱   xhigh    □")
 
     def record(self, name):

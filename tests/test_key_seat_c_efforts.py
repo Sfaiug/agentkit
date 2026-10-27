@@ -22,7 +22,7 @@ from fixtures.akterm import SERVER, Terminal
 
 SEATS = ("acme-fix", "acme-ask")
 EFFORTS = {"opus": {"effort": "xhigh"}, "astra": {"effort": "xhigh"}}
-KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"
+KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"
 OFFLINE = {name: "http://127.0.0.1:9"
            for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
 
@@ -90,7 +90,7 @@ class SeatEfforts(unittest.TestCase):
     def test_a_step_on_a_seat_s_c_is_that_seat_s_alone(self):
         term, screen = self.c("acme-fix")
         self.assertEqual(opus_efforts(screen), ["xhigh", "xhigh"])
-        term.keys("Right", "Right", "Right", "Enter")      # onto the build effort, and a step
+        term.keys("Right", "Right", "Right", "Space")      # onto the build effort, and a step
         # the orchestrator's effort beside it stays where it was
         term.wait(lambda screen: opus_efforts(screen) == ["xhigh", "max"])
         self.until(lambda: self.record("acme-fix")["efforts"]["opus"] == {

@@ -18,7 +18,8 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import Terminal
 
 MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave"
-MARK_KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   a apply to all sessions   esc back"
+MARK_KEYS = "  ↑↓←→ move   ␣ mark   r recommended   a apply to all sessions   esc back"
+OPEN_KEYS = "  ↑↓←→ move   ⏎ open   r recommended   a apply to all sessions   esc back"
 FABLE_LISTED = "claude-fable-5-1\tFable 5.1\tlow medium high xhigh max"
 
 
@@ -61,7 +62,7 @@ class ModelsPageDefaults(unittest.TestCase):
         term.keys("Escape")
         term.wait(lambda screen: "› Claude Code" in screen and "■" not in screen)
         term.keys("Escape")
-        screen = term.wait(lambda screen: key_line(screen) == MARK_KEYS and "› Models" in screen)
+        screen = term.wait(lambda screen: key_line(screen) == OPEN_KEYS and "› Models" in screen)
         self.assertEqual(orch_mark(screen, "GPT-6-Astra"), "●")
         self.assertFalse(any(line[2:].startswith("Fable 5.1 ") for line in lines(screen)), screen)
         self.assertIn("  Weekly audit  off · orch GPT-6-Astra · builds GPT-6-Astra · reviews "

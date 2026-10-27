@@ -1,4 +1,5 @@
-"""Every screen's key line leads the same way, wherever its highlight is: `↑↓←→ move   ⏎ choose`.
+"""Every screen's key line leads the same way, `↑↓←→ move`, then what Space and Enter do where
+its highlight is.
 
 The walk: `menu.show_config` in a child process on a pty of its own (tests/test_config_matrix.py's
 Screen, a temporary HOME), from a model's mark up onto a meter, over the For line, down to a
@@ -63,8 +64,13 @@ class OneKeyLine(unittest.TestCase):
         stops["Subscriptions' page"] = screen.press(
             ENTER, lambda lines: "subscriptions" in lines[0])
         self.assertIn("› Models", stops)
+        # Space where a model's mark is, Enter where a meter or a row opens
+        opens = [where for where in stops if where.split()[-1] in ("meter", "Models", "Subscriptions")]
         self.assertEqual({where: lines[-1] for where, lines in stops.items()},
-                         {**dict.fromkeys(stops, NEW_KEYS), "Subscriptions' page": PAGE_KEYS})
+                         {**dict.fromkeys(stops, NEW_KEYS),
+                          **dict.fromkeys(opens, NEW_KEYS.replace("␣ mark", "⏎ open")),
+                          "an effort": NEW_KEYS.replace("mark", "step"),
+                          "Subscriptions' page": PAGE_KEYS})
         screen.press(ESC, lambda lines: lines[0].rstrip().endswith("config")
                      or "config " in lines[0])
         screen.leave()

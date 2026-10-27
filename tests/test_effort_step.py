@@ -24,7 +24,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_config_matrix import DOWN, ENTER, REPO, RIGHT, Screen, on_effort
+from test_config_matrix import DOWN, REPO, RIGHT, SPACE, Screen, on_effort
 from agentkit import config, terminal
 
 CHILD = r"""
@@ -77,11 +77,11 @@ class EffortStep(unittest.TestCase):
         screen.frame()
         screen.press(DOWN + RIGHT, lambda lines: on_effort(lines, "opus"))   # opus's effort
         # the manifest's table while the listing sleeps: xhigh, max, then round to low
-        drawn(screen, ENTER, "▰▰▰▰▰   max")
+        drawn(screen, SPACE, "▰▰▰▰▰   max")
         self.assertFalse((adapters / "answered").exists(), "the listing is still asleep")
-        drawn(screen, ENTER, "▰▱▱▱▱   low")
+        drawn(screen, SPACE, "▰▱▱▱▱   low")
         self.assertFalse((adapters / "answered").exists(), "the listing is still asleep")
-        drawn(screen, ENTER, "▰▰▱▱▱   medium")
+        drawn(screen, SPACE, "▰▰▱▱▱   medium")
         self.assertTrue((adapters / "asked").exists(), "the listing was asked for")
         self.assertFalse((adapters / "answered").exists(), "the listing is still asleep")
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "medium")
@@ -91,8 +91,8 @@ class EffortStep(unittest.TestCase):
             self.assertLess(time.monotonic(), deadline, "the listing never answered")
             time.sleep(0.05)
         time.sleep(0.2)
-        drawn(screen, ENTER, "▰▱      low")
-        drawn(screen, ENTER, "▰▰      high")
+        drawn(screen, SPACE, "▰▱      low")
+        drawn(screen, SPACE, "▰▰      high")
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "high")
         screen.leave()
 

@@ -1,7 +1,7 @@
 """The `c` screen steps an effort, moves a seat once asked, and ticks models in and out of config.
 
-`c` is where the owner changes the models without opening a file: Enter on a model's build
-effort steps it one up, saved to the seat's record at once, config.toml as it was; Enter on another
+`c` is where the owner changes the models without opening a file: Space on a model's build
+effort steps it one up, saved to the seat's record at once, config.toml as it was; Space on another
 model's orchestrator mark asks under the
 matrix first, as the owner said on 24 Oct ("when pressing a different orch, it should ask me
 to confirm. As this restarts the session."): Esc keeps the record and the pane as they were,
@@ -36,7 +36,7 @@ MODELS = {"fable": {"harness": "claude", "effort": "xhigh", "x_custom": 1},
           "astra": {"harness": "codex", "effort": "high"}}
 CATALOG = "m1\tModel One\tlow medium high"     # what the claude adapter's `models` lists
 HEADER = "# agentkit's config, written by the menu's `c` screen."
-KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"   # wherever the highlight is
+KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"   # on a mark
 PAGE_KEYS = "  ↑↓←→ move   ⏎ choose   esc back"   # a page under it, with no `r`
 
 def rows(screen):
@@ -86,11 +86,11 @@ class ConfigScreenEdits(unittest.TestCase):
         self.term.keys("c")
         self.term.wait(lambda screen: key_line(screen) == KEYS and "› Fable 5.1" in screen)
 
-    def test_enter_on_a_build_effort_steps_it_up_in_the_seat_s_record(self):
+    def test_space_on_a_build_effort_steps_it_up_in_the_seat_s_record(self):
         self.term.keys("j", "Right", "Right")
         self.term.wait(lambda screen: "› GPT-6-Astra   ○                   ■  ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high"
                        in rows(screen))
-        self.term.keys("Enter")
+        self.term.keys("Space")
         self.term.wait(lambda screen: "› GPT-6-Astra   ○                   ■  ▰▰▰▰▱▱  xhigh    ■  ▰▰▰▱▱▱  high"
                        in rows(screen))
         self.assertEqual(json.loads(self.record.read_text())["efforts"]["astra"],
@@ -102,8 +102,8 @@ class ConfigScreenEdits(unittest.TestCase):
                               "#{pane_id} #{pane_pid}").out.strip()
 
     def asked(self, model):
-        """Enter on the highlighted orchestrator mark, and the question it asks under the rows."""
-        self.term.keys("Enter")
+        """Space on the highlighted orchestrator mark, and the question it asks under the rows."""
+        self.term.keys("Space")
         return self.term.wait(lambda screen: f"  Restart {SEAT} on {model}?" in rows(screen)
                               and "  It starts a new conversation, handed the one it had."
                               in rows(screen) and "› ✓ Keep" in rows(screen)
@@ -163,7 +163,7 @@ class ConfigScreenEdits(unittest.TestCase):
         self.fakes["claude"].answer("models", CATALOG)
         self.term.keys("j", "j")
         screen = self.term.wait(lambda screen: "› Models" in rows(screen))
-        self.assertEqual(key_line(screen), KEYS)
+        self.assertEqual(key_line(screen), KEYS.replace("␣ mark", "⏎ open"))
         self.term.keys("Enter")
         screen = self.term.wait(lambda screen: "› Claude Code  Fable 5.1" in rows(screen))
         self.assertTrue(rows(screen)[0].startswith("agentkit · config · models"), screen)

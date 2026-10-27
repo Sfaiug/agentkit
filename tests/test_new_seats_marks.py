@@ -51,9 +51,9 @@ class NewSeatsMarks(Sandbox):
         return terminal.plain(drawn.getvalue())
 
     def test_a_flip_is_the_defaults_and_no_seat_changes(self):
-        drawn = self.screen("enter")            # the first model's orchestrator mark: fable's
+        drawn = self.screen("space")            # the first model's orchestrator mark: fable's
         self.assertIn("For new seats", drawn)       # terminal.plain: one space
-        self.screen("right", "right", "down", "down", "down", "enter")    # spark builds
+        self.screen("right", "right", "down", "down", "down", "space")    # spark builds
         defaults = config.load()["defaults"]
         self.assertEqual((defaults["orchestrator"], defaults["workers"]),
                          ("fable", ["opus", "astra", "spark"]))
@@ -65,7 +65,7 @@ class NewSeatsMarks(Sandbox):
     def test_a_flip_that_cannot_be_saved_says_why_and_keeps_the_defaults(self):
         before = config.load()["defaults"]
         with patch.object(config, "save", side_effect=OSError("disk full")):
-            drawn = self.screen("enter")
+            drawn = self.screen("space")
         self.assertIn("config: disk full", drawn)
         self.assertEqual(config.load()["defaults"], before)
 

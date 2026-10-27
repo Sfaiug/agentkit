@@ -2,7 +2,7 @@
 
 Its heading says how many features are hidden (off for everyone); Enter on the heading opens
 `agentkit · <project>`, one row a feature with a mark under `you` and under `everyone` and
-nothing else, and Enter flips the mark the keys are on by calling the project's own `set`.  A
+nothing else, and Space flips the mark the keys are on by calling the project's own `set`.  A
 person reads production's switches here, and the project's command is the one thing that changes
 them: a switch is only ever you or everyone, never a user picked by id.  Black-box: ak runs in a
 terminal of its own beside a seat filed under ~/code/ACME, and the features command is a script
@@ -44,7 +44,7 @@ SWITCHES = ["               you  everyone",
             "  Beta search   ●      ○",
             "  Locked        —      ○",
             "",
-            "  ↑↓←→ move   ⏎ choose   esc back"]
+            "  ↑↓←→ move   ␣ mark   esc back"]
 
 
 def row(screen, name):
@@ -134,9 +134,9 @@ class FeaturesScreen(unittest.TestCase):
         self.assertEqual(calls, [["list"]] * len(calls))
         self.leave(term, "3 hidden features")
 
-    def test_enter_flips_the_mark_by_calling_the_projects_set(self):
+    def test_space_flips_the_mark_by_calling_the_projects_set(self):
         term, _ = self.switches()
-        term.keys("Enter")
+        term.keys("Space")
         steady(term, lambda screen: row(screen, "Dark mode") == "› Dark mode     ●      ○")
         calls = self.calls()
         self.assertEqual(calls[0], ["list"])
@@ -147,7 +147,7 @@ class FeaturesScreen(unittest.TestCase):
     def test_the_only_switches_are_you_and_everyone(self):
         term, screen = self.switches()
         self.assertEqual(screen.split("\n")[2].split(), ["you", "everyone"])
-        term.keys("Right", "Right", "Enter")    # there is no third column to go on to
+        term.keys("Right", "Right", "Space")    # there is no third column to go on to
         steady(term, lambda screen: row(screen, "Dark mode") == "› Dark mode     ●      ●")
         self.assertEqual([call for call in self.calls() if call != ["list"]],
                          [["set", "dark", "everyone", "on"]])

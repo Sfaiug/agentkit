@@ -23,7 +23,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_config_matrix import DOWN, ENTER, FULL, RIGHT, UP, Screen, on_effort, row
+from test_config_matrix import DOWN, FULL, RIGHT, SPACE, UP, Screen, on_effort, row
 from agentkit import config, menu, motion, terminal
 
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
@@ -102,7 +102,7 @@ class EffortCells(unittest.TestCase):
         # its word still in the column the others' stand in
         self.assertEqual(row(lines, "haiku")[1].rindex(" "), row(lines, "opus")[1].rindex(" "))
         screen.press(DOWN * 2 + RIGHT * 2, lambda lines: on_effort(lines, "haiku"))
-        cells = moved(screen, ENTER)                    # onto none, its only effort
+        cells = moved(screen, SPACE)                    # onto none, its only effort
         lines = screen.frame()
         self.assertEqual(row(lines, "haiku")[1].split(),
                          ["›", *FULL["haiku"].split(), "○", "■", "none", "■", "xhigh"])
@@ -129,14 +129,14 @@ class EffortCells(unittest.TestCase):
         self.assertTrue(all(LIT in written for _, _, text, written in cells if text == "▱"))
         self.assertEqual(filled(screen, "opus"), 2)
         # up again: its third lights and settles into the foreground
-        cells = moved(screen, ENTER)
+        cells = moved(screen, SPACE)
         self.assertEqual({(at, column) for at, column, _, _ in cells}, {(number, first + 2)})
         self.assertEqual({text for _, _, text, _ in cells}, {"▰"})
         self.assertIn(LIT, cells[0][3])
         self.assertNotIn(LIT, cells[-1][3])
         # up onto max, Opus's highest, from the word: its last two fill, and one light crosses
         # the word, written whole from its first cell
-        moved(screen, ENTER)
+        moved(screen, SPACE)
         cells = moved(screen, f"\x1b[<0;{word};{number}M\x1b[<0;{word};{number}m".encode())
         self.assertEqual(screen.effort("opus"), "max")
         self.assertEqual({column for at, column, _, _ in cells if at == number},
@@ -168,7 +168,7 @@ class EffortCells(unittest.TestCase):
         # with no colour to reverse, the effort is the highlighted row's cell with no mark bracketed
         screen.press(DOWN + RIGHT * 5, lambda lines: row(lines, "opus")[1].startswith("›")
                      and "[" not in row(lines, "opus")[1])
-        self.assertEqual(moved(screen, ENTER), [])
+        self.assertEqual(moved(screen, SPACE), [])
         self.assertEqual(row(screen.frame(), "opus")[1].split()[-2:], ["▰▰▰▰▰", "max"])
         screen.leave()
 

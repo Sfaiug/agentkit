@@ -25,7 +25,7 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 
-KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   a apply to all sessions   esc back"
+KEYS = "  ↑↓←→ move   ␣ mark   r recommended   a apply to all sessions   esc back"
 MODELS = {"fable": {"harness": "claude", "effort": "xhigh"}, "opus": "claude",
           "astra": {"harness": "codex", "effort": "high", "review_effort": "medium"}}
 SEATS = {"acme-same": {"model": "fable", "screen": "claude-prompt-pane.txt",
@@ -130,7 +130,7 @@ class DefaultsApplyToAll(unittest.TestCase):
         term.wait("c config")
         term.keys("c")
         term.wait(lambda screen: "  For  new seats" in lines(screen) and key_line(screen)
-                  == "  ↑↓←→ move   ⏎ choose   r recommended   esc back")
+                  == "  ↑↓←→ move   ␣ mark   r recommended   esc back")
 
 if __name__ == "__main__":
     unittest.main()

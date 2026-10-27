@@ -37,7 +37,7 @@ ROWS = ["Claude Code",
         "  Weekly audit  off · orch Fable 5.1 · builds Fable 5.1, GPT-6-Astra · reviews Fable 5.1,",
         "                GPT-6-Astra",
         ""]
-KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"   # a seat's, wherever the highlight is
+KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"   # a seat's, on a mark
 MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"
 
 
@@ -102,23 +102,23 @@ class ConfigScreen(unittest.TestCase):
         self.assertTrue(block(self.opened)[len(ROWS) + 1].startswith("  Version "), self.opened)
         self.leave()
 
-    def test_the_key_line_stays_as_the_highlight_moves(self):
+    def test_the_key_line_names_what_space_and_enter_do_under_the_highlight(self):
         self.term.keys("Right")
         on_effort = self.term.wait("› Fable 5.1     ●  ▰▰▰▰▱   xhigh    □                   □")
-        self.assertEqual(key_line(on_effort), KEYS)
+        self.assertEqual(key_line(on_effort), KEYS.replace("mark", "step"))
         self.term.keys("Down", "Down")
         on_row = self.term.wait("› Models")
         self.assertEqual(block(on_row)[1:7],
                          [ROWS[0], "  Fable 5.1     ●  ▰▰▰▰▱   xhigh    □                   □",
                           *ROWS[2:5], "› Models"])
-        self.assertEqual(key_line(on_row), KEYS)
+        self.assertEqual(key_line(on_row), KEYS.replace("␣ mark", "⏎ open"))
         self.leave()
 
     def test_marking_a_model_for_builds_rewrites_the_seats_record_at_once(self):
         defaults = akconfig.read(self.home)["defaults"]
         self.term.keys("Right", "Right")
         self.term.wait("› Fable 5.1     ●  ▰▰▰▰▱   xhigh   [□]                  □")
-        self.term.keys("Enter")
+        self.term.keys("Space")
         self.term.wait("› Fable 5.1     ●  ▰▰▰▰▱   xhigh   [■] ▰▰▰▰▱   xhigh    □")
         deadline = time.monotonic() + 30
         while self.record().get("workers") != ["astra", "fable"] and time.monotonic() < deadline:
