@@ -233,8 +233,6 @@ class Live:
         self.read_from = None            # the seats and runs it read them from, a pass's too
         self.said = []                   # what maintenance said that no notice has shown yet
         self.tidied = threading.Event()  # a notice can land before maintenance's effects do
-        self.reads = 0                   # how many reads have begun, the last one's number
-        self.closing = {}                # seats `stop` took off: the last read begun as it ended
 
     def close(self):
         """Give the pipe back, and wait on no thread: Esc leaves at once.
@@ -355,45 +353,13 @@ class Live:
             if not self.watching.is_set():
                 return
             leaves = self.leaves
-            self.reads += 1
-            began = self.reads
         found, records, groups = rows(self.cfg)
         with self.reading:
             if self.leaves != leaves:
                 return
             self.read_from = found, records
             self.meet(look)
-            for name, ended in list(self.closing.items()):
-                if ended is not None and began > ended:
-                    del self.closing[name]    # read since its stop ended: as it now stands
-            self.last[:] = without(found, groups, self.closing)
-
-    def stop(self, name, dry_run=False):
-        """Take that seat's row off the screen now, and stop it behind it (`teardown`).
-
-        No read puts the row back while the stop goes, nor after it until one begun since it
-        ended lands: that one has the seat stopped, or as it was where the stop was refused.
-        The stop is a process of its own, so the menu leaving -- the popup over the seat going
-        with it -- ends nothing halfway, and a refusal is a job's notice, which this menu or
-        the next shows.
-        """
-        with self.reading:
-            self.closing[name] = None
-            self.last[:] = without(*self.last, self.closing)
-        try:
-            proc = subprocess.Popen(teardown(name, dry_run), cwd=config.REPO,
-                                    env=config.owner_env(), stdin=subprocess.DEVNULL,
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                    start_new_session=True)
-        except OSError as exc:
-            self.say(f"stop: {exc}")
-            return self._stopped(name)
-        threading.Thread(target=lambda: (proc.wait(), self._stopped(name)), daemon=True).start()
-
-    def _stopped(self, name):
-        with self.reading:
-            self.closing[name] = self.reads
-        self.ask()
+            self.last[:] = found, groups
 
     def meet(self, look=False):
         """Start a pass over what the last read read with `look`, or for a seat it listed that no
@@ -1218,20 +1184,6 @@ def tallied(ordered, infos, silent_map):
     return ordered, infos, sum(project["needing"] for project in ordered), silent_map
 
 
-def without(found, groups, gone):
-    """`found` and `groups` with the seats named in `gone` stopped, as the read after their stop
-    has them: each closed, its row gone, and its project's heading once it has no row left."""
-    if not gone or groups is None:
-        return found, groups
-    ordered, infos, _, silent_map = groups
-    found = [{**seat, "closed": seat.get("closed") or time.time()} if seat["name"] in gone
-             else seat for seat in found]
-    ordered = [{**project, "seats": seats} for project in ordered
-               if (seats := [info for info in project["seats"] if info["name"] not in gone])]
-    return found, tallied(ordered, [info for info in infos if info["name"] not in gone],
-                          silent_map)
-
-
 def by_project(infos, stands, unfiled=UNFILED):
     """Seat rows grouped by the checkout each one's repo is, so a project can never be listed
     twice and a run can never make one: {str(checkout) or None: {"name", "checkout", "seats"}},
@@ -2019,10 +1971,21 @@ def close_seat(name, dry_run, refused=None):
         (refused or pause)(f"stop: {exc}")
 
 
+def stop_behind(name, dry_run):
+    """Stop the popup's own seat behind it, in a process of its own (`teardown`), so the popup
+    going ends nothing halfway."""
+    try:
+        subprocess.Popen(teardown(name, dry_run), cwd=config.REPO, env=config.owner_env(),
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError as exc:
+        pause(f"stop: {exc}")
+
+
 def teardown(name, dry_run):
-    """The process `x` stops that seat in (`Live.stop`, and the past screen's `x` removes a
-    stopped one in): `close_seat`, leaving a refusal as a job's notice (`orch.job_notices`),
-    since the popup it came from may be gone by then."""
+    """The process `x` stops the popup's own seat in (`stop_behind`, and the past screen's `x`
+    removes a stopped one in): `close_seat`, leaving a refusal as a job's notice
+    (`orch.job_notices`), since the popup it came from is gone by then."""
     return [sys.executable, "-c", "import sys; from agentkit import menu, orch; "
             "menu.close_seat(sys.argv[1], sys.argv[2] == '1', refused=orch.leave_notice)",
             name, "1" if dry_run else "0"]
@@ -2031,7 +1994,7 @@ def teardown(name, dry_run):
 def stop_session(name, dry_run):
     """`x` read a line at a time -- a pipe, a file -- in the popup over seat `name`: one question,
     and nothing else; whether to stop it, which the menu does as the keyboard's `x` does
-    (`Live.stop`).  Anything but `y` goes back to the menu; the question says, as the keyboard's
+    (`stop_behind`).  Anything but `y` goes back to the menu; the question says, as the keyboard's
     card does, that the past screen reopens the seat.
     """
     if dry_run:
@@ -5539,7 +5502,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                             STOP_ASK.format(own), means, "Stop", around, wait=lambda: moving(
                                 clock, going=None if counted[0] else runs.is_alive)):
                         continue
-                live.stop(own, dry_run)      # its row gone at once, the stop behind it
+                stop_behind(own, dry_run)
                 return 0                      # the popup over it goes first
             if key == "n" and drawn is not None and cfg:
                 try:
@@ -5569,7 +5532,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                     pause(f"new session: {exc}")
             elif key == "x" and word is not None:
                 if stop_session(own, dry_run):
-                    live.stop(own, dry_run)
+                    stop_behind(own, dry_run)
                     return 0
             elif key == "c":
                 # the popup's own seat, whichever row is highlighted, and in a window of its own
