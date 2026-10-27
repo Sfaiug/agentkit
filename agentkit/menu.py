@@ -4218,6 +4218,8 @@ def config_page(name, page):
             said = listed[here[2]][1]() or ""
             if opened[2]:
                 listed = opened[1]()
+                # a login's list asked again can be shorter: the highlight stays on a choice
+                here = (*here[:2], min(here[2], max(0, len(listed) - 1)))
             else:
                 here, opened = here[:2], None
         elif isinstance(rows[here[1]][2], tuple):

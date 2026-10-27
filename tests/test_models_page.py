@@ -29,8 +29,13 @@ from agentkit import config, menu, terminal, update, usage
 
 config.catalog = lambda harness, cfg=None: [{"id": model, "label": label, "efforts": efforts}
                                   for model, label, efforts in %r.get(harness, [])]
+# a login succeeds; Acme, logged in, lists no model
+logged = set()
+menu._adapter_verbs = lambda keyboard, harness, verbs, picked, provider=None, **_kw: (
+    logged.add(provider) or "")
 config.listed_providers = lambda harness: [("opencode", "OpenCode", "free"),
-                                           ("anthropic", "Anthropic", "")]
+                                           ("anthropic", "Anthropic", ""),
+                                           ("acme", "Acme", "payg" if "acme" in logged else "")]
 update.version = lambda harness: ""
 update.agentkit_version = lambda: "abc1234"
 usage.collect = lambda cfg, **kwargs: usage.Readings({})
@@ -114,6 +119,10 @@ class ModelsPage(unittest.TestCase):
         # listed still once its list is closed and opened again
         self.assertEqual(opened(screen, ESC + ENTER, "□ DeepSeek"), "□ DeepSeek V4.1 Flash Free")
         self.assertEqual(opened(screen, ENTER, "■ DeepSeek"), "■ DeepSeek V4.1 Flash Free")
+        # Acme logged in lists nothing: its row goes, the highlight on the last left
+        lines = screen.press(DOWN * 2 + ENTER, lambda lines: not any("Acme" in line
+                                                                     for line in lines))
+        self.assertEqual(highlighted(lines).split(), ["›", "Anthropic", "log", "in"])
         self.assertEqual(screen.saved(), tomllib.loads(TWO))
         screen.press(ESC + ESC, lambda lines: lines[0].startswith("agentkit · config  "))
         screen.leave()
