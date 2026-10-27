@@ -3,6 +3,7 @@ package host
 import (
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"syscall"
@@ -11,7 +12,11 @@ import (
 
 // userManager is whether a running `systemd --user` answers on its control socket in this PID
 // namespace: a bus address may name anybody's socket, and a gone manager's refuses the connection.
+// Without systemd-run no seat starts in the slice, so there is none to report.
 func userManager() bool {
+	if _, err := exec.LookPath("systemd-run"); err != nil {
+		return false
+	}
 	runtime := os.Getenv("XDG_RUNTIME_DIR")
 	if runtime == "" {
 		runtime = filepath.Join("/run/user", strconv.Itoa(os.Getuid()))
