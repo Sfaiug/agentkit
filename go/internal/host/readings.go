@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"agentkit/internal/tmux"
 )
 
 // Readings are one snapshot of the host, by Python ak's names; a number is a float64,
@@ -144,13 +146,6 @@ func ownCgroup() (string, bool) {
 	return "", false
 }
 
-func socket() string {
-	if name := os.Getenv("AGENTKIT_TMUX_SOCKET"); name != "" {
-		return name
-	}
-	return "agentkit"
-}
-
 // sliceCgroup is the slice every agent process starts in, under the user's manager:
 // systemd reads the dashes in `agentkit-test.slice` as a path inside `agentkit.slice`.
 func sliceCgroup() string {
@@ -164,11 +159,7 @@ func sliceCgroup() string {
 			break
 		}
 	}
-	name := "agentkit"
-	if socket() != "agentkit" {
-		name = socket()
-	}
-	pieces := strings.Split(name, "-")
+	pieces := strings.Split(tmux.Own(), "-")
 	for depth := range pieces {
 		root = filepath.Join(root, strings.Join(pieces[:depth+1], "-")+".slice")
 	}
@@ -177,10 +168,7 @@ func sliceCgroup() string {
 
 // RunsCgroup is where detached runs and their lander take CPU, apart from the seats.
 func RunsCgroup() string {
-	if socket() == "agentkit" {
-		return filepath.Join(sliceCgroup(), "agentkit-runs.slice")
-	}
-	return filepath.Join(sliceCgroup(), socket()+"-runs.slice")
+	return filepath.Join(sliceCgroup(), tmux.Own()+"-runs.slice")
 }
 
 func number(path string) (float64, bool) {
