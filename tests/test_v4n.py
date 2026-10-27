@@ -81,7 +81,7 @@ class CodexSeats(Sandbox):
             orch.resume(self.cfg, "codex-seat", log=logs.append)
         self.assertNotIn("resume", launch.call_args.args[3])
         self.assertIsNone(launch.call_args.args[4])
-        self.assertIn("Codex ownership unverified; it starts fresh", logs[0])
+        self.assertIn("it starts a new Codex conversation", logs[0])
         # The receipt is still a fact the resume reads; it is no state the row says.
         self.assertEqual(menu.state(orch.listing()[0]), "idle")
 

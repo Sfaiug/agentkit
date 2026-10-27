@@ -45,7 +45,7 @@ reset = true
 # recomputed rather than read: a seat tmux has lost keeps it, and one that owns no thread comes
 # back under its own name with no past.
 [conversation]
-fresh_words = "Codex ownership unverified; it starts fresh"
+fresh_words = "it starts a new Codex conversation"
 always_offered = true
 
 # /rename <name> is accepted idle and mid-turn in 0.153.4. Neither a launch nor a

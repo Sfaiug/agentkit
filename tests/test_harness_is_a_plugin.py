@@ -195,7 +195,7 @@ class Plugins(Fixture):
                           "id_source": codex_plugin.SOURCE})
         self.assertTrue(plugin.always_offered)
         self.assertEqual(plugin.restart_word(record), codex_plugin.FRESH)
-        self.assertEqual(plugin.fresh_words, "Codex ownership unverified; it starts fresh")
+        self.assertEqual(plugin.fresh_words, "it starts a new Codex conversation")
         # a launch nobody reported owns nothing, and the record alone is never evidence
         codex_plugin.forget(record)
         self.assertIsNone(plugin.conversation(record, self.root))
