@@ -165,10 +165,10 @@ class SuiteOnBoth(unittest.TestCase):
             return None, "helper acme-mac is on battery"
 
         self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.01))
+        self.addCleanup(returned.set)    # the helper answers only once the suite has returned
         with patch.object(helper, "start", side_effect=start), \
                 patch.object(Turn, "take", lambda _hold, _stopped: asked.wait(10)):
             code, text, killed, _ = self.check(places=2)
-        returned.set()
         self.assertEqual((code, killed, answered.is_set()), (0, False, False), text)
 
     def test_local_admission_takes_free_turns_without_waiting_or_passing_an_older_waiter(self):
