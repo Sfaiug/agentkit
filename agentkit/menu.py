@@ -77,7 +77,7 @@ glides -- then is still.  The sub-screens are not live: they are read once, like
 question -- but a project's feature switches, which draw again within a second of their `list`
 landing.
 
-Six keys: the numbers, `n`, `x`, `p` (the sessions you stopped, offered while there is one),
+Six keys: the numbers, `n`, `x` (in the popup only), `p` (the sessions you stopped, offered while there is one),
 `c` (the popup's own seat's models, else new seats', every model's effort,
 providers, discord, version), and Esc, which leaves, as it goes back from every
 screen and question under it; `q` is no key.  Nothing needs a manual: the pointer lights what
@@ -108,9 +108,9 @@ turn, from a pipe the one `j` and `k` turn to -- and a row keeps the number it h
 it is drawn, so what a number opens never depends on the page that is up.
 
 `ak attach --overlay` is the same menu inside a seat, where `ak orch` binds it to `Ctrl-b m` as
-a tmux popup: the same rows, keys and acts, its highlight starting on that seat.  What hands
-this client a seat -- a number, Enter, `n`, a past session reopened -- and `x` on the popup's
-own seat close the popup, so the seat is seen.
+a tmux popup: the same rows, keys and acts, `x` added, its highlight starting on that seat.  What
+hands this client a seat -- a number, Enter, `n`, a past session reopened -- and `x` close the
+popup, so the seat is seen.
 
 On the server the menu is this process.  On a client -- a machine where install.sh recorded the
 server's ssh alias in ~/.agentkit/state/server -- `ak` runs the same menu over `ssh -t <alias>

@@ -77,9 +77,9 @@ class Breathing(Sandbox):
             self.stack.enter_context(patch.object(target, name, fake))
         self.addCleanup(setattr, terminal, "_ASKED", False)
 
-    def run_menu(self, answer):
-        """`menu.loop` with every wait answered by `answer(timeout)`; each wait's timeout, when it
-        was asked, and what was written before it."""
+    def run_menu(self, answer, own=None):
+        """`menu.loop` with every wait answered by `answer(timeout)`, in the popup over `own` if
+        named; each wait's timeout, when it was asked, and what was written before it."""
         out, waits = io.StringIO(), []
         out.isatty = lambda: True           # a terminal, as far as colour is concerned
 
@@ -89,8 +89,9 @@ class Breathing(Sandbox):
             out.truncate()
             return answer(timeout)
 
-        with menu_input(wait=wait_key, return_value="q"), redirect_stdout(out):
-            self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
+        with menu_input(wait=wait_key, return_value="q"), redirect_stdout(out), \
+                patch.object(config, "current_session", return_value=own):
+            self.assertEqual(menu.loop(self.cfg, dry_run=True, overlay=own is not None), 0)
         return waits
 
     def dots(self, screen):
@@ -173,8 +174,7 @@ class Breathing(Sandbox):
 
     def test_the_second_digit_and_the_stop_question_wait_breathing(self):
         self.words.update({f"zz-{n}": "done" for n in range(7)})     # ten seats: `1` may be 1x
-        script = iter([Key("char", "1"), *[None] * 4, "resize", *[None] * 10, Key("char", "x"),
-                       *[None] * 6, Key("esc"), ""])
+        script = iter([Key("char", "1"), *[None] * 4, "resize", *[None] * 10, Key("esc"), ""])
 
         def answer(timeout):
             key = next(script)
@@ -192,7 +192,10 @@ class Breathing(Sandbox):
         self.assert_breathing(waits[0][2], waits[1:redrawn])
         self.assertGreater(opened - redrawn, 2)
         self.assert_breathing(waits[redrawn][2], waits[redrawn + 1:opened])
-        # `x` asks under the highlighted seat, and the dots breathe where that screen put them
+        # `x` in the popup over fix-api asks under its row, and the dots breathe where that screen
+        # put them
+        script = iter([Key("char", "x"), *[None] * 6, Key("esc"), ""])
+        waits = self.run_menu(answer, own="fix-api")
         asked = next(n for n, (_, _, written) in enumerate(waits)
                      if "Stop fix-api and everything it runs?" in terminal.ANSI.sub("", written))
         self.assertEqual(waits[asked + 7][2][:3], "\033[H")          # Esc kept it: the list
