@@ -123,6 +123,14 @@ class Wait(Sandbox):
             watch.wait_over(self.cfg, self.logs.append)
         return sent
 
+    def revived(self):
+        """The lines the tick's wait pass reopened a gone seat with (`watch.revive`, faked)."""
+        lines = []
+        with patch.object(watch, "revive", side_effect=lambda name, line, *_a, **_k:
+                          lines.append(line)):
+            self.assertEqual(self.tick(), [])
+        return lines
+
     def test_a_refuses_a_session_a_missing_run_and_no_seat_and_records_nothing(self):
         for on in (OTHER, "no-such-run", "../runs", SEAT):
             with self.subTest(on=on):
@@ -322,11 +330,11 @@ class Wait(Sandbox):
     def test_l_a_closed_seats_wait_ends_on_its_fact_and_a_stalled_run_ends_one(self):
         self.receipt(THEIRS, OTHER)
         self.wait(THEIRS)
-        self.seats[SEAT]["exited"] = True        # nobody in the seat: nothing to type into
+        self.seats[SEAT]["exited"] = True        # nobody in the seat: it is reopened with the line
         self.ended()
-        self.assertEqual(self.tick(), [])
-        self.assertIsNone(watch.waiting_on(SEAT))   # ... yet its wait is over, as its ladder reads
-        self.assertTrue(watch.seat_read(SEAT)["wait"]["over"])
+        self.assertEqual(self.revived(), [ENDED])
+        self.assertIsNone(watch.waiting_on(SEAT))
+        self.assertEqual(self.revived(), [])       # once
         self.seats[SEAT]["exited"] = False
         self.receipt("20260101-1100-stalled", OTHER)
         self.wait("20260101-1100-stalled")
@@ -341,9 +349,8 @@ class Wait(Sandbox):
         self.wait(THEIRS)
         self.ended()
         self.seats.pop(SEAT)
-        self.assertEqual(self.tick(), [])
+        self.assertEqual(self.revived(), [ENDED])
         self.assertIsNone(watch.waiting_on(SEAT))
-        self.assertTrue(watch.seat_read(SEAT)["wait"]["over"])
 
     def test_n_a_wait_gh_cannot_read_is_the_owners_login_or_ends_said_after_three_ticks(self):
         self.wait(PR)
