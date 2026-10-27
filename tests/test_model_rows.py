@@ -33,8 +33,6 @@ def prepare(case):
         {"name": "Muse Wonder Full (max)", "terminalBench40": 0.57},
         {"name": "Muse Spark 1.3 (xhigh)", "terminalBench40": 0.4}]
     case.addCleanup(lambda: boards_test.AA.__delitem__(slice(-2, None)))
-    case.stack.enter_context(patch.object(boards_test, "TABLE", boards_test.TABLE
-                                          + "muse-spark-1.3-contributor,50.0,\n"))
     case.stack.enter_context(patch.object(boards, "fetch_bytes", case.boards))
     # acme has a manifest and no binary here: none of its models gets a row
     case.stack.enter_context(patch.object(config, "manifests", return_value=[

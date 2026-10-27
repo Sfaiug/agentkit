@@ -14,8 +14,8 @@ HAND_IN_DISPUTE = 'ak hand-in dispute PATH:LINE "WHY IT IS WRONG" (--run COMMAND
 COMMANDS = {
     "models": ("usage: ak models [--json] [--refresh]",
                "Answer each role over every current model on the public boards as the models screen\n"
-               "does, then ak's own run numbers: Artificial Analysis, Arena and LiveBench, each\n"
-               "asked once a day; --refresh asks now, --json prints each role's best and its line\n"
+               "does, then ak's own run numbers: Artificial Analysis and Arena, each asked once\n"
+               "a day; --refresh asks now, --json prints each role's best and its line\n"
                "of best quality for the money, with ak's own numbers.",
                "ak models"),
     "usage": ("usage: ak usage [--json]", "Show provider usage and worker pick order.",

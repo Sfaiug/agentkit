@@ -53,9 +53,7 @@ BOARDS = {
         arena("Acme-7-Flash-20261017", None, 1250),           # the date as its last four digits
         arena("Beta 2", "max", 1100),                         # the only effort
         arena("Gamma 1", None, 700),                          # two releases: neither
-        arena("Acme 6", None, 600)]},                         # no current release
-    "livebench.ai": {"rows": [
-        {"model": "acme-7", "effort": "low", "values": {"livebench.coding": 70.0}}]}}
+        arena("Acme 6", None, 600)]}}                         # no current release
 
 
 class JoinsBoards(unittest.TestCase):
@@ -65,7 +63,7 @@ class JoinsBoards(unittest.TestCase):
     def test_each_effort_carries_every_board_s_numbers_for_it(self):
         releases = {release["slug"]: release for release in catalog.current(BOARDS)}
         self.assertEqual(self.efforts(releases["acme-7"]), {
-            "low": {"aa.intelligenceIndex": 50, "arena.webdev": 1150, "livebench.coding": 70.0},
+            "low": {"aa.intelligenceIndex": 50, "arena.webdev": 1150},
             "max": {"aa.intelligenceIndex": 60, "arena.webdev": 1280,
                     "arena.webdev.lower95ci": 1250, "arena.webdev.upper95ci": 1320}})
         self.assertEqual(self.efforts(releases["acme-7-flash"]),
