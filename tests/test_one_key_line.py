@@ -70,7 +70,8 @@ class OneKeyLine(unittest.TestCase):
                          {**dict.fromkeys(stops, NEW_KEYS),
                           **dict.fromkeys(opens, NEW_KEYS.replace("␣ mark", "⏎ open")),
                           "an effort": NEW_KEYS.replace("mark", "step"),
-                          "Subscriptions' page": PAGE_KEYS})
+                          # Enter's word there is its lit act's
+                          "Subscriptions' page": PAGE_KEYS.replace("choose", "log in again")})
         screen.press(ESC, lambda lines: lines[0].rstrip().endswith("config")
                      or "config " in lines[0])
         screen.leave()
