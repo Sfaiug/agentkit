@@ -2990,6 +2990,7 @@ NEAR = 2                          # the line's rows shown either side of the pic
 LEGEND = (("as good", "within {} points of the best, then the cheapest"),
           ("≈ tie", "the boards cannot tell it from ★ pick"),
           ("estimated", "scores no effort of it has, counted low"))
+KNOB = ("legend", "within")
 # the why's words: what a row does in each role, and each measure's evaluation by its name
 DOES = {"orchestrate": "orchestrates", "execute": "builds", "review": "reviews"}
 MEASURES = {"aa.briefcaseBreakdown.overall.elo": "AA-Briefcase", "aa.gdpval": "GDPval-AA",
@@ -3040,12 +3041,12 @@ def models_said(answer):
 
 
 def models_body(said, within, compared, fetched, at=None):
-    """The models screen's lines, where its rows sit on them, {line: (row, [])}, the row `at`
-    marked, and the legend under them.
+    """The models screen's lines, and the row each says, the row `at` marked, or the legend
+    (KNOB): {line: (row, [])}.
 
     Per role (models_said) its head over the columns, then its lines.  Where a row is too wide
     for the screen, from 40 cells up, each row's numbers and notes take a line under its name,
-    the name alone cut, its effort kept.  The legend has `within` between the arrows that step
+    the name alone cut, its effort kept.  Then the legend, `within` between the arrows that step
     it, the knob never broken, and how many models are `compared` and when the boards were read."""
     room, arrows = terminal.layout_width(), "‹ {} ›" if terminal.utf8() else "< {} >"
     rows = [line for _, lines in said for line in lines if isinstance(line, tuple)]
@@ -3087,17 +3088,19 @@ def models_body(said, within, compared, fetched, at=None):
             gap = " " * (terminal.cells(numbers) + 2)
             for number, part in enumerate(terminal.wrap(notes, room - len(gap)) or [""]):
                 put(((numbers + "  " if number == 0 else gap) + part).rstrip(), here)
+    put("", KNOB)
     knob = arrows.format(f"{within:g}")
     word = knob.replace(" ", "_")     # wrapped as one word, so the knob never breaks
-    legend = [""] + [terminal.table_row(["" if number else name, part.replace(word, knob)],
-                                        [9, room - 13], indent="  ", kinds=(None, "dim"))
-                     for name, text in LEGEND
-                     for number, part in enumerate(terminal.wrap(text.format(word), room - 13))]
+    for name, text in LEGEND:
+        for number, part in enumerate(terminal.wrap(text.format(word), room - 13)):
+            put(terminal.table_row(["" if number else name, part.replace(word, knob)],
+                                   [9, room - 13], indent="  ", kinds=(None, "dim")), KNOB)
     read = time.localtime(fetched or 0)
     text = f"comparing all {compared} models" + (" · boards read " + time.strftime(
         "%H:%M" if read[:3] == time.localtime()[:3] else "%d %b %H:%M", read) if fetched else "")
-    legend += ["  " + terminal.styled(part, "dim") for part in terminal.wrap(text, room - 2)]
-    return lines, places, legend
+    for part in terminal.wrap(text, room - 2):
+        put("  " + terminal.styled(part, "dim"), KNOB)
+    return lines, places
 
 
 def named(row, room):
@@ -3213,11 +3216,14 @@ def models_screen(cfg, session, selected, providers):
                 pick = answer[role]["pick"]
                 here = pointed(role, pick) if pick else next(
                     (row for row in rows if row[1] == role), rows[0] if rows else None)
-        body, places, legend = models_body(said, matrix.within(cfg), compared,
-                                           held.get("fetched_at"), here)
-        act, here, _, top = matrix_key(title, body, places, rows, here, top, note,
+        body, places = models_body(said, matrix.within(cfg), compared, held.get("fetched_at"),
+                                   here)
+        # the legend stands under the rows whatever the height: the pointer never reaches it
+        fold = next(line for line, (row, _) in places.items() if row == KNOB)
+        places = {line: place for line, place in places.items() if line < fold}
+        act, here, _, top = matrix_key(title, body[:fold], places, rows, here, top, note,
                                        MODELS_KEYS[0 if terminal.utf8() else 1], marks=0,
-                                       under=legend,
+                                       under=body[fold:],
                                        clock=clock, fetched=lambda: fetch.began
                                        if fetch is not None and fetch.is_alive() else None,
                                        # one landed since the look above is taken at once
