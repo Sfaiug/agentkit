@@ -119,14 +119,17 @@ class Catalog(Sandbox):
             ("zeta-1-retired", "Zeta 1", "zeta-1-retired", "Zeta 1", "Zeta", True, None, 7),
             ("zeta-1", "Zeta 1", "zeta-1", "Zeta 1", "Zeta", False, None, 9),
             ("eta-1", "Eta 1", "eta-1", "Eta 1", "Eta", True, None, 3),
-            ("eta-1-low", "Eta 1 (Low)", "eta-1", "Eta 1", "Eta", True, "zeta-1", 2)]
+            ("eta-1-low", "Eta 1 (Low)", "eta-1", "Eta 1", "Eta", True, "zeta-1", 2),
+            ("gamma-1-preview", "Gamma 1 (Preview)", "gamma-1-preview", "Gamma 1", "Gamma", True,
+             None, None),          # retired with nothing in its place, beside a named successor
+            ("gamma-0", "Gamma 0", "gamma-0", "Gamma 0", "Gamma", True, "gamma-1", None)]
         with patch(f"{__name__}.RECORDS", records):
             held = boards.collect(now=10000)
         self.assertEqual([release["slug"] for release in catalog.current(held)],
                          ["beta-3", "acme-7", "zeta-1", "delta-1", "gamma-1"])
         self.assertEqual([(catalog.successor(held, slug) or {}).get("slug") for slug in (
-            "acme-6-5-fast", "acme-5", "omega-0-fast", "zeta-1-old", "eta-1")],
-            ["acme-7", "acme-7", None, "zeta-1", "zeta-1"])
+            "acme-6-5-fast", "acme-5", "omega-0-fast", "zeta-1-old", "eta-1", "gamma-0")],
+            ["acme-7", "acme-7", None, "zeta-1", "zeta-1", "gamma-1"])
 
     def test_a_reading_an_older_build_stored_is_asked_again_once(self):
         boards.collect(now=10000, build="abc1234")
