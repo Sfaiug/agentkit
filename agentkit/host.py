@@ -239,9 +239,15 @@ def _swap_mb(cgroup):
     Named beside RAM, never added to it: a cap bounds RAM alone, the kernel moves cold pages
     to swap to make room, and what paging them back costs shows as memory pressure, which the
     gate reads over a minute.  Counted as RAM, seats' cold swap kept every run out of a calm
-    slice for a day (25 Oct 2026).
+    slice for a day (25 Oct 2026); only what is past `swap_allowance_mb` takes a run's room.
     """
     return _read_number(Path(cgroup) / "memory.swap.current", bytes_to_mb=True) or 0.0
+
+
+def swap_allowance_mb(cap_mb):
+    """The swap a job, or a slice, capped at `cap_mb` of RAM holds before it is one too many:
+    a quarter of its cap (`run.run_scope_limits` says why)."""
+    return cap_mb // 4
 
 
 def _reclaimable_mb(path):

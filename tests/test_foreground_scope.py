@@ -130,13 +130,13 @@ class ForegroundScope(Sandbox):
         self.assertEqual(seen["state"]["memory_cap_mb"], 512)
         self.assertEqual(self.niced, [10])
         self.assertTrue(host.cgroup_contains(f"/agentkit-test-runs.slice/{unit}.scope"))
-        mib = str(512 * 1024 * 1024)
+        mib, swap = str(512 * 1024 * 1024), str(128 * 1024 * 1024)
         self.assertEqual(self.called(), [[
             "busctl", "--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1",
             "org.freedesktop.systemd1.Manager", "StartTransientUnit", "ssa(sv)a(sa(sv))",
             f"{unit}.scope", "fail", "7", "PIDs", "au", "1", str(os.getpid()),
             "Slice", "s", "agentkit-test-runs.slice", "CPUWeight", "t", "40",
-            "IOWeight", "t", "40", "MemoryMax", "t", mib, "MemorySwapMax", "t", mib,
+            "IOWeight", "t", "40", "MemoryMax", "t", mib, "MemorySwapMax", "t", swap,
             "OOMPolicy", "s", "continue", "0"]])
         self.assertEqual(self.scope_lines(seen["log"]), ["scope: pending", f"scope: {unit}"])
         self.assertIn(f"scope: {unit}", seen["out"])
@@ -158,7 +158,7 @@ class ForegroundScope(Sandbox):
                          (unit, "agentkit-test-runs.slice"))
         self.assertEqual(placed["properties"], (
             "-p", "CPUWeight=40", "-p", "IOWeight=40", "-p", "MemoryMax=512M",
-            "-p", "MemorySwapMax=512M", "-p", "OOMPolicy=continue"))
+            "-p", "MemorySwapMax=128M", "-p", "OOMPolicy=continue"))
 
     def test_where_no_scope_can_be_made_the_run_goes_on_and_says_why(self):
         cases = (

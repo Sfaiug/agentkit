@@ -915,14 +915,18 @@ IOWeight=$weight$protect"
   # Each seat and each tmux pane holds a run's cap, so a runaway dies alone, long before the
   # slice fills: agentkit-seat-*.scope is a seat's harness with all it starts (and a server
   # started from a seat), agentkit-seat-*.service a server the tick started, tmux-spawn-*.scope
-  # any other pane, a watcher's among them.  Swap is a quarter of the cap: idle harnesses park
-  # a few hundred MB there, and a runaway hiding in swap is what froze the host.
+  # any other pane, a watcher's among them.  Swap is a quarter of the cap, as a run's is
+  # (`host.swap_allowance_mb`): idle harnesses park a few hundred MB there, and a runaway hiding
+  # in swap is what froze the host.
   # OOMPolicy=continue ends only the process that grew, never its seat or the server; the
   # reload hands it to units already running, whose memory caps follow at their next start.
-  cap=$(cd -- "$REPO" && env -u AGENTKIT_TMUX_SOCKET XDG_CONFIG_HOME="$HOME/.config" python3 -c \
-    'from agentkit import run; print(run.memory_cap_mb())' 2>/dev/null) || cap=""
-  case "$cap" in
-    ''|*[!0-9]*) note "jobs: no memory cap could be derived, so seats and panes start uncapped" ;;
+  read -r cap swap <<EOF || :
+$(cd -- "$REPO" && env -u AGENTKIT_TMUX_SOCKET XDG_CONFIG_HOME="$HOME/.config" python3 -c \
+    'from agentkit import host, run; c = run.memory_cap_mb(); print(c, host.swap_allowance_mb(c))' \
+    2>/dev/null)
+EOF
+  case "${cap:-x}${swap:-x}" in
+    *[!0-9]*) note "jobs: no memory cap could be derived, so seats and panes start uncapped" ;;
     *)
       for unit in agentkit-seat-.scope agentkit-seat-.service tmux-spawn-.scope; do
         section=Scope
@@ -931,7 +935,7 @@ IOWeight=$weight$protect"
         want="# Written by agentkit's install.sh: one job's memory, so a runaway ends alone.
 [$section]
 MemoryMax=${cap}M
-MemorySwapMax=$((cap / 4))M
+MemorySwapMax=${swap}M
 OOMPolicy=continue"
         if [ -e "$dropin" ]; then
           case "$(head -n 1 -- "$dropin" 2>/dev/null || true)" in
@@ -945,7 +949,7 @@ OOMPolicy=continue"
           WEIGHTS_CHANGED=1
         fi
       done
-      echo "jobs: each seat and tmux pane is capped at ${cap}M of memory and $((cap / 4))M of swap"
+      echo "jobs: each seat and tmux pane is capped at ${cap}M of memory and ${swap}M of swap"
       ;;
   esac
   if [ "$WEIGHTS_CHANGED" = 1 ]; then
