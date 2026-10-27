@@ -184,13 +184,13 @@ class StopHook(unittest.TestCase):
         (self.home / "sitecustomize.py").write_text(f'''import json, os, time
 from pathlib import Path
 root = Path(os.environ["HOME"]) / ".agentkit"
-original_iterdir, original_read = Path.iterdir, Path.read_text
+original_scandir, original_read = os.scandir, Path.read_text
 censused, started = False, False
-def during_census(path):
+def during_census(path="."):
     global censused
-    if path == root / "runs":
+    if Path(path) == root / "runs":
         censused = True
-    return original_iterdir(path)
+    return original_scandir(path)
 def during_plan(path, *args, **kwargs):
     global started
     if censused and not started and path == root / "state/plan-{SEAT}.md":
@@ -200,7 +200,7 @@ def during_plan(path, *args, **kwargs):
         (directory / "run.json").write_text(json.dumps({{"run_id": "late-work",
             "launched_session": {SEAT!r}, "state": "running", "started_at": time.time()}}))
     return original_read(path, *args, **kwargs)
-Path.iterdir, Path.read_text = during_census, during_plan
+os.scandir, Path.read_text = during_census, during_plan
 ''')
         self.assertEqual(self.stop(), "")
         self.assertTrue((self.runs / "late-work/run.json").is_file())
