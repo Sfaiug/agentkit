@@ -8,6 +8,7 @@ This is also where the harness hooks the core asks for live -- `conversation`, `
 receipt: a Codex thread is this seat's only where its own launch reported it.
 """
 
+import base64
 import contextlib
 import fcntl
 import hashlib
@@ -16,8 +17,11 @@ import os
 from pathlib import Path
 import re
 import shlex
+import socket
+import struct
 import subprocess
 import sys
+import time
 import tomllib
 import uuid
 
@@ -509,6 +513,93 @@ def capture(path, event):
         return
 
 
+class Client:
+    """The Unix transport is WebSocket, including its HTTP upgrade and masking."""
+    def __init__(self, path):
+        self.socket = socket.socket(socket.AF_UNIX)
+        self.socket.settimeout(15)
+        self.buffer = b""
+        self.serial = 0
+        try:
+            self.socket.connect(path)
+            key = base64.b64encode(os.urandom(16)).decode()
+            self.socket.sendall((f"GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n"
+                                 f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
+                                 "Sec-WebSocket-Version: 13\r\n\r\n").encode())
+            while b"\r\n\r\n" not in self.buffer:
+                self.more()
+                if len(self.buffer) > 65536:
+                    raise config.Error("Invalid Codex socket handshake")
+            head, self.buffer = self.buffer.split(b"\r\n\r\n", 1)
+            accept = base64.b64encode(hashlib.sha1(
+                (key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest())
+            if not head.startswith(b"HTTP/1.1 101 ") or accept not in head:
+                raise config.Error("Codex socket did not accept WebSocket upgrade")
+            self.call("initialize", {"clientInfo": {"name": "agentkit", "version": "1"},
+                                     "capabilities": {"experimentalApi": True}})
+            self.send({"method": "initialized"})
+        except BaseException:
+            self.close()
+            raise
+
+    def more(self):
+        chunk = self.socket.recv(65536)
+        if not chunk:
+            raise config.Error("Codex app server closed its socket")
+        self.buffer += chunk
+
+    def read(self, size):
+        while len(self.buffer) < size:
+            self.more()
+        data, self.buffer = self.buffer[:size], self.buffer[size:]
+        return data
+
+    def send(self, value, opcode=1):
+        data = json.dumps(value).encode() if opcode == 1 else value
+        size, mask = len(data), os.urandom(4)
+        header = bytes([128 | opcode, 128 | size]) if size < 126 else (
+            bytes([128 | opcode, 254]) + struct.pack("!H", size))
+        self.socket.sendall(header + mask + bytes(c ^ mask[i % 4] for i, c in enumerate(data)))
+
+    def receive(self):
+        fragments = bytearray()
+        while True:
+            first, second = self.read(2)
+            size = second & 127
+            if size == 126:
+                size = struct.unpack("!H", self.read(2))[0]
+            elif size == 127:
+                size = struct.unpack("!Q", self.read(8))[0]
+            if second & 128 or size + len(fragments) > 16 * 1024 * 1024:
+                raise config.Error("Invalid Codex WebSocket frame")
+            data = self.read(size)
+            opcode = first & 15
+            if opcode == 8:
+                raise config.Error("Codex app server closed its connection")
+            if opcode == 9:
+                self.send(data, 10)
+            elif opcode in (0, 1):
+                fragments.extend(data)
+                if first & 128:
+                    return json.loads(fragments)
+
+    def call(self, method, params=None):
+        self.serial += 1
+        self.send({"id": self.serial, "method": method, "params": params})
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            self.socket.settimeout(max(.01, deadline - time.monotonic()))
+            message = self.receive()
+            if message.get("id") == self.serial:
+                if "error" in message:
+                    raise config.Error(message["error"]["message"])
+                return message["result"]
+        raise config.Error(f"Codex app server did not answer {method}")
+
+    def close(self):
+        self.socket.close()
+
+
 def in_flight(client, thread):
     """The background work the seat's thread still runs, in the shape Claude Code hands its Stop
     hook, read through `client` on the seat's app server, the one place 0.163 lists it: its
@@ -534,6 +625,23 @@ def in_flight(client, thread):
                 "description": a.get("agentNickname") or a["preview"]}
                for a in agents if a["status"]["type"] == "active"])
 
+
+
+def holds(record):
+    """The type of each piece of background work that seat's thread runs now (`in_flight`),
+    asked of its own app server, through the connection its launch writes in the seat's home
+    (tools/codex-seat.py `connected`), or None where that server cannot be asked: no work's end
+    starts a turn whose Stop would list it afresh."""
+    thread = conversation(record)
+    try:
+        with (remote_home(read(record)["remote"]) / "connection.json").open() as fh:
+            client = Client(json.load(fh)["socket"])
+        try:
+            return [task["type"] for task in in_flight(client, thread)] if thread else None
+        finally:
+            client.close()
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, config.Error):
+        return None
 
 def trust(hooks, matchers=None):
     """The `-c` that trusts exactly these command-line hooks, and nobody else's.
