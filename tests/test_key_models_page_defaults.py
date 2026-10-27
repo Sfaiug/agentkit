@@ -57,7 +57,7 @@ class ModelsPageDefaults(unittest.TestCase):
         term.wait(lambda screen: "› Claude Code  Fable 5.1" in lines(screen))
         term.keys("Enter")
         term.wait(lambda screen: "›   ■ Fable 5.1" in lines(screen))
-        term.keys("Enter")
+        term.keys("Space")
         term.wait(lambda screen: "›   □ Fable 5.1" in lines(screen))
         term.keys("Escape")
         term.wait(lambda screen: "› Claude Code" in screen and "■" not in screen)

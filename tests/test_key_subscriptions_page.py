@@ -19,7 +19,7 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import SERVER, Terminal
 
 MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave"
-PAGE_KEYS = "  ↑↓←→ move   ⏎ choose   esc back"
+PAGE_KEYS = "  ↑↓←→ move   ⏎ {}   esc back"     # Enter's word: the lit act's, or `open`
 PAGE, ADD = "agentkit · config · subscriptions", "agentkit · config · add a subscription"
 
 
@@ -33,7 +33,8 @@ def title(screen):
 
 def body(screen):     # the page between its rule and its key line
     shown = lines(screen)
-    return "\n".join(shown[2:shown.index(PAGE_KEYS)]).strip("\n").split("\n")
+    end = max(number for number, line in enumerate(shown) if line.startswith(PAGE_KEYS[:13]))
+    return "\n".join(shown[2:end]).strip("\n").split("\n")
 
 
 def meters(screen):   # {label: its meter and what it has left}, as the screen draws them
@@ -71,7 +72,8 @@ class SubscriptionsPage(unittest.TestCase):
         self.term.keys("Down", "Down", "Down")        # past GPT-6-Astra and `Models`
         self.term.wait("› Subscriptions")
         self.term.keys("Enter")
-        self.page = self.term.wait(lambda shown: title(shown) == PAGE and PAGE_KEYS in lines(shown))
+        self.page = self.term.wait(lambda shown: title(shown) == PAGE
+                                   and PAGE_KEYS.format("log in again") in lines(shown))
 
     def test_each_subscription_sits_under_its_company_with_the_main_screen_s_meter(self):
         self.assertEqual(body(self.page), [
@@ -97,7 +99,8 @@ class SubscriptionsPage(unittest.TestCase):
         self.assertIn("    owner@acme.test · plus   [↻ log in again]   ↻ spend a reset   − remove",
                       body(self.term.wait("› ChatGPT")))
         self.term.keys("Right")
-        self.term.wait("[↻ spend a reset]")
+        self.term.wait(lambda screen: "[↻ spend a reset]" in screen
+                       and PAGE_KEYS.format("spend a reset") in lines(screen))
         self.term.keys("Up")
         self.term.wait("    two@acme.test   [↻ log in again]   − remove")
         self.term.keys("Enter")
@@ -110,7 +113,9 @@ class SubscriptionsPage(unittest.TestCase):
 
     def test_a_subscription_just_added_comes_back_pointed_at_with_its_login(self):
         self.fakes["claude"].answer("login-end", '{"email": "new@acme.test", "ends": null}')
-        self.term.keys("Down", "Down", "Down", "Enter")      # on `+ add a subscription`
+        self.term.keys("Down", "Down", "Down")
+        self.term.wait(PAGE_KEYS.format("open"))           # on `+ add a subscription`
+        self.term.keys("Enter")
         offered = self.term.wait(lambda screen: title(screen) == ADD and "Claude III" in screen)
         rows = [line[2:] for line in lines(offered)[2:] if line[2:]]
         self.term.keys(*["Down"] * rows.index("Claude III"), "Enter")

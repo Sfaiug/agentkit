@@ -87,7 +87,7 @@ class OpenCodeModelsLogIn(unittest.TestCase):
         self.assertEqual([call["env"].get("AGENTKIT_PROVIDER")
                           for call in self.fake.calls("login")], ["openai"])
         self.to("  □ Vega 1")
-        self.term.keys("Enter")
+        self.term.keys("Space")
         self.term.wait(lambda screen: "■ Vega 1" in ticks(screen))
         taken = [entry for entry in akconfig.read(self.home)["models"].values()
                  if entry["model"] == "openai/vega-1"]
