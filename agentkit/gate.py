@@ -972,8 +972,13 @@ def whole_checks_that_fit(command=None):
     return pinned or derived_heavy_limit()
 
 
-def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, wait=True):
-    """Hold host-wide heavy-suite turns; with `wait=False`, take only turns free now."""
+def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, wait=True,
+                       elsewhere=None):
+    """Hold host-wide heavy-suite turns; with `wait=False`, take only turns free now.
+
+    While it waits and no waiter ranks before it, it asks `elsewhere()` each poll; once that
+    answers, it stops waiting with the turns free now: none, as it found none.
+    """
     record = context if context is not None else (run_record.read_state(run_dir) or {}
                                                 if run_dir else {})
     repo = record.get("repo")
@@ -1063,7 +1068,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
             marked = mark_gate_wait(run_dir, repo) if run_dir else None
             waited_since = me_since if is_landing else marked or time.time()
             step = history.close_step(run_dir.name) if run_dir else None
-            uncapped = False
+            turnless = False
             try:
                 while True:
                     log_path.write_text(said + "\n")
@@ -1078,10 +1083,14 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                         counted = count_wait(self_id, "suite" if run_dir else "lander", counted)
                     slot, limit, held = admit()
                     if not limit:
-                        uncapped = True
+                        turnless = True
                         break
                     said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
                     if not slot:
+                        if elsewhere and not _gate_waiter_before(
+                                repo, self_id, waited_since, is_landing) and elsewhere():
+                            turnless = True
+                            break
                         continue
                     if _gate_waiter_before(repo, self_id, waited_since, is_landing):
                         for fh in slot:
@@ -1097,7 +1106,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
             place = waited_since
             if run_dir:
                 history.open_step(run_dir.name, step)
-            if uncapped:
+            if turnless:
                 files.close()
                 return None
             if log is not None:
@@ -1169,27 +1178,41 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, l
     repository's measured cost when available: it takes the turns free now, then those freed
     while it ranks first, one piece running on each (`_GateHold`).
     A suite the helper has room for (`helper.start`) also takes the local turns free now;
-    a `local` one reads a file only this host holds, and never goes to the helper.
+    one that waits asks it again while it ranks first, and goes there once it has room.
+    A `local` one reads a file only this host holds, and never goes to the helper.
     """
     if (getattr(_GATE_HELD, "hold", None) is not None or getattr(_GATE_HELD, "away", None)
             or getattr(_GATE_HELD, "here", None)):
         yield
         return
-    away, here = None, None
+    _GATE_HELD.away, _GATE_HELD.here, elsewhere = None, None, None
     if command and cwd and names_shard(command):
-        away, here = ((None, "the file AK_CHANGED names is on this host") if local else
-                      helper.start(*suite_cost(command, cwd, run_dir)[1:], cwd,
-                                   log or (lambda line: None)))
-        if here and log is not None:
-            log(f"suite runs here: {here}")
-    _GATE_HELD.away, _GATE_HELD.here = away, here
+        cost = suite_cost(command, cwd, run_dir)[1:]
+        def ask(say):
+            _GATE_HELD.away, _GATE_HELD.here = helper.start(*cost, cwd, say)
+            return _GATE_HELD.away
+        if local:
+            _GATE_HELD.here = "the file AK_CHANGED names is on this host"
+        elif not ask(log or (lambda line: None)):
+            def elsewhere():
+                # Asked each poll: what it says shows once the suite goes, not each look's warning.
+                said = []
+                if ask(said.append) and log is not None:
+                    for line in said:
+                        log(line)
+                return _GATE_HELD.away
+        if _GATE_HELD.here and log is not None:
+            log(f"suite runs here: {_GATE_HELD.here}")
     try:
         _GATE_HELD.home = lambda wait=True: _acquire_gate_turn(run_dir, log_path, log, command,
                                                              cwd, context=context, wait=wait)
-        _GATE_HELD.hold = _GATE_HELD.home(wait=away is None)
+        _GATE_HELD.hold = _acquire_gate_turn(run_dir, log_path, log, command, cwd,
+                                             context=context, wait=not _GATE_HELD.away,
+                                             elsewhere=elsewhere)
         yield
     finally:
         current, _GATE_HELD.hold = getattr(_GATE_HELD, "hold", None), None
+        away = _GATE_HELD.away
         _GATE_HELD.away = _GATE_HELD.home = _GATE_HELD.here = None
         if current is not None:
             current.release()
