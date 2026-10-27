@@ -1,0 +1,267 @@
+# Grok Build: the TUI's own flags, its own error words, and its own hook events.
+# Paired with adapters/grokbuild.sh; the format is the adapter contract in `config.adapter`.
+# The captures behind the screen rules are tests/fixtures/grok*-pane.txt; the trust dialog's
+# words are the executable's own strings (1.0.40), because no fresh folder on this host was
+# still untrusted enough to paint it.  Every other string here was seen on the wire.
+version = 1
+name = "Grok Build"
+colour = "#736CD3"
+
+[check]
+model = "grok-4.7"
+effort = "low"
+
+# grok 1.0.40 has no switch for its own AGENTS.md
+[instructions]
+# read under $GROK_HOME: ~/.grok-<name> on an account (grokbuild.sh sets it on the seat's
+# line; a worker turn's box knows the account's name)
+unswitched = ["${GROK_HOME:-~/.grok}/AGENTS.md", "~/.grok-$AGENTKIT_ACCOUNT/AGENTS.md"]
+# nor for the checkout's AGENTS.md and top-level CLAUDE.md, so it never reviews
+workspace = ["AGENTS.md", "CLAUDE.md"]
+
+[launch]
+# `interactive` hands $AGENTKIT_FIRST_PROMPT to the TUI as its first prompt, fresh or resumed
+first_prompt = true
+
+[worker]
+state = ["~/.grok", "$GROK_HOME", "~/.grok-$AGENTKIT_ACCOUNT"]
+logins = ["~/.grok/auth.json", "$GROK_HOME/auth.json", "~/.grok-$AGENTKIT_ACCOUNT/auth.json",
+          "~/.grok/auth.json.lock", "$GROK_HOME/auth.json.lock", "~/.grok-$AGENTKIT_ACCOUNT/auth.json.lock"]
+
+# `ak update` reads the version off the TUI, upgrades it with the TUI's own command, and
+# puts a bad build back with the versioned reinstall -- so the plan takes no snapshot.
+# `latest` is its own check on its own channel, which names the installed release first.
+[update]
+version = ["grok", "--version"]
+upgrade = ["grok", "update"]
+revert = ["grok", "update", "--version", "{version}"]
+latest = ["sh", "-c", '''
+command -v grok >/dev/null || PATH="${GROK_BIN_DIR:-$HOME/.grok/bin}${PATH:+:$PATH}"
+out=$(grok update --check --json 2>/dev/null)
+case $out in *latestVersion*) echo "${out#*latestVersion}" ;; esac''']
+
+# A launcher-issued conversation id, opened with --session-id and continued with --resume,
+# exactly like a claude seat's: the defaults answer everything, so this table declares
+# nothing.
+[conversation]
+
+# /rename pins a manual title in this conversation's summary.json. A cleared composer
+# alone is no receipt, and the launcher has no flag that sets the title before startup.
+[title]
+at_launch = false
+unreadable = false
+
+# The weekly subscription window is the credits form of the billing endpoint, the
+# response the TUI's Usage limit tab reads.  `grok usage` itself reports per-session
+# tokens only.  Only a parsed HTTP 200 billing response without a usage percent, and a
+# settings cache with no subscription_usage entries, answer no meter: the budget stays
+# neutral (1.0, shown as `in step`), the menu row reads `Grok -- no meter`, and the
+# picker ranks it by its normal rules, never last; only a failed probe ranks last.
+[usage]
+none = true
+
+[authority]
+working = "hooks"
+asking = "hooks"
+at_prompt = "hooks"
+
+# A prompt submitted is a turn in flight; a turn ended is the prompt again, however it ended:
+# Stop on a completion, StopCancelled instead on Ctrl+C or a declined permission, StopFailure
+# instead on an API error.  The kinds are the Notification types grok names: idle_prompt about
+# a minute after the session settles, permission_prompt when its permission card waits, and
+# elicitation_dialog when ask_user_question's does (captured, 1.0.46).  That question's answer
+# is the tool's PostToolUse, the one tool grokbuild.sh hooks; an approved permission fires
+# nothing until its tool ends.  task_complete names no entry, so it leaves the last fact alone.
+[[hooks.event]]
+name = "UserPromptSubmit"
+state = "working"
+
+# hooks/orchestrator-stop.sh writes a Stop down once it has judged it, as claude.toml says: one
+# on background work or sent back to work is the turn going on.  It does so once it reads the
+# work in flight off grok's camelCase `backgroundTasks`; until then every Stop is a plain one.
+[[hooks.event]]
+name = "Stop"
+state = "working"
+kinds = ["background"]
+background = true
+
+[[hooks.event]]
+name = "Stop"
+state = "working"
+kinds = ["held"]
+
+[[hooks.event]]
+name = "Stop"
+state = "at_prompt"
+
+[[hooks.event]]
+name = "StopCancelled"
+state = "at_prompt"
+
+# `failed`: the turn ended on an error, so its look settles the seat's account first
+[[hooks.event]]
+name = "StopFailure"
+state = "at_prompt"
+failed = true
+
+[[hooks.event]]
+name = "Notification"
+state = "asking"
+kinds = ["permission_prompt", "elicitation_dialog"]
+
+[[hooks.event]]
+name = "Notification"
+state = "at_prompt"
+kinds = ["idle_prompt"]
+
+[[hooks.event]]
+name = "PostToolUse"
+state = "working"
+
+# The composer is grok's box: an empty `│ ❯` line, and the border underneath it carrying
+# the model, the effort and the permission mode.  The pattern matches the empty box only,
+# so typed text still reads as a draft.  The key hints underneath change with the state --
+# Enter:send appears with a draft, Ctrl+c:cancel mid-turn -- and both shapes are chrome.  A
+# narrow pane cuts the border's words short of its corner (`· always-appro─╯`, 1.0.46).
+[screen]
+composer = '(?:│ ❯\s*│|╰─+ .*─╯)$'
+# Only its command palette's `Edit Prompt in External Editor`, the one entry `edit prompt`
+# leaves, hands the composer to $VISUAL, ak's editor, mid-turn too: each key goes in once the
+# palette shows what the key before it drew: its titled box, every row of it framed, down to its
+# foot, drawn over the composer's last row right above the box's bottom border at the bottom of
+# the screen, where no transcript row is (captured 1.0.46)
+editor = ["C-p", "edit prompt", "Enter"]
+editor_shows = [
+  '┌─ Commands ─.*\n.*│ +│.*\n.*│   search: +│.*\n(?:[^│\n]*│.*\n)*? *│ .*└─+┘.*\n *╰─.*─╯\s*\Z',
+  '┌─ Commands ─.*\n.*│ +│.*\n.*│   search: edit prompt +│.*\n(?:[^│\n]*│.*\n)*?.*│  ◆ Edit Prompt in External Editor .*\n(?:[^│\n]*│.*\n)*? *│ .*└─+┘.*\n *╰─.*─╯\s*\Z']
+# but no draft holding a paste's chip, which that editor never takes, saying so in its
+# transcript: a composer that may hold one opens no editor (`watch._may_paste`)
+pasted = '\[Pasted:\s*\d+\s*lines?\]'
+# the first Esc on a draft turns the hints into `Esc:press again to clear`, and a suggestion
+# into `Tab/→:accept suggestion` (1.0.46)
+footer = ['Shift\+Tab:mode.*', 'Enter:send.*', 'Esc:press again to clear',
+          'Tab/→:accept suggestion.*']
+# After a turn an empty box suggests the last prompt, italic in 240, and goes on suggesting its
+# rest after what is typed over its start, which is typed text in 254 (1.0.46)
+faint = ["38;5;240"]
+# A line taller than the box scrolls inside it, the box's last rows showing, with a scrollbar
+# drawn just inside its right edge (captured 1.0.46 at 40 columns): never typed text.  Its
+# thumb ends in whichever block its scroll position needs (`▄` and `▂` captured), so the
+# whole block range is chrome there.
+scrolled = '\s+[▀-█]$'
+
+# Its trust dialog: the question with the pair of controls.  Words from the executable's
+# own strings; no fresh folder on this host was still untrusted enough to paint it, so the
+# layout is assumed.  No newest anchor: the composer and its key hints are taken to stay
+# painted under it (1.0.40's spinner line suggested so; 1.0.46's permission and question
+# cards replace them, below), so a dialog line would never be the newest one; the full
+# question with both controls is not something a transcript plausibly quotes.
+[[rule]]
+id = "asking.trust"
+state = "asking"
+lines = 8
+all = ["do you trust the contents of this directory?", "yes, proceed", "no, quit"]
+
+# Its permission card stands where the composer was, its own key hints the newest line:
+# `1/4:select │ Tab:next option │ … │ Ctrl+c:cancel` while it has the keys, `Tab/Space:permission
+# │ … │ Ctrl+c:cancel` parked (captured 1.0.46; a narrow pane cuts the hints after the second).
+# Their Ctrl+c:cancel is why the card comes before the spinner.
+[[rule]]
+id = "asking.permission"
+state = "asking"
+lines = 1
+newest = '^(?:\d+/\d+:select\s+│\s+Tab:next option|Tab/Space:permission)\b'
+
+# ask_user_question's card, the same way: `Tab:next answer │ Esc:scrollback │ Shift+x:dismiss`,
+# `Tab/Space:question │ … │ Ctrl+c:cancel` parked.  Its spinner's `Waiting on answers for …`
+# stays drawn a moment after the answer, so the hints alone say the card is up.
+[[rule]]
+id = "asking.question"
+state = "asking"
+lines = 1
+newest = '^(?:Tab:next answer|Tab/Space:question)\b'
+
+# A turn in flight: the spinner line above the composer (`⠼ Responding… 0.8s … [stop]`)
+# and the footer turning to Ctrl+c:cancel.  Esc never cancels a grok turn, so none of the
+# other harnesses' interrupt words appear here.  /compact's spinner (`⠋ Compacting…`) runs
+# with no Ctrl+c:cancel under it (1.0.46).
+[[rule]]
+id = "working.turn"
+state = "working"
+lines = 8
+any = ["responding…", "ctrl+c:cancel", "compacting…"]
+
+# The dropdown a slash command draws over the box: at most eight commands between two bare
+# rules, the lower right on the box's top border, its highlighted one's `❯` four columns in, the
+# box under it and its footer last: Ctrl-P there moves that highlight rather than opening the
+# palette, and Enter picks the row (`picker`, 1.0.46).  It is the owner's own hand, as a draft is.
+[[rule]]
+id = "draft.dropdown"
+state = "draft"
+lines = 18
+at_composer = true
+rows = '^  ─[─\d]*─(?: +█)?\n(?: {6}/\S.*\n)*    ❯ /\S.*\n(?: {6}/\S.*\n)*  ─+\n  ╭─.*\n(?:  │.*\n)+  ╰─.*\n.*\Z'
+picker = true
+
+# A composer holding bright, typed text is a draft never sent; one holding only its faint
+# suggestion is empty, so the suggestion rule reads at_prompt like the other harnesses'.
+# The prompt row it reads has the box's closing border right under it, so it is at most the
+# fourth row up, over that border, a status line and the key hints: a slash command's dropdown,
+# drawn above the box with a bare rule under its last row, is never read for the draft (1.0.46).
+[[rule]]
+id = "prompt.draft"
+state = "draft"
+lines = 4
+at_composer = true
+none = ["responding…", "ctrl+c:cancel"]
+
+[[rule]]
+id = "prompt.suggestion"
+state = "at_prompt"
+lines = 8
+at_composer = true
+none = ["responding…", "ctrl+c:cancel"]
+
+[[rule]]
+id = "prompt.composer"
+state = "at_prompt"
+lines = 8
+at_composer = true
+none = ["responding…", "ctrl+c:cancel"]
+
+# Its own error words: the terminal `result` event ends the stream, a rate limit or a spent
+# quota hands the turn over and parks the provider, and a busy or unavailable service is
+# transient -- the worker answers by typing `continue`, resuming the same session, never by
+# handing the round over.  A spent SuperGrok week is a 402 with no events: `grok -p` exits 1
+# with only the `usage balance exhausted` stderr.
+[stall]
+terminal = "result"
+signatures = ["You've hit the rate limit", "Rate limited", "quota exceeded",
+  "Service unavailable", "The service is busy"]
+refusals = ["rate limit", "Rate limited", "quota exceeded", "too many requests", "429",
+  "usage balance exhausted", "Service unavailable",
+  "The service is busy",
+  "500", "502", "503", "504", "Internal server error", "overloaded", "529", "at capacity"]
+quotas = ["rate limit", "Rate limited", "quota exceeded", "too many requests", "429",
+  "usage balance exhausted", "usage limit", "insufficient_quota", "insufficient quota"]
+
+# Its login screen, in its own words: the session token in ~/.grok/auth.json went stale.
+[auth]
+title = "Grok"
+remedy = "exit Grok, run grok login in the host shell, then reopen the session"
+signatures = ["Session expired. Run `grok login` to re-authenticate.",
+  "Your session has expired. Run `grok login` to sign in again"]
+
+# The effort words this harness takes, in the order the menu's `c` screen cycles them.
+[effort]
+levels = ["low", "medium", "high", "xhigh"]
+
+# The models this harness runs, for `adapters/grokbuild.sh models`: `grok models` names them and
+# no effort, so their efforts come from here -- the list grok 1.0.40 keeps in
+# ~/.grok/models_cache.json, each model with the reasoning efforts it offers, strongest last --
+# and so does the whole list when that listing fails.
+[catalog]
+"grok-4.7" = { label = "Grok 4.7", efforts = ["low", "medium", "high", "xhigh"] }
+"grok-4.7-build-fast" = { label = "Grok 4.7 Fast", efforts = ["low", "medium", "high", "xhigh"] }
+"grok-4.6" = { label = "Grok 4.6", efforts = ["low", "medium", "high", "xhigh"] }
+"grok-4.5" = { label = "Grok 4.5", efforts = ["low", "medium", "high"] }

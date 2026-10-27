@@ -38,7 +38,7 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 		{}, {"attach", "--client"}, {"usage", "--json"}, {"models", "--refresh"},
 		{"worker", "acme", task}, {"run", task, "--no-merge"},
 		{"run", "gc", "--dry-run"}, {"run", "--review-pr", "https://github.com/acme/api/pull/12"},
-		{"orch", "acme", "--dry-run"}, {"plan"}, {"hand-in", "done"},
+		{"orch", "acme", "--dry-run"}, {"plan", "check", "1", "true"}, {"hand-in", "done"},
 		{"notify", "--check"}, {"notify", "needs", "Which branch?"},
 		{"wait", "https://github.com/acme/api/pull/12"}, {"update", "--dry-run"},
 		{"watch", "--dry-run"}, {"doctor"}, {"browser", "status"},

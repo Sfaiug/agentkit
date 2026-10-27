@@ -1,0 +1,228 @@
+# adapters/antigravity.toml -- everything agentkit reads off an Antigravity seat's screen, and
+# who has the authority to say what that seat is doing.  Paired with adapters/antigravity.sh;
+# the format is the adapter contract in `config.adapter`.
+# Verified against agy 1.2.9, and its screen again against 1.3.5; see tests/fixtures/README.md
+# for the captures.
+version = 1
+name = "Antigravity"
+colour = "#203B9B"
+
+[check]
+model = "gemini-3.8-flash"
+effort = "low"
+
+# agy 1.2.13 has no switch for its global GEMINI.md and AGENTS.md, in ~/.gemini and ~/.gemini/config,
+# or for the rules/ folder beside the latter
+[instructions]
+unswitched = ["~/.gemini/GEMINI.md", "~/.gemini/AGENTS.md",
+              "~/.gemini/config/GEMINI.md", "~/.gemini/config/AGENTS.md", "~/.gemini/config/rules"]
+# nor for the workspace's, so it never reviews
+workspace = ["AGENTS.md", "GEMINI.md", ".agents/rules", ".agent/rules"]
+
+[launch]
+# `interactive` hands $AGENTKIT_FIRST_PROMPT to the TUI as its first prompt, fresh or resumed
+first_prompt = true
+
+[worker]
+state = ["~/.gemini/antigravity-cli", "~/.gemini/antigravity-cli-$AGENTKIT_ACCOUNT", "~/.gemini/config"]
+logins = ["~/.gemini/antigravity-cli/antigravity-oauth-token", "~/.gemini/antigravity-cli-$AGENTKIT_ACCOUNT/antigravity-oauth-token"]
+
+# How `ak update` moves this harness: `agy update` takes the latest release and no version,
+# so nothing puts an older build back.  `latest` is the manifest `agy update` and Google's
+# installer read, for this platform named the way that installer names it.
+[update]
+version = ["agy", "--version"]
+upgrade = ["agy", "update"]
+cannot = "agy update installs the latest release only"
+latest = ["sh", "-c", '''
+case $(uname -m) in arm64|aarch64) arch=arm64 ;; *) arch=amd64 ;; esac
+platform=$(uname -s | tr A-Z a-z)_$arch
+{ [ -e /lib/libc.musl-$(uname -m).so.1 ] || ldd /bin/ls 2>&1 | grep -q musl; } && platform=${platform}_musl
+exec curl -fsSL https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/$platform.json''']
+
+# An Antigravity seat owns only the conversation its own TUI opened: `--conversation` resumes
+# one that exists and nothing names one that does not, so `interactive` refuses a
+# launcher-issued id and the seat starts a new conversation, the one its agy holds open
+# (agentkit/harness/antigravity.py).
+[conversation]
+fresh_words = "no conversation recorded; it starts a new conversation"
+
+# No hooks are installed (see `hooks` in adapters/antigravity.sh), so the screen decides all
+# three states.
+[authority]
+working = "screen"
+asking = "screen"
+at_prompt = "screen"
+
+# The end-of-turn rule -- a turn ends with a question, a done, or a run to wait on -- is
+# typed at the seat by the `ak watch` tick, for want of an end-of-turn hook to enforce it.
+[stop]
+enforce = "nudge"
+
+[screen]
+# The composer is a bare `>` between two rules; a typed line reads `> text`, and so does every
+# prompt the transcript echoes, which is why only the empty one is chrome.
+composer = '^>$'
+# Ctrl-G hands the composer to $VISUAL, ak's editor, mid-turn too (agy 1.4.2)
+editor = ["C-g"]
+# and the line under it: a key hint on the left -- `? for shortcuts` at rest, `esc to cancel`
+# while a turn runs or a chooser is open, `press ctrl+c again to exit` after one Ctrl-C, nothing
+# over a draft -- and on the right the model and effort (`Gemini 3.8 Flash · low`), or, on a
+# seat opened with `--agent`, the agent with them once agy has resolved the model (`agentkit
+# (Gemini 3.8 Flash · low)  /agents`, and `agentkit (GPT-OSS 120B (Medium))  /agents` for a
+# label with brackets of its own), then ` · 1 task(s) · /tasks` while a command agy moved to the
+# background runs.  Below about 58 columns only the key hint is drawn (agy 1.3.5, captured).
+footer = ['(?:\? for shortcuts|esc to cancel|press ctrl\+c again to exit)?\s*(?:[^·]+ · (?:low|medium|high)|[\w.-]+(?: \((?:[^()]|\([^()]*\))*\))?\s+/agents(?: · \d+ task\(s\) · /tasks)?)',
+          '\? for shortcuts']
+# What the composer holds: everything after its `>` down to the last rule on the screen, so a
+# `>` in a wrapped line is the line's own and a chooser's `> /usage` under that rule is not it,
+# and nor is a prompt the transcript echoes under an earlier rule.  The background commands
+# agy lists under the composer (`● [12:08:46] sleep 45 running`) close with a rule of their own.
+# A composer taller than the read starts at its top, its `opening` rule above it: what the read
+# shows is its last rows, never proof of all it holds.  Only its prompt row starts at the left
+# edge, so a `>` an owner typed in an indented row stays text.
+draft = '(?:(?P<opening>^─+\n)> ?|\A(?:> ?)?(?!─))(?P<text>.*(?:\n(?!─+$).*)*)\n─+$(?:(?:\n\s*● \[\d\d:\d\d:\d\d\] .+)+\n─+$)?(?![\s\S]*^─)'
+# The background work a turn left running: the commands agy lists under the composer, each a
+# `shell` in Claude's terms.  Read only off the composer's closing rule, that list and the footer
+# as captured at rest; under a turn's or a dialog's `esc to cancel`, or a footer too narrow to
+# name the model, nothing is evidence either way.
+held = '^─+\n(?:(?P<shell>(?:● \[\d\d:\d\d:\d\d\] .+ running\n)+)─+\n)?(?!esc to cancel).*(?:/agents| · (?:low|medium|high))(?: · \d+ task\(s\) · /tasks)?\Z'
+# A line taller than the composer scrolls in it, its last rows showing, and the prompt row says
+# how many are above (`> ↑ 13 more lines`, captured at 40 columns): never typed text.
+scrolled = '^(?:> ?)?[↑↓] \d+ more lines?$'
+
+# Read in file order, first match wins: the dialogs before the spinner, the spinner before the
+# prompt, because the composer is still drawn while a turn runs.
+# The workspace trust dialog, in a folder agy has not been told to trust: its question and
+# both controls.
+[[rule]]
+id = "asking.trust"
+state = "asking"
+lines = 8
+all = ["do you trust the contents of this project?", "yes, i trust this folder", "no, exit"]
+
+# Signed out, agy opens on its sign-in chooser instead of a composer.
+[[rule]]
+id = "asking.signin"
+state = "asking"
+lines = 6
+all = ["you are currently not signed in", "select login method", "enter select"]
+
+# A dialog takes the composer's place, its key hint right on an `esc to cancel` footer that is no
+# turn running; elsewhere the row on the footer is a rule, which no draft or reply is, and the
+# rows above it grow with a dialog's command or choices.  The permission dialog of a seat opened
+# without --dangerously-skip-permissions (captured):
+[[rule]]
+id = "asking.permission"
+state = "asking"
+lines = 2
+all = ["tab amend", "ctrl+g edit/expand command"]
+newest = '^esc to cancel\b'
+
+# and the `ask_question` dialog, where the session's tools include it -- the seat's agent names
+# only run_command (captured).
+[[rule]]
+id = "asking.question"
+state = "asking"
+lines = 2
+all = ["enter select", "esc skip"]
+newest = '^esc to cancel\b'
+
+# The slash-command chooser a typed `/` opens: its `enter Select · tab Complete` hint over the
+# footer.  It is the owner's own line, never a turn, so it reads as a draft (captured), and stays
+# drawn over a line ak's editor puts in its place, for its Enter to pick a command (`picker`).
+[[rule]]
+id = "draft.chooser"
+state = "draft"
+lines = 8
+all = ["enter select", "tab complete"]
+picker = true
+
+# A turn in flight: the footer says `esc to cancel` under a spinner whose word changes
+# (`Generating...`, `Loading...`).
+[[rule]]
+id = "working.cancel"
+state = "working"
+lines = 8
+any = ["esc to cancel"]
+
+# A line typed and not sent: the footer drops its left-hand key hint while the composer holds
+# text, leaving only the model or the agent (captured).  The generic draft machinery reads a
+# `❯›⟩` mark and this composer's is `>`, so the footer is what tells the draft apart, and
+# nothing is typed into or sent from a seat reading draft.  It does only right under the
+# composer's closing rule: a panel drawn between them, `/usage`'s with its own key hint, leaves
+# the footer bare over an empty composer too (captured).
+[[rule]]
+id = "draft.typed"
+state = "draft"
+lines = 2
+none = ["esc to cancel"]
+row = '^─+$'
+newest = '^(?:[^·?]+ · (?:low|medium|high)|[\w.-]+(?: \((?:[^()]|\([^()]*\))*\))?\s+/agents(?: · \d+ task\(s\) · /tasks)?)$'
+
+# The footer with the empty composer drawn over it; the terms pages of agy's first run keep
+# the footer and draw no composer, `press ctrl+c again to exit` under them included (captured).
+[[rule]]
+id = "prompt.composer"
+state = "at_prompt"
+lines = 8
+at_composer = true
+row = '^>$'
+
+# A failed turn is a `⚠ <message>` line over `Error ID: <id>` (captured), and the stream-json
+# result of one carries `"status":"ERROR"` beside the same message.  The quota and transient
+# sentences are the executable's own strings; RESOURCE_EXHAUSTED and UNAVAILABLE are the
+# canonical statuses it names for a 429 and a 503, and a status number is only ever matched in
+# its own `(code N)` framing (`%s (code %d): %s`), never bare, where an error id, a count or a
+# token total could carry the same digits.  agy retries 429s, 503s and overloads itself before
+# it gives up, so what reaches here is what it could not ride out; the worker answers the
+# transient ones by typing `continue`, resuming the same conversation -- only `quotas` names
+# the account and hands the round over.
+[stall]
+signatures = ["Error ID: "]
+refusals = ["RESOURCE_EXHAUSTED", "exhausted your quota", "Quota exhausted", "(code 429)",
+  "UNAVAILABLE", "experiencing high traffic", "currently overloaded",
+  "(code 500)", "(code 502)", "(code 503)", "(code 504)", "Internal server error",
+  "overloaded", "at capacity"]
+# agy 1.3.1 on a spent Starter quota: "Individual quota reached. Please upgrade your subscription
+# to increase your limits. Resets in 51m38s." (a seat's screen, 7 Oct)
+quotas = ["RESOURCE_EXHAUSTED", "exhausted your quota", "Quota exhausted", "quota reached",
+          "(code 429)"]
+# `error_marks` begin the `⚠ <message>` line an `Error ID:` closes on a seat's screen, which is
+# read with it; a line above drawn any other way is not agy's.
+error_marks = ["⚠ "]
+# `outages` say the provider is down, and the turn is waited out even beside one of the
+# `faults`, which say the harness never ran it and hand it to another at once.  A worker turn
+# reads these, `refusals` and `quotas` only as whole words, in what the harness itself said,
+# beside the words no harness owns (`STALL` in agentkit/harness/__init__.py).
+outages = ["(code 500)", "(code 502)", "(code 503)", "(code 504)"]
+
+# Signed out, a headless turn prints the first of these on stderr and waits a minute for a
+# code nobody pastes, then fails with the second; both were observed.  The TUI's own
+# signed-out screen is the asking.signin rule above.
+[auth]
+# its `login again` cannot sign in afresh: agy restores a login from the desktop keyring that
+# only its own `/logout` clears, so no meter offers it
+again = false
+title = "Gemini"
+remedy = "exit agy, run `agy` in the host shell and sign in (open the URL, paste the code), then reopen the session"
+signatures = [
+  "Authentication required. Please visit the URL to log in:",
+  "authentication failed or timed out",
+]
+
+# The effort words this harness takes, in the order the menu's `c` screen cycles them.
+[effort]
+levels = ["low", "medium", "high"]
+
+# The models this harness runs when `agy models` cannot say: what agy 1.2.9 listed, each
+# effort-suffixed id folded into its model the way `models` in adapters/antigravity.sh folds
+# them, strongest last.  An id with no effort word is a model agy runs at no effort, `none`.
+[catalog]
+"gemini-3.8-flash" = { label = "Gemini 3.8 Flash", efforts = ["low", "medium", "high"] }
+"gemini-3.7-flash" = { label = "Gemini 3.7 Flash", efforts = ["low", "medium", "high"] }
+"gemini-3.6-flash" = { label = "Gemini 3.6 Flash", efforts = ["low", "medium", "high"] }
+"gemini-3.1-pro" = { label = "Gemini 3.1 Pro", efforts = ["low", "high"] }
+claude-sonnet-4-6 = { label = "Claude Sonnet 4.6 (Thinking)", efforts = ["none"] }
+claude-opus-4-6-thinking = { label = "Claude Opus 4.6 (Thinking)", efforts = ["none"] }
+gpt-oss-120b = { label = "GPT-OSS 120B", efforts = ["medium"] }
