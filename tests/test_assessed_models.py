@@ -1,7 +1,7 @@
 """The recommendation is of the models the owner marks: `[assess]` in config.toml lists model
 ids under each harness, and until it is written every model the config runs is assessed.
-`ak models` lists and recommends among those alone, as does the line `c` says and `r` takes
-(menu.advice); `rank` still orders every configured model.  An `[assess]` that is not model ids
+`ak models` lists and recommends among those alone; `rank` still orders every configured
+model.  An `[assess]` that is not model ids
 per harness refuses the config.  The matrix is stored by hand, a throwaway HOME."""
 
 from contextlib import redirect_stdout
@@ -16,7 +16,7 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures import scores
 from fixtures.sandbox import Sandbox
-from agentkit import config, matrix, menu, terminal
+from agentkit import config, matrix, terminal
 
 
 def row(harness, model, effort, name=None, **worth):
@@ -48,8 +48,6 @@ class AssessedModels(Sandbox):
         self.assertIn("recommended: orchestrate opus @ max (90 of 2) · execute opus @ max (90 of 3) · "
                       "review opus @ max (90 of 3)", text)
         self.assertNotIn("acme-mini", text)
-        self.assertEqual(menu.advice(self.cfg, {"rows": TABLE})["execute"],
-                         ("opus @ max", "opus", "max"))
 
     def test_assess_in_the_config_marks_the_models_per_harness(self):
         self.cfg["assess"] = {"acme": ["acme-mini"]}
@@ -57,8 +55,6 @@ class AssessedModels(Sandbox):
         text = self.models()
         self.assertIn("recommended: execute acme-mini (100 of 3) · review acme-mini (100 of 3)", text)
         self.assertNotIn("opus", text)
-        self.assertEqual(menu.advice(self.cfg, {"rows": TABLE})["execute"],
-                         ("acme-mini", None, None))
         # written, the marks hold through a save; marking nothing assesses nothing
         config.save(self.cfg)
         self.assertEqual(config.load()["assess"], {"acme": ["acme-mini"]})
