@@ -761,6 +761,36 @@ def memory_cap_mb(ceiling_mb=None):
     return RUN_MEMORY_DEFAULT_MB
 
 
+def give_way(state, log):
+    """Hold the runs under what ak's slice's ceiling leaves once the seats have theirs.
+
+    At the slice's MemoryMax every allocation in it reclaims first, so a seat drawing a scroll
+    waited behind the runs' memory: 29 s for a wheel notch (27 Oct 2026).  MemoryHigh on the
+    runs slice makes the runs reclaim and throttle themselves instead, and keeps the slice under
+    its max.  The seats are whatever the slice holds outside the runs.  The margin is what the
+    seats grew by since the last tick, a twentieth of the ceiling at least: MemoryHigh is a
+    throttle, not a wall, and runs overshoot it by what they allocate before reclaim catches up.
+    Never under one run's cap, so an admitted run can always finish; past that, seats can wait
+    again.  Set for this boot only, since the value is only true now; no ceiling sets nothing.
+    """
+    ceiling = orch.slice_memory_max_mb()
+    held = host._read_number(orch.slice_cgroup() / "memory.current", bytes_to_mb=True)
+    if ceiling is None or held is None:
+        return
+    seats = int(held - (host._read_number(orch.run_slice_cgroup() / "memory.current",
+                                          bytes_to_mb=True) or 0))
+    grown = seats - state.get("seats_mb", seats)
+    state["seats_mb"] = seats
+    high = max(memory_cap_mb(ceiling), ceiling - seats - max(ceiling // 20, grown))
+    try:
+        done = gc.systemctl("set-property", "--runtime", orch.run_slice_name(), f"MemoryHigh={high}M")
+    except subprocess.TimeoutExpired:
+        log("WARN the runs slice's MemoryHigh was not set: systemctl did not answer")
+        return
+    if done.returncode:
+        log(f"WARN the runs slice's MemoryHigh was not set: systemctl exited {done.returncode}")
+
+
 def run_scope_limits(ceiling_mb=None, *, cap_mb=None, cpu_weight=40):
     """(cap in MiB, systemd properties) for one run scope.
 
