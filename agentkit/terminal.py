@@ -1381,8 +1381,7 @@ def choose(choices, default=None, several=False, around=None, wait=None, warn=No
     `around(choice)` draws the screen a list is asked inside, its key line naming what Enter
     does on `choice`, the highlighted one, and returns the row its first choice goes on; it is
     called again after every key and whenever the screen wants drawing again -- a resize -- so
-    the list
-    and the rows a click is read against are always where that screen now puts them.  There a
+    the list and the rows a click is read against are always where that screen now puts them.  There a
     click on a choice picks it, or with `several` marks it; the key line's Enter answers as the
     key does, and a click anywhere else goes back;
     a button that went down before the list moved is no click.  The pointer on a choice moves

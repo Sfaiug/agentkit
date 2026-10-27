@@ -2780,6 +2780,7 @@ def act_word(text):
     again` for `↻ log in again`."""
     return " ".join(word for word in text.split() if word.isalpha())
 
+
 # What `+ add a subscription` offers each provider the shipped default has as: its company, and
 # the harness it runs on; any other is its name.  One shipped on a harness that runs any
 # provider (config.provider_hosts) is offered among that harness's own.  `Subscriptions` heads
