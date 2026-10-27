@@ -7668,7 +7668,7 @@ def local_passes(state, dry_run, log):
     Each pass re-derives placement or state from what it finds: a finding remembered from one
     tick to the next loses its race.
     """
-    from . import job as jobs, leases, logins, retire
+    from . import job as jobs, leases, logins, retire, run
     providers = {}
 
     def read_usage():
@@ -7709,6 +7709,7 @@ def local_passes(state, dry_run, log):
         # landed (`leases`); a dry run, which writes nothing, skips both
         ("the lease scan did not run", lambda: leases.scan_all(log), False),
         ("the lease restart pass did not run", lambda: leases.restart(log), False),
+        ("the runs did not give way to the seats", lambda: run.give_way(state, log), False),
         ("the tick's watch.json was not saved", lambda: save_state(state), False),
         ("the usage refresh did not finish", read_usage, True),
         # when each subscription's login ends and whose it is, each asked hourly at most; one
