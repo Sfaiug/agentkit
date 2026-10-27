@@ -4400,12 +4400,13 @@ def default_crew(cfg, providers, default):
 
 
 def pick(cfg, providers, selected):
-    """(orchestrator, workers, reviewers) off one screen, the new row's (`menu.born_models`).
+    """(orchestrator, workers, reviewers, start) off one screen, the new row's
+    (`menu.born_models`).
 
     `agentkit · new session`, Tab on the menu's new row, starts from the row's `selected`, spent
-    models among them.  ↑/↓, k/j and the wheel move through models, ←/→ through roles; space,
-    Enter or a click chooses, as on `c`, and Esc goes back to the row with what is chosen.
-    Reviewers keep one model; executors may be empty."""
+    models among them.  ↑/↓, k/j and the wheel move through models, ←/→ through roles; Space or
+    a click on a mark flips it, Enter starts the session with the marks shown (`start` true),
+    and Esc goes back to the row with them.  Reviewers keep one model; executors may be empty."""
     notes = {name: spent_note(cfg, name, providers) for name in config.offered(cfg)}
     return _picking(cfg, providers, notes, selected)
 
@@ -4420,7 +4421,7 @@ def _picking(cfg, providers, notes, selected):
     names = list(notes)
     model = selected["orchestrator"]
     at, top, column, note = names.index(model) if model in names else 0, 0, 0, ""
-    keys = terminal.keys("esc back")
+    keys = terminal.keys("esc back", space="mark", enter="start")
     clock = motion.Clock(page=True)
     while True:
         moves = []
@@ -4456,18 +4457,20 @@ def _picking(cfg, providers, notes, selected):
         clock.settle()
         note = ""
         if key.name == "click":
-            item = "space" if spot.what is not None else {"⏎": "enter"}.get(spot.cell, spot.cell)
+            item = "space" if spot.what is not None else {"⏎": "enter", "␣": "space"}.get(
+                spot.cell, spot.cell)
             key = terminal.Key(item if item in ("enter", "esc", "space") else "other")
         if terminal.step(key):
             at = min(max(at + terminal.step(key), 0), len(rows) - 1)
         elif key.name in ("left", "right"):
             column = min(max(column + (1 if key.name == "right" else -1), 0), 2)
-        elif key.name in ("space", "enter"):
+        elif key.name == "space":
             selected, note = role_mark(cfg, selected, names[at], column, providers)
             if note:
                 clock.touch(("mark", names[at], column))  # refused: the mark shakes
-        elif key.name in ("esc", "eof"):
-            return selected["orchestrator"], selected["workers"], selected["reviewers"]
+        elif key.name in ("enter", "esc", "eof"):
+            return (selected["orchestrator"], selected["workers"], selected["reviewers"],
+                    key.name == "enter")
 
 
 def worker_names(cfg, raw):

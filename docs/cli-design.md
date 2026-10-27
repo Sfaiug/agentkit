@@ -65,8 +65,8 @@ carries the colour (`terminal.state_text`, `terminal.state_colour`).
 
 Every screen reads the same keys, one key at a time, with no Enter.
 
-- **Arrows and Enter:** the arrows move the highlight between rows, cells and pages, and
-  Enter chooses what it is on.
+- **Arrows, Space and Enter:** the arrows move the highlight, Space marks what it is on,
+  and Enter goes forward (`terminal.keys`).
 - **Esc:** Esc goes back, and on the main screen it leaves.
 - **A screen's own keys:** its key line (`terminal.keys`) names them after the shared ones.
 - **Digits:** a digit opens that seat.

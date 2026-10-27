@@ -188,10 +188,7 @@ class Screen:
         self.send(TAB)
 
     def start(self):
-        """Esc takes the picks back to the row, and Enter there starts the seat."""
-        mark = len(self.text())
-        self.send(ESC)
-        self.born(after=mark)
+        """Enter starts the seat with the marks shown."""
         self.send(ENTER)
 
     def send(self, keys):
@@ -235,7 +232,7 @@ class NewSessionScreen(unittest.TestCase):
         self.assertEqual([line for line in lines[3:-2]
                           if line and not line.startswith((" ", "›"))],
                          ["Claude Code", "Codex", "Muse Code", "Grok Build", "Antigravity", "OpenCode"])
-        self.assertTrue(lines[-1].startswith("  ↑↓←→ move   ⏎ choose   esc back"))
+        self.assertTrue(lines[-1].startswith("  ↑↓←→ move   ␣ mark   ⏎ start   esc back"))
         screen.start()
         screen.saw("<created new opus opus,astra opus,astra>", "<opened new>")
         screen.menu(after=screen.text().index("<opened new>"))
@@ -307,9 +304,9 @@ class NewSessionScreen(unittest.TestCase):
         self.assertIn(full("opus"), highlighted(lines))
         # a week at 100% whose reset nobody knows is spent all the same, only with no time
         self.assertEqual(len([row for row in lines if full("astra") in row and "spent" in row]), 1)
-        screen.send(UP + ENTER)                    # Fable orchestrates
-        screen.send(RIGHT * 2 + DOWN * 2 + ENTER)  # Astra reviews
-        screen.send(UP + ENTER)                    # and Opus no longer does
+        screen.send(UP + SPACE)                    # Fable orchestrates
+        screen.send(RIGHT * 2 + DOWN * 2 + SPACE)  # Astra reviews
+        screen.send(UP + SPACE)                    # and Opus no longer does
         screen.picker(lambda lines: full("opus") in highlighted(lines)
                       and marks(highlighted(lines)) == "○□□")
         screen.start()
