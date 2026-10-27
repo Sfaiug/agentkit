@@ -4190,16 +4190,11 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     taken = []    # `model`'s orchestrator effort as the record held it before `effort`
 
     def at_effort(data, was=None):
-        """`data`'s efforts with `model`'s orchestrator effort at `effort`, the one replaced
-        put in `was`, every other key kept and one that followed it set where it stood, so
-        its builds and reviews stay as they were; a model it holds none for starts from its
-        entry's."""
-        efforts = dict(data.get("efforts") or {})
-        own = efforts.get(model) or config.efforts_of(cfg["models"][model])
+        """`data`'s efforts with `model`'s orchestrator effort at `effort`
+        (config.orchestrating_at), the one replaced put in `was`."""
         if was is not None:
-            was[:] = [own["effort"]]
-        return {**efforts, model: {**config.held_efforts(own, config.ROLE_EFFORTS.values()),
-                                   "effort": effort}}
+            was[:] = [config.at_efforts(cfg, data)["models"][model]["effort"]]
+        return config.orchestrating_at(cfg["models"], data, model, effort)
 
     def given_back():
         """The effort `taken` back, the launch at `effort` having failed, where the record
