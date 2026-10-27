@@ -8,6 +8,7 @@ an exception wherever the real wait runs, and no test execs or signals a real pr
 
 from contextlib import ExitStack
 from io import StringIO
+import json
 import os
 from pathlib import Path
 import sys
@@ -19,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import box, config, gate, handback, job as jobs, record, run, waiter
+from agentkit import box, config, gate, handback, history, job as jobs, record, run, waiter
 
 OLD = "aaa1111"
 NEW = "bbb2222"
@@ -155,15 +156,39 @@ class QueuedRunWaitsOnTheInstalledCode(unittest.TestCase):
         ak = [sys.executable, str(config.REPO / "bin" / "ak"), *sys.argv[1:]]
         self.assertEqual(self.execs, [(sys.executable, [
             sys.executable, "-I", "-S", waiter.__file__, str(config.RUNS / ".slots.queue"),
-            self.run_dir.name, str(gate.SLOT_POLL), str(config.REPO), OLD, *ak])])
-        self.assertEqual(os.environ[gate.SLOT_WAIT_ENV], "1000.0 5.0")
+            str(config.HOME / "history.db"), self.run_dir.name, str(gate.SLOT_POLL),
+            str(config.REPO), OLD, *ak])])
+        self.assertEqual(os.environ[waiter.SLOT_WAIT_ENV], "1000.0 5.0")
         counted = []
         with patch.object(gate, "count_wait", lambda *a: counted.append(a)), \
                 patch.object(gate, "_host_admits", return_value=True):
             state = gate.wait_for_slot(self.run_dir)
         self.assertEqual((state["state"], state["slot_waited"]), ("running", True))
         self.assertEqual(counted, [(self.run_dir.name, "slot", (1000.0, 5.0))])
-        self.assertNotIn(gate.SLOT_WAIT_ENV, os.environ)
+        self.assertNotIn(waiter.SLOT_WAIT_ENV, os.environ)
+
+
+    def test_a_waiter_killed_behind_the_first_has_counted_each_poll(self):
+        clock = [1000.0]
+
+        def sleep(seconds):
+            if clock[0] >= 1090:
+                raise Replaced     # killed while still behind the first
+            clock[0] += seconds
+            (config.RUNS / ".slots.queue").write_text(json.dumps(
+                {"at": clock[0], "queue": ["20990101-0000-acme-older", self.run_dir.name]}))
+
+        history.start_run(self.run_dir.name, repo="acme", started_at=clock[0])
+        os.environ[waiter.SLOT_WAIT_ENV] = "1000.0 1000.0"
+        with patch.object(waiter.time, "sleep", sleep), \
+                patch.object(waiter.time, "time", lambda: clock[0]), \
+                patch.object(waiter.time, "monotonic", lambda: clock[0]), \
+                self.assertRaises(Replaced):
+            waiter.main([str(config.RUNS / ".slots.queue"), str(history.path()),
+                         self.run_dir.name, "30", str(config.REPO), ""])
+        self.assertEqual(history.get(self.run_dir.name)["slot_wait_seconds"], 90)
+        self.assertEqual(history.phases(self.run_dir.name),
+                         [{"phase": "slot wait", "started_at": 1000.0, "ended_at": 1090.0}])
 
 
 if __name__ == "__main__":

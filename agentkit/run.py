@@ -569,18 +569,8 @@ def mark_state(run_dir, name, error=None, log=None):
 
 
 def installed_head():
-    """This process's checkout at `bin/ak`, as a short commit, or "" when it cannot be read.
-
-    A read that fails or runs slow is no version, never a failed run: the checkout may
-    be no checkout at all, or git waiting on a prompt or a network nobody here can answer.
-    """
-    try:
-        proc = subprocess.run(["git", "-C", str(config.REPO), "rev-parse", "--short", "HEAD"],
-                              capture_output=True, encoding="utf-8", errors="replace",
-                              timeout=10, stdin=subprocess.DEVNULL, env=tool_env())
-    except (OSError, subprocess.TimeoutExpired, ValueError):
-        return ""
-    return proc.stdout.strip() if proc.returncode == 0 else ""
+    """This process's checkout at `bin/ak`, as a short commit (`waiter.head`)."""
+    return waiter.head(str(config.REPO), env=tool_env())
 
 
 def pickup_new_code(lp, execv=None, current=None):
@@ -662,10 +652,10 @@ def pickup_while_queued(run_dir, behind=None, execv=None, current=None):
     # ak's own entry, not `sys.argv[0]`: a link that started the launch may since point elsewhere
     launch = [sys.executable, str(config.REPO / "bin" / "ak"), *sys.argv[1:]]
     if behind:
-        os.environ[gate.SLOT_WAIT_ENV] = " ".join(map(str, behind))
+        os.environ[waiter.SLOT_WAIT_ENV] = " ".join(map(str, behind))
         launch = [sys.executable, "-I", "-S", waiter.__file__, str(config.RUNS / ".slots.queue"),
-                  run_dir.name, str(gate.SLOT_POLL), str(config.REPO), _PICKUP_START or "",
-                  *launch]
+                  str(history.path()), run_dir.name, str(gate.SLOT_POLL), str(config.REPO),
+                  _PICKUP_START or "", *launch]
     else:
         now = installed_head() if current is None else current
         if not now or not _PICKUP_START or now == _PICKUP_START:
@@ -675,7 +665,7 @@ def pickup_while_queued(run_dir, behind=None, execv=None, current=None):
     try:
         (execv or os.execv)(sys.executable, launch)
     except OSError:
-        os.environ.pop(gate.SLOT_WAIT_ENV, None)
+        os.environ.pop(waiter.SLOT_WAIT_ENV, None)
         return False
     return True
 

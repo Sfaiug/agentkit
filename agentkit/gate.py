@@ -34,9 +34,6 @@ except ValueError:
     SLOT_POLL = 30
 
 
-# A launch's wait counted up to its exec into the waiter: "<began> <monotonic since>".
-SLOT_WAIT_ENV = "AK_SLOT_WAIT"
-
 GATE_POLL = 15      # seconds between a waiting gate's tries for a turn; each rewrites its log line
 HEAVY_CPUS = 0.7      # initial measured estimates; a repository's pieces may cost more
 HEAVY_MEM_MB = 410
@@ -475,10 +472,10 @@ def wait_for_slot(run_dir, between=None):
     `between` runs after each poll's wait, while the wait holds nothing, with the wait counted
     so far where this run waits behind the first: it may replace this process with the same
     launch on newer code, or with a waiter that execs that launch back (`run.pickup_while_queued`),
-    which takes the count up again from `SLOT_WAIT_ENV`."""
+    which counts as it waits and hands the count back (`waiter.SLOT_WAIT_ENV`)."""
     announced = False
     first_poll = True
-    handed = os.environ.pop(SLOT_WAIT_ENV, "").split()
+    handed = os.environ.pop(waiter.SLOT_WAIT_ENV, "").split()
     # back from the waiter: it waited behind the first, uncounted since `counted`
     behind = len(handed) == 2
     wait_kind = None

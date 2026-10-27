@@ -1,7 +1,6 @@
 """Best-effort SQLite history for completed and running agentkit runs."""
 
 import contextlib
-import fcntl
 import json
 import math
 import os
@@ -11,7 +10,7 @@ import time
 from pathlib import Path
 from statistics import median
 
-from . import config, gitcall, host, record
+from . import config, gitcall, host, record, waiter
 
 _LOCK = threading.Lock()
 SUMMARY_TASKS = 20    # the status line looks back over this many finished runs per repo
@@ -26,8 +25,8 @@ STEP_COLUMNS = {"executor": "executor_seconds", "done-when": "done_when_seconds"
                 "reviewer": "reviewer_seconds", "merge": "merge_seconds"}
 # The waits a run marks, each summed across its resumes; NULL on a row written before them.
 # A landing check's wait for a heavy-suite turn is the lander's, inside the run's line wait.
-WAIT_COLUMNS = {"slot": "slot_wait_seconds", "suite": "suite_wait_seconds",
-                "merge": "merge_wait_seconds", "lander": "lander_wait_seconds"}
+# Each counted in its `<wait>_wait_seconds` column (`waiter.add_wait`).
+WAITS = ("slot", "suite", "merge", "lander")
 _OPEN = {}     # run_id -> [step, since, opened]: the step this process runs, counted up to
                # `since`, and its phase row's start
 _OPEN_LOCK = threading.Lock()
@@ -76,7 +75,7 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("own_orchestrator_effort", "TEXT"))
 
 # One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`) and each wait
-# it counted (`WAIT_COLUMNS`, named `<wait> wait`), its end moved by each checkpoint or poll and
+# it counted (`WAITS`, named `<wait> wait`), its end moved by each checkpoint or poll and
 # by its close, so a row never lacks an end and a loop that died counts what its column counts.
 # A run with no row keeps no phases.
 PHASES_SCHEMA = """
@@ -242,11 +241,9 @@ def _ensure_tokens_recounted():
 
 @contextlib.contextmanager
 def _writing():
-    """One writer of history.db at a time, across processes: runs, the tick and the menu each
-    write, and sqlite's own wait gives up after its timeout and the write would be lost."""
+    """One writer of history.db at a time (`waiter.writing`), and one thread of this process."""
     path().parent.mkdir(parents=True, exist_ok=True)
-    with _LOCK, path().with_suffix(".lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with _LOCK, waiter.writing(path()):
         yield
 
 
@@ -402,23 +399,13 @@ def add_wait(run_id, wait, seconds, at=None, *, began=None, log=None):
     the columns stays unrecorded."""
     if not isinstance(seconds, (int, float)) or not math.isfinite(seconds):
         return
-    column, seconds = WAIT_COLUMNS[wait], max(0.0, seconds)
+    seconds = max(0.0, seconds)
     at = time.time() if at is None else at
     began = at - seconds if began is None else began
-
-    def add(connection):
-        connection.execute(f"UPDATE runs SET {column}={column}+? WHERE run_id=?", (seconds, run_id))
-        phase(connection, run_id, f"{wait} wait", began, max(began, at))
-    _write(add, log)
+    _write(lambda connection: waiter.add_wait(connection, run_id, wait, seconds, began, at), log)
 
 
-def phase(connection, run_id, name, started_at, ended_at):
-    """Write the phase row, or move its end: the one under way ends at its last checkpoint."""
-    connection.execute(
-        "INSERT INTO phases (run_id, phase, started_at, ended_at) "
-        "SELECT run_id, ?, ?, ? FROM runs WHERE run_id=? "
-        "ON CONFLICT(run_id, phase, started_at) DO UPDATE SET ended_at=excluded.ended_at",
-        (name, started_at, ended_at, run_id))
+phase = waiter.phase
 
 
 def phases(run_id):

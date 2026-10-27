@@ -3,17 +3,26 @@
 Only the first in line can be admitted, so a run behind it only reads `.slots.queue`.  Its
 launch execs into this script (`run.pickup_while_queued`), run as `python3 -I -S`: it imports
 nothing of agentkit, so the waiting process holds a few megabytes instead of a whole `ak run`.
-It execs the same launch back, keeping the pid and so the receipt and its place in line, once
-it may be first or the installed agentkit moved.
+It counts its wait in history each poll, as `gate.count_wait` does, and execs the same launch
+back, keeping the pid and so the receipt and its place in line, once it may be first or the
+installed agentkit moved.  What both need to know lives here, for ak to import.
 
-    python3 -I -S waiter.py QUEUE RUN_ID POLL REPO VERSION LAUNCH...
+    AK_SLOT_WAIT="<began> <monotonic since>" python3 -I -S waiter.py \
+        QUEUE DATABASE RUN_ID POLL REPO VERSION LAUNCH...
 """
 
+import contextlib
+import fcntl
 import json
 import os
+from pathlib import Path
+import sqlite3
 import subprocess
 import sys
 import time
+
+# The wait counted up to the exec into the waiter, and back: "<began> <monotonic since>".
+SLOT_WAIT_ENV = "AK_SLOT_WAIT"
 
 
 def behind_first(queue, run_id, now, poll):
@@ -29,24 +38,71 @@ def behind_first(queue, run_id, now, poll):
     return 0 <= now - at < 2 * poll and run_id in waiting[1:]
 
 
-def head(repo):
-    """The installed agentkit as a short commit, or "" when it cannot be read."""
+def head(repo, env=None):
+    """The checkout at `repo` as a short commit, or "" when it cannot be read.
+
+    A read that fails or runs slow is no version, never a failed run: the checkout may
+    be no checkout at all, or git waiting on a prompt or a network nobody here can answer.
+    """
     try:
         proc = subprocess.run(["git", "-C", repo, "rev-parse", "--short", "HEAD"],
                               capture_output=True, encoding="utf-8", errors="replace",
-                              timeout=10, stdin=subprocess.DEVNULL)
+                              timeout=10, stdin=subprocess.DEVNULL, env=env)
     except (OSError, subprocess.TimeoutExpired, ValueError):
         return ""
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
+@contextlib.contextmanager
+def writing(database):
+    """One writer of history.db at a time, across processes: runs, the tick and the menu each
+    write, and sqlite's own wait gives up after its timeout and the write would be lost."""
+    with Path(database).with_suffix(".lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def add_wait(connection, run_id, wait, seconds, began, at):
+    """Add a wait's seconds to its column and end its phase row, the one begun at `began`, at
+    `at`."""
+    column = f"{wait}_wait_seconds"
+    connection.execute(f"UPDATE runs SET {column}={column}+? WHERE run_id=?", (seconds, run_id))
+    phase(connection, run_id, f"{wait} wait", began, max(began, at))
+
+
+def phase(connection, run_id, name, started_at, ended_at):
+    """Write the phase row, or move its end: the one under way ends at its last checkpoint."""
+    connection.execute(
+        "INSERT INTO phases (run_id, phase, started_at, ended_at) "
+        "SELECT run_id, ?, ?, ? FROM runs WHERE run_id=? "
+        "ON CONFLICT(run_id, phase, started_at) DO UPDATE SET ended_at=excluded.ended_at",
+        (name, started_at, ended_at, run_id))
+
+
+def count(database, run_id, began, since):
+    """Add the wait since the monotonic `since` to the run's history, so a waiter that dies
+    loses at most a poll; the moment it is counted to.  History never ends the wait."""
+    now = time.monotonic()
+    try:
+        with writing(database), contextlib.closing(
+                sqlite3.connect(database, timeout=2)) as connection:
+            add_wait(connection, run_id, "slot", max(0.0, now - since), began, time.time())
+            connection.commit()
+    except (OSError, sqlite3.Error):
+        pass
+    return now
+
+
 def main(argv):
-    queue, run_id, poll, repo, version, *launch = argv
+    queue, database, run_id, poll, repo, version, *launch = argv
     poll = float(poll)
+    began, since = map(float, os.environ[SLOT_WAIT_ENV].split())
     while True:
         time.sleep(poll)
+        since = count(database, run_id, began, since)
         if (not behind_first(queue, run_id, time.time(), poll)
                 or version and head(repo) not in ("", version)):
+            os.environ[SLOT_WAIT_ENV] = f"{began} {since}"
             os.execv(launch[0], launch)
 
 
