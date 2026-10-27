@@ -15,7 +15,7 @@ import sys
 import time
 
 from . import catalog, command_help, config, quality, record, terminal
-from .boards import PREFIX, collect, effort_rank
+from .boards import PREFIX, cached, collect, effort_rank
 
 # A row this many points under the best counts as as good: the three boards disagree with each
 # other about differences between the top models by more (a median of 6 to 10 points, 17 Oct
@@ -145,6 +145,17 @@ def answer(lineup, within, compared=None):
         out[role] = {"rated": rated, "best": best, "pick": quality.pick(them, within),
                      "front": front, "take": take}
     return out
+
+
+def compared(cfg, current):
+    """The releases of `current` (slugs) that `compare` in the config marks, one replaced since
+    as its successor (catalog.successor), so a mark never holds a replaced model, and one that
+    is neither as nothing; None, every one, where nothing is marked."""
+    marked = cfg.get("compare") or []
+    boards = cached() if set(marked) - current else {}    # the boards only for a replaced one
+    found = {slug if slug in current else (catalog.successor(boards, slug) or {}).get("slug")
+             for slug in marked} & current
+    return found or None
 
 
 def within(cfg):
@@ -315,7 +326,9 @@ def main(argv):
     from . import menu      # here, not at the top: the menu reaches this module as it loads
     cfg = config.load()
     _, rows = refresh(cfg, refresh="--refresh" in flags)
-    found, own = answer(rows, within(cfg)), live(cfg)
+    current = {row["release"] for row in rows}
+    marked = compared(cfg, current)
+    found, own = answer(rows, within(cfg), marked), live(cfg)
     if "--json" in flags:
         json.dump({**{role: {"best": said["best"], "front": [
             {**{key: row[key] for key in ("release", "name", "effort", "quality", "se", "cost")},
@@ -323,7 +336,7 @@ def main(argv):
             for role, said in found.items()}, "live": own}, sys.stdout, indent=2)
         print()
         return 0
-    body, _ = menu.models_body(menu.models_said(found), within(cfg),
-                               len({row["release"] for row in rows}), stored().get("fetched_at"))
+    body, _ = menu.models_body(menu.models_said(found), within(cfg), marked, len(current),
+                               stored().get("fetched_at"))
     print("\n".join([*body, *(["", *live_lines(own)] if own else [])]))
     return 0
