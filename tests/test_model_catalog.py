@@ -114,6 +114,7 @@ class Catalog(Sandbox):
             ("acme-6-5-fast", "Acme 6.5 (Fast)", "acme-6-5-fast", "Acme 6.5", "Acme", False, None, 44),
             ("zeta-1-old", "Zeta 1", "zeta-1-old", "Zeta 1", "Zeta", True, "zeta-1", 8),
             ("zeta-1", "Zeta 1", "zeta-1", "Zeta 1", "Zeta", False, None, 9),
+            ("zeta-1-retired", "Zeta 1", "zeta-1-retired", "Zeta 1", "Zeta", True, None, 7),
             ("eta-1", "Eta 1", "eta-1", "Eta 1", "Eta", True, None, 3),
             ("eta-1-low", "Eta 1 (Low)", "eta-1", "Eta 1", "Eta", True, "zeta-1", 2),
             ("omega-1-fast", "Omega 1 (Fast)", "omega-1-fast", "Omega 1", "Omega", False, None, 11),

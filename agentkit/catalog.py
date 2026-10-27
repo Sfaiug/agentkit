@@ -81,15 +81,16 @@ def _join(values, row):
 
 def _replaced(releases):
     """{slug: what replaced it, or None}: each release with a row deprecated, by the first
-    `deprecatedTo` its rows name, and with it each release under its name but the one its chain
-    ends at, a variant (AA kept `GPT-6 Sol (Daybreak Blue)`, named GPT-6 Sol, current), even
-    where the chain ends at none."""
+    `deprecatedTo` its rows name, and with it each release under its name, by what its chain
+    ends at, a variant (AA kept `GPT-6 Sol (Daybreak Blue)`, named GPT-6 Sol, current), but
+    the current ones any chain ends at."""
     replaced = {slug: next(filter(None, (row["release"]["deprecatedTo"] for row in rows)), None)
                 for slug, rows in releases.items() if any(row["deprecated"] for row in rows)}
-    for slug in list(replaced):
-        end, name = _end(releases, replaced, slug), releases[slug][0]["release"]["name"]
-        replaced.update({other: end for other, rows in releases.items() if other != end
-                         and other not in replaced and rows[0]["release"]["name"] == name})
+    ends = {slug: _end(releases, replaced, slug) for slug in replaced}
+    for slug, end in ends.items():
+        name = releases[slug][0]["release"]["name"]
+        replaced.update({other: end for other, rows in releases.items() if other not in replaced
+                         and other not in ends.values() and rows[0]["release"]["name"] == name})
     return replaced
 
 
