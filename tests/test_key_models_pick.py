@@ -102,6 +102,11 @@ class ModelsPick(unittest.TestCase):
         self.assertEqual(shown[at + 1:at + 6], ["  ■ all 4 models", "  Acme", "›   □ Acme Max 5",
                                                 "    □ Acme Mid 5", ""])
         self.assertIsNone(self.compare())
+        term.keys("Down", "Space")     # after a move a space marks
+        term.wait("■ Acme Mid 5")
+        self.assertEqual(self.compare(), ["acme-mid-5"])
+        term.keys("Up", "Up", "Space")
+        term.wait("all 4 compared")
         term.keys("BSpace", "BSpace", "BSpace", "BSpace", "BSpace", "BSpace")
         shown = lines(term.wait(lambda screen: "  find  ▏" in screen))
         self.assertIn("    □ Crux 2", shown)

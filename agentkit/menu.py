@@ -3243,9 +3243,10 @@ def compare_screen(cfg, title, lineup):
     """`p` on the models screen: the releases its answer compares, marked on `compare_lines`
     until Esc.  Space, or a click, marks or unmarks the pointed release, and on `all` clears
     every mark; each change is saved at once as `compare` (matrix.compared reads it).  What
-    is typed goes into `find`, a space only where a name holds it, and backspace takes it out;
-    the list scrolls with the pointer."""
+    is typed goes into `find`, a space only typed on from a word and where a name holds it, and
+    backspace takes it out; the list scrolls with the pointer."""
     current, find, here, top, note = {row["release"] for row in lineup}, "", ALL, 0, ""
+    typing = False                # since the last character typed, no key but backspace
     while True:
         marks = matrix.compared(cfg, current) or set()
         lines = compare_lines(lineup, marks, find)
@@ -3284,8 +3285,10 @@ def compare_screen(cfg, title, lineup):
             here = spot.what
         if key.name in ("esc", "eof") or key.name == "click" and spot.cell == "esc":
             return
-        # a space finds where a name holds what is typed and it, as between words, else marks
-        if key.name == "space" and find and any(
+        # a space typed on from a word finds where a name holds it, as between words; after a
+        # move, or where no name does, it marks
+        typing = typing and key.name in ("space", "backspace") or key.name == "char"
+        if key.name == "space" and typing and find and any(
                 f"{find} ".casefold() in line.casefold() for line, what, _ in lines if what):
             find, here, top = find + " ", None, 0
         elif key.name == "space" or key.name == "click" and spot.what is not None:
