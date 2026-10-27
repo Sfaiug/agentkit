@@ -733,6 +733,44 @@ if have tmux; then
   fi
 fi
 
+# --- (g2a) swapped memory stays compressed in RAM before it reaches the disk --
+# Idle program heaps are most of what a busy host swaps, and they compress about three to
+# one, so zswap turns most swap-ins from disk reads into decompressions.  zswap is a cache in
+# front of the swap already there: the shrinker still moves cold pages to the disk, and the
+# pool share stays the kernel's own.  A host with no swap, or swapping to zram already, is
+# left as it is.  The values apply now and, through a tmpfiles.d entry, on every boot.
+SYS="${AK_SYS:-/sys}"
+ZSWAP="$SYS/module/zswap/parameters"
+ZSWAP_TMPFILES="${AK_TMPFILES_D:-/etc/tmpfiles.d}/agentkit-zswap.conf"
+swaps=$(awk 'NR > 1 { print $1 }' "${AK_PROC_SWAPS:-/proc/swaps}" 2>/dev/null || true)
+zswap_on() {   # write the boot entry, then each of its values now
+  local _ path value
+  sudo -n mkdir -p -- "${ZSWAP_TMPFILES%/*}" 2>/dev/null || return 1
+  printf '%s' "$zswap_entry" | sudo -n tee "$ZSWAP_TMPFILES" >/dev/null 2>&1 || return 1
+  while read -r _ path _ _ _ _ value; do
+    printf '%s' "$value" | sudo -n tee "$SYS${path#/sys}" >/dev/null 2>&1 || return 1
+  done < <(grep '^w ' <<<"$zswap_entry")
+}
+if [ "$SANDBOX" = 1 ] || [ ! -e "$ZSWAP/enabled" ] || [ -z "$swaps" ] ||
+   grep -q '^/dev/zram' <<<"$swaps"; then
+  :
+else
+  # compressor and pool before enabled, so the pool is made once with the right ones
+  zswap_entry="# Written by agentkit's install.sh: swapped pages compressed in RAM first"$'\n'
+  for kv in compressor=zstd zpool=zsmalloc shrinker_enabled=Y enabled=Y; do
+    [ ! -e "$ZSWAP/${kv%%=*}" ] || zswap_entry+="w /sys/module/zswap/parameters/${kv%%=*} - - - - ${kv#*=}"$'\n'
+  done
+  if [ "$(cat -- "$ZSWAP/enabled")" = Y ] && [ "$(cat -- "$ZSWAP_TMPFILES" 2>/dev/null)"$'\n' = "$zswap_entry" ]; then
+    :
+  elif ! have sudo || ! sudo -n true 2>/dev/null; then
+    note "zswap: no passwordless sudo, so swap is not compressed in RAM; run \`sudo -v\` and re-run ./install.sh"
+  elif zswap_on; then
+    echo "zswap: swapped pages are compressed in RAM with zstd first, now and on every boot"
+  else
+    note "zswap: could not be turned on; see $ZSWAP_TMPFILES"
+  fi
+fi
+
 # --- (g2b) the ceiling over the slice: the user unit's own ---------------
 # Above agentkit.slice sits user@<uid>.service, and its ceiling holds every process the
 # user runs, so ssh and the owner's own shells keep room under load.  Where this install
