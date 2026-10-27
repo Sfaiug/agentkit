@@ -118,7 +118,7 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
         self.capacity.assert_called_once_with()
         self.assert_cleaned()
 
-    def test_a_red_member_is_woken_after_the_head_records_its_new_owner_and_scope(self):
+    def test_a_red_member_gets_its_verdict_after_the_head_records_its_new_owner_and_scope(self):
         self.capacity.return_value = 5
         members = self.members(red=2)
         woken = threading.Event()
@@ -138,15 +138,16 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
                 patch.object(gate, "run_done_when", side_effect=check):
             land.check_line(self.turn)
         self.assertIn("land", self.wait(members[0]))
-        self.assertIn("fix", self.wait(members[1]))
+        # red only on top of the head, it waits for the head to leave the line
+        self.assertEqual(list(self.wait(members[1])["after"]), [members[0].name])
         self.assertCountEqual([call.args[0] for call in self.wake.call_args_list],
-                              [member.name for member in members])
+                              [member.name for member in members if member != members[1]])
         self.assert_cleaned()
 
-    def test_a_red_member_is_woken_while_the_prefix_saves_its_rebase_and_final_check(self):
+    def test_a_red_member_gets_its_verdict_while_the_prefix_saves_its_rebase_and_final_check(self):
         self.prefix_delivery()
 
-    def test_a_red_member_is_woken_after_the_prefix_finishes_landing(self):
+    def test_a_red_member_gets_its_verdict_after_the_prefix_finishes_landing(self):
         self.prefix_delivery(landed=True)
 
     def prefix_delivery(self, *, landed=False):
@@ -179,27 +180,26 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
         with patch.object(record, "process_active", side_effect=lambda state: state.get("pid") == 5678), \
                 patch.object(gate, "run_done_when", side_effect=check):
             land.check_line(self.turn)
-        self.assertIn("fix", self.wait(members[2]))
-        self.assertIn(members[2].name, [call.args[0] for call in self.wake.call_args_list])
+        self.assertEqual(list(self.wait(members[2])["after"]), [m.name for m in members[:2]])
+        self.assertNotIn(members[2].name, [call.args[0] for call in self.wake.call_args_list])
         self.assertEqual(record.read_state(members[0])["review"]["head_sha"], identity["head_sha"])
         self.assert_cleaned()
 
     def test_a_red_member_starting_its_fixer_does_not_block_the_next_red_verdict(self):
         self.capacity.return_value = 9
         members = [self.member(f"member-{n}", joined=n, **{
-            f"member-{n}.txt": f"{n}\n", **({"broken.txt": "broken\n"} if n in (2, 4) else {})})
+            f"member-{n}.txt": f"{n}\n", **({"broken.txt": "broken\n"} if n in (1, 3) else {})})
             for n in range(1, 6)]
         self.advance()
         self.wake.side_effect = self.resume_writes
         with patch.object(record, "process_active", side_effect=lambda state: state.get("pid") == 5678):
             land.check_line(self.turn)
-        self.assertIn("land", self.wait(members[0]))
-        for member in (members[1], members[3]):
-            self.assertIn("fix", self.wait(member))
-            self.assertTrue(self.wait(member)["fixing"])
+        self.assertTrue(self.wait(members[0])["fixing"])
+        # red only on top of member 2, member 3 waits for it to leave the line
+        self.assertEqual(list(self.wait(members[2])["after"]), [members[1].name])
         self.assertCountEqual([call.args[0] for call in self.wake.call_args_list],
-                              [member.name for member in members])
-        for member in (members[2], members[4]):
+                              [member.name for member in members if member != members[2]])
+        for member in (members[1], members[3], members[4]):
             self.assertIn("land", self.wait(member))
         self.assert_cleaned()
 
@@ -324,7 +324,7 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
         self.assertIn("land", self.wait(members[0]))
         self.assertIn("fix", self.wait(members[4]))
         self.assertCountEqual([call.args[0] for call in self.wake.call_args_list],
-                              [member.name for member in members])
+                              [member.name for member in members[:4]])
         for member in members[:4]:
             self.assertIn("land", self.wait(member))
         # Reusing a check does not buy another day of suite evidence.

@@ -240,8 +240,9 @@ class Lander(LanderFixture, unittest.TestCase):
         self.advance()
         owner = {"pid": 5678, "process_identity": {"boot": "fixture", "ticks": 2}}
         land.check_line(self.turn)
-        self.assertCountEqual([call.args[0] for call in self.wake.call_args_list],
-                              [green.name, red.name])
+        # red only on top of the green, it waits for the green to leave the line
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [green.name])
+        self.assertEqual(self.wait(red)["after"], {green.name: self.wait(green)["land"]})
         for directory, verdict in ((green, "land"), (red, "fix")):
             with self.subTest(verdict=verdict):
                 parked = record.read_state(directory)
@@ -260,6 +261,21 @@ class Lander(LanderFixture, unittest.TestCase):
                 self.assertEqual(current["review"], parked["review"])
                 drive.assert_called_once()
                 self.assertEqual(drive.call_args.kwargs["prior"], current)
+
+    def test_a_red_behind_a_run_that_leaves_the_line_unlanded_is_checked_again_alone(self):
+        green = self.member("acme-land")
+        red = self.member("acme-fix", joined=2, **{"broken.txt": "broken\n"})
+        self.advance()
+        land.check_line(self.turn)
+        land.check_line(self.turn)
+        self.assertNotIn(red.name, [call.args[0] for call in self.wake.call_args_list])
+        with record.record(green) as current:
+            current["state"] = "stopped"
+        self.wake.reset_mock()
+        land.check_line(self.turn)
+        self.assertIn("fix", self.wait(red))
+        self.assertEqual(self.wait(red)["after"], {})
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [red.name])
 
     def test_a_member_whose_rules_fail_once_a_red_ahead_is_removed_is_told(self):
         head = self.member("red-head", **{"broken.txt": "broken\n"})
