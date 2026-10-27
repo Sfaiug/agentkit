@@ -763,7 +763,7 @@ esac
             rows = orch.listing()
             self.assertEqual([s["name"] for s in rows], ["old-seat", "pinned", "unpinned"])
             self.assertFalse(rows[-1]["resumable"])
-            self.assertIn("starts fresh", rows[-1]["restart"])
+            self.assertEqual(rows[-1]["restart"], "starts a new Codex conversation")
 
     def test_a_renamed_seats_old_name_is_not_handed_to_a_new_one(self):
         """The orchestrator renamed away still answers to the name it was started under.
