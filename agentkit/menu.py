@@ -2984,19 +2984,36 @@ def marks_saved(name, selected, changed):
 
 # The models screen, `r recommended` on `c`: each role answered over every current model on the
 # boards (matrix.answer) and the one knob, `within` in config.toml.
-MODELS_KEYS = ("←→ points   r take   esc back", "left/right points   r take   esc back")
+MODELS_KEYS = ("↑↓ move   ←→ points   ⏎ why   r take   esc back",
+               "up/down move   left/right points   enter why   r take   esc back")
 NEAR = 2                          # the line's rows shown either side of the pick
 LEGEND = (("as good", "within {} points of the best, then the cheapest"),
           ("≈ tie", "the boards cannot tell it from ★ pick"),
           ("estimated", "scores no effort of it has, counted low"))
-KNOB = ("legend", "within")
+# the why's words: what a row does in each role, and each measure's evaluation by its name
+DOES = {"orchestrate": "orchestrates", "execute": "builds", "review": "reviews"}
+MEASURES = {"aa.briefcaseBreakdown.overall.elo": "AA-Briefcase", "aa.gdpval": "GDPval-AA",
+            "arena.agent": "Arena Agent", "aa.omniscience": "AA-Omniscience", "aa.lcr": "AA-LCR",
+            "aa.frontierCode": "FrontierCode", "aa.terminalBench40": "Terminal-Bench 4.0",
+            "arena.webdev": "Arena WebDev", "aa.deepsecBench": "DeepSec Bench",
+            "aa.gdpPdfAllPass": "GDP.pdf"}
+# a cost is a task of the evaluation its role's measure of the same name is from
+TASKS = {quality.COSTS[role]: MEASURES[column] for role, column in (
+    ("orchestrate", "aa.briefcaseBreakdown.overall.elo"), ("execute", "aa.terminalBench40"),
+    ("review", "aa.gdpPdfAllPass"))}
+BEHIND = "behind the best"
+
+
+def pointed(role, row):
+    """Where the models screen's pointer is on `row` of `role`'s answer."""
+    return ("row", role, row["release"], row["effort"])
 
 
 def models_said(answer):
     """What the models screen says of `answer` (matrix.answer) per role: (its head and best,
     `none` with no front, its lines): the front best first, the pick and up to NEAR rows either
-    side, each (name, ` effort` or "" for none, quality, cost, notes), and under a pick not
-    yours what `r` takes.  With no pick, no priced row being within `within` of the best, the
+    side, each (where the pointer is on it, name, ` effort` or "" for none, quality, cost,
+    notes), and under a pick not yours what `r` takes.  With no pick, no priced row being within `within` of the best, the
     front from its best, said so."""
     def effort(row):
         return f" {row['effort']}" if row["effort"] else ""
@@ -3012,7 +3029,7 @@ def models_said(answer):
                      "≈ tie" if pick and quality.tie(row, pick, role) else "",
                      f"{estimated} estimated" if estimated else "",
                      "" if row["yours"] else "no harness")
-            lines.append((row["name"], effort(row), f"{row['quality']:.1f}",
+            lines.append((pointed(role, row), row["name"], effort(row), f"{row['quality']:.1f}",
                           f"${row['cost']:.2f}", " · ".join(filter(None, notes))))
             if row is pick and not row["yours"]:
                 lines.append(f"r takes {take['name']}{effort(take)}, {take['quality']:.1f}, "
@@ -3022,41 +3039,45 @@ def models_said(answer):
     return said
 
 
-def models_body(said, within, compared, fetched):
-    """The models screen's lines, and the role each says or the legend: {line: (row, [])}.
+def models_body(said, within, compared, fetched, at=None):
+    """The models screen's lines, where its rows sit on them, {line: (row, [])}, the row `at`
+    marked, and the legend under them.
 
     Per role (models_said) its head over the columns, then its lines.  Where a row is too wide
     for the screen, from 40 cells up, each row's numbers and notes take a line under its name,
-    the name alone cut, its effort kept.  Then the legend, `within` between the arrows that step
+    the name alone cut, its effort kept.  The legend has `within` between the arrows that step
     it, the knob never broken, and how many models are `compared` and when the boards were read."""
     room, arrows = terminal.layout_width(), "‹ {} ›" if terminal.utf8() else "< {} >"
     rows = [line for _, lines in said for line in lines if isinstance(line, tuple)]
     widths = [max([terminal.cells(head) - 2 for head, _ in said]
-                  + [terminal.cells(name + effort) for name, effort, *_ in rows]),
+                  + [terminal.cells(name + effort) for _, name, effort, *_ in rows]),
               *(max(terminal.cells(text) for text in [head, *(row[n] for row in rows)])
-                for n, head in ((2, "quality"), (3, "a task"), (4, "")))]
+                for n, head in ((3, "quality"), (4, "a task"), (5, "")))]
     wide = 4 + sum(widths) + 6 <= room
     lines, places = [], {}
 
-    def put(line, here):
-        places[len(lines)] = (here, [])
+    def put(line, here=None):
+        if here is not None:
+            if here == at:
+                line = terminal.highlight(line, here not in [row for row, _ in places.values()])
+            places[len(lines)] = (here, [])
         lines.append(line)
-    for (head, said_lines), role in zip(said, quality.ROLES):
-        here, columns = ("role", role), ["quality", "a task"]
+    for head, said_lines in said:
+        here, columns = None, ["quality", "a task"]
         if wide and said_lines:
             put(terminal.table_row([head, *columns], [widths[0] + 2, *widths[1:3]], indent="  ",
-                                   kinds=(None, "dim", "dim"), right=(1, 2)), here)
+                                   kinds=(None, "dim", "dim"), right=(1, 2)))
         else:
-            put("  " + head, here)
+            put("  " + head)
             if said_lines:
                 put(terminal.table_row(columns, widths[1:3], indent="    ", kinds=("dim", "dim"),
-                                       right=(0, 1)), here)
+                                       right=(0, 1)))
         for line in said_lines:
-            if isinstance(line, str):     # the words under the pick, wrapped at words
+            if isinstance(line, str):     # the words under the pick, wrapped at words, are its row's
                 for part in terminal.wrap(line, room - 6):
                     put("      " + part, here)
                 continue
-            name, effort, *numbers, notes = line
+            here, name, effort, *numbers, notes = line
             if wide:
                 put(terminal.table_row([name + effort, *numbers, notes], widths, indent="    ",
                                        right=(1, 2)), here)
@@ -3066,19 +3087,85 @@ def models_body(said, within, compared, fetched):
             gap = " " * (terminal.cells(numbers) + 2)
             for number, part in enumerate(terminal.wrap(notes, room - len(gap)) or [""]):
                 put(((numbers + "  " if number == 0 else gap) + part).rstrip(), here)
-    put("", KNOB)
     knob = arrows.format(f"{within:g}")
     word = knob.replace(" ", "_")     # wrapped as one word, so the knob never breaks
-    for name, text in LEGEND:
-        for number, part in enumerate(terminal.wrap(text.format(word), room - 13)):
-            put(terminal.table_row(["" if number else name, part.replace(word, knob)],
-                                   [9, room - 13], indent="  ", kinds=(None, "dim")), KNOB)
+    legend = [""] + [terminal.table_row(["" if number else name, part.replace(word, knob)],
+                                        [9, room - 13], indent="  ", kinds=(None, "dim"))
+                     for name, text in LEGEND
+                     for number, part in enumerate(terminal.wrap(text.format(word), room - 13))]
     read = time.localtime(fetched or 0)
     text = f"comparing all {compared} models" + (" · boards read " + time.strftime(
         "%H:%M" if read[:3] == time.localtime()[:3] else "%d %b %H:%M", read) if fetched else "")
-    for part in terminal.wrap(text, room - 2):
-        put("  " + terminal.styled(part, "dim"), KNOB)
-    return lines, places
+    legend += ["  " + terminal.styled(part, "dim") for part in terminal.wrap(text, room - 2)]
+    return lines, places, legend
+
+
+def named(row, room):
+    """A row's model and effort in `room` cells, only the name cut."""
+    effort = f" {row['effort']}" if row["effort"] else ""
+    return terminal.cut(row["name"], room - terminal.cells(effort)) + effort
+
+
+def packed(parts, gap, room):
+    """`parts` on as few lines of `room` cells as hold them, `gap` between two on one line."""
+    lines = []
+    for part in parts:
+        if lines and terminal.cells(lines[-1] + gap + part) <= room:
+            lines[-1] += gap + part
+        else:
+            lines.append(part)
+    return lines
+
+
+def scored(row, column, kind):
+    """How `row` got its score on `column`, a measure of kind `kind`, in plain words."""
+    one = row["measures"].get(column)
+    if one is None:
+        return "no score"
+    if one["how"] == "carried":
+        return f"carried from {one['from']}"
+    if one["how"] == "estimated":
+        return f"estimated, counted {one['se']:.1f} low"
+    value = row["values"][column]
+    return "measured, " + (f"{100 * value:.1f}%" if kind == "share" else f"{value:g}")
+
+
+def models_why(found, role, row):
+    """The why of `row` of `role`'s answer `found` (matrix.answer): its quality and cost, how
+    far it is behind the role's best, each measure's points behind and how it was got, and
+    the rows `quality.tie` cannot tell from it, the best three named.  Where a measure's line is
+    too wide for the screen, its how takes a line under it; only a model's name is cut."""
+    room = terminal.layout_width() - 2
+    top = max(found["rated"], key=lambda one: one["quality"])
+    ties = sorted((one for one in found["rated"]
+                   if one is not row and quality.tie(one, row, role)),
+                  key=lambda one: -one["quality"])
+    hows = [(MEASURES[column], f"{one['points']:.1f}" if one else "", scored(row, column, kind))
+            for column, kind, _ in quality.ROLES[role] for one in [row["measures"].get(column)]]
+    width = max(terminal.cells(name) for name, _, _ in hows)
+    wide = width + 2 + len(BEHIND) + 2 + max(terminal.cells(how) for _, _, how in hows) <= room
+    lines = [f"why {named(row, room - len(f'why  {DOES[role]}'))} {DOES[role]}",
+             *packed([f"quality {row['quality']:.1f} ± {row['se']:.1f}",
+                      f"${row['cost']:.2f} a {TASKS[quality.COSTS[role]]} task"
+                      if row["cost"] is not None else "no cost"], "   ", room),
+             *(["the best"] if row is top else packed(
+                 [f"{top['quality'] - row['quality']:.1f} {BEHIND},", named(top, room)], " ",
+                 room)), "", terminal.table_row(["", BEHIND], [width, len(BEHIND)],
+                                                kinds=(None, "dim"))]
+    for name, points, how in hows:
+        lines += ([terminal.table_row([name, points, how], [width, len(BEHIND), len(how)],
+                                      right=(1,))] if wide else
+                  [terminal.table_row([name, points], [width, len(BEHIND)], right=(1,)),
+                   "  " + how])
+    lines.append("")
+    if ties:
+        lines += [*terminal.wrap(f"≈ tie with {len(ties)} row{'s' * (len(ties) > 1)}, "
+                                 "among them:", room),
+                  *("  " + part for part in packed([named(one, room - 2) for one in ties[:3]],
+                                                   " · ", room - 2))]
+    else:
+        lines += terminal.wrap("no tie: the boards tell it from every other row", room)
+    return ["  " + line if line else line for line in lines]
 
 
 def config_within(cfg, step):
@@ -3098,12 +3185,14 @@ def models_screen(cfg, session, selected, providers):
     answered over every current model (models_body) until Esc.  The boards are read as it opens
     (matrix.refresh), the rule gliding until they land and what was stored standing meanwhile, a
     failed reading said under the rows; the answer is computed once per landing and per knob
-    step, never per draw.  ←/→ step `within`, saved at once (config_within); ↑/↓ turn the page a
-    role at a time.  `r` takes each role's take (takes, take_advice): the seat's executors and
+    step, never per draw.  ←/→ step `within`, saved at once (config_within).  ↑/↓ move the
+    pointer over the rows shown, from the first role's pick; one whose row a step leaves
+    unshown goes to its role's pick.  ⏎ or a click opens the pointed row's why (models_why)
+    until Esc.  `r` takes each role's take (takes, take_advice): the seat's executors and
     reviewers, the orchestrator only said; without a seat new seats' three roles.
     """
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
-    here, top, note, title = ("role", "orchestrate"), 0, "", f"models · {session or NEW_SEATS}"
+    here, top, note, title = None, 0, "", f"models · {session or NEW_SEATS}"
     clock = motion.Clock(page=True)
     while True:
         if fetch is not None and not fetch.is_alive():
@@ -3118,10 +3207,17 @@ def models_screen(cfg, session, selected, providers):
             lineup = held.get("lineup") or []
             answer = matrix.answer(lineup, matrix.within(cfg))
             said, compared = models_said(answer), len({row["release"] for row in lineup})
-        body, places = models_body(said, matrix.within(cfg), compared, held.get("fetched_at"))
-        rows = list(dict.fromkeys(row for row, _ in places.values()))
+            rows = [line[0] for _, lines in said for line in lines if isinstance(line, tuple)]
+            if here not in rows:
+                role = here[1] if here else next(iter(quality.ROLES))
+                pick = answer[role]["pick"]
+                here = pointed(role, pick) if pick else next(
+                    (row for row in rows if row[1] == role), rows[0] if rows else None)
+        body, places, legend = models_body(said, matrix.within(cfg), compared,
+                                           held.get("fetched_at"), here)
         act, here, _, top = matrix_key(title, body, places, rows, here, top, note,
                                        MODELS_KEYS[0 if terminal.utf8() else 1], marks=0,
+                                       under=legend,
                                        clock=clock, fetched=lambda: fetch.began
                                        if fetch is not None and fetch.is_alive() else None,
                                        # one landed since the look above is taken at once
@@ -3133,6 +3229,13 @@ def models_screen(cfg, session, selected, providers):
             return
         if act == "r":
             note = take_advice(cfg, session, selected, providers, takes(cfg, answer))
+        elif act == "enter" and here:
+            _, role, *at = here
+            row = next(row for row in answer[role]["front"]
+                       if [row["release"], row["effort"]] == at)
+            while matrix_key(title, models_why(answer[role], role, row), {}, [], None, 0, "",
+                             "esc back")[0] != "back":
+                pass
         elif act in ("left", "right", "less", "more"):
             note, answer = config_within(cfg, 1 if act in ("right", "more") else -1), None
 

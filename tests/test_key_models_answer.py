@@ -1,6 +1,6 @@
 """`r recommended` on `c` answers each role over every current model on the boards: its best,
 then its line of best quality for the money around the pick, each row's notes, and under a pick
-no harness of yours runs what `r` takes.  ←/→ step `within` and the answer follows; on 40 cells
+no harness of yours runs what `r` takes, the pointer on the first role's pick.  ←/→ step `within` and the answer follows; on 40 cells
 each row's numbers take a line under its name.  `r` takes each role's take at its effort: into
 new seats' [defaults] in a window of its own, and into a seat's record alone, its orchestrator
 only said, over a seat; a save that fails changes nothing and says why.
@@ -25,7 +25,7 @@ from fixtures.akterm import SERVER, Terminal
 NOW = int(time.time())
 ENV = {"NO_COLOR": "1", "TZ": "UTC", **{name: "http://127.0.0.1:9" for name in (
     "http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}}
-KEYS = "  ←→ points   r take   esc back"
+KEYS = "  ↑↓ move   ←→ points   ⏎ why   r take   esc back"
 EVALUATIONS = ("aa-briefcase", "terminalbench-4-0", "gdp-pdf")     # each role's cost a task
 # Per release and effort: intelligence index, frontier-code and terminal shares, DeepSec Bench,
 # documents passing every check, Arena's agent share and cost a task; each but Crux 2 at Arena's
@@ -69,7 +69,7 @@ def boards():
 ORCH = ["  orch · best 100.0    quality  a task",
         "    Acme Max 5 max       100.0  $20.00  ≈ tie · no harness",
         "    Acme Mid 5 high       99.8  $15.00  ≈ tie",
-        "    Bolt 3 medium         99.6   $3.00  ★ pick",
+        "›   Bolt 3 medium         99.6   $3.00  ★ pick",    # the pointer starts on it
         "    Crux 2 low            94.0   $1.00"]
 BUILDS = ["  builds · best 100.0  quality  a task",
           "    Acme Max 5 max       100.0  $20.00  ≈ tie · no harness",
