@@ -119,6 +119,11 @@ class TaskChange(unittest.TestCase):
     def test_one_line_more_ends_the_run_blocked_before_any_review(self):
         self.blocked("Past the ceiling", f"The change on ak/past-the-ceiling adds 301 lines {TAIL}")
 
+    def test_one_line_more_is_refused_before_its_checks_run(self):
+        # refused straight after the build: no done-when check, no fixer turn
+        self.assertNotRegex((self.runs["Past the ceiling"][1] / "log.txt").read_text(),
+                            r"done-when: (all passed|FAILED)")
+
     def test_the_blocked_run_keeps_its_work_on_its_branch_for_the_pieces(self):
         branch = "ak/past-the-ceiling"
         self.assertEqual(self.runs["Past the ceiling"][2]["branch"], branch)
