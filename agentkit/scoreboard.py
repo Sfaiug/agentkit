@@ -17,8 +17,8 @@ PARTS = (("model", ("executor", "reviewer")), ("ak", ("done-when", "merge")),
 
 # What the board measures, row by row: the board's key, the row's label, and the parts each
 # week's cell is built from, in the vision's order (quality and speed, then cost, then size).
-# The owner's yes changes it (AGENTS.md, Owner rules), and tests/test_scoreboard_measures.py
-# pins it, so a board that measures something else is a visible test change, never a quiet one.
+# tests/test_scoreboard_measures.py pins it, so a board that measures something else is a visible
+# test change, never a quiet one.
 MEASURES = (
     ("products", "products", ("runs", "merged", "first_round", "unmerged", "hours", "tokens")),
     ("ak", "ak", ("runs", "merged", "first_round", "unmerged", "hours", "tokens", "token_share")),

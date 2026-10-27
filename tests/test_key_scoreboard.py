@@ -2,8 +2,8 @@
 one saying so in words, and the runs on ak itself counted in the `ak` row as cost, never among
 the products.
 
-The owner judges ak week by week from this board (AGENTS.md, Owner rules), and what it measures
-changes only with the owner's yes, so its rows and their order are pinned.  Work on ak itself is
+The owner judges ak week by week from this board (AGENTS.md, Owner rules), so its rows and their
+order are pinned.  Work on ak itself is
 what ak costs, not what it delivers: a run on a repository named as the checkout ak runs from
 counts in the `ak` row, with its share of every token the week's runs reported, and not in
 `products`.  Black-box: the program `AK_BIN` names runs from outside through

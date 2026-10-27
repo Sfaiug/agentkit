@@ -1,5 +1,5 @@
-"""What the scoreboard measures is pinned here, so the board changes only with the owner's yes
-and a visible test change (AGENTS.md, Owner rules, 14 Oct 2026): the rows and the parts each
+"""What the scoreboard measures is pinned here, so the board changes only with a visible test
+change (AGENTS.md, Owner rules, 14 Oct 2026): the rows and the parts each
 cell is built from (`scoreboard.MEASURES`), the rows and parts `compute` answers with, and
 the labels `render` shows, in that order; tests/test_scoreboard.py holds the words `render`
 says of each part, tests/test_who_built.py those of `built` and `parks`,
@@ -24,8 +24,8 @@ from agentkit import config, scoreboard, terminal
 
 NOW = 1_800_000_000
 
-# The owner's yes: these rows and parts, nothing else.  A measure added, dropped or renamed
-# changes this tuple in the same change, under the owner line that allows it.
+# These rows and parts, nothing else.  A measure added, dropped or renamed changes this tuple
+# in the same change, under a line saying who decided it and when.
 PINNED = (
     ("products", "products", ("runs", "merged", "first_round", "unmerged", "hours", "tokens")),
     ("ak", "ak", ("runs", "merged", "first_round", "unmerged", "hours", "tokens", "token_share")),
