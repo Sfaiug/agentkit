@@ -948,6 +948,15 @@ def held_efforts(entry, keys):
     return {**dict.fromkeys(keys, entry["effort"]), **entry}
 
 
+def orchestrating_at(models, data, model, effort):
+    """Seat record `data`'s efforts with `model`'s orchestrator effort at `effort`, every other
+    key kept and one that followed it set where it stood, so its builds and reviews stay as they
+    were; a model it holds none for starts from its entry's in `models`."""
+    efforts = dict(data.get("efforts") or {})
+    own = efforts.get(model) or efforts_of(models[model])
+    return {**efforts, model: {**held_efforts(own, ROLE_EFFORTS.values()), "effort": effort}}
+
+
 def at_efforts(cfg, record):
     """`cfg` as the seat or run `record` runs it: each model its `efforts` names (own_efforts, a
     receipt's every model's as launched) at those, every other at its entry's own."""

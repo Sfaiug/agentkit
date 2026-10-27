@@ -53,6 +53,17 @@ class SeatFollows(Sandbox):
         self.assertEqual(self.looked(("opus", 60, "xhigh")), "opus")
         self.assertEqual(self.looked(("opus", 90, "high")), "opus-high")    # `/effort`
 
+    def test_an_effort_typed_inside_becomes_the_seat_s_orchestrator_effort_alone(self):
+        def held():
+            return config.session_records()[NAME]["efforts"]["opus"]
+        config.change_efforts(NAME, lambda data: {"opus": {"effort": "xhigh",
+                                                            "review_effort": "max"}})
+        self.assertEqual(self.looked(("opus", 30, "low")), "opus")
+        self.assertEqual(held(), {"effort": "low", "exec_effort": "xhigh", "review_effort": "max"})
+        self.looked(("opus", 60, None))
+        self.looked(("opus", 90, "turbo"))          # no effort Opus takes
+        self.assertEqual(held()["effort"], "low")
+
     def test_an_answer_up_to_the_launch_moves_nothing(self):
         self.assertEqual(self.looked(("fable", -30, None)), "opus")
         self.assertEqual(self.looked(("fable", 0, None)), "opus")

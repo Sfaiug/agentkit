@@ -1598,9 +1598,11 @@ def follow_model(cfg, name):
     in the seat was launched counts (`launched` in its record, written once it is up), so a
     move on `c` is not undone by the old model's last answer; a seat launched before launches
     were written down counts every answer.  The model is the configured entry running it on
-    that harness, the seat's own first, at the effort the answer recorded where one does; a
-    model no entry runs, a seat on its harness's own model, or an answer that cannot be read
-    leaves the record as it is."""
+    that harness, the seat's own first, at the effort the answer recorded where one does, and
+    `/effort` typed inside moves that entry's orchestrator effort in the seat's record, its
+    builds and reviews where they stood.  A model no entry runs, a seat on its harness's own
+    model, an answer that cannot be read, or an effort it records none of or its model does not
+    take leaves the record as it is."""
     try:
         record = config.load_session(cfg, name, required=False)
         entry = record and config.model(cfg, record["orchestrator"])
@@ -1619,10 +1621,15 @@ def follow_model(cfg, name):
     kept, models = record["orchestrator"], config.at_efforts(cfg, record)["models"]
     runs = [each for each in (kept, *config.offered(cfg))
             if (models[each]["harness"], models[each]["model"]) == (entry["harness"], ran[0])]
-    chosen = next((each for each in runs if models[each].get("effort") == ran[1]),
-                  runs[0] if runs else kept)
+    if not runs:
+        return
+    chosen = next((each for each in runs if models[each].get("effort") == ran[1]), runs[0])
     if chosen != kept:
         config.update_session(name, orchestrator=chosen)
+    if ran[1] != models[chosen]["effort"] and ran[1] in config.efforts(
+            entry["harness"], ran[0], config.catalog_held):     # a look waits on no listing
+        config.change_efforts(name, lambda data: config.orchestrating_at(
+            cfg["models"], data, chosen, ran[1]))
 
 
 def cancelled(harness, name, pane):
