@@ -69,7 +69,7 @@ def boards():
 ORCH = ["  orch · best 100.0    quality  a task",
         "    Acme Max 5 max       100.0  $20.00  ≈ tie · no harness",
         "    Acme Mid 5 high       99.8  $15.00  ≈ tie",
-        "›   Bolt 3 medium         99.6   $3.00  ★ pick",    # the pointer starts on it
+        "    Bolt 3 medium         99.6   $3.00  ★ pick",
         "    Crux 2 low            94.0   $1.00"]
 BUILDS = ["  builds · best 100.0  quality  a task",
           "    Acme Max 5 max       100.0  $20.00  ≈ tie · no harness",
@@ -145,7 +145,8 @@ class ModelsAnswer(unittest.TestCase):
     def test_each_role_is_answered_and_a_knob_step_moves_the_pick(self):
         term, shown = self.models()
         at = shown.index(ORCH[0])
-        self.assertEqual(shown[at:at + 21], [*ORCH, *BUILDS, *REVIEWS, "", *LEGEND])
+        pointed = [*ORCH[:3], "›" + ORCH[3][1:], *ORCH[4:]]    # the pointer starts on the pick
+        self.assertEqual(shown[at:at + 21], [*pointed, *BUILDS, *REVIEWS, "", *LEGEND])
         self.assertEqual(next(line for line in reversed(shown) if line), KEYS)
         term.keys("Left")
         shown = lines(term.wait("within ‹ 4 ›"))
