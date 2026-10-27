@@ -2645,7 +2645,7 @@ def usage_columns(width):
     return max(1, min(3, width // (COLUMN + 2)))
 
 
-def usage_lines(cfg, width, lit=None, rows=None, spans=None, ending=None):
+def usage_lines(cfg, width, lit=None, rows=None, spans=None, ending=None, columns=None):
     """The cached weekly allowances as a grid, without probing adapters or spending a reset:
     each subscription (`usage_cells`), as many to a line as `usage_columns` fits, by its label,
     a meter -- `▰` left, `▱` spent -- and what its cell says.  At rest no company's colour is
@@ -2656,12 +2656,13 @@ def usage_lines(cfg, width, lit=None, rows=None, spans=None, ending=None):
     a label beside it has no grid (`[]`), the screen saying the readings (`usage_summary`).
     `spans`, where handed in, gets each one's cells that take its colour: {number: [(line,
     column, text, what it is drawn in at rest)]}, the line from 0 and the column from 1;
-    `ending`, `login_notes` of `rows` where the caller has read them already."""
+    `ending`, `login_notes` of `rows` where the caller has read them already; `columns`, as
+    many to a line as `Subscriptions` draws, one."""
     rows = usage_rows(cfg) if rows is None else rows
     found = [(*cell[:3], terminal.plain(cell[3])) for cell in usage_cells(cfg, rows=rows)]
     if not found:
         return []
-    columns, room = usage_columns(width), min(COLUMN, width - 2)
+    columns, room = columns or usage_columns(width), min(COLUMN, width - 2)
     # what a cell says beside its label: its meter at the least, four cells, then its share
     said_room = max(terminal.cells(said) + (6 if left else 0) for _, _, left, said in found)
     label_room = min(12, room - 2 - said_room,
@@ -2826,7 +2827,8 @@ SUBSCRIPTION_ACTS = (("↻ log in again", "log in again"), ("↻ spend a reset",
                      ("− remove", "- remove"))
 # What `+ add a subscription` offers each provider the shipped default has as: its company, and
 # the harness it runs on; any other is its name.  One shipped on a harness that runs any
-# provider (config.provider_hosts) is offered among that harness's own.
+# provider (config.provider_hosts) is offered among that harness's own.  `Subscriptions` heads
+# a provider's with its company alone.
 COMPANIES = {"anthropic": "Anthropic / Claude Code", "openai": "OpenAI / Codex",
              "meta": "Meta / Muse", "xai": "xAI / Grok Build", "google": "Google / Antigravity"}
 # What `− remove` asks, and what it means; then the same about one subscription of a provider.
@@ -4128,23 +4130,100 @@ def meter_acts(cfg, keyboard, number, screen):
     return "" if chosen is None else acts[chosen]()
 
 
+# The owner chose this layout on 26 Oct 2026, so the details stay calm until pointed at.
+@terminal.clicks_its_own
 def config_subscriptions(cfg, keyboard):
-    """`Subscriptions` on `c`: a row for each subscription, saying when its login ends where it
-    soon does (login_notes) and the resets it holds, Enter opening what it offers under it
-    (subscription_acts, `remove` too); then `+ add a subscription` (config_add_provider)."""
-    def acts(number):     # `− remove`, last, highlighted: only a move or a click picks another
-        offered = subscription_acts(cfg, keyboard, number, remove=True)
-        return [(text, act, at == len(offered)) for at, (text, act) in enumerate(offered, 1)]
+    """`Subscriptions` on `c`: each subscription under its company (COMPANIES) as the main screen
+    draws it (usage_lines) with its resets in hand, then `+ add a subscription`
+    (config_add_provider).  The row the keys or the pointer are on opens a line: whose login it
+    is and its plan (logins.whose; one ending as login_notes says it, amber), resets with no room
+    beside its meter, then its acts (subscription_acts), ←/→ or the pointer moving, Enter or a
+    click running one.  One an act adds is asked whose it is (logins.renewed), then pointed at."""
+    from . import logins    # here, not at the top: logins names subscriptions through the menu
+    here, column, top, said = ("sub", 1), None, 0, ""     # column None: as the line opens
+    keys = terminal.keys("esc back")
+    while True:
+        subs, width = usage_rows(cfg), terminal.layout_width()
+        ids = [*(("sub", number) for number in range(1, len(subs) + 1)), ("row", "add")]
+        here = here if here in ids else ids[-1]      # its row removed: onto the last
+        at = None if terminal.away() else here
+        lit = at[1] if at and at[0] == "sub" else None
+        ending = login_notes(subs)
+        drawn = usage_lines(cfg, width, lit=lit, rows=subs, ending=ending, columns=1) or [
+            "  " + label for _, label, _, _ in subs]     # no room for a meter beside a label
+        body, places, acts = [], {}, []
+        for number, ((name, _, prov, account), line) in enumerate(zip(subs, drawn), 1):
+            if number == 1 or subs[number - 2][0] != name:
+                body.append(terminal.styled(COMPANIES[name].split(" / ")[0] if name in COMPANIES
+                                            else provider_name(cfg, name), "bold"))
+            held = in_hand(prov)
+            beside = held and terminal.cells(f"{terminal.plain(line)} · {held}") <= width
+            line += terminal.styled(f" · {held}", "dim") if beside else ""
+            places[len(body)] = (("sub", number), [])
+            body.append(terminal.highlight(line) if number == lit else line)
+            if number == lit:
+                acts = subscription_acts(cfg, keyboard, number, remove=True)
+                # lit on the first act, never `remove`, last, so a lone one waits for a move
+                column = ((0 if len(acts) > 1 else None) if column is None
+                          else min(column, len(acts) - 1))
+                email, plan = logins.whose(name, account)
+                told = " · ".join(filter(None, (ending[number - 1] or email, plan,
+                                                not beside and held)))
+                for shown, cells in opened_line(told, "amber" if ending[number - 1] else "dim",
+                                                [text for text, _ in acts], column, width - 4):
+                    places[len(body)] = (("sub", number), cells)
+                    body.append(shown)
+        body.append("")
+        places[len(body)] = (("row", "add"), [])
+        body.append(terminal.highlight("  + add a subscription", at == ("row", "add")))
+        act, moved, clicked, top = matrix_key("config · subscriptions", body, places, ids, here,
+                                              top, said, keys, marks=len(acts))
+        if clicked is not None:
+            column = clicked
+        elif moved != here:
+            column = None             # another row's line opens as a line does
+        here = moved
+        if act is None:
+            continue                  # a resize or the pointer: drawn again
+        said = ""
+        if act == "back":
+            return
+        if act in ("left", "right") and acts:
+            column = 0 if column is None else min(max(column + (1 if act == "right" else -1), 0),
+                                                  len(acts) - 1)
+        elif act in ("enter", "space") and (acts and column is not None or here[0] == "row"):
+            def signed(rows):     # a provider's only login is its usual one, listed or not
+                return [(name, account or config.DEFAULT_ACCOUNT) for name, _, _, account in rows]
+            before = signed(subs)
+            said = (acts[column][1]() if here[0] == "sub"
+                    else config_add_provider(cfg, keyboard)) or ""
+            after = signed(usage_rows(cfg))
+            added = [number for number, login in enumerate(after, 1) if login not in before]
+            for number in added:      # whose login it is, for its line
+                logins.renewed(cfg, *after[number - 1])
+            if added:
+                here, column = ("sub", added[0]), None
 
-    def page():
-        subs = usage_rows(cfg)
-        rows = [(label, " · ".join(filter(None, (ends, in_hand(prov)))),
-                 (lambda number=number: acts(number), False))
-                for number, ((_, label, prov, _), ends)
-                in enumerate(zip(subs, login_notes(subs)), 1)]
-        return [*rows, ("+ add a subscription", "",
-                        lambda _draw: config_add_provider(cfg, keyboard))], ""
-    config_page("subscriptions", page)
+
+def opened_line(told, kind, texts, column, room):
+    """The line a pointed row of `Subscriptions` opens: `told` in `kind`, then `texts` three
+    spaces apart, the one at `column` reversed (bracketed with no colour), wrapped in `room`
+    cells, never cut; each line with its texts' places, (first, last, index), from 1."""
+    pieces = [(terminal.styled(part, kind), None) for part in terminal.wrap(told, room) if part]
+    for index, text in enumerate(texts):
+        pieces.append((text if index != column else terminal.styled(text, "reverse")
+                       if terminal.colour_depth() else f"[{text}]", index))
+    lines, used = [("    ", [])], 0
+    for shown, index in pieces:
+        wide = terminal.cells(terminal.plain(shown))
+        if used and used + 3 + wide > room:
+            lines, used = [*lines, ("    ", [])], 0
+        gap = 3 if used else 0
+        if index is not None:
+            lines[-1][1].append((5 + used + gap, 4 + used + gap + wide, index))
+        lines[-1] = (lines[-1][0] + " " * gap + shown, lines[-1][1])
+        used += gap + wide
+    return lines
 
 
 def page_body(rows, at=None):
