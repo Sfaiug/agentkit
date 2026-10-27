@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import box, config, gate, handback, job as jobs, record, run
+from agentkit import box, config, gate, handback, job as jobs, record, run, waiter
 
 OLD = "aaa1111"
 NEW = "bbb2222"
@@ -144,10 +144,26 @@ class QueuedRunWaitsOnTheInstalledCode(unittest.TestCase):
             return {"state": "running", "queued_at": self.queued_at}
 
         with patch.object(gate, "wait_for_slot", wait_for_slot), \
-                patch.object(run, "pickup_while_queued", offered.append):
+                patch.object(run, "pickup_while_queued", lambda *a: offered.append(a)):
             with run.run_slot(self.run_dir):
                 pass
-        self.assertEqual(offered, [self.run_dir])
+        self.assertEqual(offered, [(self.run_dir, None)])
+
+    def test_a_launch_behind_the_first_waits_in_the_waiter_and_comes_back_counted(self):
+        self.assertTrue(run.pickup_while_queued(self.run_dir, (1000.0, 5.0),
+                                                execv=lambda *a: self.execs.append(a)))
+        ak = [sys.executable, str(config.REPO / "bin" / "ak"), *sys.argv[1:]]
+        self.assertEqual(self.execs, [(sys.executable, [
+            sys.executable, "-I", "-S", waiter.__file__, str(config.RUNS / ".slots.queue"),
+            self.run_dir.name, str(gate.SLOT_POLL), str(config.REPO), OLD, *ak])])
+        self.assertEqual(os.environ[gate.SLOT_WAIT_ENV], "1000.0 5.0")
+        counted = []
+        with patch.object(gate, "count_wait", lambda *a: counted.append(a)), \
+                patch.object(gate, "_host_admits", return_value=True):
+            state = gate.wait_for_slot(self.run_dir)
+        self.assertEqual((state["state"], state["slot_waited"]), ("running", True))
+        self.assertEqual(counted, [(self.run_dir.name, "slot", (1000.0, 5.0))])
+        self.assertNotIn(gate.SLOT_WAIT_ENV, os.environ)
 
 
 if __name__ == "__main__":

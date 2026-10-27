@@ -21,7 +21,8 @@ def behind_first(queue, run_id, now, poll):
     admitted.  A queue no poll rewrote for two polls -- its first stopped or died -- is counted
     again by whoever polls next."""
     try:
-        saved = json.loads(open(queue, encoding="utf-8").read())
+        with open(queue, encoding="utf-8") as file:
+            saved = json.load(file)
         at, waiting = float(saved["at"]), [str(run_id) for run_id in saved["queue"]]
     except (OSError, ValueError, KeyError, TypeError):
         return False
