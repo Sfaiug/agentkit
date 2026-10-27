@@ -4030,7 +4030,7 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
     """Each of `verbs` of `harness`'s adapter (one with its words, `login again`), run as
     install.sh runs them, for `account`'s
     login when one is named and of `provider` when one is (config.provider_env), with the
-    terminal given back for them and taken again after.  The
+    terminal given back for them, each said in one line as it starts, and taken again after.  The
     first that fails ends them, and waits until what it said has been read: what to say about
     it under the matrix, or "".  No verbs is nothing to run, and the terminal stays."""
     if not verbs:
@@ -4038,6 +4038,9 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
     keyboard.give()
     failed = ""
     for verb in verbs:
+        # a harness can take seconds to draw its own screen, and a blank one reads as hung
+        print(f"Installing {config.harness_name(harness)}…" if verb == "install"
+              else f"Opening {config.harness_name(harness)} to log in…", flush=True)
         try:
             code = subprocess.run([str(config.adapter(harness)), *verb.split()],
                                   env={**config.child_env(), **config.account_env(account),
