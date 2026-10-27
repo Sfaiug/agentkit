@@ -8,7 +8,8 @@ its own, the way tests/test_close_and_info.py runs the menu, in a temporary HOME
 config.toml is the shipped default plus a Haiku, for the seat `fix-api` whose record the child
 writes first.  The harness catalog is faked -- Haiku takes only `none`, Opus low to max -- and
 so are agentkit's build under the rows, the Discord step itself, the meters, and the
-orchestrator switch, which only writes the record; a harness's version is never asked.
+orchestrator switch, which only writes the record, asking nothing; a harness's version is never
+asked.
 Nothing here reads or writes the owner's ~/.agentkit, and the only process signalled is the
 test's own child.
 """
@@ -51,8 +52,9 @@ if session:     # the seat whose roles the marks are, with no reviewers of its o
     config.save_session(config.load(), session, "opus", json.loads(os.environ["MATRIX_WORKERS"]),
                         {"cwd": "/", "created": 0})
 usage.collect = lambda cfg, **kwargs: usage.Readings({})
-orch.switch_orchestrator = lambda cfg, name, model, providers=None, **_kw: (
-    config.update_session(name, orchestrator=model), "")[1]
+orch.switch_orchestrator = lambda cfg, name, model, providers=None, effort=None, **_kw: (
+    config.update_session(name, orchestrator=model), effort and config.change_efforts(
+        name, lambda data: config.orchestrating_at(cfg["models"], data, model, effort)), "")[-1]
 with closing(terminal.Keyboard()) as keyboard:
     menu.show_config(False, keyboard, session)
 print("<left>", flush=True)

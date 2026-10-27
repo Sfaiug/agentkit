@@ -1,4 +1,4 @@
-"""On a seat's `c`, an effort step changes that seat's own efforts, in its record, and
+"""On a seat's `c`, a build effort step changes that seat's own efforts, in its record, and
 nothing else: no other seat's record and not config.toml, whose entries are what new seats take.
 
 The owner (24 Oct 2026): inside a session, `c` edits only that session.  Black-box: the program
@@ -35,9 +35,11 @@ def key_line(screen):
     return next((line for line in reversed(lines(screen)) if line), "")
 
 
-def opus_effort(screen):
-    """The effort Opus 5.5's row shows beside its orchestrator mark, after that mark's bar."""
-    return next(line.split()[5] for line in lines(screen) if line.lstrip("› ").startswith("Opus 5.5"))
+def opus_efforts(screen):
+    """The efforts Opus 5.5's row shows beside its orchestrator and builds marks, each after
+    that mark's bar."""
+    return next(line.split()[5:9:3] for line in lines(screen)
+                if line.lstrip("› ").startswith("Opus 5.5"))
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -87,16 +89,16 @@ class SeatEfforts(unittest.TestCase):
 
     def test_a_step_on_a_seat_s_c_is_that_seat_s_alone(self):
         term, screen = self.c("acme-fix")
-        self.assertEqual(opus_effort(screen), "xhigh")
-        term.keys("Right", "Enter")      # onto the orchestrator's effort, and a step
-        term.wait(lambda screen: opus_effort(screen) == "max")
-        # the build effort beside it stays where it was
+        self.assertEqual(opus_efforts(screen), ["xhigh", "xhigh"])
+        term.keys("Right", "Right", "Right", "Enter")      # onto the build effort, and a step
+        # the orchestrator's effort beside it stays where it was
+        term.wait(lambda screen: opus_efforts(screen) == ["xhigh", "max"])
         self.until(lambda: self.record("acme-fix")["efforts"]["opus"] == {
-            "effort": "max", "exec_effort": "xhigh"},
+            "effort": "xhigh", "exec_effort": "max"},
                    "acme-fix's record never took the step")
         self.assertEqual(self.record("acme-fix")["efforts"]["astra"], EFFORTS["astra"])
         self.others_kept()
-        self.assertEqual(opus_effort(self.c("acme-ask")[1]), "xhigh")
+        self.assertEqual(opus_efforts(self.c("acme-ask")[1]), ["xhigh", "xhigh"])
 
 
 if __name__ == "__main__":

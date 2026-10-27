@@ -1,6 +1,6 @@
 """On a seat's `c` each role its one model is marked for shows that role's effort after its mark,
-under no effort column, and Enter on one, or a click on its bar, steps that role's key alone in
-the seat's record (the owner, 24 Oct 2026).  Black-box: `AK_BIN` as the popup over an akseat.py
+under no effort column, and Enter on a build or review one, or a click on its bar, steps that
+role's key alone in the seat's record (the owner, 24 Oct 2026).  Black-box: `AK_BIN` as the popup over an akseat.py
 seat in an akterm.py terminal, its harnesses fakeadapter.py's; it fails against `/bin/false`."""
 
 import json

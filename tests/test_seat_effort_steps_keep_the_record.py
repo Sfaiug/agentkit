@@ -1,5 +1,7 @@
-"""A seat's effort step and `r` on its `c` set their keys on its record as it stands, so a key
-saved since the screen opened is kept, and the open screen then holds what was saved.
+"""A seat's build or review effort step and `r` on its `c` set their keys on its record as it
+stands, so a key saved since the screen opened is kept; a step of its orchestrator's effort
+writes nothing itself, handing the level to the seat's restart; the open screen then holds what
+was saved.
 
 In-process, in a throwaway HOME (tests/fixtures/sandbox.py): seat `fix-api` on the shipped
 config, its record changed behind an open screen's back.
@@ -35,14 +37,33 @@ class SeatEffortSteps(Sandbox):
                          {"effort": "xhigh", "review_effort": "high", "exec_effort": "low"})
         self.assertEqual(self.selected["efforts"], self.held())
 
-    def test_an_orchestrator_step_holding_the_others_keeps_a_key_saved_since(self):
-        # the matrix holds the row's other efforts: one saved since stays, a following one is
-        # kept at the effort it followed
-        note = menu.config_effort(self.cfg, "opus", 0, to=0, seat=("fix-api", self.selected),
-                                  hold=["exec_effort", "review_effort"])
+    def test_an_orchestrator_step_writes_nothing_itself_and_restarts_the_seat_at_it(self):
+        # the restart, faked, writes the record as the real one does; the screen then holds it
+        handed = []
+
+        def restart(cfg, name, model, effort=None, asked=None, **_kw):
+            handed.append((name, model, effort, asked(False), self.held()))
+            config.change_efforts(name, lambda record: config.orchestrating_at(
+                cfg["models"], record, model, effort))
+            return ""
+        before = self.held()
+        with patch.object(menu.terminal, "confirm", return_value=True), \
+                patch.object(menu.orch, "switch_orchestrator", side_effect=restart):
+            note = menu.config_effort(self.cfg, "opus", 0, to=0, seat=("fix-api", self.selected),
+                                      around=lambda card: 0)
         self.assertEqual(note, "")
+        self.assertEqual(handed, [("fix-api", "opus", "low", True, before)])
         self.assertEqual(self.held()["opus"],
                          {"effort": "low", "review_effort": "high", "exec_effort": "xhigh"})
+        self.assertEqual(self.selected["efforts"], self.held())
+
+    def test_an_orchestrator_step_on_a_record_that_will_not_read_says_why(self):
+        config.session_path("fix-api").write_text("{")
+        with patch.object(menu.terminal, "confirm", return_value=True), \
+                patch.object(usage, "collect", return_value={}):
+            note = menu.config_effort(self.cfg, "opus", 0, to=0, seat=("fix-api", self.selected),
+                                      around=lambda card: 0)
+        self.assertIn("session-fix-api.json", note)
 
     def test_r_keeps_a_key_saved_since_and_the_screen_holds_what_it_saved(self):
         note = menu.take_advice(self.cfg, "fix-api", self.selected, {},
