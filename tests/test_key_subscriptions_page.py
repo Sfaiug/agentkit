@@ -71,7 +71,7 @@ class SubscriptionsPage(unittest.TestCase):
         self.term.keys("Down", "Down", "Down")        # past GPT-6-Astra and `Models`
         self.term.wait("› Subscriptions")
         self.term.keys("Enter")
-        self.page = self.term.wait(lambda screen: PAGE_KEYS in lines(screen))
+        self.page = self.term.wait(lambda shown: title(shown) == PAGE and PAGE_KEYS in lines(shown))
 
     def test_each_subscription_sits_under_its_company_with_the_main_screen_s_meter(self):
         self.assertEqual(body(self.page), [
