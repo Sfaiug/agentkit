@@ -513,24 +513,26 @@ def _verify_held(name, check=None):
         text = [results.get(identity(line), line) for line in present]
         # only onto the plan it checked: one that lost those lines is never written over,
         # let alone with an empty plan
-        written_back = any(identity(line) in results for line in present)
-        if written_back:
+        if any(identity(line) in results for line in present):
             write(current, text)
-    for repo, found, commit in passing.values() if written_back else ():
+        # only lines ticked here: one replaced while its check ran was never ticked
+        ticks = [passing[bare] for bare in map(identity, present) if bare in passing]
+    for repo, found, commit in ticks:
         retire(repo, found, commit)
     return [line.strip() for line in text if is_open(line)]
 
 
 def retire(repo, found, commit):
     """End each run that only repeats a line just ticked on `commit`: one queued in the line's
-    repository with the line's check as its follow-up's, that never held a slot, so never
-    started -- it would keep its seat working until a slot frees, hours in a busy queue.  It
-    ends as `ak run stop` ends one (`stop.end`); a run that started hands in not-needed."""
+    repository with the line's check as its follow-up's, that never held a slot
+    (`slot_started_at`, which a requeue keeps), so never started -- it would keep its seat
+    working until a slot frees, hours in a busy queue.  It ends as `ak run stop` ends one
+    (`stop.end`); a run that started hands in not-needed."""
     from . import record, stop       # here, not at the top: the loop is heavy for a seat's small verb
 
     def repeats(state):
         return (state.get("state") == "queued" and state.get("slot_waiting")
-                and not state.get("resume_from") and state.get("repo") == str(repo.resolve())
+                and not state.get("slot_started_at") and state.get("repo") == str(repo.resolve())
                 and ((state.get("followup") or {}).get("check") or "").strip()
                 == found["check"].strip())
 

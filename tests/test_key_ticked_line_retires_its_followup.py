@@ -68,6 +68,11 @@ class Ticked(Sandbox):
         plan.add(SEAT, "Fix the mode", CHECK, self.repo, proven=self.base, deferred=False)
         queued = {"state": "queued", "slot_waiting": True, "pid": None}
         repeat = self.run_record("repeat", CHECK + " ", **queued)       # trimmed, it is the check
+        # a queued launcher recovered before it ever held a slot never started either
+        recovered = self.run_record("recovered", CHECK, **queued, resume_from="interrupted")
+        # requeued after it held a slot: started, so its next round hands in not-needed
+        requeued = self.run_record("requeued", CHECK, **queued, resume_from="running",
+                                   slot_started_at=1.0, launched_session="acme-ui")
         # another seat's, so what is left open is no work of this seat's
         other = self.run_record("other", "test -f other.txt", **queued, launched_session="acme-ui")
         started = self.run_record("started", CHECK, state="running", slot_waiting=False, pid=None,
@@ -80,14 +85,33 @@ class Ticked(Sandbox):
 
         self.assertEqual(plan.verify(SEAT), [])
 
-        ended = run_record.read_state(repeat)
-        self.assertEqual(ended["state"], "stopped")
-        self.assertIn("Fix the mode", ended["error"])
-        self.assertIn(commit, ended["error"])
+        for directory in (repeat, recovered):
+            ended = run_record.read_state(directory)
+            self.assertEqual(ended["state"], "stopped")
+            self.assertIn("Fix the mode", ended["error"])
+            self.assertIn(commit, ended["error"])
+        self.assertEqual(run_record.read_state(requeued)["state"], "queued")
         self.assertEqual(run_record.read_state(other)["state"], "queued")
         self.assertEqual(run_record.read_state(started)["state"], "running")
         self.assertEqual(plan.finished(SEAT), "Fix the mode")
         self.assertEqual(transitions.seat_runs(SEAT), [])
+
+    def test_a_line_replaced_while_its_check_ran_ends_no_run(self):
+        line = plan.add(SEAT, "Fix the mode", CHECK, self.repo, proven=self.base, deferred=False)
+        plan.add(SEAT, "Fix the rest", "test -f rest.txt", self.repo, proven=self.base,
+                 deferred=False)
+        queued = self.run_record("queued", CHECK, state="queued", slot_waiting=True, pid=None)
+        replaced = line.replace(CHECK, "test -f other.txt")
+
+        def passes_as_it_is_replaced(_tree, check, _env):
+            # `ak plan check` puts another check in the line's place meanwhile
+            plan.write(SEAT, [replaced if old.strip() == line else old for old in plan.lines(SEAT)])
+            return check != CHECK
+
+        with patch.object(plan, "fails", side_effect=passes_as_it_is_replaced):
+            plan.verify(SEAT)
+        self.assertIn(replaced, plan.open_lines(SEAT))
+        self.assertEqual(run_record.read_state(queued)["state"], "queued")
 
 
 if __name__ == "__main__":
