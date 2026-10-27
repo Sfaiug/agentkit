@@ -258,7 +258,8 @@ cleanup_logs() {   # cleanup_logs <gate exit>: one archive of the latest failure
 cleanup() {
   local rc=$?
   sync_back || { KEEP=1 rc=1; }
-  [ ! -f "$UH/.config/opencode/service.json" ] || env -i HOME="$UH" PATH="$EPATH" timeout 30 opencode service stop >/dev/null 2>&1
+  [ ! -f "$UH/.config/opencode/service.json" ] || env -i HOME="$UH" PATH="$EPATH" timeout 30 opencode service stop >/dev/null 2>&1 ||
+    { say "WARN could not stop the OpenCode service of $UH; its HOME is kept"; KEEP=1 rc=1; }
   [ "$KEEP" = 1 ] && { echo "kept: HOME $UH, workdir $WORK${SMOKE_REPO:+ (repo $SMOKE_REPO)}"; exit "$rc"; }
   TMUX_TMPDIR="$E2E_TMUX_DIR" tmux -L agentkit-test kill-server >/dev/null 2>&1 || true
   rm -rf -- "$E2E_TMUX_DIR"
