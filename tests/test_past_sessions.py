@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
+from test_close_and_info import ENTER, Menu
 from agentkit import menu, orch, terminal
 
 CFG = {"fixture": True}            # handed through to the opening, and read by nothing here
@@ -110,6 +111,19 @@ class Keys(unittest.TestCase):
             opened = stack.enter_context(patch.object(menu, "open_session"))
             menu.show_past(CFG, seats, keyboard=Mock())
         return drawn, [call.args[1]["name"] for call in opened.call_args_list]
+
+    def test_p_lists_it_with_its_number_and_enter_reopens_it(self):
+        shown = Menu(self, {"alpha": "working", "omega": "stopped"})       # a child on a pty
+        shown.frame()
+        shown.send(b"p")
+        lines = shown.frame(keys="esc back")
+        self.assertIn("past sessions", lines[0])
+        self.assertRegex(shown.highlighted(lines), r"^›\s+1  omega  ")
+        self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ reopen   x remove   esc back")
+        mark = shown.mark()
+        shown.send(ENTER)
+        shown.saw("<opened omega>", after=mark)
+        shown.leave()
 
     def test_more_than_a_page_keeps_each_row_under_its_days_heading(self):
         seats = [dict(name=f"fix-api-{n}", repo="/x/acme", closed=NOW - n * 40000)
