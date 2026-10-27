@@ -1,5 +1,5 @@
 """A production project's feature switches are in the menu: its heading says how many are hidden,
-seat or no seat, and Enter on it opens one screen where the arrow keys and Enter flip them.
+seat or no seat, and Enter on it opens one screen where the arrow keys and Space flip them.
 
 Each test runs `menu.loop` in a child process on a pty of its own, in a temporary HOME whose
 ~/code/ACME names a fake features command in its AGENTS.md: a script answering `list` and `set`
@@ -80,7 +80,8 @@ FEATURES = [
     {"id": "fixed", "name": "Pinned rates", "you": False, "everyone": False,
      "you_switchable": False},
 ]
-ESC, UP, DOWN, RIGHT, LEFT, ENTER = b"\x1b", b"\x1b[A", b"\x1b[B", b"\x1b[C", b"\x1b[D", b"\r"
+ESC, UP, DOWN, RIGHT, LEFT, ENTER, SPACE = (b"\x1b", b"\x1b[A", b"\x1b[B", b"\x1b[C", b"\x1b[D",
+                                            b"\r", b" ")
 # What a worker's own run leaves in the environment; nothing here may act on that run.
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
              "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLORTERM", "COLUMNS", "LINES")
@@ -259,12 +260,12 @@ class FeaturesScreen(unittest.TestCase):
         self.assertEqual(lines[2].split(), ["you", "everyone"])
         self.assertIn("Dark mode", highlighted(lines))
         self.assertEqual(marks(lines, "Dark mode"), ["○", "○"])
-        self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ choose   esc back")
+        self.assertEqual(lines[-1], "  ↑↓←→ move   ␣ mark   esc back")
         # the project renames it meanwhile: the row drawn is the one `set` answers with
         rows = json.loads((menu.fake / "features.json").read_text())
         rows[0]["name"] = "Dark mode, renamed"
         (menu.fake / "features.json").write_text(json.dumps(rows))
-        lines = menu.press(ENTER, SCREEN, has("Dark mode, renamed"))
+        lines = menu.press(SPACE, SCREEN, has("Dark mode, renamed"))
         self.assertIn("set dark you on", menu.calls())
         self.assertEqual(marks(lines, "Dark mode"), ["●", "○"])
         lines = menu.press(RIGHT + b" ", SCREEN,
@@ -285,7 +286,7 @@ class FeaturesScreen(unittest.TestCase):
         menu.opened()
         (menu.fake / "refuse").write_text("only the owner may switch dark\n")
         before = (menu.fake / "features.json").read_text()
-        lines = menu.press(ENTER, SCREEN, has("only the owner may switch dark"))
+        lines = menu.press(SPACE, SCREEN, has("only the owner may switch dark"))
         self.assertIn("set dark you on", menu.calls())
         self.assertEqual(marks(lines, "Dark mode"), ["○", "○"])
         self.assertEqual(lines[-4:-2], ["", "  only the owner may switch dark"])   # one dim line
@@ -298,7 +299,7 @@ class FeaturesScreen(unittest.TestCase):
         menu = Menu(self, wait=1)
         menu.opened()
         (menu.fake / "hang").write_text("2")
-        lines = menu.press(ENTER, SCREEN, has("set: no answer in 1.0 s"))
+        lines = menu.press(SPACE, SCREEN, has("set: no answer in 1.0 s"))
         self.assertEqual(marks(lines, "Dark mode"), ["○", "○"])
         time.sleep(2.5)                                   # past when its child would have done it
         self.assertIn("set dark you on", menu.calls())
@@ -309,11 +310,11 @@ class FeaturesScreen(unittest.TestCase):
         menu = Menu(self)
         lines = menu.opened()
         self.assertEqual(marks(lines, "Pinned rates"), ["—", "○"])
-        lines = menu.press(DOWN * 3 + ENTER, SCREEN,
+        lines = menu.press(DOWN * 3 + SPACE, SCREEN,
                            lambda lines: "Pinned rates" in highlighted(lines))
         time.sleep(0.5)
         self.assertNotIn("set fixed you on", menu.calls())       # nothing to flip there
-        lines = menu.press(RIGHT + ENTER, SCREEN,
+        lines = menu.press(RIGHT + SPACE, SCREEN,
                            lambda lines: marks(lines, "Pinned rates") == ["—", "●"])
         self.assertIn("set fixed everyone on", menu.calls())
         menu.leave(screen=True)
@@ -324,7 +325,7 @@ class FeaturesScreen(unittest.TestCase):
         self.assertEqual(marks(lines, "Wide tables"), ["●", "●"])
         self.assertEqual(marks(lines, "Beta search"), ["●", "○"])
         # off for everyone, and on for you only where you had it on
-        lines = menu.press(DOWN * 2 + RIGHT + ENTER, SCREEN,
+        lines = menu.press(DOWN * 2 + RIGHT + SPACE, SCREEN,
                            lambda lines: marks(lines, "Wide tables") == ["○", "○"])
         self.assertIn("set wide everyone off", menu.calls())
         menu.leave(screen=True)
@@ -356,7 +357,7 @@ class FeaturesScreen(unittest.TestCase):
             self.assertLessEqual(terminal.cells(line), 40, line)
         self.assertEqual(marks(lines, "Pinned rates"), ["—", "○"])
         (menu.fake / "refuse").write_text("refused: " + "the owner page holds this one " * 20)
-        lines = menu.press(ENTER, SCREEN, has("refused: the owner"))
+        lines = menu.press(SPACE, SCREEN, has("refused: the owner"))
         self.assertLessEqual(len(lines), 23)               # one line, however long the reason
         self.assertEqual(sum("the owner page" in line for line in lines), 1)
         for line in lines:

@@ -89,7 +89,7 @@ SHIPPED = tomllib.loads((REPO / "config.default.toml").read_text())
 MATRIX, PAGE = "agentkit · config", "agentkit · config · subscriptions"
 ADD = "agentkit · config · add a subscription"
 # the key line on every page and list, and under a question; `r` and `a` on new seats' matrix
-KEYS = {"row": "  ↑↓←→ move   ⏎ choose   r recommended   a apply to all sessions   esc back",
+KEYS = {"row": "  ↑↓←→ move   ⏎ open   r recommended   a apply to all sessions   esc back",
         "list": "  ↑↓←→ move   ⏎ choose   esc back", "ask": "  esc back"}
 GIVE, TAKE = "\x1b[?1049l", "\x1b[?1049h"
 

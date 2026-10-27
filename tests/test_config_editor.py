@@ -90,7 +90,7 @@ class Editor(unittest.TestCase):
     def test_toggling_a_sessions_workers_writes_its_record_and_not_the_defaults(self):
         # fable in, astra out: the list keeps its order and the new one goes last
         before = self.path.read_bytes()
-        self.drive("right", "enter", "down", "down", "space", session="fix-api")
+        self.drive("right", "space", "down", "down", "space", session="fix-api")
         self.assertEqual(self.record()["workers"], ["opus", "fable"])
         self.assertEqual(self.path.read_bytes(), before)
 
@@ -98,7 +98,7 @@ class Editor(unittest.TestCase):
         self.path.write_text(OWN)
         config.save_session(config.load(), "fix-api", "solo", ["solo"])
         before = self.path.read_bytes()
-        _, screen = self.drive("right", "right", "enter", session="fix-api")
+        _, screen = self.drive("right", "right", "space", session="fix-api")
         self.assertNotIn("at least one model reviews", screen)
         self.assertEqual(self.path.read_bytes(), before)
         self.assertEqual((self.record()["workers"], self.record()["reviewers"]), ([], ["solo"]))
@@ -107,7 +107,7 @@ class Editor(unittest.TestCase):
         self.path.write_text(OWN)
         self.drive("down")
         self.assertEqual(self.path.read_text(), OWN)      # nothing changed: nothing to save
-        self.drive("right", "enter")
+        self.drive("right", "space")
         saved = tomllib.loads(self.path.read_text())
         self.assertNotIn("tiers", saved)
         self.assertEqual(saved["defaults"], {"orchestrator": "solo", "workers": ["solo"]})
@@ -119,7 +119,7 @@ class Editor(unittest.TestCase):
         levels = [{"id": "claude-opus-5-5", "label": "Opus 5.5",
                    "efforts": ["low", "medium", "high", "xhigh", "max"]}]
         with patch.object(config, "catalog", return_value=levels):
-            for keys, want in ((("enter",), "max"), (("enter",), "low"), (("enter", "enter"), "high")):
+            for keys, want in ((("space",), "max"), (("space",), "low"), (("space", "space"), "high")):
                 with self.subTest(want=want):
                     self.drive("down", "right", *keys)
                     effort = tomllib.loads(self.path.read_text())["models"]["opus"]["effort"]
@@ -158,7 +158,7 @@ class Editor(unittest.TestCase):
         levels = [{"id": "claude-opus-5-5", "label": "Opus 5.5",
                    "efforts": ["low", "medium", "high", "xhigh", "max"]}]
         with patch.object(config, "catalog", return_value=levels):
-            self.drive("down", "right", "enter")
+            self.drive("down", "right", "space")
         again = tomllib.loads(self.path.read_text())
         self.assertEqual(again["mystery"], 7)
         self.assertEqual(again["models"]["fable"]["nickname"], "f")
@@ -184,8 +184,8 @@ class Editor(unittest.TestCase):
                 patch.object(config, "catalog", return_value=levels), \
                 patch.object(terminal, "width", return_value=40), \
                 patch.object(terminal, "height", return_value=24):
-            for keys in (("enter",), ("right", "enter"), ("right", "right", "enter"),
-                         ("down", "right", "enter")):
+            for keys in (("space",), ("right", "space"), ("right", "right", "space"),
+                         ("down", "right", "space")):
                 with self.subTest(keys=keys):
                     left, screen = self.drive(*keys)
                     self.assertEqual(left["defaults"], {"orchestrator": "opus",
@@ -202,7 +202,7 @@ class Editor(unittest.TestCase):
                              'model = "m"\neffort = "high"\nprovider = "anthropic"\n')
         with patch.object(menu, "config_discord") as step:
             # fable, opus, then Discord, a Claude
-            self.drive("down", "down", "right", "enter", session="fix-api")
+            self.drive("down", "down", "right", "space", session="fix-api")
         self.assertEqual(step.call_count, 0)
         self.assertEqual(self.record()["workers"], ["opus", "astra", "Discord"])
 

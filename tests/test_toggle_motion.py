@@ -26,7 +26,7 @@ from unittest.mock import patch
 
 import test_features_screen as features
 import test_new_session_screen as new_session
-from test_config_matrix import CHILD, ENTER, RIGHT, Screen, highlighted, row
+from test_config_matrix import CHILD, RIGHT, SPACE, Screen, highlighted, row
 from agentkit import motion, terminal
 
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
@@ -181,7 +181,7 @@ class ConfigScreen(Screens):
         screen = Screen(self)
         number, line = row(screen.press(RIGHT), "fable")  # fable's exec, not the seat's
         column = mark_column(line, 1)
-        cells = moved(screen, ENTER)
+        cells = moved(screen, SPACE)
         landed(self, glyphs(cells, number), ["▣", "■"])
         self.assertLessEqual({at for at, _, _, _ in cells}, {number})
         self.assertEqual(screen.record()["workers"], ["opus", "astra", "fable"])
@@ -263,9 +263,9 @@ class FeaturesScreen(Screens):
     def test_a_switch_fills_when_set_on_and_empties_when_set_off(self):
         menu = features.Menu(self)
         number, _ = numbered(menu.opened(), "Dark mode")
-        cells = moved(menu, ENTER)                    # the project's `set` answers first
+        cells = moved(menu, SPACE)                    # the project's `set` answers first
         landed(self, glyphs(cells, number), ["◉", "●"])
-        cells = moved(menu, ENTER)
+        cells = moved(menu, SPACE)
         landed(self, glyphs(cells, number), ["◉", "○"])
         self.assertEqual(menu.calls().count("set dark you on"), 1)
         self.assertIn("set dark you off", menu.calls())
@@ -296,10 +296,10 @@ class FeaturesScreen(Screens):
         self.addCleanup(lambda: hold.unlink(missing_ok=True))
         started = menu.calls().count("list")
         menu.until(lambda: menu.calls().count("list") > started, "a list asked")
-        cells = moved(menu, ENTER)
+        cells = moved(menu, SPACE)
         landed(self, glyphs(cells, number), ["◉", "●"])
         (menu.fake / "refuse").write_text("only the owner may switch dark\n")
-        cells = moved(menu, ENTER)
+        cells = moved(menu, SPACE)
         landed(self, shifts(cells, number, mark_column(line, 0)), [-1, 1, -1, 0])
         hold.unlink()
         menu.leave(screen=True)

@@ -326,7 +326,7 @@ class OneConfigScreen(unittest.TestCase):
         self.assertEqual([marks(model(lines, name)) for name in ("fable", "opus", "astra")],
                          ["○□□", "●■■", "○■■"])
         self.assertEqual(lines[-1],
-                         "  ↑↓←→ move   ⏎ choose   r recommended   a apply to all sessions   esc back")
+                         "  ↑↓←→ move   ␣ mark   r recommended   a apply to all sessions   esc back")
         menu.press(ESC)
         menu.leave()
 

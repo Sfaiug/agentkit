@@ -267,7 +267,7 @@ class RuleProgress(unittest.TestCase):
         screen = Screen(self, 0, flip=2)
         screen.when("Dark mode")
         after, entered = len(screen.text()), time.monotonic()
-        os.write(screen.master, b"\r")
+        os.write(screen.master, b" ")
         self.assertGreater(screen.when(GLIDE.pattern, after) - entered, 0.1)
         pressed = time.monotonic()
         os.write(screen.master, b"\x1b")
@@ -277,12 +277,12 @@ class RuleProgress(unittest.TestCase):
     def test_a_set_left_behind_by_esc_never_draws_over_a_later_one(self):
         screen = Screen(self, 0, flip="2,0", opens=2)
         screen.when("Dark mode")
-        os.write(screen.master, b"\r")                  # `you on`, answered in two seconds
+        os.write(screen.master, b" ")                  # `you on`, answered in two seconds
         screen.when(GLIDE.pattern)
         os.write(screen.master, b"\x1b")
         screen.when("<back>")
         screen.when("Dark mode", after=screen.text().index("<back>"))    # open again
-        os.write(screen.master, b"\x1b[C\r")           # `everyone on`, answered at once
+        os.write(screen.master, b"\x1b[C ")            # `everyone on`, answered at once
         screen.when("<set everyone on answered>")
         screen.when("<set you on answered>")            # with `everyone` still off in its row
         time.sleep(1.5)                                  # a draw since, a second at a time
