@@ -489,7 +489,7 @@ def _verify_held(name, check=None):
                 and (check is None or found["check"].strip() == check.strip())):
             # lines alike are one check, run once: its result is every one of theirs
             checks.setdefault(found["project"], {})[identity(line)] = found
-    results = {}
+    results, passing = {}, {}
     for project_, group in checks.items():
         repo = place(name, project_)
         if repo is None:
@@ -505,15 +505,39 @@ def _verify_held(name, check=None):
                 except config.Error:
                     passed = False
                 results[bare] = ticked(f"- [ ] {bare}", commit if passed else None)
+                if passed:
+                    passing[bare] = (repo, found, commit)
     # the checks ran outside the lock; the write-back reads the plan again inside it
     with held(name) as current:
         present = lines(current)
         text = [results.get(identity(line), line) for line in present]
         # only onto the plan it checked: one that lost those lines is never written over,
         # let alone with an empty plan
-        if any(identity(line) in results for line in present):
+        written_back = any(identity(line) in results for line in present)
+        if written_back:
             write(current, text)
+    for repo, found, commit in passing.values() if written_back else ():
+        retire(repo, found, commit)
     return [line.strip() for line in text if is_open(line)]
+
+
+def retire(repo, found, commit):
+    """End each run that only repeats a line just ticked on `commit`: one queued in the line's
+    repository with the line's check as its follow-up's, that never held a slot, so never
+    started -- it would keep its seat working until a slot frees, hours in a busy queue.  It
+    ends as `ak run stop` ends one (`stop.end`); a run that started hands in not-needed."""
+    from . import record, stop       # here, not at the top: the loop is heavy for a seat's small verb
+
+    def repeats(state):
+        return (state.get("state") == "queued" and state.get("slot_waiting")
+                and not state.get("resume_from") and state.get("repo") == str(repo.resolve())
+                and ((state.get("followup") or {}).get("check") or "").strip()
+                == found["check"].strip())
+
+    why = f"plan line \"{found['what']}\" ticked on {commit}: its check passes there"
+    for directory in record.run_dirs():
+        if repeats(record.read_state(directory) or {}):
+            stop.end(directory, keep=False, why=why, only_if=repeats)
 
 
 def compose(what, proof, where, deferred, stamp, base):
