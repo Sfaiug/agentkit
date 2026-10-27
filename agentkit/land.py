@@ -1,7 +1,8 @@
 """Check parked landing-line stacks and wake each run to deliver or fix its own work.
 
 Green evidence names the tested tree, including for stacks it covers. A red stack
-after a green one wakes its newest member to fix; later stacks are rebuilt without it.
+after a green one blames its newest member, whose fixer waits until the runs ahead of it in
+that stack have left the line; later stacks are rebuilt without it.
 A red suite piece runs again on the target's tip alone before anyone is blamed: red there
 pauses the line on the retry ladder, and red through the ladder is the target's own and
 gets one repair, at once where the tests that failed it fail again there alone. The lander
@@ -183,6 +184,19 @@ def green_delivery(wait):
     return "land" in wait and "fix" not in wait
 
 
+def red_stack(wait):
+    """Whether the lander found `wait`'s member red on top of runs ahead of it, named in its
+    `after`.  Its fixer would work on the member's branch rebased onto the target, which holds
+    none of their changes until they land, so it waits for them to leave the line and is then
+    checked again.  A delivery's red required checks keep `land` beside their `fix`: theirs."""
+    return "fix" in wait and "land" not in wait and bool(wait.get("after"))
+
+
+def red_behind(wait, names):
+    """Whether a `red_stack` verdict still waits on runs in the line, `names`."""
+    return red_stack(wait) and bool(wait["after"].keys() & names)
+
+
 def start_line(turn, log=lambda _: None):
     """Start a fresh checker when no pass is running; the tick and every follower of a
     member (`job.job_await`) retry a missed start."""
@@ -355,6 +369,7 @@ def check_line(turn, log=lambda _: None):
             return
         target, prefix, tip_green = None, [], set()    # the pieces the tip passed on this pass
         members = line(turn)
+        names = {directory.name for directory, _ in members}
         for index, (directory, state) in enumerate(members):
             with record.recovery_lock(directory):
                 if record.read_state(directory) != state or record.process_active(state):
@@ -362,6 +377,14 @@ def check_line(turn, log=lambda _: None):
                         prefix.append((directory, state))
                         continue
                     return  # a live rejoiner still holds its place ahead of later stacks
+                if state.get("state") == "waiting" and red_stack(state["waiting_on"]):
+                    if red_behind(state["waiting_on"], names):
+                        continue
+                    with record.record(directory) as current:
+                        current["waiting_on"] = {key: value for key, value
+                                                 in state["waiting_on"].items()
+                                                 if key not in ("fix", "after")}
+                    state = record.read_state(directory)
             if state.get("state") != "waiting":
                 prefix.append((directory, state))
                 continue
@@ -465,8 +488,9 @@ def check_line(turn, log=lambda _: None):
                         # Later answers still compare against this pass's own writes.
                         snapshots[member]["waiting_on"] = dict(current["waiting_on"])
                     sent.update(fresh)
-                    for member in fresh:
-                        watch.launch_resume(member.name, log)
+                    for member, answer in fresh.items():
+                        if not red_behind(answer, names):
+                            watch.launch_resume(member.name, log)
                 return True
 
             verdicts = (_check_members(turn, candidates, repo, tip, target_tree, log, prefix=prefix,
@@ -671,6 +695,11 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                        # pass's own re-probe of a paused piece included
     limit = None
 
+    def ahead(index):
+        """The runs under the stack at `index`, by name, with the tree each was checked as."""
+        return {m.name: s["waiting_on"]["land"] for m, s in prefix} | {
+            previous[0].name: previous[3] for previous in stacks[:index]}
+
     def alone(member, answer):
         # A verdict no stack ahead can change -- the member against the target's bare tip --
         # goes out at once, so its fix runs beside the checks of the members behind it.
@@ -846,11 +875,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                 target_red = True
                                 return
                     if member not in verdicts:
-                        if "land" in answer:
-                            answer = {**answer, "after": {
-                                m.name: s["waiting_on"]["land"] for m, s in prefix} | {
-                                previous[0].name: previous[3] for previous in stacks[:index]}}
-                        verdicts[member] = answer
+                        answer = verdicts[member] = {**answer, "after": ahead(index)}
                         ready({member: answer})
                     green_prefix = "land" in answer
                     if "fix" in answer:
@@ -894,8 +919,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                 # its change turned it red, whatever the stacks ahead hold.
                                 member = stacks[red_index][0]
                                 if member not in verdicts:
-                                    verdicts[member] = failing
-                                    ready({member: failing})
+                                    verdicts[member] = {**failing, "after": ahead(red_index)}
+                                    ready({member: verdicts[member]})
                                 pending = [(m, s) for m, s in pending
                                            if m not in verdicts or "land" in verdicts[m]]
                                 rebuild = True

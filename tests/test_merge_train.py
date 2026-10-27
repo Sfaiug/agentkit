@@ -117,10 +117,12 @@ class MergeTrain(LanderFixture, unittest.TestCase):
             {f"member-{n}.txt" for n in range(1, 4)},
             {f"member-{n}.txt" for n in range(1, 5)},
             {f"member-{n}.txt" for n in (1, 2, 3, 5, 6)}])
-        # the halfway steps run the suite alone, covering no stack: the rebuilt check lands them
+        # the halfway steps run the suite alone, covering no stack: the rebuilt check lands them;
+        # the red waits for the members ahead of it to leave the line
         self.assertEqual([call.args[0] for call in self.wake.call_args_list],
-                         [members[3].name] + [m.name for m in members[:3] + members[4:]])
+                         [m.name for m in members[:3] + members[4:]])
         self.assertIn("fix", self.wait(members[3]))
+        self.assertEqual(list(self.wait(members[3])["after"]), [m.name for m in members[:3]])
         good = members[:3] + members[4:]
         for index, member in enumerate(good):
             wait = self.wait(member)
@@ -314,7 +316,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         self.advance(**{"AGENTS.md": f"---\ntests: {suite}\n---\n"})
         land.check_line(self.turn)
         self.assertEqual({call.args[0] for call in self.wake.call_args_list},
-                         {first.name, red.name, later.name})
+                         {first.name, later.name})
         self.assertIn("land", self.wait(first))
         fix = self.wait(red)["fix"]
         self.assertIn(suite, fix["line"])
@@ -329,9 +331,8 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         for directory, key in ((first, "land"), (red, "fix"), (later, "land")):
             current = record.read_state(directory)
             current["waiting_on"].pop(key)
-            if key == "land":
-                self.assertEqual(current["waiting_on"].pop("after"),
-                                 {} if directory == first else {first.name: self.wait(first)["land"]})
+            self.assertEqual(current["waiting_on"].pop("after"),
+                             {} if directory == first else {first.name: self.wait(first)["land"]})
             expected = dict(originals[directory])
             if key == "fix":
                 expected.pop("line_since")
@@ -347,7 +348,9 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         self.advance()
         land.check_line(self.turn)
         self.assertEqual({call.args[0] for call in self.wake.call_args_list},
-                         {first.name, red.name, middle.name, other.name, last.name})
+                         {first.name, middle.name, last.name})
+        self.assertEqual(list(self.wait(red)["after"]), [first.name])
+        self.assertEqual(list(self.wait(other)["after"]), [first.name, middle.name])
         for directory in (red, other):
             self.assertIn(SUITE, self.wait(directory)["fix"]["line"])
         for directory in (middle, last):
@@ -530,12 +533,8 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         current["waiting_on"].pop("land")
         self.assertEqual(current["waiting_on"].pop("after"), {head.name: self.wait(head)["land"]})
         self.assertEqual(current, original)
-        with record.record(head) as current:
-            current["state"] = "running"
-        self.wake.reset_mock()
-        land.check_line(self.turn)
-        self.assertIn(red.name, [call.args[0] for call in self.wake.call_args_list])
-        self.assertEqual(self.wait(red)["fix"], fix)
+        self.assertEqual(self.wait(red)["after"], {head.name: self.wait(head)["land"]})
+        self.assertNotIn(red.name, [call.args[0] for call in self.wake.call_args_list])
         self.assert_cleaned()
 
     def test_two_stacks_checked_side_by_side_merge_in_one_pass_in_line_order(self):
@@ -569,7 +568,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         self.advance()
         land.check_line(self.turn)
         self.assertEqual({call.args[0] for call in self.wake.call_args_list},
-                         {first.name, red.name, clash.name, later.name})
+                         {first.name, clash.name, later.name})
         self.assertNotIn("fix", self.wait(clash))
         self.assertNotIn("fix", self.wait(later))
         self.assertIn("land", self.wait(clash))
