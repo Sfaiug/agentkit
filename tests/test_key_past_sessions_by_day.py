@@ -32,8 +32,7 @@ SHOWN = ("10:00", "09:00", time.strftime("%a 15:30", time.localtime(SEATS["add-d
 
 
 def opened(test):
-    """The four seats of acme closed by the owner, fix-api's plan 3 of 4 done, and the past
-    screen up on a 100x30 terminal once its lines have grown in."""
+    """The four seats of acme closed, fix-api's plan 3 of 4 done, and the past screen up."""
     home = Home()
     test.addClassCleanup(home.close)
     checkout = home.path / "code/acme"
@@ -48,11 +47,9 @@ def opened(test):
                    {"stopped_at": closed, "closed_by_owner": True})
     home.write(".agentkit/state/plan-fix-api.md", "- [x] Ship the docs site. Then the search.\n"
                "- [x] Fix a typo\n- [x] Add a test\n- [ ] Search\n")
-    adapter = home.root / "adapters/claude.sh"
-    adapter.parent.mkdir()
-    adapter.write_text(ADAPTER)
-    adapter.chmod(0o755)
-    menu = Terminal(home, size=(100, 30), env={"AGENTKIT_ADAPTER_DIR": adapter.parent, "TZ": TZ})
+    home.write("adapters/claude.sh", ADAPTER).chmod(0o755)
+    menu = Terminal(home, size=(100, 30), env={"AGENTKIT_ADAPTER_DIR": home.path / "adapters",
+                                               "TZ": TZ})
     menu.wait(lambda screen: "p past" in screen)
     menu.keys("p")
     return home, menu, menu.wait(lambda screen: KEYS in screen and "3 of 4" in screen
@@ -74,9 +71,7 @@ class TheScreen(unittest.TestCase):
         menu.keys("Enter")
         cls.kept = menu.wait(lambda screen: KEYS in screen and "Remove fix-web" not in screen)
         cls.records = [record.exists()]
-        menu.keys("x")
-        menu.wait("Remove fix-web from past sessions?")
-        menu.keys("Down", "Enter")
+        menu.keys("x"), menu.wait("Remove fix-web from past sessions?"), menu.keys("Down", "Enter")
         cls.removed = menu.wait(lambda screen: KEYS in screen and "fix-web" not in screen)
         cls.records.append(record.exists())
 

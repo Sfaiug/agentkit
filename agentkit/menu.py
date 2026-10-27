@@ -902,10 +902,8 @@ def _paint(text, kind, tmux=False):
 
 
 def grow_line(clock, row, line, span, moving, counted=None):
-    """Move a seat's line by `moving`, a function of its cells to their animations and
-    when they are still, and its count with it: counting up from `counted`, the done
-    before, since when and for how long (motion.counting), else as drawn.  Whatever moves
-    a line last moves its count, so the two never part: `span` of `line`, on screen `row`."""
+    """Move `span` of a seat's `line` on screen `row` by `moving` (its cells to their animations
+    and when still), and its count with it, counting up from `counted` (motion.counting)."""
     written = terminal.cell_texts(line)
     animations, until = moving(written[span])
     clock.span(row, terminal.cells("".join(written[:span.start])) + 1, animations, until)
@@ -5173,8 +5171,8 @@ def past_sessions(found):
 
 
 def closed_when(closed, now=None):
-    """The day heading and time of `closed`: `today` or `yesterday` `10:24`, `this week` (2 to
-    6 days ago) `Sat 12:31`, `earlier` `20 Oct`."""
+    """`closed`'s day and time: `today`/`yesterday` `10:24`, `this week` `Sat 12:31`, `earlier`
+    `20 Oct`."""
     at = time.localtime(closed)
     days = max(0, (datetime.date.fromtimestamp(time.time() if now is None else now)
                    - datetime.date.fromtimestamp(closed)).days)
@@ -5191,10 +5189,8 @@ def past_said(session):
 
 
 def past_body(past, at=None, room=None, said=None, now=None):
-    """The past screen's (lines, places, moves, page, turns): `past` under the day each closed
-    (`closed_when`), a row its number, name, project, plan line and time; `at` lit and, off
-    `terminal.away`, opening its `said`; the page of `room` lines `at` is on, each kept short by
-    the most a row opens; lines growing in, opened ones coming up, a turned page fading."""
+    """The past screen's (lines, places, moves, page, turns): `past` under the day each closed,
+    `at` lit and opening its `said`, on its page of `room` lines; every row's `said` from a pipe."""
     width, stands = terminal.content_width(), orch.listed()
     rows = [(str(number), session["name"], orch.project_name(orch.checkout_of(
         session.get("repo"), stands=stands), ""), *closed_when(session["closed"], now),
@@ -5202,7 +5198,7 @@ def past_body(past, at=None, room=None, said=None, now=None):
     num, name, project, clock = (max(terminal.cells(row[n]) for row in rows) for n in (0, 1, 2, 4))
     name = min(name, 24, width - (2 + num + 2))
     free = width - (2 + num + 2 + name + 2 + project + 6 + clock)
-    # no room for a row on one line: what follows its name goes under it, the count alone
+    # no room for a row on one line: what follows its name goes under it
     fold = free < max(len(f"{done} of {total}") if total else 7 for *_, (done, total) in rows)
     indent, under = " " * (2 + num + 2), width - (2 + num + 2)
     opened = {seat: terminal.wrap(sentence, under) + [
@@ -5254,8 +5250,7 @@ def past_body(past, at=None, room=None, said=None, now=None):
 @terminal.clicks_its_own
 def show_past(cfg, found, dry_run=False, keyboard=None):
     """`past sessions`, `p` (`past_body`): a digit, Enter or a click reopens one (`open_session`),
-    True said; `x` asks on the card (`terminal.confirm`) before `remove_seat`.  From a pipe a
-    number reopens and `x` asks which to remove.  A dry run draws it once."""
+    True said; `x` asks (`terminal.confirm`) before `remove_seat`.  A dry run draws it once."""
     here, clock, said, top = None, motion.Clock(page=True), {}, 0
     for session in found:
         clock.touch(("bar", session["name"]))     # news once, as the screen opens
@@ -5266,7 +5261,6 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
         names = [session["name"] for _, session in past]
         if not terminal.taken():
             keys = "x remove   esc back"
-            # every row opens what it got done, as there is no highlight to open it
             terminal.frame("past sessions", past_body(past, said={
                 session["name"]: past_said(session) for _, session in past})[0], keys)
             if dry_run:
@@ -5290,7 +5284,6 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
         here = here if here in names else names[0]
         said.update((session["name"], past_said(session)) for _, session in past
                     if session["name"] not in said)
-        # the lines a page holds, under the keys led by where the owner is, at its widest
         room = matrix_page([], {}, None, 0, [], keys, lead=page_mark(98, 99))[1]
         body, places, moves, page, turns = past_body(past, here, room, said)
         first = page_mark(page, len(turns)) if len(turns) > 1 else None
