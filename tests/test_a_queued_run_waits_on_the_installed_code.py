@@ -105,7 +105,7 @@ class QueuedRunWaitsOnTheInstalledCode(unittest.TestCase):
                              slot_wait_reason="waiting for ak's memory")
             return not held[0]
 
-        def between():
+        def between(_behind):
             raise Replaced
 
         with patch.object(gate, "SLOT_POLL", 0), patch.object(gate, "_host_admits", admits):
@@ -140,7 +140,7 @@ class QueuedRunWaitsOnTheInstalledCode(unittest.TestCase):
         offered = []
 
         def wait_for_slot(run_dir, between=None):
-            between()
+            between(None)
             return {"state": "running", "queued_at": self.queued_at}
 
         with patch.object(gate, "wait_for_slot", wait_for_slot), \

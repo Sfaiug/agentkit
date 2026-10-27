@@ -12,6 +12,7 @@ PR merges on PASS with green checks; anyone else's asks the inbox. No change ski
 documents included, as the owner decided on 24 Oct 2026.
 """
 
+import functools
 import os
 import re
 import subprocess
@@ -24,7 +25,7 @@ from pathlib import Path
 
 from . import (box, command_help, config, gate, gc, gitcall, history, host, job as jobs,
                land as landing, orch, plan, record as run_record, status, stop, task as taskfile,
-               turns, usage, watch, worker, worktrees)
+               turns, usage, waiter, watch, worker, worktrees)
 from .deliver import (GITHUB_RETRIES, MERGE_METHODS, PICKUP_HELD, do_merge, end_on_dependency,
     finish_blocked, join_line, land, merge, merge_own_pr, own_pr_heads, pr_head,
     push_pr_branch, release_line)
@@ -645,27 +646,36 @@ def pickup_new_code(lp, execv=None, current=None):
     return True
 
 
-def pickup_while_queued(run_dir, execv=None, current=None):
+def pickup_while_queued(run_dir, behind=None, execv=None, current=None):
     """A launch waiting for its slot holds nothing: where the installed agentkit moved since it
     started, it replaces itself with the same launch on the new code, which takes up the same
     receipt -- the pid and `queued_at`, so its place in line, stay -- and a change to admission
     reaches the runs already waiting, as `pickup_new_code` brings new code to a run before a
-    round.  Only a detached launch's own process moves (`spawn_bg`); a job's threads share one.
+    round.  Waiting behind the first, with its wait counted up to `behind`, it replaces itself
+    with a waiter holding next to no memory, which execs the same launch back (`waiter`).
+    Only a detached launch's own process moves (`spawn_bg`); a job's threads share one.
     `execv` and `current` are the injected exec and installed version the tests use."""
     if (os.environ.get(config.RUN_DIR_ENV) != str(run_dir)
             or threading.current_thread() is not threading.main_thread()
             or getattr(jobs._JOB_MUTE, "depth", 0)):
         return False
-    now = installed_head() if current is None else current
-    if not now or not _PICKUP_START or now == _PICKUP_START:
-        return False
-    logger(run_dir)(f"picked up agentkit {_PICKUP_START}..{now} while waiting for a slot")
-    sys.stdout.flush()
     # ak's own entry, not `sys.argv[0]`: a link that started the launch may since point elsewhere
-    ak = str(config.REPO / "bin" / "ak")
+    launch = [sys.executable, str(config.REPO / "bin" / "ak"), *sys.argv[1:]]
+    if behind:
+        os.environ[gate.SLOT_WAIT_ENV] = " ".join(map(str, behind))
+        launch = [sys.executable, "-I", "-S", waiter.__file__, str(config.RUNS / ".slots.queue"),
+                  run_dir.name, str(gate.SLOT_POLL), str(config.REPO), _PICKUP_START or "",
+                  *launch]
+    else:
+        now = installed_head() if current is None else current
+        if not now or not _PICKUP_START or now == _PICKUP_START:
+            return False
+        logger(run_dir)(f"picked up agentkit {_PICKUP_START}..{now} while waiting for a slot")
+    sys.stdout.flush()
     try:
-        (execv or os.execv)(sys.executable, [sys.executable, ak, *sys.argv[1:]])
+        (execv or os.execv)(sys.executable, launch)
     except OSError:
+        os.environ.pop(gate.SLOT_WAIT_ENV, None)
         return False
     return True
 
@@ -718,7 +728,7 @@ def depth_refused():
 
 @contextmanager
 def run_slot(run_dir, prior=None):
-    state = gate.wait_for_slot(run_dir, between=lambda: pickup_while_queued(run_dir))
+    state = gate.wait_for_slot(run_dir, between=functools.partial(pickup_while_queued, run_dir))
     if prior is not None:
         prior.update({key: state[key] for key in (
             "state", "run_depth", "parent_run", "queued_at", "slot_waiting", "slot_started_at")
