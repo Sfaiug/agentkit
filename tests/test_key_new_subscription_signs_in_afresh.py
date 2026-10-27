@@ -16,6 +16,7 @@ returns at once, as the real adapters' do, and log each call with its AGENTKIT_A
 by what the terminal shows, config.toml and those calls; this test fails against `/bin/false`.
 """
 
+import re
 import sys
 from pathlib import Path
 import unittest
@@ -37,6 +38,12 @@ def lines(screen):
 def title(screen):
     """The screen's name on its header line, the clock off it."""
     return lines(screen)[0].rsplit(" ", 1)[0].strip()
+
+
+def row_at(screen, row, mark="[› ]"):
+    """The line of `row` on the screen, a subscription's with its meter after it, or None."""
+    return next((number for number, line in enumerate(lines(screen))
+                 if re.fullmatch(rf"{mark} {re.escape(row)}(  .*)?", line)), None)
 
 
 def offered(screen):
@@ -68,11 +75,12 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
     def to(self, row):
         """The highlight moved, a line at a time, onto the line that reads `row`."""
         for _ in range(20):
-            shown = lines(self.term.screen())
-            if f"› {row}" in shown:
+            screen = self.term.screen()
+            if row_at(screen, row, "›") is not None:
                 return
+            shown = lines(screen)
             now = next(n for n, line in enumerate(shown) if line.startswith("› "))
-            self.term.keys("Down" if shown.index(f"  {row}") > now else "Up")
+            self.term.keys("Down" if row_at(screen, row) > now else "Up")
             self.term.wait(lambda screen: lines(screen)[now] != shown[now])
         self.fail(f"the highlight never reached {row}")
 
@@ -103,7 +111,7 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
         saved = akconfig.read(self.home)["providers"]
         self.assertEqual(saved["openai"]["accounts"], [account])
         self.assertNotIn("accounts", saved["anthropic"])
-        self.assertIn("ChatGPT", offered(self.term.screen()))     # its name, no numeral
+        self.assertIsNotNone(row_at(self.term.screen(), "ChatGPT", "›"))   # its name, no numeral
 
     def test_a_login_that_fails_adds_no_provider_and_no_account(self):
         self.open({"fable": "claude"})
@@ -136,13 +144,10 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
         # `− remove` under Claude II, then ChatGPT whole: both their logins stay on disk
         for row in ("Claude II", "ChatGPT"):
             self.to(row)
-            self.term.keys("Enter")
-            self.term.wait("›   − remove")          # its acts open on `− remove`
-            self.term.keys("Enter")
+            self.term.keys("Right", "Right", "Enter")      # `− remove`, last on its line
             self.term.wait(lambda screen: "  ✗ Remove" in lines(screen))
             self.term.keys("Down", "Enter")
-            self.term.wait(lambda screen: title(screen) == PAGE
-                           and f"  {row}" not in lines(screen))
+            self.term.wait(lambda screen: title(screen) == PAGE and row_at(screen, row) is None)
         saved = akconfig.read(self.home)["providers"]
         self.assertEqual((saved["anthropic"]["accounts"], "openai" in saved), (["default"], False))
         rows = self.add_list()

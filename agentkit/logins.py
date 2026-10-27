@@ -125,7 +125,7 @@ def refresh(cfg, now=None):
 
 
 def renewed(cfg, provider, account, now=None):
-    """Ask `provider`'s `account` login, just made again on the ak screen, when it ends, and keep
+    """Ask `provider`'s `account` login, just made or made again in ak, when it ends, and keep
     the answer with the rest; one that answers nothing changes nothing, being amber still, which
     the tick asks every time it runs."""
     asker = harness(cfg, provider)

@@ -25,7 +25,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from test_config_matrix import DOWN, ENTER, ESC, REPO, UP, Screen, headings, highlighted
+from test_config_matrix import (DOWN, ENTER, ESC, REPO, RIGHT, UP, Screen, headings,
+                                highlighted)
 from fixtures.sandbox import menu_input
 from agentkit import config, menu, terminal
 
@@ -108,7 +109,8 @@ def subscriptions(lines):
     """The subscriptions `Subscriptions` lists, by name, as its rows are drawn."""
     rows = lines[2:next(number for number, line in enumerate(lines)
                         if line[2:] == "+ add a subscription")]
-    return [re.split(r"\s{2,}", line[2:])[0] for line in rows if line[2:3] != " "]
+    return [re.split(r"\s{2,}", line[2:])[0] for line in rows   # no heading, nor a row's line
+            if line[:1] in " ›" and line[2:3].strip()]
 
 
 def fresh(provider, saved):
@@ -156,12 +158,9 @@ def open_providers(screen):
 
 
 def removing(screen, where):
-    """Enter on the lit row of `Subscriptions`, then on `− remove`, last in the list under it:
-    the screen `where` accepts."""
-    lines = screen.press(ENTER, lambda lines: highlighted(lines).startswith("›   "))
-    while highlighted(lines) != "›   − remove":
-        lines = screen.press(DOWN)
-    return screen.press(ENTER, where)
+    """`− remove` on the line the lit row of `Subscriptions` opens, last on it: the screen
+    `where` accepts."""
+    return screen.press(RIGHT * 3 + ENTER, where)
 
 
 def remove_asked(screen, name):
@@ -201,9 +200,10 @@ class ProviderScreen(unittest.TestCase):
         self.assertEqual(offered[:3], ["› OpenAI / Codex", "  Meta / Muse", "  xAI / Grok Build"])
         mark = len(screen.text())
         lines = screen.press(DOWN * 2 + ENTER, lambda lines: title(lines) == PAGE)
-        # install, because grok was nowhere; then login, on the terminal given back for it
+        # install, because grok was nowhere; then login, on the terminal given back for it,
+        # then whose login it is, for the line its row opens
         self.assertEqual((home / "verbs.log").read_text().split("\n"),
-                         ["grokbuild install", "grokbuild login", ""])
+                         ["grokbuild install", "grokbuild login", "grokbuild login-end", ""])
         said = screen.text()[mark:]
         login = said.index("<grokbuild login on the terminal>")
         self.assertLess(said.index(GIVE), login)
@@ -223,7 +223,8 @@ class ProviderScreen(unittest.TestCase):
         pick(screen, ENTER, ADD, 6)
         screen.press(ENTER,
                      lambda lines: title(lines) == PAGE and "ChatGPT" in subscriptions(lines))
-        self.assertEqual((home / "verbs.log").read_text().split("\n")[2:], ["codex login", ""])
+        self.assertEqual((home / "verbs.log").read_text().split("\n")[3:],
+                         ["codex login", "codex login-end", ""])
         saved = screen.saved()
         self.assertEqual(saved["providers"]["openai"], fresh("openai", saved))
         # under the name the shipped default gives it, whatever its catalog label
@@ -294,13 +295,15 @@ class ProviderScreen(unittest.TestCase):
                                                     "  Remove Grok and its models?"))
         lines = screen.press(ENTER, lambda lines: title(lines) == PAGE)
         self.assertEqual(screen.path.read_bytes(), before)
-        # a click on Claude's row, on the line it is drawn on, opens its list, and one on
-        # `− remove` asks for Claude
+        # a click on Claude's row points at it, opening its line, and one on its `− remove`
+        # asks for Claude
         def click(text):
-            row = next(number for number, line in enumerate(lines, 1) if line[2:] == text)
-            return b"\x1b[<0;6;%dM\x1b[<0;6;%dm" % (row, row)
-        lines = screen.press(click("Claude"), lambda lines: "›   − remove" in lines)   # its own highlight
-        screen.press(click("  − remove"),
+            row, col = next((number, line.index(text) + 1) for number, line
+                            in enumerate(lines, 1) if text in line)
+            return b"\x1b[<0;%d;%dM\x1b[<0;%d;%dm" % (col, row, col, row)
+        lines = screen.press(click("Claude"),
+                             lambda lines: highlighted(lines).startswith("› Claude"))
+        screen.press(click("− remove"),
                      lambda lines: "  Remove Claude and its models?" in lines)
         lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == PAGE)
         self.assertNotIn("Claude", subscriptions(lines))
