@@ -463,7 +463,7 @@ exec "$dir/muse-bin-$(cat "$dir/.muse-version")" "$@"
         self.shell('''sync_back() { :; }
 smoke_lock_drop() { :; }
 cleanup_logs() { :; }
-KEEP=0 SMOKE_REPO=fixture/repo
+KEEP=0 SMOKE_REPO=fixture/repo UH="$WORK/home"
 E2E_TMUX_DIR="$TMUX_TMPDIR"
 ''' + cleanup + '\ncleanup', check=True)
         self.assertFalse((self.root / 'gh-calls').exists())
@@ -526,7 +526,7 @@ INVOKER=fixture INVHOME="$HOME" UH="$WORK/home" BORROWED=""
         (self.root / 'renewed-grok').write_text(json.dumps(grok))
         work = self.root / 'gate'
         result = self.shell('''say() { echo "$*"; }
-INVOKER=fixture INVHOME="$HOME" UH="$WORK/home" BORROWED="" bad=""
+INVOKER=fixture INVHOME="$HOME" UH="$WORK/home" BORROWED="" bad="" HOSTBIN=" "
 caller_config="$HOME/.config" caller_data="$HOME/.local/share" caller_claude="$HOME/.claude"
 caller_grok="$HOME/.grok" caller_opencode="$HOME/.config/opencode/opencode.json"
 mkdir -p -- "$UH"
