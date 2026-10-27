@@ -508,11 +508,11 @@ def _cut_line(cfg, name):
         return None
     looked = seat_read(name)
     try:
-        hooked, _event, _text, when = hook_state(harness, seat_fact(name, harness))
+        hooked, event, _text, when = hook_state(harness, seat_fact(name, harness))
     except config.Error:
         return None
     if when is not None and when != looked.get("hooked_at"):
-        looked = {"state": hooked, "hooked": hooked, "hooked_at": when}
+        looked = {"state": hooked, "hooked": hooked, "hooked_at": when, "hooked_event": event}
     if looked.get("state") == "asking" or owner_question(notify.last(name)):
         return ASKED_LINE
     if _turn_in_flight(harness, looked)[0]:
@@ -2177,13 +2177,17 @@ def _turn_in_flight(harness, found):
     TUI still draws the composer it drew when the last one ended, which is why the row can
     no longer be talked out of it by a prompt rule.  A harness that keeps `working` on the
     screen instead says so by its at-prompt rule not matching -- a rule that named `working`,
-    or no rule at all, since a screen nothing here can read is not a seat at its prompt.
+    or no rule at all, since a screen nothing here can read is not a seat at its prompt.  A
+    Stop on background work its manifest marks is a wait whose end starts the next turn, on
+    either: its composer is drawn open meanwhile.
     """
     try:
         authority = config.manifest(harness).get("authority") or {}
     except config.Error:
         authority = {}
-    if authority.get("working") == "hooks" and found.get("hooked") == "working":
+    if found.get("hooked") == "working" and (
+            authority.get("working") == "hooks"
+            or found.get("hooked_event") in marked_events(harness, "background")):
         return True, found.get("hooked_at")
     if found.get("state") == "working":
         return True, found.get("began")
