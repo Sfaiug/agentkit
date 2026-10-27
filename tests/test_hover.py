@@ -403,7 +403,7 @@ class Screens(Sandbox):
                              move(1, 2), b"\r", b"\r")[0], "Grok")
         # asked over a screen's own rows, the pointer on one of them is on nothing of the list's
 
-        def over():
+        def over(_):
             terminal.frame("agentkit", ["  1  seat-a", "", ""], "esc back",
                            places={0: ("seat-a", [])})
             return 4
