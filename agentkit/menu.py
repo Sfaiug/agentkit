@@ -3641,12 +3641,13 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     `body`'s, and `over_places` are `over`'s, each cell on a line a row of its own (a meter on
     `c`).  ↑/↓, k/j and the wheel move `here` through `rows`, turning the pages of a row
     taller than the page before they leave it.  A click on a row
-    makes it `here`, and one on a cell makes that the column, acting `enter` on the first
+    makes it `here`, and one on a cell makes that the column, acting `space` on the first
     `marks` columns and, on another's, the cell of it clicked, from 0; `column` is None where
     no cell was clicked; a cell that only explains is none.  The pointer does the same and acts
     on nothing, the cell it is on lit.  `act` is `back` for Esc or a click on `esc back`, None when the screen wants drawing again -- a
     resize, the pointer, or `timeout` seconds with no key -- a character key's character, its
-    key-line item's too (`r recommended`), and any other key's name, `enter` a click on `⏎`'s.
+    key-line item's too (`r recommended`), and any other key's name, `enter` a click on `⏎`'s
+    and `space` one on `␣`'s.
     `fetched()` says since when the screen's content is being fetched, or None: while it is, the
     rule under the header glides (`motion.fetching`) and the read ends, None, once it lands.
     `clock` moves what `moves` -- (line, key, value, start) -- says is news (`motion.Clock.look`)
@@ -3684,12 +3685,12 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
         if act == "point":
             return None, here, column, top
         if spot.what is None:         # a key-line item does what its key does
-            item = {"esc": "back", "⏎": "enter"}.get(spot.cell, spot.cell or "")
-            return (item if item in ("back", "enter") or len(item) == 1 and item.isalpha()
+            item = {"esc": "back", "⏎": "enter", "␣": "space"}.get(spot.cell, spot.cell or "")
+            return (item if item in ("back", "enter", "space") or len(item) == 1 and item.isalpha()
                     else ""), here, None, top
         act = "enter" if here[0] in ("row", "usage") else ""      # a row runs its step
         if column is not None:
-            act = "enter" if column < marks else key.col - spot.first
+            act = "space" if column < marks else key.col - spot.first
     if act in ("esc", "eof"):
         return "back", here, column, top
     step = terminal.step(key)
@@ -3708,15 +3709,15 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     """The `c` screen read with the keys until Esc; the config as it left it, each
     subscription's meter over its page (config_meters).
 
-    `selected` is `session`'s record, and its role marks are that seat's models: Enter, space or
-    a click flips one (session_mark), the orchestrator moving the seat once asked, the roles saved
+    `selected` is `session`'s record, and its role marks are that seat's models: Space or a
+    click flips one (session_mark), the orchestrator moving the seat once asked, the roles saved
     to the record for the runs it launches next, the mark filling or emptying over two frames
     and one refused shaking (motion.toggled).  With no `session` the marks are new seats',
     [defaults], what the next `n` starts from (defaults_mark), no open seat changing till a
     `fresh` window's -- one over no seat -- `a` gives them to every one, once asked
     (apply_defaults).
     ↑/↓, k/j and the wheel move between rows and ←/→ between each mark and the effort beside a
-    marked one (config_columns).  Enter or space on an effort steps that role's alone up,
+    marked one (config_columns).  Space on an effort steps that role's alone up,
     from its highest round to its lowest, as a click on its
     word does, and a click on one of its cells takes that level: each change is saved, to the
     seat's record where it is a seat's (config_effort) -- its orchestrator's restarting it once
@@ -3758,8 +3759,11 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         columns = config_columns(selected, here[1]) if here[0] == "model" else ()
         if here[0] == "model" and column not in columns:      # no effort here: onto its mark
             column = column - 3 if column - 3 in columns else columns[0]
+        opens = here[0] in ("row", "usage")       # else a mark or an effort, changed in place
         keys = terminal.keys(*([ADVICE_KEY] if selected else []),
-                             *([APPLY_KEY] if fresh else []), "esc back")
+                             *([APPLY_KEY] if fresh else []), "esc back",
+                             space=None if opens else "mark" if column < 3 else "step",
+                             enter="open" if opens else None)
         # each meter's cells, on the lines over the page counted back from it, washing in and out
         moves = [(line - len(over), ("sub", number), number == lit,
                   motion.washing([(column, text, rest)], colour(cfg, subs[number - 1][0])))
@@ -3796,20 +3800,20 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             clock.forget()            # another screen: the matrix back from it replays nothing
             models_screen(cfg, session, selected, providers)
             continue
-        if act in ("enter", "space") and here[0] in ("row", "usage"):
+        if act == "enter" and opens:
             clock.forget()            # another screen: the matrix back from it replays nothing
         if here == ("row", CONFIG_ROWS[0]):
-            if act in ("enter", "space"):
+            if act == "enter":
                 models_page(cfg, keyboard)
         elif here[0] == "usage":
-            if act in ("enter", "space"):
+            if act == "enter":
                 note = meter_acts(cfg, keyboard, here[1],
                                   f"config · {usage_rows(cfg)[here[1] - 1][1]}")
         elif here == ("row", CONFIG_ROWS[1]):
-            if act in ("enter", "space"):
+            if act == "enter":
                 config_subscriptions(cfg, keyboard)
         elif here[0] == "row":
-            if act in ("enter", "space"):
+            if act == "enter":
                 if here == AUDIT:
                     config_audit(cfg)
                 else:
@@ -3824,12 +3828,12 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         elif act in ("left", "right"):
             at = columns.index(column) + (1 if act == "right" else -1)
             column = columns[min(max(at, 0), len(columns) - 1)]
-        elif act in ("enter", "space") and column < 3:
+        elif act == "space" and column < 3:
             note = (session_mark(cfg, session, selected, here[1], column, providers, around)
                     if session else defaults_mark(cfg, selected, here[1], column))
             if note:
                 clock.touch(("mark", here[1], column))    # refused: the mark shakes
-        elif act in ("enter", "space") or isinstance(act, int):     # a role's effort
+        elif act == "space" or isinstance(act, int):     # a role's effort
             # a click on one of its cells takes that level, and one on its word steps it on; the
             # row's other efforts stay as they are shown
             role, key = list(config.ROLE_EFFORTS.items())[column - 3]
@@ -5073,15 +5077,15 @@ def show_features(checkout, dry_run=False):
     The rows are the project's `list` as last answered (`switches`), asked again every TICK
     while the screen is open and drawn within STIR of landing, so the screen never waits on
     it; while it is asked the rule glides, where colour moves, and it is drawn within a frame
-    of landing.  ↑/↓ move between features and ←/→ between `you` and `everyone`; Enter, space
-    or a click flips a mark by calling the project's `set` at once, off the drawing thread, the
+    of landing.  ↑/↓ move between features and ←/→ between `you` and `everyone`; Space or a
+    click flips a mark by calling the project's `set` at once, off the drawing thread, the
     rule gliding the same way, and draws the row it answers with, a mark it changed filling or
     emptying; a flip before that is let go.  What a `set` could not do is one dim line under the
     rows, the mark as it was and shaking, until the next key; a `list` that failed is one too,
     for as long as the rows drawn are older than it.  A dry run draws it once.
     """
     here, column, top, note, clock = None, 0, 0, "", motion.Clock(page=True)
-    keys = terminal.keys("esc back")
+    keys = terminal.keys("esc back", space="mark", enter=None)
 
     flip = flipped = None   # the `set` asked from here, till its answer is drawn, and its mark
 
@@ -5122,7 +5126,7 @@ def show_features(checkout, dry_run=False):
             return
         if act in ("left", "right"):
             column = 1 if act == "right" else 0
-        elif act in ("enter", "space") and here and flip is None:
+        elif act == "space" and here and flip is None:
             flipped = ("mark", here[1], column)
             flip = Fetch(lambda feature=here[1], column=column:
                          features_flip(checkout, feature, column))
