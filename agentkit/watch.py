@@ -529,7 +529,7 @@ def died_owing(cfg, name):
     # The owner decided on 27 Oct 2026 that a seat holding background work is reopened and told
     # what it held, as a mid-turn seat is: background work is never lost silently, and some
     # harnesses say nothing of it themselves.  A watch is not work.
-    if any(kind != WATCH for kind in holding(name, hook_facts(name))):
+    if any(kind != WATCH for kind in holding(cfg, name, hook_facts(name))):
         return "work"
     return None
 
