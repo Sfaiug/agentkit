@@ -30,9 +30,8 @@ class FreshGateOpenCodeOwnPort(unittest.TestCase):
                 ['/bin/bash', '-c', '. "$REPO/tests/acceptance.sh"\nbad=""\n' + step_c + 'echo "bad=$bad"\n'
                  'sync_back() { :; }; smoke_lock_drop() { :; }; cleanup_logs() { :; }; tmux() { :; }\n'
                  + cleanup + 'cleanup\n'],
-                env={**{k: v for k, v in os.environ.items()   # the caller's own OpenCode login stays out
-                        if k not in ('XDG_CONFIG_HOME', 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_DIR')},
-                     'WORK': tmp, 'REPO': str(REPO), 'INVHOME': f'{tmp}/caller', 'UH': tmp,
+                env={'PATH': os.environ['PATH'],   # none of the caller's own logins or their homes
+                     'HOME': f'{tmp}/caller', 'WORK': tmp, 'REPO': str(REPO), 'INVHOME': f'{tmp}/caller', 'UH': tmp,
                      'HOSTBIN': ' opencode ', 'EPATH': f'{tmp}:/usr/bin:/bin'},
                 text=True, capture_output=True, timeout=60).stdout
             self.assertIn("SKIP  c: opencode's login is not on this host", out)
