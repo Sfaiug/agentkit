@@ -7,6 +7,7 @@ temporary HOME, harnesses faked (tests/fixtures/fakeadapter.py), NO_COLOR, so th
 bracketed.  This test fails against `/bin/false`.
 """
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -125,6 +126,18 @@ class SubscriptionsPage(unittest.TestCase):
             "    new@acme.test   [↻ log in again]   − remove",
             "OpenAI", "  ChatGPT     ▰▰▰▰▰▰▰▰▰▰  100% left · 1 reset in hand", "",
             "  + add a subscription"])
+
+    def test_a_reading_that_lands_shows_without_a_key(self):
+        # the menu's opening probe written first, or it writes back the reading it took before
+        usage = self.home.path / ".agentkit/state/usage.json"
+        self.term.wait(lambda _: all("probed_at" in prov for prov in json.loads(
+            usage.read_text())["providers"]["anthropic"]["accounts"].values()))
+        self.home.write(".agentkit/state/usage.json", {"fetched_at": time.time(), "providers": {
+            "anthropic": {"accounts": {"default": {"meters": [{"name": "weekly", "used": 16,
+                                                                "window_secs": 604800}]},
+                                       "two": {"meters": [{"name": "weekly", "used": 50,
+                                                            "window_secs": 604800}]}}}}})
+        self.term.wait("  Claude II  ▰▰▰▰▰▱▱▱▱▱  50% left")
 
 
 if __name__ == "__main__":
