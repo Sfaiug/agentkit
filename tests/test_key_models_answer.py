@@ -25,7 +25,7 @@ from fixtures.akterm import SERVER, Terminal
 NOW = int(time.time())
 ENV = {"NO_COLOR": "1", "TZ": "UTC", **{name: "http://127.0.0.1:9" for name in (
     "http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}}
-KEYS = "  ↑↓ move   ←→ points   ⏎ why   r take   esc back"
+KEYS = "  ↑↓ move   ←→ points   ⏎ why   p pick   r take   esc back"
 EVALUATIONS = ("aa-briefcase", "terminalbench-4-0", "gdp-pdf")     # each role's cost a task
 # Per release and effort: intelligence index, frontier-code and terminal shares, DeepSec Bench,
 # documents passing every check, Arena's agent share and cost a task; each but Crux 2 at Arena's

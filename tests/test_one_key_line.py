@@ -24,6 +24,8 @@ from test_config_matrix import (DOWN, ENTER, ESC, NEW_KEYS, PAGE_KEYS, RIGHT, UP
 SPELLED = {
     "menu.py MODELS_KEYS": "the models screen: its arrows split, ↑↓ moving the pointer and ←→ "
                            "stepping `within`, as its task spells them",
+    "menu.py PICK_KEYS": "the models to compare: Space marks and every other key typed finds, "
+                         "so it has no Enter, as its task spells it",
 }
 
 

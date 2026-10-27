@@ -411,12 +411,11 @@ def load():
     if "within" in cfg and (isinstance(cfg["within"], bool) or not isinstance(cfg["within"], (int, float))
                             or cfg["within"] < 0):
         raise Error(f"{path}: within must be a number of points, 0 or more (got {cfg['within']!r})")
-    marks = cfg.get("assess")
-    if marks is not None and (not isinstance(marks, dict) or any(
-            not isinstance(models, list) or any(not isinstance(model, str) for model in models)
-            for models in marks.values())):
-        raise Error(f"{path}: [assess] must list model ids under each harness "
-                    f"(acme = [\"acme-pro\"]) (got {marks!r})")
+    marks = cfg.get("compare")
+    if marks is not None and (not isinstance(marks, list)
+                              or any(not isinstance(slug, str) for slug in marks)):
+        raise Error(f"{path}: compare must list release slugs (compare = [\"acme-pro-5\"]) "
+                    f"(got {marks!r})")
     if not isinstance(defaults.setdefault("orchestrator", names[0]), str):
         raise Error(f"{path}: [defaults].orchestrator must be a model name "
                     f"(got {defaults['orchestrator']!r})")

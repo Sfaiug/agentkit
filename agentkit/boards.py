@@ -235,7 +235,7 @@ def _locked():
         yield
 
 
-def _held():
+def cached():
     """`boards.json` as it is, or while there is none yet the boards as `state/matrix.json` held
     them beside the matrix until 20 Oct 2026, so an install upgraded keeps what they last said
     and its day's pace; {} where the file is unreadable."""
@@ -263,7 +263,7 @@ def collect(*, refresh=False, now=None, needs=None, build=None):
     collects at a time, under `boards.lock`, and the next reads what it wrote."""
     now = time.time() if now is None else now
     with _locked():
-        cache = _held()
+        cache = cached()
         asks = {"artificialanalysis.ai": artificial_analysis, "arena.ai": arena}
         for board, ask in asks.items():
             held = cache.get(board) or {}
