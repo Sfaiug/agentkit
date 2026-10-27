@@ -1,5 +1,5 @@
 """What `ak models` rates each role on is pinned here, so it changes only with a visible test
-change and the owner's yes (AGENTS.md, Owner rules): the roles, each role's measures in order
+change: the roles, each role's measures in order
 with the kind of number each is, the cost of a role's task (`quality`), and that every measure
 says what it tests in plain words."""
 

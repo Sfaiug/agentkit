@@ -29,7 +29,7 @@ SCALES = {
                / (1 + t) ** 2),
 }
 # What each role is rated on: a column (board.field), its kind (`SCALES`) and, in plain words,
-# what it tests.  Pinned by tests/test_matrix_measures.py: it changes only with the owner's yes.
+# what it tests.  Pinned by tests/test_matrix_measures.py, so a change to it is a visible test change.
 ROLES = {
     "orchestrate": (("aa.briefcaseBreakdown.overall.elo", "rating",
                      "long business projects of hundreds of turns, delivering files"),
