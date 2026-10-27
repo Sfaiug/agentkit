@@ -4136,11 +4136,11 @@ def config_subscriptions(cfg, keyboard):
     """`Subscriptions` on `c`: each subscription under its company (COMPANIES) as the main screen
     draws it (usage_lines) with its resets in hand, then `+ add a subscription`
     (config_add_provider).  The row the keys or the pointer are on opens a line: whose login it
-    is and its plan (logins.whose; one ending as login_notes says it, amber), then its acts
-    (subscription_acts), ←/→ or the pointer moving from the first, Enter or a click running
-    one.  One an act adds is asked whose it is (logins.renewed) and comes back pointed at."""
+    is and its plan (logins.whose; one ending as login_notes says it, amber), resets with no room
+    beside its meter, then its acts (subscription_acts), ←/→ or the pointer moving, Enter or a
+    click running one.  One an act adds is asked whose it is (logins.renewed), then pointed at."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
-    here, column, top, said = ("sub", 1), 0, 0, ""
+    here, column, top, said = ("sub", 1), None, 0, ""     # column None: as the line opens
     keys = terminal.keys("esc back")
     while True:
         subs, width = usage_rows(cfg), terminal.layout_width()
@@ -4156,16 +4156,19 @@ def config_subscriptions(cfg, keyboard):
             if number == 1 or subs[number - 2][0] != name:
                 body.append(terminal.styled(COMPANIES[name].split(" / ")[0] if name in COMPANIES
                                             else provider_name(cfg, name), "bold"))
-            held = in_hand(prov) and f" · {in_hand(prov)}"
-            if held and terminal.cells(terminal.plain(line + held)) <= width:   # else on its line
-                line += terminal.styled(held, "dim")
+            held = in_hand(prov)
+            beside = held and terminal.cells(f"{terminal.plain(line)} · {held}") <= width
+            line += terminal.styled(f" · {held}", "dim") if beside else ""
             places[len(body)] = (("sub", number), [])
             body.append(terminal.highlight(line) if number == lit else line)
             if number == lit:
                 acts = subscription_acts(cfg, keyboard, number, remove=True)
-                column = min(column, len(acts) - 1)
+                # lit on the first act, never `remove`, last, so a lone one waits for a move
+                column = ((0 if len(acts) > 1 else None) if column is None
+                          else min(column, len(acts) - 1))
                 email, plan = logins.whose(name, account)
-                told = " · ".join(filter(None, (ending[number - 1] or email, plan)))
+                told = " · ".join(filter(None, (ending[number - 1] or email, plan,
+                                                not beside and held)))
                 for shown, cells in opened_line(told, "amber" if ending[number - 1] else "dim",
                                                 [text for text, _ in acts], column, width - 4):
                     places[len(body)] = (("sub", number), cells)
@@ -4178,7 +4181,7 @@ def config_subscriptions(cfg, keyboard):
         if clicked is not None:
             column = clicked
         elif moved != here:
-            column = 0                # another row's line opens on its first act
+            column = None             # another row's line opens as a line does
         here = moved
         if act is None:
             continue                  # a resize or the pointer: drawn again
@@ -4186,8 +4189,9 @@ def config_subscriptions(cfg, keyboard):
         if act == "back":
             return
         if act in ("left", "right") and acts:
-            column = min(max(column + (1 if act == "right" else -1), 0), len(acts) - 1)
-        elif act in ("enter", "space") and (acts or here[0] == "row"):
+            column = 0 if column is None else min(max(column + (1 if act == "right" else -1), 0),
+                                                  len(acts) - 1)
+        elif act in ("enter", "space") and (acts and column is not None or here[0] == "row"):
             def signed(rows):     # a provider's only login is its usual one, listed or not
                 return [(name, account or config.DEFAULT_ACCOUNT) for name, _, _, account in rows]
             before = signed(subs)
@@ -4198,7 +4202,7 @@ def config_subscriptions(cfg, keyboard):
             for number in added:      # whose login it is, for its line
                 logins.renewed(cfg, *after[number - 1])
             if added:
-                here, column = ("sub", added[0]), 0
+                here, column = ("sub", added[0]), None
 
 
 def opened_line(told, kind, texts, column, room):

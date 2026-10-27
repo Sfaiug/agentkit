@@ -4,8 +4,8 @@ The owner (20 Oct 2026): "Pressing on the usage meters inside the config and on 
 different effect, should always be the same one. I dont want removing to be able this way, just
 actions such as spendign a reset, or claude relogin".  Enter on a meter over `c` lists what a
 click on one on the ak screen lists (tests/test_login_click.py), `↻ log in again` and `↻ spend a
-reset` while one is in hand, never `− remove`, which is last on the line each subscription's
-row on `Subscriptions` opens.  `log in again` only where its harness signs in afresh: Antigravity's cannot
+reset` while one is in hand, never `− remove`, which is under each subscription's row on
+`Subscriptions`.  `log in again` only where its harness signs in afresh: Antigravity's cannot
 (`[auth] again = false`).  In-process, in a temporary HOME: `c`'s key reader faked and every list let go,
 so nothing is signed in, spent or removed.
 """
@@ -56,10 +56,10 @@ class MeterActs(Sandbox):
                                         else ["↻ log in again"]
                                         for row in self.rows if row != "Gemini"])
 
-    def test_subscriptions_lists_every_subscription_with_its_removal_last_on_its_line(self):
-        chatgpt = self.rows.index("ChatGPT") + 1
+    def test_subscriptions_lists_every_subscription_with_its_removal_under_it(self):
+        chatgpt, gemini = self.rows.index("ChatGPT") + 1, self.rows.index("Gemini") + 1
         drawn = self.keyed(lambda: menu.config_subscriptions(self.cfg, None),
-                           [(None, ("sub", chatgpt)), ("back", None)])
+                           [(None, ("sub", chatgpt)), (None, ("sub", gemini)), ("back", None)])
         self.assertEqual([re.split(r"\s{2,}", line[2:])[0] for line in drawn[0]
                           if line[:1] in " ›" and line[2:3].strip()],
                          [*self.rows, "+ add a subscription"])
@@ -70,6 +70,7 @@ class MeterActs(Sandbox):
         self.assertEqual(under(drawn[0], "Claude"),
                          ["[↻ log in again]", "↻ spend a reset", "− remove"])
         self.assertEqual(under(drawn[1], "ChatGPT"), ["[↻ log in again]", "− remove"])
+        self.assertEqual(under(drawn[2], "Gemini"), ["− remove"])    # lit only by a move
         self.assertEqual(self.offered, [])         # the page's own line, no other list
 
     def test_enter_runs_the_act_drawn_while_its_reading_moves(self):
@@ -95,8 +96,7 @@ class MeterActs(Sandbox):
         self.assertEqual((spent, removed), ([], ["Claude"]))
 
     def drive(self, *keys):
-        """The page read with `keys`, then Esc, nothing spent: what was signed in again and
-        what removed."""
+        """The page read with `keys`, then Esc, nothing spent: (signed in again, removed)."""
         signed, removed, keys = [], [], iter(map(terminal.Key, [*keys, "esc"]))
 
         def remove(cfg, picked):
@@ -116,6 +116,12 @@ class MeterActs(Sandbox):
     def test_enter_on_a_reset_in_hand_signs_in_again_never_spends_nor_removes(self):
         # The first act is lit as the line opens: the spend and the removal are a move away.
         self.assertEqual(self.drive("enter"), (["anthropic"], []))
+
+    def test_resets_with_no_room_beside_the_meter_are_on_its_line(self):
+        self.stack.enter_context(patch.object(terminal, "layout_width", return_value=30))
+        drawn = self.keyed(lambda: menu.config_subscriptions(self.cfg, None), [("back", None)])
+        self.assertEqual(drawn[0][1:3], ["› Claude   ▰▰▰▰▱▱▱▱  50% left",
+                                          "    1 reset in hand"])
 
     def test_the_last_row_removed_leaves_the_highlight_on_the_new_last(self):
         last = len(self.rows) - 1

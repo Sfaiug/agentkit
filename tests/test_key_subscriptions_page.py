@@ -31,16 +31,13 @@ def title(screen):
     return lines(screen)[0].rsplit(" ", 1)[0].strip()
 
 
-def body(screen):
-    """The page between its rule and its key line, blank lines at either end left out."""
+def body(screen):     # the page between its rule and its key line
     shown = lines(screen)
     return "\n".join(shown[2:shown.index(PAGE_KEYS)]).strip("\n").split("\n")
 
 
-def meters(screen):
-    """{label: its meter and what it has left}, as the screen draws each subscription."""
-    return {label: rest for label, rest in re.findall(
-        r"(Claude I+|ChatGPT)\s+([▰▱]+  \d+% left)", screen)}
+def meters(screen):   # {label: its meter and what it has left}, as the screen draws them
+    return dict(re.findall(r"(Claude I+|ChatGPT)\s+([▰▱]+  \d+% left)", screen))
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -74,8 +71,7 @@ class SubscriptionsPage(unittest.TestCase):
         self.term.keys("Down", "Down", "Down")        # past GPT-6-Astra and `Models`
         self.term.wait("› Subscriptions")
         self.term.keys("Enter")
-        self.page = self.term.wait(lambda screen: title(screen) == PAGE
-                                   and PAGE_KEYS in lines(screen))
+        self.page = self.term.wait(lambda screen: PAGE_KEYS in lines(screen))
 
     def test_each_subscription_sits_under_its_company_with_the_main_screen_s_meter(self):
         self.assertEqual(body(self.page), [
@@ -114,9 +110,7 @@ class SubscriptionsPage(unittest.TestCase):
 
     def test_a_subscription_just_added_comes_back_pointed_at_with_its_login(self):
         self.fakes["claude"].answer("login-end", '{"email": "new@acme.test", "ends": null}')
-        self.term.keys("Down", "Down", "Down")
-        self.term.wait("› + add a subscription")
-        self.term.keys("Enter")
+        self.term.keys("Down", "Down", "Down", "Enter")      # on `+ add a subscription`
         offered = self.term.wait(lambda screen: title(screen) == ADD and "Claude III" in screen)
         rows = [line[2:] for line in lines(offered)[2:] if line[2:]]
         self.term.keys(*["Down"] * rows.index("Claude III"), "Enter")
