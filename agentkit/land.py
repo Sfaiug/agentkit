@@ -184,11 +184,17 @@ def green_delivery(wait):
     return "land" in wait and "fix" not in wait
 
 
+def red_stack(wait):
+    """Whether the lander found `wait`'s member red on top of runs ahead of it, named in its
+    `after`.  Its fixer would work on the member's branch rebased onto the target, which holds
+    none of their changes until they land, so it waits for them to leave the line and is then
+    checked again.  A delivery's red required checks keep `land` beside their `fix`: theirs."""
+    return "fix" in wait and "land" not in wait and bool(wait.get("after"))
+
+
 def red_behind(wait, names):
-    """Whether a red verdict waits on runs ahead of it still in the line, `names`: its fixer
-    works on the member's branch rebased onto the target, which holds none of their changes
-    until they land, so it is checked again on the target once they have left."""
-    return "fix" in wait and bool(wait.get("after", {}).keys() & names)
+    """Whether a `red_stack` verdict still waits on runs in the line, `names`."""
+    return red_stack(wait) and bool(wait["after"].keys() & names)
 
 
 def start_line(turn, log=lambda _: None):
@@ -371,15 +377,14 @@ def check_line(turn, log=lambda _: None):
                         prefix.append((directory, state))
                         continue
                     return  # a live rejoiner still holds its place ahead of later stacks
-                if state.get("state") == "waiting" and "fix" in state["waiting_on"]:
+                if state.get("state") == "waiting" and red_stack(state["waiting_on"]):
                     if red_behind(state["waiting_on"], names):
                         continue
-                    if state["waiting_on"].get("after"):
-                        with record.record(directory) as current:
-                            current["waiting_on"] = {key: value for key, value
-                                                     in state["waiting_on"].items()
-                                                     if key not in ("fix", "after")}
-                        state = record.read_state(directory)
+                    with record.record(directory) as current:
+                        current["waiting_on"] = {key: value for key, value
+                                                 in state["waiting_on"].items()
+                                                 if key not in ("fix", "after")}
+                    state = record.read_state(directory)
             if state.get("state") != "waiting":
                 prefix.append((directory, state))
                 continue

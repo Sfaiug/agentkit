@@ -277,6 +277,21 @@ class Lander(LanderFixture, unittest.TestCase):
         self.assertEqual(self.wait(red)["after"], {})
         self.assertEqual([call.args[0] for call in self.wake.call_args_list], [red.name])
 
+    def test_a_stacked_deliverys_red_required_checks_outlive_the_run_ahead_landing(self):
+        head = self.member("acme-api", once="true", **{"api.txt": "new api\n"})
+        tail = self.member("acme-client", joined=2, once="true", **{"client.txt": "client\n"})
+        self.advance()
+        land.check_line(self.turn)
+        with record.record(head) as current:
+            current.update(state="pass", merged=True)
+        lp = SimpleNamespace(state=record.read_state(tail), run_dir=tail)
+        lp.write = lambda: record.save_state(tail, lp.state)
+        with patch.object(deliver, "checks", return_value=(False, "required checks failed: unit")):
+            self.assertFalse(deliver.wait_checks(lp, "https://github.com/acme/widgets/pull/2"))
+        parked = self.wait(tail)
+        land.check_line(self.turn)
+        self.assertEqual(self.wait(tail), parked)
+
     def test_a_member_whose_rules_fail_once_a_red_ahead_is_removed_is_told(self):
         head = self.member("red-head", **{"broken.txt": "broken\n"})
         tail = self.member("bad-rules", joined=2,
