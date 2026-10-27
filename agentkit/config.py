@@ -81,6 +81,7 @@ OWN = ("agentkit.git", "bin", CONFIG_NAME, "env", "history.db", "history.db-jour
        "state", "tasks", "tmp", "versions", "work", "wt")
 EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultra")   # the effort words for a
                                # harness whose adapter manifest names none of its own
+POINTS = 10                    # the most `within` can be: past ten, a point says nothing
 CATALOG_TTL = 60               # seconds a harness's model list is reused before it is asked again
 CATALOG_NOW = 0.05             # seconds catalog_now waits on catalog() before the answer it has
 
@@ -409,8 +410,9 @@ def load():
     if not isinstance(defaults, dict):
         raise Error(f"{path}: [defaults] must be a table")
     if "within" in cfg and (isinstance(cfg["within"], bool) or not isinstance(cfg["within"], (int, float))
-                            or cfg["within"] < 0):
-        raise Error(f"{path}: within must be a number of points, 0 or more (got {cfg['within']!r})")
+                            or not 0 <= cfg["within"] <= POINTS):
+        raise Error(f"{path}: within must be a number of points from 0 to {POINTS} "
+                    f"(got {cfg['within']!r})")
     marks = cfg.get("compare")
     if marks is not None and (not isinstance(marks, list)
                               or any(not isinstance(slug, str) for slug in marks)):

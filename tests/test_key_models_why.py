@@ -129,13 +129,13 @@ class ModelsWhy(unittest.TestCase):
         term, shown = self.models()
         self.assertIn(ORCH_PICK, shown)
         term.keys("Right")              # within 6: the orchestrator's front stands as it was
-        shown = lines(term.wait("within ‹ 6 ›"))
+        shown = lines(term.wait("within 6 points"))
         self.assertIn(ORCH_PICK, shown)
         self.assertIn("    Crux 2 low            80.0   $1.00  1 estimated", shown)
         term.keys("Up", "Up")
         term.wait("›   Acme Max 5 max       100.0  $20.00  no harness")
         term.keys("Right")              # within 7: Acme Max 5 max leaves the orchestrator's line
-        shown = lines(term.wait("within ‹ 7 ›"))
+        shown = lines(term.wait("within 7 points"))
         self.assertIn("›   Crux 2 low            93.3   $1.00  ★ pick", shown)
         self.assertEqual(sum(line.startswith("›") for line in shown), 1)
 
@@ -151,7 +151,7 @@ class ModelsWhy(unittest.TestCase):
     def test_on_40_cells_each_measures_how_takes_a_line_under_it(self):
         term, _ = self.models(40)
         term.keys("Right")
-        term.wait("‹ 6 ›")
+        term.wait("within 6")
         self.assertEqual(self.why(term, *["Down"] * 6)[:len(CRUX_BUILDS_40)], CRUX_BUILDS_40)
 
     def test_a_why_taller_than_the_screen_turns_its_pages(self):

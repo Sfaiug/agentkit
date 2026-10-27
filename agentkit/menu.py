@@ -2949,10 +2949,11 @@ MODELS_KEYS = {"answer": ("↑↓ move   ←→ points   ⏎ why   p pick   r ta
                "pick": ("↑↓ move   space mark   type to find   esc done",
                         "up/down move   space mark   type to find   esc done")}
 NEAR = 2                          # the line's rows shown either side of the pick
-LEGEND = (("as good", "within {} points of the best, then the cheapest"),
+LEGEND = (("as good", "{} within {} points of the best, then the cheapest"),
           ("≈ tie", "the boards cannot tell it from ★ pick"),
           ("estimated", "scores no effort of it has, counted low"))
 KNOB = ("legend", "within")
+NAMED = 13                        # the cells before a legend line's words: its name's column
 # the why's words: what a row does in each role, and each measure's evaluation by its name
 DOES = {"orchestrate": "orchestrates", "execute": "builds", "review": "reviews"}
 MEASURES = {"aa.briefcaseBreakdown.overall.elo": "AA-Briefcase", "aa.gdpval": "GDPval-AA",
@@ -3009,10 +3010,10 @@ def models_body(said, within, compared, total, fetched, at=None):
     Per role (models_said) its head over the columns, then its lines.  Where a row is too wide
     for the screen, from 40 cells up, each row's numbers and notes take a line under its name,
     the name alone cut, its effort kept, its notes broken only between two.  Then the legend,
-    `within` between the arrows that step it, the knob never broken, and how many of the
+    opening on `within`'s knob (points_knob), never broken, and how many of the
     `total` models are `compared` (matrix.compared) and when the boards were read, broken only
     at ` · `."""
-    room, arrows = terminal.layout_width(), "‹ {} ›" if terminal.utf8() else "< {} >"
+    room = terminal.layout_width()
     rows = [line for _, lines in said for line in lines if isinstance(line, tuple)]
     widths = [max([terminal.cells(head) - 2 for head, _ in said]
                   + [terminal.cells(name + effort) for _, name, effort, *_ in rows]),
@@ -3053,12 +3054,16 @@ def models_body(said, within, compared, total, fetched, at=None):
             for number, part in enumerate(packed(notes.split(" · "), " · ", room - len(gap))):
                 put(((numbers + "  " if number == 0 else gap) + part).rstrip(), here)
     put("", KNOB)
-    knob = arrows.format(f"{within:g}")
-    word = knob.replace(" ", "_")     # wrapped as one word, so the knob never breaks
+    knob = points_knob(within)
+    word = "_" * (terminal.cells(knob) + 1)   # one word, so the knob never breaks, and its gap
     for name, text in LEGEND:
-        for number, part in enumerate(terminal.wrap(text.format(word), room - 13)):
-            put(terminal.table_row(["" if number else name, part.replace(word, knob)],
-                                   [9, room - 13], indent="  ", kinds=(None, "dim")), KNOB)
+        for number, part in enumerate(terminal.wrap(text.format(word, f"{within:g}"),
+                                                    room - NAMED)):
+            words = part.removeprefix(word)
+            line = terminal.table_row(["" if number else name, words], [9, room - NAMED],
+                                      indent="  ", kinds=(None, "dim"))
+            # the knob's cells are drawn as they are, not dimmed with the words after them
+            put(line if words == part else line[:NAMED] + knob + "  " + line[NAMED:], KNOB)
     read = time.localtime(fetched or 0)
     parts = [f"comparing {'all' if compared is None else f'{len(compared)} of'} {total} models",
              *(["boards read " + time.strftime("%H:%M" if read[:3] == time.localtime()[:3]
@@ -3066,6 +3071,13 @@ def models_body(said, within, compared, total, fetched, at=None):
     for part in packed(parts, " · ", room - 2):
         put("  " + terminal.styled(part, "dim"), KNOB)
     return lines, places
+
+
+def points_knob(within):
+    """`within` between the arrows that step it, a cell a point (terminal.effort_cells): its
+    whole points full and the rest dim, `‹ ▰▰▰▰▰▱▱▱▱▱ ›` for 5."""
+    arrows = "‹ {} ›" if terminal.utf8() else "< {} >"
+    return arrows.format("".join(terminal.effort_cells(config.POINTS, int(within))))
 
 
 def named(row, room):
@@ -3137,9 +3149,9 @@ def models_why(found, role, row):
 
 
 def config_within(cfg, step):
-    """`within`, how far under the best still counts as as good, one point along, never under
-    0, and saved (_saved); what to say under the rows, or ""."""
-    value = max(0, matrix.within(cfg) + step)
+    """`within`, how far under the best still counts as as good, one point along, from 0 to
+    config.POINTS, and saved (_saved); what to say under the rows, or ""."""
+    value = min(max(0, matrix.within(cfg) + step), config.POINTS)
     if value == matrix.within(cfg):
         return ""
     before = copy.deepcopy(cfg)
@@ -3153,7 +3165,8 @@ def models_screen(cfg, session, selected, providers):
     answered over the releases compared (models_body) until Esc.  The boards are read as it opens
     (matrix.refresh), the rule gliding until they land and what was stored standing meanwhile, a
     failed reading said under the rows; the answer is computed once per landing and per knob
-    step, never per draw.  ←/→ step `within`, saved at once (config_within).  ↑/↓ move the
+    step, never per draw.  ←/→ step `within`, saved at once (config_within), the knob nudging
+    at either end.  ↑/↓ move the
     pointer over the rows shown, from the first role's pick; one whose row a step leaves
     unshown goes to its role's pick.  ⏎ or a click opens the pointed row's why (models_why)
     until Esc, ↑/↓ turning its pages where it is taller than the screen.  `p` picks the
@@ -3190,9 +3203,12 @@ def models_screen(cfg, session, selected, providers):
         # the legend stands under the rows whatever the height: the pointer never reaches it
         fold = next(line for line, (row, _) in places.items() if row == KNOB)
         places = {line: place for line, place in places.items() if line < fold}
+        # the knob opens the legend's first line, under the blank one at the fold
+        knob = motion.refused(points_knob(matrix.within(cfg)), matrix.within(cfg), NAMED + 1)
         act, here, _, top = matrix_key(title, body[:fold], places, rows, here, top, note,
                                        MODELS_KEYS["answer"][not terminal.utf8()], marks=0,
                                        under=body[fold:],
+                                       moves=[(fold + 1, KNOB, matrix.within(cfg), knob)],
                                        clock=clock, fetched=lambda: fetch.began
                                        if fetch is not None and fetch.is_alive() else None,
                                        # one landed since the look above is taken at once
@@ -3218,7 +3234,10 @@ def models_screen(cfg, session, selected, providers):
                                                                          (why, [])),
                                              [why], why, page, "", "esc back")
         elif act in ("left", "right", "less", "more"):
+            was = matrix.within(cfg)
             note, answer = config_within(cfg, 1 if act in ("right", "more") else -1), None
+            if matrix.within(cfg) == was:
+                clock.touch(KNOB)     # refused, at an end or unsaved: the knob nudges
 
 
 ALL = ("all",)                    # where the pointer is on `all N models`
