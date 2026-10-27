@@ -2847,6 +2847,7 @@ NEW_SEATS = "new seats"
 MOVE_ASK = "Restart {} on {}?"     # what another model's orchestrator mark asks, and what it means
 MOVE_MEANS = {True: "It keeps its conversation.",
               False: "It starts a new conversation, handed the one it had."}
+RESTART_ASK = "Restart {} on {} at {}?"   # what a step of a seat's orchestrator effort asks
 # Every effort word, weakest first -- the widest list a manifest names (adapters/muse.toml) --
 # so a new model id that does not take its model's effort takes the nearest one it does.
 EFFORT_RANK = ("none", "minimal", *config.EFFORTS)
@@ -2943,9 +2944,8 @@ def take_advice(cfg, name, selected, providers, found):
     return defaults_saved(cfg, selected, changed, before)
 
 
-def efforts_saved(cfg, name, selected, steps, hold=()):
-    """Seat `name`'s efforts with each (model, key, effort) of `steps` set (_set_effort, `hold`
-    held), saved
+def efforts_saved(cfg, name, selected, steps):
+    """Seat `name`'s efforts with each (model, key, effort) of `steps` set (_set_effort), saved
     to its record at once and into `selected`, the model entries left alone.  Each is set on the
     record as it stands, under its lock (config.change_efforts), so a key saved since is kept;
     a model it holds none for starts from its entry's.  What to say under the rows, or ""."""
@@ -2953,7 +2953,7 @@ def efforts_saved(cfg, name, selected, steps, hold=()):
         efforts = dict(record.get("efforts") or {})
         for model, key, effort in steps:
             efforts[model] = dict(efforts.get(model) or config.efforts_of(cfg["models"][model]))
-            _set_effort(efforts[model], key, effort, hold)
+            _set_effort(efforts[model], key, effort)
         return efforts
     try:
         saved = config.change_efforts(config.resolve_session(name), stepped)
@@ -3321,7 +3321,7 @@ def _saved(cfg, table, before):
 
 
 def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, seat=None,
-                  hold=()):
+                  hold=(), around=None):
     """`name`'s effort in `role` (config.role_effort: a worker's is the effort while its own
     key is unset) one step along that model's own efforts (config.efforts), never past either
     end unless `wrap` takes it round to the other, or onto the `to`-th of them, and saved, a
@@ -3329,6 +3329,8 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
     set to an effort it does not take lands on its first, and a worker's stepped onto the
     effort itself is unset again (_follows), while the effort's own step moves no other key;
     `hold`'s keys stay at the efforts they stand at, one that followed the effort keeping it.
+    A seat's orchestrator effort is the one its harness runs, so its step restarts the seat
+    instead, once asked on the card `around` draws (seat_restart).
     The efforts are read `now`, off the catalog already in hand (config.catalog_now): a listing
     never stands between the key and its frame.  What to say under the matrix, or ""."""
     entry, key = cfg["models"][name], config.ROLE_EFFORTS[role]
@@ -3343,11 +3345,26 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
     at = at % len(levels) if wrap else at
     if not 0 <= at < len(levels) or levels[at] == current:
         return ""
+    if seat and key == "effort":
+        return seat_restart(cfg, *seat, name, levels[at], around)
     if seat:
-        return efforts_saved(cfg, *seat, [(name, key, levels[at])], hold)
+        return efforts_saved(cfg, *seat, [(name, key, levels[at])])
     before = dict(entry)
     _set_effort(entry, key, levels[at], hold)
     return _saved(cfg, entry, before)
+
+
+def seat_restart(cfg, name, selected, model, effort, around):
+    """Seat `name` restarted on `model` with its orchestrator at `effort`, once `Restart` is
+    picked on the card `around` draws (terminal.confirm), the owner's 24 Oct words about the
+    orchestrator: "it should ask me to confirm. As this restarts the session."  The restart
+    alone writes the record (orch.switch_orchestrator), and `selected` then holds it as it is.
+    What to say under the rows, or ""."""
+    note = orch.switch_orchestrator(cfg, name, model, effort=effort, asked=lambda kept: (
+        terminal.confirm(RESTART_ASK.format(name, config.model_name(cfg, model), effort),
+                         MOVE_MEANS[kept], "Restart", around)))
+    selected.update(config.load_session(cfg, name, required=False) or {})
+    return note or ""
 
 
 def _set_effort(entry, key, effort, hold=()):
@@ -3531,7 +3548,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     marked one (config_columns).  Enter or space on an effort steps that role's alone up,
     from its highest round to its lowest, as a click on its
     word does, and a click on one of its cells takes that level: each change is saved, to the
-    seat's record where it is a seat's (config_effort), and drawn at once, each cell it fills lighting and each it empties dimming in turn, and a step onto
+    seat's record where it is a seat's (config_effort) -- its orchestrator's restarting it once
+    asked (seat_restart) -- and drawn at once, each cell it fills lighting and each it empties dimming in turn, and a step onto
     the model's highest sends a light through its word (config_body, on the clock); nothing
     replays after another screen.
     A click on a model's label puts the highlight on its first mark.  `r`, or a click on
@@ -3650,10 +3668,11 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             lead = next((last - first + 1 for row, cells in places.values() if row == here
                          for first, last, at in cells if at == column), 0) - terminal.cells(
                 entry.get(key, entry.get("effort", "?")))
-            note = (config_effort(cfg, here[1], 0, to=act, role=role, seat=seat, hold=hold)
+            note = (config_effort(cfg, here[1], 0, to=act, role=role, seat=seat, hold=hold,
+                                  around=around)
                     if isinstance(act, int) and act < lead
                     else config_effort(cfg, here[1], 1, wrap=True, role=role, seat=seat,
-                                       hold=hold))
+                                       hold=hold, around=around))
 
 
 def _runs(cfg, harness, model, effort=None):

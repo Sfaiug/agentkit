@@ -1,7 +1,7 @@
 """The `c` screen steps an effort, moves a seat once asked, and ticks models in and out of config.
 
-`c` is where the owner changes the models without opening a file: Enter on a model's effort
-steps it one up, saved to the seat's record at once, config.toml as it was; Enter on another
+`c` is where the owner changes the models without opening a file: Enter on a model's build
+effort steps it one up, saved to the seat's record at once, config.toml as it was; Enter on another
 model's orchestrator mark asks under the
 matrix first, as the owner said on 24 Oct ("when pressing a different orch, it should ask me
 to confirm. As this restarts the session."): Esc keeps the record and the pane as they were,
@@ -35,9 +35,6 @@ SEAT = "atoll-ask"
 MODELS = {"fable": {"harness": "claude", "effort": "xhigh", "x_custom": 1},
           "astra": {"harness": "codex", "effort": "high"}}
 CATALOG = "m1\tModel One\tlow medium high"     # what the claude adapter's `models` lists
-# A step reads the adapter's list if it answers at once, else the manifest's: both name fable's
-# efforts the same, as a real Claude's does, so the bar reads the same either way.
-FABLE_LISTED = "claude-fable-5-1\tFable 5.1\tlow medium high xhigh max"
 HEADER = "# agentkit's config, written by the menu's `c` screen."
 KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"   # wherever the highlight is
 PAGE_KEYS = "  ↑↓←→ move   ⏎ choose   esc back"   # a page under it, with no `r`
@@ -89,15 +86,15 @@ class ConfigScreenEdits(unittest.TestCase):
         self.term.keys("c")
         self.term.wait(lambda screen: key_line(screen) == KEYS and "› Fable 5.1" in screen)
 
-    def test_enter_on_an_effort_steps_it_up_in_the_seat_s_record(self):
-        self.fakes["claude"].answer("models", FABLE_LISTED)
-        self.term.keys("Right")
-        self.term.wait(lambda screen: "› Fable 5.1     ●  ▰▰▰▰▱   xhigh    □                   □"
+    def test_enter_on_a_build_effort_steps_it_up_in_the_seat_s_record(self):
+        self.term.keys("j", "Right", "Right")
+        self.term.wait(lambda screen: "› GPT-6-Astra   ○                   ■  ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high"
                        in rows(screen))
         self.term.keys("Enter")
-        self.term.wait(lambda screen: "› Fable 5.1     ●  ▰▰▰▰▰   max      □                   □"
+        self.term.wait(lambda screen: "› GPT-6-Astra   ○                   ■  ▰▰▰▰▱▱  xhigh    ■  ▰▰▰▱▱▱  high"
                        in rows(screen))
-        self.assertEqual(json.loads(self.record.read_text())["efforts"]["fable"], {"effort": "max"})
+        self.assertEqual(json.loads(self.record.read_text())["efforts"]["astra"],
+                         {"effort": "high", "exec_effort": "xhigh"})
         self.assertEqual(tomllib.loads(self.config.read_text()), self.given)
 
     def pane(self):
