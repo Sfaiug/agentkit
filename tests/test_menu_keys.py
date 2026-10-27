@@ -246,7 +246,7 @@ class MenuKeys(unittest.TestCase):
         menu = Menu(self, ["seat-a", "seat-b", "seat-c"])
         lines = menu.frame()
         self.assertIn("seat-a", menu.highlighted(lines))
-        self.assertRegex(lines[-1], r"^  ↑↓←→ move   ⏎ choose   n new   x stop   c config")
+        self.assertRegex(lines[-1], r"^  ↑↓←→ move   ⏎ choose   n new   c config")
         menu.send(DOWN)
         menu.frame(lambda lines: "seat-b" in menu.highlighted(lines))
         menu.send(b"j")
@@ -435,7 +435,7 @@ class MenuKeys(unittest.TestCase):
                               capture_output=True, text=True, env=env, timeout=60)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         out = proc.stdout
-        self.assertIn("\n  n new   x stop   c config   esc leave\n", out)
+        self.assertIn("\n  n new   c config   esc leave\n", out)
         self.assertIn("not a key: 'zz'", out)
         self.assertIn("not a key: 'q'", out)       # and the empty line at the end leaves
         self.assertIn("<lines None>", out)

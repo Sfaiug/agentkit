@@ -1,4 +1,5 @@
-"""`x` acts on the highlighted seat, and a done one closes with that one key; a press begun on
+"""`x` is only the popup's, for its own seat whichever row is highlighted, and a done one closes
+with that one key; a press begun on
 one screen is no click on the next; a seat stopped twice leaves no rulebook and no open card.
 
 The menu tests run `menu.loop` in a child process on a pty of its own, the way
@@ -214,23 +215,20 @@ class Menu:
 
 class CloseAndInfo(unittest.TestCase):
     def test_x_on_a_done_seat_closes_it_without_a_question(self):
-        menu = Menu(self, {"alpha": "working", "omega": "done"})
+        menu = Menu(self, {"alpha": "working", "omega": "done"}, own="omega")
         menu.frame()
-        menu.send(b"j")
-        lines = menu.frame(lambda lines: "omega" in menu.highlighted(lines))
-        self.assertRegex(lines[-1], r"   x close   ")
+        menu.send(b"k")
+        lines = menu.frame(lambda lines: "alpha" in menu.highlighted(lines))
+        self.assertRegex(lines[-1], r"   x close   ")     # its own seat's word, not alpha's
         mark = menu.mark()
         menu.send(b"x")
         menu.saw("<stopped omega>", after=mark)
-        lines = menu.frame(lambda lines: not any("omega" in line for line in lines), after=mark)
-        self.assertIn("alpha", menu.highlighted(lines))
-        menu.leave()
+        self.assertEqual(menu.proc.wait(15), 0)            # the popup over it goes first
         self.assertNotIn("everything it runs", menu.text())
         self.assertEqual(menu.text().count("<stopped"), 1)
 
-    def test_the_popup_over_a_seat_stops_another_and_removes_a_past_one(self):
-        """x is the owner's in Ctrl-b m too: the seat it is over stops no other seat's work,
-        but the person at its keys does."""
+    def test_the_popup_removes_a_past_seat_and_its_x_stops_no_other(self):
+        """The past screen's `x` is the person's at its keys; the menu's is the popup's own seat's."""
         menu = Menu(self, {"alpha": "working", "omega": "done", "atoll": "stopped"}, own="alpha")
         menu.frame()
         mark = menu.mark()
@@ -243,13 +241,18 @@ class CloseAndInfo(unittest.TestCase):
         menu.frame(lambda lines: "omega" in menu.highlighted(lines))
         mark = menu.mark()
         menu.send(b"x")
-        menu.saw("<stopped omega>", after=mark)
-        menu.frame(lambda lines: not any("omega" in line for line in lines), after=mark)
+        asked = menu.frame(keys="esc back", after=mark)
+        self.assertIn("  Stop alpha and everything it runs?", asked)
+        mark = menu.mark()
+        menu.send(ESC)
+        lines = menu.frame(after=mark)
+        self.assertIn("alpha", menu.highlighted(lines))
         menu.leave()
+        self.assertEqual(menu.text().count("<stopped"), 1)
         self.assertNotIn("owned by seat", menu.text())
 
     def test_x_on_a_working_seat_asks_under_its_row_and_esc_keeps(self):
-        menu = Menu(self, {"beta": "needs you", "alpha": "working", "omega": "done"})
+        menu = Menu(self, {"beta": "needs you", "alpha": "working", "omega": "done"}, own="beta")
         lines = menu.frame()
         self.assertIn("beta", menu.highlighted(lines))      # the first seat, where it starts
         mark = menu.mark()
@@ -278,7 +281,8 @@ class CloseAndInfo(unittest.TestCase):
         self.assertNotIn("<stopped", menu.text())
 
     def test_enter_on_stop_stops_and_a_click_on_stop_does_too(self):
-        menu = Menu(self, {"alpha": "working", "beta": "working", "omega": "done"})
+        seats = {"alpha": "working", "beta": "working", "omega": "done"}
+        menu = Menu(self, seats, own="alpha")
         menu.frame()
         mark = menu.mark()
         menu.send(b"x")
@@ -288,35 +292,37 @@ class CloseAndInfo(unittest.TestCase):
         self.assertEqual(menu.choices(after=moved)[1], ["  ✓ Keep", "› ✗ Stop"])
         menu.send(ENTER)
         menu.saw("<stopped alpha>", after=mark)
-        lines = menu.frame(lambda lines: not any("alpha" in line for line in lines),
-                           after=mark)
-        self.assertIn("beta", menu.highlighted(lines))
+        self.assertEqual(menu.proc.wait(15), 0)
+        menu = Menu(self, seats, own="beta")
+        menu.frame()
         mark = menu.mark()
         menu.send(b"x")
         top, _ = menu.choices(after=mark)
         menu.click(4, top + 1)                              # on `Stop`, one row under `Keep`
         menu.saw("<stopped beta>", after=mark)
-        menu.frame(lambda lines: not any("beta" in line for line in lines), after=mark)
-        menu.leave()
-        self.assertEqual(menu.text().count("<stopped"), 2)
+        self.assertEqual(menu.proc.wait(15), 0)
+        self.assertEqual(menu.text().count("<stopped"), 1)
 
-    def test_the_key_line_word_follows_the_highlight(self):
-        menu = Menu(self, {"alpha": "working", "omega": "done"})
+    def test_the_key_line_offers_x_only_for_the_popups_own_seat(self):
+        seats = {"alpha": "working", "omega": "done"}
+        menu = Menu(self, seats)
         lines = menu.frame()
-        self.assertIn("   x stop   ", lines[-1])
-        self.assertNotIn("x close", lines[-1])
+        self.assertNotIn(" x ", lines[-1])                  # the main menu stops no seat
         menu.send(b"j")
         lines = menu.frame(lambda lines: "omega" in menu.highlighted(lines))
-        self.assertIn("   x close   ", lines[-1])
-        menu.send(b"k")
-        lines = menu.frame(lambda lines: "alpha" in menu.highlighted(lines))
-        self.assertIn("   x stop   ", lines[-1])
+        self.assertNotIn(" x ", lines[-1])
+        menu.leave()
+        menu = Menu(self, seats, own="alpha")
+        menu.frame()
+        menu.send(b"j")
+        lines = menu.frame(lambda lines: "omega" in menu.highlighted(lines))
+        self.assertIn("   x stop   ", lines[-1])            # alpha's word, whatever is highlighted
         menu.leave()
 
     def test_a_press_begun_on_another_screen_answers_nothing_on_this_one(self):
         """The button down on one screen and up on the next is no click: not on `Stop` under
         the question, not on a seat once the question is gone, not on `esc back` of `c`."""
-        menu = Menu(self, {"alpha": "working", "beta": "working"})
+        menu = Menu(self, {"alpha": "working", "beta": "working"}, own="beta")
         lines = menu.frame()
         seat = next(number for number, line in enumerate(lines, 1) if "beta" in line)
         mark = menu.mark()
@@ -350,7 +356,7 @@ class CloseAndInfo(unittest.TestCase):
 
     def test_a_resize_draws_the_question_and_its_answers_where_they_now_are(self):
         long = "a-rather-long-seat-name-for-the-phone"
-        menu = Menu(self, {long: "working", "omega": "working"})
+        menu = Menu(self, {long: "working", "omega": "working"}, own=long)
         menu.frame()
         mark = menu.mark()
         menu.send(b"x")
@@ -373,8 +379,7 @@ class CloseAndInfo(unittest.TestCase):
             self.assertLessEqual(terminal.cells(line), 40, line)
         menu.click(4, top + 1)                    # `Stop`, where it is drawn now
         menu.saw(f"<stopped {long}>", after=mark)
-        menu.frame(lambda lines: not any(long in line for line in lines), after=mark)
-        menu.leave()
+        self.assertEqual(menu.proc.wait(15), 0)
 
 
 class ClosedSeat(Sandbox):

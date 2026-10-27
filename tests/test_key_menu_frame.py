@@ -21,7 +21,7 @@ from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
 WIDTH, HEIGHT = 100, 30
-KEY_LINE = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"
+KEY_LINE = "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave"
 EMPTY = "  no sessions; n starts one"
 PLAN = ("# Dates\n\n- [x] Teach the parser dates\n- [ ] Ship the dates page\n"
         "- [ ] Retire the old parser\n")

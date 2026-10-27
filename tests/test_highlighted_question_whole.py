@@ -108,7 +108,7 @@ class SeatQuestionWhole(Sandbox):
         # and the rows after it stay on the page
         self.assertIn("Reason 6: the parser reads both, and v2 drops the legac… 2 acme-web", screen)
         self.assertIn("2 acme-web opus ! needs you", screen)
-        self.assertTrue(screen.endswith("← 1 / 3 → n new x stop c config esc leave"), screen)
+        self.assertTrue(screen.endswith("← 1 / 3 → n new c config esc leave"), screen)
 
     def test_what_opens_takes_only_the_lines_the_screen_has_left(self):
         groups = ([{"name": "acme", "checkout": None, "seats": ROWS}], ROWS, 2, 0)

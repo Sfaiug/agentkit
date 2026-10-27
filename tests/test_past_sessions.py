@@ -41,7 +41,7 @@ class Keys(unittest.TestCase):
         lines = shown.frame()
         self.assertIn("alpha", shown.highlighted(lines))
         self.assertFalse(any("omega" in line for line in lines), lines)
-        self.assertRegex(lines[-1], r"   x stop   p past   c config   ")
+        self.assertRegex(lines[-1], r"   n new   p past   c config   ")
         shown.leave()
         alone = Menu(self, {"alpha": "working"})
         self.assertNotIn("p past", "\n".join(alone.frame()))

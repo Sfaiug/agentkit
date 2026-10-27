@@ -26,7 +26,7 @@ from agentkit import config, menu, terminal  # noqa: E402
 
 WEEK = 604800
 # the longest key line the menu draws: a stopped seat's `p past` on it, the keyboard its own
-LONG_KEYS = "↑↓←→ move   ⏎ choose   n new   x stop   p past   c config   esc leave"
+LONG_KEYS = "↑↓←→ move   ⏎ choose   n new   p past   c config   esc leave"
 
 
 class UsageStaysOnTop(Sandbox):

@@ -21,8 +21,8 @@ from fixtures.akbin import Home
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
-KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"
-PAST_KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   p past   c config   esc leave"
+KEYS = "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave"
+PAST_KEYS = "  ↑↓←→ move   ⏎ choose   n new   p past   c config   esc leave"
 CARD = ["  Stop atoll-fix and everything it runs?",
         "  No runs stop with it; the session moves to past sessions, p, where it reopens where"
         " it stopped.",

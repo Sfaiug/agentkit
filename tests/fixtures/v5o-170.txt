@@ -17,4 +17,4 @@ not assigned yet
   5  scribe       Fable 5.1  ! needs you
      session closed: press 5 to reopen
 
-  n new   x stop   c config   esc leave
+  n new   c config   esc leave

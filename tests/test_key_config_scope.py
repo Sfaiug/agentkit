@@ -24,7 +24,8 @@ from fixtures.akterm import SERVER, Terminal
 
 NOW = int(time.time())
 SEATS = {"atoll-fix": NOW - 900, "atoll-ask": NOW - 600}     # made first, so it is 1
-MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"
+MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave"
+POPUP_KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"
 MARK_KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"
 NEW_KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   a apply to all sessions   esc back"   # new seats'
 
@@ -63,7 +64,8 @@ class ConfigScope(unittest.TestCase):
         # ends this case's menu, keeping the terminal's server for the next case
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
-        term.wait(lambda screen: "› 1  atoll-fix" in screen and key_line(screen) == MAIN_KEYS)
+        keys = POPUP_KEYS if "--overlay" in args else MAIN_KEYS
+        term.wait(lambda screen: "› 1  atoll-fix" in screen and key_line(screen) == keys)
         term.keys("j")
         term.wait("› 2  atoll-ask")
         return term
