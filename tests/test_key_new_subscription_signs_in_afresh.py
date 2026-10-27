@@ -126,6 +126,17 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
         self.assertTrue(account)
         self.assertEqual(self.config.read_text(), before)
 
+    def test_each_sign_in_opens_on_a_screen_of_its_own(self):
+        self.open({"fable": "claude"})
+        self.fakes["codex"].answer("login", "<codex says>", 1)
+        self.pick("OpenAI / Codex")
+        self.term.wait("<codex says>")
+        self.term.keys("Enter")
+        self.term.wait(lambda screen: title(screen) == PAGE and "is not added" in screen)
+        self.fakes["claude"].answer("login", "<claude says>", 1)
+        self.pick("Claude II")
+        self.assertNotIn("<codex says>", self.term.wait("<claude says>"))
+
     def test_a_second_subscription_signs_in_under_a_new_account(self):
         self.open({"fable": "claude"})
         self.pick("Claude II")
