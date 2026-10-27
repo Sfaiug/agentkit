@@ -29,6 +29,8 @@ it has not run by LiveBench's cost of a coding task after every priced one, unpr
 the higher quality, the row the config runs in the role, the higher effort, the first by
 harness and model name.  ak's own run numbers stand beside, per configured model, the effort its runs recorded and
 role, with their count, and never rank (AGENTS.md, Owner rules).
+`lineup` and `answer` give the same per role over every current release instead (`catalog`),
+with the installed harnesses' models that are each one.
 Attribution: Source: Artificial Analysis (artificialanalysis.ai); arena.ai; livebench.ai.
 """
 
@@ -40,7 +42,7 @@ import statistics
 import sys
 import time
 
-from . import command_help, config, record, terminal
+from . import catalog, command_help, config, quality, record, terminal
 from .boards import EFFORT_ORDER, PREFIX, TASK_COST, collect, effort_rank, lines as board_lines
 from .quality import SCALES
 
@@ -176,6 +178,58 @@ def indexed(rows):
             index.setdefault(normal(model), []).append(
                 {**row, "model": model, "effort": normal(cut.group(1))})
     return index
+
+
+def lineup(boards, offers):
+    """A row per current release (`catalog.current`) and effort, with its `values` as the
+    catalog joins them and `yours`: each model of `offers` ({harness: config.catalog(harness)})
+    that `found` matches to this release alone, as {"harness", "model"}, at each effort it
+    lists, or at the release's default where it lists none but `none`."""
+    releases = catalog.current(boards)
+    index = {}
+    for release in releases:
+        for name in {release["name"], release["slug"]}:
+            index.setdefault(normal(name), []).append({"model": name, "release": release})
+    yours = {}
+    for harness, models in offers.items():
+        for model in models:
+            hits = {hit["release"]["slug"]: hit["release"] for hit in found(index, model["id"])}
+            if len(hits) != 1:
+                continue
+            [release] = hits.values()
+            words = [word for word in model["efforts"] if word != "none"]
+            for effort in release["efforts"]:
+                if effort["effort"] in words if words else effort["default"]:
+                    yours.setdefault((release["slug"], effort["effort"]), []).append(
+                        {"harness": harness, "model": model["id"]})
+    return [{"release": release["slug"], "name": release["name"], "maker": release["maker"],
+             "effort": effort["effort"], "values": effort["values"],
+             "yours": yours.get((release["slug"], effort["effort"]), [])}
+            for release in releases for effort in release["efforts"]]
+
+
+def answer(lineup, within, compared=None):
+    """Per role, `rated`: `quality.rated` over every row of `lineup`, so a row's quality never
+    changes with what is compared; then over the rows of the releases in `compared` (slugs, None
+    for every one), `best` quality, `pick` at `within`, `front`: those with a cost, cheapest
+    first, each better than every cheaper one, and `take`: the cheapest of them that is yours
+    within `within` of `best`, the pick itself when it is yours."""
+    out = {}
+    for role in quality.ROLES:
+        rated = quality.rated(lineup, role)
+        them = [row for row in rated if compared is None or row["release"] in compared]
+        best = max((row["quality"] for row in them), default=None)
+        priced = sorted((row for row in them if row["cost"] is not None),
+                        key=lambda row: (row["cost"], -row["quality"]))
+        front = []
+        for row in priced:
+            if not front or row["quality"] > front[-1]["quality"]:
+                front.append(row)
+        take = next((row for row in priced
+                     if row["yours"] and row["quality"] >= best - within), None)
+        out[role] = {"rated": rated, "best": best, "pick": quality.pick(them, within),
+                     "front": front, "take": take}
+    return out
 
 
 def placed(rows, effort, top, intel):
