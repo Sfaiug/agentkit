@@ -374,7 +374,7 @@ class Screens(Sandbox):
         self.assertEqual(marked(last, "reverse"), {})
 
     def test_a_list_and_a_question_move_their_highlight_onto_the_pointer(self):
-        def around():
+        def around(_):
             terminal.frame("config · add a subscription", [""] * 3, terminal.keys("esc back"))
             return 3
 
@@ -430,7 +430,7 @@ class Screens(Sandbox):
         self.assertIn("Stop", highlighted(screens[-1])[0])
 
     def test_header_motion_after_keyboard_navigation_clears_the_highlight(self):
-        def around():
+        def around(_):
             terminal.frame("config · add a subscription", [""] * 3, terminal.keys("esc back"))
             return 3
 
