@@ -4,7 +4,7 @@ Muse's channel installer deletes the build it replaces and offers no versioned r
 only way back from a bad release is the snapshot ak takes of the install before it upgrades.  On
 a red gate it restores that: the launcher, the old build's binary and its version and release
 files as they were, with their modes, and the new build gone, then says Muse is back.  On green
-the new build stays.  Black-box: the program `AK_BIN` names runs from outside through
+the new build stays, as it does when the checks it failed fail on the old build too.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, on a Muse install laid out as its channel installer leaves one (a
 launcher beside `muse-bin-<build>` and `.muse-version`, reached through a link on PATH), with
 the gates stood in for by tests/fixtures/akgates.py.
@@ -84,6 +84,15 @@ class MuseSnapshot(unittest.TestCase):
         self.assertEqual(sorted(self.files()), sorted(
             [".muse-release-info.json", ".muse-version", "muse-launcher", f"muse-bin-{NEW}"]))
         self.assertRegex(done.out + done.err, rf"(?m)^update: muse: upgraded\b.*{NEW}")
+
+    def test_checks_failing_on_the_old_build_too_install_the_new_one_again(self):
+        # the restore used the snapshot up: a new one is taken before installing again
+        self.gates.exit("live", 1, ["d"], run=1)
+        self.gates.exit("live", 1, ["d"], run=2)
+        done = self.home.ak("update", timeout=120)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        self.assertEqual((self.install / ".muse-version").read_text().strip(), NEW)
+        self.assertIn(f"muse-bin-{NEW}", self.files())
 
 
 if __name__ == "__main__":

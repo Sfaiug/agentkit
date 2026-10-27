@@ -5,7 +5,8 @@ then the fresh-install tests/e2e-fresh.sh, each run with bash.  Those are real m
 which no test may start.  `Gates(home)` puts a `bash` first on the program's PATH that answers
 for any of the three named among its arguments -- these two and the landing suite's
 tests/smoke.sh, which an upgrade never runs -- with the exit status the test set (0 unless set),
-and runs everything else as the real bash.  It keeps each gate it answered, in order, with whether
+writing the failed check labels it set to $AK_LIVE_FAILED as tests/acceptance.sh does, and runs
+everything else as the real bash.  It keeps each gate it answered, in order, with whether
 AGENTKIT_ACCEPTANCE_REQUIRED was 1 for it.
 
     from fixtures.akbin import Home
@@ -30,7 +31,10 @@ for arg do
     */tests/smoke.sh|*/tests/live.sh|*/tests/e2e-fresh.sh)
       gate=$(basename "$arg" .sh)
       echo "$gate ${{AGENTKIT_ACCEPTANCE_REQUIRED:-unset}}" >>{log}
-      code=$(cat {dir}/"$gate".exit 2>/dev/null || echo 0)
+      answer=$gate.$(grep -c "^$gate " {log})
+      [ -f {dir}/"$answer".exit ] || answer=$gate
+      code=$(cat {dir}/"$answer".exit 2>/dev/null || echo 0)
+      [ -z "${{AK_LIVE_FAILED:-}}" ] || cat {dir}/"$answer".failed >>"$AK_LIVE_FAILED" 2>/dev/null
       echo "$gate stand-in: exit $code"
       exit "$code" ;;
   esac
@@ -48,10 +52,13 @@ class Gates:
         home.fake("bash", BASH.format(log=shlex.quote(str(self.log)),
                                       dir=shlex.quote(str(self.dir)), bash=shlex.quote(bash)))
 
-    def exit(self, gate, code):
-        """The status `gate` (smoke, live or e2e-fresh) exits with from now on."""
+    def exit(self, gate, code, failed=(), run=None):
+        """The status `gate` (smoke, live or e2e-fresh) exits with from now on, or on its `run`th
+        run only (1 for its first), and the labels of the checks it says `failed`."""
         assert gate in NAMES, gate
-        (self.dir / f"{gate}.exit").write_text(f"{code}\n")
+        answer = gate if run is None else f"{gate}.{run}"
+        (self.dir / f"{answer}.exit").write_text(f"{code}\n")
+        (self.dir / f"{answer}.failed").write_text("".join(f"{label}\n" for label in failed))
 
     def reset(self):
         """Every gate green again, and none ran yet."""

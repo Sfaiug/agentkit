@@ -373,7 +373,10 @@ exec "$dir/muse-bin-$(cat "$dir/.muse-version")" "$@"
         def step(cmd, fh, env=None, timeout=None, **_kw):
             if cmd[0] == "bash":
                 self.assertEqual(env["AGENTKIT_ACCEPTANCE_REQUIRED"], "1")
-                return real_step(["/bin/bash", "-c", self.common + 'skip "3a codex: spent"; finish'], fh, env)
+                # the new release skips it; the release before runs it, so the skip is the upgrade's
+                check = ('skip "3a codex: spent"' if (self.bin / "muse-bin-2.0.0-R2").exists()
+                         else 'ok "3a codex"')
+                return real_step(["/bin/bash", "-c", f"{self.common}{check}; finish"], fh, env)
             if cmd[0] == "muse":
                 self.script("muse-bin-2.0.0-R2", "echo 2.0.0-R2\n")
                 (self.bin / "muse-bin-1.0.0-R1").unlink()
