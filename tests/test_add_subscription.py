@@ -46,7 +46,7 @@ for harness in ("claude", "codex"):
     fake.write_text(%r %% (harness, harness))
     fake.chmod(0o755)
 os.environ["AGENTKIT_ADAPTER_DIR"] = str(home / "adapters")
-config.catalog = lambda harness: []
+config.catalog = lambda harness, cfg=None: []
 update.version = lambda harness: ""
 update.agentkit_version = lambda: "abc1234"
 update.agentkit_newer = lambda: ""

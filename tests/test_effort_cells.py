@@ -199,9 +199,9 @@ class EffortCells(unittest.TestCase):
         (adapters / "acme.toml").write_text('[effort]\nlevels = ["low", "medium", "high"]\n')
         entry = {"harness": "acme", "model": "acme-fast"}
         with patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}):
-            self.assertEqual(menu.effort_levels(entry), ["low", "medium", "high"])  # unlisted
+            self.assertEqual(menu.effort_levels(entry, None), ["low", "medium", "high"])  # unlisted
             config.catalog("acme")                      # as `Models` asks it
-            self.assertEqual(menu.effort_levels(entry), ["none"])
+            self.assertEqual(menu.effort_levels(entry, None), ["none"])
 
     def test_a_wide_word_shimmers_whole_from_its_first_cell(self):
         with patch.object(terminal, "colour_depth", return_value=256):

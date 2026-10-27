@@ -54,7 +54,7 @@ class Screen(Sandbox):
         self.stack.enter_context(patch.object(usage, "collect", return_value=usage.Readings({})))
         self.stack.enter_context(patch.object(terminal, "layout_width", return_value=100))
         self.stack.enter_context(patch.object(menu, "effort_levels",
-                                              side_effect=lambda entry: LEVELS.get(entry["model"], [])))
+                                              side_effect=lambda entry, cfg: LEVELS.get(entry["model"], [])))
         self.stack.enter_context(patch.dict("os.environ", {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}))
         # opus at three efforts; astra as good as its xhigh at an eighth of the cost; sonnet,
         # not configured, under the best by more; mimo, which the boards list naming no effort,

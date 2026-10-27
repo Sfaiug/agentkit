@@ -24,7 +24,7 @@ sys.path.insert(0, os.environ["MATRIX_REPO"])
 from contextlib import closing
 from agentkit import config, menu, terminal, update, usage
 
-config.catalog = lambda harness: [{"id": model, "label": label, "efforts": efforts}
+config.catalog = lambda harness, cfg=None: [{"id": model, "label": label, "efforts": efforts}
                                   for model, label, efforts in %r.get(harness, [])]
 update.version = lambda harness: ""
 update.agentkit_version = lambda: "abc1234"

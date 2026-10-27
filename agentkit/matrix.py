@@ -220,7 +220,7 @@ def rows(cfg, boards, harnesses):
             roles.setdefault(key, set()).add(role)
     table = []
     for harness in harnesses:
-        listed = {item["id"]: item["efforts"] for item in config.catalog(harness)}
+        listed = {item["id"]: item["efforts"] for item in config.catalog(harness, cfg)}
         for (h, model, effort), name in names.items():
             if h == harness:
                 listed.setdefault(model, [])

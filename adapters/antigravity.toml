@@ -215,14 +215,13 @@ signatures = [
 [effort]
 levels = ["low", "medium", "high"]
 
-# The models this harness runs when `agy models` cannot say: what agy 1.2.9 listed, each
-# effort-suffixed id folded into its model the way `models` in adapters/antigravity.sh folds
-# them, strongest last.  An id with no effort word is a model agy runs at no effort, `none`.
+# The models this harness runs when `agy models` cannot say: what agy 1.4.7 listed for a Google
+# AI Pro login, each effort-suffixed id folded into its model the way `models` in
+# adapters/antigravity.sh folds them, strongest last.  An id with no effort word is a model agy
+# runs at no effort, `none`.
 [catalog]
+"gemini-4-argon" = { label = "Gemini 4 Argon", efforts = ["low", "medium", "high"] }
 "gemini-3.8-flash" = { label = "Gemini 3.8 Flash", efforts = ["low", "medium", "high"] }
-"gemini-3.7-flash" = { label = "Gemini 3.7 Flash", efforts = ["low", "medium", "high"] }
-"gemini-3.6-flash" = { label = "Gemini 3.6 Flash", efforts = ["low", "medium", "high"] }
-"gemini-3.1-pro" = { label = "Gemini 3.1 Pro", efforts = ["low", "high"] }
-claude-sonnet-4-6 = { label = "Claude Sonnet 4.6 (Thinking)", efforts = ["none"] }
-claude-opus-4-6-thinking = { label = "Claude Opus 4.6 (Thinking)", efforts = ["none"] }
+claude-opus-5-5 = { label = "Claude Opus 5.5", efforts = ["low", "medium", "high"] }
+claude-sonnet-5-5 = { label = "Claude Sonnet 5.5", efforts = ["low", "medium", "high"] }
 gpt-oss-120b = { label = "GPT-OSS 120B", efforts = ["medium"] }

@@ -541,11 +541,15 @@ def provider_harnesses(cfg, provider):
     """The harnesses `provider` runs on, for the `c` screen's `Models`: the ones its
     models in `cfg` run on, then the ones the shipped default runs it on, each once.  A
     provider neither names a harness for is offered none, never a guess."""
+    return list(dict.fromkeys(harness for named, harness in _runs_on(cfg) if named == provider))
+
+
+def _runs_on(cfg):
+    """(provider, harness) of each model in `cfg`, then of each the shipped default has."""
     models = shipped().get("models")
     entries = [*cfg["models"].values(), *(models.values() if isinstance(models, dict) else ())]
-    return list(dict.fromkeys(entry["harness"] for entry in entries
-                              if isinstance(entry, dict) and entry.get("provider") == provider
-                              and isinstance(entry.get("harness"), str)))
+    return [(entry.get("provider"), entry["harness"]) for entry in entries
+            if isinstance(entry, dict) and isinstance(entry.get("harness"), str)]
 
 
 def provider_hosts():
@@ -615,7 +619,7 @@ def _fall_back(defaults, left, written=True):
                                 if model in left] or [left[0]]
 
 
-_CATALOGS = {}
+_CATALOGS = {}    # (harness, account): (when that login was asked, what it listed)
 
 
 def catalog_table(harness):
@@ -635,45 +639,76 @@ def catalog_table(harness):
 
 
 def forget_catalog(harness):
-    """Ask that harness for its models afresh next time: a login has just changed them."""
-    _CATALOGS.pop(harness, None)
+    """Ask that harness's logins for their models afresh next time: a login has just changed
+    them."""
+    for key in [key for key in _CATALOGS if key[0] == harness]:
+        _CATALOGS.pop(key, None)
 
 
-def catalog(harness):
-    """The models that harness can run: dicts of `id`, `label` and `efforts`, strongest last.
+def _logins(cfg, harness):
+    """{account: its providers} for each login whose models are that harness's: every
+    subscription (`accounts`) of each provider `cfg` runs there, the usual login of one listing
+    none.  The usual login alone without `cfg`, where it runs no provider there, or where the
+    harness keeps one login (one_login)."""
+    logins = {}
+    if cfg and not one_login(harness):
+        on = {provider for provider, runs in _runs_on(cfg) if runs == harness}
+        for provider in (provider for provider in cfg["providers"] if provider in on):
+            for account in accounts(cfg, provider) or [DEFAULT_ACCOUNT]:
+                logins.setdefault(account, []).append(provider)
+    return logins or {DEFAULT_ACCOUNT: []}
 
-    `adapters/<h>.sh models` answers, one `id<TAB>label<TAB>efforts` line per model: live where
-    the harness lists its own, else -- and when that listing fails or outlasts ten seconds --
-    from the `[catalog]` table of its manifest.  `none` is the one effort of a model that runs
-    at no effort; an empty efforts field, a model whose efforts its harness does not say.  An
-    adapter that fails, says nothing usable, or is still
-    going after fifteen seconds leaves that table too.  Cached a minute per harness, because
-    a live listing asks the harness's server.
-    """
-    now = time.monotonic()
-    cached = _CATALOGS.get(harness)
-    if cached and now - cached[0] < CATALOG_TTL:
-        return cached[1]
+
+def _listed(harness, account, providers):
+    """What one login of that harness lists (catalog), [] for nothing usable."""
     try:
         proc = subprocess.run([str(adapter(harness)), "models"], capture_output=True, timeout=15,
                               stdin=subprocess.DEVNULL, encoding="utf-8", errors="replace",
-                              env=child_env())
+                              env={**child_env(), **account_env(account),
+                                   **provider_env(providers)})
         out = proc.stdout if proc.returncode == 0 else ""
     except (Error, OSError, subprocess.TimeoutExpired):
         out = ""
-    models = [{"id": fields[0], "label": fields[1] or fields[0], "efforts": fields[2].split()}
-              for fields in (line.split("\t") for line in out.splitlines())
-              if len(fields) == 3 and fields[0]] or catalog_table(harness)
-    _CATALOGS[harness] = (now, models)
-    return models
+    return [{"id": fields[0], "label": fields[1] or fields[0], "efforts": fields[2].split()}
+            for fields in (line.split("\t") for line in out.splitlines())
+            if len(fields) == 3 and fields[0]]
 
 
-_ASKING, _ANSWERED = {}, {}      # catalog_now's: the thread asking catalog(), what it last said
+def catalog(harness, cfg=None):
+    """The models that harness can run: dicts of `id`, `label` and `efforts`, strongest last.
+
+    Each model once, as the first login (_logins: of `cfg`'s subscriptions there) to list it
+    says it.  `adapters/<h>.sh models` answers, told the login (account_env, provider_env), one
+    `id<TAB>label<TAB>efforts` line per model: live where the harness lists its own, else --
+    and when that listing fails or outlasts ten seconds -- from the `[catalog]` table of its
+    manifest.  `none` is the one effort of a model that runs at no effort; an empty efforts
+    field, a model whose efforts its harness does not say.  Where no login's adapter says
+    anything usable, failing or still going after fifteen seconds, that table too.  The logins
+    are asked at once, and each answer cached a minute, because a live listing asks the
+    harness's server.
+    """
+    now, logins = time.monotonic(), _logins(cfg, harness)
+    asked = [account for account in logins if now - _CATALOGS.get(
+        (harness, account), (-CATALOG_TTL, []))[0] >= CATALOG_TTL]
+
+    def ask(account):
+        _CATALOGS[harness, account] = (now, _listed(harness, account, logins[account]))
+    # threads of its own, never concurrent.futures: importing that registers an exit hook, and
+    # config is imported at exit too (a fake adapter writing its hand-in), where that raises
+    asking = [threading.Thread(target=ask, args=(account,), daemon=True) for account in asked]
+    for thread in asking:
+        thread.start()
+    for thread in asking:
+        thread.join()
+    return catalog_held(harness, cfg)
 
 
-def catalog_now(harness):
-    """catalog() for a key that is drawn at once: its answer if it comes within CATALOG_NOW
-    seconds, as a cached one does, else the last one it gave, else the manifest's table.
+_ASKING = {}      # catalog_now's: the thread asking catalog(), by harness
+
+
+def catalog_now(harness, cfg=None):
+    """catalog(harness, cfg) for a key that is drawn at once: catalog_held once it answers
+    within CATALOG_NOW seconds, as a cached one does, or before it has.
 
     A listing asks the harness itself and can take fifteen seconds, so it goes on in the
     background and the next key reads it.  Only a step on the `c` screen reads this way;
@@ -681,25 +716,30 @@ def catalog_now(harness):
     """
     asking = _ASKING.get(harness)
     if asking is None or not asking.is_alive():
-        asking = _ASKING[harness] = threading.Thread(target=_ask_catalog, args=(harness,),
+        asking = _ASKING[harness] = threading.Thread(target=_ask_catalog, args=(harness, cfg),
                                                      daemon=True)
         asking.start()
     asking.join(CATALOG_NOW)
-    return _ANSWERED[harness] if harness in _ANSWERED else catalog_table(harness)
+    return catalog_held(harness, cfg)
 
 
-def _ask_catalog(harness):
+def _ask_catalog(harness, cfg):
     try:
-        _ANSWERED[harness] = catalog(harness)
+        catalog(harness, cfg)
     except Error:
         pass            # catalog_now falls back to the table, which says the same error
 
 
-def catalog_held(harness):
-    """The catalog that harness last listed, however old, else its manifest's table: for a draw,
-    which asks no harness and waits on none."""
-    cached = _CATALOGS.get(harness)
-    return cached[1] if cached else catalog_table(harness)
+def catalog_held(harness, cfg=None):
+    """catalog(harness, cfg) as its logins last listed it, however old, else its manifest's
+    table: for a draw, which asks no harness and waits on none."""
+    held = {account: listed for (on, account), (_, listed) in list(_CATALOGS.items())
+            if on == harness}         # a list: a thread may be adding one
+    models = {}
+    for account in _logins(cfg, harness) if held else ():    # a draw reads no config for none
+        for model in held.get(account, ()):
+            models.setdefault(model["id"], model)
+    return list(models.values()) or catalog_table(harness)
 
 
 def efforts(harness, model=None, listing=None):

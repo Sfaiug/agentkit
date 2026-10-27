@@ -64,11 +64,10 @@ class OneList(unittest.TestCase):
         for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             stack.enter_context(patch.object(config, name, home / name.lower()))
         stack.enter_context(patch.dict(config._CATALOGS, clear=True))
-        stack.enter_context(patch.dict(config._ANSWERED, clear=True))
         stack.enter_context(patch.object(terminal, "width", return_value=100))
-        config._CATALOGS["opencode"] = (time.monotonic(), LISTING)
-        config._CATALOGS["muse"] = (time.monotonic(), [{"id": WONDER, "label": WONDER,
-                                                        "efforts": []}])
+        config._CATALOGS["opencode", config.DEFAULT_ACCOUNT] = (time.monotonic(), LISTING)
+        config._CATALOGS["muse", config.DEFAULT_ACCOUNT] = (time.monotonic(), [
+            {"id": WONDER, "label": WONDER, "efforts": []}])
         config.ensure_dirs()
         (home / config.CONFIG_NAME).write_text(CONFIG)
         self.cfg = config.load()
