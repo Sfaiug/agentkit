@@ -728,18 +728,18 @@ class Phone(Sandbox):
         phone.until("Stop acme and everything it runs?", "Keep", prompt="esc back")
         self.stop_answered(phone)
         # the session is gone, so the attach is over: the menu is back, no box, the stopped seat
-        # off its project and on the past screen, numbered after every seat with a row, where
-        # `x` takes it off at once
+        # off its project and on the past screen, numbered from 1 there, where `x` asks first
         screen = phone.until("1  phone-audit", "p past", absent=["│", "acme"],
                              prompt="esc leave")
         self.whole_page(screen, width, height)
         self.assertFalse(self.has_seat("acme"))
         self.assertEqual(self.marked(screen), 1)
         phone.press("p")
-        screen = phone.until("past sessions", "2  acme", "x remove", prompt="esc back")
+        screen = phone.until("past sessions", "1  acme", "x remove", prompt="esc back")
         self.fits(screen, width, height)
-        self.assertEqual(self.marked(screen), 2)
+        self.assertEqual(self.marked(screen), 1)
         phone.press("x")
+        phone.keys("Down", "Enter")       # Remove, on the card it asks on
         screen = phone.until("1  phone-audit", "esc leave", absent=["acme", "p past"],
                              prompt="esc leave")
         self.whole_page(screen, width, height)
@@ -870,9 +870,10 @@ class Phone(Sandbox):
         # stopped, the seat is on the past screen with its number, and x there removes it
         screen = phone.until("esc leave", "p past", absent=[LONG_NAME[:20]], prompt="esc leave")
         phone.press("p")
-        screen = phone.until("past sessions", f"12  {LONG_NAME[:10]}", prompt="esc back")
+        screen = phone.until("past sessions", f"1  {LONG_NAME[:10]}", prompt="esc back")
         self.fits(screen, width, height)
         phone.press("x")
+        phone.keys("Down", "Enter")       # Remove, on the card it asks on
         screen = phone.until("esc leave", absent=[LONG_NAME[:20], "p past"], prompt="esc leave")
         self.whole_page(screen, width, height)
         self.assertFalse(self.has_seat(LONG_NAME))

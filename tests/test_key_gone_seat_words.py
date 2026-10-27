@@ -68,7 +68,7 @@ class GoneSeat(unittest.TestCase):
                         {"stopped_at": int(time.time()) - 60, "closed_by_owner": True})
         self.home.write(".agentkit/state/plan-acme.md", OWED)
         self.assertEqual(self.why(),
-                         ("acme  idle", "session closed by the owner: press 1 to reopen"))
+                         ("acme  idle", "session closed by the owner: reopen it from past sessions"))
         self.assertIn("○ idle", self.row())
 
     def test_a_seat_gone_on_its_own_owing_work_needs_you_whether_or_not_tmux_runs(self):
@@ -121,7 +121,7 @@ class GoneSeat(unittest.TestCase):
         self.assertEqual((seat.get("stopped_at"), seat.get("closed_by_owner"), seat.get("word")),
                          (stopped, True, "idle"))
         self.assertTrue(seat.get("reason", "").startswith(
-            "session closed by the owner: press 1 to reopen"), seat)
+            "session closed by the owner: reopen it from past sessions"), seat)
 
 
 if __name__ == "__main__":

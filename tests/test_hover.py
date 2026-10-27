@@ -468,7 +468,7 @@ class Screens(Sandbox):
             return menu.show_past({}, seats, keyboard=Mock())
         col, row = at(run(screen, ESC)[1][0], "x remove")
         click = f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode()
-        screens = run(screen, move(col, row), click, click, ESC)[1]
+        screens = run(screen, move(col, row), click, click, b"\x1b[B", b"\r", ESC)[1]
         hidden = next(number for number, grid in enumerate(screens) if not highlighted(grid))
         self.assertIn("alpha", highlighted(screens[hidden + 1])[0])     # the first click
         self.assertEqual(closed.call_args_list, [call("alpha", False)])    # and the second
@@ -479,7 +479,7 @@ class Screens(Sandbox):
 
         def screen():
             return menu.show_past({}, seats, keyboard=Mock())
-        col, row = at(run(screen, ESC)[1][0], "⏎ choose")
+        col, row = at(run(screen, ESC)[1][0], "⏎ reopen")
         run(screen, f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode(), ESC)
         self.assertEqual(opened.call_args_list, [call({}, seats[0], False)])
 

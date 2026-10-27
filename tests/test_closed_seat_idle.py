@@ -31,7 +31,7 @@ class ClosedSeatIdle(Sandbox):
         orch.mark_owner_closed(SEAT)
         config.plan_path(SEAT).write_text(OWED)        # even with work owed: the owner closed it
         self.assertEqual(self.decide(),
-                         ("idle", "session closed by the owner: press 3 to reopen"))
+                         ("idle", "session closed by the owner: reopen it from past sessions"))
 
     def test_gone_on_its_own_owing_work_is_the_owners(self):
         config.plan_path(SEAT).write_text(OWED)

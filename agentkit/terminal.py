@@ -597,7 +597,7 @@ def is_sequence(answer):
     return isinstance(answer, str) and answer.startswith(ESC) and answer != ESC
 
 
-def frame(name, body=(), keyline="esc back", filled=0, places=None, drawn=None):
+def frame(name, body=(), keyline="esc back", filled=0, places=None, drawn=None, first=None):
     """One sub-screen in the shared frame: the landed docs/cli-design.md chrome,
     then the caller's prompt.
 
@@ -609,9 +609,9 @@ def frame(name, body=(), keyline="esc back", filled=0, places=None, drawn=None):
     in place, the way the menu is (`show`).  `filled` is the rule's (rule_line).  `places`
     are what is where on the body, {its line, from 0: (what, [(first, last, cell)])}: the
     screen's spots (`under`), the key line's items among them, are what it returns.  `drawn` is
-    a clock's on the screen read with the keys (`show`).
+    a clock's on the screen read with the keys (`show`).  `first` leads the key line (`key_line`).
     """
-    keys = key_line(keyline)
+    keys = key_line(keyline, first=first)
     lines = [header_line(name, time.strftime("%H:%M")), rule_line(filled=filled), *body, "", *keys]
     spots = {3 + line: place for line, place in (places or {}).items()}
     spots.update(key_spots(keys, 4 + len(body)))

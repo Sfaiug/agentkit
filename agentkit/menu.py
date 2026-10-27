@@ -91,9 +91,8 @@ click opens a seat, and a click on the key line does what its key does (`loop`,
 only in the popup, and only its own seat's, whichever row is highlighted: a done one is closed at
 once, and any other is asked about under its row, `Keep` or `Stop` -- so the key line says
 `x close` while that seat is done.  A stopped
-seat leaves its project for the past screen, `p` (`show_past`): its row there under its project,
-numbered after the live ones, says how long ago it stopped; Enter reopens it where it stopped and
-`x` takes it off at once.  `c` holds
+seat leaves its project for the past screen, `p` (`show_past`), listed by the day it closed;
+Enter reopens it where it stopped and `x` asks before it takes it off.  `c` holds
 the orchestrator, executors and reviewers of the seat the popup is over, or of new seats in a
 window of its own: the orchestrator moves the seat at once, the roles flip with the same keys
 and save at once; new seats' `a` gives theirs to every open seat (apply_defaults).
@@ -120,6 +119,7 @@ key uses.
 
 import colorsys
 import copy
+import datetime
 import errno
 import json
 import os
@@ -901,6 +901,20 @@ def _paint(text, kind, tmux=False):
     return f"#[fg=#{rgb}]{orch.tmux_text(text)}#[default]" if text else ""
 
 
+def grow_line(clock, row, line, span, moving, counted=None):
+    """Move `span` of a seat's `line` on screen `row` by `moving` (its cells to their animations
+    and when still), and its count with it, counting up from `counted` (motion.counting)."""
+    written = terminal.cell_texts(line)
+    animations, until = moving(written[span])
+    clock.span(row, terminal.cells("".join(written[:span.start])) + 1, animations, until)
+    after = terminal.ANSI.sub("", "".join(written[span.stop:]))
+    if count := re.match(r" \d+ of \d+", after):
+        cells = written[span.stop + 1:span.stop + count.end()]
+        clock.span(row, terminal.cells("".join(written[:span.stop])) + 2, *(
+            motion.counting(cells, *counted) if counted else
+            ([lambda now, text=text: text for text in cells], until)))
+
+
 def line_at(line):
     """Slice of `terminal.cell_texts` holding the rendered progress line, before highlighting.
 
@@ -1198,10 +1212,10 @@ def by_project(infos, stands, unfiled=UNFILED):
     return groups
 
 
-def project_pages(projects, room):
+def project_pages(projects, room, apart=True):
     """`projects`, (heading, blocks) each in order, a block one seat's lines, in pages of `room`
     lines, the main screen's and the past screen's alike: a blank line between two projects on
-    a page, as on the screen that holds them all."""
+    a page where `apart`, as on the screen that holds them all."""
     # Seat blocks packed whole under their project header, so a seat's lines never split
     # across pages: one taller than a page under its header is cut to it, as the highlight
     # shows only a seat's first page. A screen without room for a row and a line under it
@@ -1210,7 +1224,7 @@ def project_pages(projects, room):
     for header, own in projects:
         for block in own or [[]]:     # a heading with no seat under it still has its place
             need = (block if cur and cur_header == header else
-                    [("", None)] * bool(cur) + [header] + block)
+                    [("", None)] * (bool(cur) and apart) + [header] + block)
             if cur and len(cur) + len(need) > room:
                 pages.append(cur)
                 cur, cur_header = [], None
@@ -1579,7 +1593,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     paged_keys = key_text + ("" if owned else "   " + PAGE_KEYS)
     # A question under a row is budgeted with the key line, so it never pushes a row off.
     k_single = len(terminal.key_line(key_text, width)) + len(asked)
-    k_paged = len(page_mark(paged_keys, 98, 99, width, owned)) + len(asked)
+    k_paged = len(terminal.key_line(paged_keys, width, page_mark(98, 99, owned))) + len(asked)
 
     def _flat(blocks):
         flat = []
@@ -1675,8 +1689,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     key_lines = terminal.key_line(key_text, width)
     if len(pages) > 1:
         needing = [any(words.get(name) == "needs you" for _, name in lines) for lines in pages]
-        key_lines = page_mark(paged_keys, page, len(pages), width, owned,
-                              (any(needing[:page]), any(needing[page + 1:])))
+        key_lines = terminal.key_line(paged_keys, width, page_mark(
+            page, len(pages), owned, (any(needing[:page]), any(needing[page + 1:]))))
     # The layout is min(terminal width, 120); beyond that the margin grows, never the text.
     out = []
     # what may move: (key, the word it shows, its first cell, highlighted)
@@ -1817,20 +1831,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         news = clock.look({key: shown for key, shown, _, _ in moves})
 
         def line(name, moving, counted=None):
-            """Move a seat's line by `moving`, a function of its cells to their animations and
-            when they are still, and its count with it: counting up from `counted`, the done
-            before, since when and for how long (motion.counting), else as drawn.  Whatever moves
-            a line last moves its count, so the two never part."""
             row, span = bars[name]
-            written = terminal.cell_texts(out[row - 1])
-            animations, until = moving(written[span])
-            clock.span(row, terminal.cells("".join(written[:span.start])) + 1, animations, until)
-            after = terminal.ANSI.sub("", "".join(written[span.stop:]))
-            if count := re.match(r" \d+ of \d+", after):
-                cells = written[span.stop + 1:span.stop + count.end()]
-                clock.span(row, terminal.cells("".join(written[:span.stop])) + 2, *(
-                    motion.counting(cells, *counted) if counted else
-                    ([lambda now, text=text: text for text in cells], until)))
+            grow_line(clock, row, out[row - 1], span, moving, counted)
         # As it opens each seat's line grows to its length, row after row, and on through the
         # draws until it has -- the read that lands as it opens draws the screen again at once --
         # each from its own start, until news moves the line instead.
@@ -3602,13 +3604,14 @@ def meters_led(meters, body, places, under, keys, moves=()):
         (line + len(over), *rest) for line, *rest in moves]
 
 
-def matrix_page(body, places, here, top, under, keys, over=()):
+def matrix_page(body, places, here, top, under, keys, over=(), lead=None):
     """The page of a matrix screen's rows that fits between `over` and `under`, lines of its
     own above and below the rows, and its key line: (top, room), the first line of `body` shown
     and how many are.  `top` stays where it was while the page holds every line of `here`, or
     any of them for a row taller than the page, else moves the least that makes it so, and
     never past the last page; a cell that is a row of its own (terminal.under) is on its line."""
-    room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(under) - len(over))
+    room = max(1, terminal.height() - 5 - len(terminal.key_line(keys, first=lead)) - len(under)
+               - len(over))
     drawn = [number for number, (row, cells) in places.items()
              if row == here or any(here in cell[3:] for cell in cells)] or [0]
     lo, hi = drawn[-1] - room + 1, drawn[0]       # the tops holding every line of the row
@@ -3624,7 +3627,8 @@ def note_lines(note):
 
 
 def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, marks=2,
-               fetched=None, clock=None, moves=(), under=(), over=(), over_places=None):
+               fetched=None, clock=None, moves=(), under=(), over=(), over_places=None,
+               lead=None):
     """One draw of a matrix screen and the key read on it: (act, here, column, top).
 
     The `c` screen and a project's feature switches are read this way: rows the highlight moves
@@ -3641,7 +3645,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     on nothing, the cell it is on lit.  `act` is `back` for Esc or a click on `esc back`, None when the screen wants drawing again -- a
     resize, the pointer, or `timeout` seconds with no key -- a character key's character, its
     key-line item's too (`r recommended`), and any other key's name, `enter` a click on `⏎`'s
-    and `space` one on `␣`'s.
+    and `space` one on `␣`'s, `left` and `right` one on an arrow of `lead`, a page mark.
     `fetched()` says since when the screen's content is being fetched, or None: while it is, the
     rule under the header glides (`motion.fetching`) and the read ends, None, once it lands.
     `clock` moves what `moves` -- (line, key, value, start) -- says is news (`motion.Clock.look`)
@@ -3649,9 +3653,9 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     key is waited for; a key, not the pointer, ends them on their last frames.
     """
     said = note_lines(note)
-    top, room = matrix_page(body, places, here, top, [*under, *said], keys, over)
+    top, room = matrix_page(body, places, here, top, [*under, *said], keys, over, lead)
     shown, first = body[top:top + room], 3 + len(over)     # the screen row of the page's first
-    spots = terminal.frame(title, [*over, *shown, *under, *said], keys, places={
+    spots = terminal.frame(title, [*over, *shown, *under, *said], keys, first=lead, places={
         **(over_places or {}), **{len(over) + line - top: place for line, place in places.items()
                                   if top <= line < top + room}},
         drawn=clock and (lambda: clock.drawn(moves, lambda line: first + line if line < 0
@@ -3679,8 +3683,10 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
         if act == "point":
             return None, here, column, top
         if spot.what is None:         # a key-line item does what its key does
-            item = {"esc": "back", "⏎": "enter", "␣": "space"}.get(spot.cell, spot.cell or "")
-            return (item if item in ("back", "enter", "space") or len(item) == 1 and item.isalpha()
+            item = {"esc": "back", "⏎": "enter", "␣": "space", "←": "left", "<": "left",
+                    "→": "right", ">": "right"}.get(spot.cell, spot.cell or "")
+            return (item if item in ("back", "enter", "space", "left", "right")
+                    or len(item) == 1 and item.isalpha()
                     else ""), here, None, top
         act = "enter" if here[0] in ("row", "usage") else ""      # a row runs its step
         if column is not None:
@@ -5156,140 +5162,106 @@ def past_offered(found):
     return any(session.get("closed") for session in found)
 
 
-def took(seconds):
-    """How long a past session took, never in minutes: `under an hour`, `1 day and 3 hours`."""
-    if seconds < 3600:
-        return "under an hour"
-    hours = round(seconds / 3600)
-    return " and ".join(f"{n} {unit}{'s' * (n != 1)}"
-                        for n, unit in zip(divmod(hours, 24), ("day", "hour")) if n)
+def closed_when(closed, now=None):
+    """`closed`'s day and time: `today` `10:24`, `this week` `Sat 12:31`, `earlier` `20 Oct`."""
+    at = time.localtime(closed)
+    days = max(0, (datetime.date.fromtimestamp(time.time() if now is None else now)
+                   - datetime.date.fromtimestamp(closed)).days)
+    if days > 6:
+        return "earlier", f"{at.tm_mday} {time.strftime('%b', at)}"
+    return ("today", "yesterday", "this week")[min(days, 2)], time.strftime(
+        "%a %H:%M" if days > 1 else "%H:%M", at)
 
 
-def past_said(cfg, session):
-    """(sentence, stats) a past session's row opens with: its plan's first done line, then its
-    tasks, how long it took, from its start to its last done, else to its stop, and the models it
-    used (past_models)."""
-    name, start, stop = session["name"], session.get("created"), session["closed"]
-    seat = notify.conversation_of(name)
-    last = seat and seat[3] and (history.last_done(f"{seat[0].name}:{seat[3]}") or [None])[0]
-    from . import watch   # here, not at the top: the menu draws without the tick
-    done, total = watch.plan_progress(name)
-    tasks = (f"{done} of {total} tasks" if done < total else
-             f"{total} task{'s' * (total != 1)}") if total else ""
-    end = last if last and start and start < last <= stop else stop
-    return plan.first_done(name) or "", " · ".join(part for part in (
-        tasks, start and "took " + took(end - start), ", ".join(past_models(cfg, session))) if part)
+def past_said(session):
+    """What a past row opens: its first done line's first sentence, and its restart note."""
+    done = (plan.first_done(session["name"]) or "").strip()
+    return re.match(r".*?[.!?](?=\s|$)|.*", done)[0], session.get("restart") or ""
 
 
-def past_models(cfg, session):
-    """The models a past session used, each once by its full name (`config.model_name`): its
-    orchestrator, then every other its runs between its start and its stop ran on --
-    orchestrating, building, a builder its turn went from (`executor_history`), a reviewer that
-    finished a review, by any name the config runs its model under, else its own id."""
-    runs, reviews = history.seat_runs(plan.names(session["name"]), session.get("created") or 0,
-                                      session["closed"]) or ((), ())
-    used = {model for _run_id, *models in runs for model in models}
-    used |= {entry.get(key) for run_id, *_ in runs for entry in (record.read_state(
-        config.RUNS / str(run_id)) or {}).get("executor_history") or () for key in ("from", "to")}
-    used |= {next(iter(_runs(cfg, harness, model)), model) for harness, model in reviews}
-    orchestrator = (selection_of(cfg, session["name"]) or {}).get("orchestrator")
-    first = orchestrator and config.model_name(cfg, orchestrator)
-    names = {config.model_name(cfg, model) for model in used if model} - {first}
-    return [first] * bool(first) + sorted(names, key=str.casefold)
-
-
-def past_body(past, at=None, models=None, room=None, said=None):
-    """The past screen's lines -- the main screen's rows, one a stopped seat under its project's
-    heading in the order their numbers go: its number, name, orchestrator (`models`, in full),
-    how long ago it was stopped in the state's column and, where its harness starts it fresh
-    and the row has room, that -- and where each is, {line: (("row", name), [])}.  Every row, a
-    blank line between projects, where `room` lines hold them or no `room` is given; else the
-    page of `room` lines `at` is on (every page of a row taller than one), each row under its
-    project's heading (`project_pages`).  `at` is the highlighted seat's name, lit while the
-    pointer is on the rows (`terminal.away`); a row in `said` opens it under itself."""
-    infos = [{"number": str(number), "name": session["name"],
-              "orchestrator": (models or {}).get(session["name"]) or "-",
-              "count": f"stopped {orch.age(session['closed'])} ago",
-              "restart": session.get("restart") or "", "repo": session.get("repo")}
-             for number, session in past]
-    width = terminal.width()
-    widths = v5o_column_widths(infos, width)
-    room_under = max(1, widths["room"] - (2 + widths["num"] + 2))
-    opened = {name: terminal.wrap(sentence, room_under) + [
-        terminal.styled(line, "dim") for line in stats_lines(stats, room_under)]
-        for name, (sentence, stats) in (said or {}).items()}
-
-    def drawn(info):
-        block = v5o_seat_blocks([info], width, widths, details=opened)[0]
-        if info["restart"] and terminal.cells(info["restart"]) <= widths["free"]:
-            block[0] += "  " + terminal.styled(info["restart"], "dim")
-        lit = at == info["name"] and not terminal.away()
-        return [terminal.highlight(line.rstrip(), mark=number == 0) if lit else line.rstrip()
-                for number, line in enumerate(block)]
-    projects = [((v5o_header(project, width), None),
-                 [[(line, info["name"]) for line in drawn(info)] for info in project["seats"]])
-                for project in by_project(infos, orch.listed(), "no project").values()]
-    flat = [line for number, (heading, rows) in enumerate(projects)
-            for line in [("", None)] * bool(number) + [heading] + sum(rows, [])]
-    pages = [flat] if room is None or len(flat) <= room else project_pages(projects, room)
-    # a row taller than a page is one body under its heading, which project_pages puts on a
-    # page of its own before it; ↑/↓ turn the body's pages before leaving it (matrix_key)
-    held = [number for number, page in enumerate(pages) if any(name == at for _, name in page)]
-    if held and held[0] and not any(name for _, name in pages[held[0] - 1]):
-        held.insert(0, held[0] - 1)
-    page = [line for number in held for line in pages[number]] or pages[0]
-    return ([line for line, _ in page],
-            {number: (("row", name), []) for number, (_, name) in enumerate(page) if name})
-
-
-
-def stats_lines(stats, room):
-    """A past session's stats on lines of `room` cells, broken only after a `·` or a `,`: a
-    model's name stays on one line, unless it is too long for one by itself."""
-    lines = []
-    for part in re.findall(r".+?(?:, | · |$)", stats):
-        if lines and terminal.cells(lines[-1] + part.rstrip()) <= room:
-            lines[-1] += part
-        else:
-            lines.append(part)
-    return [cut for line in lines for cut in terminal.wrap(line, room)]
+def past_body(past, at=None, room=None, said=None, now=None):
+    """The past screen's (lines, places, moves, page, turns): `past` under the day each closed,
+    `at` lit and opening its `said`, on its page of `room` lines; every row's `said` from a pipe."""
+    width, stands = terminal.content_width(), orch.listed()
+    rows = [(str(number), session["name"], orch.project_name(orch.checkout_of(
+        session.get("repo"), stands=stands), ""), *closed_when(session["closed"], now),
+        seat_progress(session["name"])) for number, session in past]
+    num, name, project, clock = (max(terminal.cells(row[n]) for row in rows) for n in (0, 1, 2, 4))
+    name, project = min(name, 24, width - (2 + num + 2)), min(project, width - 4)
+    free = width - (2 + num + 2 + name + 2 + project + 6 + clock)
+    # no room for a row on one line: what follows its name goes under it
+    fold = free < max(len(f"{done} of {total}") if total else 7 for *_, (done, total) in rows)
+    indent, under = " " * (2 + num + 2), width - (2 + num + 2)
+    opened = {seat: terminal.wrap(sentence, under) + [
+        terminal.styled(line, "dim") for line in terminal.wrap(restart, under)]
+        for seat, (sentence, restart) in (said or {}).items()}
+    lit, days, spans = not terminal.away(), {}, {}
+    for number, seat, home, day, closed, (done, total) in rows:
+        bar = (terminal.plan_bar(done, total, 0 if fold else free, 0, "done" if done == total
+                                 else "idle") if total else terminal.styled("no plan", "dim"))
+        head = "  " + _styled_cell(number, num, "dim", right=True) + "  " + _styled_cell(seat, name)
+        tail = [_styled_cell(home, project, "dim"), bar + " " * max(0, free - terminal.cells(bar)),
+                closed.rjust(clock)]
+        block = ([head + "  " + "  ".join(tail)] if not fold else [head, *(
+            "    " + line for line in packed([part.strip() for part in tail if part.strip()],
+                                             "  ", width - 4))])
+        block += [indent + line for line in opened.get(seat, [])] if at is None else []
+        spans[seat] = line_at(block[0])
+        days.setdefault(day, []).append([(terminal.highlight(line, mark=n == 0)
+                                          if lit and seat == at else line, seat)
+                                         for n, line in enumerate(block)])
+    pages = project_pages([((terminal.styled(day, "bold"), None), blocks)
+                           for day, blocks in days.items()],
+                          # a page holds a heading and its row whatever the row opens
+                          max(1 + max(len(block) for blocks in days.values() for block in blocks),
+                              (room or sys.maxsize) - max(map(len, opened.values()), default=0)),
+                          apart=False)
+    page = next((n for n, lines in enumerate(pages) if any(seat == at for _, seat in lines)), 0)
+    shown = pages[page]
+    where = max((n for n, (_, seat) in enumerate(shown, 1) if seat == at), default=0)
+    told = opened.get(at, []) if lit and where else []
+    shown = shown[:where] + [(terminal.highlight(indent + line, mark=False), at)
+                             for line in told] + shown[where:]
+    moves = [(n, ("page",), page, motion.fading(line, motion.TURN))
+             for n, (line, _) in enumerate(shown)]
+    moves += [(n, ("opened",), at, motion.fading(shown[n][0], motion.OPEN))
+              for n in range(where, where + len(told))]
+    rowed = [n for n, (_, seat) in enumerate(shown) if seat and spans[seat]
+             and (n == 0 or shown[n - 1][1] != seat)]
+    moves += [(n, ("bar", shown[n][1]), None, lambda clock, row, since, _, line=shown[n][0],
+               span=spans[shown[n][1]], began=after * motion.STAGGER: grow_line(
+                   clock, row, line, span, lambda cells: motion.growing(cells, since + began),
+                   (0, since + began, motion.GROW))) for after, n in enumerate(rowed)]
+    return ([line for line, _ in shown],
+            {n: (("row", seat), []) for n, (_, seat) in enumerate(shown) if seat},
+            moves, page, [next((seat for _, seat in lines if seat), None) for lines in pages])
 
 
 @terminal.clicks_its_own
 def show_past(cfg, found, dry_run=False, keyboard=None):
-    """`past sessions`, `p`: the seats you stopped, the main screen's rows under their projects
-    (`past_body`), for the one you want back, the page the highlight is on where they fill more
-    than one.  ↑/↓, k/j and the wheel move the highlight, and the row it is on opens what that
-    session did under itself (`past_said`) while the pointer is on the rows; Enter or a
-    click reopens one where it stopped (`open_session`, what its number does on the main screen),
-    True said, and the menu is back; `x`, or a click on `x remove`, removes the highlighted one at once
-    (`close_seat`, the second stop), the rest staying up, and only brings the highlight back
-    while the pointer has it out (`terminal.unseen`); Esc goes back.  From a pipe a number reopens, `x` asks which to
-    remove by the numbers on the screen, and an empty line goes back.  A dry run draws it once.
-    """
+    """`past sessions`, `p` (`past_body`): a digit, Enter or a click reopens one (`open_session`),
+    True said; `x` asks (`terminal.confirm`) before `remove_seat`.  A dry run draws it once."""
     here, clock, said, top = None, motion.Clock(page=True), {}, 0
+    for session in found:
+        clock.touch(("bar", session["name"]))     # news once, as the screen opens
     while True:
-        past = [(number, session) for number, session in enumerate(found, 1)
-                if session.get("closed")]
+        past = list(enumerate(sorted((session for session in found if session.get("closed")),
+                                     key=lambda session: -session["closed"]), 1))
         if not past:
             return
         names = [session["name"] for _, session in past]
-        here = here if here in names else names[0]
-        models = {name: model and config.model_name(cfg, model) for name in names
-                  for model in [(selection_of(cfg, name) or {}).get("orchestrator")]}
         if not terminal.taken():
             keys = "x remove   esc back"
-            terminal.frame("past sessions", past_body(past, models=models)[0], keys)
+            terminal.frame("past sessions", past_body(past, said={
+                session["name"]: past_said(session) for _, session in past})[0], keys)
             if dry_run:
                 return
             line = read("> ", "")
             if not line or terminal.is_esc(line):
                 return
-            if line.isdecimal() and line.isascii() and 1 <= int(line) <= len(found):
-                if found[int(line) - 1].get("closed"):
-                    open_session(cfg, found[int(line) - 1], dry_run)
-                    return True
-                pause(f"no past session {line}", keys)
+            if line.isdecimal() and line.isascii() and 1 <= int(line) <= len(past):
+                open_session(cfg, past[int(line) - 1][1], dry_run)
+                return True
             elif line.lower() == "x":
                 choice = terminal.ask("Remove", names[0], names, read=read,
                                       numbers=[number for number, _ in past])
@@ -5299,33 +5271,47 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             else:
                 pause(f"not a key: {line!r}", keys)
             continue
-        keys = terminal.keys("x remove", "esc back")
-        room = matrix_page([], {}, None, 0, [], keys)[1]      # the lines a page holds
-        if here not in said:      # read once a row, as the pointer comes and goes on it
-            said[here] = past_said(cfg, next(session for _, session in past
-                                             if session["name"] == here))
-        body, places = past_body(past, here, models, room,
-                                 {} if terminal.away() else {here: said[here]})
+        keys = terminal.keys("x remove", "esc back", enter="reopen")
+        here = here if here in names else names[0]
+        said.update((session["name"], past_said(session)) for _, session in past
+                    if session["name"] not in said)
+        room = matrix_page([], {}, None, 0, [], keys, lead=page_mark(98, 99))[1]
+        body, places, moves, page, turns = past_body(past, here, room, said)
+        first = page_mark(page, len(turns)) if len(turns) > 1 else None
         act, row, _column, top = matrix_key("past sessions", body, places,
                                             [("row", name) for name in names], ("row", here),
-                                            top, "", keys, clock=clock)
+                                            top, "", keys, clock=clock, moves=moves, lead=first)
         top = top if row[1] == here else 0      # another row is another body, from its start
         here = row[1]
         if act is None:
             continue              # a resize or the pointer: drawn again
         if act == "back":
             return
-        if act == "enter":
+        if act in ("left", "right"):
+            here = turned(turns, page, here, 1 if act == "right" else -1)
+            continue
+        if act.isdecimal() and act.isascii() and int(act) * 10 <= len(past):
+            more = terminal.read_key(0.5)      # 1 then 2 within half a second is row 12
+            act += more.char if more and more.name == "char" and more.char.isdecimal() else ""
+        if act == "enter" or act.isdecimal() and act.isascii() and 1 <= int(act) <= len(past):
             keyboard.give()       # the seat has the terminal while he is in it
-            open_session(cfg, next(session for _, session in past if session["name"] == here),
-                         dry_run)
+            open_session(cfg, past[names.index(here) if act == "enter" else int(act) - 1][1], dry_run)
             return True
         if act == "x" and not terminal.unseen():     # unseen, it only brings the highlight back
-            keyboard.give()       # the stop says what it did where it can be read
-            clock.forget()        # another screen: the page back from it is drawn as it is
-            remove_seat(here, dry_run)
-            keyboard.take()
-            found = [session for session in found if session["name"] != here]
+            at = max(line for line, (row, _) in places.items() if row == ("row", here)) + 1
+
+            def around(card, at=at):
+                lines = body[:at] + card + body[at:]
+                skip = max(0, min(at, len(lines) - room))
+                terminal.frame("past sessions", lines[skip:skip + room], keys, first=first)
+                return 3 + at - skip
+            if terminal.confirm(f"Remove {here} from past sessions?",
+                                "It can no longer be reopened.", "Remove", around):
+                keyboard.give()       # the stop says what it did where it can be read
+                clock.forget()        # another screen: the page back from it is drawn as it is
+                remove_seat(here, dry_run)
+                keyboard.take()
+                found = [session for session in found if session["name"] != here]
 
 
 def remove_seat(name, dry_run):
@@ -5335,16 +5321,16 @@ def remove_seat(name, dry_run):
                    stdin=subprocess.DEVNULL)
 
 
-def page_mark(keys, page, pages, width, arrows=True, needs=(False, False)):
-    """The key line with where the owner is in front of the keys, `←  2 / 3  →`, wrapped with
+def page_mark(page, pages, arrows=True, needs=(False, False)):
+    """Where the owner is, `←  2 / 3  →`, for the key line to lead the keys with, wrapped with
     them as one more item: each arrow a key a click turns the page with, amber where a seat that
     needs the owner is that way (`needs`, back and on), the place between them none.  From a
     pipe, which turns pages with `j` and `k`, the place alone, `2 / 3`."""
     arrow, ahead = ("←", "→") if terminal.utf8() else ("<", ">")
     tone = ["amber" if need else "dim" for need in needs]
-    return terminal.key_line(keys, width, first=(
+    return (
         f"{terminal.styled(arrow, tone[0])}  {page + 1} / {pages}  "
-        f"{terminal.styled(ahead, tone[1])}" if arrows else f"{page + 1} / {pages}"))
+        f"{terminal.styled(ahead, tone[1])}" if arrows else f"{page + 1} / {pages}")
 
 
 def turned(turns, page, cursor, step):

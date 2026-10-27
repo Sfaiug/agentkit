@@ -85,7 +85,7 @@ class FirstStop(unittest.TestCase):
         why = self.home.ak("orch", "why", "acme")
         self.assertEqual(why.code, 0, why.err)
         self.assertRegex(why.out, r"(?m)^\s*reason:\s+session closed by the owner: "
-                                  r"press 1 to reopen")
+                                  r"reopen it from past sessions")
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
