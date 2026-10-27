@@ -4095,8 +4095,9 @@ def handover(record, old_model, old_harness, owned):
     return f"## Its conversation on {old_model}\n\n{told}"
 
 
-def _switch_plan(cfg, name, model, providers, credits=True):
-    """(note, account): why the seat cannot move to `model`, or "" and the login to use.
+def _switch_plan(cfg, name, model, providers, credits=True, effort=None):
+    """(note, account): why the seat cannot move to `model`, or "" and the login to use; given
+    `effort`, its own model is judged as another would be, for the restart at it.
 
     One computation for the refusal and the launch, so the menu's key path asks each
     login once: installed is read off the filesystem, the seat login off the kept or
@@ -4112,7 +4113,7 @@ def _switch_plan(cfg, name, model, providers, credits=True):
         return str(exc), None
     if record is None:
         return f"session: {name} has no saved models", None
-    if record["orchestrator"] == model:
+    if record["orchestrator"] == model and effort is None:
         return "", record.get("account")
     try:
         harness = config.model(cfg, model)["harness"]
@@ -4158,7 +4159,8 @@ def _one_line(exc):
     return " ".join(str(exc).split())
 
 
-def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=None):
+def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=None,
+                        effort=None):
     """Move the open seat to another orchestrator at once, under the same name.
 
     The old harness process ends and the new one starts in the seat's directory: a live or
@@ -4180,17 +4182,45 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     too. A refusal, and a restart that fails, leave the seat as they found it and say so in
     one line. What to say under the rows, or ""; None where `asked(kept)`, the owner's say on
     a move that passed every refusal -- `kept` whether its conversation goes on -- answered
-    False, the seat left as it was.
+    False, the seat left as it was.  Given `effort`, `model` runs its orchestrator at it, and the
+    seat restarts as a move does even on its own model; the record takes it as the launch does
+    and gives it back where that launch fails, so it holds the effort the last launch ran at.
     """
     from . import watch   # here, not at the top: watch imports this module
+    taken = []    # `model`'s orchestrator effort as the record held it before `effort`
+
+    def at_effort(data, was=None):
+        """`data`'s efforts with `model`'s orchestrator effort at `effort`, the one replaced
+        put in `was`, every other key kept; a model it holds none for starts from its
+        entry's."""
+        efforts = dict(data.get("efforts") or {})
+        own = efforts.get(model) or config.efforts_of(cfg["models"][model])
+        if was is not None:
+            was[:] = [own["effort"]]
+        return {**efforts, model: {**own, "effort": effort}}
+
+    def given_back():
+        """The effort `taken` back, the launch at `effort` having failed, where the record
+        still holds `effort` there: a restart launched since keeps its own."""
+        def back(data):
+            efforts = dict(data.get("efforts") or {})
+            if (efforts.get(model) or {}).get("effort") == effort:
+                efforts[model] = {**efforts[model], "effort": taken[0]}
+            return efforts
+        if taken:     # set by the hold's own write, not the command's
+            try:
+                config.change_efforts(name, back)
+            except (config.Error, OSError):
+                pass    # the note returned already says the restart failed
+
     providers = usage.collect(cfg) if providers is None else providers
-    note, account = _switch_plan(cfg, name, model, providers, credits)
+    note, account = _switch_plan(cfg, name, model, providers, credits, effort)
     if note:
         return note
     name = config.resolve_session(name)    # a screen open across a rename has the old name
     record = dict(config.session_records().get(name) or {})
     old_model = record["orchestrator"]
-    if old_model == model:
+    if old_model == model and effort is None:
         return ""
     new_harness = config.model(cfg, model)["harness"]
     try:
@@ -4222,7 +4252,8 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
         ran_in = Path(record.get("cwd") or (session or {}).get("path") or "")
         cwd = ran_in if ran_in.is_dir() else seat_cwd()
         at = time.time()
-        held = config.at_efforts(cfg, record)      # at the seat's own efforts
+        held = config.at_efforts(cfg, record if effort is None   # at the seat's own efforts
+                                 else {"efforts": at_effort(record)})
         cmd, conversation = ((resume_command(held, model, kept, ran_in, seat=name,
                                              account=account, line=line), kept) if kept
                              else fresh_command(held, model, seat=name, account=account,
@@ -4248,8 +4279,11 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
         # look before it would follow the old model's last answer back (watch.follow_model).
         with watch.announcing(name):
             try:
+                if effort is not None:
+                    config.change_efforts(name, lambda data: at_effort(data, taken))
                 config.update_session(name, **chosen)
             except OSError as exc:
+                given_back()
                 unhanded(handed, before)
                 return f"session: {_one_line(exc)}"
             try:
@@ -4257,6 +4291,7 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
                 failed = None
             except (config.Error, OSError) as exc:
                 failed = exc
+                given_back()
         if line and not failed:
             watch.relaunched(name, new_harness, line, at)
     if failed:
