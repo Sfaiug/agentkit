@@ -105,6 +105,23 @@ class Reread(Sandbox):
         self.assertEqual(self.asked("huggingface"), 2 * asked["huggingface"])
         self.assertEqual(self.asked("artificialanalysis"), 2 * asked["artificialanalysis"])
 
+    def test_a_new_build_waits_for_the_day_on_all_artificial_analysis_publishes(self):
+        # it publishes no interval for a share `quality` reads off its task count, nor for
+        # Omniscience: a new build asks again only for what a measure's error cannot lack
+        published = ({quality.INTEL, *quality.COSTS.values(), *quality.OMNISCIENCE[1:3]}
+                     | {column for role in quality.ROLES.values() for column, _, _ in role
+                        if column.startswith("aa.")}
+                     | {name for pair in quality.INTERVALS.values() for name in pair})
+        for without, again in ((None, False), ("aa.lcr", True), ("aa.omniscienceAccuracy", True),
+                               ("aa.gdpvalInterval.lower", True), (quality.COSTS["review"], True)):
+            row = {"slug": "acme-one", "release": "acme-one", "maker": "Acme", "deprecated": False,
+                   "values": dict.fromkeys(published - {without}, 0.5)}
+            boards.cache_path().write_text(json.dumps({"artificialanalysis.ai": {
+                "asked_at": 10000, "rows": [row], "build": "abc1234"}}))
+            asked = self.asked("artificialanalysis")
+            boards.collect(now=10001, needs=matrix.needed(), build="def5678")
+            self.assertEqual(self.asked("artificialanalysis") > asked, again, without)
+
     def test_the_matrix_asks_for_every_column_it_scores_with_its_build(self):
         needs = matrix.needed()
         self.assertEqual(sorted(needs), sorted(boards.BOARDS))
