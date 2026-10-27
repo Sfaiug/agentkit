@@ -11,8 +11,10 @@ Black-box: the program `AK_BIN` names opens a Muse seat from a person's terminal
 is fired as Muse fires it.  The hook payloads and the session.jsonl records are copied, ids
 invented, from a live Muse 1.4.12 seat on this host (`muse-spark-1.3`, 26 Oct 2026) that started
 `sleep` as a background terminal and a sub-agent: its SessionStart and Stop payloads, and the
-records its session.jsonl held when that Stop fired and once both had ended.  The tick meets
-usage readings the test writes, and no provider.
+records its session.jsonl held when that Stop fired and once both had ended.  What a resumed
+session logs of the work its killed process held is copied the same way from a Muse 1.4.13 seat
+(`muse-wonder-full-1.0`, 27 Oct 2026) whose harness was ended under its terminal and sub-agent.
+The tick meets usage readings the test writes, and no provider.
 """
 
 import json
@@ -78,6 +80,17 @@ ENDED_WORK = [
         "subagent_id": "01a17700-0000-7000-8000-0000000000d1", "summary": "ok",
         "task_terminal_ref": {"sequence": 5, "task_id": AGENT, "task_stream": f"task/{AGENT}"},
         "text": "ok", "transcript_path": None}})]
+LOST_WORK = [       # the resumed session's own account of what the dead process ran
+    ("runtime.session", {"event": {"kind": "cancelled", "task_id": SHELL,
+                                   "reason": "resume_reconcile:orphaned_by_process_loss"},
+                         "kind": "task", "run_id": RUN, "task_id": SHELL}),
+    ("subagent.control.recovery_available", {"kind": "subagent_control", "record": {
+        "kind": "recovery_available",
+        "lost_attempt_ref": {"task_id": AGENT, "task_stream": {"id": AGENT, "kind": "task"}},
+        "parent_session_id": SESSION, "reason": "runtime_restarted_without_live_child_handle",
+        "recovery_terminal_ref": {"sequence": 5, "task_id": AGENT,
+                                  "task_stream": f"task/{AGENT}"},
+        "subagent_id": "01a17700-0000-7000-8000-0000000000d1", "wake_policy": "do_not_wake"}})]
 
 
 def until(test, what, bound=60):
@@ -164,6 +177,11 @@ class MuseStopHoldsBackgroundWork(unittest.TestCase):
 
     def test_2_a_stop_whose_work_has_all_ended_holds_nothing(self):
         held = self.stop(STARTED_WORK + ENDED_WORK)
+        self.assertEqual((held["event"], held["kind"]), ("Stop", ""))
+        self.assertNotIn("holds", held)
+
+    def test_2b_work_its_killed_process_held_is_not_held_once_resumed(self):
+        held = self.stop(STARTED_WORK + LOST_WORK)
         self.assertEqual((held["event"], held["kind"]), ("Stop", ""))
         self.assertNotIn("holds", held)
 

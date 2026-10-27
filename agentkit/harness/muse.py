@@ -650,7 +650,9 @@ def background(session):
     """The work that session's log has running in the background, as Claude's Stop hands it
     over (`background_tasks`), or None where there is no log to read.  1.4.12 links a terminal,
     a sub-agent or a workflow `background` as it starts and logs its end: the task's own, or a
-    sub-agent's result.  The agents a workflow starts are its own work, not the seat's."""
+    sub-agent's result.  A sub-agent its process took down ends in no such record: 1.4.13
+    names it lost once the session is resumed (`recovery_available`), and a send to it starts
+    a task of its own.  The agents a workflow starts are its own work, not the seat's."""
     from . import entries
     log = session_log(session)
     if log is None:
@@ -662,7 +664,7 @@ def background(session):
             event = payload.get("event") or payload.get("record")
             if not isinstance(event, dict):
                 continue
-            ref = event.get("attempt_ref")
+            ref = event.get("attempt_ref") or event.get("lost_attempt_ref")
             task = ref.get("task_id") if isinstance(ref, dict) else event.get("task_id")
             if not isinstance(task, str):
                 continue
@@ -672,7 +674,7 @@ def background(session):
             elif said == "proposed":
                 kinds[task] = event.get("task_kind")
             elif said in ("completed", "failed", "cancelled", "rejected", "result_ready",
-                          "workflow_child_lifecycle"):
+                          "workflow_child_lifecycle", "recovery_available"):
                 gone.add(task)
     except OSError:
         return None
