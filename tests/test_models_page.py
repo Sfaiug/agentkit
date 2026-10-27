@@ -4,8 +4,9 @@ The owner (20 Oct 2026): "in the config instead of having add model and add prov
 instead be just provider options and settings and same for models, where models can be removed
 and added".  `■` is a model the config runs, `□` one it does not; Enter takes it in, at its
 harness's effort as near as it has one, or out, the last model kept; one taken out comes back as
-it was.  OpenCode lists only the models the config runs on it.  `c` runs on a pty
-(tests/test_config_matrix.py's Screen) in a temporary HOME, the catalogs faked.
+it was.  OpenCode lists the models it runs now, then the config's providers it has no login
+for.  `c` runs on a pty (tests/test_config_matrix.py's Screen) in a temporary HOME, the catalogs
+and OpenCode's providers faked.
 """
 
 import tomllib
@@ -17,7 +18,9 @@ TO_MAX = ["low", "medium", "high", "xhigh", "max"]
 CATALOGS = {"claude": [("claude-opus-5-5", "Opus 5.5", TO_MAX),
                        ("claude-sonnet-5-5", "Sonnet 5.5", TO_MAX[:3]),
                        ("claude-haiku-5", "Haiku 5", TO_MAX)],
-            "opencode": [("anthropic/lyra-1", "Lyra 1", ["low", "high"])]}
+            "opencode": [("anthropic/lyra-1", "Lyra 1", ["low", "high"]),
+                         ("opencode/deepseek-v4.1-flash-free", "DeepSeek V4.1 Flash Free",
+                          ["max"])]}
 CHILD = r"""
 import os, sys
 sys.path.insert(0, os.environ["MATRIX_REPO"])
@@ -26,6 +29,8 @@ from agentkit import config, menu, terminal, update, usage
 
 config.catalog = lambda harness, cfg=None: [{"id": model, "label": label, "efforts": efforts}
                                   for model, label, efforts in %r.get(harness, [])]
+config.listed_providers = lambda harness: [("opencode", "OpenCode", "free"),
+                                           ("anthropic", "Anthropic", "")]
 update.version = lambda harness: ""
 update.agentkit_version = lambda: "abc1234"
 usage.collect = lambda cfg, **kwargs: usage.Readings({})
@@ -98,10 +103,12 @@ class ModelsPage(unittest.TestCase):
             "provider": "anthropic"})
         self.assertEqual(opened(screen, ENTER, "□ Haiku 5"), "□ Haiku 5")
         self.assertEqual(opened(screen, UP * 2 + ENTER, "■ Opus 5.5"), "■ Opus 5.5")
-        # OpenCode lists only its own: out, its free provider with it, and back as both were
+        # OpenCode lists what it runs now, Anthropic to log in to: out, its free provider
+        # with it, and back as both were
         lines = screen.press(ESC + DOWN + ENTER, lambda lines: any("■ DeepSeek" in line
                                                                    for line in lines))
         self.assertFalse(any("Lyra" in line for line in lines), lines)
+        self.assertTrue(any("Anthropic log in" in line for line in lines), lines)
         self.assertEqual(opened(screen, ENTER, "□ DeepSeek"), "□ DeepSeek V4.1 Flash Free")
         self.assertNotIn("opencode", screen.saved()["providers"])
         # listed still once its list is closed and opened again
