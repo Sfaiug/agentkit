@@ -27,7 +27,7 @@ from agentkit.harness import muse  # noqa: E402
 
 # One JSON line per call: the login it read and the session it opened or resumed.  A key with a
 # `refuse-<key>` file is refused as a spent subscription is, in Muse's own words.  `login` saves a
-# key where Muse would.  Sessions live under XDG_DATA_HOME, as Muse's do.
+# key where Muse would, and `logout` removes it.  Sessions live under XDG_DATA_HOME, as Muse's do.
 FAKE_MUSE = r"""#!/usr/bin/env bash
 auth="${XDG_CONFIG_HOME:-$HOME/.config}/muse/auth.json"
 sessions="${XDG_DATA_HOME:-$HOME/.local/share}/muse/sessions"
@@ -42,6 +42,7 @@ case "${1:-}" in
 login)
   mkdir -p "${auth%/*}"
   printf '{"providers":{"meta":{"api_key":"minted"}}}\n' >"$auth" ;;
+logout) rm "$auth" ;;
 exec)
   sid=${sid:-s-$key}
   mkdir -p "$sessions/$sid"
@@ -224,6 +225,15 @@ class MuseAccounts(unittest.TestCase):
         proc = self.adapter("auth", META_API_KEY="")
         self.assertEqual((proc.returncode, proc.stdout.strip()),
                          (0, f"muse: the login in {self.usual} is saved"))
+
+    def test_logout_signs_out_the_account_s_own_login_alone(self):
+        usual = self.snapshot(self.usual)
+        proc = self.adapter("logout", account="second")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse(self.second.exists())
+        self.assertEqual([(c["verb"], c["config"]) for c in self.calls()],
+                         [("logout", str(self.root / ".muse-second"))])
+        self.assertEqual(self.snapshot(self.usual), usual)
 
     # --- interactive ----------------------------------------------------------
 

@@ -46,11 +46,11 @@ case "${1:-}" in
   auth)   # nothing to log in to, so a turn on it can always authenticate
     echo "the echo fixture needs no login"
     ;;
-  install|login)
+  install|login|logout)
     echo "the echo fixture needs no $1"
     ;;
   *)
-    echo "usage: echo.sh run|interactive|usage|hooks|auth|install|login" >&2
+    echo "usage: echo.sh run|interactive|usage|hooks|auth|install|login|logout" >&2
     exit 2
     ;;
 esac

@@ -141,7 +141,7 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
         self.assertFalse([row for row in self.add_list() if row.startswith("Use ")])
         self.term.keys("Escape")
         self.term.wait(lambda screen: title(screen) == PAGE)
-        # `− remove` under Claude II, then ChatGPT whole: both their logins stay on disk
+        # `− remove` under Claude II, then ChatGPT whole
         for row in ("Claude II", "ChatGPT"):
             self.to(row)
             self.term.keys("Right", "Right", "Enter")      # `− remove`, last on its line

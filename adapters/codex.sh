@@ -10,6 +10,8 @@
 #                     install      -> npm i -g @openai/codex, unless codex is already here
 #                     login [again] -> the device-code login, unless already logged in; `again`
 #                                  signs in afresh over a login that still stands
+#                     logout       -> `codex logout` of this login alone; 0 at once where an
+#                                  account's home holds none
 #                     login-end    -> {"email","ends","plan"}: whose the login is, and the ChatGPT
 #                                  plan its id token names; `ends` is null, since Codex writes
 #                                  down no day its login ends
@@ -69,8 +71,7 @@ claim() {
   jq -r --argjson at "$1" '.tokens.id_token // empty | split(".")[1] // empty | gsub("-"; "+")
                  | gsub("_"; "/") | @base64d | fromjson | getpath($at) | strings' "$AUTH" 2>/dev/null
 }
-# Who this login is, its id token's email: what `+ add` shows a login `− remove` left on disk
-# by.  Silent where it says nobody.
+# Who this login is, its id token's email: what `auth` ends with.  Silent where it says nobody.
 who() {
   local email
   email=$(claim '["email"]') && [ -n "$email" ] && printf '; logged in as %s' "$email"
@@ -284,6 +285,11 @@ login)
   set --
   if [ -n "$ACCOUNT" ]; then home || exit 2; set -- -c "$STORE"; fi
   codex "$@" login --device-auth ;;
+logout)
+  # an account's login is always its auth.json (STORE); the usual one may be the Keychain's
+  set --
+  if [ -n "$ACCOUNT" ]; then [ -e "$AUTH" ] || exit 0; set -- -c "$STORE"; fi
+  codex "$@" logout ;;
 login-end)
   # Codex renews its access token with a refresh token that names no end: a login that dies
   # shows only once `auth` says so
@@ -348,6 +354,6 @@ models)
     python3 "$REPO/tools/catalog.py" codex
   fi ;;
 *)
-  echo "usage: codex.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | codex.sh usage | codex.sh reset-status | codex.sh reset | codex.sh interactive <model> <effort> [session-id [new]] | codex.sh install | codex.sh login [again] | codex.sh login-end | codex.sh auth [seat] | codex.sh hooks | codex.sh models" >&2
+  echo "usage: codex.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | codex.sh usage | codex.sh reset-status | codex.sh reset | codex.sh interactive <model> <effort> [session-id [new]] | codex.sh install | codex.sh login [again] | codex.sh logout | codex.sh login-end | codex.sh auth [seat] | codex.sh hooks | codex.sh models" >&2
   exit 2 ;;
 esac

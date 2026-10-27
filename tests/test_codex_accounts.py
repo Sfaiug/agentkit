@@ -19,8 +19,9 @@ REPO = Path(__file__).resolve().parents[1]
 ADAPTER = REPO / "adapters/codex.sh"
 
 # One JSON line per call: its arguments, the CODEX_HOME and keys it was handed, and the token
-# of the login it read.  `login` signs in by writing a fresh auth.json where codex would.  A
-# resume reads its thread from the sessions of the home it runs under.
+# of the login it read.  `login` signs in by writing a fresh auth.json where codex would, and
+# `logout` signs out by removing it.  A resume reads its thread from the sessions of the home
+# it runs under.
 FAKE_CODEX = r'''#!/usr/bin/env python3
 import json, os, sys
 from pathlib import Path
@@ -30,6 +31,8 @@ call = {"args": args, "home": os.environ.get("CODEX_HOME"),
         "keys": [os.environ.get("OPENAI_API_KEY"), os.environ.get("CODEX_API_KEY")]}
 if "login" in args:
     (home / "auth.json").write_text('{"tokens":{"access_token":"tok-new"}}')
+elif "logout" in args:
+    (home / "auth.json").unlink()
 else:
     call["token"] = json.loads((home / "auth.json").read_text())["tokens"]["access_token"]
     if "resume" in args:
@@ -189,6 +192,16 @@ class CodexAccounts(unittest.TestCase):
                 self.assertEqual(call["args"][:2], ["-c", 'cli_auth_credentials_store="file"'])
             self.login(own, token)
         self.each(login)
+
+    def test_logout_signs_out_the_account_login_alone(self):
+        def logout(account, own, token):
+            proc, [call] = self.adapter(account, "logout")
+            self.assertEqual((proc.returncode, call["args"][-1]), (0, "logout"), proc.stderr)
+            self.assertFalse((own / "auth.json").exists())
+            self.assertTrue((self.usual / "sessions/thread-1.jsonl").exists())
+        self.each(logout)
+        proc, calls = self.adapter("second", "logout")       # nothing left to sign out
+        self.assertEqual((proc.returncode, calls), (0, []))
 
     def test_interactive_opens_the_seat_on_the_account_home(self):
         def interactive(account, own, token):

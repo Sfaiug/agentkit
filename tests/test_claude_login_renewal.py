@@ -20,9 +20,11 @@ REPO = Path(__file__).resolve().parents[1]
 
 # A fake claude: one line per turn -- the login's directory, the token beside it, the prompt,
 # and its arguments -- then, unless told to fail, a renewed pair written where Claude Code
-# writes it. `FAKE_SLEEP` holds the turn open, the way a real one takes seconds.
+# writes it. `FAKE_SLEEP` holds the turn open, the way a real one takes seconds.  `auth logout`
+# removes the login of the directory it runs in.
 FAKE_CLAUDE = r"""#!/usr/bin/env bash
 dir=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+[ "$*" != "auth logout" ] || exec rm "$dir/.credentials.json"
 printf '%s|%s|%s|%s\n' "$dir" "${CLAUDE_CODE_OAUTH_TOKEN-unset}" "$(cat)" "$(printf '[%s]' "$@")" \
   >>"$FAKE/turns"
 sleep "${FAKE_SLEEP:-0}"
@@ -148,6 +150,15 @@ class LoginRenewal(unittest.TestCase):
         self.login("second", LAPSED, refresh="")
         self.assertEqual(self.ask("second", "auth", "seat")[0], 1)
         self.assertEqual(self.turns(), [])
+
+    def test_logout_signs_out_its_own_login_and_worker_token_alone(self):
+        usual, second = self.login("", FRESH), self.login("second", FRESH)
+        secrets = self.root / ".agentkit" / "secrets"
+        for _ in range(2):            # the second finds nothing left to sign out
+            self.assertEqual(self.ask("second", "logout"), (0, ""))
+            self.assertEqual([path.exists() for path in (
+                second, secrets / "claude_oauth_token.second", usual,
+                secrets / "claude_oauth_token")], [False, False, True, True])
 
     def test_a_failed_renewal_still_says_run_login(self):
         (self.fake / "fail").touch()

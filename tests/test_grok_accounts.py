@@ -284,6 +284,14 @@ class GrokAccounts(unittest.TestCase):
                 self.assertEqual([c["home"] for c in self.calls()],
                                  [str(self.second) if a else None for a in (first, then)])
 
+    def test_logout_removes_the_account_login_alone(self):
+        refused = self.state / "grok-refused-second"
+        refused.write_text("digest\n")
+        proc = self.adapter("logout", account="second")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual([(self.second / "auth.json").exists(), refused.exists()], [False, False])
+        self.assertEqual((self.usual / "auth.json").read_text(), login("usual"))
+
     def test_login_signs_the_account_in_to_its_own_home(self):
         (self.second / "auth.json").unlink()
         usual = (self.usual / "auth.json").read_text()

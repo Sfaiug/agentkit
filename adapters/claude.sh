@@ -7,6 +7,8 @@
 #                       install      -> the native installer, unless claude is already here
 #                       login [again] -> the device-code login, unless already logged in;
 #                                    `again` signs in afresh over a login that still stands
+#                       logout       -> Claude Code's own sign-out of this login, and its worker
+#                                    token removed; 0 at once where nothing is signed in
 #                       auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
 #                                    `seat` asks about the interactive login alone, never the
 #                                    worker token, because the two expire apart; a yes ends
@@ -58,8 +60,8 @@ if [ -n "$ACCOUNT" ]; then
 fi
 cmd=${1:-}; shift 2>/dev/null || true
 
-# Who this login is, as Claude Code keeps it beside the login: what `+ add` shows a login
-# `− remove` left on disk by.  Silent where it says nobody.
+# Who this login is, as Claude Code keeps it beside the login: what `auth` ends with.  Silent
+# where it says nobody.
 who() {
   local email
   email=$(jq -r '.oauthAccount.emailAddress // empty' "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" \
@@ -302,6 +304,11 @@ login)
   fi
   [ -t 0 ] || { echo "claude: not logged in; run \`claude auth login\` in a terminal" >&2; exit 1; }
   claude auth login ;;
+logout)
+  rm -f -- "$TOKEN"
+  [ -e "$CREDS" ] || security find-generic-password -s "Claude Code-credentials" >/dev/null 2>&1 || exit 0
+  unset CLAUDE_CODE_OAUTH_TOKEN   # the sign-out is the login's own, never a token's
+  claude auth logout ;;
 login-end)
   # Claude Code renews the hour-long access token itself, but the refresh token it renews it
   # with dies on the day `refreshTokenExpiresAt` names (epoch milliseconds), some thirty days
@@ -536,6 +543,6 @@ models)
       | @tsv' 2>/dev/null) || listed=
   printf '%s\n' "${listed:-$table}" ;;
 *)
-  echo "usage: claude.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | claude.sh usage | claude.sh interactive <model> <effort> [session-id [new]] | claude.sh install | claude.sh login [again] | claude.sh login-end | claude.sh auth [seat] | claude.sh hooks | claude.sh models" >&2
+  echo "usage: claude.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | claude.sh usage | claude.sh interactive <model> <effort> [session-id [new]] | claude.sh install | claude.sh login [again] | claude.sh logout | claude.sh login-end | claude.sh auth [seat] | claude.sh hooks | claude.sh models" >&2
   exit 2 ;;
 esac

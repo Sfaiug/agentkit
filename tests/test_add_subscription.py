@@ -4,7 +4,7 @@ it will get (`Claude II`),
 logs it in on the terminal under a fresh AGENTKIT_ACCOUNT and appends that name to the
 provider's `accounts`, `default` first when it listed none; a login that fails adds nothing.
 `− remove` under the row of each but the usual login of a provider with several asks with
-`Keep` picked, and takes that one name out of `accounts`, its login files left alone.
+`Keep` picked, takes that one name out of `accounts` and signs out that login alone.
 
 Each test runs `menu.show_config` with a real `terminal.Keyboard` in a child process on a pty of
 its own, through tests/test_config_matrix.py's Screen, in a temporary HOME.  The adapters are
@@ -144,17 +144,15 @@ class AddSubscription(unittest.TestCase):
 
 
 class RemoveSubscription(unittest.TestCase):
-    def test_one_subscription_goes_and_its_login_files_are_left_alone(self):
+    def test_one_subscription_goes_and_signs_out_its_login_alone(self):
         several = CLAUDE.replace('mode = "subscription"',
                                  'mode = "subscription"\naccounts = ["default", "a1", "b2"]')
         screen = Screen(self, child=CHILD, text=several + CODEX)
         home = screen.path.parent.parent
-        (home / ".claude-b2").mkdir()
-        (home / ".claude-b2" / ".credentials.json").write_text("{}")
         before = screen.path.read_bytes()
         asked = remove_asked(screen, "Claude III")
         self.assertIn("  Remove Claude III?", asked)
-        self.assertIn("  Nothing new starts on it.", asked)
+        self.assertIn("  " + menu.REMOVE_SUBSCRIPTION_ASK[1], asked)
         mark = screen.text().rindex("Remove Claude III?")
         self.assertEqual(choices(screen, mark, 2), ["› ✓ Keep", "  ✗ Remove"])
         screen.press(ENTER, lambda lines: title(lines) == PAGE)            # Enter keeps
@@ -165,7 +163,8 @@ class RemoveSubscription(unittest.TestCase):
         self.assertEqual(saved["providers"]["anthropic"]["accounts"], ["default", "a1"])
         self.assertEqual(set(saved["providers"]), {"anthropic", "openai"})
         self.assertEqual(set(saved["models"]), {"opus", "astra"})
-        self.assertTrue((home / ".claude-b2" / ".credentials.json").exists())
+        self.assertEqual([line for line in (home / "verbs.log").read_text().splitlines()
+                          if " logout " in line], ["claude logout b2"])
         self.assertEqual(rows(home), ["Claude I", "Claude II", "ChatGPT"])
         back(screen)
         screen.leave()

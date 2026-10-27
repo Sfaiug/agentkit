@@ -525,6 +525,18 @@ class Antigravity(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in self.token.parent.iterdir()),
                          ["antigravity-oauth-token", "brain", "conversations"])
 
+    def test_logout_removes_the_named_login_alone(self):
+        self.write_token("dummy-refresh")
+        usual = self.token.read_text()
+        own = self.home / ".gemini/antigravity-cli-second/antigravity-oauth-token"
+        own.parent.mkdir(parents=True)
+        own.write_text(usual)
+        (own.parent / "ak-plan.json").write_text('{"email": "acme@example.com"}')
+        proc = self.adapter("logout", env={"AGENTKIT_ACCOUNT": "second"})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sorted(p.name for p in own.parent.iterdir()), ["brain", "conversations"])
+        self.assertEqual(self.token.read_text(), usual)
+
     def test_the_usual_login_stays_today_s_beside_a_named_one(self):
         # `default` is the empty name: only the usual login answers, never `second`'s
         self.write_token("dummy-refresh")

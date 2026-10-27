@@ -14,6 +14,8 @@
 #                     install      -> the owner's installer, unless opencode is already here
 #                     login [again] -> `opencode auth login <provider>`, unless already logged
 #                                  in; `again` signs in afresh over a login that still stands
+#                     logout       -> `opencode auth logout` of each login saved for the
+#                                  provider named, and of no other provider
 #                     auth [seat]  -> 0 when a turn on each named provider can authenticate, 1
 #                                  and one line why; `seat` is the same login here, and is
 #                                  accepted and ignored
@@ -530,6 +532,13 @@ login)
   [ "${1:-}" != again ] && logged_in "$p" && { echo "opencode: already logged in${p:+ to $p}"; exit 0; }
   [ -t 0 ] || { echo "opencode: not logged in${p:+ to $p}; run \`opencode auth login${p:+ $p}\` in a terminal" >&2; exit 1; }
   opencode auth login ${p:+"$p"} ;;
+logout)
+  # 2.0.24 asks which credential, on a terminal, where none is named
+  p=${PROVIDERS%% *}
+  [ -n "$p" ] && store_key "$p" || exit 0
+  ids=$(jq -r --arg p "$p" '.[] | select(.id == $p) | .connections[]
+          | select(.type == "credential") | .id' <<<"$listed") || exit 1
+  for id in $ids; do opencode auth logout --standalone "$p" "$id" || exit 1; done ;;
 auth)
   # Can a headless turn authenticate right now?  Exit 0 and say so, or exit 1 with one line
   # saying why not; anything else is no answer, and the caller carries on as before.  The
@@ -613,6 +622,6 @@ providers)
     echo "opencode: OpenCode did not list its providers" >&2; exit 1
   fi ;;
 *)
-  echo "usage: opencode.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | opencode.sh usage | opencode.sh interactive <model> <effort> [session-id [new]] | opencode.sh install | opencode.sh login [again] | opencode.sh auth [seat] | opencode.sh hooks | opencode.sh models | opencode.sh providers" >&2
+  echo "usage: opencode.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | opencode.sh usage | opencode.sh interactive <model> <effort> [session-id [new]] | opencode.sh install | opencode.sh login [again] | opencode.sh logout | opencode.sh auth [seat] | opencode.sh hooks | opencode.sh models | opencode.sh providers" >&2
   exit 2 ;;
 esac

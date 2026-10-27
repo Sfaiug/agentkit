@@ -1596,9 +1596,10 @@ def adapter(harness):
         an `id<TAB>label<TAB>efforts` line per model, efforts strongest last, `none` for one
         that runs at no effort, empty where the harness does not say; `[catalog]` stands in for
         a harness that lists none, fails, or takes ten seconds.
-    hooks / install / login [again]
+    hooks / install / login [again] / logout
         install its lifecycle hooks idempotently; install it and log in on a fresh box, `again`
-        signing in afresh over a login that still stands.
+        signing in afresh over a login that still stands; sign that login out on this machine,
+        0 at once where it holds none, touching no other login nor a store they share.
     login-end
         one JSON object: `email`, and `ends`, the epoch second the login stops serving, or null.
     providers
