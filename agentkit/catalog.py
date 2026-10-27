@@ -1,8 +1,10 @@
 """Which models exist now, and what replaced what, read off Artificial Analysis's records as
 `boards.collect` holds them.  A release is one model, its efforts each a row of the board; it is
 current while none of its rows is deprecated, and a deprecated one names the release that
-replaced it (`deprecatedTo`), which may itself be replaced.  The record's shape (releases,
-those chains, the default effort being the row whose slug is the release's own) stays here, and
+replaced it (`deprecatedTo`), which may itself be replaced.  A series, one maker's releases of
+one release name, whose deprecated releases name a successor takes its current variants along
+(`_gone`).  The record's shape (releases, those chains, series, the default effort being the row
+whose slug is the release's own) stays here, and
 so does which release another board's model is: boards name models their own way and know
 nothing of releases.
 """
@@ -83,8 +85,49 @@ def _current(rows):
     return not any(row["deprecated"] for row in rows)
 
 
+def _end(releases, slug):
+    """The current release the release `slug`'s `deprecatedTo` chain reaches, itself when it is
+    current, a release stepping to the one successor its rows name, whichever row names it;
+    None when the chain reaches a slug the board does not list, a release naming no successor
+    or several, or a loop."""
+    seen = set()
+    while slug in releases and slug not in seen:
+        if _current(releases[slug]):
+            return slug
+        seen.add(slug)
+        named = {row["release"]["deprecatedTo"] for row in releases[slug]} - {None}
+        slug = named.pop() if len(named) == 1 else None
+    return None
+
+
+def _gone(releases):
+    """{slug: where it went, None for nowhere} of each current release its series gives up.  A
+    series none of whose deprecated releases names a successor keeps all: on the board a retired
+    model beside its variant looks like a retired preview beside its model, and only display
+    names, which follow no pattern, tell the two apart.  Otherwise, once one of their ends lies
+    outside the series every current release goes, to that end when it is the only one outside;
+    else the ends stay and the others go, to the end when there is exactly one."""
+    series = {}
+    for slug, rows in releases.items():
+        series.setdefault((rows[0]["maker"], rows[0]["release"]["name"]), set()).add(slug)
+    gone = {}
+    for slugs in series.values():
+        deprecated = [slug for slug in slugs if not _current(releases[slug])]
+        if not any(row["release"]["deprecatedTo"] for slug in deprecated
+                   for row in releases[slug]):
+            continue
+        ends = {_end(releases, slug) for slug in deprecated} - {None}
+        outside = ends - slugs
+        stay = set() if outside else ends
+        to = outside or ends
+        for slug in slugs - stay:
+            if _current(releases[slug]):
+                gone[slug] = next(iter(to)) if len(to) == 1 else None
+    return gone
+
+
 def current(boards):
-    """Artificial Analysis's current releases, strongest first by their best
+    """Artificial Analysis's current releases its series keep (`_gone`), strongest first by their best
     `aa.intelligenceIndex`; those without one last, by name.  Each effort's `values` carry,
     beside its own row's, those of every other board's rows naming the release (`_board_names`
     meeting `_names` of its name, and of no other current release's) at that effort."""
@@ -93,8 +136,10 @@ def current(boards):
         best = max((row["values"]["aa.intelligenceIndex"] for row in rows
                     if "aa.intelligenceIndex" in row["values"]), default=None)
         return best is None, -(best or 0), str(rows[0]["release"]["name"])
-    releases = [_release(slug, rows) for slug, rows
-                in sorted(_releases(boards).items(), key=strength) if _current(rows)]
+    held = _releases(boards)
+    gone = _gone(held)
+    releases = [_release(slug, rows) for slug, rows in sorted(held.items(), key=strength)
+                if _current(rows) and slug not in gone]
     named = {}
     for release in releases:
         for name in _names(release["name"]):
@@ -111,13 +156,12 @@ def current(boards):
 
 
 def successor(boards, slug):
-    """The current release the release `slug`'s `deprecatedTo` chain ends at, itself when it is
-    current; None when the chain ends anywhere else: a slug the board does not list, a
-    deprecated release naming no successor, or a loop."""
-    releases, seen = _releases(boards), set()
-    while slug in releases and slug not in seen:
-        if _current(releases[slug]):
-            return next(release for release in current(boards) if release["slug"] == slug)
+    """The current release the release `slug` went to: its `deprecatedTo` chain's end (`_end`),
+    then on from each release its series gave up to where that went (`_gone`); None where that
+    is nowhere or loops back."""
+    releases = _releases(boards)
+    gone, slug, seen = _gone(releases), _end(releases, slug), set()
+    while slug in gone and slug not in seen:
         seen.add(slug)
-        slug = releases[slug][0]["release"]["deprecatedTo"]
-    return None
+        slug = gone[slug]
+    return next((release for release in current(boards) if release["slug"] == slug), None)
