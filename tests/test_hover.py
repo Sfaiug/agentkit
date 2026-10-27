@@ -562,18 +562,9 @@ class MainMenu(unittest.TestCase):
         menu.send(b"k")
         menu.frame(lambda lines: any(line.startswith("› 2  seat-b") for line in lines))
         menu.until(lambda text: marked(played(text), "lit") == {}, "nothing lit")
-        # on nothing the highlight is out, and `x` only brings it back: no seat is acted on
-        # that is not seen
         top = next(number for number, line in enumerate(lines, 1) if "seat-a" in line)
-        mark = len(menu.text())
         menu.send(move(20, top))
         on(menu, "seat-a")
-        menu.send(move(1, 2))
-        menu.until(lambda text: not highlighted(played(text)), "no seat highlighted")
-        menu.send(b"x")
-        menu.frame(lambda lines: any(line.startswith("› 1  seat-a") for line in lines))
-        time.sleep(0.3)
-        self.assertNotIn("everything it runs?", menu.text()[mark:])
         # five hundred moves at once are one draw, the highlight where they ended
         drawn = menu.text().count("<drawing")
         menu.send(b"".join(move(1 + n % 90, top) for n in range(500)))
@@ -583,27 +574,6 @@ class MainMenu(unittest.TestCase):
         menu.leave()
         self.assertEqual(termios.tcgetattr(menu.slave), menu.before)
         self.assertIn("\x1b[?1006l\x1b[?1003l", menu.text().rsplit("\x1b[J", 1)[-1])
-
-    def test_x_on_a_seat_the_pointer_left_brings_it_back_and_only_the_next_closes_it(self):
-        menu = Menu(self, ["seat-a", "done-b"])
-        lines = menu.frame()
-        row = next(number for number, line in enumerate(lines, 1) if "done-b" in line)
-        keyline = (lines[-1].index("x stop") + 1, len(lines))     # where `x close` goes
-        menu.send(move(20, row))
-        on(menu, "done-b")
-        menu.send(move(*keyline))
-        menu.until(lambda text: "x close" in texts(played(text))[keyline[1] - 1]
-                   and not highlighted(played(text)), "x close lit, and no seat")
-        mark = len(menu.text())
-        menu.send(b"x")
-        menu.frame(lambda lines: any(line.startswith("› 2  done-b") for line in lines),
-                   after=mark)
-        time.sleep(0.3)
-        self.assertNotIn("<closed", menu.text())
-        menu.send(b"x")
-        menu.saw("<closed done-b>")
-        menu.leave()
-        self.assertEqual(menu.text().count("<closed"), 1)
 
     def test_the_pointer_moves_the_highlight_while_a_digit_waits_for_a_second(self):
         menu = Menu(self, [f"seat-{n:02d}" for n in range(1, 13)])

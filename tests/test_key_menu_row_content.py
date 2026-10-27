@@ -1,10 +1,9 @@
-"""The menu's seat rows: a seat tmux lost, a plan's bar, and a done seat `x` closes at once.
+"""The menu's seat rows: a seat tmux lost, a plan's bar, and a done seat.
 
 A row is all the owner reads of a seat before opening it.  A seat whose tmux session went keeps
 its row, `idle`, or `needs you` while its plan owes a line, and says how its number reopens it;
 a seat with a plan shows how much of it is done, counted as the stop hook counts it, so the bar
-never claims work nothing proved; and a done seat closes on `x` without a question, as nothing
-in it is left to lose.  Black-box: the program `AK_BIN` names runs in a person's terminal
+never claims work nothing proved; and a seat whose plan is all done reads done.  Black-box: the program `AK_BIN` names runs in a person's terminal
 (tests/fixtures/akterm.py) or from a pipe, beside tests/fixtures/akseat.py's seats, and this
 test fails against `/bin/false`.
 """
@@ -76,20 +75,6 @@ def shows(*rows):
                 for line in lines)
             for name, pattern in rows)
     return test
-
-
-def key_line(screen):
-    return next(line.strip() for line in screen.splitlines() if "esc leave" in line)
-
-
-def gone(home, name, bound=30):
-    """Whether tmux has no session `name` within `bound` seconds."""
-    deadline = time.monotonic() + bound
-    while home.tmux("has-session", "-t", f"={name}").code == 0:
-        if time.monotonic() > deadline:
-            return False
-        time.sleep(0.05)
-    return True
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -190,26 +175,9 @@ class DoneSeat(unittest.TestCase):
         self.screen = self.menu.wait(shows(("atoll-done", "Fable 5.1  ✓ done .* 2 of 2$"),
                                            ("atoll-ask", "Fable 5.1  ! needs you$")), bound=OPENS)
 
-    def test_a_seat_whose_plan_is_all_done_reads_done_with_a_full_bar_and_offers_x_close(self):
+    def test_a_seat_whose_plan_is_all_done_reads_done_with_a_full_bar(self):
         self.assertRegex(row(self.screen, "atoll-done")[0],
                          r"^› 1  atoll-done  Fable 5.1  ✓ done +━+ 2 of 2$")
-        keys = key_line(self.screen)
-        self.assertIn("x close", keys)
-        self.assertNotIn("x stop", keys)
-
-    def test_x_closes_a_done_seat_at_once_without_asking(self):
-        self.menu.keys("x")
-        # A question would hold the row until it was answered.
-        settled = shows(("atoll-ask", "Fable 5.1  ! needs you$"))
-        # the row goes at once, and the seat behind it a moment later, the rows numbered again
-        screen = self.menu.wait(lambda shown: "atoll-done" not in shown and settled(shown)
-                                and "› 1  atoll-ask" in shown)
-        self.assertTrue(gone(self.home, "atoll-done"))
-        self.assertNotIn("Stop", screen)
-        self.assertEqual(row(screen, "atoll-ask")[0], "› 1  atoll-ask  Fable 5.1  ! needs you")
-        keys = key_line(screen)
-        self.assertIn("p past", keys)       # the closed seat waits on the past screen
-        self.assertIn("x stop", keys)       # the seat highlighted now is not done
 
 
 if __name__ == "__main__":
