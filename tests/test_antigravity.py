@@ -384,7 +384,8 @@ class Antigravity(unittest.TestCase):
         del token["id_token"]
         self.token.write_text(json.dumps({**token, "id_token_email": "owner@example.com"}))
         proc = self.adapter("login-end")
-        self.assertEqual(json.loads(proc.stdout), {"email": "owner@example.com", "ends": None})
+        self.assertEqual(json.loads(proc.stdout), {"email": "owner@example.com", "ends": None,
+                                                      "plan": None})
         self.assertNotIn("dummy", proc.stdout)
 
     def test_usage_answers_inside_its_deadline_whatever_hangs(self):

@@ -10,8 +10,9 @@
 #                     install      -> npm i -g @openai/codex, unless codex is already here
 #                     login [again] -> the device-code login, unless already logged in; `again`
 #                                  signs in afresh over a login that still stands
-#                     login-end    -> {"email","ends"}: whose the login is; `ends` is null, since Codex
-#                                  writes down no day its login ends
+#                     login-end    -> {"email","ends","plan"}: whose the login is, and the ChatGPT
+#                                  plan its id token names; `ends` is null, since Codex writes
+#                                  down no day its login ends
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
 #                                  `seat` is the same login here, and is accepted and ignored;
 #                                  a yes ends `; logged in as <email>` where the login says
@@ -62,13 +63,17 @@ WEEKLY='[.rate_limit.primary_window, .rate_limit.secondary_window]
         | (max_by(.used_percent) // null)'
 cmd=${1:-}; shift 2>/dev/null || true
 
-# Who this login is, the email in the id token Codex keeps beside its access token: what
-# `+ add` shows a login `− remove` left on disk by.  Silent where it says nobody.
+# claim <path>: the claim at that path (a jq array) of the id token Codex keeps beside its
+# access token, decoded here and never printed with the token; empty where it holds none.
+claim() {
+  jq -r --argjson at "$1" '.tokens.id_token // empty | split(".")[1] // empty | gsub("-"; "+")
+                 | gsub("_"; "/") | @base64d | fromjson | getpath($at) | strings' "$AUTH" 2>/dev/null
+}
+# Who this login is, its id token's email: what `+ add` shows a login `− remove` left on disk
+# by.  Silent where it says nobody.
 who() {
   local email
-  email=$(jq -r '.tokens.id_token // empty | split(".")[1] // empty | gsub("-"; "+")
-                 | gsub("_"; "/") | @base64d | fromjson | .email // empty' "$AUTH" 2>/dev/null) \
-    && [ -n "$email" ] && printf '; logged in as %s' "$email"
+  email=$(claim '["email"]') && [ -n "$email" ] && printf '; logged in as %s' "$email"
 }
 
 # jq is the tool most likely to be missing, so build the error object with printf
@@ -283,8 +288,9 @@ login-end)
   # Codex renews its access token with a refresh token that names no end: a login that dies
   # shows only once `auth` says so
   command -v jq >/dev/null || { echo "codex.sh login-end: jq is required" >&2; exit 2; }
-  email=$(who); email=${email#; logged in as }
-  jq -nc --arg email "$email" '{email: (if $email == "" then null else $email end), ends: null}' ;;
+  jq -nc --arg email "$(claim '["email"]')" \
+    --arg plan "$(claim '["https://api.openai.com/auth", "chatgpt_plan_type"]')" \
+    '{email: $email, ends: null, plan: $plan} | map_values(if . == "" then null else . end)' ;;
 auth)
   # Can a turn authenticate right now?  Exit 0 and say so, or exit 1 with one line saying why
   # not.  Without jq the file cannot be read at all, so the question is not answered: exit 2 is

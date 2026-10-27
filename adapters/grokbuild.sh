@@ -25,8 +25,9 @@
 #                     install      -> the x.ai installer, unless grok is already here
 #                     login [again] -> `grok login`, unless already logged in; `again` signs
 #                                  in afresh over a login that still stands
-#                     login-end    -> {"email","ends"}: whose the login is; `ends` is null, since grok
-#                                  writes down no day its refresh token ends
+#                     login-end    -> {"email","ends","plan"}: whose the login is and its tier;
+#                                  `ends` is null, since grok writes down no day its refresh
+#                                  token ends
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why: a
 #                                  refresh token or an unexpired key is a login grok can use,
 #                                  unless `usage` saw the endpoint refuse the key grok renewed;
@@ -343,10 +344,14 @@ login)
   grok login ;;
 login-end)
   # grok trades its refresh token for a six-hour key itself, and that token names no end: a
-  # login that dies shows only once `auth` says so.  The email is the saved entry's own.
+  # login that dies shows only once `auth` says so.  The email is the saved entry's own, the
+  # plan the tier the settings cache grok fetches for that login displays (see `usage`).
   command -v jq >/dev/null || { echo "grokbuild.sh login-end: jq is required" >&2; exit 2; }
   email=$(jq -r '[.[]? | .email? | strings | select(test("@"))] | first // empty' "$AUTH" 2>/dev/null)
-  jq -nc --arg email "$email" '{email: (if $email == "" then null else $email end), ends: null}' ;;
+  plan=$(jq -r '.payload | fromjson? | .settings.subscription_tier_display | strings' \
+    "$GROK_HOME/settings_cache.json" 2>/dev/null)
+  jq -nc --arg email "$email" --arg plan "$plan" \
+    '{email: $email, ends: null, plan: $plan} | map_values(if . == "" then null else . end)' ;;
 auth)
   # Can a headless turn authenticate right now?  Exit 0 and say so, or exit 1 with one line
   # saying why not; anything else is no answer, and the caller carries on as before.  The
