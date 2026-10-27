@@ -41,9 +41,7 @@ SAME = {"aa.briefcaseBreakdown.overall.elo": 1400, "aa.gdpval": 1400, "aa.omnisc
 OLD = {"artificialanalysis.ai": "aa.intelligenceIndexCostPerTask.cost.total",
        "arena.ai": "arena.agent_task_outcome_explicit arena.agent_steerability "
                    "arena.agent_bash_reliability arena.text_factuality.coding "
-                   "arena.text_style_control.coding arena.agent.lower95ci",
-       "livebench.ai": "livebench.long_agentic livebench.coding livebench.reasoning "
-                       "livebench.cost_coding"}
+                   "arena.text_style_control.coding arena.agent.lower95ci"}
 
 def aa(release, name, effort, values, retired=False):
     return {"model": name, "effort": effort, "slug": f"{release}-{effort}", "maker": "Acme",

@@ -164,20 +164,14 @@ func validate(root *table) error {
 			return fmt.Errorf("within must be a number of points, 0 or more (got %s)", valueRepr(value))
 		}
 	}
-	if value, exists := root.values["assess"]; exists {
-		marks, ok := value.(*table)
-		if ok {
-			for _, names := range marks.values {
-				list, valid := names.([]any)
-				ok = ok && valid
-				for _, name := range list {
-					_, valid := name.(string)
-					ok = ok && valid
-				}
-			}
+	if value, exists := root.values["compare"]; exists {
+		marks, ok := value.([]any)
+		for _, slug := range marks {
+			_, valid := slug.(string)
+			ok = ok && valid
 		}
 		if !ok {
-			return fmt.Errorf("[assess] must list model ids under each harness (acme = [\"acme-pro\"]) (got %s)", valueRepr(value))
+			return fmt.Errorf("compare must list release slugs (compare = [\"acme-pro-5\"]) (got %s)", valueRepr(value))
 		}
 	}
 	if _, exists := defaults.values["orchestrator"]; !exists {
