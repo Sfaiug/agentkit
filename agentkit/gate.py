@@ -8,6 +8,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
@@ -36,6 +37,7 @@ GATE_POLL = 15      # seconds between a waiting gate's tries for a turn; each re
 HEAVY_CPUS = 0.7      # initial measured estimates; a repository's pieces may cost more
 HEAVY_MEM_MB = 410
 SUITE_BUSY = 75       # sysexits' EX_TEMPFAIL: a heavy suite's own host-wide lock is another copy's
+OUT_OF_MEMORY = "ran out of memory"   # `run_suite(pieces=)`: no exit tells it (`_SuiteMeasure.starved`)
 # A piece on the suite helper runs in a clone there, which land._check's look at this checkout
 # never sees: the piece checks that clone itself and fails, as land._check does, if it changed.
 PINNED_PIECE = ('head=$(git rev-parse HEAD) && bash -c {} || exit\n'
@@ -1366,13 +1368,22 @@ class _SuiteMeasure:
         self.quiet = []   # and the longest each go went without output (`worker.limited`)
         self.baseline = host.held_mb(self.group, swap=True) if self.group is not None else None
         self.peak = self.baseline
+        # a cap is the whole cgroup's, whoever else it holds
+        self.cgroup = host.cgroup_path(relative) if (relative := host.process_cgroup()) else None
         self.ooms = self.oom()
         self.mem_mb = 0   # what `save` recorded
         self.lock = threading.Lock()
         self.started = time.monotonic()
 
-    def oom(self):
-        return host.memory_events(self.group).get("oom", 0) if self.group is not None else 0
+    def oom(self, event="oom"):
+        """How often this process's cgroup ran out of memory, or with `oom_kill` how many of
+        its processes the kernel killed for it (`host.memory_events`)."""
+        return host.memory_events(self.cgroup).get(event, 0) if self.cgroup is not None else 0
+
+    def starved(self, code, kills):
+        """Whether `code` is a SIGKILL while the kernel killed in this cgroup for memory more
+        than the `kills` it had: a test may exit 137 on its own."""
+        return code in (128 + signal.SIGKILL, -signal.SIGKILL) and self.oom("oom_kill") > kills
 
     def sample(self):
         if self.baseline is not None:
@@ -1468,7 +1479,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     with `only` too, just those of its tests, as one share, green only where the runner names
     each one as run (`AK_RAN`): a runner may skip a name it does not know and exit 0.
     `pieces`, a dict, gets each piece's exit as the runner saw it, by share -- None for one
-    killed at the limit -- so a caller decides from codes, never from what a piece printed.
+    killed at the limit, `OUT_OF_MEMORY` for one the kernel killed for memory -- so a caller
+    decides from codes, never from what a piece printed.
     `later`, seconds, is set where the suite's pace stops its pieces sooner (`quiet_window`):
     the silence each piece's later goes have; a piece its first go's silence stopped goes
     again, alone, after its siblings, which run on.
@@ -1538,6 +1550,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         timeout = kwargs.pop("on_timeout", None)
         silence = kwargs.pop("silence", None)
         silenced = set()    # the pieces whose first go silence stopped, each to go again
+        starved = set()     # those whose last go here the kernel killed for memory
         home_reason = getattr(_GATE_HELD, "here", None) or (
             "free heavy suite turns" if away else
             "command is not sent to the suite helper (suite already holds a local turn)")
@@ -1621,6 +1634,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 try:
                     here = {} if there else {"cpu": measure.cpu, "quiet": measure.quiet,
                                              "only": only, "failed": tests, "ran": ran}
+                    kills = measure.oom("oom_kill")
                     code, _, killed = (worker.limited if there else worker.boxed)(
                         helper.piece(there, shard, PINNED_PIECE.format(shlex.quote(command)))
                         if there else ["bash", "-c", command],
@@ -1628,6 +1642,10 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         env=own, abort=abort,
                         on_timeout=stopped, silence=silence if first else later or silence,
                         **here, **kwargs)
+                    if not there and not killed and measure.starved(code, kills):
+                        starved.add(shard)
+                    else:
+                        starved.discard(shard)
                     if ran is not None:
                         code = unnamed(code, only, ran, stream)
                 finally:
@@ -1719,6 +1737,9 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     piece.seek(0)
                     failed, how = piece.read(), f"was stopped after {silence / 60:g} min of silence"
                     code, piece, killed, tests = attempt(shard)
+                elif shard in starved and not cancel.is_set():
+                    # out of memory beside its siblings: once more alone, after them
+                    code, piece, killed, tests = attempt(shard)
                 decides = index - 1 in named    # its tests the helper named, run alone here
                 if decides:
                     there, only = named[index - 1]
@@ -1734,6 +1755,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         if hold is not None:
                             hold.alone()
                         env = suite_env(changed)
+                    elif shard in starved:
+                        break   # the host's red, never a test's (`land.red_part`)
                     elif only is not None:
                         # Failing again alone, the tests the piece named confirm it red in a
                         # fraction of its time; passing, the whole piece decides, as a failure
@@ -1767,9 +1790,11 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                                       f"{activity.stem}-AK_SHARD-{shard.replace('/', '-of-')}")
                 if code and not killed and alone:
                     text = f"{alone}\n{text}"
+                ended = ("killed at the limit" if killed else OUT_OF_MEMORY
+                         if shard in starved else f"exit {code}")
                 # Existing failure diagnostics read the last output; leave a red piece last.
                 (red if code else chunks).append(f"--- AK_SHARD={shard} ---\n"
-                    f"[{'killed at the limit' if killed else f'exit {code}'}]\n{text}".rstrip())
+                    f"[{ended}]\n{text}".rstrip())
             if not helped and not any(killed for _, _, killed, _ in results):
                 measure.paced(path, count)
             measure.overflowed(path, mem)
@@ -1777,8 +1802,9 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             output.write(("\n" + text + "\n").encode())
             output.flush()
             if pieces is not None:
-                pieces.update({f"{index}/{count}": None if killed else code
-                               for index, (code, _, killed, _) in enumerate(results, 1)})
+                for index, (code, _, killed, _) in enumerate(results, 1):
+                    share = f"{index}/{count}"
+                    pieces[share] = None if killed else OUT_OF_MEMORY if share in starved else code
             return next((code for code, _, _, _ in results if code), 0), text, any(
                 killed for _, _, killed, _ in results)
 

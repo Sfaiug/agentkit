@@ -489,17 +489,21 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok):
     "" where the command ran whole or a piece was killed at the limit, which stops its siblings
     with it, and the suite whole where no command failed and yet the checks did not pass (the
     checkout changed under them, the suite's own doing as far as the lander can tell); {}
-    where the checks passed or no exits were reported."""
+    where the checks passed or no exits were reported.  A piece out of memory
+    (`gate.OUT_OF_MEMORY`) is red only where no other is, and then `short`: the host's red,
+    nobody's."""
+    from . import gate
     if ok or not marks:
         return {}
     for cmd, mark in zip(cmds, marks):
         if mark == 0:
             continue
         codes = pieces.get(cmd, {})
-        piece = "" if any(code is None for code in codes.values()) else next(
-            (share for share, code in sorted(codes.items(),
-                                             key=lambda item: int(item[0].split("/")[0]))
-             if code != 0), "")
+        reds = sorted((share for share, code in codes.items() if code != 0),
+                      key=lambda share: (codes[share] == gate.OUT_OF_MEMORY, int(share.split("/")[0])))
+        piece = "" if None in codes.values() or not reds else reds[0]
+        if piece and codes[piece] == gate.OUT_OF_MEMORY:
+            return {"command": cmd, "piece": piece, "short": True}
         tests = (confirmed.get(cmd) or {}).get(piece) if piece else None
         return {"command": cmd, "piece": piece, **({"tests": tests} if tests else {})}
     return {"command": suite, "piece": ""} if suite else {}
@@ -641,6 +645,10 @@ def _check_tree(directory, state, scratch, tree, checks, log, suite, *, artifact
     log_path = directory / f"lander-{tree}.log"
     ok, text, red = _check(directory, state, scratch, list(checks), log_path, log,
                            suite=suite, artifacts=artifacts)
+    if red.get("short"):
+        log(f"AK_SHARD={red['piece']} of {directory.name}'s tree ran out of memory again, run "
+            "alone: nobody is blamed; the next pass checks it again")
+        return {}
     return {"land": tree} if ok else {"fix": {"line": prompts.first_failure(text),
                                               "log": str(log_path), **red}}
 
@@ -779,6 +787,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                               evidence.get("code"))
 
             def answer_tree(index, checks, check, failed=None):
+                nonlocal short
                 answer = check.result()
                 if failed is not None:
                     passed_alone[index, failed] = "land" in answer
@@ -787,13 +796,15 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     # A confirmed failed part makes the stack's planned check red.
                     checks = commands(index)
                 tree, own = stacks[index][3:]
-                if "land" in answer:
+                if not answer:      # the host's red (`_check_tree`): this pass ends
+                    short = True
+                elif "land" in answer:
                     cover(index, checks, tree)
                 else:
                     answers[tree, own] = answer
                     note(turn, [], directory.name, checks=checks, red_stacks={tree: answer["fix"]})
 
-            rebuild, target_red, stale = False, False, False
+            rebuild, target_red, stale, short = False, False, False, False
 
             def stopped():
                 """Has the line changed under this pass?  Asked before every check it would
@@ -854,7 +865,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 running = {}
                 try:
                     decide()
-                    while not rebuild and not target_red and not stopped():
+                    while not rebuild and not target_red and not short and not stopped():
                         unchecked = [index for index, (_, _, _, tree, checks) in enumerate(stacks)
                                      if (tree, checks) not in answers]
                         narrowing, command, owner = None, None, 0
@@ -921,6 +932,6 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     # Keep suffix evidence even if a wake or verdict write crashes.
                     for check, (index, checks, failed) in running.items():
                         answer_tree(index, checks, check, failed)
-            if target_red or stale or not rebuild:
+            if target_red or stale or short or not rebuild:
                 break
     return verdicts
