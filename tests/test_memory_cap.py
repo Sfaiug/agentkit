@@ -221,7 +221,7 @@ class MemoryCap(unittest.TestCase):
         cap, props = run.run_scope_limits()
         self.assertEqual(cap, 512)
         self.assertIn("MemoryMax=512M", props)
-        self.assertIn("MemorySwapMax=512M", props)
+        self.assertIn("MemorySwapMax=128M", props)
         directory = config.RUNS / "20260922-0900-capped"
         directory.mkdir()
         record.save_state(directory, {"run_id": directory.name, "state": "queued"})
@@ -240,7 +240,7 @@ class MemoryCap(unittest.TestCase):
             run.spawn_bg(directory, ["resume", directory.name])
         self.assertEqual(seen["slice"], "agentkit-test-runs.slice")
         self.assertIn("MemoryMax=512M", seen["properties"])
-        self.assertIn("MemorySwapMax=512M", seen["properties"])
+        self.assertIn("MemorySwapMax=128M", seen["properties"])
         self.assertEqual(record.read_state(directory)["memory_cap_mb"], 512)
         (config.HOME / "config.toml").write_text("run_memory_max_mb = 0\n")
         with self.assertRaises(config.Error):
@@ -298,7 +298,7 @@ class MemoryCap(unittest.TestCase):
                          [f"agentkit-run-{leaking}", f"agentkit-run-{steady}"])
         for _unit, properties in placed:
             self.assertIn("MemoryMax=512M", properties)
-            self.assertIn("MemorySwapMax=512M", properties)
+            self.assertIn("MemorySwapMax=128M", properties)
         self.assertEqual(boxes[leaking]["state"]["state"], "fail")
         self.assertEqual(boxes[leaking]["state"]["error"], "killed: memory cap 0.5 GB")
         self.assertIn("killed: memory cap 0.5 GB",
@@ -328,7 +328,7 @@ class MemoryCap(unittest.TestCase):
         self.assertIn("CPUWeight=40", joined)
         self.assertIn("IOWeight=40", joined)
         self.assertIn("MemoryMax=8000M", joined)
-        self.assertIn("MemorySwapMax=8000M", joined)
+        self.assertIn("MemorySwapMax=2000M", joined)
 
     def test_the_installer_writes_both_dropins(self):
         source = (REPO / "install.sh").read_text()
@@ -468,7 +468,7 @@ class MemoryCap(unittest.TestCase):
                 "agentkit-test.slice", "agentkit-test-runs.slice"})
         (config.HOME / "config.toml").write_text("run_memory_max_mb = 32\n")
         cap, props = run.run_scope_limits()
-        self.assertEqual((cap, "MemoryMax=32M", "MemorySwapMax=32M"),
+        self.assertEqual((cap, "MemoryMax=32M", "MemorySwapMax=8M"),
                          (32, ) + tuple(item for item in props if item.startswith("Memory")))
         sleeper = subprocess.Popen(
             ["systemd-run", "--user", f"--slice={seat_slice}", "--scope", "--quiet",

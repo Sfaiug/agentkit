@@ -1,5 +1,5 @@
-"""Swap is named, never counted against the slice's RAM, and a minute of memory stalls holds a
-run as ten seconds of them do.
+"""Swap up to a quarter of the slice's cap is named, never counted against its RAM, and a
+minute of memory stalls holds a run as ten seconds of them do.
 
 A cap bounds RAM alone: the kernel moves cold pages to swap to make room, and what paging them
 back costs shows as memory pressure.  Counted as RAM, seats' cold swap kept every run out of a
@@ -87,7 +87,7 @@ class ColdSwapNeverHoldsARun(unittest.TestCase):
                           "agentkit-test.slice 2 of 4 G in use · 1.5 G in swap", lines[1536][0])
             self.assertIn("acme.service 7 of 16 G in use · 3 G in swap · a run", lines[0][0])
 
-    def test_a_run_starts_beside_more_swap_than_room_and_waits_while_memory_stalls(self):
+    def test_a_run_starts_beside_its_slices_swap_allowance_and_waits_while_memory_stalls(self):
         with Home() as home:
             del home.env["AK_MAX_RUNS"]
             home.env.update(AK_SLOT_POLL="0.5", AK_MIN_FREE_MB="0")
@@ -95,9 +95,9 @@ class ColdSwapNeverHoldsARun(unittest.TestCase):
             rig = Rig(home, "widgets")
             akconfig.write(home, ["opus", "astra"])
             fakeadapter.install(home, claude="work", codex="pass")
-            # 2 of 4 G of RAM held: 3 G of cold swap is more than the room left, and holds no run.
+            # 2 of 4 G of RAM held: 1 G of cold swap, the slice's whole allowance, holds no run.
             for title, holds, why in (
-                    ("Add retry file", {"swap_mb": 3072}, None),
+                    ("Add retry file", {"swap_mb": 1024}, None),
                     ("Bump alpha notes", {"swap_mb": 512, "pressure": STALLED},
                      "pressure 30%, limit 10% · 0.5 G in swap")):
                 with self.subTest(title):

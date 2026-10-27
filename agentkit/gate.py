@@ -332,17 +332,19 @@ def _wait_reason(readings, minimum, maximum, frozen=0):
         return reason, kind
     unit = host._slice_or_unit_memory(readings)
     peak = history.recent_peak_rss_mb() if unit else None
+    # Swap past its allowance takes room: seats' cold pages never hold a run, a runaway does.
+    used = unit[0] + max(0.0, unit[4] - host.swap_allowance_mb(unit[1])) if unit else None
     if unit and peak is not None:
-        room = unit[1] - unit[0]
+        room = unit[1] - used
         if room < peak:
             return (f"waiting for the unit's memory · {host._g(room)} G left, "
                     f"a run needs {host._g(peak)} G{_in_swap(unit)}", "unit memory")
-    elif unit and unit[0] > unit[1] * .75:
+    elif unit and used > unit[1] * .75:
         raw = unit[2]
         if raw is not None:
-            return (f"waiting for the unit's memory · {host._g(unit[0])} of {host._g(unit[1])} G "
+            return (f"waiting for the unit's memory · {host._g(used)} of {host._g(unit[1])} G "
                     f"in use ({host._g(raw)} with cache){_in_swap(unit)}", "unit memory")
-        return (f"waiting for the unit's memory · {host._g(unit[0])} of {host._g(unit[1])} G"
+        return (f"waiting for the unit's memory · {host._g(used)} of {host._g(unit[1])} G"
                 f"{_in_swap(unit)}", "unit memory")
     return None, None
 

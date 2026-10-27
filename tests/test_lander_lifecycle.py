@@ -70,7 +70,7 @@ class LanderLifecycle(unittest.TestCase):
         self.assertEqual(kw["target_slice"], orch.run_slice_name())
         self.assertTrue(kw["nice"])
         self.assertIn("MemoryMax=4000M", kw["properties"])
-        self.assertIn("MemorySwapMax=4000M", kw["properties"])
+        self.assertIn("MemorySwapMax=1000M", kw["properties"])
         # Every passed run waits behind this check: it outweighs every run for the CPU.
         self.assertIn(f"CPUWeight={host.CPU_WEIGHT_MAX}", kw["properties"])
         self.assertNotIn("CPUWeight=40", kw["properties"])
@@ -85,7 +85,7 @@ class LanderLifecycle(unittest.TestCase):
         self.member(memory_cap_mb=6000, peak_rss_mb=7200.25)
         properties = self.starts[0][4]["properties"]
         self.assertIn("MemoryMax=7201M", properties)
-        self.assertIn("MemorySwapMax=7201M", properties)
+        self.assertIn("MemorySwapMax=1800M", properties)
 
     def test_a_live_first_member_finishes_cleanup_before_a_pass_starts(self):
         self.member()

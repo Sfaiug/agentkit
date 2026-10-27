@@ -764,9 +764,12 @@ def memory_cap_mb(ceiling_mb=None):
 def run_scope_limits(ceiling_mb=None, *, cap_mb=None, cpu_weight=40):
     """(cap in MiB, systemd properties) for one run scope.
 
-    CPU and I/O weight stay above the seats', and the memory cap is applied
-    as both MemoryMax and MemorySwapMax: the same number, so a leak cannot trade
-    one for the other and keep going.  OOMPolicy=continue, where the manager takes
+    CPU and I/O weight stay above the seats', and swap is capped at a quarter of the memory
+    cap (`host.swap_allowance_mb`), as a seat's is and as admission allows a slice: room for
+    the cold pages an idle process parks there, never for a runaway.  With swap as large as
+    the cap, a lander and several runs sat at both caps for hours, paging their test pieces in
+    and out, until the host's load reached 290 (24 Oct 2026); a piece that overruns its
+    memory should end quickly and be rerun.  OOMPolicy=continue, where the manager takes
     it, has the kernel end only the process that grew, not the whole scope: the
     loop, its harness session and its worktree go on, and `memory_cap_note` says
     so.  The properties are what `systemd-run -p` takes; the cap is what the
@@ -776,7 +779,7 @@ def run_scope_limits(ceiling_mb=None, *, cap_mb=None, cpu_weight=40):
     """
     cap = memory_cap_mb(ceiling_mb) if cap_mb is None else cap_mb
     return cap, ("-p", f"CPUWeight={cpu_weight}", "-p", "IOWeight=40",
-                 "-p", f"MemoryMax={cap}M", "-p", f"MemorySwapMax={cap}M",
+                 "-p", f"MemoryMax={cap}M", "-p", f"MemorySwapMax={host.swap_allowance_mb(cap)}M",
                  *(("-p", "OOMPolicy=continue") if orch.scope_oom_policy() else ()))
 
 
