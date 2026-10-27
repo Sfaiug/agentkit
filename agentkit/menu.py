@@ -3363,7 +3363,10 @@ def seat_restart(cfg, name, selected, model, effort, around):
     note = orch.switch_orchestrator(cfg, name, model, effort=effort, asked=lambda kept: (
         terminal.confirm(RESTART_ASK.format(name, config.model_name(cfg, model), effort),
                          MOVE_MEANS[kept], "Restart", around)))
-    selected.update(config.load_session(cfg, name, required=False) or {})
+    try:
+        selected.update(config.load_session(cfg, name, required=False) or {})
+    except (config.Error, OSError) as exc:
+        return note or f"session: {exc}"
     return note or ""
 
 

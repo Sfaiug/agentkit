@@ -57,6 +57,14 @@ class SeatEffortSteps(Sandbox):
                          {"effort": "low", "review_effort": "high", "exec_effort": "xhigh"})
         self.assertEqual(self.selected["efforts"], self.held())
 
+    def test_an_orchestrator_step_on_a_record_that_will_not_read_says_why(self):
+        config.session_path("fix-api").write_text("{")
+        with patch.object(menu.terminal, "confirm", return_value=True), \
+                patch.object(usage, "collect", return_value={}):
+            note = menu.config_effort(self.cfg, "opus", 0, to=0, seat=("fix-api", self.selected),
+                                      around=lambda card: 0)
+        self.assertIn("session-fix-api.json", note)
+
     def test_r_keeps_a_key_saved_since_and_the_screen_holds_what_it_saved(self):
         note = menu.take_advice(self.cfg, "fix-api", self.selected, {},
                                 {"execute": ("opus", "max")})
