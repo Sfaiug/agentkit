@@ -550,7 +550,7 @@ class RunStop(Sandbox):
                 patch.object(orch, "find", side_effect=lambda name: live if name == seat else None), \
                 patch.object(orch, "tmux_out", side_effect=tmux), \
                 patch("agentkit.browser.close_owned"), patch("agentkit.notify.forget_card"):
-            self.x_from_a_pipe(seats, "1", "y", stop=menu.close_seat)
+            self.x_from_a_pipe(seats, "y", stop=menu.close_seat)
         self.assertEqual(record.read_state(mine)["state"], "stopped")
         self.assertEqual(record.read_state(other)["state"], "running")
         self.assertEqual(record.read_state(done)["state"], "pass")

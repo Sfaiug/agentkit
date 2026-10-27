@@ -20,7 +20,6 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, run, statusbar, terminal, transitions
-from agentkit import record
 from fixtures.sandbox import Sandbox, menu_input
 
 
@@ -83,17 +82,18 @@ class Back(unittest.TestCase):
         self.assertEqual(read.call_count, 1)
 
     def stop(self, *answers, dry_run=False):
-        """The `x` screen against two seats, answering `answers`: what it drew and its reads."""
+        """The `x` screen in the popup over atoll-fix, answering `answers`: what it drew and its
+        reads."""
         out = io.StringIO()
         # The seat's runs are listed through a mock too: the real listing reads ~/.agentkit/runs.
         with patch.object(menu, "read", side_effect=list(answers)) as read, \
                 patch.object(transitions, "seat_runs", return_value=[]), \
                 redirect_stdout(out):
-            menu.stop_session([dict(seat) for seat in SEATS], dry_run)
+            menu.stop_session("atoll-fix", dry_run)
         return out.getvalue(), read
 
     def test_v5u_x_says_what_stop_means(self):
-        screen, _ = self.stop("1", "n")
+        screen, _ = self.stop("n")
         self.assertIn(menu.stop_means(None), " ".join(screen.split()))   # wrapped to the width
         self.assertIn("moves to past sessions, p", screen)
 
@@ -139,19 +139,6 @@ class Back(unittest.TestCase):
         self.assertTrue(lines[0].startswith("agentkit · new"), lines[0])
         self.assertTrue(any(line.startswith("  esc back") for line in lines))
 
-    def test_v5u_x_asks_through_terminal_ask(self):
-        with patch.object(terminal, "ask", return_value="atoll-fix") as ask:
-            self.stop(dry_run=True)
-        self.assertEqual(ask.call_args[0][:3], ("Stop", "atoll-fix", ["atoll-fix", "parser"]))
-
-    def test_v5u_x_dry_run_reads_no_real_run(self):
-        # The dry run lists the seat's runs through the fixture's mock too: the real listing
-        # reads ~/.agentkit/runs, a state this file promised never to touch.
-        with patch.object(record, "run_dirs", return_value=[Path("fake-active-run")]), \
-                patch.object(record, "read_state") as read_state:
-            self.test_v5u_x_asks_through_terminal_ask()
-        self.assertEqual(read_state.call_count, 0)
-
     def test_v5u_ask_takes_a_number_or_a_name(self):
         def ask(answer):
             with redirect_stdout(io.StringIO()):
@@ -183,23 +170,17 @@ class Piped(Sandbox):
     """`x` from a pipe through the menu: its watcher reads and publishes in the sandbox's HOME."""
 
     def test_v5u_x_y_stops(self):
-        read, stopped = self.x_from_a_pipe(SEATS, "1", "y")
+        read, stopped = self.x_from_a_pipe(SEATS, "y")
         stopped.assert_called_once_with("atoll-fix", False)
         prompts = [call.args[0] for call in read.call_args_list]
         self.assertIn("stop atoll-fix and everything it is running? [y/N] ", prompts)
 
     def test_v5u_x_n_goes_back(self):
-        _, stopped = self.x_from_a_pipe(SEATS, "1", "n")
+        _, stopped = self.x_from_a_pipe(SEATS, "n")
         stopped.assert_not_called()
 
     def test_v5u_x_empty_goes_back(self):
-        _, stopped = self.x_from_a_pipe(SEATS, "2", "")
-        stopped.assert_not_called()
-
-    def test_v5u_x_esc_goes_back_before_confirm(self):
-        read, stopped = self.x_from_a_pipe(SEATS, "\x1b")
-        prompts = [call.args[0] for call in read.call_args_list]
-        self.assertEqual(prompts, ["> ", "Stop [atoll-fix]: ", "> "])   # never asked to stop
+        _, stopped = self.x_from_a_pipe(SEATS, "")
         stopped.assert_not_called()
 
 
