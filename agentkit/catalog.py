@@ -1,6 +1,6 @@
 """Which models exist now, and what replaced what, read off Artificial Analysis's records as
 `boards.collect` holds them.  A release is one model, its efforts each a row of the board; it is
-current while none of its rows is deprecated and its series names no successor outside it
+current while none of its rows is deprecated and its series names no successor for it
 (`_superseded`), and a deprecated one names the release that replaced it (`deprecatedTo`),
 which may itself be replaced.  The record's shape (releases,
 those chains, the default effort being the row whose slug is the release's own) stays here, and
@@ -86,21 +86,26 @@ def _current(rows):
 
 def _superseded(releases):
     """{slug: its successor} for each release the board leaves current in a series (a maker's
-    release name) one of whose deprecated releases names a successor outside it, the first one
-    named: a variant (`Acme 6 (Fast)` under Acme 6) goes with the model the board replaced.  A
-    successor inside the series is history, as a parent naming its variant, and one naming none
-    takes nothing with it, as a retired preview (`Acme 7 (Preview)`) leaves its model."""
+    release name) one of whose deprecated releases names a successor: the first one named outside
+    the series, else the first inside it, those inside staying while none outside is named.  A
+    variant (`Acme 6 (Fast)` under Acme 6) goes with the model the board replaced, a parent
+    naming its variant keeps it, and one naming none takes nothing with it, as a retired preview
+    (`Acme 7 (Preview)`) leaves its model."""
     series = lambda rows: (rows[0]["maker"], rows[0]["release"]["name"])
     members, named = {}, {}
     for slug, rows in releases.items():
         members.setdefault(series(rows), set()).add(slug)
     for rows in releases.values():
         for row in rows:
-            target = row["deprecated"] and row["release"]["deprecatedTo"]
-            if target and target not in members[series(rows)]:
-                named.setdefault(series(rows), target)
-    return {slug: named[series(rows)] for slug, rows in releases.items()
-            if _current(rows) and series(rows) in named}
+            if row["deprecated"] and row["release"]["deprecatedTo"]:
+                named.setdefault(series(rows), []).append(row["release"]["deprecatedTo"])
+    superseded = {}
+    for each, targets in named.items():
+        targets.sort(key=lambda target: target in members[each])
+        kept = set(targets) if targets[0] in members[each] else set()
+        superseded.update({slug: targets[0] for slug in members[each] - kept
+                           if _current(releases[slug])})
+    return superseded
 
 
 def current(boards):

@@ -121,6 +121,7 @@ class Catalog(Sandbox):
             ("acme-7-preview", "Acme 7 (Preview)", "acme-7-preview", "Acme 7", "Acme", True, None, 55),
             ("omega-0-fast", "Omega 0 (Fast)", "omega-0-fast", "Omega 0", "Omega", False, None, 6),
             ("zeta-1-old", "Zeta 1", "zeta-1-old", "Zeta 1", "Zeta", True, "zeta-1", 8),
+            ("zeta-1-old-fast", "Zeta 1 Old (Fast)", "zeta-1-old-fast", "Zeta 1", "Zeta", False, None, 8),
             ("zeta-1", "Zeta 1", "zeta-1", "Zeta 1", "Zeta", False, None, 9)]
         with patch(f"{__name__}.RECORDS", records):
             held = boards.collect(now=10000)
@@ -129,9 +130,9 @@ class Catalog(Sandbox):
                           "gamma-1"])
         self.assertEqual([(catalog.successor(held, slug) or {}).get("slug") for slug in (
             "acme-6-5-fast", "acme-5", "omega-0-fast", "zeta-1-old", "acme-6-early", "acme-6-fast",
-            "acme-6-instant", "beta-omega-1")],
+            "acme-6-instant", "beta-omega-1", "zeta-1-old-fast")],
             ["acme-7", "acme-7", "omega-0-fast", "zeta-1", "acme-7", "acme-7", "acme-7",
-             "beta-omega-1"])
+             "beta-omega-1", "zeta-1"])
 
     def test_a_reading_an_older_build_stored_is_asked_again_once(self):
         boards.collect(now=10000, build="abc1234")
