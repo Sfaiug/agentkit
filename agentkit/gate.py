@@ -977,7 +977,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
     """Hold host-wide heavy-suite turns; with `wait=False`, take only turns free now.
 
     While it waits and no waiter ranks before it, it asks `elsewhere()` each poll; once that
-    answers, it stops waiting with the turns free now: none, as it found none.
+    answers, it stops waiting with the turns free by then, if any.
     """
     record = context if context is not None else (run_record.read_state(run_dir) or {}
                                                 if run_dir else {})
@@ -1087,11 +1087,17 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                         break
                     said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
                     if not slot:
-                        if elsewhere and not _gate_waiter_before(
-                                repo, self_id, waited_since, is_landing) and elsewhere():
-                            turnless = True
-                            break
-                        continue
+                        if not (elsewhere and not _gate_waiter_before(
+                                repo, self_id, waited_since, is_landing) and elsewhere()):
+                            continue
+                        # Its setup there can outlast a turn here: it takes those free now.
+                        slot, limit, held = admit()
+                        if slot and _gate_waiter_before(repo, self_id, waited_since, is_landing):
+                            for fh in slot:
+                                fcntl.flock(fh, fcntl.LOCK_UN)
+                            slot = []
+                        turnless = not slot
+                        break
                     if _gate_waiter_before(repo, self_id, waited_since, is_landing):
                         for fh in slot:
                             fcntl.flock(fh, fcntl.LOCK_UN)
