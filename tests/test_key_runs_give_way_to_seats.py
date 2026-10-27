@@ -37,6 +37,8 @@ class Slice:
         if ceiling:
             home.write(f".config/systemd/user/{SOCKET}.slice.d/50-memory.conf",
                        f"[Slice]\nMemoryMax={ceiling}\n")
+        config = home.path / ".agentkit" / "config.toml"     # no audit seat to open
+        config.write_text(config.read_text() + "\n[audit]\non = false\n")
         home.fake("systemctl", LOG.format(python=shlex.quote(sys.executable),
                                           log=shlex.quote(str(home.log("systemctl")))))
 
