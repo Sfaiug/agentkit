@@ -149,7 +149,7 @@ class SuitePieces(unittest.TestCase):
         for quota in (4, None):
             busy = {**ROOM, "slice_cpu_quota": quota, "slice_cpu_used": 3.5,
                     "load": 3.5, "outside_cpu_used": 0, "slice_memory_high_mb": 4100}
-            for kept, count in ((None, 1), (0.7, 4)):
+            for kept, count in ((None, 2), (0.7, 8)):    # twice the places
                 with self.subTest(quota=quota, kept=kept), patch.dict(os.environ, {
                         "AK_MAX_RUNS": "", "AK_HOST_READINGS": json.dumps(busy)}), \
                         patch.object(host, "kept_cpu", return_value=kept):
@@ -283,7 +283,7 @@ class SuitePieces(unittest.TestCase):
                                                  "AK_HOST_READINGS": json.dumps(readings)}):
                         ok, text = self.check()
                     self.assertTrue(ok, text)
-                    self.assertEqual(text.count("--- AK_SHARD="), count)
+                    self.assertEqual(text.count("--- AK_SHARD="), count * (2 - bool(turn)))
 
     def test_all_pieces_start_together_and_all_red_pieces_retry_alone(self):
         barrier, lock = threading.Barrier(2, timeout=3), threading.Lock()
@@ -383,7 +383,7 @@ class SuitePieces(unittest.TestCase):
             (config.HOME / config.CONFIG_NAME).write_text("max_gates = 9\n")
             ok, text = self.check()
         self.assertTrue(ok, text)
-        self.assertEqual([held for _, held, _ in seen], [2, 2, 1, 1])
+        self.assertEqual([held for _, held, _ in seen], [2, 2, 2, 2, 1, 1])    # 4 pieces on 2 turns
         self.assertTrue(all(flag == "1" for _, _, flag in seen))
         self.assertEqual(gate._heavy_running(), 0)
 

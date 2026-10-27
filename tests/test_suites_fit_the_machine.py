@@ -35,7 +35,7 @@ class SuitesFitTheMachine(unittest.TestCase):
         fixture.SuitePieces.setUp(self)
 
     def started(self, readings):
-        """How many pieces one run of the suite starts, without a turn and with one."""
+        """How many pieces one run of the suite starts, without a turn and, halved, with one."""
         counts = set()
         for turn in ("0", ""):
             shards = []
@@ -47,7 +47,7 @@ class SuitesFitTheMachine(unittest.TestCase):
                                             "AK_HOST_READINGS": json.dumps(readings)}):
                 ok, text = fixture.SuitePieces.check(self)
             self.assertTrue(ok, text)
-            counts.add(len(shards))
+            counts.add(len(shards) // (1 if turn else 2))
         self.assertEqual(len(counts), 1, counts)
         return counts.pop()
 

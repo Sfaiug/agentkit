@@ -3,7 +3,7 @@
 The helper's runner stops at its first failure, naming that one test: passing alone here says
 nothing of the tests it never reached, so the whole piece runs here and decides.  Black-box: the
 program `AK_BIN` names checks a landing line from outside through tests/fixtures/akline.py; the
-helper is a fake ssh with room for one piece, which fails there naming `a.sh`.
+helper is a fake ssh with room for one VM, whose two pieces fail there naming `a.sh`.
 """
 
 from pathlib import Path
@@ -50,12 +50,12 @@ class HelperRedNeverSkipsTheRestOfItsPiece(unittest.TestCase):
     def test_a_test_the_helper_never_reached_failing_here_keeps_it_red(self):
         verdict, runs = self.land("! test -f api.txt\n")    # red on the member's tree alone
         self.assertIn("fix", verdict, verdict)
-        self.assertEqual(runs[:2], [("alone", ""), ("piece", "1/1", "")])
+        self.assertEqual(runs[:3], [("alone", ""), ("alone", ""), ("piece", "1/2", "")])
 
     def test_a_piece_red_only_on_the_helper_passing_whole_here_is_a_flake_of_the_helper(self):
         verdict, runs = self.land("true\n")
         self.assertIn("land", verdict, verdict)
-        self.assertEqual(runs, [("alone", ""), ("piece", "1/1", "")])
+        self.assertEqual(runs, [("alone", "")] * 2 + [("piece", f"{k}/2", "") for k in (1, 2)])
         self.assertIn("failed on the suite helper acme-mac, then passed on its re-run",
                       self.said)
 

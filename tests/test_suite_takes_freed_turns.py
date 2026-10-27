@@ -1,5 +1,5 @@
-"""A sharded suite splits into the pieces the host's full derived limit fits, and its pieces
-take turns freed after it starts.
+"""A sharded suite splits into twice the pieces the host's full derived limit fits, and its
+pieces take turns freed after it starts.
 
 Offline: temporary HOME, fake turn files under it, injected host readings, a fake box.
 """
@@ -105,7 +105,7 @@ class SuiteTakesFreedTurns(unittest.TestCase):
         self.on_start["acme"], self.together = self.free_others, 2
         ok, text = self.suite("acme")
         self.assertTrue(ok, text)
-        self.assertEqual(sorted(shard for _, shard in self.shards), ["1/4", "2/4", "3/4", "4/4"])
+        self.assertEqual(sorted(shard for _, shard in self.shards), [f"{k}/8" for k in range(1, 9)])
         self.assertGreater(self.peak, 1)
         self.assertEqual(self.held[0], 4)
         self.assertEqual(gate._heavy_running(), 0)
@@ -114,9 +114,9 @@ class SuiteTakesFreedTurns(unittest.TestCase):
         self.together = 4
         ok, text = self.suite("acme")
         self.assertTrue(ok, text)
-        self.assertEqual(sorted(shard for _, shard in self.shards), ["1/4", "2/4", "3/4", "4/4"])
+        self.assertEqual(sorted(shard for _, shard in self.shards), [f"{k}/8" for k in range(1, 9)])
         self.assertEqual(self.peak, 4)
-        self.assertEqual(self.held, [4, 4, 4, 4])
+        self.assertEqual(self.held, [4] * 8)
 
     def test_turns_held_never_exceed_the_limit_while_two_suites_pieces_wait(self):
         self.hold_others(3)
@@ -144,10 +144,10 @@ class SuiteTakesFreedTurns(unittest.TestCase):
         self.assertEqual({name: ok for name, (ok, _) in results.items()},
                          {"acme": True, "widget": True})
         self.assertLessEqual(max(self.held), 4)
-        self.assertEqual(sorted(self.shards), [(name, f"{index}/4") for name in ("acme", "widget")
-                                               for index in range(1, 5)])
+        self.assertEqual(sorted(self.shards), [(name, f"{index}/8") for name in ("acme", "widget")
+                                               for index in range(1, 9)])
         # acme waited first: all its pieces start before any of widget's
-        self.assertEqual([name for name, _ in self.shards[:4]], ["acme"] * 4)
+        self.assertEqual([name for name, _ in self.shards[:8]], ["acme"] * 8)
         self.assertEqual(gate._heavy_running(), 0)
 
 
