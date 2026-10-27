@@ -257,7 +257,7 @@ login)
   home || exit 2
   MUSE_NO_AUTO_UPDATE=1 muse login ;;
 logout)
-  grep -q '[^[:space:]]' "$AUTH" 2>/dev/null || exit 0
+  [ -e "$AUTH" ] || exit 0
   muse logout ;;
 login-end)
   # Muse's auth file records a key and no expiry (see `auth`), and no plan's name; the email

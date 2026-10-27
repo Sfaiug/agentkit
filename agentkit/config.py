@@ -1612,13 +1612,17 @@ def adapter(harness):
     space-separated; a harness that runs one provider may ignore it.  Each manifest table is
     explained at the code that reads it.
     """
-    root = Path(os.environ.get(ADAPTER_DIR_ENV) or REPO / "adapters").expanduser()
-    path = root / f"{harness}.sh"
+    path = adapter_path(harness)
     if not path.exists():
         raise Error(f"no adapter for harness {harness!r}: {path} does not exist")
     if not os.access(path, os.X_OK):
         raise Error(f"adapter {path} is not executable; chmod +x it")
     return path
+
+
+def adapter_path(harness):
+    """Where `adapter` looks for that harness's script, there or not."""
+    return Path(os.environ.get(ADAPTER_DIR_ENV) or REPO / "adapters").expanduser() / f"{harness}.sh"
 
 
 _MANIFESTS = {}

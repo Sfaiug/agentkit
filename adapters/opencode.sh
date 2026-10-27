@@ -535,7 +535,8 @@ login)
 logout)
   # 2.0.24 asks which credential, on a terminal, where none is named
   p=${PROVIDERS%% *}
-  [ -n "$p" ] && store_key "$p" || exit 0
+  [ -n "$p" ] || exit 0
+  listed=$(opencode auth list --standalone --format json) || exit 1
   ids=$(jq -r --arg p "$p" '.[] | select(.id == $p) | .connections[]
           | select(.type == "credential") | .id' <<<"$listed") || exit 1
   for id in $ids; do opencode auth logout --standalone "$p" "$id" || exit 1; done ;;

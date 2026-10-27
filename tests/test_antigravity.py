@@ -536,6 +536,11 @@ class Antigravity(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(sorted(p.name for p in own.parent.iterdir()), ["brain", "conversations"])
         self.assertEqual(self.token.read_text(), usual)
+        # the usual login's file goes too, but a reachable keyring may keep a copy only /logout clears
+        proc = self.adapter("logout", env={"DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/usual-bus"})
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("/logout", proc.stderr)
+        self.assertFalse(self.token.exists())
 
     def test_the_usual_login_stays_today_s_beside_a_named_one(self):
         # `default` is the empty name: only the usual login answers, never `second`'s

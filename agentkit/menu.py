@@ -4283,32 +4283,30 @@ def config_remove_provider(cfg, picked):
             cfg["providers"][name]["accounts"].remove(account)
     except (config.Error, OSError) as exc:
         return str(exc)
-    try:
-        return _saved(cfg, cfg, before) or waited(
-            lambda: _signed_out(harness, name, gone), title, doing=f"signing out {shown}")
-    except Back:
-        return ""                     # Esc while it signs out: it finishes on its own
+    # no `waited`: its Esc would drop what a sign-out that failed says
+    return _saved(cfg, cfg, before) or _signed_out(harness, name, gone)
 
 
 def _signed_out(harness, provider, gone):
     """Each login of `gone`, a subscription's label by its account, signed out on this machine
     by `harness`'s adapter's `logout`.  What to say under the screen for each one that is still
-    on it, with the command that signs it out by hand, or ""."""
+    on it: the last line its adapter said, and the command that signs it out by hand, which
+    names its account even when empty, as a seat's shell has one of its own; or ""."""
     left = []
     for account, label in gone.items():
         env = {**config.account_env(account), **config.provider_env([provider])}
         try:
-            adapter = config.adapter(harness)
-            code = subprocess.run([str(adapter), "logout"], env={**config.child_env(), **env},
-                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                  stderr=subprocess.DEVNULL).returncode
+            done = subprocess.run([str(config.adapter(harness)), "logout"],
+                                  env={**config.child_env(), **env}, stdin=subprocess.DEVNULL,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+            said = (done.stderr.strip().splitlines() or [""])[-1] if done.returncode else None
         except (config.Error, OSError) as exc:
-            left.append(f"{label}'s login is still on this machine: {exc}")
-            continue
-        if code:
-            by_hand = " ".join([*(f"{key}={shlex.quote(value)}" for key, value in env.items()
-                                  if value), shlex.quote(str(adapter)), "logout"])
-            left.append(f"{label}'s login is still on this machine; sign it out with {by_hand}")
+            said = str(exc)
+        if said is not None:
+            by_hand = " ".join([*(f"{key}={shlex.quote(value)}" for key, value in env.items()),
+                                shlex.quote(str(config.adapter_path(harness))), "logout"])
+            left.append(f"{label}'s login is still on this machine{f' ({said})' if said else ''};"
+                        f" sign it out with {by_hand}")
     return "; ".join(left)
 
 

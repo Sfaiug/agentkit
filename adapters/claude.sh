@@ -305,7 +305,7 @@ login)
   [ -t 0 ] || { echo "claude: not logged in; run \`claude auth login\` in a terminal" >&2; exit 1; }
   claude auth login ;;
 logout)
-  rm -f -- "$TOKEN"
+  rm -f -- "$TOKEN" || exit 1
   [ -e "$CREDS" ] || security find-generic-password -s "Claude Code-credentials" >/dev/null 2>&1 || exit 0
   unset CLAUDE_CODE_OAUTH_TOKEN   # the sign-out is the login's own, never a token's
   claude auth logout ;;
