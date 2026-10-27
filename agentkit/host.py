@@ -509,6 +509,12 @@ def _slice_memory(cgroup):
         return None
 
 
+def charged_mb(cgroup):
+    """A cgroup's memory in MB as its MemoryMax and MemoryHigh count it, cache included, or None
+    where unread."""
+    return _read_number(Path(cgroup) / "memory.current", bytes_to_mb=True)
+
+
 def held_mb(cgroup, *, swap=False):
     """A cgroup's memory in MB less the file cache reclaim frees, or None where unread; with
     `swap`, what it swapped out too (`_swap_mb`)."""

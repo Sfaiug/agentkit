@@ -774,11 +774,10 @@ def give_way(state, log):
     again.  Set for this boot only, since the value is only true now; no ceiling sets nothing.
     """
     ceiling = orch.slice_memory_max_mb()
-    held = host._read_number(orch.slice_cgroup() / "memory.current", bytes_to_mb=True)
+    held = host.charged_mb(orch.slice_cgroup())
     if ceiling is None or held is None:
         return
-    seats = int(held - (host._read_number(orch.run_slice_cgroup() / "memory.current",
-                                          bytes_to_mb=True) or 0))
+    seats = int(held - (host.charged_mb(orch.run_slice_cgroup()) or 0))
     grown = seats - state.get("seats_mb", seats)
     state["seats_mb"] = seats
     high = max(memory_cap_mb(ceiling), ceiling - seats - max(ceiling // 20, grown))
