@@ -15,7 +15,8 @@
 #                     hooks        -> a no-op: a seat's launch carries its hooks (`interactive`)
 #                     hook         -> one hook event of a seat's muse, on stdin: its SessionStart
 #                                  written into that launch's receipt, any other handed on to
-#                                  hooks/seat-state.sh: what that launch's hooks run
+#                                  hooks/seat-state.sh, a Stop with the background work its
+#                                  session's log has running: what that launch's hooks run
 #                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                  `model/list` over `muse serve`, else the [catalog] table
 #                                  of adapters/muse.toml
@@ -304,8 +305,18 @@ print(subprocess.run(["tmux", "capture-pane", "-p", "-J", "-t", sys.argv[1]],
       /Request user input .* — running / { q = ""; under = 1; next }
       under && NF { q = $0; under = 0 }
       END { gsub(/^ +| +$/, "", q); print q }')
-  jq -c --arg asked "$asked" '(if .tool_calls then .tool_name //= .tool_calls[0].tool_name else . end)
-    | if $asked == "" then . else .message = $asked end' <<<"$payload" |
+  # A Stop hands over the work its session's log has running in the background, as Claude's
+  # does (`background_tasks`); a log it cannot read hands over nothing, as before.
+  held=null
+  [ "$(jq -r '.hook_event_name // empty' <<<"$payload" 2>/dev/null)" = Stop ] &&
+    held=$(python3 -c 'import json, sys
+sys.path.insert(0, sys.argv[1])
+from agentkit.harness import muse
+print(json.dumps(muse.background(json.load(sys.stdin)["session_id"])))' "$REPO" <<<"$payload" 2>/dev/null) ||
+    held=null
+  jq -c --arg asked "$asked" --argjson held "$held" '(if .tool_calls then .tool_name //= .tool_calls[0].tool_name else . end)
+    | if $asked == "" then . else .message = $asked end
+    | if $held == null then . else .background_tasks = $held end' <<<"$payload" |
     bash "$REPO/hooks/seat-state.sh" ;;
 models)
   # muse has no command that lists its models, but `muse serve` speaks MSP on stdio (`muse

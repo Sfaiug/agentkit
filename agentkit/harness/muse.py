@@ -642,6 +642,44 @@ def session_log(conversation):
     return logs[0] if logs else None
 
 
+BACKGROUND = {"tool.bash": "shell", "workflow.agent.native": "subagent",
+              "workflow.run.native": "workflow"}     # a task's kind in Claude's terms (1.4.12)
+
+
+def background(session):
+    """The work that session's log has running in the background, as Claude's Stop hands it
+    over (`background_tasks`), or None where there is no log to read.  1.4.12 links a terminal,
+    a sub-agent or a workflow `background` as it starts and logs its end: the task's own, or a
+    sub-agent's result.  The agents a workflow starts are its own work, not the seat's."""
+    from . import entries
+    log = session_log(session)
+    if log is None:
+        return None
+    linked, kinds, gone = [], {}, set()
+    try:
+        for entry in entries(log):
+            payload = entry.get("payload") if isinstance(entry.get("payload"), dict) else {}
+            event = payload.get("event") or payload.get("record")
+            if not isinstance(event, dict):
+                continue
+            ref = event.get("attempt_ref")
+            task = ref.get("task_id") if isinstance(ref, dict) else event.get("task_id")
+            if not isinstance(task, str):
+                continue
+            said = event.get("kind")
+            if said == "task_stream_linked" and event.get("execution_mode") == "background":
+                linked.append(task)
+            elif said == "proposed":
+                kinds[task] = event.get("task_kind")
+            elif said in ("completed", "failed", "cancelled", "rejected", "result_ready",
+                          "workflow_child_lifecycle"):
+                gone.add(task)
+    except OSError:
+        return None
+    return [{"id": task, "type": BACKGROUND[kinds[task]]} for task in dict.fromkeys(linked)
+            if task not in gone and kinds.get(task) in BACKGROUND]
+
+
 def typed(entry):
     """What the user side typed that one session.jsonl line holds: a run's prompt, or a line
     steered into a running turn as the run drains it.  A steer that opens a run of its own is
