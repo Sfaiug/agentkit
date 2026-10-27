@@ -120,7 +120,9 @@ class ModelsWhy(unittest.TestCase):
 
     def why(self, term, *keys):
         term.keys(*keys, "Enter")
-        shown = lines(term.wait(lambda screen: "\n  why " in screen))     # the key line has `⏎ why`
+        # drawn whole once its own key line, the last, stands under its heading
+        shown = lines(term.wait(lambda screen: "\n  why " in screen and lines(
+            screen.rstrip())[-1] == "  esc back"))
         return shown[shown.index(next(line for line in shown if line.startswith("  why "))):]
 
     def test_the_pointer_keeps_its_row_through_a_knob_step_or_goes_to_its_pick(self):
