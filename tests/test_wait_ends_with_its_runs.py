@@ -29,9 +29,10 @@ class WaitEndsWithItsRuns(Sandbox):
         super().setUp()
         self.stack.enter_context(patch.dict(os.environ, {config.SESSION_ENV: SEAT}))
         self.stack.enter_context(patch.object(watch, "gh_json", side_effect=self.gh))
-        # the seat is closed: the wait ends on its fact, with no screen to type into
+        # the seat is gone: the wait ends on its fact, and its line reopens the seat
         config.save_session(self.cfg, SEAT, "fable", ["opus"], {})
         self.stack.enter_context(patch.object(orch, "sessions", return_value=[]))
+        self.stack.enter_context(patch.object(watch, "revive", return_value=None))
 
     def gh(self, _cwd, *args, **_kw):
         self.assertEqual(args[:3], ("pr", "view", PR))

@@ -3080,9 +3080,10 @@ def wait_over(cfg, log):
     in through the confirmed send, only at the seat's own quiet prompt, the way a run's ending
     is handed back; a seat mid-turn is tried again next tick.  It names the fact and nothing
     else: no other seat's words, no other seat's screen.  The send that took it is written on
-    the wait as `told`, so it is typed once.  An ending its own run hands back to the seat
-    (`handback.hand_back`) is that line already: none is typed for it, and the wait is told
-    once the hand-back is in.
+    the wait as `told`, so it is typed once.  A seat gone without the owner closing it is
+    reopened with the line instead (`revive`), once.  An ending its own run hands back to the
+    seat (`handback.hand_back`) is that line already: none is typed for it, and the wait is
+    told once the hand-back is in.
     """
     waiting = {}
     for name in config.session_records():
@@ -3092,7 +3093,7 @@ def wait_over(cfg, log):
     if not waiting:
         return
     # every seat with a record: a closed seat's wait, or one tmux no longer lists, still ends
-    # on its fact, which its ladder reads; only the line has nowhere to go
+    # on its fact, which its ladder reads; its line reopens it unless the owner closed it
     live = {session["name"]: session for session in orch.sessions()}
     for name, wait in waiting.items():
         session = live.get(name)
@@ -3130,8 +3131,6 @@ def wait_over(cfg, log):
             wait = seat_read(name).get("wait")
             if not isinstance(wait, dict) or wait.get("told"):
                 continue
-        if closed:
-            continue
         run = wait.get("run") and run_record.read_state(config.RUNS / wait["run"])
         if run and transitions.launched_session(run) == name:
             # its own run hands this ending back with the verdict, PR and result: that line is
@@ -3147,6 +3146,22 @@ def wait_over(cfg, log):
                 continue
         # one line, whatever gh said over several: a newline typed is a key of its own
         line = f"{' '.join(str(wait['over']).split())}; your wait is over. Decide the next step."
+        if closed:
+            # a seat gone on its own hears it as a seat whose run ended does: reopened with the
+            # line, once.  One the owner closed stays closed, and one out of usage wakes by itself
+            if (seat_closed(name) or seat_closed_by_owner(name)
+                    or seat_read(name).get("usage_wait")
+                    or not wait_mark(name, wait, told=time.time())):
+                continue
+            why = revive(name, line, log, cfg, prepare=lambda line: line)
+            if why is None:
+                log(f"{name}: reopened and told that {wait['over']}; its wait is over")
+            elif notify.shaped("needs", f"Its orchestrator session {name} is gone and its wait "
+                               f"is over: {wait['over']}. agentkit tried to reopen the seat and "
+                               f"could not: {why}. Press its number in the menu.", session=name,
+                               event_id=f"wait:{name}:{wait.get('at')}") != 0:
+                log(f"WARN {name}: could not be reopened ({why}), and the owner was not told")
+            continue
         if type_at_prompt(session, line, log, cfg=cfg, typed=wait.get("typed"),
                           receipt=lambda mark, name=name, wait=wait:
                           wait_mark(name, wait, typed=mark)):
