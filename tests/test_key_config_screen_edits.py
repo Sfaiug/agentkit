@@ -7,7 +7,7 @@ matrix first, as the owner said on 24 Oct ("when pressing a different orch, it s
 to confirm. As this restarts the session."): Esc keeps the record and the pane as they were,
 and `Move` moves the seat, its record naming the new orchestrator and its tmux session running
 that model's harness, config.toml as it was; and `Models` opens
-a harness's row onto the models its adapter lists, `□` one the config does not run: Enter ticks
+a harness's row onto the models its adapter lists, `□` one the config does not run: Space ticks
 it in, `■`, config.toml rewritten at once, whole, with the menu's header, every other value
 and an unknown key kept, the model under its provider, and out again, config.toml as it was.
 Black-box: the program `AK_BIN` names, as the popup over a seat as ak leaves it
@@ -37,7 +37,7 @@ MODELS = {"fable": {"harness": "claude", "effort": "xhigh", "x_custom": 1},
 CATALOG = "m1\tModel One\tlow medium high"     # what the claude adapter's `models` lists
 HEADER = "# agentkit's config, written by the menu's `c` screen."
 KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"   # on a mark
-PAGE_KEYS = "  ↑↓←→ move   ⏎ choose   esc back"   # a page under it, with no `r`
+PAGE_KEYS = "  ↑↓←→ move   ⏎ open   esc back"   # a page under it, with no `r`
 
 def rows(screen):
     return [line.rstrip() for line in screen.split("\n")]
@@ -175,7 +175,7 @@ class ConfigScreenEdits(unittest.TestCase):
         screen = self.term.wait(lambda screen: "›   □ Model One" in rows(screen))
         self.assertEqual(body(screen)[:3], ["  Claude Code  Fable 5.1", "›   □ Model One",
                                             "  Codex        GPT-6-Astra"])
-        self.term.keys("Enter")
+        self.term.keys("Space")
         self.term.wait(lambda screen: "›   ■ Model One" in rows(screen))
         text = self.config.read_text()
         self.assertTrue(text.startswith(HEADER), text)
@@ -184,7 +184,7 @@ class ConfigScreenEdits(unittest.TestCase):
         self.assertEqual(models["model-one"], {"harness": "claude", "model": "m1",
                                                "effort": "high", "provider": "anthropic"})
         self.assertEqual({name: models[name] for name in MODELS}, self.given["models"])
-        self.term.keys("Enter")
+        self.term.keys("Space")
         self.term.wait(lambda screen: "›   □ Model One" in rows(screen))
         self.assertEqual(tomllib.loads(self.config.read_text()), self.given)
         self.assertTrue(self.fakes["claude"].calls("models"))

@@ -2,7 +2,7 @@
 
 The owner (20 Oct 2026): "in the config instead of having add model and add provider, it should
 instead be just provider options and settings and same for models, where models can be removed
-and added".  `■` is a model the config runs, `□` one it does not; Enter takes it in, at its
+and added".  `■` is a model the config runs, `□` one it does not; Space takes it in, at its
 harness's effort as near as it has one, or out, the last model kept; one taken out comes back as
 it was.  OpenCode lists the models it runs now, then the config's providers it has no login
 for.  `c` runs on a pty (tests/test_config_matrix.py's Screen) in a temporary HOME, the catalogs
@@ -12,7 +12,7 @@ and OpenCode's providers faked.
 import tomllib
 import unittest
 
-from test_config_matrix import DOWN, ENTER, ESC, UP, Screen, highlighted
+from test_config_matrix import DOWN, ENTER, ESC, SPACE, UP, Screen, highlighted
 
 TO_MAX = ["low", "medium", "high", "xhigh", "max"]
 CATALOGS = {"claude": [("claude-opus-5-5", "Opus 5.5", TO_MAX),
@@ -88,37 +88,37 @@ class ModelsPage(unittest.TestCase):
         self.assertEqual(opened(screen, ENTER, "Sonnet 5.5"), "□ Sonnet 5.5")
         self.assertEqual(highlighted(screen.frame()).split(), ["›", "■", "Opus", "5.5"])
         # in: named from its label, at the effort of its harness's first model as near as it goes
-        self.assertEqual(opened(screen, DOWN + ENTER, "■ Sonnet 5.5"), "■ Sonnet 5.5")
+        self.assertEqual(opened(screen, DOWN + SPACE, "■ Sonnet 5.5"), "■ Sonnet 5.5")
         self.assertEqual(screen.saved()["models"]["sonnet"],
                          {"harness": "claude", "model": "claude-sonnet-5-5", "effort": "high",
                           "provider": "acme"})
         # opus out and back: its entry as it was, under its own name
-        self.assertEqual(opened(screen, UP + ENTER, "□ Opus 5.5"), "□ Opus 5.5")
+        self.assertEqual(opened(screen, UP + SPACE, "□ Opus 5.5"), "□ Opus 5.5")
         self.assertNotIn("opus", screen.saved()["models"])
-        self.assertEqual(opened(screen, ENTER, "■ Opus 5.5"), "■ Opus 5.5")
+        self.assertEqual(opened(screen, SPACE, "■ Opus 5.5"), "■ Opus 5.5")
         self.assertEqual(screen.saved()["models"]["opus"], {
             "harness": "claude", "model": "claude-opus-5-5", "effort": "xhigh", "provider": "acme"})
-        self.assertEqual(opened(screen, DOWN + ENTER, "□ Sonnet 5.5"), "□ Sonnet 5.5")
+        self.assertEqual(opened(screen, DOWN + SPACE, "□ Sonnet 5.5"), "□ Sonnet 5.5")
         self.assertNotIn("sonnet", screen.saved()["models"])
         # with none left on Claude Code, one comes in under the provider shipped to run there
-        self.assertEqual(opened(screen, UP + ENTER, "□ Opus 5.5"), "□ Opus 5.5")
-        self.assertEqual(opened(screen, DOWN * 2 + ENTER, "■ Haiku 5"), "■ Haiku 5")
+        self.assertEqual(opened(screen, UP + SPACE, "□ Opus 5.5"), "□ Opus 5.5")
+        self.assertEqual(opened(screen, DOWN * 2 + SPACE, "■ Haiku 5"), "■ Haiku 5")
         self.assertEqual(screen.saved()["models"]["haiku"], {
             "harness": "claude", "model": "claude-haiku-5", "effort": "high",
             "provider": "anthropic"})
-        self.assertEqual(opened(screen, ENTER, "□ Haiku 5"), "□ Haiku 5")
-        self.assertEqual(opened(screen, UP * 2 + ENTER, "■ Opus 5.5"), "■ Opus 5.5")
+        self.assertEqual(opened(screen, SPACE, "□ Haiku 5"), "□ Haiku 5")
+        self.assertEqual(opened(screen, UP * 2 + SPACE, "■ Opus 5.5"), "■ Opus 5.5")
         # OpenCode lists what it runs now, Anthropic to log in to: out, its free provider
         # with it, and back as both were
         lines = screen.press(ESC + DOWN + ENTER, lambda lines: any("■ DeepSeek" in line
                                                                    for line in lines))
         self.assertFalse(any("Lyra" in line for line in lines), lines)
         self.assertTrue(any("Anthropic log in" in line for line in lines), lines)
-        self.assertEqual(opened(screen, ENTER, "□ DeepSeek"), "□ DeepSeek V4.1 Flash Free")
+        self.assertEqual(opened(screen, SPACE, "□ DeepSeek"), "□ DeepSeek V4.1 Flash Free")
         self.assertNotIn("opencode", screen.saved()["providers"])
         # listed still once its list is closed and opened again
         self.assertEqual(opened(screen, ESC + ENTER, "□ DeepSeek"), "□ DeepSeek V4.1 Flash Free")
-        self.assertEqual(opened(screen, ENTER, "■ DeepSeek"), "■ DeepSeek V4.1 Flash Free")
+        self.assertEqual(opened(screen, SPACE, "■ DeepSeek"), "■ DeepSeek V4.1 Flash Free")
         # Acme logged in lists nothing: its row goes, the highlight on the last left
         lines = screen.press(DOWN * 2 + ENTER, lambda lines: not any("Acme" in line
                                                                      for line in lines))
@@ -131,7 +131,7 @@ class ModelsPage(unittest.TestCase):
         screen = Screen(self, child=CHILD, text=ONE, session=None)
         models_page(screen)
         before = screen.path.read_bytes()
-        lines = screen.press(ENTER + ENTER,
+        lines = screen.press(ENTER + SPACE,
                              lambda lines: any("the config needs one model" in line
                                                for line in lines))
         self.assertEqual(highlighted(lines).split(), ["›", "■", "Opus", "5.5"])

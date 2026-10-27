@@ -2,7 +2,7 @@
 FROM docker.io/library/debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
       bash python3 python3-pytest git gh tmux bubblewrap jq curl rsync cron systemd libvncserver1 \
-      util-linux iproute2 procps psmisc file sqlite3 ca-certificates openssh-client nodejs \
+      util-linux iproute2 procps psmisc file sqlite3 ca-certificates openssh-client nodejs golang-go \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -m -u 1000 -s /bin/bash ak
 USER ak

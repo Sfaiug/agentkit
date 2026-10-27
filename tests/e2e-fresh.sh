@@ -258,6 +258,8 @@ cleanup_logs() {   # cleanup_logs <gate exit>: one archive of the latest failure
 cleanup() {
   local rc=$?
   sync_back || { KEEP=1 rc=1; }
+  [ ! -f "$UH/.config/opencode/service.json" ] || env -i HOME="$UH" PATH="$EPATH" timeout 30 opencode service stop >/dev/null 2>&1 ||
+    { say "WARN could not stop the OpenCode service of $UH; its HOME is kept"; KEEP=1 rc=1; }
   [ "$KEEP" = 1 ] && { echo "kept: HOME $UH, workdir $WORK${SMOKE_REPO:+ (repo $SMOKE_REPO)}"; exit "$rc"; }
   TMUX_TMPDIR="$E2E_TMUX_DIR" tmux -L agentkit-test kill-server >/dev/null 2>&1 || true
   rm -rf -- "$E2E_TMUX_DIR"
@@ -411,6 +413,12 @@ if true; then       # always: every step below needs the HOME to be logged in
   lend antigravity "$INVHOME/.gemini/antigravity-cli/antigravity-oauth-token" \
     .gemini/antigravity-cli/antigravity-oauth-token
   copyin "$caller_opencode" .config/opencode/opencode.json
+  # OpenCode 2.1 answers through a service on one fixed port, which this host's own OpenCode holds:
+  # the new HOME's gets a free one or never answers.  It leaves this session, so cleanup stops it.
+  case "$HOSTBIN" in *" opencode "*)
+    port=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])') &&
+      env -i HOME="$UH" PATH="$EPATH" timeout 30 opencode service set port "$port" >/dev/null 2>&1 </dev/null ;;
+  esac
   copyin "$INVHOME/.agentkit/secrets/discord_webhook" .agentkit/secrets/discord_webhook || [ $? = 2 ] ||
     skip "c: the Discord webhook is not on this host"
   copyin "$INVHOME/.agentkit/secrets/discord_user_id" .agentkit/secrets/discord_user_id || [ $? = 2 ] ||
