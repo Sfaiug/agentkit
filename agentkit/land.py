@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import config, gitcall, helper, prompts, record, transitions, turns, update
+from . import config, gitcall, prompts, record, transitions, turns, update
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 CHECKED = 60        # a pass shorter than a minute checked nothing: it says nothing of the pace
@@ -489,8 +489,10 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok):
     "" where the command ran whole or a piece was killed at the limit, which stops its siblings
     with it, and the suite whole where no command failed and yet the checks did not pass (the
     checkout changed under them, the suite's own doing as far as the lander can tell); {}
-    where the checks passed or no exits were reported.  A piece out of memory (`helper.SHORT`)
-    is red only where no other is, and then `short`: the host's red, nobody's."""
+    where the checks passed or no exits were reported.  A piece out of memory
+    (`gate.OUT_OF_MEMORY`) is red only where no other is, and then `short`: the host's red,
+    nobody's."""
+    from . import gate
     if ok or not marks:
         return {}
     for cmd, mark in zip(cmds, marks):
@@ -498,9 +500,9 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok):
             continue
         codes = pieces.get(cmd, {})
         reds = sorted((share for share, code in codes.items() if code != 0),
-                      key=lambda share: (codes[share] == helper.SHORT, int(share.split("/")[0])))
+                      key=lambda share: (codes[share] == gate.OUT_OF_MEMORY, int(share.split("/")[0])))
         piece = "" if None in codes.values() or not reds else reds[0]
-        if piece and codes[piece] == helper.SHORT:
+        if piece and codes[piece] == gate.OUT_OF_MEMORY:
             return {"command": cmd, "piece": piece, "short": True}
         tests = (confirmed.get(cmd) or {}).get(piece) if piece else None
         return {"command": cmd, "piece": piece, **({"tests": tests} if tests else {})}
