@@ -208,14 +208,18 @@ def live_lines(own):
         (name, *(live_cell(found[role]) for role in quality.ROLES))
         for name, found in own.items()]
     widths = [max(terminal.cells(line[i]) for line in lines_of) for i in range(len(LIVE_HEADERS))]
-    lines = [" ".join(terminal.pad(text, w) for text, w in zip(line, widths)).rstrip()
-             for line in lines_of]
-    lines[0] = terminal.styled(lines[0], "dim")
+    head, *lines = [" ".join(terminal.pad(text, w) for text, w in zip(line, widths)).rstrip()
+                    for line in lines_of]
+    room = terminal.layout_width()
+
+    def fit(text):
+        # a row wider than the terminal wraps rather than run past its edge
+        return [text] if terminal.cells(text) <= room else terminal.wrap(text, room)
     said = ("ak's own runs, never ranking: merged in round 1 of the runs it executed, let "
             "through in round 1 of those it reviewed, merged in round 1 of its seat's own pull "
             "requests")
-    return [terminal.styled(part, "dim")
-            for part in terminal.wrap(said, terminal.layout_width())] + lines
+    return [terminal.styled(part, "dim") for part in (*terminal.wrap(said, room), *fit(head))] \
+        + [part for line in lines for part in fit(line)]
 
 
 def stored():
