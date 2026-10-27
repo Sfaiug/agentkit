@@ -1,10 +1,12 @@
 """When each subscription's login ends, and whose it is.
 
 Every provider's subscriptions are asked through their harness's adapter, `login-end`: one
-JSON object, `email` (whose login it is) and `ends` (the epoch second it stops serving, after
-which only a new login brings it back; null where the harness writes no such day down).  The
-answers are kept in `state/logins.json` as {provider: {account: {email, ends, checked_at}}},
-for every screen and reminder that warns before a login ends.  The tick asks each one at
+JSON object, `email` (whose login it is), `ends` (the epoch second it stops serving, after
+which only a new login brings it back; null where the harness writes no such day down) and
+`plan` (the plan it pays for, in the provider's own words; null where the login cannot tell).
+The answers are kept in `state/logins.json` as {provider: {account: {email, ends, plan,
+checked_at}}}, for every screen and reminder that warns before a login ends or says whose it
+is.  The tick asks each one at
 most once an hour, answered or not, since a login's end moves only when somebody logs in
 again; but one whose meter is amber (`ending`) every time it runs, so a new login made
 elsewhere shows on the ak screen at the next tick.  One made again on the ak screen is asked
@@ -34,8 +36,8 @@ def path():
 
 
 def read():
-    """{provider: {account: {email, ends, checked_at}}}: email and ends as last answered (absent
-    until one is), checked_at when last asked; {} when nothing is."""
+    """{provider: {account: {email, ends, plan, checked_at}}}: email, ends and plan as last
+    answered (absent until one is), checked_at when last asked; {} when nothing is."""
     try:
         data = json.loads(path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -53,7 +55,7 @@ def _alone():
 
 
 def _ask(harness, account):
-    """The adapter's {email, ends} for that account's login, or None when it said nothing
+    """The adapter's {email, ends, plan} for that account's login, or None when it said nothing
     usable: no such verb, a failure, a timeout, or anything but that object."""
     try:
         with subprocess.Popen([str(config.adapter(harness)), "login-end"],
@@ -81,12 +83,12 @@ def _ask(harness, account):
         return None
     if not isinstance(data, dict):
         return None
-    email, ends = data.get("email"), data.get("ends")
-    if email is not None and not (isinstance(email, str) and email):
+    email, ends, plan = data.get("email"), data.get("ends"), data.get("plan")
+    if any(word is not None and not (isinstance(word, str) and word) for word in (email, plan)):
         return None
     if ends is not None and (isinstance(ends, bool) or not isinstance(ends, (int, float))):
         return None
-    return {"email": email, "ends": ends}
+    return {"email": email, "ends": ends, "plan": plan}
 
 
 def harness(cfg, provider):
@@ -135,6 +137,13 @@ def renewed(cfg, provider, account, now=None):
                 **_kept(kept, provider, account), **answer,
                 "checked_at": time.time() if now is None else now}}
             config._write_json(path(), kept)
+
+
+def whose(provider, account=None):
+    """(email, plan) of `provider`'s `account` login as last answered, either None where not
+    known: what the ak screen says of a subscription."""
+    login = _kept(read(), provider, account or config.DEFAULT_ACCOUNT)
+    return login.get("email"), login.get("plan")
 
 
 def _kept(logins, provider, account):

@@ -8,8 +8,8 @@
 #                     install      -> Meta's installer, unless muse is already here
 #                     login [again] -> `muse login`, unless already logged in; `again` signs
 #                                  in afresh over a login that still stands
-#                     login-end    -> {"email","ends"}: whose the login is; `ends` is null, since Muse's
-#                                  auth file records no expiry
+#                     login-end    -> {"email","ends","plan"}: whose the login is; `ends` and
+#                                  `plan` are null, since Muse's auth file records neither
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
 #                                  `seat` is the same login here, and is accepted and ignored
 #                     hooks        -> a no-op: a seat's launch carries its hooks (`interactive`)
@@ -255,11 +255,12 @@ login)
   home || exit 2
   MUSE_NO_AUTO_UPDATE=1 muse login ;;
 login-end)
-  # Muse's auth file records a key and no expiry (see `auth`); the email is the one it signed
-  # in with
+  # Muse's auth file records a key and no expiry (see `auth`), and no plan's name; the email
+  # is the one it signed in with
   command -v jq >/dev/null || { echo "muse.sh login-end: jq is required" >&2; exit 2; }
   email=$(jq -r '.providers.meta.user_email // empty' "$AUTH" 2>/dev/null)
-  jq -nc --arg email "$email" '{email: (if $email == "" then null else $email end), ends: null}' ;;
+  jq -nc --arg email "$email" '{email: (if $email == "" then null else $email end), ends: null,
+                                plan: null}' ;;
 auth)
   # Can a headless turn authenticate right now?  Exit 0 and say so, or exit 1 with one line
   # saying why not; anything else is no answer, and the caller carries on as before.

@@ -68,16 +68,18 @@ class ClaudeAdapter(unittest.TestCase):
 
     def test_a_login_says_the_second_its_refresh_token_ends_and_whose_it_is(self):
         self.login(".claude", 1792470143000, "owner@acme.test", self.home / ".claude.json")
-        self.assertEqual(self.login_end(), {"email": "owner@acme.test", "ends": 1792470143})
+        self.assertEqual(self.login_end(),
+                         {"email": "owner@acme.test", "ends": 1792470143, "plan": None})
 
     def test_b_a_named_account_answers_from_its_own_directory(self):
         self.login(".claude", 1792470143000, "owner@acme.test", self.home / ".claude.json")
         self.login(".claude-second", 1792986467000, "two@acme.test",
                    self.home / ".claude-second/.claude.json")
-        self.assertEqual(self.login_end("second"), {"email": "two@acme.test", "ends": 1792986467})
+        self.assertEqual(self.login_end("second"),
+                         {"email": "two@acme.test", "ends": 1792986467, "plan": None})
 
     def test_c_no_login_is_nobody_with_no_end(self):
-        self.assertEqual(self.login_end(), {"email": None, "ends": None})
+        self.assertEqual(self.login_end(), {"email": None, "ends": None, "plan": None})
 
 
 class Refresh(unittest.TestCase):
@@ -115,8 +117,8 @@ class Refresh(unittest.TestCase):
     def test_a_every_subscription_is_kept_with_its_email_and_end(self):
         logins.refresh(self.cfg, now=1000)
         self.assertEqual(logins.read(), {"anthropic": {
-            "default": {"email": "owner@acme.test", "ends": FAR, "checked_at": 1000},
-            "second": {"email": "two@acme.test", "ends": None, "checked_at": 1000}}})
+            "default": {"email": "owner@acme.test", "ends": FAR, "plan": None, "checked_at": 1000},
+            "second": {"email": "two@acme.test", "ends": None, "plan": None, "checked_at": 1000}}})
 
     def test_b_each_is_asked_hourly_at_most_and_one_whose_meter_is_amber_every_tick(self):
         soon = {"email": "owner@acme.test", "ends": 1000 + 86400}
@@ -138,9 +140,11 @@ class Refresh(unittest.TestCase):
         later = 1000 + logins.ASK_EVERY
         kept = logins.refresh(self.cfg, now=later)
         self.assertEqual(kept["anthropic"]["default"],
-                         {"email": "owner@acme.test", "ends": FAR, "checked_at": later})
+                         {"email": "owner@acme.test", "ends": FAR, "plan": None,
+                          "checked_at": later})
         self.assertEqual(kept["anthropic"]["second"],
-                         {"email": "two@acme.test", "ends": None, "checked_at": later})
+                         {"email": "two@acme.test", "ends": None, "plan": None,
+                          "checked_at": later})
         logins.refresh(self.cfg, now=later + 1)
         self.assertEqual(self.calls(), ["default", "second"] * 2)
 
@@ -226,7 +230,7 @@ class Refresh(unittest.TestCase):
             renew.join(10)
         self.assertEqual(asked, [("tick", "default"), ("renew", "default")])
         self.assertEqual(logins.read(), {"anthropic": {"default": {
-            "email": "owner@acme.test", "ends": FAR, "checked_at": 1002}}})
+            "email": "owner@acme.test", "ends": FAR, "plan": None, "checked_at": 1002}}})
 
     def test_j_a_renewed_login_that_answers_nothing_writes_nothing(self):
         logins.refresh(self.cfg, now=1000)

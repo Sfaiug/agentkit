@@ -36,10 +36,11 @@ class Logins:
         script.chmod(0o755)
         home.env["AGENTKIT_ADAPTER_DIR"] = str(directory)
 
-    def answer(self, account, email, ends):
-        """What that account's `login-end` prints from now on: whose login, and the epoch
-        second it ends, either None."""
-        (self.answers / f"{account}.json").write_text(json.dumps({"email": email, "ends": ends}))
+    def answer(self, account, email, ends, plan=None):
+        """What that account's `login-end` prints from now on: whose login, the epoch second it
+        ends and the plan it is on, each maybe None."""
+        (self.answers / f"{account}.json").write_text(
+            json.dumps({"email": email, "ends": ends, "plan": plan}))
 
     def asked(self):
         try:

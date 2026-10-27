@@ -14,8 +14,9 @@
 #                     install      -> Google's installer, unless agy is already here
 #                     login        -> `agy` in the terminal (a URL, then the code pasted back),
 #                                  ended once signed in, unless already logged in
-#                     login-end    -> {"email","ends"}: whose the login is; `ends` is null, since a
-#                                  Google refresh token ends only when revoked
+#                     login-end    -> {"email","ends","plan"}: whose the login is, and the plan
+#                                  `usage` last read for it; `ends` is null, since a Google
+#                                  refresh token ends only when revoked
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
 #                                  `seat` is the same login here, and is accepted and ignored
 #                     hooks        -> says why this harness has none installed; writes nothing
@@ -56,11 +57,21 @@ if [ -n "$ACCOUNT" ]; then
     [ -e "${TOKEN%/*}/$store" ] || ln -s -- "../antigravity-cli/$store" "${TOKEN%/*}/$store" 2>/dev/null
   done
 fi
+# The plan `usage` last read off `loadCodeAssist`, kept beside the login with whose login it
+# was, so `login-end` answers it without asking the endpoint and never for another login.
+PLAN="${TOKEN%/*}/ak-plan.json"
 cmd=${1:-}; shift 2>/dev/null || true
 
 # jq is the tool most likely to be missing, so build the error object with printf
 err() { local m=${1//\\\\/}; m=${m//\"/\'}
         printf '{"provider":"google","meters":[],"error":"unknown: %s"}\n' "$m"; exit 0; }
+
+# Whose the login is: agy 1.4 writes the email beside the token as `id_token_email`, and no id
+# token; before it, the id token's own claim, decoded here and never printed with the token.
+email() {
+  jq -r '.id_token_email // (.id_token // empty | split(".")[1] // empty | gsub("-"; "+")
+         | gsub("_"; "/") | @base64d | fromjson | .email) // empty' "$TOKEN" 2>/dev/null
+}
 
 # 0 when a turn can authenticate, 1 when it cannot, 2 when the question cannot be answered for
 # want of jq.  GEMINI_API_KEY is agy's other sign-in; otherwise a refresh token is the login.
@@ -218,6 +229,8 @@ usage)
   quota() {
     post loadCodeAssist '{}'
     [ "$code" = 200 ] || return
+    jq -c --arg email "$(email)" '{email: $email, plan: (.paidTier.name // .currentTier.name)}' \
+      <<<"$body" >"$PLAN.$$" 2>/dev/null && mv -f -- "$PLAN.$$" "$PLAN" || rm -f -- "$PLAN.$$"
     post retrieveUserQuotaSummary "$(jq -c '{project: .cloudaicompanionProject}' <<<"$body" 2>/dev/null)"
   }
   # The access token lives an hour and agy renews it only when it runs, so a refusal is first a
@@ -254,13 +267,12 @@ login)
   kill "$pid" 2>/dev/null; wait "$pid"
   logged_in || exit 1 ;;
 login-end)
-  # A Google refresh token ends only when revoked, which shows only once `auth` says so.  The
-  # email is the id token's own claim, decoded here and never printed with the token.
+  # A Google refresh token ends only when revoked, which shows only once `auth` says so
   command -v jq >/dev/null || { echo "antigravity.sh login-end: jq is required" >&2; exit 2; }
-  # agy 1.4 writes the email beside the token as `id_token_email`, and no id token
-  email=$(jq -r '.id_token_email // (.id_token // empty | split(".")[1] // empty | gsub("-"; "+")
-                 | gsub("_"; "/") | @base64d | fromjson | .email) // empty' "$TOKEN" 2>/dev/null)
-  jq -nc --arg email "$email" '{email: (if $email == "" then null else $email end), ends: null}' ;;
+  email=$(email)
+  plan=$(jq -r --arg email "$email" 'select(.email == $email) | .plan | strings' "$PLAN" 2>/dev/null)
+  jq -nc --arg email "$email" --arg plan "$plan" \
+    '{email: $email, ends: null, plan: $plan} | map_values(if . == "" then null else . end)' ;;
 auth)
   # Can a headless turn authenticate right now?  Exit 0 and say so, or exit 1 with one line
   # saying why not; anything else is no answer, and the caller carries on as before.  A

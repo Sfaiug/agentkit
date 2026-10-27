@@ -55,7 +55,7 @@ class LoginEnd(unittest.TestCase):
         self.assertEqual(event["text"], f"Test login owner@acme.test ends {self.at(ends)} "
                                         "(in 2 days). Log in again from ak.")
         login = kept(self.home)["test"]["default"]
-        self.assertEqual(sorted(login), ["checked_at", "email", "ends"])
+        self.assertEqual(sorted(login), ["checked_at", "email", "ends", "plan"])
         self.assertEqual((login["email"], login["ends"]), ("owner@acme.test", ends))
         self.assertIsInstance(login["checked_at"], (int, float))
 
