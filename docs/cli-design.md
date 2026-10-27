@@ -65,13 +65,20 @@ carries the colour (`terminal.state_text`, `terminal.state_colour`).
 
 Every screen reads the same keys, one key at a time, with no Enter.
 
-- **Arrows and Enter:** the arrows move the highlight between rows, cells and pages, and
-  Enter chooses what it is on.
+- **Arrows:** the arrows move the highlight between rows, cells and pages.
+- **Space:** Space changes the highlighted thing in place: it marks or unmarks it, moves the
+  ● to it, or steps its effort. It never opens, starts or leaves a screen. Where nothing can
+  be marked it does nothing, and in a text field it types.
+- **Enter:** Enter goes forward: it opens what is highlighted, starts what the screen
+  prepares, answers a card, or takes the highlighted item of a one-choice list. It never
+  flips a mark.
 - **Esc:** Esc goes back, and on the main screen it leaves.
-- **A screen's own keys:** its key line (`terminal.keys`) names them after the shared ones.
+- **A screen's own keys:** its key line (`terminal.keys`) names them after the shared ones,
+  and names Space wherever Space acts: `␣ mark` (`space mark` in ASCII).
 - **Digits:** a digit opens that seat.
-- **Pointer:** a click does what the key would do. The pointer lights what a click there
-  would act on, never a second highlight and never more words.
+- **Pointer:** a click does what the key would do, and a click on a mark what Space does.
+  The pointer lights what a click there would act on, never a second highlight and never
+  more words.
 
 A key that does nothing is let go without a word. Every key is answered within 100 ms,
 because a draw shows what the last read left: nothing is read between a key and its frame.

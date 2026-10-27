@@ -479,13 +479,16 @@ def key_parts(text):
 
 
 # What every key line leads with, on every screen wherever its highlight is: the arrows move it
-# -- between rows, cells and pages -- and Enter chooses what it is on; then without UTF-8.
-MOVE_KEYS = ("↑↓←→ move   ⏎ choose", "arrows move   enter choose")
+# -- between rows, cells and pages; then without UTF-8.
+MOVE_KEYS = ("↑↓←→ move", "arrows move")
 
 
-def keys(*rest):
-    """A screen's key line: MOVE_KEYS, then that screen's own keys, `rest`."""
-    return "   ".join((MOVE_KEYS[0 if utf8() else 1], *rest))
+def keys(*rest, space=None, enter="choose"):
+    """A screen's key line: MOVE_KEYS, what Space does there (`space`, None where it does
+    nothing) and what Enter does (`enter`), then that screen's own keys, `rest`."""
+    ascii_ = not utf8()
+    named = [f"{'space' if ascii_ else '␣'} {space}"] if space else []
+    return "   ".join((MOVE_KEYS[ascii_], *named, f"{'enter' if ascii_ else '⏎'} {enter}", *rest))
 
 
 def key_line(text, term_width=None, first=None):

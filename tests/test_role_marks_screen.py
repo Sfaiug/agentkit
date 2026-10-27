@@ -150,9 +150,9 @@ class RoleMarks(Sandbox):
         with patch.object(terminal, "layout_width", return_value=80):
             _, rows, cells = orch.picker_lines(self.cfg, notes, selected, 1, 0, 80)
             for name, column, before, expected in (
-                    ("fable", 0, 2, ("fable", ["opus", "astra"], ["opus", "astra"])),
-                    ("opus", 1, 0, ("opus", ["astra"], ["opus", "astra"])),
-                    ("astra", 2, 0, ("opus", ["opus", "astra"], ["opus"]))):
+                    ("fable", 0, 2, ("fable", ["opus", "astra"], ["opus", "astra"], False)),
+                    ("opus", 1, 0, ("opus", ["astra"], ["opus", "astra"], False)),
+                    ("astra", 2, 0, ("opus", ["opus", "astra"], ["opus"], False))):
                 for edge in (0, 1):     # the whole column is clickable, including its padding
                     at = names.index(name)
                     click = terminal.Key("click", col=cells[at][column][edge],
@@ -185,7 +185,7 @@ class RoleMarks(Sandbox):
                           "spent" if name == "opus" else ""), \
                 patch.object(terminal, "read_key", side_effect=[terminal.Key("esc")]), \
                 redirect_stdout(io.StringIO()):
-            menu.born_models(born)
+            self.assertFalse(menu.born_models(born))
         self.assertEqual(born["selected"], picked)
 
 

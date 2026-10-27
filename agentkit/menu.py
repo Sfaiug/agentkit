@@ -2228,10 +2228,11 @@ def born_key(born, key, drawn):
 
 
 def born_models(born):
-    """Tab on the born row: its models chosen on `orch.pick`'s screen, which starts from the
-    row's, and brought back to the row with Esc."""
-    born["selected"] = dict(zip(("orchestrator", "workers", "reviewers"),
-                                orch.pick(born["cfg"], born["providers"], born["selected"])))
+    """Tab on the born row: its models marked on `orch.pick`'s screen, which starts from the
+    row's; true where Enter there starts the seat, false where Esc brings them to the row."""
+    *picked, start = orch.pick(born["cfg"], born["providers"], born["selected"])
+    born["selected"] = dict(zip(("orchestrator", "workers", "reviewers"), picked))
+    return start
 
 
 def start_born(born, dry_run):
@@ -5440,7 +5441,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 if act == "models":
                     back = True           # the picker's screen, drawn where the menu was
                     live.away()
-                    born_models(newborn)
+                    act = "start" if born_models(newborn) else act
                 if act == "back":
                     newborn = None
                 elif act == "start" and not born_refusal(newborn):
