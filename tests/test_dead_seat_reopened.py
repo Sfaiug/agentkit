@@ -194,6 +194,22 @@ class V5s(Sandbox):
         watch.revive_seats(self.cfg, self.logs.append)
         self.assertEqual((len(self.reopened), len(self.cards)), (1, 1))
 
+    def test_v5s_a_seat_that_died_holding_work_is_read_once_and_the_owner_told_what_it_held(self):
+        # its harness, asked what still runs, answers once: a second ask finds the work gone
+        answers = iter((["shell"], []))
+        plugin = orch.harness_plugin("fable")
+        self.stack.enter_context(patch.object(type(plugin), "holds",
+                                              lambda _self, _record: next(answers)))
+        watch.seat_write(SEAT, holds=["shell"])
+        self.rows = [self.exited()]
+        self.back = config.Error("no session 'seat' to reopen and no record of one")
+        watch.revive_seats(self.cfg, self.logs.append)
+        self.assertEqual(self.reopened, [(SEAT, True)])
+        self.assertEqual([text for _kind, text, _kw in self.cards], [
+            f"Its orchestrator session {SEAT} is gone while it held background work. agentkit "
+            "tried to reopen the seat and could not: no session 'seat' to reopen and no record "
+            "of one. Press its number in the menu, then say: continue."])
+
     def test_v5s_a_seat_that_could_not_be_reopened_pages_the_owner_while_its_run_goes_on(self):
         # its run going would read `working`, but ak reopens once per death: only the owner
         # brings the seat back now, so it needs them, and its card goes out after a minute
