@@ -484,22 +484,29 @@ def boot_id():
         return None
 
 
-def reboot_line(cfg, name, moved=None):
-    """What that seat is told once it is back, by what it was doing when its process went.
+def cut_off(cfg, name, moved=None):
+    """(owed, line): what that seat owes once back, by what it was doing when its process went,
+    and the line it is told -- both from one reading, since its harness, asked twice, can
+    answer differently (`holding`).
 
     Its last look, unless its hook has spoken since, which is then the newest word.  Asking
     the owner, in a turn or not: its question on the screen, or its own unanswered `ak notify
     needs`.  Else in the middle of a turn: the ladder's own test -- a hook's prompt with no
     `Stop` after it, or a screen positively `working`, as it is once a question the turn asked
     was answered.  A move to another account knows what it cut instead: `moved` says whether
-    that was a turn, which goes on with ACCOUNT_LINE.  Background work its process held goes
-    after that line or alone, named, to be resumed or started again.  None for a seat that was
+    that was a turn, which goes on with ACCOUNT_LINE.  Either owes `turn`.  Background work its
+    process held goes after that line or alone, named, to be resumed or started again, and
+    alone owes `work` unless it is only a watch (`WATCH`).  (None, None) for a seat that was
     idle or done and held nothing.
     """
-    fact = hook_facts(name)
-    line = _cut_line(cfg, name) if moved is None else ACCOUNT_LINE if moved else None
-    work = holding(cfg, name, fact)
-    return " ".join(filter(None, (line, work and HELD_LINE.format(", ".join(work))))) or None
+    cut = _cut_line(cfg, name) if moved is None else ACCOUNT_LINE if moved else None
+    work = holding(cfg, name, hook_facts(name))
+    line = " ".join(filter(None, (cut, work and HELD_LINE.format(", ".join(work))))) or None
+    # The owner decided on 27 Oct 2026 that a seat holding background work is reopened and told
+    # what it held, as a mid-turn seat is: background work is never lost silently, and some
+    # harnesses say nothing of it themselves.  A watch is not work.
+    owed = "turn" if cut else "work" if any(kind != WATCH for kind in work) else None
+    return owed, line
 
 
 def _cut_line(cfg, name):
@@ -520,20 +527,6 @@ def _cut_line(cfg, name):
     return None
 
 
-def died_owing(cfg, name):
-    """What a seat whose process died owes, both passes that reopen one read it here: `turn`
-    for a turn or a question to the owner it cut off (`_cut_line`), `work` for background work
-    it held other than a watch (`WATCH`), else None."""
-    if _cut_line(cfg, name):
-        return "turn"
-    # The owner decided on 27 Oct 2026 that a seat holding background work is reopened and told
-    # what it held, as a mid-turn seat is: background work is never lost silently, and some
-    # harnesses say nothing of it themselves.  A watch is not work.
-    if any(kind != WATCH for kind in holding(cfg, name, hook_facts(name))):
-        return "work"
-    return None
-
-
 def resume_after_boot(cfg, dry_run=False, log=print):
     """Claim each owned, absent seat that still owes work before restarting it, once per
     kernel boot.
@@ -541,9 +534,9 @@ def resume_after_boot(cfg, dry_run=False, log=print):
     The watch lock is shared with the menu. Claims survive a killed recovery pass; the boot
     is complete only after all candidates were considered. No run is launched or retried.
     A seat the owner closed stays closed, and so does one that owes nothing (`owes_work`) and
-    did not die owing (`died_owing`) when the host went down: it reopens with its number, like
-    any closed seat. A seat that died owing and came back on its own conversation is marked for
-    `continue_turns`: otherwise it sits silent at its prompt, its turn, question or work lost.
+    was cut off owing nothing (`cut_off`) when the host went down: it reopens with its number,
+    like any closed seat. A seat that died owing and came back on its own conversation is marked
+    for `continue_turns`: otherwise it sits silent at its prompt, its turn, question or work lost.
     """
     from . import menu as menu_mod    # here, not at the top: the menu imports this module
     boot = boot_id()
@@ -573,10 +566,9 @@ def resume_after_boot(cfg, dry_run=False, log=print):
             if (name in present or name in attempted or not orch.resumable(record)
                     or seat_closed_by_owner(name)):
                 continue
-            if (not died_owing(cfg, name)
-                    and not owes_work(name, own_runs(name, records), index, now)):
+            owed, line = cut_off(cfg, name)   # read before the relaunch writes anything
+            if not owed and not owes_work(name, own_runs(name, records), index, now):
                 continue
-            line = reboot_line(cfg, name)   # read before the relaunch writes anything
             if dry_run:
                 log(f"would resume {name} after reboot in {record.get('cwd')}")
                 continue
@@ -2733,7 +2725,7 @@ def owes_work(name, mine, index, at):
     """Whether that seat still owes work: a question or a watcher's alert still standing, what
     keeps any resting seat the owner's (`still_owed`), or a run of its own going, parked, or
     ended with nobody yet deciding it (the tally's own `needs you`).  It keeps a seat nobody is
-    in the owner's, and, beside what it died owing (`died_owing`), brings
+    in the owner's, and, beside what it was cut off owing (`cut_off`), brings
     one back after a reboot.  `mine` is the seat's own (run_dir, state) pairs, `index` their
     supersession index."""
     from . import menu as menu_mod    # the menu imports this module
@@ -4676,8 +4668,8 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
 
 
 def _resume_on(cfg, name, log, account, continuing, still=None):
-    """Resume that seat's conversation on `account`, told what the move cut (`reboot_line`)."""
-    at, line = time.time(), reboot_line(cfg, name, bool(continuing))
+    """Resume that seat's conversation on `account`, told what the move cut (`cut_off`)."""
+    at, line = time.time(), cut_off(cfg, name, bool(continuing))[1]
     resumed = orch.resume(cfg, name, log=log, hand_over=False, account=account, still=still,
                           line=line)
     if line and resumed == "resumed":
@@ -6560,13 +6552,13 @@ def revive_seats(cfg, log):
     turn, a question to the owner or background work its process cut off.
 
     A seat the listing shows exited, restarting or resumable -- its process gone, however it
-    went -- is reopened on its saved conversation when it died owing (`died_owing`), on a
-    conversation its own, and typed `reboot_line`'s line; else, with a run of its own still
-    running or queued, told the run is still going.  One that died idle holding nothing or
-    only a watch stays gone.  `reopened_at` in the seat's state file lists each death
-    since the seat was last seen live, written before the launch so one that fails is not
-    repeated every tick: one still dead DEAD_BACKOFF after the last is a new death, and the
-    third inside DEAD_WINDOW is not reopened but asked of the owner, once, as runs are bounded.
+    went -- is reopened on its saved conversation when it was cut off owing (`cut_off`), on a
+    conversation its own, and typed the line read with it, before the reopen; else, with a run
+    of its own still running or queued, told the run is still going.  One that died idle
+    holding nothing or only a watch stays gone.  `reopened_at` in the seat's state file lists
+    each death since the seat was last seen live, written before the launch so one that fails
+    is not repeated every tick: one still dead DEAD_BACKOFF after the last is a new death, and
+    the third inside DEAD_WINDOW is not reopened but asked of the owner, once, as runs are bounded.
     A seat the owner stopped stays stopped.  The owner hears only when the reopen fails or the
     seat keeps dying.  tmux is asked only with something to do: a run going, a seat not
     closed that died owing, or a marker to clear.  Every tick files a seat with
@@ -6587,9 +6579,9 @@ def revive_seats(cfg, log):
             going.setdefault(seat, (run_dir, state))
     kept = config.session_records()
     orch.file_projectless([{**record, "name": name} for name, record in kept.items()], states)
-    cut = {name: owed for name, record in kept.items()
+    cut = {name: death for name, record in kept.items()
            if not (seat_stopped_at(name) or seat_closed_by_owner(name))
-           and orch.resumable(record) and (owed := died_owing(cfg, name))}
+           and orch.resumable(record) and (death := cut_off(cfg, name))[0]}
     if not going and not cut and not any(seat_read(name).get("reopened_at") for name in kept):
         return
     for session in orch.listing():
@@ -6611,7 +6603,7 @@ def revive_seats(cfg, log):
         if deaths and died - deaths[-1] < DEAD_BACKOFF or len(deaths) > 2:
             continue    # the same death, or the third, already the owner's until seen live
         deaths = [at for at in deaths if died - at < DEAD_WINDOW]
-        line = reboot_line(cfg, name) if name in cut else None   # read before the reopen
+        cutoff, line = cut.get(name, (None, None))
         if name in going:
             run_dir, state = going[name]
             run_id, title = run_dir.name, state.get("title") or run_dir.name
@@ -6619,9 +6611,9 @@ def revive_seats(cfg, log):
             say, event = f"continue {title}", run_id
         else:
             owed, about = ("in the middle of a turn or a question to you", "go on with its turn"
-                           ) if cut[name] == "turn" else (
+                           ) if cutoff == "turn" else (
                 "while it held background work", "pick up its background work")
-            say, event = "continue", cut[name]
+            say, event = "continue", cutoff
         seat_write(name, reopened_at=[*deaths, died])
         if len(deaths) == 2:
             why = "it died again both times it was reopened within the hour"

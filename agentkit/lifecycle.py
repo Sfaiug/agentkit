@@ -38,10 +38,11 @@ def waits_on(payload):
 
     A harness hands its Stop hook the agents and commands it still has in flight -- the ones
     whose task notification has not arrived.  Each of them wakes the seat again when it settles,
-    so a stop on them is a wait.  A watch (`WATCH`), counted, held the seat working for days.  Nor is a `shell` in `background_tasks`: a background
-    `sleep` or poll loop is no wait, since the harness kills it under memory pressure; a seat
-    waits through `ak wait`.  Nor is a `terminal` or an `agent` a plugin adds, whose end starts
-    no turn.  The other spelling's tasks count as before, their types never captured.
+    so a stop on them is a wait.  A watch (`WATCH`), counted, held the seat working for days.
+    Nor is a `shell` in `background_tasks`: a background `sleep` or poll loop is no wait, since
+    the harness kills it under memory pressure; a seat waits through `ak wait`.  Nor is a
+    `terminal` or an `agent` a plugin adds, whose end starts no turn.  The other spelling's
+    tasks count as before, their types never captured.
     """
     idle = ((WATCH, "shell", "terminal", "agent") if payload.get("background_tasks") is not None
             else (WATCH,))
