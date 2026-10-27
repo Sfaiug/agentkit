@@ -74,10 +74,10 @@ RULES = [
      "pattern": r"\.heavy-|landing_since|AK_HEAVY_TURN",
      "home": ("agentkit/gate.py", "go/internal/host/lines.go"),
      "max": 0},
-    # Run admission owns its lock, steady-poll counter and CPU/polling knobs.
+    # Run admission owns its lock, steady-poll counter and polling knob.
     {"name": "run admission",
      "flags": (),
-     "pattern": r"\.slots\.lock|slot_healthy_polls|CPU_PRESSURE_LIMIT|AK_SLOT_POLL",
+     "pattern": r"\.slots\.lock|slot_healthy_polls|AK_SLOT_POLL",
      "home": ("agentkit/gate.py",),
      "max": 0},
     # A harness is its adapter pair and its plugin, and a model is bound to its harness and

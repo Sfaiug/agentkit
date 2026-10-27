@@ -181,8 +181,7 @@ def max_load_is_set():
     """True when the owner pinned the host load gate, in the config or the environment.
 
     Pinned, the old load check still decides admission, with its old meaning;
-    unset, the slice's own CPU pressure gates instead and the default above
-    goes unread. A corrupt config answers False here and raises where the
+    unset, nothing gates CPU and the default above goes unread. A corrupt config answers False here and raises where the
     gate itself reads it, as before.
     """
     if os.environ.get("AK_MAX_LOAD") is not None:

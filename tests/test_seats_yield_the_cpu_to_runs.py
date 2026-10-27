@@ -117,19 +117,9 @@ class SeatsYieldCpu(unittest.TestCase):
         self.assertFalse(gate.claim_slot(state, 1))  # first steady poll
         self.assertTrue(gate.claim_slot(state, 1), state)
 
-    def test_busy_runs_hold_a_queued_run(self):
-        self.readings_by_slice({**CALM, "slice_cpu_pressure": 99})
-        state = {"run_id": "acme", "state": "queued"}
-        for _ in range(3):
-            self.assertFalse(gate.claim_slot(state, 1))
-            self.assertEqual(state["slot_wait_kind"], "cpu")
-
-    def test_heavy_room_and_status_read_runs_cpu(self):
+    def test_heavy_room_reads_runs_cpu(self):
         self.readings_by_slice(CALM)
         self.assertEqual(gate.derived_heavy_limit(running=0), int(8 / gate.HEAVY_CPUS))
-        line = gate.host_status_line()
-        self.assertIn("runs cpu 0%", line)
-        self.assertIn("runs cpu ≤ 40%", line)
 
     def test_host_memory_still_holds_a_run(self):
         self.readings_by_slice({**CALM, "free_mb": 1024})

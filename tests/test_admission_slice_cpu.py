@@ -1,10 +1,9 @@
-"""Admission reads the runs slice's CPU pressure, not the host's load average.
+"""Admission gates no CPU unless the owner pinned max_load.
 
-A run starts while the slice has CPU room whatever the host load is, waits
-while the slice itself is saturated, and --first skips the CPU check as it
-skipped load; a pinned max_load restores the old host-load check. Offline: a
-throwaway HOME, mocked slot counts, and injected host readings. The real
-machine's load, pressure and cgroups are never read.
+A run starts whatever the host load or the runs slice's CPU pressure is; a pinned
+max_load restores the old host-load check. Offline: a throwaway HOME, mocked slot
+counts, and injected host readings. The real machine's load, pressure and cgroups
+are never read.
 """
 
 import json
@@ -52,26 +51,13 @@ class AdmissionSliceCpu(unittest.TestCase):
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(readings)}):
             return gate.claim_slot(state, 1), state
 
-    def test_high_host_load_with_idle_slice_admits(self):
-        loaded = {**READINGS, "load": 41, "slice_cpu_pressure": 5}
+    def test_high_host_load_and_slice_pressure_admit(self):
+        loaded = {**READINGS, "load": 41, "slice_cpu_pressure": 90}
         admitted, state = self.claim(loaded)
         self.assertFalse(admitted)  # first steady poll
-        self.assertEqual(state["slot_wait_reason"],
-                         "waiting for steady readings · 4 G free, runs cpu pressure 5%")
+        self.assertEqual(state["slot_wait_reason"], "waiting for steady readings · 4 G free")
         self.assertNotIn("slot_wait_kind", state)
         admitted, state = self.claim(loaded, state)
-        self.assertTrue(admitted)
-        self.assertEqual(state["state"], "running")
-
-    def test_saturated_slice_waits_then_admits_after_two_healthy_polls(self):
-        admitted, state = self.claim({**READINGS, "slice_cpu_pressure": 62})
-        self.assertFalse(admitted)
-        self.assertEqual(state["slot_wait_reason"],
-                         "waiting for runs' CPU · pressure 62%, limit 40%")
-        self.assertEqual(state["slot_wait_kind"], "cpu")
-        admitted, state = self.claim(READINGS, state)
-        self.assertFalse(admitted)
-        admitted, state = self.claim(READINGS, state)
         self.assertTrue(admitted)
         self.assertEqual(state["state"], "running")
 
@@ -80,15 +66,6 @@ class AdmissionSliceCpu(unittest.TestCase):
                                       "slice_cpu_pressure": 5})
         self.assertFalse(admitted)
         self.assertEqual(state["slot_wait_kind"], "memory")
-
-    def test_first_skips_slice_cpu_gate(self):
-        hot = {**READINGS, "slice_cpu_pressure": 90}
-        admitted, state = self.claim(hot, {"first": True})
-        self.assertFalse(admitted)  # first steady poll
-        self.assertNotIn("slot_wait_kind", state)
-        admitted, state = self.claim(hot, state)
-        self.assertTrue(admitted)
-        self.assertEqual(state["state"], "running")
 
     def test_pinned_max_load_in_config_restores_load_check(self):
         (self.root / config.CONFIG_NAME).write_text("max_load = 8\n")
@@ -149,14 +126,17 @@ class AdmissionSliceCpu(unittest.TestCase):
         (slice_dir / "cpu.stat").unlink()
         self.assertIsNone(host._slice_cpu_stat(slice_dir))
 
-    def test_host_line_names_slice_cpu_gate(self):
-        readings = {**READINGS, "slice_cpu_pressure": 12}
-        with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(readings)}):
+    def test_host_line_names_only_the_gates(self):
+        with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(READINGS)}):
             self.assertEqual(gate.host_status_line(),
-                             "host: 8 cpus · runs cpu 12% · 4 G free · "
-                             "a run is admitted while ≥ 3 G free and "
-                             "runs cpu ≤ 40% · at most 1 run at once\n"
+                             "host: 8 cpus · 4 G free · "
+                             "a run is admitted while ≥ 3 G free · at most 1 run at once\n"
                              "heavy suites: 2 at once (derived)")
+        with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(READINGS),
+                                     "AK_MAX_LOAD": "8"}):
+            self.assertEqual(gate.host_status_line().splitlines()[0],
+                             "host: 8 cpus · load 1 · 4 G free · "
+                             "a run is admitted while ≥ 3 G free and load ≤ 8 · at most 1 run at once")
 
 
 if __name__ == "__main__":

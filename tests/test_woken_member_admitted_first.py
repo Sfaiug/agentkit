@@ -14,8 +14,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, gate, handback, host, land, record, run
 
 READINGS = {"free_mb": 4096, "mem_total_mb": 16384, "cpus": 8, "load": 41,
-            "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000,
-            "slice_cpu_pressure": 52}
+            "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}
 
 
 class WokenMemberAdmission(unittest.TestCase):
@@ -63,12 +62,13 @@ class WokenMemberAdmission(unittest.TestCase):
             record.save_state(directory, state)
         return admitted
 
-    def test_woken_members_pass_queue_count_cap_and_cpu_gate(self):
+    def test_woken_members_pass_queue_count_cap_and_load_gate(self):
+        self.stack.enter_context(patch.dict(os.environ, {"AK_MAX_LOAD": "8"}))
         self.receipt("holder", 1, word="running")
         ordinary = self.receipt("ordinary", 10)
         later = self.receipt("later", 20)
         self.assertFalse(self.claim(ordinary, limit=0))
-        self.assertEqual(record.read_state(ordinary)["slot_wait_kind"], "cpu")
+        self.assertEqual(record.read_state(ordinary)["slot_wait_kind"], "load")
         self.assertFalse(self.claim(later, limit=0))
         self.assertEqual(record.read_state(later)["slot_wait_kind"], "count")
 
@@ -85,7 +85,7 @@ class WokenMemberAdmission(unittest.TestCase):
                 self.assertEqual(state["waiting_on"], waiting)
                 self.assertNotIn("first", record.read_state(directory))
                 self.assertFalse(self.claim(ordinary, limit=0))
-                self.assertEqual(record.read_state(ordinary)["slot_wait_kind"], "cpu")
+                self.assertEqual(record.read_state(ordinary)["slot_wait_kind"], "load")
 
     def test_land_is_admitted_before_earlier_fix(self):
         self.receipt("holder", 1, word="running")

@@ -176,8 +176,7 @@ class Listings(Sandbox):
                                    "started_at": NOW - 3600, "finished_at": NOW - 60})
         out = self.status(["--plain", directory.name])
         lines = out.splitlines()
-        self.assertEqual(lines[0], "host: 8 cpus · runs cpu 12% · 4 G free · "
-                                  "a run is admitted while ≥ 3.2 G free and runs cpu ≤ 40%")
+        self.assertEqual(lines[0], "host: 8 cpus · 4 G free · a run is admitted while ≥ 3.2 G free")
         self.assertEqual(lines[1], "heavy suites: 2 at once (derived)")
         self.assertEqual(lines[2], "20260101-0900-plain-check" + " " * 16 +
                                     "pass" + " " * 8 + "PASS " + " opus/astra  main  merged")
@@ -468,8 +467,7 @@ class Listings(Sandbox):
         self.assertIn("✓ done", self.status([continued.name]))
 
     def test_v5z_s_the_host_line_names_a_count_cap(self):
-        base = ("host: 8 cpus · runs cpu 12% · 4 G free · "
-                "a run is admitted while ≥ 3.2 G free and runs cpu ≤ 40%")
+        base = "host: 8 cpus · 4 G free · a run is admitted while ≥ 3.2 G free"
         heavy = "heavy suites: 2 at once (derived)"
         for limit, tail in (("4", " · at most 4 runs at once"),
                             ("1", " · at most 1 run at once"), ("0", "")):
