@@ -253,29 +253,16 @@ class ModelBoards(Sandbox):
         matrix.refresh(self.cfg, now=10000 + boards.FRESH_FOR)
         self.assertEqual(list(json.loads(matrix.cache_path().read_text())), ["matrix"])
 
-    def test_the_command_says_what_each_board_gave_and_when(self):
+    def test_the_command_asks_the_boards_again_on_refresh(self):
         self.stack.enter_context(patch.object(config, "manifests", return_value=[]))
-        with patch.object(matrix.time, "time", return_value=10000):
-            out = io.StringIO()
-            with redirect_stdout(out):
-                self.assertEqual(matrix.main([]), 0)
-        lines = out.getvalue().splitlines()[-3:]             # the last lines of the screen
-        self.assertEqual([line.split(":")[0] for line in lines], list(boards.BOARDS))
-        self.assertRegex(lines[0], r"^artificialanalysis\.ai: 4 rows as of \d\d \w\w\w \d\d:\d\d$")
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(matrix.main([]), 0)
         self.boards.down.add("livebench.ai")
-        out = io.StringIO()
-        with redirect_stdout(out):
+        with redirect_stdout(io.StringIO()):
             self.assertEqual(matrix.main(["--refresh", "--json"]), 0)
-        held = json.loads(out.getvalue())["boards"]
-        self.assertEqual(sorted(held), sorted(boards.BOARDS))
-        self.assertEqual(held["livebench.ai"]["error"], "livebench.ai refused")
-        self.assertEqual(json.loads(boards.cache_path().read_text())["livebench.ai"]["rows"][0]["model"],
-                         "claude-opus-5.5")                      # what it last said stays
-        out = io.StringIO()
-        with redirect_stdout(out):
-            matrix.main([])
-        self.assertIn("livebench.ai: 2 rows as of", out.getvalue())
-        self.assertIn("note: livebench.ai refused", out.getvalue())
+        held = json.loads(boards.cache_path().read_text())["livebench.ai"]
+        self.assertEqual(held["error"], "livebench.ai refused")
+        self.assertEqual(held["rows"][0]["model"], "claude-opus-5.5")   # what it last said stays
         with self.assertRaises(config.Error):
             matrix.main(["--all"])
 

@@ -325,16 +325,3 @@ def collect(*, refresh=False, now=None, needs=None, build=None):
                                 "error": " ".join(str(exc).split()) or type(exc).__name__}
         _write(cache)
     return {board: cache[board] for board in BOARDS}
-
-
-def lines(boards):
-    """One line per board: how many rows it gave and when, and its error where it has one."""
-    lines = []
-    for board in BOARDS:
-        held = boards.get(board) or {}
-        when = held.get("fetched_at")
-        line = (f"{board}: {len(held.get('rows') or [])} rows as of "
-                f"{time.strftime('%d %b %H:%M', time.localtime(when))}" if when
-                else f"{board}: no rows yet")
-        lines.append(line + (f" · note: {held['error']}" if held.get("error") else ""))
-    return lines

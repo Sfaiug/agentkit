@@ -28,7 +28,7 @@ class MatrixFollowsTheBuild(Sandbox):
             matrix.refresh(self.cfg, now=10000)
             self.assertEqual(matrix.stored()["build"], "abc1234 · 2026-10-01")
             # the build that computed it keeps it for the day
-            with patch.object(matrix, "rows", side_effect=AssertionError("computed again")):
+            with patch.object(matrix, "lineup", side_effect=AssertionError("computed again")):
                 matrix.refresh(self.cfg, now=10001)
         # another build carries rules the stored matrix was not computed by
         with patch.object(update, "agentkit_version", return_value="def5678 · 2026-10-02"):

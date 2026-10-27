@@ -26,7 +26,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
-from agentkit import boards, config, hand_in, history, matrix, record, run, terminal, transitions, turns
+from agentkit import config, hand_in, history, matrix, record, run, terminal, transitions, turns
 import test_model_rows as rows_test
 
 
@@ -142,12 +142,7 @@ class LiveByEffort(Sandbox):
         self.assertEqual(own["astra"], {"orchestrate": {"runs": 1, "round_1": 100},
                                         "execute": {"runs": 1, "round_1": 100}, "review": None})
         self.assertEqual(own["gemini"], {"orchestrate": None, "execute": None, "review": None})
-        held = boards.collect(now=10000)
-        table = matrix.rows(self.cfg, held, matrix.present())
-        with patch.object(matrix.time, "time", return_value=10000):
-            lines = [terminal.plain(line) for line in
-                     matrix.render(matrix.scored(table, matrix.bests(held)), held,
-                                   own).splitlines()]
+        lines = [terminal.plain(line) for line in matrix.live_lines(own)]
         text = "\n".join(lines)
         self.assertTrue(all(terminal.cells(line) <= 100 for line in lines))
         self.assertRegex(text, r"\nopus @ max +- +50% of 2 +100% of 1\n")

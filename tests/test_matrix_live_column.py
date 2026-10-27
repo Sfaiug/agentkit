@@ -1,4 +1,4 @@
-"""`ak models` shows ak's own numbers per configured model and role beside the public ones, with
+"""`ak models` shows ak's own numbers per configured model and role under the boards' answer, with
 their count, and they never rank.
 
 Per model: of the runs it executed, the share merged in round 1; of the runs it reviewed, in
@@ -27,7 +27,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
-from agentkit import boards, config, history, matrix, record, terminal
+from agentkit import config, history, matrix, record, terminal
 import test_model_rows as rows_test
 
 
@@ -87,23 +87,19 @@ class LiveColumn(Sandbox):
         self.assertIn("gemini", own)       # every configured model, with nothing where it ran nothing
         self.assertEqual(own["gemini"], {"orchestrate": None, "execute": None, "review": None})
 
-    def test_the_table_shows_them_under_the_scores_and_json_carries_them(self):
-        held = boards.collect(now=10000)
-        table = matrix.scored(matrix.rows(self.cfg, held, matrix.present()), matrix.bests(held))
-        with patch.object(matrix.time, "time", return_value=10000):
-            lines = [terminal.plain(line) for line in
-                     matrix.render(table, held, matrix.live(self.cfg)).splitlines()]
+    def test_the_command_shows_them_under_the_answer_and_json_carries_them(self):
+        out = io.StringIO()
+        with redirect_stdout(out), patch.object(config, "load", return_value=self.cfg):
+            self.assertEqual(matrix.main([]), 0)
+        lines = [terminal.plain(line) for line in out.getvalue().splitlines()]
         text = "\n".join(lines)
         self.assertTrue(all(terminal.cells(line) <= 100 for line in lines))
         at = next(i for i, line in enumerate(lines) if line.startswith("ak's own runs, never ranking"))
         heading = next(i for i, line in enumerate(lines) if line.split() == ["model", "orch", "exec", "review"])
+        self.assertLess(next(i for i, line in enumerate(lines) if "comparing all" in line), at)
         self.assertLess(at, heading)
         self.assertRegex(text, r"\nopus +- +40% of 5 +67% of 3\n")
         self.assertRegex(text, r"\nfable +33% of 3 +- +-\n")
-        self.assertLess(at, next(i for i, line in enumerate(lines) if line.startswith("arena.ai:")))
-        # the recommendation is the boards' alone: opus's own numbers change nothing (the boards
-        # tell the two efforts apart by nothing, and Artificial Analysis priced only the max run)
-        self.assertEqual(matrix.row_label(matrix.recommended(table)["execute"][0]), "claude-opus-5-5 @ max")
         out = io.StringIO()
         with redirect_stdout(out), patch.object(config, "load", return_value=self.cfg):
             self.assertEqual(matrix.main(["--json"]), 0)

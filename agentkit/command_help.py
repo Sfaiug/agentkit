@@ -13,10 +13,10 @@ HAND_IN_DISPUTE = 'ak hand-in dispute PATH:LINE "WHY IT IS WRONG" (--run COMMAND
 # MODEL in usage/examples stands for one of that file's keys.
 COMMANDS = {
     "models": ("usage: ak models [--json] [--refresh]",
-               "Score every model and effort per role from the public boards and recommend one per\n"
-               "role: Artificial Analysis, Arena and LiveBench, each asked once a day; --refresh\n"
-               "asks now, --json prints the scored rows, the recommendation and when each board\n"
-               "was asked and answered, or its error.",
+               "Answer each role over every current model on the public boards as the models screen\n"
+               "does, then ak's own run numbers: Artificial Analysis, Arena and LiveBench, each\n"
+               "asked once a day; --refresh asks now, --json prints each role's best and its line\n"
+               "of best quality for the money, with ak's own numbers.",
                "ak models"),
     "usage": ("usage: ak usage [--json]", "Show provider usage and worker pick order.",
               "ak usage --json"),

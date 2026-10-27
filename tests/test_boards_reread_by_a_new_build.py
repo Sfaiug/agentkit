@@ -13,7 +13,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
-from agentkit import boards, matrix, update
+from agentkit import boards, matrix, quality, update
 from test_model_matrix import Boards
 
 
@@ -108,16 +108,17 @@ class Reread(Sandbox):
     def test_the_matrix_asks_for_every_column_it_scores_with_its_build(self):
         needs = matrix.needed()
         self.assertEqual(sorted(needs), sorted(boards.BOARDS))
-        self.assertIn(matrix.COST, needs["artificialanalysis.ai"])
-        self.assertIn("livebench.coding", needs["livebench.ai"])
-        self.assertIn("arena.agent_steerability", needs["arena.ai"])
+        self.assertIn(quality.COSTS["execute"], needs["artificialanalysis.ai"])
+        self.assertIn("aa.omniscienceAccuracy", needs["artificialanalysis.ai"])   # its error's
+        self.assertIn("arena.agent.lower95ci", needs["arena.ai"])
         self.assertEqual({column for columns in needs.values() for column in columns},
-                         {matrix.COST, matrix.INTEL, matrix.TASK_COST}
-                         | {column for role in matrix.ROLES.values() for column, _, _ in role})
+                         {quality.INTEL, *quality.COSTS.values()}
+                         | {name for role in quality.ROLES.values() for column, _, _ in role
+                            for name in (column, *quality.reads(column))})
         with patch.object(update, "agentkit_version", return_value="abc1234"):
             matrix.refresh(self.cfg, now=10000)
         asked = self.asked("huggingface")
-        self.forget("arena.ai", "arena.agent_steerability")
+        self.forget("arena.ai", "arena.agent")
         with patch.object(update, "agentkit_version", return_value="def5678"):
             held, _ = matrix.refresh(self.cfg, now=10001)
         self.assertGreater(self.asked("huggingface"), asked)
