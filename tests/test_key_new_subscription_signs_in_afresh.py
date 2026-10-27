@@ -27,7 +27,7 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import SERVER, Terminal
 
 MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave"
-LIST_KEYS = "  ↑↓←→ move   ⏎ choose   esc back"
+LIST_KEYS = "  ↑↓←→ move   ⏎ add   esc back"     # on its first row, a provider
 PAGE, ADD = "agentkit · config · subscriptions", "agentkit · config · add a subscription"
 
 

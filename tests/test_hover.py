@@ -374,7 +374,7 @@ class Screens(Sandbox):
         self.assertEqual(marked(last, "reverse"), {})
 
     def test_a_list_and_a_question_move_their_highlight_onto_the_pointer(self):
-        def around():
+        def around(_):
             terminal.frame("config · add a subscription", [""] * 3, terminal.keys("esc back"))
             return 3
 
@@ -403,7 +403,7 @@ class Screens(Sandbox):
                              move(1, 2), b"\r", b"\r")[0], "Grok")
         # asked over a screen's own rows, the pointer on one of them is on nothing of the list's
 
-        def over():
+        def over(_):
             terminal.frame("agentkit", ["  1  seat-a", "", ""], "esc back",
                            places={0: ("seat-a", [])})
             return 4
@@ -430,7 +430,7 @@ class Screens(Sandbox):
         self.assertIn("Stop", highlighted(screens[-1])[0])
 
     def test_header_motion_after_keyboard_navigation_clears_the_highlight(self):
-        def around():
+        def around(_):
             terminal.frame("config · add a subscription", [""] * 3, terminal.keys("esc back"))
             return 3
 

@@ -2773,6 +2773,14 @@ AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (con
 # its meter, on the ak screen and on `c` alike, the first two; its row on `Subscriptions` all.
 SUBSCRIPTION_ACTS = (("↻ log in again", "log in again"), ("↻ spend a reset", "spend a reset"),
                      ("− remove", "- remove"))
+
+
+def act_word(text):
+    """What Enter does on an act, as the key line names it: its text without its glyph, `log in
+    again` for `↻ log in again`."""
+    return " ".join(word for word in text.split() if word.isalpha())
+
+
 # What `+ add a subscription` offers each provider the shipped default has as: its company, and
 # the harness it runs on; any other is its name.  One shipped on a harness that runs any
 # provider (config.provider_hosts) is offered among that harness's own.  `Subscriptions` heads
@@ -3937,7 +3945,8 @@ def config_add(cfg, keyboard, through):
     the model takes that mode as its own where its provider's table says another.
 
     ↑/↓, k/j and the wheel move, and Enter or a click picks
-    a choice and opens the next step under it; Enter on an effort adds the model, named from
+    a choice -- logs in to a provider, or opens the next step under it -- the key line naming
+    which; Space does nothing but after `/`; Enter on an effort adds the model, named from
     its label (_short_name), and saves.  A model the config runs already is marked, and can be
     added at another effort, never at one it runs it at.  Esc steps back one level, and
     out from the models.  Nothing is typed, so no model or effort the catalog does
@@ -3986,8 +3995,9 @@ def config_add(cfg, keyboard, through):
                     else f"the {through} catalog names no model" if picked
                     else f"{through} lists no model or provider")
         adding = len(picked) == len(ADD_STEPS) - 1
-        keys = terminal.keys("esc back")
         at = min(ats[-1], max(0, len(choices) - 1))
+        keys = terminal.keys("esc back", enter=None if not choices else "add" if adding
+                             else "log in" if choices[at][0][1] is None else "open")
         body, places = add_body(picked, choices, None if terminal.away() else at,
                                 finding=finding)
         said = ["", *(terminal.styled("  " + part, "dim")
@@ -4032,7 +4042,7 @@ def config_add(cfg, keyboard, through):
             finding = None
         elif terminal.step(key):
             ats[-1] = min(max(at + terminal.step(key), 0), max(0, len(choices) - 1))
-        elif act in ("enter", "space") and choices:
+        elif act == "enter" and choices:
             ats[-1] = at
             if not picked and choices[at][0][1] is None:     # a provider to log in to
                 row = next(row for row in listed if row[0] == choices[at][0][0][1])
@@ -4189,11 +4199,11 @@ def config_add_provider(cfg, keyboard):
         after = [*(config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]), fresh]
         more[config.account_label({"providers": {name: {"accounts": after}}}, name, after[-1],
                                   text)] = (name, after)
-    keys = terminal.keys("esc back")
 
-    def around():     # the screen the list is drawn on, drawn again on a resize
+    def around(lit):  # the screen the list is drawn on, drawn again after a key or a resize
         terminal.frame("config · add a subscription",
-                       [""] * (len(labels) + len(through) + len(more)), keys)
+                       [""] * (len(labels) + len(through) + len(more)),
+                       terminal.keys("esc back", enter="open" if lit in through else "add"))
         return 3
     picked = terminal.choose([*labels, *through, *more], around=around)
     if picked is None:
@@ -4318,10 +4328,9 @@ def meter_acts(cfg, keyboard, number, screen):
     acts = dict(subscription_acts(cfg, keyboard, number))
     if not acts:
         return ""
-    keys = terminal.keys("esc back")
 
-    def listed():     # the screen the list is drawn on, drawn again on a resize
-        terminal.frame(screen, [""] * len(acts), keys)
+    def listed(lit):  # the screen the list is drawn on, drawn again after a key or a resize
+        terminal.frame(screen, [""] * len(acts), terminal.keys("esc back", enter=act_word(lit)))
         return 3
     chosen = terminal.choose(list(acts), around=listed)
     return "" if chosen is None else acts[chosen]()
@@ -4373,10 +4382,8 @@ def config_subscriptions(cfg, keyboard):
         body.append("")
         places[len(body)] = (("row", "add"), [])
         body.append(terminal.highlight("  + add a subscription", at == ("row", "add")))
-        # an act's word without its glyph: `log in again`
-        keys = terminal.keys("esc back", enter="open" if here[0] == "row" else " ".join(
-            word for word in acts[column][0].split() if word.isalpha()) if acts
-            and column is not None else None)
+        keys = terminal.keys("esc back", enter="open" if here[0] == "row" else act_word(
+            acts[column][0]) if acts and column is not None else None)
         act, moved, clicked, top = matrix_key("config · subscriptions", body, places, ids, here,
                                               top, said, keys, marks=0)
         if clicked is not None:

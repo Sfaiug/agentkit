@@ -1378,9 +1378,10 @@ def choose(choices, default=None, several=False, around=None, wait=None, warn=No
     list of them -- starts highlighted, or marked.  The keys are `read_key`'s, so the terminal
     is a `Keyboard`'s already; the main menu is what takes one, and so far nothing else does.
 
-    `around` draws the screen a list is asked inside and returns the row its first choice goes
-    on, and is called again whenever the screen wants drawing again -- a resize -- so the list
-    and the rows a click is read against are always where that screen now puts them.  There a
+    `around(choice)` draws the screen a list is asked inside, its key line naming what Enter
+    does on `choice`, the highlighted one, and returns the row its first choice goes on; it is
+    called again after every key and whenever the screen wants drawing again -- a resize -- so
+    the list and the rows a click is read against are always where that screen now puts them.  There a
     click on a choice picks it, or with `several` marks it; the key line's Enter answers as the
     key does, and a click anywhere else goes back;
     a button that went down before the list moved is no click.  The pointer on a choice moves
@@ -1395,7 +1396,7 @@ def choose(choices, default=None, several=False, around=None, wait=None, warn=No
     drawn, top, again = 0, None, around is not None
     while True:
         if again:
-            moved, again = around(), False
+            moved, again = around(choices[at] if choices else None), False
             if moved != top:
                 _PRESSED = False  # a press where a choice was is no click on what is there now
             top = moved
@@ -1454,7 +1455,7 @@ def confirm(question, meaning, answer, around, wait=None):
     """
     keep, act = f"{glyph('done')} Keep", f"{glyph('FAIL')} {answer}"
 
-    def drawn():
+    def drawn(_):
         room = layout_width() - 2
         card = ["", *(f"  {line}" for line in wrap(question, room)),
                 *(styled(f"  {line}", "dim") for line in wrap(
