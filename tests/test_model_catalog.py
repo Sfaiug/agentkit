@@ -110,7 +110,12 @@ class Catalog(Sandbox):
             self.assertIsNone(successor(slug), slug)
 
     def test_a_series_goes_for_the_successor_a_deprecated_release_of_it_names(self):
-        records = RECORDS + [     # a release name is a series
+        records = [               # a series is a maker's release name; its history is no successor
+            ("acme-6-early", "Acme 6 Early", "acme-6-early", "Acme 6", "Acme", True, "acme-6-fast", 38),
+            ("acme-6-fast", "Acme 6 (Fast)", "acme-6-fast", "Acme 6", "Acme", False, None, 41),
+            ("acme-6-instant", "Acme 6 (Instant)", "acme-6-instant", "Acme 6", "Acme", False, None, 39),
+            ("beta-omega-1", "Omega 1", "beta-omega-1", "Omega 1", "Beta", False, None, 7),
+            *RECORDS,
             ("acme-6-5-fast", "Acme 6.5 (Fast)", "acme-6-5-fast", "Acme 6.5", "Acme", False, None, 44),
             ("acme-5", "Acme 5", "acme-5", "Acme 5", "Acme", True, "acme-6-5-fast", 30),
             ("acme-7-preview", "Acme 7 (Preview)", "acme-7-preview", "Acme 7", "Acme", True, None, 55),
@@ -120,10 +125,13 @@ class Catalog(Sandbox):
         with patch(f"{__name__}.RECORDS", records):
             held = boards.collect(now=10000)
         self.assertEqual([release["slug"] for release in catalog.current(held)],
-                         ["beta-3", "acme-7", "zeta-1", "omega-0-fast", "delta-1", "gamma-1"])
+                         ["beta-3", "acme-7", "zeta-1", "beta-omega-1", "omega-0-fast", "delta-1",
+                          "gamma-1"])
         self.assertEqual([(catalog.successor(held, slug) or {}).get("slug") for slug in (
-            "acme-6-5-fast", "acme-5", "omega-0-fast", "zeta-1-old")],
-            ["acme-7", "acme-7", "omega-0-fast", "zeta-1"])
+            "acme-6-5-fast", "acme-5", "omega-0-fast", "zeta-1-old", "acme-6-early", "acme-6-fast",
+            "acme-6-instant", "beta-omega-1")],
+            ["acme-7", "acme-7", "omega-0-fast", "zeta-1", "acme-7", "acme-7", "acme-7",
+             "beta-omega-1"])
 
     def test_a_reading_an_older_build_stored_is_asked_again_once(self):
         boards.collect(now=10000, build="abc1234")
