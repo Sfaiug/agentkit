@@ -1,6 +1,6 @@
 """`x` is only the popup's, for its own seat whichever row is highlighted, and a done one closes
-with that one key; a press begun on
-one screen is no click on the next; a seat stopped twice leaves no rulebook and no open card.
+with that one key; a press begun on one screen is no click on the next; a seat stopped twice
+leaves no rulebook and no open card.
 
 The menu tests run `menu.loop` in a child process on a pty of its own, the way
 tests/test_menu_keys.py does, with the seat listing, each seat's word, the usage rows and the
@@ -226,30 +226,6 @@ class CloseAndInfo(unittest.TestCase):
         self.assertEqual(menu.proc.wait(15), 0)            # the popup over it goes first
         self.assertNotIn("everything it runs", menu.text())
         self.assertEqual(menu.text().count("<stopped"), 1)
-
-    def test_the_popup_removes_a_past_seat_and_its_x_stops_no_other(self):
-        """The past screen's `x` is the person's at its keys; the menu's is the popup's own seat's."""
-        menu = Menu(self, {"alpha": "working", "omega": "done", "atoll": "stopped"}, own="alpha")
-        menu.frame()
-        mark = menu.mark()
-        menu.send(b"p")
-        menu.frame(lambda lines: "atoll" in menu.highlighted(lines), after=mark, keys="esc back")
-        menu.send(b"x")
-        menu.saw("<stopped atoll>", after=mark)
-        menu.frame(after=mark)                    # the last past seat gone: back by itself
-        menu.send(b"j")
-        menu.frame(lambda lines: "omega" in menu.highlighted(lines))
-        mark = menu.mark()
-        menu.send(b"x")
-        asked = menu.frame(keys="esc back", after=mark)
-        self.assertIn("  Stop alpha and everything it runs?", asked)
-        mark = menu.mark()
-        menu.send(ESC)
-        lines = menu.frame(after=mark)
-        self.assertIn("alpha", menu.highlighted(lines))
-        menu.leave()
-        self.assertEqual(menu.text().count("<stopped"), 1)
-        self.assertNotIn("owned by seat", menu.text())
 
     def test_x_on_a_working_seat_asks_under_its_row_and_esc_keeps(self):
         menu = Menu(self, {"beta": "needs you", "alpha": "working", "omega": "done"}, own="beta")

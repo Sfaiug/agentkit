@@ -31,11 +31,9 @@ def alive(home, name):
 
 def gone(home, name, bound=30):
     deadline = time.monotonic() + bound
-    while alive(home, name):
-        if time.monotonic() > deadline:
-            return False
+    while alive(home, name) and time.monotonic() < deadline:
         time.sleep(0.05)
-    return True
+    return not alive(home, name)
 
 
 class XStopsOnlyItsOwnSeat(unittest.TestCase):
@@ -55,7 +53,7 @@ class XStopsOnlyItsOwnSeat(unittest.TestCase):
 
     def test_the_main_menu_has_no_x(self):
         menu = Terminal(self.home, size=(100, 30))
-        screen = menu.wait("› 1  atoll-fix  ")
+        menu.wait("› 1  atoll-fix  ")
         self.assertIn(MAIN_KEYS, menu.wait(MAIN_KEYS).splitlines())
         menu.keys("x", "j")                       # x first: once j has moved, x was read
         screen = menu.wait("› 2  atoll-ask  ")
