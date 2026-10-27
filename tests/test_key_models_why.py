@@ -107,9 +107,9 @@ class ModelsWhy(unittest.TestCase):
                                    "bolt": {"harness": "codex", "model": "bolt-3", "effort": "low"}})
         self.home.write(".agentkit/state/boards.json", boards())
 
-    def models(self, width=78):
+    def models(self, width=78, height=60):
         """`r` on `c` in a window of its own, once the answer is drawn."""
-        term = Terminal(self.home, size=(width, 60), env=ENV)
+        term = Terminal(self.home, size=(width, height), env=ENV)
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
         term.wait("esc leave")
@@ -151,6 +151,13 @@ class ModelsWhy(unittest.TestCase):
         term.keys("Right")
         term.wait("‹ 6 ›")
         self.assertEqual(self.why(term, *["Down"] * 6)[:len(CRUX_BUILDS_40)], CRUX_BUILDS_40)
+
+    def test_a_why_taller_than_the_screen_turns_its_pages(self):
+        term, _ = self.models(40, 24)
+        shown = self.why(term)
+        self.assertNotIn("    Acme Max 5 high", shown)
+        term.keys("Down")
+        term.wait("    Acme Max 5 high")       # the pick's one tie, under its fold
 
 
 if __name__ == "__main__":

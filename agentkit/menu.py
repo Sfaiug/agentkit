@@ -3188,7 +3188,7 @@ def models_screen(cfg, session, selected, providers):
     step, never per draw.  ←/→ step `within`, saved at once (config_within).  ↑/↓ move the
     pointer over the rows shown, from the first role's pick; one whose row a step leaves
     unshown goes to its role's pick.  ⏎ or a click opens the pointed row's why (models_why)
-    until Esc.  `r` takes each role's take (takes, take_advice): the seat's executors and
+    until Esc, ↑/↓ turning its pages where it is taller than the screen.  `r` takes each role's take (takes, take_advice): the seat's executors and
     reviewers, the orchestrator only said; without a seat new seats' three roles.
     """
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
@@ -3233,9 +3233,12 @@ def models_screen(cfg, session, selected, providers):
             _, role, *at = here
             row = next(row for row in answer[role]["front"]
                        if [row["release"], row["effort"]] == at)
-            while matrix_key(title, models_why(answer[role], role, row), {}, [], None, 0, "",
-                             "esc back")[0] != "back":
-                pass
+            key, why, page = None, ("why",), 0    # every line one row: ↑/↓ turn its pages
+            while key != "back":
+                lines = models_why(answer[role], role, row)
+                key, _, _, page = matrix_key(title, lines, dict.fromkeys(range(len(lines)),
+                                                                         (why, [])),
+                                             [why], why, page, "", "esc back")
         elif act in ("left", "right", "less", "more"):
             note, answer = config_within(cfg, 1 if act in ("right", "more") else -1), None
 
