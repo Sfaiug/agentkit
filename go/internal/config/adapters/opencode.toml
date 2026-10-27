@@ -81,6 +81,16 @@ at_prompt = "hooks"
 name = "UserPromptSubmit"
 state = "working"
 
+# hooks/seat-state.sh writes down a Stop handing over background work as claude.toml says
+# (`lifecycle.stop_fact`): one of kind `background` is the turn going on, as OpenCode 2.1.1 wakes
+# the session when a background subagent's job ends (hooks/opencode-seat `recorded`).  First match
+# wins.  `background` marks the wait whose composer stays open, so unsent text there is the owner's.
+[[hooks.event]]
+name = "Stop"
+state = "working"
+kinds = ["background"]
+background = true
+
 [[hooks.event]]
 name = "Stop"
 state = "at_prompt"
