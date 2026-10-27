@@ -32,7 +32,7 @@ from .deliver import (GITHUB_RETRIES, MERGE_METHODS, PICKUP_HELD, do_merge, end_
 from .deliver import (LANDING_COUNTS, PUSH_RIGHTS, checks, gh_json, github_body,
     push, require_review_pass, rights, wait_checks)
 from .roundloop import execute, final_check, integrate, review, rounds
-from .roundloop import (Loop, note,
+from .roundloop import (Loop, note, pin_checkout, pinned_head,
     restore_review_checkout, rules_check, verify_work)
 from .handback import (announce, announce_safely, clear_delivery, join_session_project,
     launch_line, printed_at_launch, reap, record_result, redress_seat, settle_delivered_line, stamp_origin,
@@ -2293,6 +2293,7 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
                 pr_review_blocked(lp, exc)
                 return False
         commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
+        pin_checkout(lp)        # the next round judges what the fix left, its landing's rebase gone
         head = git(lp.wt, "rev-parse", "HEAD")
         # the PR as it stands after the fix, whatever the fix left: a closed PR or a head
         # pushed meanwhile ends the run, never a review of what the fixer did not see
@@ -2409,7 +2410,9 @@ def review_pr_round(cfg, run_dir, url, opts, log):
                      and prior.get("head_sha") != info["headRefOid"])
     if prior.get("worktree"):
         at = git(prior["worktree"], "rev-parse", "HEAD")
-        recorded = (prior.get("review") or {}).get("head_sha") or prior.get("head_sha")
+        # what the run judges (`pin_checkout`): its landing's rebase, or the head a landing
+        # fixer left, never the rebase that fixer started over
+        recorded = pinned_head(prior) if prior.get("head_sha") else (prior.get("review") or {}).get("head_sha")
         # a reset to the head this round moves to may have finished just before a crash;
         # the checkout stands on the fix the run pushed when the seat pushed over it
         moved = advancing and at in (info["headRefOid"], *own_pr_heads(prior))
