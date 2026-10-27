@@ -4300,8 +4300,8 @@ def models_page(cfg, keyboard):
             cfg["providers"].setdefault(entry["provider"], copy.deepcopy(tables[entry["provider"]]))
         return _saved(cfg, cfg, before)
 
-    def listing(harness):     # what a harness's row opens onto: (model, its provider's row)
-        if harness not in config.provider_hosts():          # each, (None, a provider's) to log in
+    def listing(harness):     # what a harness's row opens onto: (model, the provider it is
+        if harness not in config.provider_hosts():      # listed under) each, (None, one to log in)
             return [(model, None) for model in _offered(harness, "config · models", cfg=cfg)]
         listed = waited(lambda: config.listed_providers(harness), "config · models",
                         doing=f"asking {config.provider_hosts()[harness]} which providers it has")
