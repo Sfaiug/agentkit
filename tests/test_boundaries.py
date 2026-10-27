@@ -205,9 +205,11 @@ RULES = [
      "max": 8},
     # Every unit ak starts is started by orch.py, which decides what ends it: a seat's scope
     # and detached work's end with what they started, and a run's is stopped by its reaper.
+    # Looking the program up starts nothing: Go's manager probe does, as orch.user_manager does.
     {"name": "unit starts",
      "flags": (),
      "pattern": r"\"systemd-run\"|StartTransientUnit",
+     "names": r'LookPath\("systemd-run"\)',
      "home": ("agentkit/orch.py",),
      "max": 0},
     # Foreground and detached callers share the receipt and plain fallback in orch.py.

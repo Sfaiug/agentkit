@@ -66,6 +66,15 @@ working = "screen"
 asking = "hooks"
 at_prompt = "screen"
 
+# A Stop on a terminal, a sub-agent or a workflow still running (`adapters/muse.sh hook`) is a
+# wait: 1.4.12 queues each one's result into the seat's inbox as it ends, which starts the next
+# turn.  `background` marks the wait whose composer stays open, so unsent text there is the owner's.
+[[hooks.event]]
+name = "Stop"
+state = "working"
+kinds = ["background"]
+background = true
+
 # its turn's end puts that question down, whatever the screen draws after it
 [[hooks.event]]
 name = "Stop"

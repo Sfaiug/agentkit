@@ -57,30 +57,31 @@ class MeterActs(Sandbox):
                                         for row in self.rows if row != "Gemini"])
 
     def test_subscriptions_lists_every_subscription_with_its_removal_under_it(self):
-        claude, chatgpt = self.rows.index("Claude"), self.rows.index("ChatGPT")
-        acts = [("enter", ("row", claude)), ("back", None),     # its list, opened and closed
-                ("enter", ("row", chatgpt)), ("back", None), ("back", None)]
-        drawn = self.keyed(lambda: menu.config_subscriptions(self.cfg, None), acts)
-        self.assertEqual([re.split(r"\s{2,}", line[2:])[0] for line in drawn[0]],
+        chatgpt, gemini = self.rows.index("ChatGPT") + 1, self.rows.index("Gemini") + 1
+        drawn = self.keyed(lambda: menu.config_subscriptions(self.cfg, None),
+                           [(None, ("sub", chatgpt)), (None, ("sub", gemini)), ("back", None)])
+        self.assertEqual([re.split(r"\s{2,}", line[2:])[0] for line in drawn[0]
+                          if line[:1] in " ›" and line[2:3].strip()],
                          [*self.rows, "+ add a subscription"])
 
-        def under(lines, at, count):      # the list drawn under row `at`, as it reads
-            return [line[2:].strip() for line in lines[at + 1:at + 1 + count]]
-        self.assertEqual(under(drawn[1], claude, 3),
-                         ["↻ log in again", "↻ spend a reset", "− remove"])
-        self.assertEqual(under(drawn[3], chatgpt, 2), ["↻ log in again", "− remove"])
-        self.assertEqual(self.offered, [])         # the page's own list, no other
+        def under(lines, label):      # the line the row of `label` opens, as it reads
+            return lines[next(at for at, line in enumerate(lines)
+                              if line[2:].startswith(label + " ")) + 1].strip().split("   ")
+        self.assertEqual(under(drawn[0], "Claude"),
+                         ["[↻ log in again]", "↻ spend a reset", "− remove"])
+        self.assertEqual(under(drawn[1], "ChatGPT"), ["[↻ log in again]", "− remove"])
+        self.assertEqual(under(drawn[2], "Gemini"), ["− remove"])    # lit only by a move
+        self.assertEqual(self.offered, [])         # the page's own line, no other list
 
-    def test_an_open_list_stays_as_it_opened_while_its_reading_moves(self):
-        # The owner moves onto `− remove` as a probe brings a reset in: Enter removes, and
-        # spends nothing.
+    def test_enter_runs_the_act_drawn_while_its_reading_moves(self):
+        # The owner moves onto `− remove` and a probe brings a reset in as Enter is pressed:
+        # Enter removes, and spends nothing.
         reading, removed, spent = {}, [], []
-        keys = iter([terminal.Key("enter"), terminal.Key("down"), terminal.Key("enter"),
-                     terminal.Key("esc")])
+        keys = iter([terminal.Key("right"), terminal.Key("enter"), terminal.Key("esc")])
 
         def read(*_args, **_kwargs):
             key = next(keys)
-            if key.name == "down":
+            if key.name == "enter":
                 reading["resets"] = 1
             return key
         for name, fake in (("usage_rows", lambda _cfg: [("anthropic", "Claude", dict(reading),
@@ -95,37 +96,44 @@ class MeterActs(Sandbox):
         self.assertEqual((spent, removed), ([], ["Claude"]))
 
     def drive(self, *keys):
-        """The page read with `keys`, then Esc, nothing spent: what was removed."""
-        removed, keys = [], iter(map(terminal.Key, [*keys, "esc"]))
+        """The page read with `keys`, then Esc, nothing spent: (signed in again, removed)."""
+        signed, removed, keys = [], [], iter(map(terminal.Key, [*keys, "esc"]))
 
         def remove(cfg, picked):
             removed.append(picked[2])
             del cfg["providers"][picked[0]]
             return ""
         for name, fake in (("config_spend_reset", AssertionError),
+                           ("sign_in", lambda _cfg, _kb, name, _account: signed.append(name)),
                            ("config_remove_provider", remove)):
             self.stack.enter_context(patch.object(menu, name, side_effect=fake))
         self.stack.enter_context(patch.object(terminal, "read_key",
                                               side_effect=lambda *_a, **_kw: next(keys)))
         self.stack.enter_context(patch.object(terminal, "frame", return_value={}))
         menu.config_subscriptions(self.cfg, None)
-        return removed
+        return signed, removed
 
-    def test_enter_twice_on_a_reset_in_hand_removes_rather_than_spends(self):
-        # The meter's own safeguard: `− remove` lit as the list opens, the spend a move away.
-        self.assertEqual(self.drive("enter", "enter"), ["Claude"])
+    def test_enter_on_a_reset_in_hand_signs_in_again_never_spends_nor_removes(self):
+        # The first act is lit as the line opens: the spend and the removal are a move away.
+        self.assertEqual(self.drive("enter"), (["anthropic"], []))
+
+    def test_resets_with_no_room_beside_the_meter_are_on_its_line(self):
+        self.stack.enter_context(patch.object(terminal, "layout_width", return_value=30))
+        drawn = self.keyed(lambda: menu.config_subscriptions(self.cfg, None), [("back", None)])
+        self.assertEqual(drawn[0][1:3], ["› Claude   ▰▰▰▰▱▱▱▱  50% left",
+                                          "    1 reset in hand"])
 
     def test_the_last_row_removed_leaves_the_highlight_on_the_new_last(self):
         last = len(self.rows) - 1
-        self.assertEqual(self.drive(*["down"] * last, "enter", "enter", "down", "enter", "esc"),
-                         [self.rows[last]])
+        self.assertEqual(self.drive(*["down"] * last, "right", "right", "enter", "down",
+                                    "enter"), ([], [self.rows[last]]))
 
     def test_a_page_with_no_subscription_still_adds_one(self):
         added = []
         self.stack.enter_context(patch.object(menu, "usage_rows", return_value=[]))
         self.stack.enter_context(patch.object(menu, "config_add_provider",
                                               side_effect=lambda *_a: added.append(1)))
-        self.assertEqual(self.drive("enter"), [])
+        self.assertEqual(self.drive("enter"), ([], []))
         self.assertEqual(added, [1])
 
 
