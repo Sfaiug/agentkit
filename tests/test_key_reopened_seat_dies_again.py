@@ -6,8 +6,8 @@ two minutes, and it stayed dead for hours with nobody told: the once-per-death m
 only by a tick seeing the seat live, and none did.  Seats are now bounded as runs are: dead
 again ten minutes after its reopen is a new death, reopened again, and the third inside an hour
 is not reopened but asked of the owner, once, so the seat reads `needs you`.  A seat the owner
-closed stays closed.  The ten minutes are ak's own stamps of the reopens set back, not waited
-out.  Black-box: the program `AK_BIN` names runs `ak watch` from outside through
+closed stays closed.  The ten minutes are passed on the tick's clock, the test clock of
+tests/fixtures/clock.py put ahead, not waited out.  Black-box: the program `AK_BIN` names runs `ak watch` from outside through
 tests/fixtures/akbin.py, beside seats of tests/fixtures/akseat.py whose hooks are fired as
 Claude fires them (tests/fixtures/hookdrive.py), each reopened by a scripted harness of
 fakeadapter.py.
@@ -24,13 +24,26 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
-from fixtures.akbin import REAL_TMUX, Home, boxable
+from fixtures.akbin import AK, REAL_TMUX, REPO, Home, boxable
 from fixtures.akseat import PANE, Seat
 from fixtures.hookdrive import Hooks
 
 PROXIES = ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
 SEATS = ("dying", "closed")
 PAUSE = 660     # past the ten minutes after a reopen, well inside the hour
+# Every `bin/ak` a tick starts gives `watch` the test clock, as far ahead as the file it names
+# says, its sleeps real: the line a reopen owes its seat is typed after a real warm-up.
+CLOCK = """
+import sys, time
+if sys.argv[:1] == [{ak!r}]:
+    found = sys.path[:]
+    sys.path[:0] = [{repo!r}, {tests!r}]
+    from fixtures.clock import Clock
+    from agentkit import watch
+    sys.path[:] = found
+    clock = watch.time = Clock(time.sleep)
+    clock.time = lambda: time.time() + float(open({ahead!r}).read())
+"""
 
 
 def conversation(n):
@@ -54,15 +67,6 @@ def dead(home, name):
 def state(home, name):
     path = home.path / ".agentkit" / "state" / name
     return json.loads(path.read_text()) if path.is_file() else None
-
-
-def set_back(home, name):
-    """Every time ak stamped on the seat's reopens, PAUSE seconds earlier."""
-    seat = state(home, f"seat-{name}.json")
-    marks = seat["reopened_at"]
-    seat["reopened_at"] = ([at - PAUSE for at in marks] if isinstance(marks, list)
-                           else marks - PAUSE)
-    home.write(f".agentkit/state/seat-{name}.json", seat)
 
 
 def row(home, seat):
@@ -104,6 +108,13 @@ class ReopenedSeatDiesAgain(unittest.TestCase):
             assert fired.code == 0, fired
         closed = home.ak("orch", "stop", "closed")
         assert closed.code == 0, closed.err
+        site, cls.ahead = home.root / "clock", home.root / "ahead"
+        site.mkdir()
+        (site / "sitecustomize.py").write_text(CLOCK.format(
+            ak=AK, repo=str(Path(AK).resolve().parents[1]), tests=str(REPO / "tests"),
+            ahead=str(cls.ahead)))
+        cls.ahead.write_text("0")
+        cls.env = {"PYTHONPATH": str(site)}
         cls.ticks, cls.reopens = [], []
         # first death: reopened, and told to go on
         end(home, "dying")
@@ -113,13 +124,13 @@ class ReopenedSeatDiesAgain(unittest.TestCase):
         end(home, "dying")
         cls.tick()
         # still dead ten minutes after its reopen: a second death, reopened again
-        set_back(home, "dying")
+        cls.ahead.write_text(str(PAUSE))
         cls.tick()
         cls.alive_again = dead(home, "dying")
         cls.took(2)
         # dead again, ten minutes on: the third inside the hour is the owner's
         end(home, "dying")
-        set_back(home, "dying")
+        cls.ahead.write_text(str(2 * PAUSE))
         cls.tick()
         cls.notice = state(home, "notify-dying.json")
         cls.row = row(home, "dying")
@@ -128,7 +139,7 @@ class ReopenedSeatDiesAgain(unittest.TestCase):
 
     @classmethod
     def tick(cls):
-        cls.ticks.append(cls.home.ak("watch", boxed=True))
+        cls.ticks.append(cls.home.ak("watch", boxed=True, env=cls.env))
         cls.reopens.append(cls.opened(conversation(0)))
 
     @classmethod
