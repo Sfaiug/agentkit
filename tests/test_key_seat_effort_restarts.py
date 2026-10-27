@@ -21,7 +21,7 @@ from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 
 SEAT = "acme-fix"
-KEYS = "  ↑↓←→ move   ⏎ choose   r recommended   esc back"
+KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"
 ASK = f"  Restart {SEAT} on Opus 5.5 at max?"
 OFFLINE = {name: "http://127.0.0.1:9"
            for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
@@ -54,9 +54,9 @@ class SeatEffortRestarts(unittest.TestCase):
         self.term.wait(lambda screen: key_line(screen) == KEYS and "› Opus 5.5" in screen)
 
     def asked(self):
-        """⏎ on the orchestrator's effort, and the card it asks on, nothing changed yet."""
+        """Space on the orchestrator's effort, and the card it asks on, nothing changed yet."""
         record, launched = self.path.read_bytes(), self.launches()
-        self.term.keys("Right", "Enter")
+        self.term.keys("Right", "Space")
         self.term.wait(lambda screen: ASK in lines(screen) and "› ✓ Keep" in lines(screen)
                        and "  ✗ Restart" in lines(screen))
         self.assertEqual((self.path.read_bytes(), self.launches()), (record, launched))
@@ -68,7 +68,7 @@ class SeatEffortRestarts(unittest.TestCase):
     def test_esc_on_the_card_changes_nothing(self):
         record, launched = self.asked()
         self.term.keys("Escape")
-        self.term.wait(lambda screen: key_line(screen) == KEYS and ASK not in lines(screen))
+        self.term.wait(lambda screen: key_line(screen) == KEYS.replace("mark", "step") and ASK not in lines(screen))
         time.sleep(1)       # a restart, were one under way, would have begun
         self.assertEqual((self.path.read_bytes(), self.launches()), (record, launched))
 

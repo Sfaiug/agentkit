@@ -257,13 +257,13 @@ class OneConfigScreen(unittest.TestCase):
         self.assertEqual(marks(model(lines, "opus")), "●■□")
         self.assertEqual(marks(model(lines, "astra")), "○■■")
         # fable executes, then opus and astra stop: fable alone executes, astra alone reviews
-        lines = menu.press(RIGHT + ENTER, lambda lines: marks(model(lines, "fable")) == "○■□")
+        lines = menu.press(RIGHT + SPACE, lambda lines: marks(model(lines, "fable")) == "○■□")
         self.assertEqual(menu.record()["workers"], ["opus", "astra", "fable"])
-        menu.press(DOWN + ENTER + DOWN + ENTER,
+        menu.press(DOWN + SPACE + DOWN + SPACE,
                    lambda lines: marks(model(lines, "astra")) == "○□■")
         self.assertEqual(menu.record()["workers"], ["fable"])
         # and fable takes the seat at once, asking nothing
-        lines = menu.press(UP * 2 + LEFT + ENTER,
+        lines = menu.press(UP * 2 + LEFT + SPACE,
                            lambda lines: marks(model(lines, "fable")) == "●■□")
         self.assertEqual(marks(model(lines, "opus")), "○□□")
         record = menu.record()
@@ -358,7 +358,7 @@ class OneConfigScreen(unittest.TestCase):
             'orchestrator = "astra"\nworkers = ["fable"]\nreviewers = ["opus"]'))
         elsewhere = {"orchestrator": "astra", "workers": ["fable"], "reviewers": ["opus"]}
         self.assertEqual(menu.defaults(), elsewhere)
-        menu.press(DOWN + RIGHT + ENTER,                  # an effort saved
+        menu.press(DOWN + RIGHT + SPACE,                  # an effort saved
                    lambda lines: " max " in model(lines, "opus"))
         self.assertEqual(tomllib.loads(menu.config.read_text())["models"]["opus"]["effort"],
                          "max")
