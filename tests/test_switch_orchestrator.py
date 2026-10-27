@@ -281,6 +281,45 @@ class Switch(Sandbox):
         self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "opus", 0, {}), "")
         self.assertEqual(self.calls, [])
 
+    def at_xhigh(self):
+        """fix-api's record holding opus's orchestrator effort at xhigh: the record as it is."""
+        config.change_efforts("fix-api", lambda data: {"opus": {"effort": "xhigh"}})
+        return config.load_session(self.cfg, "fix-api")
+
+    def test_a_seat_restarts_on_its_own_model_at_the_effort_given(self):
+        self.at_xhigh()
+        self.assertEqual(orch.switch_orchestrator(self.cfg, "fix-api", "opus", {},
+                                                  effort="max"), "")
+        respawns = [args for args in self.calls if args[0] == "respawn-pane"]
+        self.assertEqual(len(respawns), 1)
+        self.assertIn("fake-tui-claude", respawns[0][-1])
+        self.assertIn("max", respawns[0][-1].split())
+        self.assertIn(CONVERSATION, respawns[0][-1])     # its conversation goes on
+        after = config.load_session(self.cfg, "fix-api")
+        self.assertEqual(after["efforts"]["opus"], {"effort": "max"})
+        self.assertEqual(after["conversation"], CONVERSATION)
+
+    def test_a_restart_at_an_effort_whose_login_is_refused_writes_nothing(self):
+        before = self.at_xhigh()
+        (self.fixture / "logged-out-claude").write_text("yes\n")
+        note = orch.switch_orchestrator(self.cfg, "fix-api", "opus", {}, effort="max")
+        self.assertIn("not logged in", note)
+        self.assertEqual([args for args in self.calls
+                          if args[0] in ("respawn-pane", "new-session")], [])
+        self.assertEqual(config.load_session(self.cfg, "fix-api"), before)
+
+    def test_a_restart_at_an_effort_that_fails_gives_the_effort_back(self):
+        self.at_xhigh()
+        def saved_then_failed(*_args, **_kw):     # a build effort saved while it launches
+            config.change_efforts("fix-api", lambda data: {
+                **data["efforts"], "opus": {**data["efforts"]["opus"], "exec_effort": "low"}})
+            raise OSError("respawn failed")
+        with patch.object(orch, "launch", side_effect=saved_then_failed):
+            note = orch.switch_orchestrator(self.cfg, "fix-api", "opus", {}, effort="max")
+        self.assertEqual(note, "respawn failed")
+        self.assertEqual(config.load_session(self.cfg, "fix-api")["efforts"]["opus"],
+                         {"effort": "xhigh", "exec_effort": "low"})
+
     def test_runs_that_end_later_report_to_the_new_seat(self):
         selected = self.selected()
         self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}),
