@@ -69,11 +69,11 @@ class NarrowFixture(test_lander.LanderFixture):
             self.assertNotIn("fix", wait)
             self.assertEqual(wait["after"], {m.name: self.wait(m)["land"] for m in good[:index]})
             self.assertFalse(set(change) & self.stacked_files(wait["land"]))
-        # red only on top of the members ahead, it waits for them to leave the line
-        self.assertEqual(self.wait(members[culprit - 1])["after"],
-                         {m.name: self.wait(m)["land"] for m in members[:culprit - 1]})
+        # red on top of members ahead, it waits for them to leave the line; first, it is fixed now
+        ahead = {m.name: self.wait(m)["land"] for m in members[:culprit - 1]}
+        self.assertEqual(self.wait(members[culprit - 1])["after"], ahead)
         self.assertEqual(sorted(call.args[0] for call in self.wake.call_args_list),
-                         sorted(m.name for m in good))
+                         sorted(m.name for m in members if m in good or not ahead))
         self.assert_members_deliver_in_order(good)
         self.assert_cleaned()
         checked = [({f for f in files if f.startswith("member-")}, kw.get("only"))
