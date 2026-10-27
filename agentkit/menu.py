@@ -4804,7 +4804,12 @@ def apply_defaults(cfg, around):
 
     def given(held):
         """`held`'s efforts at the entries', its orchestrator's own effort where it stands."""
-        efforts, own = {**(held.get("efforts") or {}), **taken}, held.get("orchestrator")
+        own = held.get("orchestrator")
+        # its orchestrator's entry too, as before, but for the effort it runs at, which only a
+        # restart at another changes
+        efforts = {**(held.get("efforts") or {}), **{
+            model: config.efforts_of(cfg["models"][model])
+            for model in (own,) if model in cfg["models"]}, **taken}
         if own not in cfg["models"]:
             return efforts
         at = config.at_efforts(cfg, held)["models"][own]["effort"]
