@@ -3243,8 +3243,8 @@ def compare_screen(cfg, title, lineup):
     """`p` on the models screen: the releases its answer compares, marked on `compare_lines`
     until Esc.  Space, or a click, marks or unmarks the pointed release, and on `all` clears
     every mark; each change is saved at once as `compare` (matrix.compared reads it).  What
-    is typed goes into `find`, Space aside, which marks, and backspace takes it out; the list
-    scrolls with the pointer."""
+    is typed goes into `find`, a space only where a name holds it, and backspace takes it out;
+    the list scrolls with the pointer."""
     current, find, here, top, note = {row["release"] for row in lineup}, "", ALL, 0, ""
     while True:
         marks = matrix.compared(cfg, current) or set()
@@ -3255,10 +3255,9 @@ def compare_screen(cfg, title, lineup):
         head = "  models to compare"
         count = (f"{len(marks)} of {len(current)} marked" if marks
                  else f"all {len(current)} compared")
-        # beside the heading where it stands clear of every line under it, else on its own
-        wide = max(terminal.cells(line) for line, *_ in [(head,), *lines]) + 2 + len(count)
-        heads = ([head + " " * (room - len(head) - len(count)) + count] if wide <= room
-                 else [head, "  " + count])
+        # beside the heading where the gap between them is a column as wide, else on its own
+        gap = room - len(head) - len(count)
+        heads = [head + " " * gap + count] if gap >= len(count) else [head, "  " + count]
         caret = terminal.styled("▏" if terminal.utf8() else "_", "accent")
         heads.append(f"  find  {terminal.styled(find, 'bold')}{caret}")
         said = note_lines(note)
@@ -3285,7 +3284,11 @@ def compare_screen(cfg, title, lineup):
             here = spot.what
         if key.name in ("esc", "eof") or key.name == "click" and spot.cell == "esc":
             return
-        if key.name == "space" or key.name == "click" and spot.what is not None:
+        # a space finds where a name holds what is typed and it, as between words, else marks
+        if key.name == "space" and find and any(
+                f"{find} ".casefold() in line.casefold() for line, what, _ in lines if what):
+            find, here, top = find + " ", None, 0
+        elif key.name == "space" or key.name == "click" and spot.what is not None:
             before = copy.deepcopy(cfg)
             marks = set() if here == ALL else marks ^ {here}
             if marks:

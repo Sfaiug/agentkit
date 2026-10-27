@@ -95,6 +95,14 @@ class ModelsPick(unittest.TestCase):
         at = shown.index("  find  MID▏")
         self.assertEqual(shown[at + 1:at + 5], ["  ■ all 4 models", "  Acme", "›   □ Acme Mid 5", ""])
         term.keys("BSpace", "BSpace", "BSpace")
+        term.wait(lambda screen: "  find  ▏" in screen)
+        term.type("acme m")           # a space between words finds
+        shown = lines(term.wait("find  acme m▏"))
+        at = shown.index("  find  acme m▏")
+        self.assertEqual(shown[at + 1:at + 6], ["  ■ all 4 models", "  Acme", "›   □ Acme Max 5",
+                                                "    □ Acme Mid 5", ""])
+        self.assertIsNone(self.compare())
+        term.keys("BSpace", "BSpace", "BSpace", "BSpace", "BSpace", "BSpace")
         shown = lines(term.wait(lambda screen: "  find  ▏" in screen))
         self.assertIn("    □ Crux 2", shown)
 
@@ -122,6 +130,9 @@ class ModelsPick(unittest.TestCase):
         self.assertIn("  1 more maker above", shown)
 
     def test_on_40_cells_the_count_takes_a_line_and_notes_break_between_notes(self):
+        _, shown = self.pick(width=40)
+        at = shown.index("  models to compare")
+        self.assertEqual(shown[at + 1], "  all 4 compared")
         term, shown = self.pick(width=40, compare=["crux-2"], long=True)
         at = shown.index("  models to compare")
         self.assertEqual(shown[at + 1:at + 3], ["  1 of 4 marked", "  find  ▏"])
