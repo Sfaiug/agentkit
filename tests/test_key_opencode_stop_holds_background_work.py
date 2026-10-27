@@ -6,8 +6,10 @@ background shell and subagent, `running` until it ends, and wakes the session at
 seat plugin (hooks/opencode-seat) hands its Stop the stopping session's in Claude's shape: a
 Stop with a shell and a subagent running records `holds` naming both and the seat reads
 working; the subagent's own end after it changes nothing; one with nothing running reads idle
-and holds nothing; and a seat whose Stop held a shell alone stays on an account with usage
-left, where a bare Stop moves it.
+and holds nothing; a shell and a subagent a killed process left `running` there are no work
+held, as on a live OpenCode 2.1.1 seat ended under both on 27 Oct 2026, whose restarted process
+found their rows as they were, written before it began; and a seat whose Stop held a shell alone
+stays on an account with usage left, where a bare Stop moves it.
 Black-box: the plugin runs under Node as OpenCode loads it, handed one
 `session.execution.succeeded`; the fake OpenCode is its database, each table's schema and each
 row's shape copied from OpenCode 2.1.1 as installed (the kv table its KV service creates and
@@ -67,6 +69,9 @@ OTHERS = [{**SHELL, "notificationID": "msg_0fa1c2d3e4ffOtherShell",
            "recovery": {**SHELL["recovery"], "sessionID": "ses_0fa1c2d3e4ffOther"}},
           {**SHELL, "notificationID": "msg_0fa1c2d3e4ffEndedShell", "status": "completed",
            "output": "done"}]
+# the same work as the process before this one left it: still `running`
+LOST = [{**SHELL, "notificationID": "msg_0fa1c2d3e4ffAcmeLostShell"},
+        {**SUBAGENT, "notificationID": "msg_0fa1c2d3e4ffAcmeLostAgent"}]
 # node:sqlite as Bun offers it, reading through Python's sqlite3, for a Node without its own
 SQLITE = r"""
 import { spawnSync } from "node:child_process";
@@ -130,9 +135,10 @@ class OpencodeStopHoldsBackgroundWork(unittest.TestCase):
         self.fake.answer("interactive", shlex.join(
             [sys.executable, str(PANE), str(self.seat.screen_file), str(self.seat.typed_file)]))
 
-    def stop(self, *jobs, ended=SID):
-        """A turn of SID or its subagent CHILD ends with those jobs in opencode.db: the fact the
-        seat holds after."""
+    def stop(self, *jobs, ended=SID, lost=()):
+        """A turn of SID or its subagent CHILD ends with those jobs in opencode.db, written while
+        the plugin's process runs, and the `lost` ones written an hour before it began: the fact
+        the seat holds after."""
         db = self.home.path / ".local/share/opencode/opencode.db"
         db.parent.mkdir(parents=True, exist_ok=True)
         db.unlink(missing_ok=True)
@@ -142,8 +148,10 @@ class OpencodeStopHoldsBackgroundWork(unittest.TestCase):
             conn.executemany(
                 "INSERT INTO session_v2 VALUES (?, 'prj_acme', ?, ?, ?, '2.1.1', 0, 0)",
                 [(SID, None, "acme", "/acme"), (CHILD, SID, "acme-check", "/acme")])
-            conn.executemany("INSERT INTO kv VALUES (?, ?, 0, 0)", [
-                (f"job.background/{job['notificationID']}", json.dumps(job)) for job in jobs])
+            now = int(time.time() * 1000)
+            conn.executemany("INSERT INTO kv VALUES (?, ?, ?, ?)", [
+                (f"job.background/{job['notificationID']}", json.dumps(job), at, at)
+                for at, part in ((now + 60_000, jobs), (now - 3_600_000, lost)) for job in part])
         fake = self.home.root / "sqlite.mjs"
         fake.write_text(SQLITE)
         done = self.home.run(NODE, "--input-type=module", "-e", DRIVER,
@@ -188,6 +196,14 @@ class OpencodeStopHoldsBackgroundWork(unittest.TestCase):
         fact = self.stop(SHELL, ended=CHILD)
         self.assertEqual((fact["kind"], fact["holds"]), ("background", ["shell", "subagent"]))
         self.assertEqual(self.word(), "acme  working")
+
+    def test_work_a_killed_process_left_running_is_not_held(self):
+        fact = self.stop(*OTHERS, lost=LOST)
+        self.assertEqual((fact["event"], fact["kind"]), ("Stop", ""))
+        self.assertNotIn("holds", fact)
+        self.assertEqual(self.word(), "acme  idle")
+        fact = self.stop(SHELL, lost=LOST)
+        self.assertEqual((fact["kind"], fact["holds"]), ("", ["shell"]))
 
     def test_nothing_running_is_a_turn_over_holding_nothing(self):
         fact = self.stop(*OTHERS)

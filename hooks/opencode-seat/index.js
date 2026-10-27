@@ -161,7 +161,10 @@ function confirmed(title, id, sessionID) {
 // Stop hands over (`lifecycle.handed_over`): from the moment a background shell or subagent
 // leaves its turn until its end is handed back, the harness keeps a
 // `job.background/<notification>` row in its database's kv table (Job.background), `running`
-// until it ends.  The plugin API reads neither.  A record that
+// until it ends.  The plugin API reads neither.  A process that dies leaves its rows `running`:
+// 2.1.1 resumes or cancels them only when it starts as the managed service (SessionRestart),
+// never standalone, as a seat runs.  Every write stamps the row's time_updated, so a row last
+// written before this process began is a dead one's, and none of its work runs.  A record that
 // cannot be read leaves the Stop as it is: unread work is no evidence that none is running.
 // The database is found where the harness itself finds it.
 function recorded(stop) {
@@ -173,7 +176,8 @@ function recorded(stop) {
     db = new sqlite.DatabaseSync(file, { readOnly: true });
     const parent = db.prepare("SELECT parent_id FROM session_v2 WHERE id = ?");
     if (parent.get(stop.session_id)?.parent_id) return null;
-    const jobs = db.prepare("SELECT value FROM kv WHERE key LIKE 'job.background/%'").all();
+    const jobs = db.prepare("SELECT value FROM kv WHERE key LIKE 'job.background/%' "
+      + "AND time_updated >= ?").all(Math.floor(performance.timeOrigin));
     const work = [];
     for (const { value } of jobs) {
       const job = JSON.parse(value);
