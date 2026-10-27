@@ -5187,7 +5187,7 @@ def past_body(past, at=None, room=None, said=None, now=None):
         session.get("repo"), stands=stands), ""), *closed_when(session["closed"], now),
         seat_progress(session["name"])) for number, session in past]
     num, name, project, clock = (max(terminal.cells(row[n]) for row in rows) for n in (0, 1, 2, 4))
-    name = min(name, 24, width - (2 + num + 2))
+    name, project = min(name, 24, width - (2 + num + 2)), min(project, width - 4)
     free = width - (2 + num + 2 + name + 2 + project + 6 + clock)
     # no room for a row on one line: what follows its name goes under it
     fold = free < max(len(f"{done} of {total}") if total else 7 for *_, (done, total) in rows)
@@ -5290,6 +5290,9 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
         if act in ("left", "right"):
             here = turned(turns, page, here, 1 if act == "right" else -1)
             continue
+        if act.isdecimal() and act.isascii() and int(act) * 10 <= len(past):
+            more = terminal.read_key(0.5)      # 1 then 2 within half a second is row 12
+            act += more.char if more and more.name == "char" and more.char.isdecimal() else ""
         if act == "enter" or act.isdecimal() and act.isascii() and 1 <= int(act) <= len(past):
             keyboard.give()       # the seat has the terminal while he is in it
             open_session(cfg, past[names.index(here) if act == "enter" else int(act) - 1][1], dry_run)
