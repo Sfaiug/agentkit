@@ -2,7 +2,7 @@
 # when that file does not exist, and never overwrites it afterwards: the config is yours from
 # then on.  Edit the copy in the home directory, not this file.
 
-max_runs = 0              # no count cap; host memory and ak's CPU pressure are the gates
+max_runs = 0              # no count cap; host memory is the gate
 # max_gates, when set, pins the host-wide heavy-suite turns; unset, the count is
 # derived from the slice's live CPU and memory headroom. 0 = no cap.
 # min_free_mb defaults from this host's RAM. A pinned max_load restores the host load check instead.

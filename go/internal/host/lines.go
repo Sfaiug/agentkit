@@ -11,9 +11,8 @@ import (
 )
 
 const (
-	cpuPressureLimit = 40  // runs are stalled on CPU nearly half the time
-	heavyCPUs        = 0.7 // one heavy suite's cores
-	heavyMemMB       = 410 // ... and its memory
+	heavyCPUs  = 0.7 // one heavy suite's cores
+	heavyMemMB = 410 // ... and its memory
 )
 
 // G is megabytes as gigabytes to one decimal, trailing zeros dropped; `?` for no reading.
@@ -30,11 +29,11 @@ func Short(value float64) string {
 	return strconv.FormatFloat(value, 'g', 6, 64)
 }
 
-func unknown(value float64, ok bool, suffix string) string {
+func unknown(value float64, ok bool) string {
 	if !ok {
 		return "?"
 	}
-	return Short(value) + suffix
+	return Short(value)
 }
 
 // A memory is a cgroup's use against its limit, the reclaimable cache left out, swap in;
@@ -204,22 +203,18 @@ func StatusLines() (string, error) {
 	if minimum != 0 {
 		gates = append(gates, "≥ "+G(minimum, true)+" G free")
 	}
-	var admitted, signal string
+	// Only a pinned load gates CPU, so only it shows the load.
+	signal := ""
 	if config.MaxLoadSet() {
 		if maximum != 0 {
 			gates = append(gates, "load ≤ "+Short(maximum))
 		}
-		admitted = "a run is admitted (host memory and load gates off)"
-		if len(gates) > 0 {
-			admitted = "a run is admitted while " + strings.Join(gates, " and ")
-		}
 		load, ok := readings.Number("load", "load1")
-		signal = "load " + unknown(load, ok, "")
-	} else {
-		gates = append(gates, fmt.Sprintf("runs cpu ≤ %d%%", cpuPressureLimit))
+		signal = " · load " + unknown(load, ok)
+	}
+	admitted := "a run is admitted (host memory and load gates off)"
+	if len(gates) > 0 {
 		admitted = "a run is admitted while " + strings.Join(gates, " and ")
-		pressure, ok := readings.Number("slice_cpu_pressure")
-		signal = "runs cpu " + unknown(pressure, ok, "%")
 	}
 	if limit, _ := config.MaxRuns(); limit == 1 {
 		admitted += " · at most 1 run at once"
@@ -248,6 +243,6 @@ func StatusLines() (string, error) {
 		segment += ours.inUse(slice)
 	}
 	free, ok := readings.Number("free_mb", "mem_available_mb")
-	return fmt.Sprintf("host: %d cpus · %s · %s G free%s · %s\n%s",
+	return fmt.Sprintf("host: %d cpus%s · %s G free%s · %s\n%s",
 		int(cpus), signal, G(free, ok), segment, admitted, heavy), nil
 }

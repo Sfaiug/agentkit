@@ -67,8 +67,6 @@ func Read() Readings {
 	if limit := unitLimit(); limit != nil {
 		readings["unit_limits"] = []any{limit}
 	}
-	pressure, ok := pressureAvg(filepath.Join(runs, "cpu.pressure"))
-	readings.set("slice_cpu_pressure", pressure, ok)
 	cores, ok := cpuQuota(runs)
 	if parent, set := cpuQuota(slice); set {
 		if !ok || parent < cores {
@@ -261,32 +259,6 @@ func unitLimit() []any {
 		}
 	}
 	return nil
-}
-
-// pressureAvg is the larger `some` share of avg10 and avg60: two calm ten-second readings
-// must not hide a minute of stalls.
-func pressureAvg(path string) (float64, bool) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return 0, false
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, "some ") {
-			found := false
-			highest := 0.0
-			for _, part := range strings.Fields(line) {
-				if strings.HasPrefix(part, "avg10=") || strings.HasPrefix(part, "avg60=") {
-					value, err := strconv.ParseFloat(part[len("avg10="):], 64)
-					if err != nil {
-						return 0, false
-					}
-					highest, found = max(highest, value), true
-				}
-			}
-			return highest, found
-		}
-	}
-	return 0, false
 }
 
 // cpuCount is the processors online, as os.cpu_count counts them, whatever this process may

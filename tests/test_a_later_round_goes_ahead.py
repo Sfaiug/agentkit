@@ -97,7 +97,6 @@ class LaterRoundGoesAhead(unittest.TestCase):
         resumed = self.queued("round-two", 20, **ROUND)
         own = self.queued("own-fix", 30, **OWN_FIX)
         for readings, kind, env in (
-                ({**HEALTHY, "slice_cpu_pressure": 60}, "cpu", {}),
                 ({**HEALTHY, "load": 41}, "load", {"AK_MAX_LOAD": "8"}),
                 ({**HEALTHY, "free_mb": 1024}, "memory", {}),
                 ({**HEALTHY, "slice_memory_pressure": 60}, "unit memory", {})):

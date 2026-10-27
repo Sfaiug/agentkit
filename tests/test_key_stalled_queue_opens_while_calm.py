@@ -109,13 +109,16 @@ class StalledQueueOpensWhileCalm(unittest.TestCase):
         self.stall(run)
         self.held(run, "pressure 30%, limit 10%")
 
-    def test_a_stalled_first_still_waits_while_runs_stall_on_cpu(self):
-        # A pinned load, which leaves the runs' CPU pressure unread until the stall, holds it
-        # first; the room is there.
+    def test_a_stalled_first_goes_in_while_runs_stall_on_cpu(self):
+        # A pinned load holds it first; the room is there, and the runs' CPU pressure holds
+        # nothing: CPU is shared, and a check given less of it only runs slower.
         _, run = self.queued({**CALM, "slice_memory_used_mb": 1024, "slice_cpu_pressure": 90,
                               "load": 20}, kind="load", AK_MAX_LOAD="8")
         self.stall(run)
-        self.held(run, "pressure 90%, limit 40%")
+        wait(lambda: self.state(run).get("state") not in ("queued", "running"),
+             "the run admitted on its stall, and its end")
+        self.assertIn("went in on a stall, past: waiting for the host to calm",
+                      (run / "log.txt").read_text().split("\n", 1)[0])
 
     def test_before_its_stall_time_the_room_check_still_holds_it(self):
         _, run = self.queued(CALM)

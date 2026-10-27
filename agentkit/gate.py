@@ -75,8 +75,9 @@ def _slot_seat(state):
     return (*slot_order(state)[:3], seat, "" if seat else state.get("run_id") or "")
 
 
-CPU_PRESSURE_LIMIT = 40   # runs are stalled on CPU nearly half the time
-MEMORY_PRESSURE_LIMIT = 10   # ... on memory a tenth of it: pages back from swap stall far less
+# Memory is what admission guards: CPU is shared, and a check given less of it only runs
+# slower, while the heavy-suite turns and the line's CPU weights pace the CPU-heavy work.
+MEMORY_PRESSURE_LIMIT = 10   # runs stalled on memory a tenth of the time
 
 
 def resource_limits(readings):
@@ -90,10 +91,6 @@ def _load(value):
     return "?" if value is None else f"{value:g}"
 
 
-def _pct(value):
-    return "?" if value is None else f"{value:g}%"
-
-
 def _run_readings():
     return host.host_readings(slice_dir=orch.slice_cgroup, cpu_dir=orch.run_slice_cgroup)
 
@@ -103,26 +100,21 @@ def host_status_line():
 
     Two lines: the admission gates, then the heavy-suite turns in force and whether
     an explicit `max_gates` pins them or the slice's headroom derives them.  A
-    positive `max_runs` is a gate like the other two, so the first line names it:
-    `at most 4 runs at once`.  A pinned `max_load` keeps the old load wording;
-    otherwise the CPU gate is the runs slice's pressure.
+    positive `max_runs` is a gate like the others, so the first line names it:
+    `at most 4 runs at once`.  Only a pinned `max_load` gates CPU, so only it shows the load.
     """
     readings = _run_readings()
     minimum, maximum = resource_limits(readings)
     cpus = host._reading(readings, "cpus", "nproc") or 1
-    gates = []
+    gates, signal = [], ""
     if minimum:
         gates.append(f"≥ {host._g(minimum)} G free")
     if config.max_load_is_set():
         if maximum:
             gates.append(f"load ≤ {_load(maximum)}")
-        admitted = ("a run is admitted while " + " and ".join(gates) if gates else
-                    "a run is admitted (host memory and load gates off)")
-        signal = f"load {_load(host._reading(readings, 'load', 'load1'))}"
-    else:
-        gates.append(f"runs cpu ≤ {CPU_PRESSURE_LIMIT}%")
-        admitted = "a run is admitted while " + " and ".join(gates)
-        signal = f"runs cpu {_pct(host._reading(readings, 'slice_cpu_pressure'))}"
+        signal = f" · load {_load(host._reading(readings, 'load', 'load1'))}"
+    admitted = ("a run is admitted while " + " and ".join(gates) if gates else
+                "a run is admitted (host memory and load gates off)")
     try:
         limit = config.max_runs()
     except config.Error:
@@ -146,7 +138,7 @@ def host_status_line():
     # From a shell outside it, ak's slice is not the unit above, yet its swap is what admission reads.
     if ours and ours[4] and ours != unit and not (unit and unit[3] == name):
         segment += f" · {name} {host._g(ours[0])} of {host._g(ours[1])} G in use{_in_swap(ours)}"
-    first = (f"host: {int(cpus)} cpus · {signal} · "
+    first = (f"host: {int(cpus)} cpus{signal} · "
              f"{host._g(host._reading(readings, 'free_mb', 'mem_available_mb'))} G free{segment} · "
              f"{admitted}")
     return f"{first}\n{heavy}"
@@ -292,19 +284,6 @@ def slot_note(state):
     return slot_line(*counts, config.max_runs(), not slot_order(state)[0])
 
 
-def _slice_cpu_reason(readings):
-    """(reason, kind) while the runs slice is CPU-saturated, else (None, None).
-
-    Unreadable fails open with the rest: a host that cannot answer must not
-    queue every run forever.
-    """
-    pressure = host._reading(readings, "slice_cpu_pressure")
-    if pressure is not None and pressure > CPU_PRESSURE_LIMIT:
-        return (f"waiting for runs' CPU · pressure {pressure:g}%, "
-                f"limit {CPU_PRESSURE_LIMIT}%", "cpu")
-    return None, None
-
-
 def _in_swap(memory):
     """` · N G in swap` for a (used, high, raw, name, swap) reading holding swap, else ""."""
     return f" · {host._g(memory[4])} G in swap" if memory and memory[4] else ""
@@ -328,8 +307,7 @@ def _memory_pressure_reason(readings):
 def _strain(readings, minimum):
     """(reason, kind) while the host really strains, else (None, None): its available memory or
     the kernel's own stall readings, all that holds a run stalled first in line."""
-    for reason, kind in (_free_reason(readings, minimum), _memory_pressure_reason(readings),
-                         _slice_cpu_reason(readings)):
+    for reason, kind in (_free_reason(readings, minimum), _memory_pressure_reason(readings)):
         if reason:
             return reason, kind
     return None, None
@@ -408,10 +386,7 @@ def _gates_admit(state, readings, is_first):
             frozen = frozen_runs(state)
         reason, kind = _wait_reason(readings, minimum, maximum, frozen)
     else:
-        # Seats yield to runs, so only the runs slice's pressure gates CPU.
         reason, kind = _wait_reason(readings, minimum, 0)
-        if reason is None and not is_first:
-            reason, kind = _slice_cpu_reason(readings)
     if reason is None and not is_first and landing_waits():
         # Finished work goes first: the headroom a new run would take is the suite's.
         reason, kind = "waiting for a landing suite's turn · finished work goes first", "landing"
@@ -424,15 +399,10 @@ def _gates_admit(state, readings, is_first):
         # readings behind it, rather than the count sentence nothing waits on.
         # The kind stays whatever gate (if any) actually delayed this wait.
         free = host._reading(readings, "free_mb", "mem_available_mb", "mem_available")
+        state["slot_wait_reason"] = f"waiting for steady readings · {host._g(free)} G free"
         if pinned:
             load = host._reading(readings, "load", "load1", "load_1m")
-            state["slot_wait_reason"] = (
-                f"waiting for steady readings · {host._g(free)} G free, load {_load(load)}")
-        else:
-            pressure = host._reading(readings, "slice_cpu_pressure")
-            state["slot_wait_reason"] = (
-                f"waiting for steady readings · {host._g(free)} G free, "
-                f"runs cpu pressure {_pct(pressure)}")
+            state["slot_wait_reason"] += f", load {_load(load)}"
         return False
     return True
 

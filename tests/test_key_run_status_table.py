@@ -35,13 +35,12 @@ WORD = re.compile(r"[●!✓] (working|needs you|done)")
 HIDDEN = "{} older run(s) hidden; ak run status --history [--json] shows full history"
 
 
-def host(cpus, cpu, free, floor, heavy):
-    return [f"host: {cpus} cpus · runs cpu {cpu}% · {free} G free · "
-            f"a run is admitted while ≥ {floor} G free and runs cpu ≤ 40%",
+def host(cpus, free, floor, heavy):
+    return [f"host: {cpus} cpus · {free} G free · a run is admitted while ≥ {floor} G free",
             f"heavy suites: {heavy} at once (derived)"]
 
 
-HOST = host(8, 12, 4, 3.2, 9)
+HOST = host(8, 4, 3.2, 9)
 
 WIDE = """\
 id                                 title                     state        worker      round      age
@@ -123,8 +122,8 @@ class HostLines(unittest.TestCase):
         small = {"cpus": 2, "free_mb": 8192, "mem_total_mb": 65536, "slice_cpu_pressure": 55}
         # a run needs a fifth of the memory free, and never under 3 G; a heavy suite takes
         # 0.7 of a core and 410 MB, and the fewer that fit is the count
-        for readings, lines in ((no_total, host(8, 12, 4, 3, 9)),
-                                (small, host(2, 55, 8, 12.8, 2))):
+        for readings, lines in ((no_total, host(8, 4, 3, 9)),
+                                (small, host(2, 8, 12.8, 2))):
             with self.subTest(readings=readings):
                 self.assertEqual(self.status(readings)[:2], lines)
 

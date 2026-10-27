@@ -106,7 +106,7 @@ func MaxLoad(cpus float64) (float64, error) {
 	return resource("max_load", "AK_MAX_LOAD", math.Max(1, cpus))
 }
 
-// MaxLoadSet says whether the owner pinned the load gate; unset, CPU pressure gates instead.
+// MaxLoadSet says whether the owner pinned the load gate; unset, nothing gates CPU.
 func MaxLoadSet() bool {
 	if _, set := os.LookupEnv("AK_MAX_LOAD"); set {
 		return true
