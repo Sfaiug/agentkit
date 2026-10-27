@@ -68,6 +68,15 @@ class Lineup(unittest.TestCase):
         offers = {"anvil": [{"id": "acme-4", "efforts": ["high"]}]}
         self.assertEqual([row["yours"] for row in matrix.lineup(BOARDS, offers)], [[]] * 5)
 
+    def test_none_beside_other_efforts_is_an_effort_and_a_bracketed_name_matches(self):
+        name, slug = "Eon 2 (Default Fallback)", "eon-2-default-fallback"
+        boards = {"artificialanalysis.ai": {"rows": [
+            aa(slug, name, "high", slug, 0.5, 0.5), aa(slug + "-none", name, "none", slug, 0.4, 0.4)]}}
+        offers = {"anvil": [{"id": "eon-2", "efforts": ["none", "high"]}]}
+        self.assertEqual({row["effort"]: row["yours"] for row in matrix.lineup(boards, offers)},
+                         {"none": [{"harness": "anvil", "model": "eon-2"}],
+                          "high": [{"harness": "anvil", "model": "eon-2"}]})
+
 
 class Answer(unittest.TestCase):
     def setUp(self):

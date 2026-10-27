@@ -188,7 +188,8 @@ def lineup(boards, offers):
     releases = catalog.current(boards)
     index = {}
     for release in releases:
-        for name in {release["name"], release["slug"]}:
+        # the name first: `found` reads the first hit's for a bracketed qualifier
+        for name in (release["name"], release["slug"]):
             index.setdefault(normal(name), []).append({"model": name, "release": release})
     yours = {}
     for harness, models in offers.items():
@@ -197,7 +198,7 @@ def lineup(boards, offers):
             if len(hits) != 1:
                 continue
             [release] = hits.values()
-            words = [word for word in model["efforts"] if word != "none"]
+            words = model["efforts"] if set(model["efforts"]) - {"none"} else None
             for effort in release["efforts"]:
                 if effort["effort"] in words if words else effort["default"]:
                     yours.setdefault((release["slug"], effort["effort"]), []).append(
