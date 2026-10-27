@@ -6520,10 +6520,12 @@ def revive_seats(cfg, log):
     `resume_after_boot`'s reading (`_cut_line`), on a conversation its own, and typed
     `reboot_line`'s line; else, with a run of its own still running or queued, told the run is
     still going.  A Stop on background agents is mid-turn; one that died idle, a shell or a
-    monitor held or not, stays gone.  Once per death: `reopened_at` in the seat's state file,
-    written before the launch so one that fails is not repeated every tick, and cleared when
-    the seat is next seen live.  A seat the owner stopped stays stopped.  The owner hears only
-    when the reopen fails.  tmux is asked only with something to do: a run going, a seat not
+    monitor held or not, stays gone.  `reopened_at` in the seat's state file lists each death
+    since the seat was last seen live, written before the launch so one that fails is not
+    repeated every tick: one still dead DEAD_BACKOFF after the last is a new death, and the
+    third inside DEAD_WINDOW is not reopened but asked of the owner, once, as runs are bounded.
+    A seat the owner stopped stays stopped.  The owner hears only when the reopen fails or the
+    seat keeps dying.  tmux is asked only with something to do: a run going, a seat not
     closed that reads asking or mid-turn, or a marker to clear.  Every tick files a seat with
     no project from the run records read here (`orch.file_projectless`), a run going or not.
     """
@@ -6555,12 +6557,17 @@ def revive_seats(cfg, log):
                 # An attempt to clear it only once the reopened turn ended failed three review
                 # rounds on 24 Oct 2026: no one signal says a turn ended on every harness (an
                 # unsent draft, a permission card and a question asked mid-turn each misread
-                # it).  Runs bound repeated deaths by time instead (DEAD_BACKOFF, DEAD_WINDOW).
+                # it).  Repeated deaths are bounded by time instead, as a run's are, below.
                 seat_write(name, reopened_at=None)   # live again: the next death is a new one
             continue
-        if (name not in going and name not in cut or marks.get("reopened_at")
+        if (name not in going and name not in cut
                 or seat_closed(name) or marks.get("closed_by_owner")):
             continue
+        died, deaths = time.time(), marks.get("reopened_at") or []
+        deaths = deaths if isinstance(deaths, list) else [deaths]   # an older install kept one
+        if deaths and died - deaths[-1] < DEAD_BACKOFF or len(deaths) > 2:
+            continue    # the same death, or the third, already the owner's until seen live
+        deaths = [at for at in deaths if died - at < DEAD_WINDOW]
         line = reboot_line(cfg, name) if name in cut else None   # read before the reopen
         if name in going:
             run_dir, state = going[name]
@@ -6570,9 +6577,10 @@ def revive_seats(cfg, log):
         else:
             owed, about = "in the middle of a turn or a question to you", "go on with its turn"
             say, event = "continue", "turn"
-        died = time.time()
-        seat_write(name, reopened_at=died)
-        if line:
+        seat_write(name, reopened_at=[*deaths, died])
+        if len(deaths) == 2:
+            why = "it died again both times it was reopened within the hour"
+        elif line:
             why = revive(name, line, log, cfg, prepare=lambda line: line)
         else:
             why = revive(name, f"continue: your run {run_id} ({title}) is still going; "
