@@ -4329,10 +4329,9 @@ def config_subscriptions(cfg, keyboard):
     (config_add_provider).  The row the keys or the pointer are on opens a line: whose login it
     is and its plan (logins.whose; one ending as login_notes says it, amber), resets with no room
     beside its meter, then its acts (subscription_acts), ←/→ or the pointer moving, Enter or a
-    click running one.  One an act adds is asked whose it is (logins.renewed), then pointed at."""
+    click running one, the key line naming it.  One an act adds is asked whose it is (logins.renewed), then pointed at."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     here, column, top, said = ("sub", 1), None, 0, ""     # column None: as the line opens
-    keys = terminal.keys("esc back")
     while True:
         subs, width = usage_rows(cfg), terminal.layout_width()
         ids = [*(("sub", number) for number in range(1, len(subs) + 1)), ("row", "add")]
@@ -4367,8 +4366,12 @@ def config_subscriptions(cfg, keyboard):
         body.append("")
         places[len(body)] = (("row", "add"), [])
         body.append(terminal.highlight("  + add a subscription", at == ("row", "add")))
+        # an act's word without its glyph: `log in again`
+        keys = terminal.keys("esc back", enter="open" if here[0] == "row" else " ".join(
+            word for word in acts[column][0].split() if word.isalpha()) if acts
+            and column is not None else None)
         act, moved, clicked, top = matrix_key("config · subscriptions", body, places, ids, here,
-                                              top, said, keys, marks=len(acts))
+                                              top, said, keys, marks=0)
         if clicked is not None:
             column = clicked
         elif moved != here:
@@ -4382,7 +4385,8 @@ def config_subscriptions(cfg, keyboard):
         if act in ("left", "right") and acts:
             column = 0 if column is None else min(max(column + (1 if act == "right" else -1), 0),
                                                   len(acts) - 1)
-        elif act in ("enter", "space") and (acts and column is not None or here[0] == "row"):
+        elif (act == "enter" or clicked is not None) and (acts and column is not None
+                                                          or here[0] == "row"):
             def signed(rows):     # a provider's only login is its usual one, listed or not
                 return [(name, account or config.DEFAULT_ACCOUNT) for name, _, _, account in rows]
             before = signed(subs)
@@ -4450,17 +4454,26 @@ def config_page(name, page):
     -- and the note under them, asked again for every draw, drawn as page_body draws them and
     read with `c`'s keys until Esc.
 
-    Enter or a click on a row calls its act.  One that is a list's, (choices, several), opens
-    the list under the row, the highlight on the first choice marked: `choices()` gives (value,
-    pick, marked) each, asked as it opens and again after each pick, so a reading that moves
-    underneath never moves the highlight onto another choice, and Enter or a click on one calls
-    its `pick()`, the list closing unless `several`; Esc closes it.  Any other act is called with
-    `draw`, which draws the page with lines under the row and returns the screen row of the
-    first, as terminal.field takes it.  What a call returns is said under the rows, over the
-    note, until the next key."""
+    A row's act is a mark, ("mark", flip), Space or a click flipping it; a list, (choices,
+    several), Enter or a click opening it under the row, the highlight on the first choice
+    marked; or a field, Enter or a click calling it with `draw`, which draws the page with
+    lines under the row and returns the screen row of the first, as terminal.field takes it.
+    `choices()` gives (value, pick, mark) each, asked as the list opens and again after each
+    pick, so a reading that moves underneath never moves the highlight onto another choice.
+    `mark` is a mark's state, Space or a click calling `pick()` and the list staying open,
+    Enter closing it, first picking the highlighted choice unless `several`; or an act's word,
+    Enter or a click calling `pick()`, "" doing nothing.  Esc closes the list.  What a call
+    returns is said under the rows, over the note, until the next key."""
     here, top, said, opened, title = ("row", 0), 0, "", None, f"config · {name}"
     listed = []                       # the open list's choices, as last asked
-    keys = terminal.keys("esc back")
+
+    def does(row):                    # what Space and Enter do on `row` (terminal.keys)
+        if len(row) == 3:
+            mark = listed[row[2]][2]
+            return ((None, mark) if isinstance(mark, str)
+                    else ("mark", "close" if opened[2] else "pick"))
+        act = rows[row[1]][2]
+        return ("mark", None) if isinstance(act, tuple) and act[0] == "mark" else (None, "open")
     while True:
         rows, note = page()
         if not opened:                # a pick removed the last row: the highlight on the new last
@@ -4472,33 +4485,42 @@ def config_page(name, page):
         # with a list open its choices are what the keys move through, else the rows
         ids = [row for row, label, _ in drawn if (label is None) == bool(opened)]
         body, places = page_body(drawn, None if terminal.away() else here)
-        act, moved, _, top = matrix_key(title, body, places, ids, here, top,
-                                        "\n".join(filter(None, (said, note))), keys)
-        here = moved if moved in ids or act == "enter" else here    # the pointer on a row off-list
+        # a click anywhere on a mark's line acts as Space does (matrix_key's `marks`)
+        places = {line: (row, [(1, terminal.width(), 0)] if does(row)[0] else [])
+                  for line, (row, _) in places.items()}
+        space, enter = does(here)
+        keys = terminal.keys("esc back", space=space, enter=enter)
+        act, moved, clicked, top = matrix_key(title, body, places, ids, here, top,
+                                              "\n".join(filter(None, (said, note))), keys, marks=1)
+        # the pointer on a row off-list, unless it clicked it
+        here = moved if moved in ids or act == "enter" or clicked is not None else here
         if act is None:
             continue                  # a resize or the pointer: drawn again
-        said = ""
+        said, (space, enter) = "", does(here)
         if act == "back":
             if not opened:
                 return
             here, opened = ("row", opened[0]), None
-        elif act not in ("enter", "space"):
+        elif not (act == "space" and space or act == "enter" and enter):
             continue
         elif len(here) == 3:
-            said = listed[here[2]][1]() or ""
-            if opened[2]:
+            if act == "space" or enter != "close":
+                said = listed[here[2]][1]() or ""
+            if act == "enter" and space:
+                here, opened = here[:2], None
+            else:
                 listed = opened[1]()
                 # a login's list asked again can be shorter: the highlight stays on a choice
                 here = (*here[:2], min(here[2], max(0, len(listed) - 1)))
-            else:
-                here, opened = here[:2], None
+        elif space:                   # a mark of the page's own: a list open closes
+            said, opened = rows[here[1]][2][1]() or "", None
         elif isinstance(rows[here[1]][2], tuple):
             opened = (here[1], *rows[here[1]][2])
             listed = opened[1]()
-            here = (*here, next((number for number, (_, _, marked) in enumerate(listed)
-                                 if marked), 0))
+            here = (*here, next((number for number, (_, _, mark) in enumerate(listed)
+                                 if mark is True), 0))
         else:
-            opened, at = None, here[1]
+            opened, at, keys = None, here[1], terminal.keys("esc back")
 
             def draw(lines):          # the page of matrix_key's height that holds the lines
                 rows, note = page()
@@ -4514,7 +4536,7 @@ def config_page(name, page):
 
 
 # What `Models`, `Discord` and `Weekly audit` say under their rows.
-TICKS_NOTE = "Choosing a model under its harness takes it in or out of the config."
+TICKS_NOTE = "Space on a model under its harness takes it in or out of the config."
 DISCORD_NOTE = "A card reads only Needs you · <seat> or Done · <seat>, and mentions you."
 AUDIT_NOTE = "Once a week ak opens a seat named audit with the week's largest loss."
 
@@ -4523,7 +4545,7 @@ def models_page(cfg, keyboard):
     """`Models`: a row per harness the config's providers run on (config.provider_harnesses),
     opening `■` each model the config runs there and `□` each other its catalog offers
     (_offered), or for a harness that logs in to providers (config.provider_hosts) each it runs
-    now, then each of the config's providers it lists with no login (_through_choices).  Enter
+    now, then each of the config's providers it lists with no login (_through_choices).  Space
     takes one out (remove_model), the last model kept, or in: one taken out here as it was, its
     provider's table as the page opened; any other named from its label (_short_name), at its
     harness's first model's effort, else `high`, as near as it goes (_nearest), under that
@@ -4601,12 +4623,12 @@ def models_page(cfg, keyboard):
                 except Back:
                     got.append("not read: esc and open it again")
             if isinstance(got[0], str):
-                return [([(got[0], "dim")], lambda: "", False)]
+                return [([(got[0], "dim")], lambda: "", "")]
             return [([(full, "accent") if on(harness, model["id"]) else (empty, "dim"),
                       (model["label"], None)],
                      lambda model=model, row=row: tick(harness, model, row),
                      bool(on(harness, model["id"]))) if model else
-                    ([(row[1], None), ("log in", "dim")], lambda row=row: log_in(row), False)
+                    ([(row[1], None), ("log in", "dim")], lambda row=row: log_in(row), "log in")
                     for model, row in got[0]]
         return choices, True
 
@@ -4711,10 +4733,10 @@ def audit_write(cfg, key, value):
 
 def config_audit(cfg):
     """`Weekly audit`: whether it runs and the models its seat takes, a row each (config_page),
-    each change written to `[audit]` in config.toml at once (audit_write).  Enter on `On`
-    turns it the other way; on `Orchestrator` it opens every model under it, `●` the one it
-    is, and Enter on one takes it; on `Builds` and `Reviews` every model `■` in that role or
-    `□` not, Enter taking one in or out until Esc."""
+    each change written to `[audit]` in config.toml at once (audit_write).  Space on `On`
+    turns it the other way; Enter on `Orchestrator` opens every model under it, `●` the one it
+    is, Space moving the ● and Enter taking the highlighted one; on `Builds` and `Reviews` every
+    model `■` in that role or `□` not, Space taking one in or out."""
     on, off, full, empty = ("●", "○", "■", "□") if terminal.utf8() else ("*", ".", "#", "-")
 
     def models(key):          # the list a role's row opens
@@ -4736,7 +4758,7 @@ def config_audit(cfg):
         setting, why = audit_shown(cfg)
         return [("On", [(on, "accent"), ("on", None)] if setting["on"]
                  else [(off, "dim"), ("off", None)],
-                 lambda draw: audit_write(cfg, "on", not setting["on"])),
+                 ("mark", lambda: audit_write(cfg, "on", not setting["on"]))),
                 ("Orchestrator", config.model_name(cfg, setting["orchestrator"]),
                  models("orchestrator")),
                 ("Builds", audit_names(cfg, setting["workers"]) or "nobody", models("workers")),
