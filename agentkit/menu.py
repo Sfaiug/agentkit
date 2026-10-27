@@ -4493,8 +4493,9 @@ def config_page(name, page):
         keys = terminal.keys("esc back", space=space, enter=enter)
         act, moved, _, top = matrix_key(title, body, places, ids, here, top,
                                         "\n".join(filter(None, (said, note))), keys, marks=1)
-        # the pointer on a row off-list, unless it clicked it
+        # the pointer on a row off-list, unless it clicked it, which closes an open list
         here = moved if moved in ids or act in ("enter", "space") else here
+        opened = opened if len(here) == 3 else None
         if act is None:
             continue                  # a resize or the pointer: drawn again
         said, (space, enter) = "", does(here)
@@ -4513,8 +4514,8 @@ def config_page(name, page):
                 listed = opened[1]()
                 # a login's list asked again can be shorter: the highlight stays on a choice
                 here = (*here[:2], min(here[2], max(0, len(listed) - 1)))
-        elif space:                   # a mark of the page's own: a list open closes
-            said, opened = rows[here[1]][2][1]() or "", None
+        elif space:                   # a mark of the page's own
+            said = rows[here[1]][2][1]() or ""
         elif isinstance(rows[here[1]][2], tuple):
             opened = (here[1], *rows[here[1]][2])
             listed = opened[1]()
