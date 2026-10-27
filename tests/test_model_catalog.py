@@ -115,13 +115,17 @@ class Catalog(Sandbox):
             ("zeta-1-old", "Zeta 1", "zeta-1-old", "Zeta 1", "Zeta", True, "zeta-1", 8),
             ("zeta-1", "Zeta 1", "zeta-1", "Zeta 1", "Zeta", False, None, 9),
             ("eta-1", "Eta 1", "eta-1", "Eta 1", "Eta", True, None, 3),
-            ("eta-1-low", "Eta 1 (Low)", "eta-1", "Eta 1", "Eta", True, "zeta-1", 2)]
+            ("eta-1-low", "Eta 1 (Low)", "eta-1", "Eta 1", "Eta", True, "zeta-1", 2),
+            ("omega-1-fast", "Omega 1 (Fast)", "omega-1-fast", "Omega 1", "Omega", False, None, 11),
+            ("loop-a-fast", "Loop A (Fast)", "loop-a-fast", "Loop A", "Loop", False, None, 2)]
         with patch(f"{__name__}.RECORDS", records):
             held = boards.collect(now=10000)
         self.assertEqual([release["slug"] for release in catalog.current(held)],
                          ["beta-3", "acme-7", "zeta-1", "delta-1", "gamma-1"])
         self.assertEqual([catalog.successor(held, slug)["slug"] for slug
                           in ("acme-6-5-fast", "zeta-1-old", "eta-1")], ["acme-7", "zeta-1", "zeta-1"])
+        for slug in ("omega-1-fast", "loop-a-fast"):    # a chain ending at none takes them too
+            self.assertIsNone(catalog.successor(held, slug), slug)
 
     def test_a_reading_an_older_build_stored_is_asked_again_once(self):
         boards.collect(now=10000, build="abc1234")
