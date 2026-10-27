@@ -12,7 +12,7 @@ the moment it is pressed, and from a pipe it is a line.
       2  fix-api             fable   ● working     ━━━━╸───────────────── 2 of 9
       3  web-portal          fable   ✓ done
 
-      ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave
+      ↑↓←→ move   ⏎ choose   n new   c config   esc leave
 
 `n` asks for a name, then shows the orchestrator and both roles with the last created session's
 chosen already.
@@ -88,8 +88,9 @@ input leaves, or goes back.
 On a terminal one seat row is highlighted as well: ↑/↓, k/j and the wheel move it, Enter or a
 click opens a seat, and a click on the key line does what its key does (`loop`,
 `terminal.Keyboard`).  `x` is
-the highlighted seat's: a done one is closed at once, and any other is asked about under its row,
-`Keep` or `Stop` -- so the key line says `x close` while a done seat is highlighted.  A stopped
+only in the popup, and only its own seat's, whichever row is highlighted: a done one is closed at
+once, and any other is asked about under its row, `Keep` or `Stop` -- so the key line says
+`x close` while that seat is done.  A stopped
 seat leaves its project for the past screen, `p` (`show_past`): its row there under its project,
 numbered after the live ones, says how long ago it stopped; Enter reopens it where it stopped and
 `x` takes it off at once.  `c` holds
@@ -138,7 +139,7 @@ from . import command_help, config, gitcall, history, matrix, motion, notify, or
 from . import record
 from . import warm
 
-KEYS = "n new   x stop   c config   esc leave"
+KEYS = "n new   c config   esc leave"
 STOP_ASK = "Stop {} and everything it runs?"   # what `x` asks under a seat that is not done
 PAGE_KEYS = "j more   k previous"   # added to the key line when the list runs to more pages
 BORN = " new"            # the name of the row `n` makes: none of a seat's, which holds no space
@@ -1571,7 +1572,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     (`terminal.away`) or the row moves from under it (`terminal.pointer`), and stays closed
     until the pointer or ↑/↓ moves onto a row (`drawn["pointing"]`).
 
-    `x` acts on the highlighted seat, and the key line says `x close` while that seat is done; `p past` is on it while a seat the owner stopped is
+    `p past` is on the key line while a seat the owner stopped is
     offered (`closed` on its row, `orch.ghost`), the past screen's.  `ask` is the seat `x` is
     asking about and the card it
     asks on (`terminal.confirm`): the card is drawn under its row, the rows below moving down,
@@ -1606,8 +1607,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                       order[0] if order else None)      # a seat before any heading
     if past_offered(found):
         keys = keys.replace("c config", "p past   c config", 1)
-    if owned and words.get(cursor) == "done":
-        keys = keys.replace("x stop", "x close", 1)
     asking, card = ask or (None, ())
     asked = list(card) if asking in words else []
     # Seat columns are sized once per draw from every row on screen, so the
@@ -2029,35 +2028,18 @@ def teardown(name, dry_run):
             name, "1" if dry_run else "0"]
 
 
-def stop_session(found, dry_run):
-    """`x` read a line at a time -- a pipe, a file: which seat, then one question, and nothing else;
-    the seat to stop, which the menu stops as the keyboard's `x` does (`Live.stop`), or None.
-
-    With the keyboard `x` is the highlighted seat's instead (`loop`, `close_seat`).  The seat is
-    picked by the number the main screen gives it or by name, among the ones not stopped already
-    -- a stopped one keeps its number for the past screen (`show_past`), where it is removed,
-    and is never asked about here; Esc and an empty Enter go back
-    to the menu, as does anything but `y` to the one question, which says, as the
-    keyboard's card does, that the past screen reopens the seat.
+def stop_session(name, dry_run):
+    """`x` read a line at a time -- a pipe, a file -- in the popup over seat `name`: one question,
+    and nothing else; whether to stop it, which the menu does as the keyboard's `x` does
+    (`Live.stop`).  Anything but `y` goes back to the menu; the question says, as the keyboard's
+    card does, that the past screen reopens the seat.
     """
-    offered = {number: session for number, session in enumerate(found, 1)
-               if not session.get("closed")}
-    if not offered:
-        pause("no session to stop")
-        return
-    terminal.frame("stop")
-    names = [session["name"] for session in offered.values()]
-    choice = terminal.ask("Stop", names[0], names, read=read, numbers=list(offered))
-    if not choice:
-        return
-    session = next(session for session in offered.values() if session["name"] == choice)
     if dry_run:
-        would_stop(session["name"])
-        print(f"would stop {session['name']}")
-        return
+        would_stop(name)
+        print(f"would stop {name}")
+        return False
     terminal.frame("stop", terminal.wrap(stop_means(None), terminal.width()))
-    if read(stop_question(session["name"]), "") == "y":
-        return session["name"]
+    return read(stop_question(name), "") == "y"
 
 
 def open_session(cfg, session, dry_run):
@@ -5314,8 +5296,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
 
     `overlay` is the menu as a tmux popup over a running seat, the same menu with its highlight
     starting on that seat.  A number, `n` and a past session reopened hand this client to a
-    session, and the popup has to come down for it to be seen, so those return, as `x` on the
-    popup's own seat does before the stop ends.  Read a line at a time, `j` and `k` turn the pages of a list
+    session, and the popup has to come down for it to be seen, so those return, as `x`, which
+    stops the popup's own seat alone, does before the stop ends.  Read a line at a time, `j` and `k` turn the pages of a list
     longer than the screen, and a number is answered from whichever page is up.
 
     The main screen is live: the read waits at most TICK seconds, and a wait that ends with
@@ -5352,8 +5334,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     stays on its seat whatever comes or goes above it.  A key that does nothing here is let
     go without a word, `i` among them, and every key that does something gives the terminal back
     before it does it -- but `c`, `n` and `x`'s question, which are read with the keys on
-    the screen the menu has: `x` on a done seat closes it at once and on any other asks `Keep`
-    or `Stop` under its row, Enter or a click answering and Esc keeping it; `p` opens the past
+    the screen the menu has: `x`, in a popup only, closes its own seat at once when done and
+    otherwise asks `Keep` or `Stop` under that seat's row, Enter or a click answering and Esc keeping it; `p` opens the past
     screen (`show_past`) on the same keys, and is a key only while the key line offers it
     (`past_offered`).  Esc, and a click
     on `esc leave`, leaves at once, whatever a thread is doing (`Live.close`); `q` is no key.
@@ -5362,7 +5344,6 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     stdin that never delivers EOF redraws forever instead of finishing.  It leaves `Live`'s
     probe unstarted: its thread calls `usage.collect` after the test's mock is gone.
     """
-    keys = KEYS
     own = config.current_session() if overlay else None     # the seat the popup is over
     cursor = os.environ.pop("AK_MENU_CURSOR", "") or own
     if cursor and cursor.startswith("/"):
@@ -5410,7 +5391,12 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                           {**os.environ, "AK_MENU_CURSOR": str(cursor or "")})
             found, groups = last          # after any notice: what changed under it is drawn as is
             past = past_offered(found)
-            actions = ("n", "x", "c", "p") if past else ("n", "x", "c")
+            # `x` is only the popup's, for its own seat while that has a row: no screen stops
+            # another seat (the owner, 27 Oct 2026)
+            word = {info["name"]: info["word"] for info in groups[1]}.get(own)
+            keys = KEYS if word is None else KEYS.replace(
+                "n new", f"n new   x {'close' if word == 'done' else 'stop'}", 1)
+            actions = ("n", "c") + ("p",) * past + ("x",) * (word is not None)
             drawn = {} if keyboard.take() else None
             listed = (keys if drawn is None else BORN_KEYS if newborn
                       else terminal.keys(keys))
@@ -5530,20 +5516,15 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             if terminal.is_sequence(key):
                 continue          # an arrow key is neither Esc nor a key: draw again, silently
             key = key.lower()
-            if key == "x" and terminal.unseen():
-                continue          # it acts on the highlighted seat: brought back, to be seen first
-            seat = cursor
-            if key == "x" and isinstance(seat, Path):
-                continue          # a heading is no seat to stop
             pointing = False      # the key opens something: the menu back opens no line
-            if key == "x" and drawn is not None and seat in drawn["words"]:
-                # the seat it acts on: a done one closes at once, any other is asked under its row
-                if drawn["words"][seat] != "done":
-                    cursor = seat
-
+            if key == "x" and drawn is not None and word is not None:
+                # the popup's own seat, whichever row is highlighted: a done one closes at once,
+                # any other is asked under its row, highlighted
+                cursor = own
+                if word != "done":
                     # its runs are counted off the draw, so the card is up at once whatever
                     # the disk; one counted within a frame is simply had, a later one drawn in
-                    runs, counted = Fetch(lambda: len(transitions.seat_runs(seat))), [False]
+                    runs, counted = Fetch(lambda: len(transitions.seat_runs(own))), [False]
                     runs.join(motion.FRAME)
 
                     def means():
@@ -5551,17 +5532,15 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                         return stop_means(runs.got.get("answer"))
 
                     def around(card):     # the menu around the card, drawn again on a resize
-                        draw(cfg, found, "esc back", page, cursor, drawn, ask=(seat, card),
+                        draw(cfg, found, "esc back", page, cursor, drawn, ask=(own, card),
                              look=False, groups=groups, clock=clock)
                         return drawn["ask"]
                     if not terminal.confirm(
-                            STOP_ASK.format(seat), means, "Stop", around, wait=lambda: moving(
+                            STOP_ASK.format(own), means, "Stop", around, wait=lambda: moving(
                                 clock, going=None if counted[0] else runs.is_alive)):
                         continue
-                live.stop(seat, dry_run)      # its row gone at once, the stop behind it
-                if seat == own:
-                    return 0                  # its own seat: the popup over it goes first
-                continue
+                live.stop(own, dry_run)      # its row gone at once, the stop behind it
+                return 0                      # the popup over it goes first
             if key == "n" and drawn is not None and cfg:
                 try:
                     newborn = born(found)     # typed where it will be
@@ -5588,12 +5567,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                         return 0
                 except config.Error as exc:
                     pause(f"new session: {exc}")
-            elif key == "x":
-                seat = stop_session(found, dry_run)
-                if seat:
-                    live.stop(seat, dry_run)
-                    if seat == own:
-                        return 0
+            elif key == "x" and word is not None:
+                if stop_session(own, dry_run):
+                    live.stop(own, dry_run)
+                    return 0
             elif key == "c":
                 # the popup's own seat, whichever row is highlighted, and in a window of its own
                 # new seats (the owner, 24 Oct 2026); read with the keys, the looks and probes
