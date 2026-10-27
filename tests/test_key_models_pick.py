@@ -94,20 +94,19 @@ class ModelsPick(unittest.TestCase):
         shown = lines(term.wait("find  MID"))
         at = shown.index("  find  MID▏")
         self.assertEqual(shown[at + 1:at + 5], ["  ■ all 4 models", "  Acme", "›   □ Acme Mid 5", ""])
-        term.keys("BSpace", "BSpace", "BSpace")
-        term.wait(lambda screen: "  find  ▏" in screen)
-        term.type("acme m")           # a space between words finds
-        shown = lines(term.wait("find  acme m▏"))
-        at = shown.index("  find  acme m▏")
-        self.assertEqual(shown[at + 1:at + 6], ["  ■ all 4 models", "  Acme", "›   □ Acme Max 5",
-                                                "    □ Acme Mid 5", ""])
-        self.assertIsNone(self.compare())
-        term.keys("Down", "Space")     # after a move a space marks
+        term.keys("Space")             # straight after a find, as anywhere, a space marks
         term.wait("■ Acme Mid 5")
         self.assertEqual(self.compare(), ["acme-mid-5"])
-        term.keys("Up", "Up", "Space")
+        term.keys("BSpace", "BSpace", "BSpace")
+        term.wait(lambda screen: "  find  ▏" in screen)
+        term.type("acmem")            # letters and digits alone: no find needs a space
+        shown = lines(term.wait("find  acmem▏"))
+        at = shown.index("  find  acmem▏")
+        self.assertEqual(shown[at + 1:at + 6], ["  □ all 4 models", "  Acme", "›   □ Acme Max 5",
+                                                "    ■ Acme Mid 5", ""])
+        term.keys("Up", "Space")
         term.wait("all 4 compared")
-        term.keys("BSpace", "BSpace", "BSpace", "BSpace", "BSpace", "BSpace")
+        term.keys("BSpace", "BSpace", "BSpace", "BSpace", "BSpace")
         shown = lines(term.wait(lambda screen: "  find  ▏" in screen))
         self.assertIn("    □ Crux 2", shown)
 

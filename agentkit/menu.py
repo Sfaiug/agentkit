@@ -3214,17 +3214,18 @@ ALL = ("all",)                    # where the pointer is on `all N models`
 
 def compare_lines(lineup, marks, find):
     """The list `p` picks from: `all N models`, then each maker of a release of `lineup` whose
-    name holds `find`, ignoring case, over those releases, each ■ marked or □ not, `all` ■ with
-    none marked; [(line, where the pointer is on it or None, its maker)].  The makers and their
-    releases stand as `lineup` has them, strongest first (catalog.current)."""
+    name's letters and digits hold `find`'s, ignoring case, over those releases, each ■ marked
+    or □ not, `all` ■ with none marked; [(line, where the pointer is on it or None, its maker)].
+    The makers and their releases stand as `lineup` has them, strongest first (catalog.current)."""
     room, (on, off) = terminal.layout_width(), "■□" if terminal.utf8() else "x."
+    plain = lambda text: "".join(char for char in text.casefold() if char.isalnum())
     makers = {}
     for row in lineup:
         makers.setdefault(row["maker"], {}).setdefault(row["release"], row["name"])
     lines = [(f"  {off if marks else on} all {sum(map(len, makers.values()))} models", ALL, None)]
     for maker, releases in makers.items():
         found = [(slug, name) for slug, name in releases.items()
-                 if find.casefold() in name.casefold()]
+                 if plain(find) in plain(name)]
         lines += [(f"  {terminal.cut(maker, room - 2)}", None, maker)] if found else []
         lines += [(f"    {on if slug in marks else off} {terminal.cut(name, room - 6)}", slug,
                    maker) for slug, name in found]
@@ -3243,10 +3244,9 @@ def compare_screen(cfg, title, lineup):
     """`p` on the models screen: the releases its answer compares, marked on `compare_lines`
     until Esc.  Space, or a click, marks or unmarks the pointed release, and on `all` clears
     every mark; each change is saved at once as `compare` (matrix.compared reads it).  What
-    is typed goes into `find`, a space only typed on from a word and where a name holds it, and
-    backspace takes it out; the list scrolls with the pointer."""
+    else is typed goes into `find`, whose letters and digits alone a name must hold, so no find
+    needs a space, and backspace takes it out; the list scrolls with the pointer."""
     current, find, here, top, note = {row["release"] for row in lineup}, "", ALL, 0, ""
-    typing = False                # since the last character typed, no key but backspace
     while True:
         marks = matrix.compared(cfg, current) or set()
         lines = compare_lines(lineup, marks, find)
@@ -3285,13 +3285,7 @@ def compare_screen(cfg, title, lineup):
             here = spot.what
         if key.name in ("esc", "eof") or key.name == "click" and spot.cell == "esc":
             return
-        # a space typed on from a word finds where a name holds it, as between words; after a
-        # move, or where no name does, it marks
-        typing = typing and key.name in ("space", "backspace") or key.name == "char"
-        if key.name == "space" and typing and find and any(
-                f"{find} ".casefold() in line.casefold() for line, what, _ in lines if what):
-            find, here, top = find + " ", None, 0
-        elif key.name == "space" or key.name == "click" and spot.what is not None:
+        if key.name == "space" or key.name == "click" and spot.what is not None:
             before = copy.deepcopy(cfg)
             marks = set() if here == ALL else marks ^ {here}
             if marks:
