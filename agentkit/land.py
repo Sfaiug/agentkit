@@ -785,6 +785,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                               evidence.get("code"))
 
             def answer_tree(index, checks, check, failed=None):
+                nonlocal short
                 answer = check.result()
                 if failed is not None:
                     passed_alone[index, failed] = "land" in answer
@@ -794,7 +795,6 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     checks = commands(index)
                 tree, own = stacks[index][3:]
                 if not answer:      # the host's red (`_check_tree`): this pass ends
-                    nonlocal short
                     short = True
                 elif "land" in answer:
                     cover(index, checks, tree)
