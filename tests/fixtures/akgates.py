@@ -5,7 +5,8 @@ then the fresh-install tests/e2e-fresh.sh, each run with bash.  Those are real m
 which no test may start.  `Gates(home)` puts a `bash` first on the program's PATH that answers
 for any of the three named among its arguments -- these two and the landing suite's
 tests/smoke.sh, which an upgrade never runs -- with the exit status the test set (0 unless set),
-writing the failed check labels it set to $AK_LIVE_FAILED as tests/acceptance.sh does, and runs
+printing a `FAIL` line for each failed check label it set and writing the label to
+$AK_LIVE_FAILED, as tests/acceptance.sh does, and runs
 everything else as the real bash.  It keeps each gate it answered, in order, with whether
 AGENTKIT_ACCEPTANCE_REQUIRED was 1 for it.
 
@@ -35,6 +36,7 @@ for arg do
       [ -f {dir}/"$answer".exit ] || answer=$gate
       code=$(cat {dir}/"$answer".exit 2>/dev/null || echo 0)
       [ -z "${{AK_LIVE_FAILED:-}}" ] || cat {dir}/"$answer".failed >>"$AK_LIVE_FAILED" 2>/dev/null
+      sed 's/^/FAIL  /' {dir}/"$answer".failed 2>/dev/null
       echo "$gate stand-in: exit $code"
       exit "$code" ;;
   esac

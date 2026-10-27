@@ -378,19 +378,11 @@ def fresh_gate(fh, log):
         return False, f"skipped: {why}"
     e2e = config.REPO / "tests" / "e2e-fresh.sh"
     log(f"update: running {e2e.name}, the fresh-install gate")
-    try:
-        mark = os.fstat(fh.fileno()).st_size
-    except OSError:
-        mark = 0
+    mark = _end(fh)
     if step(["bash", str(e2e)], fh, {"AGENTKIT_ACCEPTANCE_REQUIRED": "1",
                                      "AK_LIVE_FAILED": str(_failed_path(fh))}, timeout=E2E_CAP):
         return True, "passed (throwaway HOME with borrowed logins; clean host and interactive logins not exercised)"
-    try:
-        with open(fh.name, "rb") as gate_log:
-            gate_log.seek(mark)
-            text = gate_log.read().decode("utf-8", "replace")
-    except OSError:
-        text = ""
+    text = _since(fh, mark)
     if "acceptance:" not in text and "[exit 2]" in text:
         reason = ""
         for line in text.splitlines():
@@ -400,18 +392,38 @@ def fresh_gate(fh, log):
     return False, "failed"
 
 
+def _end(fh):
+    """Where the log `fh` ends now: its gates write to it straight, not through `fh`."""
+    try:
+        return os.fstat(fh.fileno()).st_size
+    except OSError:
+        return 0
+
+
+def _since(fh, mark):
+    """What was written to the log `fh` from `mark` on."""
+    try:
+        with open(fh.name, "rb") as gate_log:
+            gate_log.seek(mark)
+            return gate_log.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+
 def _failed_path(fh):
     """Where a gate logging to `fh` puts the labels of the checks it failed (tests/acceptance.sh)."""
     return Path(f"{fh.name}.failed")
 
 
 def run_gate(key, fh):
-    """Run gate `key` ("live" or "fresh") on the box as it stands: (passed, failed labels, why).
+    """Run gate `key` ("live" or "fresh") on the box as it stands: (passed, failed labels,
+    its own `FAIL` lines, why).
 
     A fresh-install gate that cannot run on this host is skipped, which passes.
     """
     failed = _failed_path(fh)
     failed.unlink(missing_ok=True)
+    mark = _end(fh)
     if key == "live":
         passed = step(["bash", str(live_gate())], fh,
                       {"AGENTKIT_ACCEPTANCE_REQUIRED": "1", "AK_LIVE_FAILED": str(failed)},
@@ -425,7 +437,7 @@ def run_gate(key, fh):
         failed.unlink()
     except (OSError, UnicodeError):
         labels = set()
-    return passed, labels, why
+    return passed, labels, _fail_titles(_since(fh, mark)), why
 
 
 def report(landed, out):
@@ -1097,9 +1109,9 @@ def _contender(state, seat, since, resolved=None):
                             == gitcall.owner_name(_git("remote", "get-url", "origin")[1]))
 
 
-def harness_gate_result(plan, passed, gate, log_path, broken=()):
+def harness_gate_result(plan, passed, gate, log_path, titles=()):
     """A gate pass clears each harness's episode; its second red keeps one hand-back, naming the
-    checks the new release `broken`, or each failed check of the log where the gate named none.
+    failed checks' `titles` the red is the harness's for.
 
     The upgrade lock also protects these records while the tick delivers them.
     Installer failures never reach here: only an actual gate outcome counts.
@@ -1116,7 +1128,7 @@ def harness_gate_result(plan, passed, gate, log_path, broken=()):
         if record["reds"] == 2:
             record.update(line=_fitted(
                 f"The {harness['name']} harness upgrade failed its gate twice in a row ({gate})",
-                list(broken) or _fail_titles(log_path.read_text(errors="replace")),
+                list(titles),
                 f"Log: {config.tilde(log_path)}. Fix the harness upgrade gate."),
                 typed=None, told=False)
         check.mkdir(parents=True, exist_ok=True)
@@ -1462,27 +1474,29 @@ def upgrade(plan, before):
             f"running {live.name}")
         # A red gate runs again on the release before: the checks that fail there too are
         # agentkit's own, never the harness's red, and the release the gate tested goes back in.
-        red, broken, outcome = "", [], {}
+        # The hand-back names only the checks the red is the harness's for: never ones failing
+        # on the release before too, nor another gate's.
+        red, titles, outcome = "", [], {}
         for key in ("live", "fresh"):
-            passed, failed, outcome[key] = run_gate(key, fh)
+            passed, failed, titles, outcome[key] = run_gate(key, fh)
             if passed:
                 continue
             why = outcome[key]
             red = "live" if key == "live" else f"the fresh-install gate ({why})"
             landed = revert(plan, before, after, fh, say, snapshot, attempted)
-            broken = sorted(failed)
+            own = ", ".join(sorted(failed))
             if not failed or any(state == "cannot revert" for state, _ in landed.values()):
+                titles = sorted(failed) or titles
                 break
             reverted = [h for h in plan if landed[h["name"]][0] == "reverted"]
             if reverted:    # with none, the box it failed on is the release before
-                say(f"update: {red} failed {', '.join(broken)}; running it on the release before")
-                broken = sorted(failed - run_gate(key, fh)[1])
-            if broken:
-                break
-            own = ", ".join(sorted(failed))
+                say(f"update: {red} failed {own}; running it on the release before")
+                titles = sorted(failed - run_gate(key, fh)[1])
+                if titles:
+                    break
+                say(f"update: {red} failed {own} on the release before too: "
+                    "agentkit's own checks; installing the release it tested again")
             outcome[key] = f"failed only agentkit's own checks ({own})"
-            say(f"update: {red} failed {own} on the release before too: "
-                "agentkit's own checks; installing the release it tested again")
             ok = True
             for harness in reverted:
                 name = harness["name"]
@@ -1501,6 +1515,7 @@ def upgrade(plan, before):
             if not ok or again != after:
                 red += (", and its release did not install again: "
                         f"{', '.join(moved(after, again)) or 'the reinstall failed'}")
+                titles = []     # every check it failed was agentkit's; the red is the reinstall
                 landed = revert(plan, before, again, fh, say, snapshot, attempted)
                 break
             red = ""
@@ -1521,7 +1536,7 @@ def upgrade(plan, before):
     print(f"update: {red} FAILED after {', '.join(changed) if changed else 'no change'} "
           f"-- see {log_path}", file=sys.stderr)
     report(landed, sys.stderr)
-    harness_gate_result(plan, False, red, log_path, broken)
+    harness_gate_result(plan, False, red, log_path, titles)
     return 1
 
 

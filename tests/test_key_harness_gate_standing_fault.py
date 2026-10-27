@@ -77,13 +77,38 @@ class StandingFault(unittest.TestCase):
                                    r"\(d, d2\)")
             self.assertIsNone(self.handed())
 
+    def test_checks_failing_where_nothing_moved_are_agentkits_with_no_rerun(self):
+        (self.home.root / "installed").write_text(f"{NEW} (Claude Code)\n")
+        self.gates.exit("live", 1, ["d"])
+        for _ in range(2):
+            code, said = self.update()
+            self.assertEqual(code, 0, said)
+            self.assertIsNone(self.handed())
+        self.assertEqual(self.gates.ran(), ["live", *LATER] * 2)
+
+    def red_twice(self, then):
+        """Two reds in a row, each after live failed `d` on both releases and `then` made the
+        red: the hand-back line, which names none of the checks agentkit's own."""
+        for _ in range(2):
+            (self.home.root / "installed").write_text(f"{OLD} (Claude Code)\n")
+            (self.home.root / "channel").write_text(f"{NEW}\n")
+            self.live(["d"], ["d"])
+            then()
+            code, said = self.update()
+            self.assertEqual(code, 1, said)
+            self.assertEqual(self.release(), OLD)
+        return self.handed()["line"]
+
     def test_a_channel_that_moved_since_the_gate_is_a_red(self):
-        (self.home.root / "moves").touch()
-        self.live(["d"], ["d"])
-        code, said = self.update()
-        self.assertEqual(code, 1, said)
-        self.assertEqual(self.release(), OLD)
+        line = self.red_twice((self.home.root / "moves").touch)
         self.assertEqual(self.gates.ran(), ["live", "live"])
+        self.assertIn(f"{NEW} (Claude Code)->{NEWER} (Claude Code)). Log:", line)
+
+    @unittest.skipUnless(LATER, "the fresh-install gate runs only on Linux")
+    def test_a_later_red_naming_no_check_names_none_of_agentkits(self):
+        line = self.red_twice(lambda: self.gates.exit("e2e-fresh", 1))
+        self.assertEqual(self.gates.ran(), ["live", "live", "e2e-fresh"])
+        self.assertIn("twice in a row (the fresh-install gate (failed)). Log:", line)
 
     def test_a_check_passing_on_the_old_release_puts_it_back_and_is_named(self):
         for _ in range(2):

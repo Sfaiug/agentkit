@@ -53,7 +53,7 @@ class TypedLineFitsComposer(Sandbox):
                 path.write_text(log)
                 plan = [{"name": f"acme{count}"}]
                 for _ in range(2):
-                    update.harness_gate_result(plan, False, "live", path)
+                    update.harness_gate_result(plan, False, "live", path, titles)
                 line = update._handed(config.STATE / update.HARNESS_GATES / f"acme{count}")["line"]
                 self.assertIn(f"acme{count} harness upgrade", line)
                 named = self.assertFits(line, titles, path)
