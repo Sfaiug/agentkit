@@ -3,8 +3,9 @@
 Each of the board's rows keeps its record's identity beside its numbers; `catalog.current` gives
 the releases none of whose rows is deprecated, strongest first, each with its efforts, the
 default one and each one's numbers, and `catalog.successor` follows a release's `deprecatedTo` chain to the current
-release it ends at.  A reading an older build stored, its rows carrying no identity, is asked
-again once by this build, and until then nothing is current.
+release it ends at.  A series, one maker's releases of one release name, whose deprecated releases
+name a successor takes its current variants along.  A reading an older build stored, its rows
+carrying no identity, is asked again once by this build, and until then nothing is current.
 
 Offline: the board's pages are handed in through `boards.fetch_bytes`, the other boards refuse,
 and a throwaway HOME holds the cache.  The models are invented.
@@ -108,6 +109,59 @@ class Catalog(Sandbox):
         self.assertEqual(catalog.successor(held, "beta-2"), catalog.current(held)[0])
         for slug in ("omega-1", "omega-0", "loop-a", "nowhere", "acme-7-low"):
             self.assertIsNone(successor(slug), slug)
+
+    def test_a_series_goes_for_the_successor_a_deprecated_release_of_it_names(self):
+        series = [      # a series: one maker's releases of one release name
+            # Acme 6.5's chain leaves it for Acme 7, and takes its variant along, with the
+            # release Acme 5 replaced by that variant; a retired Acme 7 preview names none
+            ("acme-6-5-fast", "Acme 6.5 (Fast)", "acme-6-5-fast", "Acme 6.5", "Acme", False, None, 44),
+            ("acme-5", "Acme 5", "acme-5", "Acme 5", "Acme", True, "acme-6-5-fast", 30),
+            ("acme-7-preview", "Acme 7 (Preview)", "acme-7-preview", "Acme 7", "Acme", True, None, 55),
+            # one row naming the successor is enough, whichever row comes first
+            ("kappa-6-max", "Kappa 6 (Max)", "kappa-6", "Kappa 6", "Kappa", True, None, 21),
+            ("kappa-6", "Kappa 6 (High)", "kappa-6", "Kappa 6", "Kappa", True, "kappa-7", 20),
+            ("kappa-6-blue", "Kappa 6 (Blue, max)", "kappa-6-blue", "Kappa 6", "Kappa", False, None, None),
+            ("kappa-7", "Kappa 7", "kappa-7", "Kappa 7", "Kappa", False, None, 25),
+            # a successor named inside the series stays, and takes its siblings
+            ("zeta-1-old", "Zeta 1", "zeta-1-old", "Zeta 1", "Zeta", True, "zeta-1", 8),
+            ("zeta-1", "Zeta 1", "zeta-1", "Zeta 1", "Zeta", False, None, 9),
+            ("zeta-1-fast", "Zeta 1 (Fast)", "zeta-1-fast", "Zeta 1", "Zeta", False, None, 7),
+            # but not once another of its releases leads outside it
+            ("nu-6-early", "Nu 6 (Early)", "nu-6-early", "Nu 6", "Nu", True, "nu-6-fast", 11),
+            ("nu-6", "Nu 6", "nu-6", "Nu 6", "Nu", True, "nu-7", 12),
+            ("nu-6-fast", "Nu 6 (Fast)", "nu-6-fast", "Nu 6", "Nu", False, None, 13),
+            ("nu-7", "Nu 7", "nu-7", "Nu 7", "Nu", False, None, 14),
+            # chains ending nowhere and successors that disagree take their series with no successor
+            ("omega-1-fast", "Omega 1 (Fast)", "omega-1-fast", "Omega 1", "Omega", False, None, 6),
+            ("loop-a-fast", "Loop A (Fast)", "loop-a-fast", "Loop A", "Loop", False, None, 2),
+            ("xi-1-a", "Xi 1 (A)", "xi-1-a", "Xi 1", "Xi", True, "xi-2", 3),
+            ("xi-1-b", "Xi 1 (B)", "xi-1-b", "Xi 1", "Xi", True, "xi-3", 3),
+            ("xi-1-fast", "Xi 1 (Fast)", "xi-1-fast", "Xi 1", "Xi", False, None, 3),
+            ("xi-2", "Xi 2", "xi-2", "Xi 2", "Xi", False, None, 4),
+            ("xi-3", "Xi 3", "xi-3", "Xi 3", "Xi", False, None, 5),
+            # a series naming no successor stays as it is: the board shows a retired model
+            # beside its variant as it shows a retired preview beside its model
+            ("omega-0-fast", "Omega 0 (Fast)", "omega-0-fast", "Omega 0", "Omega", False, None, 6),
+            # another maker's release of the same name is another series
+            ("acme-nova-1", "Nova 1", "acme-nova-1", "Nova 1", "Acme", True, "acme-nova-2", 16),
+            ("acme-nova-2", "Nova 2", "acme-nova-2", "Nova 2", "Acme", False, None, 18),
+            ("beta-nova-1", "Nova 1", "beta-nova-1", "Nova 1", "Beta", False, None, 17)]
+        for records in (RECORDS + series, RECORDS + series[::-1]):
+            with patch(f"{__name__}.RECORDS", records):
+                held = boards.collect(refresh=True, now=10000)
+            self.assertEqual([release["slug"] for release in catalog.current(held)], [
+                "beta-3", "acme-7", "kappa-7", "acme-nova-2", "beta-nova-1", "nu-7", "zeta-1",
+                "omega-0-fast", "xi-3", "xi-2", "delta-1", "gamma-1"])
+            successors = {slug: (catalog.successor(held, slug) or {}).get("slug") for slug in (
+                "acme-6-5-fast", "acme-5", "acme-7-preview", "kappa-6", "kappa-6-blue",
+                "zeta-1-old", "zeta-1-fast", "nu-6-early", "nu-6-fast", "omega-1-fast",
+                "loop-a-fast", "xi-1-fast", "omega-0-fast", "beta-nova-1")}
+            self.assertEqual(successors, {
+                "acme-6-5-fast": "acme-7", "acme-5": "acme-7", "acme-7-preview": None,
+                "kappa-6": "kappa-7", "kappa-6-blue": "kappa-7", "zeta-1-old": "zeta-1",
+                "zeta-1-fast": "zeta-1", "nu-6-early": "nu-7", "nu-6-fast": "nu-7",
+                "omega-1-fast": None, "loop-a-fast": None, "xi-1-fast": None,
+                "omega-0-fast": "omega-0-fast", "beta-nova-1": "beta-nova-1"})
 
     def test_a_reading_an_older_build_stored_is_asked_again_once(self):
         boards.collect(now=10000, build="abc1234")
