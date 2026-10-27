@@ -46,7 +46,7 @@ class SeatEffortSteps(Sandbox):
 
     def test_r_keeps_a_key_saved_since_and_the_screen_holds_what_it_saved(self):
         note = menu.take_advice(self.cfg, "fix-api", self.selected, {},
-                                {"execute": ("Opus 5.5 @ max", "opus", "max")})
+                                {"execute": ("opus", "max")})
         self.assertEqual(note, "")
         self.assertEqual(self.held()["opus"],
                          {"effort": "xhigh", "review_effort": "high", "exec_effort": "max"})

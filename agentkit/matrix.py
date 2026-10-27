@@ -188,8 +188,8 @@ def lineup(boards, offers):
     releases = catalog.current(boards)
     index = {}
     for release in releases:
-        # the name first: `found` reads the first hit's for a bracketed qualifier
-        for name in (release["name"], release["slug"]):
+        # the name first: `found` reads the first hit's for a bracketed qualifier; either may lack
+        for name in filter(None, (release["name"], release["slug"])):
             index.setdefault(normal(name), []).append({"model": name, "release": release})
     yours = {}
     for harness, models in offers.items():
@@ -490,7 +490,8 @@ def cell(found):
 
 def stored():
     """The matrix as last computed, {"computed_at", "config", "harnesses", "build", "bests",
-    "rows"}, or {}, its rows scored afresh against the boards' bests it saved: the catalogs `rows`
+    "rows", "lineup", "fetched_at"} (`lineup` over the boards and harnesses it read, the newest
+    board's `fetched_at`), or {}, its rows scored afresh against the boards' bests it saved: the catalogs `rows`
     asks are what the file saves, and scoring is cheap, so a scoring rule changed since the
     matrix was computed holds at once."""
     held = _held().get("matrix") or {}
@@ -515,22 +516,25 @@ def refresh(cfg, *, refresh=False, now=None):
     that landed holds at the next reading, not a day later), since the harness catalogs it asks
     take time.  Asked as the models screen opens and by `ak models`, never the tick: the owner
     wants the assessment as a feature opened, not a process running all day (22 Oct 2026).
-    Returns (boards, the scored rows); `recommended` reads off the rows."""
+    The lineup (`lineup`) is computed and stored with them, so the models screen reads it and
+    asks no catalog.  Returns (boards, the scored rows); `recommended` reads off the rows."""
     from . import update        # here, not at the top: update reaches this module through orch
     now = time.time() if now is None else now
     harnesses, build = present(), update.agentkit_version()
     boards = collect(refresh=refresh, now=now, needs=needed(), build=build)
     held = stored()
     fetched = max((board.get("fetched_at") or 0 for board in boards.values()), default=0)
-    if (held.get("rows") is not None and held.get("computed_at", -1) >= fetched
+    if (held.get("lineup") is not None and held.get("computed_at", -1) >= fetched
             and held.get("config") == config_key(cfg) and held.get("harnesses") == harnesses
             and held.get("build") == build):
         return boards, held["rows"]
     best = bests(boards)
     table = scored(rows(cfg, boards, harnesses), best)
+    offers = {harness: config.catalog(harness, cfg) for harness in harnesses}
     with _locked():
         _write({"matrix": {"computed_at": now, "config": config_key(cfg), "harnesses": harnesses,
-                           "build": build, "bests": best, "rows": table}})
+                           "build": build, "bests": best, "rows": table,
+                           "lineup": lineup(boards, offers), "fetched_at": fetched}})
     return boards, table
 
 
