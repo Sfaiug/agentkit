@@ -94,20 +94,20 @@ class AuditSetting(unittest.TestCase):
         return tomllib.loads(self.path.read_text()).get("audit")
 
     def test_each_row_writes_its_key_at_once_keeping_the_rest(self):
-        self.page("enter")                                   # On: off
+        self.page("space")                                   # On: off
         self.assertEqual(self.table(), {"on": False})
         # Orchestrator's list opens on the one it is, opus: fable is the one over it
         self.page("down", "enter", "up", "enter")
         self.assertEqual(self.table(), {"on": False, "orchestrator": "fable"})
-        # Reviews' opens on the first reviewer; Enter takes it out, and the list stays open
-        frames = self.page("down", "down", "down", "enter", "enter", "down", "down", "enter")
+        # Reviews' opens on the first reviewer; Space takes it out, and the list stays open
+        frames = self.page("down", "down", "down", "enter", "space", "down", "down", "space")
         self.assertEqual(self.table(), {"on": False, "orchestrator": "fable",
                                         "reviewers": ["astra", "spark"]})
         self.assertIn("    □ Opus 5.5", frames[-2])       # the last key's frame, before the Esc
         self.assertIn("›   ■ muse-spark-1.3-contributor", frames[-2])
         self.assertEqual(oct(self.path.stat().st_mode & 0o777), "0o600")
         # both builders out: the orchestrator builds alone
-        frames = self.page("down", "down", "enter", "enter", "down", "enter")
+        frames = self.page("down", "down", "enter", "space", "down", "space")
         self.assertEqual(self.table()["workers"], [])
         self.assertIn("› Builds        nobody", frames[-1])     # Esc: its row lit again
         self.assertEqual(config.audit(config.load()), {
@@ -122,7 +122,7 @@ class AuditSetting(unittest.TestCase):
         self.assertEqual(self.path.read_text(), before)
         self.write('reviewers = ["astra"]\n')
         before = self.path.read_text()
-        frames = self.page("down", "down", "down", "enter", "enter")   # the last reviewer out
+        frames = self.page("down", "down", "down", "enter", "space")   # the last reviewer out
         said = " ".join(" ".join(frames[-2]).split())
         self.assertIn("weekly audit: ~/.agentkit/config.toml: [audit].reviewers must name a model",
                       said)
@@ -135,12 +135,12 @@ class AuditSetting(unittest.TestCase):
         self.assertIn("unknown model 'nova'", said)
         self.assertIn("On ○ off", said)                     # what reads is shown as it reads
         self.assertIn("Orchestrator Opus 5.5", said)
-        self.page("down", "down", "enter", "down", "enter")   # astra out of the builders
+        self.page("down", "down", "enter", "down", "space")   # astra out of the builders
         self.assertEqual(self.table(), {"on": False, "workers": ["opus"]})
         # an [audit] that is not a table has nothing to keep
         self.path.write_text('audit = "broken"\n' + (REPO / config.DEFAULT_CONFIG_NAME).read_text())
         self.assertIn("[audit] must be a table", menu.audit_value(config.load()))
-        self.page("enter")
+        self.page("space")
         self.assertEqual(self.table(), {"on": False})
 
     def test_a_long_name_wraps_on_the_row_and_the_page_never_cut(self):
