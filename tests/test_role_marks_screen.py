@@ -112,13 +112,16 @@ class RoleMarks(Sandbox):
 
     def test_ascii_and_phone_keep_three_columns_and_click_targets(self):
         selected = {"orchestrator": "opus", "workers": ["opus"], "reviewers": ["astra"]}
-        notes = {name: "" for name in config.offered(self.cfg)}
-        with patch.object(terminal, "utf8", return_value=False):
-            lines, rows, cells = orch.picker_lines(self.cfg, notes, selected, 1, 2, 40)
+        second = ("model", config.offered(self.cfg)[1])
+        with patch.object(terminal, "utf8", return_value=False), \
+                patch.object(terminal, "layout_width", return_value=40):
+            lines, places = menu.config_body(self.cfg, second, 2, selected, rows=())
         self.assertEqual(lines[0].split(), ["orch", "builds", "reviews"])
         self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
-        self.assertTrue(all([cell[2] for cell in own] == [0, 1, 2] for own in cells))
-        self.assertIn("[.]", lines[rows[1].start])
+        self.assertTrue(all({0, 1, 2} <= {cell[2] for cell in cells}
+                            for _, cells in places.values()))
+        self.assertIn("[.]", next(lines[line] for line, (row, _) in places.items()
+                                  if row == second))
 
     def test_new_session_and_config_share_model_names_and_harness_headings(self):
         self.cfg["models"]["gpt-sol"] = {**self.cfg["models"]["astra"], "model": "gpt-6.1-sol"}
@@ -127,41 +130,38 @@ class RoleMarks(Sandbox):
         names = config.offered(self.cfg)
         selected = {"orchestrator": "opus", "workers": ["opus"], "reviewers": ["astra"]}
         with patch.object(terminal, "layout_width", return_value=80):
-            picker, rows, _ = orch.picker_lines(self.cfg, dict.fromkeys(names, ""), selected,
-                                               None, 0, 80)
-            matrix, places = menu.config_body(self.cfg, selected=selected)
+            matrix, places = menu.config_body(self.cfg, selected=selected, rows=())
         full = [config.model_name(self.cfg, name) for name in names]     # each by its full name
-        self.assertEqual([terminal.ANSI.sub("", picker[row.start]).strip().split("  ")[0]
-                          for row in rows], full)
         self.assertEqual([terminal.ANSI.sub("", matrix[line]).strip().split("  ")[0]
                           for line, (hit, _) in places.items() if hit[0] == "model"], full)
-        headings = [[terminal.plain(line) for line in body
-                     if line and not terminal.ANSI.sub("", line).startswith(" ")]
-                    for body in (picker, matrix)]
-        self.assertEqual(headings[0], headings[1])
+        headings = [terminal.plain(line) for line in matrix
+                    if line and not terminal.ANSI.sub("", line).startswith(" ")]
         # Acme Cloud's model under Claude Code, the harness that runs it
-        self.assertEqual(headings[0], ["Claude Code", "Codex", "Muse Code", "Grok Build", "Antigravity", "OpenCode"])
+        self.assertEqual(headings, ["Claude Code", "Codex", "Muse Code", "Grok Build", "Antigravity", "OpenCode"])
 
     def test_click_chooses_its_column_instead_of_the_previous_column(self):
         selected = {"orchestrator": "opus", "workers": ["opus", "astra"],
                     "reviewers": ["opus", "astra"]}
-        notes = {name: "" for name in config.offered(self.cfg)}
-        names = list(notes)
-        with patch.object(terminal, "layout_width", return_value=80):
-            _, rows, cells = orch.picker_lines(self.cfg, notes, selected, 1, 0, 80)
+        with patch.object(terminal, "layout_width", return_value=80), \
+                patch.object(menu, "config_meters", return_value=([], {})):
+            _, places = menu.config_body(self.cfg, selected=selected, rows=())
             for name, column, before, expected in (
-                    ("fable", 0, 2, ("fable", ["opus", "astra"], ["opus", "astra"], False)),
-                    ("opus", 1, 0, ("opus", ["astra"], ["opus", "astra"], False)),
-                    ("astra", 2, 0, ("opus", ["opus", "astra"], ["opus"], False))):
+                    ("fable", 0, 2, ("fable", ["opus", "astra"], ["opus", "astra"])),
+                    ("opus", 1, 0, ("opus", ["astra"], ["opus", "astra"])),
+                    ("astra", 2, 0, ("opus", ["opus", "astra"], ["opus"]))):
+                line, cells = next((line, cells) for line, (row, cells) in places.items()
+                                   if row == ("model", name))
                 for edge in (0, 1):     # the whole column is clickable, including its padding
-                    at = names.index(name)
-                    click = terminal.Key("click", col=cells[at][column][edge],
-                                         row=rows[at].start + 3)
+                    click = terminal.Key("click", row=line + 3, col=next(
+                        cell[edge] for cell in cells if cell[2] == column))
                     keys = [*[terminal.Key("right")] * before, click, terminal.Key("esc")]
+                    picked = copy.deepcopy(selected)
                     with self.subTest(column=column, edge=edge), \
                             patch.object(terminal, "read_key", side_effect=keys), \
                             redirect_stdout(io.StringIO()):
-                        self.assertEqual(orch._picking(self.cfg, {}, notes, selected), expected)
+                        self.assertFalse(menu.config_matrix(self.cfg, None, "abc1234",
+                                                            selected=picked, born=True))
+                    self.assertEqual(tuple(picked.values()), expected)
 
     def test_an_empty_role_falls_back_to_an_allowed_fresh_pair(self):
         for workers, reviewers, expected in (
@@ -185,23 +185,22 @@ class RoleMarks(Sandbox):
                           "spent" if name == "opus" else ""), \
                 patch.object(terminal, "read_key", side_effect=[terminal.Key("esc")]), \
                 redirect_stdout(io.StringIO()):
-            self.assertFalse(menu.born_models(born))
+            self.assertFalse(menu.born_models(born, None))
         self.assertEqual(born["selected"], picked)
 
 
 class RoleMarksScreen(unittest.TestCase):
-    def test_scrolling_keeps_headings_and_clicks_use_the_scrolled_row(self):
+    def test_scrolling_reaches_the_last_model_and_clicks_use_the_scrolled_row(self):
         screen = Screen(self, rows=12, cols=40)
         screen.menu()
         screen.models()
         screen.picker()
         screen.send(DOWN * 20)
         lines = screen.picker(lambda lines: "MiMo" in highlighted(lines))
-        self.assertEqual(lines[2].split(), ["orch", "builds", "reviews"])
-        self.assertLessEqual(len(lines), 11)
+        self.assertLessEqual(len(lines), 12)
         self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
         row = lines.index(highlighted(lines)) + 1
-        col = lines[2].index("review") + 3
+        col = [at for at, char in enumerate(highlighted(lines)) if marks(char)][2] + 1
         # `esc back` where the key line draws it: once the mark is clicked the pointer rests on
         # it, and the key line says what that mark is
         back = next((number, line.index("esc back") + 1) for number, line in enumerate(lines, 1)
@@ -245,17 +244,17 @@ class RoleMarksScreen(unittest.TestCase):
         screen = Screen(self, reviewers=["astra"])
         screen.menu()
         screen.models()
-        lines = screen.picker()
-        self.assertEqual(marks(highlighted(lines)), "●■□")
-        screen.send(RIGHT * 2 + SPACE)          # Opus joins reviewers
+        screen.picker()
+        screen.send(DOWN + RIGHT * 4 + SPACE)   # past Opus's efforts: Opus joins reviewers
         lines = screen.picker(lambda lines: marks(highlighted(lines)) == "●■■")
         number = next(number for number, line in enumerate(lines, 1) if "GPT-6-Astra" in line)
-        col = lines[2].index("review") + 5
-        screen.send(LEFT * 2)                  # the click must move from orch to review
+        col = lines[2].index("review") + 2
+        screen.send(LEFT * 4)                  # the click must move from orch to review
         screen.send(f"\x1b[<0;{col};{number}M\x1b[<0;{col};{number}m".encode())
         screen.picker(lambda lines: "GPT-6-Astra" in highlighted(lines)
                       and marks(highlighted(lines)) == "○■□")
-        screen.send(LEFT + SPACE)              # Opus reviewing itself could start, so it goes
+        screen.send(LEFT * 2 + SPACE)          # past its build effort: Opus reviewing itself could
+                                               # start, so it goes
         lines = screen.picker(lambda lines: "GPT-6-Astra" in highlighted(lines)
                               and marks(highlighted(lines)) == "○□□")
         self.assertFalse(any("no allowed" in line for line in lines))

@@ -55,7 +55,7 @@ class EnterStarts(unittest.TestCase):
         self.assertEqual(self.screen.rstrip("\n").split("\n")[-1].rstrip(), PICKER_KEYS)
 
     def test_space_marks_and_enter_starts_with_that_mark(self):
-        self.menu.keys("Right", "Down", "Space")    # astra no longer builds
+        self.menu.keys("Down", "Right", "Space")    # astra no longer builds
         self.menu.wait("[□]")
         self.menu.keys("Enter")
         record = self.started()

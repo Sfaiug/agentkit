@@ -2174,12 +2174,12 @@ def born_key(born, key, drawn):
     return None
 
 
-def born_models(born):
-    """Tab on the born row: its models marked on `orch.pick`'s screen, which starts from the
-    row's; true where Enter there starts the seat, false where Esc brings them to the row."""
-    *picked, start = orch.pick(born["cfg"], born["providers"], born["selected"])
-    born["selected"] = dict(zip(("orchestrator", "workers", "reviewers"), picked))
-    return start
+def born_models(born, keyboard):
+    """Tab on the born row: its models and efforts on `c`'s screen (config_matrix), changed on
+    the row alone; true where Enter there starts the seat, false where Esc brings them to the
+    row."""
+    return config_matrix(born["cfg"], keyboard, update.agentkit_version(),
+                         selected=born["selected"], providers=born["providers"], born=True)
 
 
 def start_born(born, dry_run):
@@ -2199,7 +2199,8 @@ def start_born(born, dry_run):
     elif orch.create(born["cfg"], name, orch.seat_cwd(), prompting=True,
                      selection=(born["providers"], (selected["orchestrator"], born["reason"]
                                 if selected["orchestrator"] == born["default"] else "selected",
-                                selected["workers"], selected["reviewers"])),
+                                selected["workers"], selected["reviewers"],
+                                selected.get("efforts") or {})),
                      unnamed=unnamed, taken=taken) is None:
         return None
     open_session(born["cfg"], {"name": name}, dry_run)
@@ -2907,14 +2908,9 @@ def efforts_saved(cfg, name, selected, steps):
     to its record at once and into `selected`, the model entries left alone.  Each is set on the
     record as it stands, under its lock (config.change_efforts), so a key saved since is kept;
     a model it holds none for starts from its entry's.  What to say under the rows, or ""."""
-    def stepped(record):
-        efforts = dict(record.get("efforts") or {})
-        for model, key, effort in steps:
-            efforts[model] = dict(efforts.get(model) or config.efforts_of(cfg["models"][model]))
-            _set_effort(efforts[model], key, effort)
-        return efforts
     try:
-        saved = config.change_efforts(config.resolve_session(name), stepped)
+        saved = config.change_efforts(config.resolve_session(name),
+                                      lambda record: _stepped(cfg, record, steps))
     except (config.Error, OSError) as exc:
         return f"session: {exc}"
     if saved is None:
@@ -2922,6 +2918,16 @@ def efforts_saved(cfg, name, selected, steps):
     if selected is not None:      # a record that will not read is written all the same
         selected["efforts"] = saved["efforts"]
     return ""
+
+
+def _stepped(cfg, record, steps, hold=()):
+    """Seat `record`'s efforts with each (model, key, effort) of `steps` set (_set_effort), `hold`
+    kept; a model it holds none for starts from its entry's."""
+    efforts = dict(record.get("efforts") or {})
+    for model, key, effort in steps:
+        efforts[model] = dict(efforts.get(model) or config.efforts_of(cfg["models"][model]))
+        _set_effort(efforts[model], key, effort, hold)
+    return efforts
 
 
 def marks_saved(name, selected, changed):
@@ -3340,7 +3346,7 @@ def config_columns(selected, name):
 
 
 def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=None, subs=(),
-                lit=None, scope=None):
+                lit=None, scope=None, rows=CONFIG_ROWS):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
     Every offered model once, under its harness's name (model_heading), a line each: label,
@@ -3355,7 +3361,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     `lit`, from 1, of `subs` (`usage_rows`) has its label in that company's colour, which the
     clock washes in and out as `lit` comes and goes (motion.washing).  Then `Models`,
     `Subscriptions`, `Discord` and `Weekly audit` with
-    their values. A row is `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that
+    their values, unless `rows` is empty (a new session's screen). A row is `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
     the cell on it the keys act on.  `cells` are a model row's (first, last, column), -1 its
     label, for a click, counted from 1 as the terminal counts. On a phone the cells give way,
@@ -3455,6 +3461,8 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
             places[len(lines)] = (("model", name), cells)
             lines.append(terminal.highlight(line.rstrip()) if at == ("model", name)
                          else line.rstrip())
+    if not rows:
+        return lines, places
     lines.append("")
     values = ("", "", discord_value(), audit_value(cfg))
     # the values line up past the widest row that has one
@@ -3523,7 +3531,8 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
     effort itself is unset again (_follows), while the effort's own step moves no other key;
     `hold`'s keys stay at the efforts they stand at, one that followed the effort keeping it.
     A seat's orchestrator effort is the one its harness runs, so its step restarts the seat
-    instead, once asked on the card `around` draws (seat_restart).
+    instead, once asked on the card `around` draws (seat_restart).  A seat not made yet, named
+    None, holds its efforts in its record alone (the born row's, born_models).
     The efforts are read `now`, off the catalog already in hand (config.catalog_now): a listing
     never stands between the key and its frame.  What to say under the matrix, or ""."""
     entry, key = cfg["models"][name], config.ROLE_EFFORTS[role]
@@ -3537,6 +3546,9 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
     at = to if to is not None else levels.index(current) + step if current in levels else 0
     at = at % len(levels) if wrap else at
     if not 0 <= at < len(levels) or levels[at] == current:
+        return ""
+    if seat and seat[0] is None:
+        seat[1]["efforts"] = _stepped(cfg, seat[1], [(name, key, levels[at])], hold)
         return ""
     if seat and key == "effort":
         return seat_restart(cfg, *seat, name, levels[at], around)
@@ -3734,9 +3746,12 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
 
 @terminal.clicks_its_own
 def config_matrix(cfg, keyboard, version, session=None, selected=None, providers=None, note="",
-                  fresh=False):
+                  fresh=False, born=False):
     """The `c` screen read with the keys until Esc; the config as it left it, each
-    subscription's meter over its page (config_meters).
+    subscription's meter over its page (config_meters).  `born`, it is a new session's models
+    screen instead (born_models): `selected` is the born row's own, each mark and effort changed
+    there alone, for a seat not made yet; no row under the models, no `r` and no `a`; Enter on a
+    mark or an effort starts the session, true, and Esc goes back to the row, false.
 
     `selected` is `session`'s record, and its role marks are that seat's models: Space or a
     click flips one (session_mark), the orchestrator moving the seat once asked, the roles saved
@@ -3771,39 +3786,40 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     """
     from . import watch   # here, not at the top: the menu draws without the tick
     standing = watch.token_standing() or ""     # a file's date, read once a visit
-    scope = session or NEW_SEATS
-    seat = (session, selected) if session else None     # whose efforts a step changes
+    title, scope, under, advice = ("new session", None, (), False) if born else (
+        "config", session or NEW_SEATS, CONFIG_ROWS, bool(selected))
+    seat = (session, selected) if session or born else None     # whose efforts a step changes
     here, column, top, clock = None, 0, 0, motion.Clock(page=True)
     while True:
-        if not session and selected is not None:      # a page that took a model out moved them
-            selected.update(copy.deepcopy(cfg["defaults"]))
+        if not session and not born and selected is not None:   # a page that took a model out
+            selected.update(copy.deepcopy(cfg["defaults"]))      # moved them
         # the meter the highlight or the pointer is on, lit as the main screen lights one
         lit = here[1] if here and here[0] == "usage" and not terminal.away() else None
         subs, spans = usage_rows(cfg), {}
         over, meters = config_meters(cfg, lit, subs, spans)
         models = [*(("model", name) for name in config_models(cfg)),
-                  *(("row", row) for row in CONFIG_ROWS)]
+                  *(("row", row) for row in under)]
         rows = [cell for _, cells in meters.values() for *_, cell in cells] + models
         here = here if here in rows else models[0]    # the highlight is the row itself
         columns = config_columns(selected, here[1]) if here[0] == "model" else ()
         if here[0] == "model" and column not in columns:      # no effort here: onto its mark
             column = column - 3 if column - 3 in columns else columns[0]
         opens = here[0] in ("row", "usage")       # else a mark or an effort, changed in place
-        keys = terminal.keys(*([ADVICE_KEY] if selected else []),
+        keys = terminal.keys(*([ADVICE_KEY] if advice else []),
                              *([APPLY_KEY] if fresh else []), "esc back",
                              space=None if opens else "mark" if column < 3 else "step",
-                             enter="open" if opens else None)
+                             enter="open" if opens else "start" if born else None)
         # each meter's cells, on the lines over the page counted back from it, washing in and out
         moves = [(line - len(over), ("sub", number), number == lit,
                   motion.washing([(column, text, rest)], colour(cfg, subs[number - 1][0])))
                  for number, took in spans.items() for line, column, text, rest in took]
         body, places = config_body(cfg, None if terminal.away() else here, column,
-                                   selected, providers, moves, subs, lit, scope)
+                                   selected, providers, moves, subs, lit, scope, under)
         # agentkit's build, read under the page so every page shows it, and what was said under it
         told = "\n".join(filter(None, (f"Version {version or '?'}", note or standing)))
         over, meters, body, places, moves = meters_led((over, meters), body, places,
                                                        note_lines(told), keys, moves)
-        act, here, clicked, top = matrix_key("config", body, places, rows, here, top,
+        act, here, clicked, top = matrix_key(title, body, places, rows, here, top,
                                             told, keys, marks=3,
                                             clock=clock, moves=moves,
                                             over=over, over_places=meters)
@@ -3814,18 +3830,18 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
 
         def around(card, keys):   # the matrix laid out at this draw's size, the question under it
             over, _, body, places, _ = meters_led(config_meters(cfg), *config_body(
-                cfg, here, column, selected, providers, scope=scope), card, keys)
+                cfg, here, column, selected, providers, scope=scope, rows=under), card, keys)
             first, room = matrix_page(body, places, here, top, card, keys, over)
             shown = body[first:first + room]
-            terminal.frame("config", [*over, *shown, *card], keys)
+            terminal.frame(title, [*over, *shown, *card], keys)
             return 3 + len(over) + len(shown)
-        if act == "back":
-            return cfg
+        if act == "back" or born and act == "enter" and not opens:
+            return act == "enter" if born else cfg
         if act == "a" and fresh:
             clock.forget()            # the card: the matrix back from it replays nothing
             note = apply_defaults(cfg, around)
             continue
-        if act == "r" and selected:     # a record that will not read has nobody to take it
+        if act == "r" and advice:     # a record that will not read has nobody to take it
             clock.forget()            # another screen: the matrix back from it replays nothing
             models_screen(cfg, session, selected, providers)
             continue
@@ -3859,7 +3875,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             column = columns[min(max(at, 0), len(columns) - 1)]
         elif act == "space" and column < 3:
             note = (session_mark(cfg, session, selected, here[1], column, providers, around)
-                    if session else defaults_mark(cfg, selected, here[1], column))
+                    if session else born_mark(cfg, selected, here[1], column, providers) if born
+                    else defaults_mark(cfg, selected, here[1], column))
             if note:
                 clock.touch(("mark", here[1], column))    # refused: the mark shakes
         elif act == "space" or isinstance(act, int):     # a role's effort
@@ -4988,6 +5005,14 @@ def apply_defaults(cfg, around):
     return "\n".join(said)
 
 
+def born_mark(cfg, selected, model, column, providers):
+    """Act on one of the born row's marks (born_models), in `selected` alone: the seat is not
+    made yet.  What to say under the rows, or ""."""
+    changed, note = orch.role_mark(cfg, selected, model, column, providers)
+    selected.update(changed)
+    return note
+
+
 def session_mark(cfg, name, selected, model, column, providers, around=None):
     """Act on one of a session's marks, saving it to the session's record at once.
 
@@ -5579,9 +5604,9 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             if newborn is not None and isinstance(key, terminal.Key):
                 act, look = born_key(newborn, key, shown), False
                 if act == "models":
-                    back = True           # the picker's screen, drawn where the menu was
+                    back = True           # the models screen, drawn where the menu was
                     live.away()
-                    act = "start" if born_models(newborn) else act
+                    act = "start" if born_models(newborn, keyboard) else act
                 if act == "back":
                     newborn = None
                 elif act == "start" and not born_refusal(newborn):

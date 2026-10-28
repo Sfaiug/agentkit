@@ -229,7 +229,7 @@ class NewSessionScreen(Screens):
         screen.models()
         screen.picker()
         mark = len(screen.text())
-        screen.send(RIGHT)                              # Opus's exec
+        screen.send(new_session.DOWN + RIGHT * 2)       # Opus's exec, past its orch effort
         return screen, screen.picker(after=mark)
 
     def test_a_mark_empties_when_cleared_and_fills_when_set(self):
@@ -246,7 +246,7 @@ class NewSessionScreen(Screens):
 
     def test_the_last_reviewer_refused_shakes_and_stays_chosen(self):
         screen, lines = self.picker()
-        screen.send(RIGHT + new_session.SPACE)          # Opus's review off: Astra is the last one
+        screen.send(RIGHT * 2 + new_session.SPACE)      # Opus's review off: Astra is the last one
         lines = screen.picker(lambda lines: new_session.marks(highlighted(lines)) == "●■□")
         number, line = numbered(lines, new_session.full("astra"))
         cells = moved(screen, click(mark_column(line, 2), number))

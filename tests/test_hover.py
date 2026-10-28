@@ -30,7 +30,7 @@ from unittest.mock import Mock, call, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, orch, terminal
+from agentkit import config, menu, terminal
 from test_config_matrix import Screen
 from test_menu_keys import Menu
 from fixtures.sandbox import Sandbox
@@ -357,14 +357,14 @@ class Screens(Sandbox):
         self.assertEqual(marked(last, "reverse"), {})
 
     def test_the_new_session_screen_lights_a_model_and_its_mark(self):
-        notes = {name: "" for name in config.offered(self.cfg)}
-
         def picking(keys):
-            return run(lambda: orch._picking(self.cfg, {}, notes, dict(self.selected)), keys)
+            return run(lambda: menu.config_matrix(self.cfg, None, "abc1234",
+                                                  selected=dict(self.selected), providers={},
+                                                  born=True), keys)
 
         answer, screens = picking(ESC)
-        self.assertEqual(answer, (*self.selected.values(), False))
-        self.assertOneHighlight(screens[0], "Opus 5.5")
+        self.assertFalse(answer)
+        self.assertOneHighlight(screens[0], "Fable 5.1")      # the first model, as on `c`
         row = at(screens[0], "GPT-6-Astra")[1]
         review = (at(screens[0], "review")[0] + 3, row)
         last = picking(move(*review) + ESC)[1][-1]
