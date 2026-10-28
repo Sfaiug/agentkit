@@ -50,7 +50,7 @@ class SeatEffortSteps(Sandbox):
         with patch.object(menu.terminal, "confirm", return_value=True), \
                 patch.object(menu.orch, "switch_orchestrator", side_effect=restart):
             note = menu.config_effort(self.cfg, "opus", 0, to=0, seat=("fix-api", self.selected),
-                                      around=lambda card: 0)
+                                      around=lambda card, keys: 0)
         self.assertEqual(note, "")
         self.assertEqual(handed, [("fix-api", "opus", "low", True, before)])
         self.assertEqual(self.held()["opus"],
@@ -62,7 +62,7 @@ class SeatEffortSteps(Sandbox):
         with patch.object(menu.terminal, "confirm", return_value=True), \
                 patch.object(usage, "collect", return_value={}):
             note = menu.config_effort(self.cfg, "opus", 0, to=0, seat=("fix-api", self.selected),
-                                      around=lambda card: 0)
+                                      around=lambda card, keys: 0)
         self.assertIn("session-fix-api.json", note)
 
     def test_r_keeps_a_key_saved_since_and_the_screen_holds_what_it_saved(self):

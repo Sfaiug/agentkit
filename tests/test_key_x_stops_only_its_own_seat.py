@@ -17,9 +17,9 @@ from fixtures.akbin import Home
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
-MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave"
-POPUP_KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"
-CLOSE_KEYS = "  ↑↓←→ move   ⏎ choose   n new   x close   c config   esc leave"
+MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   c config   esc leave"
+POPUP_KEYS = "  ↑↓←→ move   ⏎ open   n new   x stop   c config   esc leave"
+CLOSE_KEYS = "  ↑↓←→ move   ⏎ open   n new   x close   c config   esc leave"
 NOW = int(time.time())
 DONE_PLAN = "".join(f"- [x] part {n} · check: `true` · atoll · written 2026-10-02 12:40"
                     f" · done abc1234\n" for n in range(2))

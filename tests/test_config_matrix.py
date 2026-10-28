@@ -80,7 +80,6 @@ TAB = b"\t"
 KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"   # on a mark
 OPEN_KEYS = "  ↑↓←→ move   ⏎ open   r recommended   esc back"   # on a row
 NEW_KEYS = "  ↑↓←→ move   ␣ mark   r recommended   a apply to all sessions   esc back"   # new seats'
-PAGE_KEYS = "  ↑↓←→ move   ⏎ choose   esc back"   # the pages under it, with no `r`
 # What a worker's own run leaves in the environment; nothing here may act on that run.
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
              "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLORTERM", "COLUMNS", "LINES")

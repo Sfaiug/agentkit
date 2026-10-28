@@ -24,8 +24,8 @@ from fixtures.akterm import SERVER, Terminal
 
 NOW = int(time.time())
 SEATS = {"atoll-fix": NOW - 900, "atoll-ask": NOW - 600}     # made first, so it is 1
-MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave"
-POPUP_KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"
+MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   c config   esc leave"
+POPUP_KEYS = "  ↑↓←→ move   ⏎ open   n new   x stop   c config   esc leave"
 MARK_KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"
 NEW_KEYS = "  ↑↓←→ move   ␣ mark   r recommended   a apply to all sessions   esc back"   # new seats'
 

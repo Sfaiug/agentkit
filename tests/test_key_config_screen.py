@@ -38,7 +38,7 @@ ROWS = ["Claude Code",
         "                GPT-6-Astra",
         ""]
 KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"   # a seat's, on a mark
-MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"
+MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   x stop   c config   esc leave"
 
 
 def lines(screen):

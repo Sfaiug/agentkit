@@ -12,7 +12,7 @@ the moment it is pressed, and from a pipe it is a line.
       2  fix-api             fable   ● working     ━━━━╸───────────────── 2 of 9
       3  web-portal          fable   ✓ done
 
-      ↑↓←→ move   ⏎ choose   n new   c config   esc leave
+      ↑↓←→ move   ⏎ open   n new   c config   esc leave
 
 `n` asks for a name, then shows the orchestrator and both roles with the last created session's
 chosen already.
@@ -1687,7 +1687,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                      if any(name == cursor for _, name in lines)), page)
     page = min(max(page, 0), len(pages) - 1)
     key_lines = terminal.key_line(key_text, width)
-    if len(pages) > 1:
+    if len(pages) > 1 and not ask:        # a question's key line is its own: no page turns
         needing = [any(words.get(name) == "needs you" for _, name in lines) for lines in pages]
         key_lines = terminal.key_line(paged_keys, width, page_mark(
             page, len(pages), owned, (any(needing[:page]), any(needing[page + 1:]))))
@@ -2946,7 +2946,7 @@ def marks_saved(name, selected, changed):
 MODELS_KEYS = {"answer": ("↑↓ move   ←→ points   ⏎ why   p pick   r take   esc back",
                           "up/down move   left/right points   enter why   p pick   r take   "
                           "esc back"),
-               "pick": ("↑↓ move   space mark   type to find   esc done",
+               "pick": ("↑↓ move   ␣ mark   type to find   esc done",
                         "up/down move   space mark   type to find   esc done")}
 NEAR = 2                          # the line's rows shown either side of the pick
 LEGEND = (("as good", "{} within {} points of the best, then the cheapest"),
@@ -3812,12 +3812,12 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             continue                  # a resize or the pointer: drawn again
         note = ""
 
-        def around(card):         # the matrix laid out at this draw's size, the question under it
+        def around(card, keys):   # the matrix laid out at this draw's size, the question under it
             over, _, body, places, _ = meters_led(config_meters(cfg), *config_body(
-                cfg, here, column, selected, providers, scope=scope), card, "esc back")
-            first, room = matrix_page(body, places, here, top, card, "esc back", over)
+                cfg, here, column, selected, providers, scope=scope), card, keys)
+            first, room = matrix_page(body, places, here, top, card, keys, over)
             shown = body[first:first + room]
-            terminal.frame("config", [*over, *shown, *card], "esc back")
+            terminal.frame("config", [*over, *shown, *card], keys)
             return 3 + len(over) + len(shown)
         if act == "back":
             return cfg
@@ -4286,8 +4286,8 @@ def config_remove_provider(cfg, picked):
     shown = provider_name(cfg, name) if usual else label
     question, means = REMOVE_PROVIDER_ASK if usual else REMOVE_SUBSCRIPTION_ASK
 
-    def asked(card):
-        terminal.frame(title, card, "esc back")
+    def asked(card, keys):
+        terminal.frame(title, card, keys)
         return 3
     if not terminal.confirm(question.format(shown), means, "Remove", asked):
         return ""
@@ -4585,7 +4585,9 @@ def config_page(name, page):
             here = (*here, next((number for number, (_, _, mark) in enumerate(listed)
                                  if mark is True), 0))
         else:
-            opened, at, keys = None, here[1], terminal.keys("esc back")
+            # typed in, the arrows move nothing: Enter saves what was typed
+            opened, at = None, here[1]
+            keys = terminal.keys("esc back", enter="save", move=False)
 
             def draw(lines):          # the page of matrix_key's height that holds the lines
                 rows, note = page()
@@ -5357,10 +5359,10 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
         if act == "x" and not terminal.unseen():     # unseen, it only brings the highlight back
             at = max(line for line, (row, _) in places.items() if row == ("row", here)) + 1
 
-            def around(card, at=at):
+            def around(card, keys, at=at):
                 lines = body[:at] + card + body[at:]
                 skip = max(0, min(at, len(lines) - room))
-                terminal.frame("past sessions", lines[skip:skip + room], keys, first=first)
+                terminal.frame("past sessions", lines[skip:skip + room], keys)
                 return 3 + at - skip
             if terminal.confirm(f"Remove {here} from past sessions?",
                                 "It can no longer be reopened.", "Remove", around):
@@ -5403,7 +5405,7 @@ def pressed(key, drawn, found):
 
     Enter is the highlighted seat's number, and a click on any line of a seat is that seat's;
     on a project's heading either is that project's checkout, whose switches it opens.
-    A click on the key line is the key of the item under it, `⏎ choose` being Enter; Esc, a click
+    A click on the key line is the key of the item under it, `⏎ open` being Enter; Esc, a click
     on `esc leave` and a keyboard that is gone are ESC, which leaves; a character is itself;
     anything else is "", which asks for nothing.  `drawn` is the layout on the screen when the
     key was read, so a click lands where he saw, and `found` the seats now, so a seat is
@@ -5538,7 +5540,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             actions = ("n", "c") + ("p",) * past + ("x",) * (word is not None)
             drawn = {} if keyboard.take() else None
             listed = (keys if drawn is None else BORN_KEYS if newborn
-                      else terminal.keys(keys))
+                      else terminal.keys(keys, enter="open"))
             page, pages = draw(cfg, found, listed, page, BORN if newborn else cursor, drawn,
                                look=False, groups=born_groups(groups, newborn) if newborn
                                else groups, clock=clock, updating=updating, pointing=pointing)
@@ -5670,8 +5672,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                         counted[0] = not runs.is_alive()
                         return stop_means(runs.got.get("answer"))
 
-                    def around(card):     # the menu around the card, drawn again on a resize
-                        draw(cfg, found, "esc back", page, cursor, drawn, ask=(own, card),
+                    def around(card, keys):   # the menu around the card, drawn again on a resize
+                        draw(cfg, found, keys, page, cursor, drawn, ask=(own, card),
                              look=False, groups=groups, clock=clock)
                         return drawn["ask"]
                     if not terminal.confirm(

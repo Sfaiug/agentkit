@@ -272,7 +272,7 @@ class EscBack(unittest.TestCase):
         menu_ = Menu(self, own="alpha")
         menu_.highlight("alpha")
         menu_.send(b"x")                                  # alpha is working: asked under its row
-        menu_.back("choose", lambda lines: lines[-1].strip() == "esc back")
+        menu_.back("choose", lambda lines: lines[-1].strip() == "↑↓←→ move   ⏎ keep   esc back")
         self.assertNotIn("<stopped", menu_.text())
         menu_.highlight("ACME")
         menu_.press(ENTER, title("ACME"))

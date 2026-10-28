@@ -483,16 +483,18 @@ def key_parts(text):
 MOVE_KEYS = ("↑↓←→ move", "arrows move")
 
 
-def keys(*rest, space=None, enter="choose"):
-    """A screen's key line: MOVE_KEYS, what Space does there (`space`) and what Enter does
-    (`enter`), each left out where None, as it does nothing there, then that screen's own keys,
-    `rest`.  Space only changes the highlighted thing in place -- marks it, moves the ● to it,
-    steps its effort -- and a click on a mark does the same; Enter goes forward -- opens,
-    starts, answers -- and never flips a mark."""
+def keys(*rest, space=None, enter, move=True):
+    """A screen's key line: MOVE_KEYS, left out where `move` is False as nothing moves there
+    (a field typed in), what Space does there (`space`) and what Enter does (`enter`), each left
+    out where None, as it does nothing there, then that screen's own keys, `rest`.  Enter has no word of its own: each screen names what it does there.  Space only
+    changes the highlighted thing in place -- marks it, moves the ● to it, steps its effort --
+    and a click on a mark does the same; Enter goes forward -- opens, starts, answers -- and
+    never flips a mark."""
     ascii_ = not utf8()
-    named = [f"{'space' if ascii_ else '␣'} {space}"] if space else []
+    named = [MOVE_KEYS[ascii_]] if move else []
+    named += [f"{'space' if ascii_ else '␣'} {space}"] if space else []
     named += [f"{'enter' if ascii_ else '⏎'} {enter}"] if enter else []
-    return "   ".join((MOVE_KEYS[ascii_], *named, *rest))
+    return "   ".join((*named, *rest))
 
 
 def key_line(text, term_width=None, first=None):
@@ -1369,30 +1371,28 @@ def field(prompt, placeholder="", around=None):
 
 
 @clicks_its_own
-def choose(choices, default=None, several=False, around=None, wait=None, warn=None):
-    """One of `choices` picked with the keys, or with `several` a list of them; None on Esc.
+def choose(choices, default=None, around=None, wait=None, warn=None):
+    """One of `choices` picked with the keys; None on Esc.
 
     The list is drawn where the cursor is and drawn over in place as the highlight moves.
-    ↑/↓, k/j and the wheel move it; Enter picks the highlighted choice, or with `several` the
-    ones marked, which space marks and unmarks.  `default` -- a choice, or with `several` a
-    list of them -- starts highlighted, or marked.  The keys are `read_key`'s, so the terminal
+    ↑/↓, k/j and the wheel move it; Enter picks the highlighted choice, and Space does nothing.
+    `default`, a choice, starts highlighted.  The keys are `read_key`'s, so the terminal
     is a `Keyboard`'s already; the main menu is what takes one, and so far nothing else does.
 
     `around(choice)` draws the screen a list is asked inside, its key line naming what Enter
     does on `choice`, the highlighted one, and returns the row its first choice goes on; it is
     called again after every key and whenever the screen wants drawing again -- a resize -- so
-    the list and the rows a click is read against are always where that screen now puts them.  There a
-    click on a choice picks it, or with `several` marks it; the key line's Enter answers as the
-    key does, and a click anywhere else goes back;
-    a button that went down before the list moved is no click.  The pointer on a choice moves
-    the highlight to it, and its screen is drawn again for what else it lights.
+    the list and the rows a click is read against are always where that screen now puts them.
+    There a click on a choice picks it; the key line's Enter answers as the key does, and a
+    click anywhere else goes back; a button that went down before the list moved is no click.
+    The pointer on a choice moves the highlight to it, and its screen is drawn again for what
+    else it lights.
     `wait`, where given, reads the key in `read_key`'s place, or None for a draw: the menu's own
     (`menu.moving`) keeps its dots breathing while the list is asked.  `warn` is a choice drawn
     in the warn colour: the one of `confirm`'s that ends something.
     """
     global _PRESSED
-    marked = set(default or ()) if several else set()
-    at = choices.index(default) if not several and default in choices else 0
+    at = choices.index(default) if default in choices else 0
     drawn, top, again = 0, None, around is not None
     while True:
         if again:
@@ -1404,8 +1404,7 @@ def choose(choices, default=None, several=False, around=None, wait=None, warn=No
                 return None       # the screen it is asked on has no row for it any more
         lines = []
         for number, choice in enumerate(choices):
-            box = ("[x] " if choice in marked else "[ ] ") if several else ""
-            line = cut(box + str(choice), width() - 3)
+            line = cut(str(choice), width() - 3)
             line = "  " + (styled(line, "amber") if choice == warn else line)
             lines.append(highlight(line) if number == at and not _AWAY else line)
         sys.stdout.write((f"\033[{top};1H" if top else f"\033[{drawn}A" if drawn else "") +
@@ -1428,16 +1427,11 @@ def choose(choices, default=None, several=False, around=None, wait=None, warn=No
         elif key.name == "click" and top:
             if spot.what is None:
                 return None
-            at = spot.what
-            if not several:
-                return choices[at]
-            marked ^= {choices[at]}
+            return choices[spot.what]
         elif step(key):
             at = min(max(at + step(key), 0), len(choices) - 1)
-        elif key.name == "space" and several and choices:
-            marked ^= {choices[at]}
         elif key.name == "enter" and choices:
-            return [choice for choice in choices if choice in marked] if several else choices[at]
+            return choices[at]
         elif key.name in ("esc", "eof"):
             return None
 
@@ -1448,19 +1442,21 @@ def confirm(question, meaning, answer, around, wait=None):
 
     The card is a blank line, the question, what the answer means dim, the two choices and a
     blank line: `✓ Keep` first and highlighted, then `✗ <answer>` in the warn colour, read as
-    `choose` reads them, so Enter or a click answers.  `around(card)` draws the screen it is
-    asked on with the card's lines where they go and returns the row the first one landed on, or
-    None when there is none any more; it is called again on a resize, the card wrapped anew, and
-    whenever `wait` answers None: a `meaning` that is a function is asked again on each draw.
+    `choose` reads them, so Enter or a click answers.  `around(card, keys)` draws the screen it
+    is asked on with the card's lines where they go, under the card's own key line, `keys`:
+    Enter named for the highlighted answer (`⏎ keep`, `⏎ stop`), nothing of that screen's.  It
+    returns the row the first line landed on, or None when there is none any more; it is called
+    again on a resize, the card wrapped anew, and whenever `wait` answers None: a `meaning`
+    that is a function is asked again on each draw.
     """
     keep, act = f"{glyph('done')} Keep", f"{glyph('FAIL')} {answer}"
 
-    def drawn(_):
+    def drawn(lit):
         room = layout_width() - 2
         card = ["", *(f"  {line}" for line in wrap(question, room)),
                 *(styled(f"  {line}", "dim") for line in wrap(
                     meaning() if callable(meaning) else meaning, room)), "", "", ""]
-        top = around(card)
+        top = around(card, keys("esc back", enter=(answer if lit == act else "Keep").lower()))
         return top and top + len(card) - 3     # the choices' rows, the two before the last
     return choose([keep, act], keep, around=drawn, wait=wait, warn=act) == act
 

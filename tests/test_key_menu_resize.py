@@ -63,7 +63,7 @@ class MenuWidth(unittest.TestCase):
         term, _ = self.menu(100)
         term.resize(40, 30)
         lines = shown(term.wait(lambda screen: settled(screen)
-                                and "  c config   esc leave" in shown(screen)))
+                                and "  esc leave" in shown(screen)))
         self.assertRegex(lines[0], CLOCK)
         self.assertEqual(len(lines[0]), 40)
         self.assertRegex(lines[1], RULE % 40)
@@ -72,7 +72,7 @@ class MenuWidth(unittest.TestCase):
         row = lines.index(f"› 1  {FIX}")
         self.assertRegex(lines[row + 1], r"^    ━+╸?─* 3 of 7$")
         self.assertEqual([line for line in lines if line.strip()][-2:],
-                         ["  ↑↓←→ move   ⏎ choose   n new", "  c config   esc leave"])
+                         ["  ↑↓←→ move   ⏎ open   n new   c config", "  esc leave"])
         self.assertEqual([line for line in lines if len(line) > 40], [])
 
     def test_past_120_columns_the_frame_stops_at_120_and_a_seat_row_at_100(self):

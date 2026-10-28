@@ -77,7 +77,7 @@ class ModelsPick(unittest.TestCase):
         self.assertEqual(shown[at + 1:at + 10],
                          ["  find  ▏", "›" + LIST[0][1:], *LIST[1:]])
         self.assertEqual(next(line for line in reversed(shown) if line),
-                         "  ↑↓ move   space mark   type to find   esc done")
+                         "  ↑↓ move   ␣ mark   type to find   esc done")
         term.keys("Down", "Space", "Down", "Space")
         shown = lines(term.wait("2 of 4 marked"))
         self.assertIn("›   ■ Acme Mid 5", shown)

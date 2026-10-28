@@ -18,7 +18,7 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import SERVER, Terminal
 
-MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave"
+MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   c config   esc leave"
 PAGE_KEYS = "  ↑↓←→ move   ⏎ {}   esc back"     # Enter's word: the lit act's, or `open`
 PAGE, ADD = "agentkit · config · subscriptions", "agentkit · config · add a subscription"
 
