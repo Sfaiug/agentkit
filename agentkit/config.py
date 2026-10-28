@@ -1263,8 +1263,12 @@ def remember_defaults(record, models=None):
     one holding them already is not written; a failed write keeps it as it was and says why,
     else ""."""
     defaults = {key: record[key] for key in _DEFAULTS_ORDER if key in record}
+
+    def meant(table):     # reviewers it leaves out are its workers
+        return {"reviewers": table.get("workers"), **table} if isinstance(table, dict) else None
     try:
-        if models is None and (_read_toml(HOME / CONFIG_NAME) or {}).get("defaults") == defaults:
+        if models is None and meant((_read_toml(HOME / CONFIG_NAME) or {}).get(
+                "defaults")) == meant(defaults):
             return ""
         cfg = load()
         # a file from before it held the models (max_runs alone) loads as the shipped one: its

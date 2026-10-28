@@ -41,7 +41,7 @@ class NewSessionEfforts(unittest.TestCase):
         self.home = Home()
         self.addCleanup(self.home.close)
         self.fakes = fakeadapter.install(self.home, claude="pass", codex="pass")
-        self.config = akconfig.write(self.home, {"opus": EFFORTS}, reviewers=["opus"])
+        self.config = akconfig.write(self.home, {"opus": EFFORTS})    # its workers review
         self.menu = Terminal(self.home, size=(100, 40), env={"NO_COLOR": "1"})
         self.menu.wait("esc leave")
         self.menu.keys("n")

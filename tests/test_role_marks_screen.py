@@ -188,6 +188,18 @@ class RoleMarks(Sandbox):
             self.assertFalse(menu.born_models(born, None))
         self.assertEqual(born["selected"], picked)
 
+    def test_a_click_on_a_meter_over_the_new_row_s_models_opens_it_and_starts_nothing(self):
+        born = {"cfg": self.cfg, "providers": {}, "selected": {
+            "orchestrator": "opus", "workers": ["opus"], "reviewers": ["astra"]}}
+        meter = (["  Claude", ""], {0: (None, [(3, 25, ("usage", 1), ("usage", 1))])})
+        keys = [terminal.Key("click", row=3, col=5), terminal.Key("esc")]
+        with patch.object(menu, "config_meters", return_value=meter), \
+                patch.object(menu, "meter_acts", return_value="") as opened, \
+                patch.object(terminal, "read_key", side_effect=keys), \
+                redirect_stdout(io.StringIO()):
+            self.assertFalse(menu.born_models(born, None))
+        opened.assert_called_once()
+
 
 class RoleMarksScreen(unittest.TestCase):
     def test_scrolling_reaches_the_last_model_and_clicks_use_the_scrolled_row(self):

@@ -3835,7 +3835,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             shown = body[first:first + room]
             terminal.frame(title, [*over, *shown, *card], keys)
             return 3 + len(over) + len(shown)
-        if act == "back" or born and act == "enter" and not opens:
+        if act == "back" or born and act == "enter" and here[0] == "model":   # a meter opens
             return act == "enter" if born else cfg
         if act == "a" and fresh:
             clock.forget()            # the card: the matrix back from it replays nothing
