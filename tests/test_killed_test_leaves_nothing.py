@@ -2,29 +2,39 @@
 
 `Home.close()` ends the tmux servers a test started in its Home and removes it.  A test killed
 before then, by a timeout's SIGKILL or a memory cap, leaves that to the Home's reaper, which
-wakes as the test's end of their pipe closes; a runner reading the test's output to its end
-still reaches it.
+wakes as the test's end of their pipe closes: not before, though a helper the test forked
+outlives it, and not too late to act, though the test's checkout is gone; a runner reading the
+test's output to its end still reaches it.
 """
 
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 
 TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS))
-from fixtures.akbin import REAL_TMUX, Home, _clear
+from fixtures.akbin import REAL_TMUX, REPO, Home, _clear
 
-# A test's process: it makes a Home with a server and a pane, says so and waits to be killed.
-MAKER = """import json, sys
+# A test's process, run from its checkout: it makes a Home with a server and a pane, forks a
+# helper that outlives it, says so and waits to be killed.
+MAKER = """import json, os, sys, time
 sys.path.insert(0, sys.argv[1])
 from test_killed_test_leaves_nothing import started
 home, pids = started()
-print(json.dumps([str(home.root), str(home.tmux_dir), *pids]), flush=True)
+helper = os.fork()
+if not helper:
+    os.setsid()
+    os.closerange(0, 3)
+    time.sleep(600)
+    os._exit(0)
+print(json.dumps([str(home.root), str(home.tmux_dir), helper, *pids]), flush=True)
 sys.stdin.read()
 """
 
@@ -69,17 +79,27 @@ def holding(pids, *pipes):
 @unittest.skipUnless(Path("/proc/self/environ").exists(), "no /proc to read processes from")
 class KilledTest(unittest.TestCase):
     def test_a_test_killed_leaves_no_server_pane_or_home(self):
-        maker = subprocess.Popen([sys.executable, "-c", MAKER, str(TESTS)],
+        checkout = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, checkout, ignore_errors=True)
+        for path in (REPO / "config.default.toml", TESTS / "fixtures" / "akbin.py",
+                     Path(__file__).resolve()):
+            copy = checkout / path.relative_to(REPO)
+            copy.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(path, copy)
+        maker = subprocess.Popen([sys.executable, "-c", MAKER, str(checkout / "tests")],
                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE, text=True, start_new_session=True)
+                                 stderr=subprocess.PIPE, text=True, cwd=checkout,
+                                 start_new_session=True)
         line = maker.stdout.readline()
         if not line:
             self.fail(maker.communicate(timeout=60)[1])
-        root, tmux_dir, *pids = json.loads(line)
+        root, tmux_dir, helper, *pids = json.loads(line)
+        self.addCleanup(os.kill, helper, signal.SIGKILL)
         self.addCleanup(_clear, root, tmux_dir)     # what a failing reaper left
         self.assertLessEqual({*pids}, running(root, tmux_dir))
         # a runner reads a test's output to its end
         self.assertEqual(holding(running(root, tmux_dir), maker.stdout, maker.stderr), set())
+        shutil.rmtree(checkout)
         os.killpg(maker.pid, signal.SIGKILL)       # as a timeout kills a test, its group too
         maker.communicate(timeout=60)
         deadline = time.monotonic() + 60
