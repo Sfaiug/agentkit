@@ -671,9 +671,10 @@ class Phone(Sandbox):
         screen = phone.until("agentkit · new session", "orch", "builds", "reviews",
                              prompt="esc back")
         self.fits(screen, width, height)
-        phone.keys("Down", "Space")          # astra orchestrates, from the row below opus
+        phone.keys("Down", "Down", "Space")  # astra orchestrates, two rows below fable, the first
         screen = self.picked(phone, "GPT-6-Astra", "●■■")
-        phone.keys("Right")                  # the executor column, then every worker added
+        phone.keys("Right", "Right")         # past its orch effort to the executor column, then
+                                             # every worker added
         # each by its full name, as much of it as a phone's third of the screen holds
         for title, steps in (("Fable 5.1", ("Up", "Up")), ("muse-spark", ("Down",) * 3),
                              ("Grok 4.7", ("Down",)), ("Gemini 3.8", ("Down",)),
