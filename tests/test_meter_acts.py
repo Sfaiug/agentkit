@@ -5,8 +5,8 @@ different effect, should always be the same one. I dont want removing to be able
 actions such as spendign a reset, or claude relogin".  Enter on a meter over `c` lists what a
 click on one on the ak screen lists (tests/test_login_click.py), `↻ log in again` and `↻ spend a
 reset` while one is in hand, never `− remove`, which is under each subscription's row on
-`Subscriptions`.  `log in again` only where its harness signs in afresh: Antigravity's cannot
-(`[auth] again = false`).  In-process, in a temporary HOME: `c`'s key reader faked and every list let go,
+`Subscriptions`.  `log in again` only where its harness signs in afresh: Antigravity's usual
+login cannot (`[auth] again = false`).  In-process, in a temporary HOME: `c`'s key reader faked and every list let go,
 so nothing is signed in, spent or removed.
 """
 

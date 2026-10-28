@@ -4363,7 +4363,7 @@ def subscription_acts(cfg, keyboard, number, remove=False):
     harness = logins.harness(cfg, name)
     return [(text[0 if terminal.utf8() else 1], act) for text, act, offers in (
         (SUBSCRIPTION_ACTS[0], lambda: sign_in(cfg, keyboard, name, account) or "",
-         harness and config.signs_in_again(harness)),
+         harness and config.signs_in_again(harness, account)),
         (SUBSCRIPTION_ACTS[1], lambda: config_spend_reset(cfg, picked), in_hand(prov)),
         (SUBSCRIPTION_ACTS[2], lambda: config_remove_provider(cfg, picked), remove)) if offers]
 
