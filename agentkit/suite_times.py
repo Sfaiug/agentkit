@@ -1,9 +1,9 @@
 """Each test file's last measured seconds, per repository on this host.
 
-A suite's box throws its HOME writes away, so the times live in ak's state instead: the lander
-keeps those a check's pieces printed (`passed`, wherever each piece ran), and every piece
-of a suite gets one copy, AK_TIMES, taken as the suite starts, so all of them cut the same shares
-(tests/every_file.py)."""
+A suite's box throws its HOME writes away, so the times live in ak's state instead: every check,
+the lander's among them, keeps those its pieces printed (`passed`, wherever each piece ran), and
+every piece of a suite gets one copy, AK_TIMES, taken as the suite starts, so all of them cut
+the same shares (tests/every_file.py)."""
 
 import hashlib
 import json

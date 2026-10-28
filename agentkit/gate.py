@@ -2047,6 +2047,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     and with `only` just those of its tests.  `confirmed`, a dict, gets by command what
     `run_suite` confirms: the tests a red piece named that failed again alone.  `changed`, a
     file of paths, is what `AK_CHANGED` names to every command.
+    The test files' times the commands printed are kept (`suite_times`) before the log, whole
+    until then, takes `text`, its capped form.
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
@@ -2167,6 +2169,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
         if log is not None:
             log(stopped_line)
     text = "\n\n".join(chunks)
+    suite_times.keep(cwd, log_path)
     log_path.write_text(text)
     # The gate is over and its children are not the round's: a command that exited 0 may
     # still have left processes behind, and they die with the gate, however detached.

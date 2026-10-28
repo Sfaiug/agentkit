@@ -20,7 +20,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(REPO), str(REPO / "tests")]
 import every_file
 import suite_shares
-from agentkit import config, gate, land, suite_times, turns
+from agentkit import config, gate, land, suite_times, turns, worker
 
 # name: (bytes, seconds it takes); by size test_big.py would fill a piece alone
 FILES = {"test_slow.py": (300, 60), "test_mid_a.py": (300, 30), "test_mid_b.py": (300, 30),
@@ -69,15 +69,17 @@ class SuitePiecesByMeasuredTime(unittest.TestCase):
         return starts, out.getvalue()
 
     def land_check(self, scratch, ok, whole):
-        """A landing check whose pieces printed `whole`; it hands back only the end."""
-        def done_when(_cmds, _cwd, log_path, *_a, **_kw):
-            log_path.write_text(whole)
-            return ok, whole[-turns.OUT_CAP:]
+        """A landing check whose pieces print `whole`, and hand back only its end."""
+        def piece(_cmd, _limit, *, output, **_kw):
+            output.write(whole.encode())
+            return (0 if ok else 1), "", False
 
         with patch.object(gate, "gate_turn", return_value=nullcontext()), \
-                patch.object(gate, "run_done_when", side_effect=done_when):
-            land._check(self.sandbox, {}, scratch, ["python3 tests/landing.py"],
-                        self.sandbox / "lander-acme.log", lambda _line: None)
+                patch.object(worker, "boxed", side_effect=piece), \
+                patch.object(worker, "kill_marked"):
+            self.assertEqual(land._check(self.sandbox, {}, scratch, ["python3 tests/landing.py"],
+                                         self.sandbox / "lander-acme.log",
+                                         lambda _line: None)[0], ok)
 
     def keep_a_suite(self):
         """A suite cut by size, its two pieces' logs kept by a red and a passing landing check."""
