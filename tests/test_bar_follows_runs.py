@@ -171,31 +171,35 @@ class BarFollowsRuns(unittest.TestCase):
         self.assertEqual(hand.call_count, 2)
 
     def test_changes_at_one_instant_share_one_job(self):
-        handback.publish_seat("acme")
-        start = threading.Barrier(8)
-        with patch.object(orch, "tmux_out", return_value=(0, "")) as hand:
-            changes = [threading.Thread(target=lambda: (start.wait(), handback.redress_seat("acme")))
-                       for _ in range(8)]
-            for change in changes:
-                change.start()
-            for change in changes:
-                change.join()
-        self.assertEqual(hand.call_count, 1)
+        pending = config.STATE / "bar-acme.pending"
+        for mark in ("none", "a job that never started"):
+            with self.subTest(mark):
+                pending.unlink(missing_ok=True)
+                if mark != "none":
+                    pending.touch()
+                    os.utime(pending, (1, 1))
+                start = threading.Barrier(8)
+                with patch.object(orch, "tmux_out", return_value=(0, "")) as hand:
+                    changes = [threading.Thread(target=lambda: (start.wait(), handback.redress_seat("acme")))
+                               for _ in range(8)]
+                    for change in changes:
+                        change.start()
+                    for change in changes:
+                        change.join()
+                self.assertEqual(hand.call_count, 1)
 
-    def test_a_change_joining_a_failed_handoff_hands_over_another(self):
+    def test_a_change_during_a_failed_handoff_hands_over_another(self):
         handback.publish_seat("acme")
+        changes = []
         def handoff(*_args, **_kw):
-            if hand.call_count == 1:
-                handback.redress_seat("acme")    # joins the handoff in flight
+            if not changes:
+                changes.append(threading.Thread(target=handback.redress_seat, args=("acme",)))
+                changes[0].start()
                 return 124, "timed out"
             return 0, ""
         with patch.object(orch, "tmux_out", side_effect=handoff) as hand:
             handback.redress_seat("acme")
-        self.assertEqual(hand.call_count, 2)
-        handback.publish_seat("acme")
-        with patch.object(orch, "tmux_out", return_value=(124, "timed out")) as hand:
-            handback.redress_seat("acme")    # nobody joined it: the next change hands one over
-            handback.redress_seat("acme")
+            changes[0].join()
         self.assertEqual(hand.call_count, 2)
 
     def test_a_tmux_that_fails_never_reaches_the_run(self):

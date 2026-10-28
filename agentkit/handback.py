@@ -479,19 +479,47 @@ def redress_seat(session):
     except OSError:
         pass   # the next draw's own read, or the menu's timer, catches up
     pending = _bar_pending(session)
-    while _bar_job_owed(pending):
-        if _hand_bar_job(session):
+    with _bar_lock(session) as held:
+        if not held:   # a handoff in flight did not answer within its own time: hand one over
+            _hand_bar_job(session)
             return
-        # tmux refused or did not answer: a change that joined this job hands over another
-        taken = pending.with_name(f"{pending.name}.{os.getpid()}")
         try:
-            os.rename(pending, taken)
-            joined = taken.stat().st_size
-            taken.unlink()
+            # A job handed over that has not yet read the facts reads this change too: every
+            # run of a seat waiting for a slot moves to new code at once, and one job each was
+            # a python of 170 MB per run.  A mark no job took up within BAR_JOB_START costs
+            # one more job, never a bar.
+            if time.time() - pending.stat().st_mtime < BAR_JOB_START:
+                return
         except OSError:
-            return   # its job started after all, or the mark is another's now
-        if not joined:
-            return
+            pass
+        with suppress(OSError):
+            pending.touch()   # before the handoff: the job may start, and take it, at once
+        if not _hand_bar_job(session):
+            with suppress(OSError):
+                pending.unlink(missing_ok=True)   # no job took it: the next change hands one over
+
+
+@contextmanager
+def _bar_lock(session):
+    """Held while one change marks and hands over a seat's bar job, so a change behind it sees
+    that handoff's outcome; True once held, False after waiting out one handoff's time."""
+    try:
+        lock = open(config.STATE / f"bar-{session}.lock", "a")
+    except OSError:
+        yield False
+        return
+    with lock:
+        deadline = time.monotonic() + BAR_HANDOFF
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() > deadline:
+                    yield False
+                    return
+                time.sleep(0.02)
+        yield True
 
 
 def _hand_bar_job(session):
@@ -502,50 +530,13 @@ def _hand_bar_job(session):
         # silent and always 0: tmux shows a job's output, or its failure, in the seat's pane
         return orch.tmux_out("run-shell", "-b", "-t", f"={session}:",
                              orch.tmux_text(f"{publish} >/dev/null 2>&1; true"),
-                             socket=orch.socket_name(), timeout=1)[0] == 0
+                             socket=orch.socket_name(), timeout=BAR_HANDOFF)[0] == 0
     except Exception:  # noqa: BLE001 - the bar is dressing; the run beneath it is what matters
         return False
 
 
-def _bar_job_owed(pending):
-    """Whether this change hands over a bar job: not while one handed over has yet to start.
-
-    A job that has not yet read the facts reads this change too: every run of a seat waiting
-    for a slot moves to new code at once, and one job each was a python of 170 MB per run.
-    The mark is created whole by the one change that hands its job over; each change joining
-    it adds a byte and keeps its time, so a mark no job took up within BAR_JOB_START costs
-    one more job, never a bar.
-    """
-    while True:
-        try:
-            os.close(os.open(pending, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
-            return True
-        except FileExistsError:
-            pass
-        except OSError:
-            return True
-        try:
-            fd = os.open(pending, os.O_WRONLY | os.O_APPEND)
-        except FileNotFoundError:
-            continue   # its job started, or its handoff failed, just now
-        except OSError:
-            return True
-        try:
-            claimed = os.fstat(fd).st_mtime_ns
-            if time.time_ns() - claimed >= BAR_JOB_START * 10**9:
-                os.ftruncate(fd, 0)
-                os.utime(fd)
-                return True
-            os.write(fd, b".")
-            os.utime(fd, ns=(claimed, claimed))
-            return False
-        except OSError:
-            return True
-        finally:
-            os.close(fd)
-
-
 BAR_JOB_START = 10   # seconds a handed-over job takes to start, at most, on a loaded host
+BAR_HANDOFF = 1   # seconds tmux has to take a job, before the run goes on without it
 
 
 def _bar_pending(session):
