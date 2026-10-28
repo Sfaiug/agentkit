@@ -20,7 +20,7 @@ from fixtures.aklooks import colours, look, looks, plain, settled
 from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 
-KEYS = "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave"
+KEYS = "  ↑↓←→ move   ⏎ open   n new   c config   esc leave"
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")

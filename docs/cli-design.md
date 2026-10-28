@@ -79,7 +79,7 @@ From a pipe or a file the menu reads a line at a time instead: a key, then Enter
 `terminal.Keyboard`, `terminal.read_key`, `terminal.choose`, `terminal.field`,
 `terminal.under`.
 
-Example: `↑↓←→ move   ⏎ choose   n new   c config   esc leave`.
+Example: `↑↓←→ move   ⏎ open   n new   c config   esc leave`.
 
 ## Colour
 

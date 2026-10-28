@@ -52,7 +52,7 @@ def ask(keys, cols=120):
     its first line on row 5."""
     shown = {}
 
-    def around(card):
+    def around(card, keys):
         shown["card"] = card
         return 5
     with patch.object(terminal, "read_key", side_effect=keys), \
@@ -185,7 +185,7 @@ class QuestionCard(unittest.TestCase):
         def confirm(question, meaning, answer, around, wait=None):
             drawn = io.StringIO()
             with redirect_stdout(drawn):
-                row = around(["<card>"])
+                row = around(["<card>"], "esc back")
             seen.append((question, meaning, answer, drawn.getvalue().split("\n")[row - 1]))
             return False
         cfg = copy.deepcopy(CFG)

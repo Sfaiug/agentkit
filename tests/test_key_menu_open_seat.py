@@ -22,8 +22,8 @@ from fixtures.akbin import Home
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
-KEYS = "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave"
-POPUP_KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"   # x: its own seat's
+KEYS = "  ↑↓←→ move   ⏎ open   n new   c config   esc leave"
+POPUP_KEYS = "  ↑↓←→ move   ⏎ open   n new   x stop   c config   esc leave"   # x: its own seat's
 SHOWS = {"atoll-fix": "Baking…", "atoll-ask": "(shift+tab to cycle) · ← for agents"}
 NOW = int(time.time())
 

@@ -29,7 +29,7 @@ def action(spots, key):
 
 
 class ChooseClick(unittest.TestCase):
-    def pick(self, events, keyline="↑↓←→ move   ⏎ choose   esc back", **options):
+    def pick(self, events, keyline="↑↓←→ move   ⏎ add   esc back", **options):
         read, write = os.pipe()
         with os.fdopen(read, "rb", buffering=0) as stdin, \
                 os.fdopen(write, "wb", buffering=0) as writer, \
@@ -51,15 +51,11 @@ class ChooseClick(unittest.TestCase):
             return terminal.choose(CHOICES, around=around, **options)
 
     def test_clicking_enter_picks_the_highlighted_choice(self):
-        for keyline, key in (("↑↓←→ move   ⏎ choose   esc back", "⏎"),
-                             ("arrows move   enter choose   esc back", "enter")):
+        for keyline, key in (("↑↓←→ move   ⏎ add   esc back", "⏎"),
+                             ("arrows move   enter add   esc back", "enter")):
             with self.subTest(key=key):
                 self.assertEqual(self.pick(lambda spots: click(*action(spots, key)),
                                            keyline, default="Example"), "Example")
-
-    def test_clicking_enter_accepts_the_marked_choices(self):
-        self.assertEqual(self.pick(lambda spots: click(*action(spots, "⏎")),
-                                   several=True, default=["Demo", "Acme"]), ["Acme", "Demo"])
 
     def test_hovered_enter_first_restores_the_highlight(self):
         def events(spots):
@@ -71,7 +67,6 @@ class ChooseClick(unittest.TestCase):
 
     def test_clicks_on_choices_and_elsewhere_keep_their_actions(self):
         self.assertEqual(self.pick(lambda spots: click(5, 5)), "Demo")
-        self.assertEqual(self.pick(lambda spots: click(5, 3) + b"\r", several=True), ["Acme"])
         self.assertIsNone(self.pick(lambda spots: click(*action(spots, "esc"))))
         self.assertIsNone(self.pick(lambda spots: click(1, 2)))
 

@@ -375,7 +375,8 @@ class Screens(Sandbox):
 
     def test_a_list_and_a_question_move_their_highlight_onto_the_pointer(self):
         def around(_):
-            terminal.frame("config · add a subscription", [""] * 3, terminal.keys("esc back"))
+            terminal.frame("config · add a subscription", [""] * 3,
+                           terminal.keys("esc back", enter="add"))
             return 3
 
         choices = ["Claude", "ChatGPT", "Grok"]
@@ -415,8 +416,8 @@ class Screens(Sandbox):
         self.assertEqual(run(lambda: terminal.choose(choices, around=around),
                              move(5, 4) + b"\x1b[<0;5;4M\x1b[<0;5;4m")[0], "ChatGPT")
 
-        def asked(card):
-            terminal.frame("stop", card, "esc back")
+        def asked(card, keys):
+            terminal.frame("stop", card, keys)
             return 3
 
         answer, screens = run(lambda: terminal.confirm("Stop acme?", "it stops", "Stop", asked),
@@ -431,7 +432,8 @@ class Screens(Sandbox):
 
     def test_header_motion_after_keyboard_navigation_clears_the_highlight(self):
         def around(_):
-            terminal.frame("config · add a subscription", [""] * 3, terminal.keys("esc back"))
+            terminal.frame("config · add a subscription", [""] * 3,
+                           terminal.keys("esc back", enter="add"))
             return 3
 
         screens = run(lambda: terminal.choose(["Claude", "ChatGPT", "Grok"], around=around),

@@ -1,4 +1,4 @@
-"""Without a UTF-8 locale the menu's key line is ASCII, `arrows move   enter choose` leading it, and
+"""Without a UTF-8 locale the menu's key line is ASCII, `arrows move   enter open` leading it, and
 `>` marks the highlighted seat, whose row is ASCII too; LC_ALL, when set, decides over LANG.
 
 A terminal started in the C or POSIX locale may draw `↑`, `⏎` and `›` as nothing or as noise,
@@ -17,8 +17,8 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
-ASCII_KEYS = "  arrows move   enter choose   n new   c config   esc leave"
-UTF8_KEYS = "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave"
+ASCII_KEYS = "  arrows move   enter open   n new   c config   esc leave"
+UTF8_KEYS = "  ↑↓←→ move   ⏎ open   n new   c config   esc leave"
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")

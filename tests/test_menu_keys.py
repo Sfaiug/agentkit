@@ -246,7 +246,7 @@ class MenuKeys(unittest.TestCase):
         menu = Menu(self, ["seat-a", "seat-b", "seat-c"])
         lines = menu.frame()
         self.assertIn("seat-a", menu.highlighted(lines))
-        self.assertRegex(lines[-1], r"^  ↑↓←→ move   ⏎ choose   n new   c config")
+        self.assertRegex(lines[-1], r"^  ↑↓←→ move   ⏎ open   n new   c config")
         menu.send(DOWN)
         menu.frame(lambda lines: "seat-b" in menu.highlighted(lines))
         menu.send(b"j")
@@ -459,11 +459,8 @@ class MenuKeys(unittest.TestCase):
         self.assertIn("\x1b[3A", out)                     # drawn over in place, not below
         self.assertEqual(pick([Key("char", "k"), Key("wheel-up"), Key("enter")], choices,
                               default="astra")[0], "fable")
-        self.assertEqual(pick([Key("space"), Key("char", "j"), Key("space"), Key("enter")],
-                              choices, default=["astra"], several=True)[0],
-                         ["fable", "opus", "astra"])
-        self.assertEqual(pick([Key("space"), Key("enter")], choices, default=["fable"],
-                              several=True)[0], [])
+        self.assertEqual(pick([Key("space"), Key("enter")], choices, default="opus")[0],
+                         "opus")                          # Space marks nothing here
         self.assertIsNone(pick([Key("down"), Key("esc")], choices)[0])
         self.assertEqual(pick([Key("char", "q"), Key("enter")], choices)[0], "fable")
 

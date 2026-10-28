@@ -22,7 +22,7 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, REPO, Home
 from fixtures.akterm import SERVER, Terminal
 
-MAIN_KEYS = "  ↑↓←→ move   ⏎ choose   n new   c config   esc leave"
+MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   c config   esc leave"
 PAGE = "agentkit · config · subscriptions"
 # Claude Code's own sign-out, as `claude auth logout` does it: its config directory's login gone
 CLAUDE = """#!/bin/sh

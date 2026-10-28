@@ -21,7 +21,7 @@ from fixtures.akbin import Home
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
-KEYS = "  ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave"
+KEYS = "  ↑↓←→ move   ⏎ open   n new   x stop   c config   esc leave"
 CARD = ["  Stop atoll-fix and everything it runs?",
         "  No runs stop with it; the session moves to past sessions, p, where it reopens where"
         " it stopped.",
@@ -64,7 +64,7 @@ class StopCard(unittest.TestCase):
         self.assertEqual(lines[at - 1], "")
         below = next(i for i, line in enumerate(lines) if line.startswith("  2  atoll-ask  "))
         self.assertGreater(below, at + len(CARD) - 1, "atoll-ask's row is not below the card")
-        self.assertEqual([line for line in lines if line][-1], "  esc back")
+        self.assertEqual([line for line in lines if line][-1], "  ↑↓←→ move   ⏎ keep   esc back")
 
         self.menu.keys("Escape")
         screen = self.menu.wait(KEYS)
