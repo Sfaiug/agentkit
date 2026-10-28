@@ -5297,7 +5297,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
         if act in ("left", "right"):
             here = turned(turns, page, here, 1 if act == "right" else -1)
             continue
-        if act.isdecimal() and act.isascii() and int(act) * 10 <= len(past):
+        if act.isdecimal() and act.isascii() and 0 < int(act) * 10 <= len(past):
             more = terminal.read_key(0.5)      # 1 then 2 within half a second is row 12
             act += more.char if more and more.name == "char" and more.char.isdecimal() else ""
         if act == "enter" or act.isdecimal() and act.isascii() and 1 <= int(act) <= len(past):
