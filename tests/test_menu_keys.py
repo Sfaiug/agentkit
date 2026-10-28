@@ -358,15 +358,17 @@ class MenuKeys(unittest.TestCase):
             self.assertNotIn(f"<opened {seat}>", menu.text())
 
     def test_a_click_read_while_a_digit_waits_opens_what_was_under_it(self):
-        """The click is read before the digit's seat opens, and kept with the page it was on."""
-        menu = Menu(self, [f"seat-{n:02d}" for n in range(1, 13)], rows=12, cols=40)
+        """The click is read before the digit's seat opens, and kept with the page it was on:
+        on its question's last word, which the page seat-01 opens over has nothing under."""
+        menu = Menu(self, [f"seat-{n:02d}" for n in range(1, 13)], rows=14, cols=40,
+                    asks={"seat-12": "Please choose the longest available option for this one."})
         menu.frame()
         menu.send(b"j" * 11)
         lines = menu.frame(lambda lines: "seat-12" in menu.highlighted(lines))
         self.assertFalse(any("seat-01" in line for line in lines), lines)   # another page is up
-        row = next(number for number, line in enumerate(lines, 1) if "seat-12" in line)
+        row = next(number for number, line in enumerate(lines, 1) if "available option" in line)
         menu.send(b"1")
-        menu.click(10, row)
+        menu.click(lines[row - 1].index("option") + 1, row)
         text = menu.saw("<opened seat-01>", "<opened seat-12>")
         self.assertLess(text.index("<opened seat-01>"), text.index("<opened seat-12>"))
         menu.frame(lambda lines: "seat-12" in menu.highlighted(lines))

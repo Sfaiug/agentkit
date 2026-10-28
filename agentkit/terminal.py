@@ -623,7 +623,7 @@ def frame(name, body=(), keyline="esc back", filled=0, places=None, drawn=None, 
     if (sys.stdout.isatty() and os.environ.get("TERM", "dumb") != "dumb"
             and "NO_COLOR" not in os.environ):
         print("\033[2J\033[H", end="")
-    for line in lines:
+    for line in lit(lines, spots):      # kept as drawn, what a click is read against (`under`)
         print(line)
     return spots
 
@@ -1029,7 +1029,7 @@ def read_key(timeout=None, wake=None):
     if key is None:                # the pointer's move
         (key, _), _HELD, _MOVED = _HELD, None, time.monotonic()
         _POINTER, _AWAY = key, under(key, _SPOTS).what is None and any(
-            what is not None for what, _ in _SPOTS.values())
+            what is not None for what, *_ in _SPOTS.values())
         return key
     spot = under(key, _SPOTS) if key.name == "click" else Spot()
     _UNSEEN, _AWAY = _AWAY and spot.what is None, False     # a click on a row names its own
@@ -1146,14 +1146,34 @@ def under(key, spots):
     """The `Spot` a click or the pointer at `key` is on, of a screen's `spots`: {screen row:
     (what, [(first, last, cell)])}, rows and columns counted from 1 as the terminal counts; a
     cell that is a row of its own, one of several on its line (a meter on `c`), is (first, last,
-    cell, its row).
+    cell, its row).  A row `lit` drew carries its line, (what, cells, line), so a key read
+    early is read against the screen it was read on; one not drawn yet, against the screen up.
 
     The one place a position is read back to what a screen drew there, for a click and for the
-    pointer alike, so what lights under the pointer is what a click there acts on.
+    pointer alike, so what lights under the pointer is what a click there acts on.  A thing is
+    there only from its first drawn column to its last: a cell within
+    its columns, the row within each stretch its cells leave.  Blank columns beside one -- a
+    cell's padding, the gap before a cell, the line's empty rest -- are on nothing.  A cell lit
+    is lit over all its columns, as the keys' reverse is drawn.
     """
-    what, places = spots.get(key.row, (None, ()))
-    return next((Spot(own[0] if own else what, cell, first, last)
-                 for first, last, cell, *own in places if first <= key.col <= last), Spot(what))
+    what, places, *line = spots.get(key.row, (None, ()))
+    line = line[0] if line else _SHOWN[key.row - 1] if 0 < key.row <= len(_SHOWN) else ""
+    inked, end = set(), 1
+    for char in ANSI.sub("", line):
+        if not char.isspace():
+            inked.update(range(end, end + _width(char)))
+        end += _width(char)
+    for first, last, cell, *own in places:
+        drawn = sorted(inked.intersection(range(first, last + 1)))
+        if drawn and drawn[0] <= key.col <= drawn[-1]:
+            return Spot(own[0] if own else what, cell, first, last)
+    taken = {column for first, last, *_ in places for column in range(first, last + 1)}
+
+    def reaches(columns):      # the row drawn that way before a cell or the line's end
+        return next((column in inked for column in columns
+                     if column in inked or column in taken), False)
+    return (Spot(what) if reaches(range(key.col, 0, -1)) and reaches(range(key.col, end))
+            else Spot())
 
 
 def pointer():
@@ -1172,14 +1192,17 @@ def lit(lines, spots):
     """`lines`, a screen from its first row, with the cell under the pointer -- a key-line item, a
     cell of a row -- on a subtle background (POINTED), in place of the reverse the keys give a
     cell, so the pointer and the keys never show two; at eight colours it is reversed.  `spots`
-    are the screen's, kept as what the pointer is read against (`read_key`).  Rows are the
+    are the screen's, kept as what the pointer is read against (`read_key`), each row given the
+    line it is drawn on (`under`).  Rows are the
     screen's to light: the keys' highlight is moved onto the pointer's.  With no colour at all
     nothing is lit, and what only explains -- a cell that is a tuple -- is never lit.  Nothing
     the pointer rests on says anything more of itself: the screen is its own manual.
     """
     global _SPOTS, _POINTED, _SHOWN, _PAINTED
-    _SPOTS, _POINTED = spots, pointer_spot(spots)
     _SHOWN = _PAINTED = lines = list(lines)
+    spots.update({row: (what, places, lines[row - 1] if 0 < row <= len(lines) else "")
+                  for row, (what, places, *_) in spots.items()})
+    _SPOTS, _POINTED = spots, pointer_spot(spots)
     if (_POINTED.cell is None or isinstance(_POINTED.cell, tuple) or not colour_depth()
             or not 0 < _POINTER.row <= len(lines)):
         return lines
@@ -1391,7 +1414,7 @@ def choose(choices, default=None, around=None, wait=None, warn=None):
     (`menu.moving`) keeps its dots breathing while the list is asked.  `warn` is a choice drawn
     in the warn colour: the one of `confirm`'s that ends something.
     """
-    global _PRESSED
+    global _PRESSED, _SHOWN, _PAINTED
     at = choices.index(default) if default in choices else 0
     drawn, top, again = 0, None, around is not None
     while True:
@@ -1411,6 +1434,9 @@ def choose(choices, default=None, around=None, wait=None, warn=None):
                          "".join(f"\r{line}\033[K\n" for line in lines))
         sys.stdout.flush()
         drawn = len(lines)
+        if top:       # over its screen's lines, as drawn, so the pointer is read against them
+            _SHOWN, _PAINTED = ([*was[:top - 1], *[""] * (top - 1 - len(was)), *lines,
+                                 *was[top - 1 + len(lines):]] for was in (_SHOWN, _PAINTED))
         rows = {top + number: (number, []) for number in range(len(choices))} if top else {}
         # its screen's key line and its own choices are what the pointer lands on; that
         # screen's rows -- the seats under a question -- are nothing while it is asked

@@ -4587,7 +4587,7 @@ def config_page(name, page):
         # with a list open its choices are what the keys move through, else the rows
         ids = [row for row, label, _ in drawn if (label is None) == bool(opened)]
         body, places = page_body(drawn, None if terminal.away() else here)
-        # a click anywhere on a mark's line acts as Space does (matrix_key's `marks`)
+        # a click on what a mark's line draws acts as Space does (matrix_key's `marks`)
         places = {line: (row, [(1, terminal.width(), 0)] if does(row)[0] else [])
                   for line, (row, _) in places.items()}
         space, enter = does(here)

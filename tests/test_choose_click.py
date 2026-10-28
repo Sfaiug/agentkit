@@ -24,7 +24,7 @@ def click(col, row):
 
 
 def action(spots, key):
-    return next((last, row) for row, (_, spans) in spots.items()
+    return next((last, row) for row, (_, spans, *_) in spots.items()
                 for _, last, cell in spans if cell == key)
 
 
