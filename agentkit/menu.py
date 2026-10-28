@@ -4011,7 +4011,7 @@ def config_add(cfg, keyboard, through):
             choices, note, listed = [], f"config: {exc}", listed or []
         except Back:                  # Esc while a list was asked: back one list
             if not picked:
-                return None
+                raise
             picked.pop()
             ats.pop()
             continue
