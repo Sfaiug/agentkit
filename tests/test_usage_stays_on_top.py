@@ -52,7 +52,7 @@ class UsageStaysOnTop(Sandbox):
         with patch.object(terminal, "width", return_value=width), \
                 patch.object(terminal, "height", return_value=height), \
                 redirect_stdout(io.StringIO()) as out:
-            menu.draw(self.cfg, self.seats[:seats], keys or terminal.keys(menu.KEYS),
+            menu.draw(self.cfg, self.seats[:seats], keys or terminal.keys(menu.KEYS, enter="open"),
                       0, cursor, None if piped else drawn, look=False)
         return terminal.ANSI.sub("", out.getvalue().replace("\033[K", "")).split("\n")[:-1], drawn
 

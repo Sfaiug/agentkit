@@ -18,7 +18,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from agentkit import terminal  # noqa: E402
-from test_config_matrix import (DOWN, ENTER, ESC, NEW_KEYS, PAGE_KEYS, RIGHT, UP,  # noqa: E402
+from test_config_matrix import (DOWN, ENTER, ESC, NEW_KEYS, RIGHT, UP,  # noqa: E402
                                 Screen, highlighted, on_effort, on_mark)
 
 # Key lines spelled outside terminal.keys, where each is, and why it is still spelled there.
@@ -50,7 +50,6 @@ def spelled():
 
 class OneKeyLine(unittest.TestCase):
     def test_c_its_pages_and_lists_draw_one_key_line(self):
-        self.assertEqual(PAGE_KEYS.strip(), terminal.keys("esc back"))
         screen = Screen(self, session=None)
         stops = {"a model's mark": screen.frame(lambda lines: on_mark(lines, "fable"))}
         stops["a meter"] = screen.press(UP, lambda lines: not any(line.startswith("›")
@@ -71,7 +70,7 @@ class OneKeyLine(unittest.TestCase):
                           **dict.fromkeys(opens, NEW_KEYS.replace("␣ mark", "⏎ open")),
                           "an effort": NEW_KEYS.replace("mark", "step"),
                           # Enter's word there is its lit act's
-                          "Subscriptions' page": PAGE_KEYS.replace("choose", "log in again")})
+                          "Subscriptions' page": "  ↑↓←→ move   ⏎ log in again   esc back"})
         screen.press(ESC, lambda lines: lines[0].rstrip().endswith("config")
                      or "config " in lines[0])
         screen.leave()
