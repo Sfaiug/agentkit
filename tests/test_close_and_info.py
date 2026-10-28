@@ -243,7 +243,7 @@ class CloseAndInfo(unittest.TestCase):
         self.assertEqual(top, row + 3 + len(means))         # the two lines under what it means
         self.assertEqual(answers, ["› ✓ Keep", "  ✗ Stop"])  # Keep is where the highlight starts
         self.assertEqual(asked[top - 1:top + 2], ["", "", ""])
-        self.assertEqual(asked[-1].strip(), "esc back")
+        self.assertEqual(asked[-1].strip(), "↑↓←→ move   ⏎ keep   esc back")
         mark = menu.mark()
         menu.send(ESC)
         lines = menu.frame(after=mark)
