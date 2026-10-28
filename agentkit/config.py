@@ -250,9 +250,10 @@ def child_env():
 
 
 def owner_env():
-    """`child_env` for a stop the person at the menu's keys asks for: without the seat the menu
-    is over -- Ctrl-b m's popup is inside one -- whose name would make every other seat's stop
-    a seat's, refused (`check_stop_owner`, the guard for what a seat's own model types)."""
+    """`child_env` without the seat's name, for a stop the person at the menu's keys asks for --
+    the seat the menu is over (Ctrl-b m's popup is inside one) would make every other seat's
+    stop a seat's, refused (`check_stop_owner`, the guard for what a seat's own model types) --
+    and for a project's features command (`menu.features_run`)."""
     env = child_env()
     env.pop(SESSION_ENV, None)
     return env
