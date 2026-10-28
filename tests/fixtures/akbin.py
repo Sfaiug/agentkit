@@ -26,6 +26,7 @@ A test whose ticks act on processes it started, which that box cannot see, ends 
 """
 
 from collections import namedtuple
+import fcntl
 import functools
 import json
 import os
@@ -133,8 +134,8 @@ exec {real} "$@"
 
 
 class Home:
-    """A throwaway HOME the program runs in; `close` (or leaving `with`) ends every process it
-    left and removes it."""
+    """A throwaway HOME the program runs in; `close` (or leaving `with`), or else the death of
+    the process that made it, ends every process it left and removes it."""
 
     def __init__(self):
         self.root = Path(tempfile.mkdtemp(prefix="akbin-")).resolve()
@@ -142,6 +143,21 @@ class Home:
         self.bin = self.root / "bin"
         # A socket's path must fit in 104 bytes, and TMPDIR may be deep inside a checkout.
         self.tmux_dir = Path(tempfile.mkdtemp(prefix="akt-", dir="/tmp")).resolve()
+        # The Home's lifeline: only this process holds the pipe on the reaper's stdin, not even
+        # a process it forks, so the reaper reads its end once this process dies, however it
+        # died, and does `close`'s work.  A shell waits, holding this file open, and Python runs
+        # it only then, though the checkout be gone by then.  It holds neither of this process's
+        # outputs, which a runner reads to their end, and no group of this process kills it.
+        with open(__file__, "rb") as opened:
+            # past the standard streams, which the reaper's own replace
+            script = fcntl.fcntl(opened, fcntl.F_DUPFD_CLOEXEC, 3)
+        self._reaper = subprocess.Popen(
+            ["/bin/sh", "-c", 'read _ || exec "$@"', "sh", sys.executable, "-I",
+             f"/dev/fd/{script}", "reap", self.root, self.tmux_dir],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True, pass_fds=[script])
+        os.close(script)
+        os.register_at_fork(after_in_child=self._reaper.stdin.close)
         self._spawned = []
         for directory in (self.path / ".agentkit" / "state", self.bin, self.root / "tmp",
                           self.root / "run", self.root / "logs"):
@@ -186,34 +202,8 @@ class Home:
     def close(self):
         for proc in self._spawned:
             _end(proc)
-        servers = self.tmux_dir / f"tmux-{os.getuid()}"
-        for socket in servers.iterdir() if servers.is_dir() else ():
-            ask = [REAL_TMUX, "-S", str(socket)]
-            pid = subprocess.run([*ask, "display-message", "-p", "#{pid}"], capture_output=True,
-                                 text=True, timeout=30).stdout.strip()
-            subprocess.run([*ask, "kill-server"], capture_output=True, timeout=30)
-            _wait_gone(int(pid) if pid.isdigit() else None)
-        # what the program detached from them: a stray still writing would put the Home back
-        for pid in self._strays():
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            _wait_gone(pid)
-        shutil.rmtree(self.root, ignore_errors=True)
-        shutil.rmtree(self.tmux_dir, ignore_errors=True)
-
-    def _strays(self):
-        """Processes still running in this Home: their environment names it as HOME."""
-        mark = f"HOME={self.path}".encode()
-        found = []
-        for entry in Path("/proc").glob("[0-9]*"):
-            try:
-                if mark in (entry / "environ").read_bytes().split(b"\0"):
-                    found.append(int(entry.name))
-            except OSError:      # gone meanwhile, or not ours to read
-                continue
-        return found
+        _clear(self.root, self.tmux_dir)
+        _end(self._reaper)      # last: a close cut short leaves the rest to it
 
     def log(self, name):
         return self.root / "logs" / f"{name}.log"
@@ -290,7 +280,7 @@ class Home:
         relay = _relay(listener, socket.AF_INET, ("127.0.0.1", port))
         try:
             return self.run(*self.box(_BOX), sys.executable, "-I", Path(__file__).resolve(),
-                            str(port or ""), str(way), AK, "watch", env=env)
+                            "tick", str(port or ""), str(way), AK, "watch", env=env)
         finally:
             listener.shutdown(socket.SHUT_RDWR)     # wakes its `accept`, as `close` would not
             listener.close()
@@ -325,6 +315,39 @@ class Home:
         """This Home's environment with `extra` over it; a None value removes the variable."""
         merged = {**self.env, **(extra or {})}
         return {key: value for key, value in merged.items() if value is not None}
+
+
+def _clear(root, tmux_dir):
+    """End the tmux servers the Home at `root` started, and its strays, and remove it."""
+    servers = Path(tmux_dir, f"tmux-{os.getuid()}")
+    for socket in servers.iterdir() if servers.is_dir() else ():
+        ask = [REAL_TMUX, "-S", str(socket)]
+        pid = subprocess.run([*ask, "display-message", "-p", "#{pid}"], capture_output=True,
+                             text=True, timeout=30).stdout.strip()
+        subprocess.run([*ask, "kill-server"], capture_output=True, timeout=30)
+        _wait_gone(int(pid) if pid.isdigit() else None)
+    # what the program detached from them: a stray still writing would put the Home back
+    for pid in _strays(Path(root, "home")):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        _wait_gone(pid)
+    shutil.rmtree(root, ignore_errors=True)
+    shutil.rmtree(tmux_dir, ignore_errors=True)
+
+
+def _strays(home):
+    """Processes still running in a Home: their environment names `home` as HOME."""
+    mark = f"HOME={home}".encode()
+    found = []
+    for entry in Path("/proc").glob("[0-9]*"):
+        try:
+            if mark in (entry / "environ").read_bytes().split(b"\0"):
+                found.append(int(entry.name))
+        except OSError:      # gone meanwhile, or not ours to read
+            continue
+    return found
 
 
 def _wait_gone(pid, bound=30):
@@ -393,4 +416,4 @@ def _last(port, way, *program):
 
 
 if __name__ == "__main__":
-    _last(*sys.argv[1:])
+    {"tick": _last, "reap": _clear}[sys.argv[1]](*sys.argv[2:])
