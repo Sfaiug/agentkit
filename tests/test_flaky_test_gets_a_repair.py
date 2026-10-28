@@ -71,7 +71,8 @@ class FlakyTestGetsARepair(test_lander.LanderFixture, unittest.TestCase):
         task = (directory / "task.md").read_text()
         for said in (f"# Make {TEST} deterministic", f"`{TEST}` in {self.repo}", "2 times",
                      *(str(config.RUNS / name / "lander-1000.log") for name in ("one", "two")),
-                     "without weakening what it checks", f"```bash\n{test_lander.SUITE}  # once\n```"):
+                     "without weakening what it checks",
+                     f"```bash\n{test_lander.SUITE}  # once\n```"):
             self.assertIn(said, task)
         self.assertNotIn("not-needed", task)
 
