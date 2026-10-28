@@ -5062,7 +5062,9 @@ def switches_command(checkout):
 
 def features_run(checkout, *words):
     """The project's features command with `words` after it: (its JSON answer, "") or (None,
-    the one line saying why).  Its stdin is nothing, so an ssh in it never reads the keys.
+    the one line saying why).  Its stdin is nothing, so an ssh in it never reads the keys, and it
+    carries no seat's name (`config.owner_env`): an ssh in it is never the live host reached by
+    a seat the screen was opened in (`guard.reached_live`).
 
     It runs in a session of its own, and one past FEATURES_WAIT is killed with everything it
     started: the shell alone would leave its ssh going, and a `set` said to have failed could
@@ -5075,7 +5077,7 @@ def features_run(checkout, *words):
         with subprocess.Popen(f"{command} {shlex.join(map(str, words))}", shell=True,
                               cwd=checkout, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, encoding="utf-8", errors="replace",
-                              env=config.child_env(), start_new_session=True) as proc:
+                              env=config.owner_env(), start_new_session=True) as proc:
             try:
                 out, err = proc.communicate(timeout=FEATURES_WAIT)
             except subprocess.TimeoutExpired:
