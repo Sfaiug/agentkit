@@ -3343,20 +3343,21 @@ def maintenance(log=print):
 # --- the commands -----------------------------------------------------------
 
 
-def state_word(session, cfg=None):
+def state_word(session, cfg=None, records=None):
     """What the listing calls a seat: working, needs you, done, idle or out of usage, and
     nothing else.
 
     One function decides it -- `watch.session_state` -- so the list, the menu, the overlay,
     the status bar and the window title can never say different words about the same seat.
     A listing reads the seat's own screen first, as it always did, and publishes the answer
-    to that seat's bar; it writes no word of its own.
+    to that seat's bar; it writes no word of its own.  `records` are the listing's one pass
+    over the run records, read here where left out.
     """
     from . import watch   # here, not at the top: watch imports this module
-    return watch.announce_state(session, cfg=cfg, look=True)["word"]
+    return watch.announce_state(session, cfg=cfg, look=True, records=records)["word"]
 
 
-def explain(session, cfg):
+def explain(session, cfg, records=None):
     """The `--why` block for one seat: its word, why it has it, on what, and since when.
 
     The word is one of the five every screen says; the evidence lines under it are the facts
@@ -3364,7 +3365,7 @@ def explain(session, cfg):
     answer rather than inventing a rule that matched.
     """
     from . import watch   # here, not at the top: watch imports this module
-    found = watch.announce_state(session, cfg=cfg, look=True)
+    found = watch.announce_state(session, cfg=cfg, look=True, records=records)
     lines = [f"{session['name']}  {found['word']}"]
     lines.append(f"  reason:    {found['reason'] or '-'}")
     if any(session.get(key) for key in CLOSED):
@@ -3459,7 +3460,7 @@ def _narrow_table(rows, texts, notes, natural, width, gutter):
     return header, groups
 
 
-def list_table(found, cfg, tallies, width, selections=None):
+def list_table(found, cfg, tallies, width, selections=None, records=None):
     """The seats table: the same design as `ak run status`.
 
     Fixed columns with two-space gutters, sized once from the rows on screen:
@@ -3469,8 +3470,8 @@ def list_table(found, cfg, tallies, width, selections=None):
     shows only with `--why`. On a
     screen too narrow for the seven columns the header names the seat and its
     project, and the state, tally, orchestrator, age and workers ride their own
-    lines under it, every name whole. `selections` carries the seat records the
-    caller already loaded, so each record is read once per listing.
+    lines under it, every name whole. `selections` carries the seat records and
+    `records` the run records the caller already loaded, so each is read once per listing.
     """
     from . import menu   # here, not at the top: menu imports this module
     if not found:
@@ -3485,7 +3486,7 @@ def list_table(found, cfg, tallies, width, selections=None):
                 selection = config.load_session(cfg, s["name"], required=False)
             except config.Error:
                 selection = None
-        word = state_word(s, cfg)
+        word = state_word(s, cfg, records)
         rows.append([s["name"], project_name(s.get("repo")), word,
                      menu.tally(tallies.get(s["name"])),
                      selection["orchestrator"] if selection else "?",
@@ -3547,8 +3548,10 @@ def cmd_list(argv):
         return 0
     from . import handback, menu  # here, not at the top: menu imports this module
     cfg = config.load()
-    # the same tally each seat's menu row carries, from the same one pass over the records
-    tallies = handback.seat_tallies(state for _, state in menu.run_records())
+    # the same tally each seat's menu row carries, from the one pass over the records every
+    # seat's word, bar and `--why` block read too
+    records = menu.run_records()
+    tallies = handback.seat_tallies(state for _, state in records)
     # each seat's record is read once here and carried into the table, which
     # would otherwise read every seat again for the same rows
     selections, warnings = {}, []
@@ -3558,14 +3561,15 @@ def cmd_list(argv):
         except config.Error as exc:
             selections[s["name"]] = None
             warnings.append(str(exc))
-    header, groups = list_table(found, cfg, tallies, terminal.content_width(), selections)
+    header, groups = list_table(found, cfg, tallies, terminal.content_width(), selections,
+                                records)
     print(header)
     for s, group in zip(found, groups):
         print("\n".join(group))
         if why:
             # the checkout path and the seat's explanations, under its own row
             print(f"  path: {s['path']}")
-            print("\n".join(explain(s, cfg)[1:]))
+            print("\n".join(explain(s, cfg, records)[1:]))
     print_slice()
     for warning in warnings:
         print(f"WARN {warning}", file=sys.stderr)
