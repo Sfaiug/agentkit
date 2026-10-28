@@ -18,7 +18,8 @@ BOARD = "artificialanalysis.ai"
 DATE = re.compile(r"(?<!\d)20\d\d(\d{4})(?!\d)")
 BRACKET = re.compile(r"\s*\(([^()]*)\)")
 # what a bracket holding nothing but dates and sizes holds: `(32K, 20251101)` names no variant
-DATE_OR_SIZE = re.compile(r"20\d\d-?\d\d-?\d\d|\d{4}|\d+(\.\d+)?[kmb]", re.IGNORECASE)
+BRACKET_DATE = re.compile(r"20\d\d-?\d\d-?\d\d|\d{4}")
+SIZE = re.compile(r"\d+(\.\d+)?[kmb]", re.IGNORECASE)
 INTERVAL = (".lower95ci", ".upper95ci")    # a value's interval, `<column>` + each
 
 
@@ -50,12 +51,17 @@ def _names(name):
 
 
 def _board_names(name):
-    """`_names` of another board's model name, its brackets of dates and sizes dropped; none
-    where another bracket is left, which names a variant of the model (`Acme 7 (Instant)`)."""
-    name = BRACKET.sub(lambda found: "" if all(DATE_OR_SIZE.fullmatch(part) for part
-                                                in found.group(1).replace(",", " ").split())
-                       else found.group(0), name)
-    return set() if "(" in name else _names(name)
+    """`_names` of another board's model name to try in turn: its brackets of dates and sizes
+    cut to their dates, so `Acme 7 (0902)` names the release dated so, then dropped; none where
+    another bracket is left, which names a variant of the model (`Acme 7 (Instant)`)."""
+    def cut(found, dates):
+        parts = found.group(1).replace(",", " ").split()
+        if not all(BRACKET_DATE.fullmatch(part) or SIZE.fullmatch(part) for part in parts):
+            return found.group(0)
+        return "".join(" " + part.replace("-", "") for part in parts
+                       if dates and BRACKET_DATE.fullmatch(part))
+    forms = [BRACKET.sub(lambda found: cut(found, dates), name) for dates in (True, False)]
+    return [] if "(" in forms[1] else [_names(form) for form in forms]
 
 
 def _effort(release, effort):
@@ -129,8 +135,8 @@ def _gone(releases):
 def current(boards):
     """Artificial Analysis's current releases its series keep (`_gone`), strongest first by their best
     `aa.intelligenceIndex`; those without one last, by name.  Each effort's `values` carry,
-    beside its own row's, those of every other board's rows naming the release (`_board_names`
-    meeting `_names` of its name, and of no other current release's) at that effort."""
+    beside its own row's, those of every other board's rows naming the release (the first of
+    `_board_names` meeting `_names` of any current release's name, of its alone) at that effort."""
     def strength(item):
         slug, rows = item
         best = max((row["values"]["aa.intelligenceIndex"] for row in rows
@@ -147,8 +153,9 @@ def current(boards):
     others = [held for board, held in boards.items() if board != BOARD]
     for held in others:
         for row in (held or {}).get("rows") or []:
-            matched = {release["slug"]: release for name in _board_names(row["model"])
-                       for release in named.get(name, [])}
+            matched = next((found for names in _board_names(row["model"])
+                            if (found := {release["slug"]: release for name in names
+                                          for release in named.get(name, [])})), {})
             effort = len(matched) == 1 and _effort(*matched.values(), row["effort"])
             if effort:
                 _join(effort["values"], row["values"])
