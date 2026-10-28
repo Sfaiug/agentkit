@@ -57,6 +57,7 @@ SWAPS = "harness-swaps.json"  # the latest installs and reverts, [harness, began
 SWAPS_KEPT = 16               # far more than can begin between a turn's end and the look at it
 LIVE = "live-checks"          # under config.STATE: one directory per check, `<commit>-<started>`
 HARNESS_GATES = "harness-gates"  # under config.STATE: one failure episode per harness
+FRESH_FAULTS = "fresh-gate-faults"  # under config.STATE: the fresh-install gate's standing faults
 # A check of agentkit's tests/live.sh, detached: a throwaway worktree of exactly the commit,
 # the script in it, then the output and the exit code, each written whole.  Both run in the
 # process group of a holder, a `sleep` this runner starts first and reaps last, after every
@@ -419,7 +420,8 @@ def run_gate(key, fh):
     """Run gate `key` ("live" or "fresh") on the box as it stands: (passed, failed labels,
     its own `FAIL` lines, why).
 
-    A fresh-install gate that cannot run on this host is skipped, which passes.
+    A fresh-install gate that cannot run on this host is skipped, which passes; one that ran
+    and failed no check clears its standing faults once they are told (`fresh_standing`).
     """
     failed = _failed_path(fh)
     failed.unlink(missing_ok=True)
@@ -431,12 +433,16 @@ def run_gate(key, fh):
         why = "passed" if passed else "failed"
     else:
         passed, why = fresh_gate(fh, say)
-        passed = passed or why.startswith("skipped:")
     try:
         labels = set(failed.read_text().splitlines()) - {""}
         failed.unlink()
     except (OSError, UnicodeError):
         labels = set()
+    if key == "fresh":
+        faults = config.STATE / FRESH_FAULTS
+        if passed and not labels and (_handed(faults) or {}).get("told"):
+            (faults / "handed").unlink()
+        passed = passed or why.startswith("skipped:")
     return passed, labels, _fail_titles(_since(fh, mark)), why
 
 
@@ -1135,6 +1141,25 @@ def harness_gate_result(plan, passed, gate, log_path, titles=()):
         _put(check / "handed", json.dumps(record))
 
 
+def fresh_standing(failed, lines, log_path):
+    """Hand back once the checks `failed` the fresh-install gate failed on the release before
+    too, naming their `FAIL` `lines`.
+
+    A line not yet told stands as written, its log saying when those checks failed, until the
+    tick delivers it under the upgrade lock; once told, the same checks hand back nothing new
+    until a clean pass clears it (`run_gate`).
+    """
+    check = config.STATE / FRESH_FAULTS
+    record = _handed(check)
+    if record and (not record["told"] or record["failed"] == sorted(failed)):
+        return
+    check.mkdir(parents=True, exist_ok=True)
+    _put(check / "handed", json.dumps(dict(
+        failed=sorted(failed), typed=None, told=False, line=_fitted(
+            "The fresh-install gate failed checks that fail on the release before too", lines,
+            f"Log: {config.tilde(log_path)}. Fix the standing faults."))))
+
+
 def latest(harness):
     """The release its `[update] latest` command names, or "" where it names none or says none.
 
@@ -1225,8 +1250,9 @@ def keep_current(log, now=None):
     host has is asked its `[update] latest` at most once an hour; one behind it is upgraded by
     `background`, one at a time.  A failed gate has put the harness back and said so; that
     release is started again once `RETRY_AFTER` has passed since its last start, and a newer
-    one at once. Its second red gate is handed back once until its gates pass, retrying
-    delivery on later ticks while no seat can receive it.  A checkout that is somebody's work
+    one at once. Its second red gate is handed back once until its gates pass, and the fresh
+    gate's standing faults once (`fresh_standing`), retrying delivery on later ticks while no
+    seat can receive it.  A checkout that is somebody's work
     (`left_as_is`) holds it, unstarted, until an ask finds it main again: its gates test that
     checkout, and refused a half-moved ~/agentkit, a red that reverted a harness for nothing it
     did.
@@ -1254,6 +1280,9 @@ def keep_current(log, now=None):
             if episode and episode["reds"] >= 2:
                 if _gate_hand_back(check, episode, log):
                     log(f"handed {check.name}'s failed harness upgrade gate back to fix")
+        faults = config.STATE / FRESH_FAULTS
+        if (record := _handed(faults)) and _gate_hand_back(faults, record, log):
+            log("handed the fresh-install gate's standing faults back to fix")
     now = time.time() if now is None else now
     record = config.STATE / "harness-latest.json"
     try:
@@ -1478,7 +1507,7 @@ def upgrade(plan, before):
         # on the release before too, nor another gate's.
         red, titles, outcome = "", [], {}
         for key in ("live", "fresh"):
-            passed, failed, titles, outcome[key] = run_gate(key, fh)
+            passed, failed, lines, outcome[key] = run_gate(key, fh)
             if passed:
                 continue
             why = outcome[key]
@@ -1486,7 +1515,7 @@ def upgrade(plan, before):
             landed = revert(plan, before, after, fh, say, snapshot, attempted)
             own = ", ".join(sorted(failed))
             if not failed or any(state == "cannot revert" for state, _ in landed.values()):
-                titles = sorted(failed) or titles
+                titles = sorted(failed) or lines
                 break
             reverted = [h for h in plan if landed[h["name"]][0] == "reverted"]
             if reverted:    # with none, the box it failed on is the release before
@@ -1497,6 +1526,8 @@ def upgrade(plan, before):
                 say(f"update: {red} failed {own} on the release before too: "
                     "agentkit's own checks; installing the release it tested again")
             outcome[key] = f"failed only agentkit's own checks ({own})"
+            if key == "fresh":
+                fresh_standing(failed, lines, log_path)
             ok = True
             for harness in reverted:
                 name = harness["name"]
