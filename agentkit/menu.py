@@ -135,7 +135,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-from . import command_help, config, gitcall, history, matrix, motion, notify, orch, plan, quality, staffing, terminal, transitions, update, usage
+from . import command_help, config, gitcall, history, matrix, motion, notify, orch, plan, quality, staffing, terminal, transitions, update, usage, worker
 from . import record
 from . import warm
 
@@ -4160,6 +4160,11 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
                                   env={**config.child_env(), **config.account_env(account),
                                        **config.provider_env([provider] if provider else [])}
                                   ).returncode
+            # a sign-in cut short can still exit 0 (codex 0.163's on ^C): it finished unless the
+            # harness says it has no login for it now -- no answer lets it stand
+            if not code and verb.startswith("login") and worker.auth_ok(
+                    harness, seat=True, account=account, provider=provider)[0] is False:
+                code = 1
         except (config.Error, OSError) as exc:
             print(f"{harness}: {exc}")
             code = 1

@@ -148,6 +148,18 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
         self.term.wait(lambda screen: title(screen) == PAGE
                        and "codex login did not finish; OpenAI / Codex is not added" in screen)
 
+    def test_a_sign_in_that_exits_0_with_no_login_adds_nothing(self):
+        self.open({"fable": "claude"})
+        before = self.config.read_text()
+        self.fakes["codex"].answer("login", "<cut short>", 0)        # as codex 0.163's on ^C
+        self.fakes["codex"].answer("auth", "<no login>", 1)
+        self.pick("OpenAI / Codex")
+        self.term.wait(lambda screen: "<cut short>" in screen and "esc back" in screen)
+        self.term.keys("Enter")
+        self.term.wait(lambda screen: title(screen) == PAGE
+                       and "codex login did not finish; OpenAI / Codex is not added" in screen)
+        self.assertEqual(self.config.read_text(), before)
+
     def test_a_second_subscription_signs_in_under_a_new_account(self):
         self.open({"fable": "claude"})
         self.pick("Claude II")
