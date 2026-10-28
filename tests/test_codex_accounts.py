@@ -30,7 +30,8 @@ args = sys.argv[1:]
 call = {"args": args, "home": os.environ.get("CODEX_HOME"),
         "keys": [os.environ.get("OPENAI_API_KEY"), os.environ.get("CODEX_API_KEY")]}
 if "login" in args:
-    (home / "auth.json").write_text('{"tokens":{"access_token":"tok-new"}}')
+    if not os.environ.get("FAKE_CUT_SHORT"):    # as codex 0.163's cut short: exit 0, no login
+        (home / "auth.json").write_text('{"tokens":{"access_token":"tok-new"}}')
 elif "logout" in args:
     (home / "auth.json").unlink()
 else:
@@ -192,6 +193,25 @@ class CodexAccounts(unittest.TestCase):
                 self.assertEqual(call["args"][:2], ["-c", 'cli_auth_credentials_store="file"'])
             self.login(own, token)
         self.each(login)
+
+    def test_a_sign_in_cut_short_fails_and_login_again_keeps_the_old_login(self):
+        old = (self.second / "auth.json").read_bytes()
+        primary, secondary = pty.openpty()
+        try:
+            new = b'{"tokens":{"access_token":"tok-new"}}'
+            for cut, code, login in (("1", 1, old), ("", 0, new)):
+                self.env["FAKE_CUT_SHORT"] = cut
+                proc, _ = self.adapter("second", "login", "again", stdin=secondary)
+                self.assertEqual((proc.returncode, (self.second / "auth.json").read_bytes()),
+                                 (code, login), proc.stderr)
+                self.assertEqual([p.name for p in self.second.glob("auth.json*")], ["auth.json"])
+            (self.second / "auth.json").unlink()
+            self.env["FAKE_CUT_SHORT"] = "1"
+            proc, _ = self.adapter("second", "login", stdin=secondary)
+            self.assertEqual((proc.returncode, (self.second / "auth.json").exists()), (1, False))
+        finally:
+            os.close(primary)
+            os.close(secondary)
 
     def test_logout_signs_out_the_account_login_alone(self):
         def logout(account, own, token):
