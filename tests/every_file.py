@@ -9,8 +9,9 @@ no stdin, and without the caller's AGENTKIT_*/AK_* variables: a file started fro
 must not pass for part of it (AGENTKIT_RUN, AK_RUN_DEPTH, AK_PARENT_RUN ...).  As many run at
 once as live memory fits; waiting files can outnumber cores. Before each start it samples
 CPU pressure, running one file at a time while it is high, and rereads host and cgroup headroom.
-Unknown files start first, then longest first by their last measured time on this host,
-kept under ~/.cache/agentkit/test-times/<hostname>/ outside the checkout.
+The share is cut, and its files start longest first, by each file's last measured seconds,
+the record AK_TIMES holds (agentkit/suite_times.py), or one never measured by its size at the
+measured files' seconds per byte.
 A failing file, or one reporting no executed cases, runs once more after the pool, alone:
 landing.py passes a descriptor that reads end-of-file once its other parts have ended, and
 the re-run waits for that too; failing again it fails the whole and is named with its last
@@ -40,7 +41,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True   # another piece may be compiling the checkout
 sys.path.insert(0, str(REPO))
-from agentkit import guard, host, orch
+from agentkit import guard, host, orch, suite_times
 from suite_shares import HEADERS, LIVE_CHECKS, STATIC_CHECKS, listed, name_failed, shard, shares
 
 FILE_MEM_MB = 230   # reservation floor: the measured peak was 229 MB with children;
@@ -177,26 +178,14 @@ def pool_limit(readings):
     return max(1, int(min(room) / FILE_MEM_MB)) if room and pressure is not None else 1
 
 
-def last_time(path):
-    try:
-        took = float(path.read_text())
-        if 0 <= took < float("inf"):
-            return took
-    except (OSError, ValueError):
-        pass
-    return float("inf")
-
-
-def save_time(path, took):
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # Pieces write separate files; atomic replacement also lets other suites read them.
-        with tempfile.TemporaryDirectory(dir=path.parent) as scratch:
-            saved = Path(scratch) / path.name
-            saved.write_text(str(took))
-            saved.replace(path)
-    except OSError:
-        pass  # A missing or unwritable cache must not stop the checks.
+def costs(root, paths, times):
+    """Each file's seconds by `times`, keyed by checkout-relative path, else its size at the
+    measured files' seconds per byte."""
+    sizes = {path: path.stat().st_size for path in paths}
+    measured = [path for path in paths if str(path.relative_to(root)) in times]
+    rate = (sum(times[str(path.relative_to(root))] for path in measured)
+            / (sum(sizes[path] for path in measured) or 1)) if measured else 1
+    return {path: times.get(str(path.relative_to(root)), sizes[path] * rate) for path in paths}
 
 
 def main(root, others=None):
@@ -219,12 +208,12 @@ def main(root, others=None):
                                  if only is None else set())
     todo = sorted(path for path in tests.glob("test_*.py") if path.stem not in skip
                   and (only is None or str(path.relative_to(root)) in only))
+    cost = costs(root, todo, suite_times.read(os.environ.get("AK_TIMES", "")))
     if only is None:
         # Exclude everything smoke runs before dividing the rest, regardless of its piece.
-        owners = shares({path: path.stat().st_size for path in todo}, total)
+        owners = shares(cost, total)
         todo = [path for path in todo if owners[path] == number]
-    cache = Path.home() / ".cache/agentkit/test-times" / os.uname().nodename
-    todo.sort(key=lambda path: last_time(cache / path.name), reverse=True)
+    todo.sort(key=lambda path: -cost[path])
     # One bytecode cache for the piece: each file compiling all of agentkit again cost
     # about three quarters of a short file's CPU. No other piece writes or reads it. It is in
     # the checkout, where the boxes the files start see it: a box has its own /tmp.
@@ -247,9 +236,8 @@ def main(root, others=None):
                     continue
                 name = running.pop(done).relative_to(root)
                 code, out, took = done.result()
-                save_time(cache / name.name, took)
                 if code == 0 and cases_run(out) > 0:
-                    print(f"PASS  {name} ({took:.0f}s)", flush=True)
+                    print(suite_times.passed(name, took), flush=True)
                 else:
                     again.append((name, out))
             if path is not None:

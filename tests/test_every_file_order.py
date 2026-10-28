@@ -1,10 +1,8 @@
-"""The landing parts overlap, with whole outputs and unknown or longest files first.
+"""The landing parts overlap, with whole outputs.
 
-Offline: measured stand-ins, injected host readings and a temporary HOME.
+Offline: stand-in parts, injected host readings and a temporary HOME.
 """
 
-from contextlib import redirect_stdout
-import io
 import os
 from pathlib import Path
 import subprocess
@@ -14,8 +12,7 @@ import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "tests"))
-import every_file
+sys.path[:0] = [str(REPO), str(REPO / "tests")]
 import suite_shares
 from agentkit import worker
 
@@ -38,54 +35,9 @@ class EveryFileOrder(unittest.TestCase):
             "HOME": str(self.home), "PATH": os.environ.get("PATH", os.defpath),
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "PYTHONDONTWRITEBYTECODE": "1",
         }, clear=True))
-        self.times = {"test_acme.py": 2, "test_widget.py": 9, "test_fix_api.py": 5}
-        for name in self.times:
+        self.names = ("test_acme.py", "test_widget.py", "test_fix_api.py")
+        for name in self.names:
             (self.root / "tests" / name).write_text('raise AssertionError("use the stand-in")\n')
-
-    def sweep(self):
-        starts = []
-
-        def measured(_root, path, _env, **_kw):
-            starts.append(path.name)
-            return 0, "TESTS_RUN=1\n", self.times[path.name]
-
-        # A serial pool exposes start order without depending on thread scheduling.
-        with patch.object(every_file.host, "host_readings", return_value={
-                "cpu_pressure": 0, "free_mb": 230}), \
-                patch.object(every_file, "run_file", side_effect=measured), \
-                redirect_stdout(io.StringIO()):
-            self.assertEqual(every_file.main(self.root), 0)
-        return starts
-
-    def test_longest_starts_first_by_the_last_measurement(self):
-        self.assertCountEqual(self.sweep(), self.times)
-        previous = dict(self.times)
-        self.times["test_acme.py"], self.times["test_widget.py"] = 20, 1
-        self.assertEqual(self.sweep(), sorted(previous, key=previous.get, reverse=True))
-        self.assertEqual(self.sweep(), sorted(self.times, key=self.times.get, reverse=True))
-
-    def test_a_file_without_a_measurement_starts_before_the_longest(self):
-        self.sweep()
-        self.times["test_new.py"] = 0.1
-        (self.root / "tests/test_new.py").write_text('print("TESTS_RUN=1")\n')
-        starts = self.sweep()
-        self.assertEqual(starts[:2], ["test_new.py", "test_widget.py"])
-        self.assertCountEqual(starts, self.times)
-
-    def test_timings_live_outside_the_checkout_and_survive_a_new_checkout(self):
-        self.sweep()
-        cache = self.home / ".cache/agentkit/test-times" / os.uname().nodename
-        self.assertFalse(cache.is_relative_to(self.root))
-        self.assertEqual({path.name: float(path.read_text()) for path in cache.iterdir()},
-                         self.times)
-        other = self.sandbox / "other-checkout"
-        self.root.rename(other)
-        self.root = other
-        self.assertEqual(self.sweep(), sorted(self.times, key=self.times.get, reverse=True))
-
-    def test_an_unwritable_cache_does_not_stop_checks(self):
-        (self.home / ".cache").write_text("a file cannot hold the cache directory")
-        self.assertCountEqual(self.sweep(), self.times)
 
     def landing_env(self):
         tools, temp = self.sandbox / "bin", self.sandbox / "tmp"
@@ -148,7 +100,7 @@ sys.exit(int(os.environ["ACME_FILES"]))
         (self.root / "tests/every_file.py").write_text(
             'import os, sys\nos.execv(sys.executable, [sys.executable, '
             f'{str(REPO / "tests/every_file.py")!r}, os.getcwd(), *sys.argv[2:]])\n')
-        for name in self.times:
+        for name in self.names:
             (self.root / "tests" / name).write_text('print("TESTS_RUN=1")\n')
         (self.root / "tests/test_acme.py").write_text('''import pathlib, sys
 if not pathlib.Path("failed-once").exists():

@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import config, gitcall, prompts, record, transitions, turns, update
+from . import config, gitcall, prompts, record, suite_times, transitions, turns, update
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 CHECKED = 60        # a pass shorter than a minute checked nothing: it says nothing of the pace
@@ -562,6 +562,8 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
         text += ("\n\nCheckout changed during the final check; "
                  "these commands do not verify the pinned commit.")
     text = f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}"
+    if ok:    # a red check leaves the cut its red piece had for the tip's probe of it
+        suite_times.keep(scratch, text)
     log_path.write_text(text)
     return ok, text, red_part(cmds, marks, pieces, confirmed, suite, ok)
 
