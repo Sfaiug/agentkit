@@ -19,8 +19,15 @@ func TestRunStatusRefusals(t *testing.T) {
 		"hidden": {map[string]string{"runs/20261020-0900-fix-api/run.json": ended,
 			"runs/20261020-0900-add-beta/run.json": `{"state":"interrupted","finished_at":1}`}, nil},
 		"says unreadable": {map[string]string{"runs/20261020-0900-fix-api/run.json": `{"state":"unreadable"}`}, nil},
-		"by id":           {map[string]string{"runs/20261020-0900-fix-api/run.json": ended}, []string{"20261020-0900-fix-api"}},
-		"sweep owed":      {map[string]string{"runs/20261020-0900-fix-api/run.json": `{"state":"fail","scope":"ak-fix-api.scope"}`}, nil},
+		"by id, a job as Python reads it": {map[string]string{"runs/20261020-0900-fix-api/run.json": ended,
+			"jobs/20261020-0900-fix-api/job.json": `{"tasks":[],"cost":Infinity}`}, []string{"20261020-0900-fix-api"}},
+		"by id with history": {map[string]string{"runs/20261020-0900-fix-api/run.json": ended, "history.db": ""},
+			[]string{"20261020-0900-fix-api", "--json"}},
+		"by id, a line's wait to count": {map[string]string{"runs/20261020-0900-fix-api/run.json": `{"state":"fail","line_since":1}`},
+			[]string{"20261020-0900-fix-api"}},
+		"by id, a sweep owed": {map[string]string{"runs/20261020-0900-fix-api/run.json": `{"state":"fail","scope":"ak-fix-api.scope"}`},
+			[]string{"20261020-0900-fix-api"}},
+		"sweep owed": {map[string]string{"runs/20261020-0900-fix-api/run.json": `{"state":"fail","scope":"ak-fix-api.scope"}`}, nil},
 		"lone surrogate": {map[string]string{"runs/20261020-0900-fix-api/run.json": ended,
 			"runs/20261020-0900-add-beta/run.json": `{"state":"pass","title":"beta \ud800"}`}, []string{"--json"}},
 		"job":     {map[string]string{"jobs/batch/job.json": `{"tasks":[]}`}, nil},
@@ -35,6 +42,11 @@ func TestRunStatusRefusals(t *testing.T) {
 				write(t, filepath.Join(home, ".agentkit", path), content)
 			}
 			assertCall(t, append([]string{"run", "status"}, setup.args...), 3, "", "ak run status: not implemented in Go yet\n")
+			for path, content := range setup.files {
+				if data, _ := os.ReadFile(filepath.Join(home, ".agentkit", path)); string(data) != content {
+					t.Fatalf("%s now holds %s", path, data)
+				}
+			}
 		})
 	}
 }

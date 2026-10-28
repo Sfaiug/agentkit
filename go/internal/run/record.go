@@ -1,5 +1,5 @@
-// Package run reads run records in Python ak's format, which both programs share until the
-// switch, and holds the words a record's state says.  It writes none.
+// Package run reads and writes run records in Python ak's format, which both programs share
+// until the switch, and holds the words a record's state says.
 package run
 
 import (
@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"time"
 
 	"agentkit/internal/config"
 )
@@ -61,6 +62,11 @@ func ReadJSON(path string) (*Object, error) {
 	if err != nil {
 		return nil, err
 	}
+	return object(data)
+}
+
+// object is the object JSON text holds, as ReadJSON reads one.
+func object(data []byte) (*Object, error) {
 	value, err := Decode(data)
 	record, _ := value.(*Object)
 	return record, err
@@ -87,4 +93,16 @@ func Reap(record *Object) (*Object, bool) {
 	reaped := record.Copy()
 	reaped.Set("tree_stopped", loop)
 	return reaped, false
+}
+
+// LookedAt marks an ending looked at, as opening the run by id does, and is whether it marked:
+// once, and never an error whose retry the tick keeps, which only a stop cancels.
+func LookedAt(record *Object, now time.Time) bool {
+	if !Ended(record) || record.Str("state") == "error" && Going(record, now) || record.Truthy("recovery_acknowledged_at") {
+		return false
+	}
+	record.Set("recovery_acknowledged_at", seconds(now))
+	record.Delete("error_retry_at")
+	record.Delete("error_retries")
+	return true
 }

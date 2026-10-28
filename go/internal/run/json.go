@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/big"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf16"
@@ -51,6 +52,14 @@ func (o *Object) Set(key string, value any) {
 		o.keys = append(o.keys, key)
 	}
 	o.values[key] = value
+}
+
+// Delete removes the key, if the object holds it.
+func (o *Object) Delete(key string) {
+	if _, ok := o.values[key]; ok {
+		delete(o.values, key)
+		o.keys = slices.DeleteFunc(o.keys, func(held string) bool { return held == key })
+	}
 }
 
 // Copy is a shallow copy: what a listing changes for display, never the record read.

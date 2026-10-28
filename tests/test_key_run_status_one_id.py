@@ -83,6 +83,18 @@ class OneRun(unittest.TestCase):
         self.assertNotIn(LOOKED, after)
         self.assertEqual(after.get("error_retry_at"), before)
 
+    def test_a_look_that_marks_nothing_shows_a_run_whose_directory_it_cannot_list(self):
+        # looked at and swept already: neither the look nor the reap has anything to write
+        run_id = self.ended("seen-delta", state="fail", verdict="FAIL", tree_stopped=[None, None],
+                            **{LOOKED: time.time()})
+        folder = self.runs / run_id
+        folder.chmod(0o311)
+        self.addCleanup(folder.chmod, 0o755)
+        out = self.status(run_id)
+        row = self.row(out, run_id)
+        for shown in ("✓ done", "opus/astra", "round 0/3"):
+            self.assertIn(shown, row)
+
     def test_an_id_with_no_run_is_refused_before_anything_is_shown(self):
         done = self.home.ak("run", "status", "20261020-0900-nosuch")
         self.assertEqual((done.code, done.out), (2, ""))

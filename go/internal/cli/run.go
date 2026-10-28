@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/job"
+	"agentkit/internal/run"
 )
 
 const runFlagsUsage = "ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N] | ak run --review-pr <url> [--review MODEL] [--first] [--bg]"
@@ -130,13 +132,10 @@ func validateRunSubcommand(verb string, args []string) string {
 		return fmt.Sprintf("no such run: %s (looked in %s)", args[0], runs)
 	}
 	if verb == "status" || verb == "show" {
-		data, _ := os.ReadFile(job.ReceiptPath(args[0]))
-		var state map[string]any
-		if json.Unmarshal(data, &state) == nil {
-			if _, ok := state["tasks"].([]any); ok {
-				return ""
-			}
+		if !jobNamed(args[0]) && !isDir(filepath.Join(runs, args[0])) {
+			return fmt.Sprintf("no such run: %s (looked in %s)", args[0], runs)
 		}
+		return ""
 	}
 	record := filepath.Join(runs, args[0], "run.json")
 	data, err := os.ReadFile(record)
@@ -155,4 +154,18 @@ func validateRunSubcommand(verb string, args []string) string {
 		return fmt.Sprintf("no such run: %s (looked in %s)", args[0], runs)
 	}
 	return ""
+}
+
+// jobNamed is whether the id names a job with tasks, which `ak run status` shows over a run,
+// or may: Python reads a receipt holding a lone surrogate, which Go cannot.
+func jobNamed(id string) bool {
+	receipt, err := run.ReadJSON(job.ReceiptPath(id))
+	if errors.Is(err, run.ErrLoneSurrogate) {
+		return true
+	}
+	if receipt == nil {
+		return false
+	}
+	_, ok := receipt.Get("tasks").([]any)
+	return ok
 }
