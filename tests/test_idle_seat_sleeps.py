@@ -1,9 +1,10 @@
 """While memory is tight the longest-idle Claude seat sleeps, one a tick, keeping its conversation,
-ak's own desktop server beside it or not; a working, asking, attached, busy or Codex seat never
-does.  An ending or opening wakes it, a failed wake keeping the ending owed; it reads asleep (the
-key, run here).  Black-box against `AK_BIN`."""
+ak's own desktop server beside it or not; a working, asking, attached, busy (another project's
+desktop server too) or Codex seat never does.  An ending or opening wakes it, a failed wake keeping
+the ending owed; it reads asleep (the key, run here).  Black-box against `AK_BIN`."""
 
 import json
+import os
 import re
 import shlex
 import socket
@@ -15,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
-from fixtures.akbin import REAL_TMUX, SOCKET, Home, boxable
+from fixtures.akbin import REAL_TMUX, REPO, SOCKET, Home, boxable
 from fixtures.akseat import PANE, Seat
 from fixtures.hookdrive import Hooks
 from test_key_sleeping_seat_reads_asleep import SleepingSeatReadsAsleep  # noqa: F401
@@ -23,7 +24,7 @@ from test_key_sleeping_seat_reads_asleep import SleepingSeatReadsAsleep  # noqa:
 PROXIES = ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
 TIGHT, FINE = ({"mem_total_mb": 16000, "cpus": 8, "load": 0.1, "free_mb": n} for n in (100, 12000))
 IDLE = ("oldest", "older", "desktop")      # in the order their turns ended
-AWAKE = ("working", "asking", "attached", "busy")
+AWAKE = ("working", "asking", "attached", "busy", "lookalike")
 PERMISSION = {"tool_name": "Bash", "tool_input": {"command": "make deploy"}}
 
 
@@ -52,10 +53,14 @@ class IdleSeatSleeps(unittest.TestCase):
         # its seats sit in the cgroup it runs in: run from a seat's own shell, that seat's scope
         # holds processes their trees never reach and every one reads busy (`sleep._busy`)
         hooks, cls.seats = Hooks(home), {}
-        # a shell its harness started, as a background command is; or ak's desktop server
-        server = home.write("tools/desktop-mcp.py", "import time\ntime.sleep(600)\n")
+        # a shell its harness started, as a background command is; ak's desktop server, on a pipe
+        # nobody closes; or another project's server by the same name
+        os.mkfifo(pipe := home.path / "desktop-in")
+        lookalike = home.write("acme/tools/desktop-mcp.py", "import time\ntime.sleep(600)\n")
         work = {"busy": "sh -c 'sleep 600; :'",
-                "desktop": shlex.join([sys.executable, str(server)])}
+                "desktop": shlex.join([sys.executable, str(REPO / "tools/desktop-mcp.py")])
+                + " <>" + shlex.quote(str(pipe)),
+                "lookalike": shlex.join([sys.executable, str(lookalike)])}
         for name in (*IDLE, *AWAKE):
             seat = cls.seats[name] = Seat(home, name, screen="claude-working-pane.txt"
                                           if name == "working" else "claude-prompt-pane.txt")

@@ -38,9 +38,7 @@ latest = ["npm", "view", "@anthropic-ai/claude-code", "version"]
 probe_every = 900
 
 [sleep]
-# ak's own desktop server (`browser.DESKTOP`) ends and starts again with its seat; anything
-# else under Claude is work (`agentkit.sleep`)
-own = ['/tools/desktop-mcp\.py$']
+own = []    # on an idle seat nothing of Claude's runs under it: what does is work (`agentkit.sleep`)
 
 # "hooks" means adapters/claude.sh hooks installs something that reports this state; "screen"
 # means only the rules below can say it.  A hook fact still gives way to a rule that positively
