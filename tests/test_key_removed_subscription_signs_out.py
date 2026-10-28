@@ -2,8 +2,9 @@
 
 On 26 Oct the owner's word: a login that is removed should not stay saved.  So once the config
 is saved without it, the removed subscription's harness runs its adapter's `logout` for that
-account alone; a provider removed whole signs out each of its subscriptions; and a `logout` that
-fails leaves the subscription removed and says, under the page, which login stayed.
+account alone, and a `logout` that fails leaves the subscription removed and says, under the
+page, which login stayed.  What a removal keeps is
+tests/test_key_removing_one_subscription_keeps_the_rest.py's.
 
 Black-box: the program `AK_BIN` names, its menu in a person's terminal (tests/fixtures/akterm.py),
 its harnesses the fakes of tests/fixtures/fakeadapter.py, but for Claude's `logout`, which is
@@ -49,7 +50,9 @@ def row_at(screen, row, mark="[› ]"):
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
-class RemovedSubscriptionSignsOut(unittest.TestCase):
+class Subscriptions(unittest.TestCase):
+    """`c`'s Subscriptions page open on Claude's three subscriptions and ChatGPT's one."""
+
     def setUp(self):
         self.home = Home()
         self.addCleanup(self.home.close)
@@ -89,19 +92,23 @@ class RemovedSubscriptionSignsOut(unittest.TestCase):
             self.term.wait(lambda screen: lines(screen)[now] != shown[now])
         self.fail(f"the highlight never reached {row}")
 
-    def remove(self, row, asked):
-        """`− remove` under `row`, the card's words checked, and Remove picked: the page after."""
+    def remove(self, row, asked, gone=None):
+        """`− remove` under `row`, the card's words checked, and Remove picked: the page after,
+        once the row `gone`, `row` itself unless the rows after it move up, has left it."""
         self.to(row)
         self.term.keys("Right", "Right", "Enter")          # `− remove`, last on its line
         self.assertIn(asked, lines(self.term.wait(lambda screen: "  ✗ Remove" in lines(screen))))
         self.term.keys("Down", "Enter")
-        return self.term.wait(lambda screen: title(screen) == PAGE and row_at(screen, row) is None)
+        return self.term.wait(lambda screen: title(screen) == PAGE
+                              and row_at(screen, gone or row) is None)
 
     def signed_in(self):
         """Which Claude logins are still on disk, seat and worker token alike."""
         return {account: [path.exists() for path in paths]
                 for account, paths in self.logins.items()}
 
+
+class RemovedSubscriptionSignsOut(Subscriptions):
     def test_a_named_subscription_signs_out_its_login_alone(self):
         self.remove("Claude III",
                     "  Nothing new starts on it, and its login is signed out on this machine.")
@@ -110,15 +117,6 @@ class RemovedSubscriptionSignsOut(unittest.TestCase):
         self.assertEqual(self.signed_in(),
                          {"": [True, True], "a1": [True, True], "b2": [False, False]})
         self.assertTrue(self.codex.exists())
-
-    def test_a_whole_provider_signs_out_each_of_its_subscriptions(self):
-        self.remove("Claude I",
-                    "  Its models leave the config, and its logins are signed out on this machine.")
-        self.assertNotIn("anthropic", akconfig.read(self.home)["providers"])
-        self.assertEqual(self.signed_in(),
-                         {"": [False, False], "a1": [False, False], "b2": [False, False]})
-        self.assertTrue(self.codex.exists())
-        self.assertEqual(self.fakes["codex"].calls("logout"), [])
 
     def test_a_failed_sign_out_still_removes_and_says_which_login_stayed(self):
         self.home.write("logout-refused", "")

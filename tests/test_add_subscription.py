@@ -3,8 +3,8 @@ removed under its row there: `+ add` lists one more of every provider the config
 it will get (`Claude II`),
 logs it in on the terminal under a fresh AGENTKIT_ACCOUNT and appends that name to the
 provider's `accounts`, `default` first when it listed none; a login that fails adds nothing.
-`− remove` under the row of each but the usual login of a provider with several asks with
-`Keep` picked, takes that one name out of `accounts` and signs out that login alone.
+`− remove` under the row of any subscription of a provider with several asks with `Keep`
+picked, takes that one name out of `accounts` and signs out that login alone.
 
 Each test runs `menu.show_config` with a real `terminal.Keyboard` in a child process on a pty of
 its own, through tests/test_config_matrix.py's Screen, in a temporary HOME.  The adapters are
