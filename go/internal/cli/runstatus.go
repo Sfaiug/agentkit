@@ -33,22 +33,43 @@ type listed struct {
 func (l listed) name() string { return filepath.Base(l.dir) }
 
 // runStatus is `ak run status`: the host lines, then the runs of the last seven days, or
-// every run and the scoreboard with --history.  Go writes nothing in the home yet, so what
-// Python ak would write or act on there, it refuses before it prints anything (`refused`).
+// every run and the scoreboard with --history, or the one run an id names, whose ending the
+// look marks looked at.  Go writes nothing else in the home yet, so what Python ak would write
+// or act on there, it refuses before it writes or prints anything (`refused`).
 func runStatus(args []string, out, errOut io.Writer) int {
 	showHistory, machine := contains(args, "--history"), contains(args, "--json")
 	plain, why, pending := contains(args, "--plain"), contains(args, "--why"), contains(args, "--pending")
-	if len(without(args, "--history", "--json", "--plain", "--why", "--pending")) > 0 {
-		// a look at one run marks its ending looked at, and one at a job reaps the job
+	wanted := strings.Join(without(args, "--history", "--json", "--plain", "--why", "--pending"), "")
+	if wanted != "" && jobNamed(wanted) {
+		// a look at a job reaps the job
 		return notImplemented(errOut, "run status")
 	}
 	now := time.Now()
-	seat, _, err := config.CurrentSession()
+	seat, err := "", error(nil)
+	if wanted == "" {
+		// any run still shows by its id
+		seat, _, err = config.CurrentSession()
+	}
 	if err != nil {
 		fmt.Fprintf(errOut, "ak run: %s\n", err)
 		return 2
 	}
-	every, kept := records(seat)
+	looked := false
+	if wanted != "" {
+		if _, _, no := listing(seat, wanted, showHistory, machine, now); no {
+			return notImplemented(errOut, "run status")
+		}
+		// a mark that cannot be written is let go, as Python lets it go: what is shown
+		// never depends on it
+		err := run.Change(filepath.Join(run.Runs(), wanted), func(record *run.Object) (err error) {
+			looked, err = look(record)
+			return err
+		})
+		if errors.Is(err, errLeft) || errors.Is(err, run.ErrLoneSurrogate) || errors.Is(err, run.ErrLined) {
+			return notImplemented(errOut, "run status")
+		}
+		looked = looked && err == nil
+	}
 	lines := ""
 	if !machine {
 		if lines, err = host.StatusLines(); err != nil {
@@ -56,9 +77,16 @@ func runStatus(args []string, out, errOut io.Writer) int {
 			return 2
 		}
 	}
-	entries, owed := reaped(kept)
-	if every == nil || owed || refused(entries, seat, showHistory, machine, now) {
+	every, entries, no := listing(seat, wanted, showHistory, machine, now)
+	if no {
 		return notImplemented(errOut, "run status")
+	}
+	for i := range entries {
+		if looked && !machine && !entries[i].unreadable {
+			// the look that just marked an ending still shows it as it found it
+			entries[i].record = entries[i].record.Copy()
+			entries[i].record.Set("recovery_acknowledged_at", nil)
+		}
 	}
 	screen := terminal.For(out)
 	if !machine {
@@ -71,7 +99,7 @@ func runStatus(args []string, out, errOut io.Writer) int {
 	var found []listed
 	hidden := 0
 	for _, entry := range entries {
-		if !shown(entry.record, showHistory, now) {
+		if wanted == "" && !shown(entry.record, showHistory, now) {
 			hidden++
 			continue
 		}
@@ -111,13 +139,16 @@ func runStatus(args []string, out, errOut io.Writer) int {
 		for i, entry := range found {
 			fmt.Fprintln(out, strings.Join(groups[i], "\n"))
 			lines := brief(screen, entry, index, now)
-			if why {
+			if why || wanted != "" {
 				lines = details(screen, entry, index, now)
 			}
 			for _, line := range lines {
 				fmt.Fprintln(out, line)
 			}
 		}
+	}
+	if wanted != "" {
+		return 0
 	}
 	fmt.Fprintf(out, "%d older run(s) hidden; ak run status --history [--json] shows full history\n", hidden)
 	if showHistory {
@@ -126,10 +157,25 @@ func runStatus(args []string, out, errOut io.Writer) int {
 	return 0
 }
 
-// records are every readable record, and the runs a listing reads: every run, or the seat's
-// own, the smoke suite's aside, an unreadable record as a row saying so outside a seat.  None
-// at all where a record holds what Go cannot keep.
-func records(seat string) ([]*run.Object, []listed) {
+// listing is every readable record and the runs a listing shows, each as Python's reap leaves
+// it, or none, and true, where Go leaves the listing to Python (`refused`).
+func listing(seat, wanted string, showHistory, machine bool, now time.Time) ([]*run.Object, []listed, bool) {
+	every, entries := records(seat, wanted)
+	if every == nil || refused(entries, seat, wanted, showHistory, machine, now) {
+		return nil, nil, true
+	}
+	for i, entry := range entries {
+		if !entry.unreadable {
+			entries[i].record, _ = run.Reap(entry.record)
+		}
+	}
+	return every, entries, false
+}
+
+// records are every readable record, and the runs a listing reads: the one wanted, smoke run
+// or not, or every run, or the seat's own, the smoke suite's aside, an unreadable record as a
+// row saying so outside a seat.  None at all where a record holds what Go cannot keep.
+func records(seat, wanted string) ([]*run.Object, []listed) {
 	every := []*run.Object{}
 	var kept []listed
 	for _, dir := range run.Dirs() {
@@ -141,55 +187,65 @@ func records(seat string) ([]*run.Object, []listed) {
 			every = append(every, record)
 		}
 		switch {
+		case wanted != "" && filepath.Base(dir) != wanted:
 		case seat != "" && (record == nil || run.Seat(record) != seat):
 		case record == nil:
 			record = run.NewObject()
 			record.Set("run_id", filepath.Base(dir))
 			record.Set("state", "unreadable")
 			kept = append(kept, listed{dir, record, true})
-		case !run.SmokeRun(record):
+		case wanted != "" || !run.SmokeRun(record):
 			kept = append(kept, listed{dir, record, false})
 		}
 	}
 	return every, kept
 }
 
-// reaped is each run as Python's reap leaves it for the listing, and whether that reap would
-// end processes a run left behind.
-func reaped(entries []listed) ([]listed, bool) {
-	for i, entry := range entries {
-		if entry.unreadable {
-			continue
-		}
-		record, owed := run.Reap(entry.record)
-		if owed {
-			return nil, true
-		}
-		entries[i].record = record
+var errLeft = errors.New("left to Python ak")
+
+// look marks the run's ending looked at, and is whether it marked, or errLeft where Python ak
+// would do more for the look than Go does: act on the run as its reap does, or count a place
+// in a landing line as its write does.
+func look(record *run.Object) (bool, error) {
+	if actedOn(record) {
+		return false, errLeft
 	}
-	return entries, false
+	marked := run.LookedAt(record, time.Now())
+	if marked && run.Lined(record) {
+		return false, errLeft
+	}
+	return marked, nil
+}
+
+// actedOn is whether Python's reap would act on the run: end processes it left behind, or
+// reap one neither running, stalled nor ended, a running one whose loop is gone, or a place in
+// a landing line, which Go leaves to Python.
+func actedOn(record *run.Object) bool {
+	_, owed := run.Reap(record)
+	state := record.Str("state")
+	return owed || state != "running" && state != "stalled" && !run.Ended(record) ||
+		state == "running" && !run.ProcessActive(record) || run.InLine(record)
 }
 
 // refused is whether Python ak would write or act on what the listing reads: a job it shows,
-// a run in a state whose reap Go leaves to Python (one neither running, stalled nor ended, a
-// running one whose loop is gone, a place in a landing line), and with --json or --history
-// what history.db and the seats would add.
-func refused(entries []listed, seat string, showHistory, machine bool, now time.Time) bool {
-	if exists(filepath.Join(config.Home(), "history.db")) && (machine || showHistory) {
+// a run its reap or a look at it acts on, and with --json or --history what history.db and
+// the seats would add; one run named shows no job and no scoreboard.
+func refused(entries []listed, seat, wanted string, showHistory, machine bool, now time.Time) bool {
+	listing := showHistory && wanted == ""
+	if exists(filepath.Join(config.Home(), "history.db")) && (machine || listing) {
 		return true
 	}
-	if showHistory && seatRecorded() {
+	if listing && seatRecorded() {
 		return true
 	}
-	if jobShown(seat, showHistory, machine, now) {
+	if wanted == "" && jobShown(seat, showHistory, machine, now) {
 		return true
 	}
 	for _, entry := range entries {
-		record := entry.record
-		switch state := record.Str("state"); {
-		case entry.unreadable:
-		case state != "running" && state != "stalled" && !run.Ended(record),
-			state == "running" && !run.ProcessActive(record), run.InLine(record):
+		if entry.unreadable {
+			continue
+		}
+		if _, err := look(entry.record.Copy()); actedOn(entry.record) || wanted != "" && err != nil {
 			return true
 		}
 	}
