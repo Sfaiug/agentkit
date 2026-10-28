@@ -113,7 +113,7 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
         self.assertNotIn("accounts", saved["anthropic"])
         self.assertIsNotNone(row_at(self.term.screen(), "ChatGPT", "›"))   # its name, no numeral
 
-    def test_a_login_that_fails_adds_no_provider_and_no_account(self):
+    def test_a_login_that_fails_adds_nothing_and_says_so_in_its_harness_s_name(self):
         self.open({"fable": "claude"})
         before = self.config.read_text()
         self.fakes["codex"].answer("login", "<refused>", 1)
@@ -121,7 +121,7 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
         self.term.wait("<refused>")
         self.term.keys("Enter")                           # what it said read
         self.term.wait(lambda screen: title(screen) == PAGE
-                       and "codex login did not finish; OpenAI / Codex is not added" in screen)
+                       and "Codex login did not finish; OpenAI / Codex is not added" in screen)
         [account] = self.logins("codex")
         self.assertTrue(account)
         self.assertEqual(self.config.read_text(), before)
@@ -146,7 +146,7 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
         self.term.wait(lambda screen: "<enter the code>" in screen and "esc back" in screen)
         self.term.keys("Enter")
         self.term.wait(lambda screen: title(screen) == PAGE
-                       and "codex login did not finish; OpenAI / Codex is not added" in screen)
+                       and "Codex login did not finish; OpenAI / Codex is not added" in screen)
 
     def test_a_sign_in_that_exits_0_with_no_login_adds_nothing(self):
         self.open({"fable": "claude"})
@@ -157,7 +157,7 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
         self.term.wait(lambda screen: "<cut short>" in screen and "esc back" in screen)
         self.term.keys("Enter")
         self.term.wait(lambda screen: title(screen) == PAGE
-                       and "codex login did not finish; OpenAI / Codex is not added" in screen)
+                       and "Codex login did not finish; OpenAI / Codex is not added" in screen)
         self.assertEqual(self.config.read_text(), before)
 
     def test_a_second_subscription_signs_in_under_a_new_account(self):
