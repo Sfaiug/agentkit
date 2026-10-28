@@ -3734,14 +3734,15 @@ def cmd_project(argv):
         name, checkout = config.resolve_session(argv[0]), argv[1]
     else:
         raise config.Error("usage: ak orch project [<seat>] <checkout>")
-    found = checkouts()
+    stands = listed()
+    found = checkouts(stands)
     repo = next((path for path in found if path.name == checkout), None)
     if repo is None:
         matches = [path for path in found if path.name.casefold() == checkout.casefold()]
         if len(matches) > 1:
             known = ", ".join(str(path) for path in matches)
             raise config.Error(f"ambiguous checkout: {checkout!r} (checkouts: {known})")
-        repo = matches[0] if matches else checkout_of(os.path.expanduser(checkout))
+        repo = matches[0] if matches else checkout_of(os.path.expanduser(checkout), stands)
     if repo is None:
         known = ", ".join(str(path) for path in found) or "none"
         raise config.Error(f"not a checkout: {checkout!r} (checkouts: {known})")
@@ -3750,7 +3751,7 @@ def cmd_project(argv):
         if config.update_session(name, repo=str(repo), filed=True) is None:
             raise config.Error(f"no orchestrator session {name!r}")
     print(f"filed {name} under {repo.name}")
-    flight = in_flight(name, repo)
+    flight = in_flight(name, repo, stands)
     print(f"in flight on {repo.name}, plan around it:" if flight
           else f"nothing else in flight on {repo.name}")
     room = terminal.layout_width() - 4
@@ -3766,7 +3767,7 @@ def cmd_project(argv):
     return 0
 
 
-def in_flight(name, repo):
+def in_flight(name, repo, stands=None):
     """What the other seats have in flight on that checkout, so two sessions never build the
     same thing unaware: [(seat, open plan lines, changed files)] by name.
 
@@ -3775,20 +3776,23 @@ def in_flight(name, repo):
     elsewhere only those written on this checkout; its files are what its going runs on the
     checkout change against their base, committed or not, or a queued run's task `files:`.  A
     seat with neither is left out.  A going run launched from no seat counts as `run <id>`.
+    Every repo is filed against one look at ~/code (`stands`, as `checkout_of` takes it),
+    however many seats and runs there are.
     """
     from . import menu, watch  # here, not at the top: menu imports this module
-    target = checkout_of(repo)
+    stands = listed() if stands is None else stands
+    target = checkout_of(repo, stands)
     if not target:
         return []
     filed = {seat for seat, record in config.session_records().items()
-             if checkout_of(record.get("repo")) == target}
+             if checkout_of(record.get("repo"), stands) == target}
     seats = {seat: ([], set()) for seat in filed if seat != name}
     rows = []
     for directory in run_record.run_dirs():
         state = run_record.read_state(directory) or {}
         seat = transitions.launched_session(state)
         if (seat != name and not menu.smoke_run(state) and transitions.going(state)
-                and checkout_of(state.get("repo")) == target):
+                and checkout_of(state.get("repo"), stands) == target):
             files = changed_files(state, directory)
             if seat:
                 seats.setdefault(seat, ([], set()))[1].update(files)
@@ -3798,7 +3802,7 @@ def in_flight(name, repo):
         for line in watch.plan_text(seat).splitlines():
             written = plan.LINE.match(line.strip())
             if plan.is_open(line) and (seat in filed or written and checkout_of(
-                    plan.place(seat, written["project"])) == target):
+                    plan.place(seat, written["project"]), stands) == target):
                 lines.append(plan.BOX.sub("", line, count=1).strip())
     rows.extend((seat, lines, files) for seat, (lines, files) in seats.items() if lines or files)
     return sorted(rows)

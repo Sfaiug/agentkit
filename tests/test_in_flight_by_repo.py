@@ -3,7 +3,7 @@
 A seat filed under another project that has a going run on this checkout is listed with what
 that run changes and its plan lines written on this checkout, never its other lines; a run of a
 seat filed here that works on another checkout changes nothing here; a going run launched from
-no seat is listed by its id.
+no seat is listed by its id.  One look at ~/code files every seat and run.
 Offline: invented checkouts, seat records, plans and runs under a temporary HOME.
 """
 
@@ -70,6 +70,20 @@ class InFlightByRepo(Sandbox):
             "  run r1",
             "    changing: app.py",
         ])
+
+    def test_one_look_at_the_checkouts_files_every_seat_and_run(self):
+        # a look for each, asking git about every checkout there, took 18 s on a host with 50
+        # seats and 5,000 runs
+        for n in range(4):
+            self.add_run(f"r{n}", "design", self.acme, f"f{n}.py")
+        looks, listed = [], orch.listed
+        with patch.object(orch, "listed", lambda: looks.append(1) or listed()), \
+                redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(orch.main(["project", "acme"]), 0)
+        self.assertEqual(looks, [1])
+        self.assertEqual(out.getvalue().splitlines(), [
+            "filed fix-api under acme", "in flight on acme, plan around it:",
+            "  design", "    changing: f0.py, f1.py, f2.py, f3.py"])
 
     def test_anonymous_run_keeps_a_similarly_named_seats_plan_separate(self):
         config.save_session(self.cfg, "run-r1", "fable", ["opus"],
