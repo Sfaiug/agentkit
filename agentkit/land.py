@@ -351,8 +351,7 @@ def _repair(turn, directory, state, tree, red, log):
 
 
 def _start_repair(state, directory, repair, log):
-    """The repair run of the target `repair` asks for, owned by the member in `directory`:
-    started, already open, or None."""
+    """The member in `directory`'s repair run of the target: started, already open, or None."""
     from . import handback
     try:
         return handback.start_followups(state, directory, log, repair=repair)
@@ -382,12 +381,12 @@ def _flaked(directory, state, scratch, tree, cmds, ok, red, flaky, log_path, log
                 if now - entry["at"] < FLAKY}
         tests = {test: entry for test, entry in kept.get("tests", {}).items()
                  if now - (entry.get("repair") or entry["seen"][-1])["at"] < FLAKY}
-        was = reds.pop(tree, {}) if ok else {}
+        was = reds.pop(tree) if ok and reds.get(tree, {}).get("command") in cmds else {}
         if not (flaky or was or red.get("tests")):
             return
         if red.get("tests"):
             reds[tree] = {"at": now, "command": red["command"], "tests": red["tests"]}
-        for test in dict.fromkeys([*flaky, *(was["tests"] if was.get("command") in cmds else ())]):
+        for test in dict.fromkeys([*flaky, *was.get("tests", ())]):
             upstream, held = _upstream(state), tests.get(test, {}).get("repair")
             if held and not run.git_out(scratch, "diff", "--quiet", held["sha"], upstream, "--",
                                         test)[0]:

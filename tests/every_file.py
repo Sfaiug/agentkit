@@ -15,14 +15,14 @@ measured files' seconds per byte.
 A failing file, or one reporting no executed cases, runs once more after the pool, alone:
 landing.py passes a descriptor that reads end-of-file once its other parts have ended, and
 the re-run waits for that too; failing again it fails the whole and is named with its last
-lines; passing it is named in the file AK_FLAKY names. Unittest's tally reports the count;
-other scripts print TESTS_RUN=<count> after their checks. Python under agentkit/, tools/, bin/ and tests/ must parse with the grammar of Python
+lines. Unittest's tally reports the count; other scripts print TESTS_RUN=<count> after their
+checks. Python under agentkit/, tools/, bin/ and tests/ must parse with the grammar of Python
 3.11, the oldest ak supports, as `ast.parse`'s `feature_version` applies it (f-strings it still
 reads by the running interpreter's rules), and import only from the standard library or this
 repository, including files smoke.sh already ran. A file failing again is also named in the
-file AK_FAILED names; with AK_ONLY set only the files its file lists run, whatever the share,
-smoke.sh's among them, each named in the file AK_RAN names, and the imports go unchecked: they
-are no listed test.
+file AK_FAILED names, and one passing it in AK_FLAKY's; with AK_ONLY set only the files its
+file lists run, whatever the share, smoke.sh's among them, each named in the file AK_RAN names,
+and the imports go unchecked: they are no listed test.
 
     python3 tests/every_file.py [checkout [descriptor]]
 """
