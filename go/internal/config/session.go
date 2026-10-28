@@ -21,10 +21,14 @@ const renameHops = 8
 // Renamed is the key a rename leaves in the old name's record: the name it goes by now.
 const Renamed = "renamed"
 
-func normalizeSession(name string) string {
-	return strings.Join(strings.FieldsFunc(name, func(r rune) bool {
-		return unicode.IsSpace(r) || (r >= '\x1c' && r <= '\x1f')
-	}), " ")
+// IsSpace is whitespace as Python's str.split() and str.strip() read it.
+func IsSpace(r rune) bool {
+	return unicode.IsSpace(r) || (r >= '\x1c' && r <= '\x1f')
+}
+
+// Fold is text's words one space apart, as Python's " ".join(text.split()) writes them.
+func Fold(text string) string {
+	return strings.Join(strings.FieldsFunc(text, IsSpace), " ")
 }
 
 func sessionPath(name string) (string, error) {
@@ -52,13 +56,13 @@ func SeatFiles() []string {
 
 // SessionPath is where a seat's record is kept.
 func SessionPath(name string) (string, error) {
-	return sessionPath(normalizeSession(name))
+	return sessionPath(Fold(name))
 }
 
 // A rename leaves a pointer because the running seat keeps its original
 // environment. Return the resolved record with its name so lookups agree.
 func ResolveSession(name string) (string, map[string]any, error) {
-	name = normalizeSession(name)
+	name = Fold(name)
 	path, err := sessionPath(name)
 	if err != nil {
 		return "", nil, err
@@ -105,7 +109,7 @@ func ResolveSession(name string) (string, map[string]any, error) {
 		if !renamed {
 			return name, record, nil
 		}
-		name = normalizeSession(next)
+		name = Fold(next)
 		for _, old := range seen {
 			if name == old {
 				return "", nil, fmt.Errorf("%s: the rename chain loops through %s", origin, strings.Join(seen, " -> "))

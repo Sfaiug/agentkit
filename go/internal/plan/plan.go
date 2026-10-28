@@ -5,11 +5,15 @@ package plan
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"agentkit/internal/config"
@@ -67,6 +71,15 @@ func (l entry) ticked(commit string) string {
 		return "- [ ] " + l.bare
 	}
 	return "- [x] " + l.bare + " · done " + commit
+}
+
+// added is the line `ak plan add` writes, open and the seat's own.
+func added(what, check, project, when, base string) entry {
+	bare := what + " · check: `" + check + "` · " + project + " · written " + when
+	if base != "" {
+		bare += " on " + base
+	}
+	return entry{bare: bare}
 }
 
 func seatFile(kind, name, ext string) string {
@@ -133,15 +146,8 @@ func verifying(ctx context.Context, name string, fn func() error) error {
 // one written last, since a renamed seat still writes under the name it was launched with.
 // One nothing can look at is an error: an unread plan proves nothing done.
 func path(current string) (string, error) {
-	names := []string{current}
-	for _, record := range config.SeatFiles() {
-		old := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(record), "session-"), ".json")
-		if now, _, _ := config.ResolveSession(old); old != current && now == current {
-			names = append(names, old)
-		}
-	}
 	found, newest := seatFile("plan", current, "md"), int64(-1)
-	for _, each := range names {
+	for _, each := range names(current) {
 		plan := seatFile("plan", each, "md")
 		info, err := os.Stat(plan)
 		if os.IsNotExist(err) {
@@ -155,6 +161,42 @@ func path(current string) (string, error) {
 		}
 	}
 	return found, nil
+}
+
+// names are the names a seat goes by: the one it has now, then every name renamed into it.
+func names(current string) []string {
+	every := []string{current}
+	for _, record := range config.SeatFiles() {
+		old := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(record), "session-"), ".json")
+		if now, _, _ := config.ResolveSession(old); old != current && now == current {
+			every = append(every, old)
+		}
+	}
+	return every
+}
+
+// reachedLive is whether the seat's own ssh reached the live host this turn: since the turn's
+// start hooks/seat-state.sh writes in its stop file.  Both are under the name its harness was
+// launched with, which a rename leaves behind: of every name the seat had, the one holding the
+// newest turn is its running launch's, so an earlier launch's reach never counts.
+func reachedLive(current string) bool {
+	launched, turn := "", 0.0
+	for _, each := range names(current) {
+		var stop map[string]any
+		data, err := os.ReadFile(seatFile("stop", each, "json"))
+		if err != nil || json.Unmarshal(data, &stop) != nil {
+			continue
+		}
+		if at, ok := stop["turn"].(float64); ok && (launched == "" || at > turn || at == turn && each > launched) {
+			launched, turn = each, at
+		}
+	}
+	if launched == "" {
+		return false
+	}
+	data, err := os.ReadFile(seatFile("live", launched, "txt"))
+	reached, failed := strconv.ParseFloat(strings.TrimSpace(string(data)), 64)
+	return err == nil && failed == nil && reached >= turn
 }
 
 // read is the plan's lines: none without a plan.
@@ -240,8 +282,16 @@ func verify(ctx context.Context, name string) error {
 		if on == nil {
 			continue // its checkout is not on this host
 		}
+		passed := false
+		on.checkout(ctx, func(tree string) (err error) {
+			// the repository the line recorded, in the very tree it runs in
+			if holds(on.clean, tree, on.root, "HEAD") {
+				passed, err = on.passes(ctx, tree, line.Check)
+			}
+			return err
+		})
 		results[line.bare] = line.ticked("")
-		if on.passes(ctx, line.Check) {
+		if passed {
 			results[line.bare] = line.ticked(on.commit)
 		}
 		if ctx.Err() != nil {
@@ -261,4 +311,66 @@ func verify(ctx context.Context, name string) error {
 		}
 		return write(current, present)
 	})
+}
+
+// Add appends an open line to the seat's plan, or keeps the open line already holding this check
+// in this project, and is that line.  The check runs on a clean checkout of the project's default
+// branch first and must fail there, the line naming the commit it failed on, or prove nothing;
+// in a turn whose own ssh reached the live host, one that passes is written done on that commit.
+func Add(ctx context.Context, name, repo, what, check string) (string, error) {
+	what, check = config.Fold(what), strings.TrimFunc(check, config.IsSpace)
+	if err := holdsCheckout(check, repo); err != nil {
+		return "", err
+	}
+	env, err := environ()
+	if err != nil {
+		return "", err
+	}
+	on, err := defaultBranch(ctx, repo, "", env)
+	if err != nil {
+		return "", err
+	}
+	passed, found := false, ""
+	if err := on.checkout(ctx, func(tree string) (err error) {
+		found = rootOf(on.clean, tree)
+		passed, err = on.passes(ctx, tree, check)
+		return err
+	}); err != nil {
+		return "", err
+	}
+	base, done := strings.Fields(on.commit)[0], ""
+	var line string
+	err = held(ctx, name, func(current string) error {
+		if passed {
+			// The owner, 26 Oct 2026: in a turn whose own ssh reached the live host, work done
+			// there proves itself, so a check already passing is written done on that commit
+			// and a job finished in that one turn reads `done`.
+			if !reachedLive(current) {
+				return fmt.Errorf("this check already passes on %s's default branch, so it proves nothing; "+
+					"write one that fails until the work is done", filepath.Base(repo))
+			}
+			base, done = "", base
+		}
+		where := named(repo, found)
+		if strings.Contains(where, "·") {
+			return fmt.Errorf("%s: a project a line names holds no `·`", where)
+		}
+		lines, err := read(current)
+		if err != nil {
+			return err
+		}
+		for i, text := range lines {
+			if old, ok := parse(text); ok && old.Check == check && old.Project == where && !old.proven() {
+				// the open line already holding this check here is kept, the seat's own
+				line = added(old.What, check, where, old.When, old.Base).ticked(done)
+				if line == strings.TrimSpace(text) {
+					return nil
+				}
+				return write(current, slices.Replace(lines, i, i+1, line))
+			}
+		}
+		line = added(what, check, where, time.Now().Format("2006-01-02 15:04"), base).ticked(done)
+		return write(current, append(lines, line))
+	})
+	return line, err
 }

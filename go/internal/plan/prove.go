@@ -125,13 +125,13 @@ func defaultBranch(ctx context.Context, repo, root string, clean []string) (*bra
 	return on, os.MkdirAll(filepath.Join(config.Home(), "wt"), 0o700)
 }
 
-// passes is whether check passes on a clean checkout of the branch made for it alone, so
-// nothing one check writes is there for the next, and removed after it.  The checkout sits
-// beside runs' checkouts in ~/.agentkit/wt, where ak's history reads a test's fixtures as a run's.
-func (on *branch) passes(ctx context.Context, check string) bool {
+// checkout runs fn in a clean checkout of the branch made for it alone, so nothing one check
+// writes is there for the next, and removed after it.  It sits beside runs' checkouts in
+// ~/.agentkit/wt, where ak's history reads a test's fixtures as a run's.
+func (on *branch) checkout(ctx context.Context, fn func(tree string) error) error {
 	tmp, err := os.MkdirTemp(filepath.Join(config.Home(), "wt"), "plan-")
 	if err != nil {
-		return false
+		return err
 	}
 	defer os.RemoveAll(tmp)
 	tree := filepath.Join(tmp, "main")
@@ -145,20 +145,90 @@ func (on *branch) passes(ctx context.Context, check string) bool {
 		}
 	}()
 	if _, err := git(ctx, on.env, on.repo, "worktree", "add", "--detach", tree, on.sha); err != nil {
-		return false
+		return fmt.Errorf("cannot check %s's default branch: %w", filepath.Base(on.repo), err)
 	}
-	if !holds(on.clean, tree, on.root, "HEAD") {
-		return false
-	}
-	ctx, cancel := context.WithTimeout(ctx, checkLimit)
+	return fn(tree)
+}
+
+// passes is whether check passes in tree; one that does not finish within checkLimit is an error.
+func (on *branch) passes(ctx context.Context, tree, check string) (bool, error) {
+	limited, cancel := context.WithTimeout(ctx, checkLimit)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "bash", "-c", check)
+	cmd := exec.CommandContext(limited, "bash", "-c", check)
 	cmd.Dir, cmd.Env = tree, on.env
 	stop := group(cmd)
-	if cmd.Start() != nil {
-		return false
+	if err := cmd.Start(); err != nil {
+		return false, err
 	}
-	err = cmd.Wait()
+	err := cmd.Wait()
 	stop() // no child outlives the checkout
-	return err == nil
+	if limited.Err() != nil && ctx.Err() == nil {
+		return false, fmt.Errorf("this check did not finish within %d s; an unfinished check proves nothing", checkLimit/time.Second)
+	}
+	return err == nil, ctx.Err()
+}
+
+// rootOf is the repository a checkout holds, as no other one can: its first root commit, abbreviated.
+func rootOf(env []string, dir string) string {
+	out, _ := git(context.Background(), env, dir, "rev-list", "--max-parents=0", "HEAD")
+	roots := strings.Fields(out)
+	if len(roots) == 0 {
+		return ""
+	}
+	return slices.Min(roots)[:12]
+}
+
+// named is how a line names the checkout it was written under, for good: its path (`~` for
+// home) and the repository there, by the root commit found where its check ran.
+func named(repo, found string) string {
+	shown := resolved(repo)
+	if rel, err := filepath.Rel(resolved(home()), shown); err == nil && filepath.IsLocal(rel) {
+		shown = "~/" + rel
+	}
+	if found == "" {
+		return shown
+	}
+	return shown + "#" + found
+}
+
+// holdsCheckout refuses a check whose text holds the path of the project's checkout: a check
+// runs in a clean checkout of the default branch, and one that goes to the seat's tests what
+// that holds instead.  It reads text, not the shell: the path as written from `/`, `~`, `$HOME`
+// or `${HOME}`, with every quote and backslash dropped from both, so any quoting of it is found
+// and a longer name that starts with it (`acme-old`) is refused too.
+func holdsCheckout(check, repo string) error {
+	var paths []string
+	for _, path := range []string{filepath.Clean(repo), resolved(repo)} {
+		paths = append(paths, path)
+		for _, top := range []string{home(), resolved(home())} {
+			if rel, err := filepath.Rel(top, path); err == nil && filepath.IsLocal(rel) {
+				paths = append(paths, "~/"+rel, "$HOME/"+rel, "${HOME}/"+rel)
+			}
+		}
+	}
+	slices.Sort(paths)
+	shown := slices.MinFunc(paths, func(a, b string) int { return len(a) - len(b) })
+	for _, path := range paths {
+		if strings.Contains(quotes.Replace(check), quotes.Replace(path)) {
+			return fmt.Errorf("this check holds %s, the path of the project's checkout, but a check runs in a clean "+
+				"checkout of its default branch: name paths relative to the repository, as in `python3 tests/test_x.py`", shown)
+		}
+	}
+	return nil
+}
+
+var quotes = strings.NewReplacer(`"`, "", "'", "", `\`, "")
+
+func home() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Clean(home)
+}
+
+// resolved is path made absolute with its links followed, as far as they exist.
+func resolved(path string) string {
+	path, _ = filepath.Abs(path)
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		return real
+	}
+	return path
 }

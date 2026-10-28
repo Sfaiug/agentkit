@@ -65,7 +65,7 @@ func validatePlan(args []string) string {
 		return ""
 	}
 	if len(args) == 4 && args[0] == "add" && args[2] == "--check" {
-		if strings.TrimSpace(args[1]) == "" || strings.Contains(args[1], "·") {
+		if config.Fold(args[1]) == "" || strings.Contains(args[1], "·") {
 			return "an outcome is plain words without `·`"
 		}
 		repo, _ := record["repo"].(string)
