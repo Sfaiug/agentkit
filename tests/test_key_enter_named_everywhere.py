@@ -87,6 +87,31 @@ class EnterNamedEverywhere(unittest.TestCase):
         self.menu.keys("Enter")
         self.menu.wait(ends("  ⏎ save   esc back"))
 
+    def test_a_card_over_a_screen_of_pages_turns_none(self):
+        # past sessions and seats both more than a page: the card shows no `← 1 / 2 →`
+        for number in range(30):
+            name = f"past-{number:02d}"
+            self.home.write(f".agentkit/state/session-{name}.json", {
+                "orchestrator": "fable", "workers": ["fable"], "cwd": str(self.home.path),
+                "created": NOW - 90000, "session_title": name})
+            self.home.write(f".agentkit/state/seat-{name}.json",
+                            {"stopped_at": NOW - 9000 - number, "closed_by_owner": True})
+        for number in range(12):
+            Seat(self.home, f"acme-{number:02d}", screen="claude-working-pane.txt")
+        self.menu.keys("Escape")
+        menu = Terminal(self.home, "attach", "--overlay", size=(100, 24),
+                        env={"AGENTKIT_SESSION": "atoll-fix"})
+        menu.wait(lambda screen: "1 / 2" in key_line(screen) and "x stop" in screen)
+        menu.keys("x")
+        menu.wait(lambda screen: "Stop atoll-fix" in screen and ends(KEEP)(screen))
+        menu.keys("Escape")
+        menu.wait(lambda screen: "1 / 2" in key_line(screen) and "p past" in screen)
+        menu.keys("p")
+        menu.wait(lambda screen: "1 / 2" in key_line(screen) and "x remove" in screen)
+        menu.keys("x")
+        menu.wait(lambda screen: "from past sessions?" in screen and ends(KEEP)(screen))
+        menu.keys("Escape")
+
 
 if __name__ == "__main__":
     unittest.main()

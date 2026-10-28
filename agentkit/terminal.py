@@ -483,17 +483,18 @@ def key_parts(text):
 MOVE_KEYS = ("↑↓←→ move", "arrows move")
 
 
-def keys(*rest, space=None, enter):
-    """A screen's key line: MOVE_KEYS, what Space does there (`space`) and what Enter does
-    (`enter`), each left out where None, as it does nothing there, then that screen's own keys,
-    `rest`.  Enter has no word of its own: each screen names what it does there.  Space only
+def keys(*rest, space=None, enter, move=True):
+    """A screen's key line: MOVE_KEYS, left out where `move` is False as nothing moves there
+    (a field typed in), what Space does there (`space`) and what Enter does (`enter`), each left
+    out where None, as it does nothing there, then that screen's own keys, `rest`.  Enter has no word of its own: each screen names what it does there.  Space only
     changes the highlighted thing in place -- marks it, moves the ● to it, steps its effort --
     and a click on a mark does the same; Enter goes forward -- opens, starts, answers -- and
     never flips a mark."""
     ascii_ = not utf8()
-    named = [f"{'space' if ascii_ else '␣'} {space}"] if space else []
+    named = [MOVE_KEYS[ascii_]] if move else []
+    named += [f"{'space' if ascii_ else '␣'} {space}"] if space else []
     named += [f"{'enter' if ascii_ else '⏎'} {enter}"] if enter else []
-    return "   ".join((MOVE_KEYS[ascii_], *named, *rest))
+    return "   ".join((*named, *rest))
 
 
 def key_line(text, term_width=None, first=None):

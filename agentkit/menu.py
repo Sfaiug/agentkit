@@ -1687,7 +1687,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                      if any(name == cursor for _, name in lines)), page)
     page = min(max(page, 0), len(pages) - 1)
     key_lines = terminal.key_line(key_text, width)
-    if len(pages) > 1:
+    if len(pages) > 1 and not ask:        # a question's key line is its own: no page turns
         needing = [any(words.get(name) == "needs you" for _, name in lines) for lines in pages]
         key_lines = terminal.key_line(paged_keys, width, page_mark(
             page, len(pages), owned, (any(needing[:page]), any(needing[page + 1:]))))
@@ -4587,7 +4587,7 @@ def config_page(name, page):
         else:
             # typed in, the arrows move nothing: Enter saves what was typed
             opened, at = None, here[1]
-            keys = f"{'⏎' if terminal.utf8() else 'enter'} save   esc back"
+            keys = terminal.keys("esc back", enter="save", move=False)
 
             def draw(lines):          # the page of matrix_key's height that holds the lines
                 rows, note = page()
@@ -5362,7 +5362,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             def around(card, keys, at=at):
                 lines = body[:at] + card + body[at:]
                 skip = max(0, min(at, len(lines) - room))
-                terminal.frame("past sessions", lines[skip:skip + room], keys, first=first)
+                terminal.frame("past sessions", lines[skip:skip + room], keys)
                 return 3 + at - skip
             if terminal.confirm(f"Remove {here} from past sessions?",
                                 "It can no longer be reopened.", "Remove", around):
