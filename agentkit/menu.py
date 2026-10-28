@@ -4156,10 +4156,15 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
         # SIG_IGN, is not inherited by the harness.
         interrupt = signal.signal(signal.SIGINT, lambda *_: None)
         try:
-            code = subprocess.run([str(config.adapter(harness)), *verb.split()],
-                                  env={**config.child_env(), **config.account_env(account),
-                                       **config.provider_env([provider] if provider else [])}
-                                  ).returncode
+            adapter = str(config.adapter(harness))
+            env = {**config.child_env(), **config.account_env(account),
+                   **config.provider_env([provider] if provider else [])}
+            code = subprocess.run([adapter, *verb.split()], env=env).returncode
+            # a sign-in cut short can still exit 0 (codex 0.163's on ^C): it finished only if the
+            # harness now has the login it was for -- `auth`'s 1 is its no, anything else no answer
+            if not code and verb.startswith("login") and subprocess.run(
+                    [adapter, "auth", "seat"], env=env, capture_output=True).returncode == 1:
+                code = 1
         except (config.Error, OSError) as exc:
             print(f"{harness}: {exc}")
             code = 1
