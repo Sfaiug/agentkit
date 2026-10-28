@@ -4151,6 +4151,10 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
         # a harness can take seconds to draw its own screen, and a blank one reads as hung
         print(f"Installing {config.harness_name(harness)}…" if verb == "install"
               else f"Opening {config.harness_name(harness)} to log in…", flush=True)
+        # ^C at a sign-in that waits on a code without taking the keys (codex's, grok's) reaches
+        # the whole foreground group: it ends that sign-in, not the menu.  A handler, unlike
+        # SIG_IGN, is not inherited by the harness.
+        interrupt = signal.signal(signal.SIGINT, lambda *_: None)
         try:
             code = subprocess.run([str(config.adapter(harness)), *verb.split()],
                                   env={**config.child_env(), **config.account_env(account),
@@ -4159,6 +4163,8 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
         except (config.Error, OSError) as exc:
             print(f"{harness}: {exc}")
             code = 1
+        finally:
+            signal.signal(signal.SIGINT, interrupt)
         if code:
             failed = f"{harness} {verb} did not finish; {picked} is not added"
             pause()

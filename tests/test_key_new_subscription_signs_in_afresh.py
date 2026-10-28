@@ -137,6 +137,17 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
         self.pick("Claude II")
         self.assertNotIn("<codex says>", self.term.wait("<claude says>"))
 
+    def test_ctrl_c_ends_a_sign_in_and_not_the_menu(self):
+        self.open({"fable": "claude"})
+        self.fakes["codex"].answer("login", "<enter the code>", None)   # as codex's device code
+        self.pick("OpenAI / Codex")
+        self.term.wait("<enter the code>")
+        self.term.keys("C-c")
+        self.term.wait(lambda screen: "<enter the code>" in screen and "esc back" in screen)
+        self.term.keys("Enter")
+        self.term.wait(lambda screen: title(screen) == PAGE
+                       and "codex login did not finish; OpenAI / Codex is not added" in screen)
+
     def test_a_second_subscription_signs_in_under_a_new_account(self):
         self.open({"fable": "claude"})
         self.pick("Claude II")
