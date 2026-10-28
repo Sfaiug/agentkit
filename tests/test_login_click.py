@@ -60,7 +60,7 @@ class LoginClick(Sandbox):
         """A click on the middle of `label`'s cell in the grid as `drawn`."""
         cell = ("usage", number(self.cfg, label))
         return next(terminal.Key("click", col=(first + last) // 2, row=row)
-                    for row, (_, places) in drawn["spots"].items()
+                    for row, (_, places, *_) in drawn["spots"].items()
                     for first, last, at in places if at == cell)
 
     def signed_in(self):
