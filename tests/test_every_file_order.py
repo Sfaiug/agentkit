@@ -91,9 +91,10 @@ class EveryFileOrder(unittest.TestCase):
         tools, temp = self.sandbox / "bin", self.sandbox / "tmp"
         tools.mkdir()
         temp.mkdir()
-        # Exercise the unchanged wrapper's fallback without touching host namespaces.
+        # The line refuses a host without its namespace: stand in for one without touching the
+        # host's, running what follows the line's `-` as is.
         unshare = tools / "unshare"
-        unshare.write_text("#!/bin/sh\nexit 1\n")
+        unshare.write_text('#!/bin/sh\nwhile [ "$1" != - ]; do shift; done\nshift\nexec "$@"\n')
         unshare.chmod(0o755)
         return dict(os.environ, PATH=f"{tools}:{os.environ['PATH']}", TMPDIR=str(temp))
 

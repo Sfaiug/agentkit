@@ -27,7 +27,8 @@ from fixtures.gitrig import Rig
 # The shape of agentkit's own `tests:` line, with its suite swapped for the project's.
 LINE = ("offline() { unshare --user --map-current-user --net --keep-caps sh -c "
         "'ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all \"$@\"' - \"$@\"; "
-        "}; offline true 2>/dev/null || offline() { \"$@\"; }; offline python3 tests/suite.py")
+        "}; offline true 2>/dev/null || { echo \"cannot build the offline sandbox\" >&2; exit 1; }; "
+        "offline python3 tests/suite.py")
 SUITE = """import errno, os, socket
 
 
