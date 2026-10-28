@@ -4126,6 +4126,9 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
     if not verbs:
         return ""
     keyboard.give()
+    if sys.stdout.isatty() and os.environ.get("TERM", "dumb") != "dumb":
+        # a screen of their own: the screen given back still shows the last sign-in's lines
+        print("\033[2J\033[H", end="", flush=True)
     failed = ""
     for verb in verbs:
         # a harness can take seconds to draw its own screen, and a blank one reads as hung
