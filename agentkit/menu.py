@@ -560,7 +560,7 @@ def moving(clock, wake=None, timeout=TICK, going=None):
 
 class Back(Exception):
     """Esc, the end of input or a click on `esc back`, read while a screen waited on what it
-    fetches (`waited`)."""
+    fetches (`waited`); or Esc out of a list another list opened (`config_add`)."""
 
 
 class Fetch(threading.Thread):
@@ -3970,7 +3970,7 @@ def config_add(cfg, keyboard, through):
     which; Space does nothing but after `/`; Enter on an effort adds the model, named from
     its label (_short_name), and saves.  A model the config runs already is marked, and can be
     added at another effort, never at one it runs it at.  Esc steps back one level, and
-    out from the models.  Nothing is typed, so no model or effort the catalog does
+    out from the models raises Back.  Nothing is typed, so no model or effort the catalog does
     not offer is ever written.  The new model is offered as orchestrator and as worker at
     once, and holds no seat's role until it is marked there.  The name it was added under, or
     None.
@@ -4057,7 +4057,7 @@ def config_add(cfg, keyboard, through):
             finding, ats[-1] = "", 0
         elif act == "esc":
             if not picked:
-                return None
+                raise Back
             picked.pop()
             ats.pop()
             finding = None
@@ -4229,15 +4229,21 @@ def config_add_provider(cfg, keyboard):
                        [""] * (len(labels) + len(through) + len(more)),
                        terminal.keys("esc back", enter="open" if lit in through else "add"))
         return 3
-    picked = terminal.choose([*labels, *through, *more], around=around)
-    if picked is None:
-        return ""
-    if picked in through:
+    picked = None
+    while True:       # Esc in a harness's list comes back here, that harness highlighted
+        picked = terminal.choose([*labels, *through, *more], picked, around=around)
+        if picked is None:
+            return ""
+        if picked not in through:
+            break
         harness = through[picked]
         failed = _adapter_verbs(keyboard, harness, () if config.harness_present(harness)
                                 else ("install",), picked)
         if not failed:
-            config_add(cfg, keyboard, through=harness)
+            try:
+                config_add(cfg, keyboard, through=harness)
+            except Back:
+                continue
         return failed
     if picked in more:
         return _add_subscription(cfg, keyboard, *more[picked], picked)

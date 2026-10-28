@@ -214,7 +214,7 @@ class AddOpenCodeProvider(unittest.TestCase):
         back(screen)
         screen.leave()
 
-    def test_esc_lets_a_find_go_then_goes_back_with_nothing_added(self):
+    def test_esc_lets_a_find_go_then_goes_back_a_list_at_a_time_with_nothing_added(self):
         screen = Screen(self, child=CHILD, text=ONE, rows=9)
         before = screen.path.read_bytes()
         # a list longer than the screen says it can be found in, on its first model
@@ -226,6 +226,7 @@ class AddOpenCodeProvider(unittest.TestCase):
         screen.click(lines[-1].index("/ find") + 1, len(lines),
                      lambda lines: "  model  /" in lines)
         screen.press(ESC, lambda lines: "  model" in lines and "/ find" in lines[-1])
+        screen.press(ESC, lambda lines: title(lines) == ADD)     # back one list
         screen.press(ESC, lambda lines: title(lines) == PAGE)
         self.assertEqual(screen.path.read_bytes(), before)
         back(screen)
