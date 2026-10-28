@@ -9,8 +9,9 @@ any passing error stands, and nothing more while those words stand, on the same 
 redrawn around them.  The stall's clock is set back as ak keeps it, not waited out.  Black-box:
 the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, each tick in the
 box `home.tick()` builds, before seats of tests/fixtures/akseat.py showing a real Claude pane
-stopped on its login words, on a fake harness from tests/fixtures/fakeadapter.py whose `auth`
-verb the test refuses and passes.
+stopped on its login words, one with the row Claude draws under its footer for seconds at a
+time, on a fake harness from tests/fixtures/fakeadapter.py whose `auth` verb the test refuses
+and passes.
 """
 
 import json
@@ -28,6 +29,8 @@ STOOD = 240     # past the three minutes an error stands before anything is type
 SCREEN = (FIXTURES / "claude-auth-401-pane.txt").read_text()
 # the same turn ended on another of the harness's own login words, with no `log in` among them
 BARE = SCREEN.replace("Please run /login · API Error: 401 Invalid API key", "Invalid API key")
+# a real turn's login error, under it the tip Claude Code shows while tmux's focus-events is off
+TIP = (FIXTURES / "claude-auth-401-tmux-tip-pane.txt").read_text()
 
 
 def state(home, name):
@@ -50,7 +53,8 @@ class LoginBack(unittest.TestCase):
         cls.addClassCleanup(home.close)
         akconfig.write(home, ["opus"])
         claude = fakeadapter.install(home, claude="pass")["claude"]
-        cls.seats = seats = [Seat(home, "acme", screen=SCREEN), Seat(home, "beta", screen=BARE)]
+        cls.seats = seats = [Seat(home, "acme", screen=SCREEN), Seat(home, "beta", screen=BARE),
+                             Seat(home, "gamma", screen=TIP)]
         claude.answer("auth", "token expired", 1)
         cls.ticks = [home.tick()]
         stood(home)
@@ -78,17 +82,17 @@ class LoginBack(unittest.TestCase):
             self.assertEqual(done.code, 0, done.err)
 
     def test_a_login_still_refused_needs_you_and_nothing_is_typed(self):
-        self.assertEqual(self.refused, [("needs you", [])] * 2)
+        self.assertEqual(self.refused, [("needs you", [])] * 3)
 
     def test_a_login_that_works_again_is_typed_past_once_after_the_wait(self):
-        self.assertEqual(self.back, [[]] * 2)
-        self.assertEqual(self.resumed, [["continue"]] * 2)
+        self.assertEqual(self.back, [[]] * 3)
+        self.assertEqual(self.resumed, [["continue"]] * 3)
 
     def test_the_next_tick_on_the_same_screen_types_nothing_more(self):
-        self.assertEqual(self.again, [["continue"]] * 2)
+        self.assertEqual(self.again, [["continue"]] * 3)
 
     def test_a_screen_redrawn_around_the_same_words_types_nothing_more(self):
-        self.assertEqual(self.redrawn, [["continue"]] * 2)
+        self.assertEqual(self.redrawn, [["continue"]] * 3)
 
 
 if __name__ == "__main__":
