@@ -39,8 +39,9 @@ esac
 """
 
 # The Mac's own tools, for tools/helper/mac.sh run here: on its charger for the first
-# $FAKE_AC_CALLS readings; a build takes half a second, and `container builder stop` breaks any
-# build still running; a VM comes up a second after `container run`, or only after a stop while
+# $FAKE_AC_CALLS readings; a build takes half a second, and each `container builder` verb, kept in
+# $FAKE/builder, breaks any build still running; an image deleted leaves the listing; a VM comes
+# up a second after `container run`, or only after a stop while
 # $FAKE/stalls, and runs until stopped,
 # listed beside the owner's own VM and an ended one, holding half the memory it was given.
 # Linux's `flock` takes `lockf`'s place.
@@ -57,13 +58,15 @@ MAC_TOOLS = {
                  '  done; } | jq -R -s \'split("\\n")[:-1] | map(split(" ")\'\\\n'
                  '\' | {id: .[0], mb: (.[1] | tonumber), state: .[2]})\'; }\n'
                  'case "$1 $2" in "system "*) [ ! -e "$FAKE/system-broken" ];;\n'
-                 '"builder "*) rm -f "$FAKE"/building-*;;\n'
+                 '"builder "*) echo "$2" >>"$FAKE/builder"; rm -f "$FAKE"/building-*;;\n'
                  '"image inspect") [ -e "$FAKE/has-${3##*/}" ];;\n'
                  '"build "*) touch "$FAKE/has-debian:trixie-slim" "$FAKE/building-$5"; sleep 0.5\n'
                  '  rm "$FAKE/building-$5" && [ ! -e "$FAKE/broken" ] && touch "$FAKE/has-$5";;\n'
-                 '"image ls") printf "NAME TAG DIGEST\\nak-helper new 1\\nak-helper old 2\\n'
+                 '"image ls") { printf "NAME TAG DIGEST\\nak-helper new 1\\nak-helper old 2\\n'
                  'acme-local unpublished 3\\nak-helper-other old 4\\n"\n'
-                 '  ls "$FAKE" | sed -n "s/^has-\\(.*\\):\\(.*\\)/\\1 \\2 5/p";;\n'
+                 '  ls "$FAKE" | sed -n "s/^has-\\(.*\\):\\(.*\\)/\\1 \\2 5/p"; } |\n'
+                 '  awk -v gone="$(cat "$FAKE/deleted" 2>/dev/null)" \'BEGIN {split(gone, names, "\\n")\n'
+                 '    for (i in names) out[names[i]]} !(($1 ":" $2) in out)\';;\n'
                  '"image delete") echo "$3" >>"$FAKE/deleted"; rm -f "$FAKE/has-${3##*/}";;\n'
                  '"ls --all") [ ! -e "$FAKE/ls-broken" ] || exit 1; echo "ID IMAGE OS"\n'
                  '  cat "$FAKE/listed" 2>/dev/null; :;;\n'
@@ -371,6 +374,21 @@ class HelperMac(unittest.TestCase):
         self.assertEqual(prepare("fourth"), 0)
         self.assertEqual((self.fake / "deleted").read_text(), "ak-helper:old\n")
 
+    def test_the_mac_keeps_no_build_cache_nor_an_old_image_once_no_suite_names_it(self):
+        # a suite that never finished still names the old image as the new one is built
+        (self.root / "dead/image").mkdir(parents=True)
+        (self.root / "dead/image/name").write_text("ak-helper:old\n")
+        self.assertEqual(self.prepare("first")[0], 0)
+        self.assertEqual((self.fake / "deleted").read_text(),
+                         "docker.io/library/debian:trixie-slim\n")
+        # its tree goes a day on, and the next prepare, which builds nothing, takes the image
+        stale = time.time() - 3 * 86400
+        os.utime(self.root / "dead", (stale, stale))
+        self.assertEqual(self.prepare("second")[0], 0)
+        self.assertEqual((self.fake / "deleted").read_text(),
+                         "docker.io/library/debian:trixie-slim\nak-helper:old\n")
+        self.assertEqual((self.fake / "builder").read_text(), "stop\ndelete\ndelete\n")
+
     def test_an_image_a_listed_vm_may_use_stays(self):
         # `container ls` names an image with its registry; no listing could be any image
         (self.fake / "listed").write_text("vm registry.acme.test/library/ak-helper:old linux\n")
@@ -414,7 +432,8 @@ class HelperMac(unittest.TestCase):
         self.assertIsNone(suite("fourth", known))
         self.assertEqual(sorted(path.name for path in mirror.parent.iterdir() if path.is_dir()),
                          ["acme", "new"])
-        self.assertEqual((self.fake / "deleted").read_text(), "ak-helper-other:old\n")
+        self.assertEqual((self.fake / "deleted").read_text(),
+                         "ak-helper:old\nak-helper-other:old\n")
         # A suite's commits outlive a collection while it runs, though origin's branch left
         # them; once it finished, the next suite's collection drops them.
         tested = self.git("-C", str(self.repo), "rev-parse", "HEAD")

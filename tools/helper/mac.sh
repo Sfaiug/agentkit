@@ -55,6 +55,7 @@ drop() {
 # suite's image, built unless the Mac has it. A repository's history unused (`known`) for a week
 # goes, under its own lock, and its images with it.
 images() {
+  base= built=0
   container image inspect "$2" >/dev/null 2>&1 || {
     # The recipe stays outside its build's context, which holds only the files it copies.
     cd "$ROOT/$1" && mkdir -p context || exit 253
@@ -64,13 +65,16 @@ images() {
       >build.log 2>&1
     built=$?
     container builder stop >/dev/null 2>&1
-    # Once built, the helper's image it replaces goes; the base the build fetched goes even when
-    # the build failed, so the Mac holds the one image. The owner's own images stay, the base too
-    # where they had it before.
-    { [ "$built" != 0 ] || container image ls | awk -v name="${2%:*}" -v keep="${2#*:}" \
-        'NR > 1 && $1 == name && $2 != keep {print $1":"$2}'; echo "$base"; } | drop
-    [ "$built" = 0 ] || exit 253
   }
+  # With this one in place, the repository's other images go once no suite here names them, at
+  # the first prepare after, built or not; the base a build fetched goes even when the build
+  # failed, so the Mac holds the one image. The owner's own images stay, the base too where they
+  # had it before. The stopped builder goes with its cache: only a changed recipe's build could
+  # use it, and it kept every build's layers (27 GB in ten days).
+  { [ "$built" != 0 ] || container image ls | awk -v name="${2%:*}" -v keep="${2#*:}" \
+      'NR > 1 && $1 == name && $2 != keep {print $1":"$2}'; echo "$base"; } | drop
+  container builder delete >/dev/null 2>&1
+  [ "$built" = 0 ] || exit 253
   find "$MIRRORS" -mindepth 1 -maxdepth 1 -type d -mtime +7 2>/dev/null | while read -r old; do
     locked "$old.lock" find "$old" -maxdepth 0 -mtime +7 -exec rm -rf {} +
     [ -d "$old" ] || container image ls |
