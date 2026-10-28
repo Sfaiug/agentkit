@@ -138,7 +138,7 @@ class AddSubscription(unittest.TestCase):
         os.write(screen.master, DOWN * (EVERY - 1) + ENTER)    # no screen until it is read
         screen.saw("<refused>", after=mark)
         lines = screen.press(ENTER, lambda lines: title(lines) == PAGE)   # read, then back
-        self.assertIn("codex login did not finish; ChatGPT II is not added", lines[-3])
+        self.assertIn("Codex login did not finish; ChatGPT II is not added", lines[-3])
         self.assertEqual(screen.path.read_bytes(), before)
         self.assertEqual(len((home / "verbs.log").read_text().split()), 3)
         back(screen)

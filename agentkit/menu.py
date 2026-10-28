@@ -4171,7 +4171,7 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
         finally:
             signal.signal(signal.SIGINT, interrupt)
         if code:
-            failed = f"{harness} {verb} did not finish; {picked} is not added"
+            failed = f"{config.harness_name(harness)} {verb} did not finish; {picked} is not added"
             pause()
             break
     keyboard.take()
