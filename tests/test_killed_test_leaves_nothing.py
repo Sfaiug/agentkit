@@ -71,7 +71,7 @@ class KilledTest(unittest.TestCase):
     def test_a_test_killed_leaves_no_server_pane_or_home(self):
         maker = subprocess.Popen([sys.executable, "-c", MAKER, str(TESTS)],
                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE, text=True)
+                                 stderr=subprocess.PIPE, text=True, start_new_session=True)
         line = maker.stdout.readline()
         if not line:
             self.fail(maker.communicate(timeout=60)[1])
@@ -80,7 +80,7 @@ class KilledTest(unittest.TestCase):
         self.assertLessEqual({*pids}, running(root, tmux_dir))
         # a runner reads a test's output to its end
         self.assertEqual(holding(running(root, tmux_dir), maker.stdout, maker.stderr), set())
-        os.kill(maker.pid, signal.SIGKILL)
+        os.killpg(maker.pid, signal.SIGKILL)       # as a timeout kills a test, its group too
         maker.communicate(timeout=60)
         deadline = time.monotonic() + 60
         while (running(root, tmux_dir) or Path(root).exists() or Path(tmux_dir).exists()) \
