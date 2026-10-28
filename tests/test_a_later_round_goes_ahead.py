@@ -1,4 +1,5 @@
-"""Finished rounds queue ahead of fresh launches, under the same host and count gates.
+"""Finished work queues ahead of fresh launches, under the same host and count gates: a later
+round, and an orchestrator's own PR waiting for its first review.
 
 Offline: temporary state, fake process owners and injected host readings.
 """
@@ -19,6 +20,7 @@ HEALTHY = {"free_mb": 4096, "mem_total_mb": 16384, "cpus": 8, "load": 1,
            "slice_cpu_pressure": 5, "slice_memory_pressure": 0}
 ROUND = {"started_at": 1, "round_summaries": [{"round": 1, "verdict": "FAIL"}]}
 OWN_FIX = {"started_at": 2, "own_pr": True, "own_pr_wait": "reviewed-head"}
+OWN_REVIEW = {"started_at": 3, "own_pr": True}
 OWNER = {"pid": 999999, "process_identity": {"boot": "test", "ticks": 1}}
 
 
@@ -62,9 +64,10 @@ class LaterRoundGoesAhead(unittest.TestCase):
         fresh = self.queued("fresh", 10)
         resumed = self.queued("round-two", 20, **ROUND)
         own = self.queued("own-fix", 30, **OWN_FIX)
+        review = self.queued("own-review", 35, **OWN_REVIEW)
         later = self.queued("another-fresh", 40)
-        for directory in (resumed, own, fresh, later):
-            for behind in (resumed, own, fresh, later):
+        for directory in (resumed, own, review, fresh, later):
+            for behind in (resumed, own, review, fresh, later):
                 if record.read_state(behind)["state"] == "queued" and behind != directory:
                     self.assertFalse(self.claim(behind))
                     self.assertEqual(record.read_state(behind).get("slot_wait_kind"), "count")
@@ -81,9 +84,9 @@ class LaterRoundGoesAhead(unittest.TestCase):
         self.assertTrue(self.claim(own))
         self.assertFalse(self.claim(fresh))
 
-    def test_a_round_budget_or_an_own_pr_alone_does_not_jump_the_queue(self):
+    def test_a_round_budget_or_a_wait_on_someone_elses_pr_does_not_jump_the_queue(self):
         fresh = self.queued("fresh", 10)
-        for index, extra in enumerate(({"rounds": 3}, {"own_pr": True},
+        for index, extra in enumerate(({"rounds": 3}, {"own_pr": False, "review_pr": "pr"},
                                       {**OWN_FIX, "own_pr": False}), 20):
             with self.subTest(extra=extra):
                 directory = self.queued(f"unreviewed-{index}", index, **extra)
@@ -125,7 +128,7 @@ class LaterRoundGoesAhead(unittest.TestCase):
         holder = self.queued("holder", 1)
         with record.record(holder) as state:
             state["state"] = "running"
-        for index, extra in enumerate((ROUND, OWN_FIX), 20):
+        for index, extra in enumerate((ROUND, OWN_FIX, OWN_REVIEW), 20):
             with self.subTest(extra=extra):
                 directory = self.queued(f"carried-{index}", index, **extra)
                 self.assertFalse(self.claim(directory))
