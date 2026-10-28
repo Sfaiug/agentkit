@@ -282,9 +282,14 @@ login)
   command -v codex >/dev/null || { echo "codex.sh login: codex is not installed" >&2; exit 2; }
   if [ "${1:-}" != again ] && [ -s "$AUTH" ]; then echo "codex: already logged in"; exit 0; fi
   [ -t 0 ] || { echo "codex: not logged in; run \`codex login --device-auth\` in a terminal" >&2; exit 1; }
+  # codex 0.163 exits 0 when its sign-in is cut short with ^C, so an account's login is judged
+  # by its file: `again` sets the old one aside, and puts it back unless a new one was written
+  aside=""; [ "${1:-}" = again ] && [ -n "$ACCOUNT" ] && [ -s "$AUTH" ] && aside="$AUTH.aside"
   set --
   if [ -n "$ACCOUNT" ]; then home || exit 2; set -- -c "$STORE"; fi
-  codex "$@" login --device-auth ;;
+  [ -z "$aside" ] || { mv -f -- "$AUTH" "$aside" || exit 1
+    trap 'if [ -s "$AUTH" ]; then rm -f -- "$aside"; else mv -f -- "$aside" "$AUTH"; fi' EXIT; }
+  codex "$@" login --device-auth && { [ -z "$ACCOUNT" ] || [ -s "$AUTH" ]; } ;;
 logout)
   # an account's login is always its auth.json (STORE); the usual one may be the Keychain's
   set --
