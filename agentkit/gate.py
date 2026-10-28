@@ -164,10 +164,18 @@ def slot_counts(state, *, remember=False):
     previous, batches = slot_queue()[5], {}
     for other in waiting:
         batches.setdefault(_slot_seat(other), []).append(other.get("run_id") or "")
-    turns = {}
+    turns, floor = {}, {}
     for seat, pending in batches.items():
         count, before = previous.get(seat, (0, []))
-        turns[seat] = (count if set(pending).intersection(before) else 0, pending)
+        if set(pending).intersection(before):
+            turns[seat] = (count, pending)
+            floor[seat[:3]] = max(count, floor.get(seat[:3], 0))
+    # A new batch joins the back of its priority's round, level with the seat served most. From
+    # 0, or level with the least, it went ahead of every seat still working down an older batch:
+    # one whose backlog outlived the other seats' batches got no slot for four days while they
+    # took about 300.
+    for seat, pending in batches.items():
+        turns.setdefault(seat, (floor.get(seat[:3], 0), pending))
     seats, orders = {seat: turn[0] for seat, turn in turns.items()}, []
     for other in sorted(waiting, key=slot_order):
         order = slot_order(other)
