@@ -16,6 +16,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import types
 import unittest
@@ -166,6 +167,34 @@ class BarFollowsRuns(unittest.TestCase):
         with handed as hand:
             handback.redress_seat("acme")
             os.utime(config.STATE / "bar-acme.pending", (1, 1))   # a job that never started
+            handback.redress_seat("acme")
+        self.assertEqual(hand.call_count, 2)
+
+    def test_changes_at_one_instant_share_one_job(self):
+        handback.publish_seat("acme")
+        start = threading.Barrier(8)
+        with patch.object(orch, "tmux_out", return_value=(0, "")) as hand:
+            changes = [threading.Thread(target=lambda: (start.wait(), handback.redress_seat("acme")))
+                       for _ in range(8)]
+            for change in changes:
+                change.start()
+            for change in changes:
+                change.join()
+        self.assertEqual(hand.call_count, 1)
+
+    def test_a_change_joining_a_failed_handoff_hands_over_another(self):
+        handback.publish_seat("acme")
+        def handoff(*_args, **_kw):
+            if hand.call_count == 1:
+                handback.redress_seat("acme")    # joins the handoff in flight
+                return 124, "timed out"
+            return 0, ""
+        with patch.object(orch, "tmux_out", side_effect=handoff) as hand:
+            handback.redress_seat("acme")
+        self.assertEqual(hand.call_count, 2)
+        handback.publish_seat("acme")
+        with patch.object(orch, "tmux_out", return_value=(124, "timed out")) as hand:
+            handback.redress_seat("acme")    # nobody joined it: the next change hands one over
             handback.redress_seat("acme")
         self.assertEqual(hand.call_count, 2)
 
