@@ -28,14 +28,16 @@ SLOT_WAIT_ENV = "AK_SLOT_WAIT"
 def behind_first(queue, run_id, now, poll):
     """Whether the queue file still has this run waiting behind its first, who alone can be
     admitted.  A queue no poll rewrote for two polls -- its first stopped or died -- is counted
-    again by whoever polls next."""
+    again by the run next in line, a poll later by the one behind it, and so on: one comes back
+    to count it, never the whole line.  A line of 110 coming back at once held the slot lock for
+    minutes and about 3 G of memory, several times an hour (28 Oct 2026)."""
     try:
         with open(queue, encoding="utf-8") as file:
             saved = json.load(file)
         at, waiting = float(saved["at"]), [str(run_id) for run_id in saved["queue"]]
     except (OSError, ValueError, KeyError, TypeError):
         return False
-    return 0 <= now - at < 2 * poll and run_id in waiting[1:]
+    return run_id in waiting[1:] and 0 <= now - at < (1 + waiting.index(run_id)) * poll
 
 
 def head(repo, env=None):
