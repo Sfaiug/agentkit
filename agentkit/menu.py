@@ -4434,8 +4434,9 @@ def config_subscriptions(cfg, keyboard):
         body.append(terminal.highlight("  + add a subscription", at == ("row", "add")))
         keys = terminal.keys("esc back", enter="open" if here[0] == "row" else act_word(
             acts[column][0]) if acts and column is not None else None)
+        # every TICK as the main screen, so a reading that lands -- one just added -- shows
         act, moved, clicked, top = matrix_key("config · subscriptions", body, places, ids, here,
-                                              top, said, keys, marks=0)
+                                              top, said, keys, timeout=TICK, marks=0)
         if clicked is not None:
             column = clicked
         elif moved != here:
