@@ -232,6 +232,17 @@ class AddOpenCodeProvider(unittest.TestCase):
         back(screen)
         screen.leave()
 
+    def test_esc_while_opencode_s_list_is_asked_goes_back_one_list(self):
+        held = CHILD.replace("update.version =", "import threading\n"
+                             "config.catalog = lambda *_: threading.Event().wait()\n"
+                             "update.version =")
+        screen = Screen(self, child=held, text=ONE)
+        open_providers(screen)
+        pick(screen, ENTER, ADD, 6)
+        screen.press(DOWN * 4 + ENTER, lambda lines: title(lines) == THROUGH
+                     and any("reading the models opencode offers" in line for line in lines))
+        screen.press(ESC, lambda lines: title(lines) == ADD)
+
 
 if __name__ == "__main__":
     unittest.main()
