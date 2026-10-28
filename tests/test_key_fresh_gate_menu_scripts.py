@@ -68,7 +68,8 @@ class GateScripts(unittest.TestCase):
             cls.ran[name] = home.run(
                 sys.executable, str(gate / "ptydrive.py"), str(gate / f"{name}.txt"),
                 str(gate / f"{name}.exp"), "--", AK, *argv[1:], timeout=600,
-                env={"TERM": term, "AGENTKIT_SESSION": session})
+                # in colour, as the gate's drive runs it
+                env={"TERM": term, "AGENTKIT_SESSION": session, "NO_COLOR": None})
             cls.sessions[name] = sessions(home)
             session = SEAT    # the gate's drive names the seat once menu1 has made it
 
