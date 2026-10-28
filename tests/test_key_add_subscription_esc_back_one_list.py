@@ -1,6 +1,6 @@
 """Esc in the list a harness opens under `+ add a subscription` goes back one list: to the first
 list, that harness highlighted, and Esc there to Subscriptions; a model added through the
-harness still lands on Subscriptions.  The owner's rule: "the same back, forward and exit keys
+harness still lands on Subscriptions, as Ctrl-D from its models or efforts does.  The owner's rule: "the same back, forward and exit keys
 everywhere" (docs/cli-design.md).  Black-box: `AK_BIN`'s menu in a terminal
 (tests/fixtures/akterm.py), its harnesses faked (tests/fixtures/fakeadapter.py), the fake
 OpenCode listing MiMo, paid for; judged by what the terminal shows, NO_COLOR.  This test fails
@@ -40,13 +40,17 @@ class AddSubscriptionEscBackOneList(unittest.TestCase):
         self.term.wait("› Subscriptions")
         self.term.keys("Enter")
         self.term.wait("+ add a subscription")
+        self.opencode()
+
+    def opencode(self):
+        """From Subscriptions, OpenCode's own list under `+ add a subscription`."""
         self.term.keys("Down", "Down")                # past ChatGPT
         self.term.wait(KEYS.format("open"))
         self.term.keys("Enter")
         shown = lines(self.on("", "add"))             # on a provider, the first row
         rows = [line[2:] for line in shown[2:shown.index(KEYS.format("add"))] if line[2:]]
         self.term.keys(*["Down"] * rows.index("OpenCode"), "Enter")
-        self.on("  MiMo V2.6 Pro", "open")            # OpenCode's own list
+        self.on("  MiMo V2.6 Pro", "open")
 
     def on(self, row, enter):
         """The screen once the highlight is on the line that starts `row` and the key line
@@ -65,6 +69,15 @@ class AddSubscriptionEscBackOneList(unittest.TestCase):
         self.term.keys("Enter")
         self.on("  none", "add")
         self.term.keys("Enter")
+        self.term.wait(lambda screen: title(screen) == PAGE)
+
+    def test_ctrl_d_still_ends_on_subscriptions(self):
+        self.term.keys("C-d")
+        self.term.wait(lambda screen: title(screen) == PAGE)
+        self.opencode()
+        self.term.keys("Enter")
+        self.on("  none", "add")
+        self.term.keys("C-d")
         self.term.wait(lambda screen: title(screen) == PAGE)
 
 
