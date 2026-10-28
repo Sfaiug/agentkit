@@ -1,6 +1,7 @@
-"""While memory is tight the longest-idle Claude seat sleeps, one a tick, keeping its conversation;
-a working, asking, attached, busy or Codex seat never does.  An ending or opening wakes it, a failed
-wake keeping the ending owed; it reads asleep (the key, run here).  Black-box against `AK_BIN`."""
+"""While memory is tight the longest-idle Claude seat sleeps, one a tick, keeping its conversation,
+ak's own desktop server beside it or not; a working, asking, attached, busy or Codex seat never
+does.  An ending or opening wakes it, a failed wake keeping the ending owed; it reads asleep (the
+key, run here).  Black-box against `AK_BIN`."""
 
 import json
 import re
@@ -21,7 +22,7 @@ from test_key_sleeping_seat_reads_asleep import SleepingSeatReadsAsleep  # noqa:
 
 PROXIES = ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
 TIGHT, FINE = ({"mem_total_mb": 16000, "cpus": 8, "load": 0.1, "free_mb": n} for n in (100, 12000))
-IDLE = ("oldest", "older")      # in the order their turns ended
+IDLE = ("oldest", "older", "desktop")      # in the order their turns ended
 AWAKE = ("working", "asking", "attached", "busy")
 PERMISSION = {"tool_name": "Bash", "tool_input": {"command": "make deploy"}}
 
@@ -48,7 +49,13 @@ class IdleSeatSleeps(unittest.TestCase):
         home.write(f".agentkit/state/codex-launch-{'1' * 32}.json", {"launch": "1" * 32, "cwd": cwd,
                    "event": {"hook_event_name": "SessionStart", "source": "startup", "cwd": cwd,
                              "session_id": "conv-codex", "transcript_path": str(rollout)}})
+        # its seats sit in the cgroup it runs in: run from a seat's own shell, that seat's scope
+        # holds processes their trees never reach and every one reads busy (`sleep._busy`)
         hooks, cls.seats = Hooks(home), {}
+        # a shell its harness started, as a background command is; or ak's desktop server
+        server = home.write("tools/desktop-mcp.py", "import time\ntime.sleep(600)\n")
+        work = {"busy": "sh -c 'sleep 600; :'",
+                "desktop": shlex.join([sys.executable, str(server)])}
         for name in (*IDLE, *AWAKE):
             seat = cls.seats[name] = Seat(home, name, screen="claude-working-pane.txt"
                                           if name == "working" else "claude-prompt-pane.txt")
@@ -63,9 +70,9 @@ class IdleSeatSleeps(unittest.TestCase):
             if name != "working":
                 hooks.fire("Stop", {"background_tasks": [], "transcript_path": "",
                                     "last_assistant_message": "Done."}, seat=name, pane=seat)
-            if name == "busy":      # a shell its harness started, as a background command is
+            if name in work:
                 home.tmux("respawn-pane", "-k", "-t", seat.pane,
-                          "sh -c 'sleep 600; :' & exec " + shlex.join(argv))
+                          f"{work[name]} & exec {shlex.join(argv)}")
                 seat._settle()
             time.sleep(1.1)     # each turn ended a second after the one before
         hooks.fire("PermissionRequest", PERMISSION, seat="asking", pane=cls.seats["asking"])
@@ -75,7 +82,7 @@ class IdleSeatSleeps(unittest.TestCase):
         cls.addClassCleanup(cls.client.kill)
         cls.tick(FINE)
         cls.after_fine = cls.sessions()
-        cls.tight = [cls.tick(TIGHT) for _ in range(3)]
+        cls.tight = [cls.tick(TIGHT) for _ in range(4)]
         cls.slept = cls.sessions()
         cls.records = {name: json.loads(home.path.joinpath(
             f".agentkit/state/session-{name}.json").read_text()) for name in IDLE}
@@ -93,7 +100,7 @@ class IdleSeatSleeps(unittest.TestCase):
     def test_while_memory_is_tight_the_longest_idle_seat_sleeps_one_a_tick(self):
         self.assertEqual(self.after_fine, sorted((*IDLE, *AWAKE, "codex")))    # with memory fine
         slept = [re.findall(r"put (\S+) to sleep", done.out) for done in self.tight]
-        self.assertEqual(slept, [["oldest"], ["older"], []])
+        self.assertEqual(slept, [["oldest"], ["older"], ["desktop"], []])
         self.assertEqual(self.slept, sorted((*AWAKE, "codex")))
         for name in IDLE:
             self.assertEqual(self.records[name]["conversation"], f"conv-{name}")
