@@ -526,8 +526,9 @@ try:
         def step(cmd, fh, env=None, timeout=None, **_kw):
             ran.append(cmd)
             if cmd[0] == "bash":
-                self.assertEqual((env, timeout),
-                                 ({"AGENTKIT_ACCEPTANCE_REQUIRED": "1"}, update.LIVE_CAP))
+                self.assertEqual((env["AGENTKIT_ACCEPTANCE_REQUIRED"], timeout),
+                                 ("1", update.LIVE_CAP))
+                self.assertIn("AK_LIVE_FAILED", env)    # where it writes the checks it failed
                 return live_passes
             installed[0] = "1.0.0" if cmd[-1] == "1.0.0" else "2.0.0"
             return True
