@@ -12,7 +12,7 @@ import re
 import shlex
 import time
 
-from . import config, gate, host, notify, orch, watch
+from . import browser, config, gate, host, notify, orch, watch
 
 AT_REST = ("idle", "done")
 SHELLS = ("sh", "bash", "dash", "zsh", "ksh", "fish")
@@ -52,8 +52,9 @@ def _idle_since(cfg, session, record, table):
 def _busy(session, table, record, cfg):
     """Whether work runs beside the seat's harness: under the pane's first program, the shells
     tmux and the launch start it through above it, a process that is neither the harness ak's
-    wrapper runs, nor ak's scope companion (`orch.SCOPE_ENDS`), nor one its adapter names as
-    the harness's own (`[sleep] own`); or, in a scope of its own, a process the tree lost.  A
+    wrapper runs, nor ak's scope companion (`orch.SCOPE_ENDS`) or desktop server, which ends
+    and starts again with its seat (`browser.DESKTOP`), nor one its adapter names as the
+    harness's own (`[sleep] own`); or, in a scope of its own, a process the tree lost.  A
     harness whose adapter names none is never known idle."""
     own = (config.manifest(orch.seat_harness(record, cfg)).get("sleep") or {}).get("own")
     server = orch.seat_socket(session)
@@ -70,6 +71,7 @@ def _busy(session, table, record, cfg):
         words = table.get(pid, (0, "", []))[2]
         shell = bool(words) and PurePath(words[0]).name.lstrip("-") in SHELLS
         if (below and not wrapped and orch.SCOPE_ENDS not in words
+                and orch.program(words, full=True) != str(browser.DESKTOP)
                 and not any(re.search(pattern, " ".join(words)) for pattern in own)):
             return True
         reached.add(pid)
