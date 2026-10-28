@@ -574,20 +574,33 @@ class Antigravity(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(sorted(p.name for p in own.parent.iterdir()), ["brain", "conversations"])
         self.assertEqual(self.token.read_text(), usual)
-        # the usual login's file goes too, but a reachable keyring may keep a copy only /logout clears
-        proc = self.adapter("logout", env={"DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/usual-bus"})
-        self.assertEqual(proc.returncode, 1)
-        self.assertIn("/logout", proc.stderr)
-        self.assertFalse(self.token.exists())
-        # a bus set to disabled: reaches no keyring, whatever socket the runtime directory holds
+        # the usual login's file goes too, but a keyring agy reaches may keep a copy only /logout
+        # clears: on Linux, whatever this host is, a Secret Service answering on the session bus,
+        # an empty address being the runtime socket's to agy and one busctl cannot reach
+        for name, text in (("uname", "echo Linux"), ("busctl", '[ "${DBUS_SESSION_BUS_ADDRESS-x}" ]'
+                           ' && case "$*" in *org.freedesktop.secrets*) exit "$ANSWERS" ;; esac; exit 1')):
+            (self.bin / name).write_text(f"#!/bin/sh\n{text}\n")
+            (self.bin / name).chmod(0o755)
+        for address, answers, code in (("unix:path=/run/bus", "0", 1), ("", "0", 1),
+                                       ("unix:path=/run/bus", "1", 0)):  # a server's: none
+            self.write_token("dummy-refresh")
+            proc = self.adapter("logout", env={"DBUS_SESSION_BUS_ADDRESS": address,
+                                               "ANSWERS": answers})
+            self.assertEqual((proc.returncode, "/logout" in proc.stderr), (code, code == 1))
+            self.assertFalse(self.token.exists())
+        # a bus set to disabled: is never asked
+        proc = self.adapter("logout", env={"DBUS_SESSION_BUS_ADDRESS": "disabled:", "ANSWERS": "0"})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        # with no busctl to ask, any bus may hold one: the runtime socket when none is set
+        (self.bin / "busctl").unlink()
+        for tool in ("bash", "rm"):
+            (self.bin / tool).symlink_to(shutil.which(tool))
         with tempfile.TemporaryDirectory(dir="/tmp") as runtime, socket.socket(socket.AF_UNIX) as bus:
+            unset = {"PATH": str(self.bin), "XDG_RUNTIME_DIR": runtime,
+                     "DBUS_SESSION_BUS_ADDRESS": ""}
+            self.assertEqual(self.adapter("logout", env=unset).returncode, 0)
             bus.bind(f"{runtime}/bus")   # /tmp: a socket's path is held to 108 bytes
-            proc = self.adapter("logout", env={"DBUS_SESSION_BUS_ADDRESS": "disabled:",
-                                               "XDG_RUNTIME_DIR": runtime})
-            self.assertEqual(proc.returncode, 0, proc.stderr)
-            proc = self.adapter("logout", env={"DBUS_SESSION_BUS_ADDRESS": "",
-                                               "XDG_RUNTIME_DIR": runtime})
-            self.assertEqual(proc.returncode, 1)
+            self.assertEqual(self.adapter("logout", env=unset).returncode, 1)
 
     def test_the_usual_login_stays_today_s_beside_a_named_one(self):
         # `default` is the empty name: only the usual login answers, never `second`'s
