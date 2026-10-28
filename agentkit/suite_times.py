@@ -14,6 +14,7 @@ import tempfile
 from . import config, gitcall
 
 PASSED = re.compile(r"PASS  (\S+) \((\d+(?:\.\d+)?)s\)$")
+LINE = 4096     # bytes read at a time: a check can print one line longer than memory holds
 
 
 def passed(name, took):
@@ -48,10 +49,16 @@ def read(text):
 def keep(cwd, log):
     """Add the times the check whose whole output is the file `log` printed to the record of
     `cwd`, the checkout it ran on, the latest of a file's winning; a file that checkout no
-    longer has leaves it.  Read a line at a time: a check can print more than memory holds."""
+    longer has leaves it."""
+    found, start = {}, True
     try:
-        with open(log, errors="replace") as lines:
-            found = {match[1]: float(match[2]) for line in lines if (match := PASSED.match(line))}
+        with open(log, "rb") as lines:
+            while part := lines.readline(LINE):
+                # Only a line read whole, from its start, is one `passed` printed.
+                whole = part.endswith(b"\n") or len(part) < LINE
+                if start and whole and (match := PASSED.match(part.decode(errors="replace"))):
+                    found[match[1]] = float(match[2])
+                start = whole
     except OSError:
         return
     if not found:

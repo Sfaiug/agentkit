@@ -87,7 +87,8 @@ class SuitePiecesByMeasuredTime(unittest.TestCase):
         self.land_check(self.root, False, f"--- AK_SHARD=1/2 ---\n{logs[0]}FAIL  acme\n")
         # One piece on the suite helper: its log reaches the lander as the other's does.
         self.land_check(self.root, True, f"--- AK_SHARD=2/2 ---\n{logs[1]}"
-                        "PASS  tests/test_gone.py (9.0s)\n" + "acme output\n" * turns.OUT_CAP)
+                        "PASS  tests/test_gone.py (9.0s)\n" + "acme output\n" * turns.OUT_CAP
+                        + "x" * 3 * suite_times.LINE + "PASS  tests/test_big.py (99.0s)\n")
 
     def test_times_from_a_finished_pieces_log_survive_a_new_box(self):
         self.keep_a_suite()
