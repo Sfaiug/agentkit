@@ -257,7 +257,7 @@ class SeatErrorRecord(unittest.TestCase):
                     continue
                 entry = self.health(name)
                 if outcome == "auth":
-                    # the login verb is asked, and a login is never typed at
+                    # the login verb is asked, and a login it has not passed is never typed at
                     self.assertTrue(self.auth.call_args.kwargs["fresh"])
                     self.assertEqual((self.typed, entry.get("signature")), ([], None))
                 else:

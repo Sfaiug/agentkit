@@ -5124,6 +5124,25 @@ def health(cfg, state, dry_run, log):
                 continue        # an unanswered owner decision is never a reason to type a resume
             if entry.get("told"):
                 continue
+            # Its harness's own login words, that login asked this pass and passing: a login that
+            # failed and came back is a passing error, typed past once while the words stand,
+            # however the screen around them is redrawn.
+            if signature and logged_in(harness, state.get("auth_out")):
+                if entry.get("kind") != "login":
+                    entry = stalls[name] = {"kind": "login", "signature": signature, "since": now}
+                if entry.get("nudged_at") or now - entry["since"] < STALL_WAIT:
+                    continue
+                with nullcontext() if dry_run else state_lock():
+                    if (name in sync_seen(state, load_state()) or
+                            stalls.get(name, {}).get("told") or pane_text(session) != pane):
+                        continue
+                    keys = keystroke(harness, tail)
+                    if dry_run:
+                        log(f"would resume {name}, stopped on {signature!r}, with {keys!r}")
+                    elif type_into(session, keys, log):
+                        entry["nudged_at"] = time.time()
+                        log(f"{name}: {harness} can authenticate again; typed {keys!r}")
+                continue
             # Suspected auth takes the quiet escalation path even when `API Error` coexists.
             # Only verified auth messages get an immediate needs-login notice, but neither
             # known nor unknown logout wording can receive a capacity nudge.
@@ -5159,8 +5178,8 @@ def health(cfg, state, dry_run, log):
                         else:
                             log(f"WARN {name}: notification was not accepted; retry required")
                 continue
-            if entry.get("kind") == "quiet":
-                stalls.pop(name)
+            if entry.get("kind"):
+                stalls.pop(name)    # a quiet or login episode is over; this stall is a new one
             entry = stalls.setdefault(name, {"since": now})
             observe(entry, pane, harness, now)
             entry["signature"] = mark
