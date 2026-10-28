@@ -672,13 +672,13 @@ class Phone(Sandbox):
                              prompt="esc back")
         self.fits(screen, width, height)
         phone.keys("Down", "Down", "Space")  # astra orchestrates, two rows below fable, the first
-        screen = self.picked(phone, "GPT-6-Astra", "●■■")
+        screen = self.picked(phone, "GPT-6-A", "●■■")
         phone.keys("Right", "Right")         # past its orch effort to the executor column, then
                                              # every worker added
-        # each by its full name, as much of it as a phone's third of the screen holds
-        for title, steps in (("Fable 5.1", ("Up", "Up")), ("muse-spark", ("Down",) * 3),
-                             ("Grok 4.7", ("Down",)), ("Gemini 3.8", ("Down",)),
-                             ("MiMo V2.6", ("Down",))):
+        # each by its full name, as much of it as a phone's screen holds
+        for title, steps in (("Fable", ("Up", "Up")), ("muse-sp", ("Down",) * 3),
+                             ("Grok", ("Down",)), ("Gemini", ("Down",)),
+                             ("MiMo", ("Down",))):
             phone.keys(*steps, "Space")
             screen = self.picked(phone, title, "○■□")   # executing, not reviewing
         self.fits(screen, width, height)
