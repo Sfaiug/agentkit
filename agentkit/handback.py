@@ -1499,7 +1499,7 @@ def announce(state, run_dir, log, cfg=None, busy=None):
     window, so it is handed back nowhere and nobody is told.  An error the tick will retry
     is the same: its retry is already scheduled, so there is no ending to tell.
     """
-    from . import job as jobs, watch, worktrees  # here, not at the top: they reach run
+    from . import job as jobs, sleep, watch, worktrees  # here, not at the top: they reach run
     if state.get("state") == "stopped":
         return
     if transitions.going(state) and state.get("state") == "error":
@@ -1536,6 +1536,9 @@ def announce(state, run_dir, log, cfg=None, busy=None):
             "recorded, not typed")
         # The seat reads result.md and its plan, never the checkout: the ending is history.
         worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
+        return
+    if not sleep.wake(session, log, cfg):
+        mark_delivery(run_dir, state, handback_pending=True)   # owed: the next tick wakes it
         return
     with launcher_world(session) as live:
         if live:

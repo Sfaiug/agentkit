@@ -3053,7 +3053,7 @@ def sweep(log):
     there was one (`watch.seat_stopped_at`): a seat long gone from tmux that the owner stops
     today keeps its row and its number the whole week.
     """
-    from . import watch   # here, not at the top: watch imports this module
+    from . import sleep, watch   # here, not at the top: they import this module
     found = {s["name"]: s for s in sessions()}
     sweep_finished(found, log)
     protected = set()
@@ -3069,7 +3069,7 @@ def sweep(log):
         seat = found.get(name)
         since = (record.get("exited_since") if seat
                  else watch.seat_stopped_at(name) or record.get("seen"))
-        if (name in protected or unread_question(name)
+        if (name in protected or unread_question(name) or sleep.asleep(name)
                 or not retention.expired(since, now, config.SESSION_STALE)):
             continue
         # Resolve the configured directory, not the record itself: linked home directories

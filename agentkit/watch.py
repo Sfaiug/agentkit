@@ -48,6 +48,7 @@ from . import (aside_editor, browser, command_help, config, gc, gitcall, handbac
                orch, questions, seat_tokens, staffing, statusbar, transitions, turns, update,
                usage, worker)
 from . import record as run_record
+from . import sleep
 from . import terminal as terminal_mod
 from .harness import LIMITED, SPENT, entries, says
 from .lifecycle import LIVE, WATCH, facts as hook_facts, held_work, state as hook_state
@@ -2954,11 +2955,14 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         # One that went on its own is the owner's while it owes work: no ending is typed into a
         # seat nobody is in, so nothing moves it until it is opened.  With nothing owed it says
         # done where its plan is finished, or rests.
-        reason = closed(f"session closed: press {where} to reopen")
+        reason = closed(f"asleep: press {where} to wake it" if sleep.asleep(name)
+                        else f"session closed: press {where} to reopen")
         if owes_work(name, mine, index, at):
             return {"word": "needs you", "since": None, "reason": reason}
         if not plan_mod.finished(name):
             return {"word": "idle", "since": None, "reason": reason}
+        if sleep.asleep(name):
+            return {"word": "done", "since": None, "reason": reason}
     # 5. at its prompt with nothing running: a watcher's alert, a question on its screen, or
     # nothing at all
     if last:
@@ -6595,7 +6599,7 @@ def revive_seats(cfg, log):
                 # it).  Repeated deaths are bounded by time instead, as a run's are, below.
                 seat_write(name, reopened_at=None)   # live again: the next death is a new one
             continue
-        if (name not in going and name not in cut
+        if (name not in going and name not in cut or sleep.asleep(name)
                 or seat_closed(name) or marks.get("closed_by_owner")):
             continue
         died, deaths = time.time(), marks.get("reopened_at") or []
@@ -7771,6 +7775,7 @@ def local_passes(state, dry_run, log):
         # A seat that died under its running runs comes back, after its endings were announced
         # to it.
         ("the seat revival pass did not run", lambda: revive_seats(config.load(), log), False),
+        ("the idle-seat sleep pass did not run", lambda: sleep.tick(config.load(), log), False),
         ("git housekeeping did not finish", lambda: gc.git_housekeeping(log), False),
         # Expensive collection runs detached; malformed retention metadata cannot stop a tick.
         ("retention pass did not finish", lambda: gc.schedule_gc(log), False),
