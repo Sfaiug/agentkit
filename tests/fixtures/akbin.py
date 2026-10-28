@@ -142,9 +142,9 @@ class Home:
         self.bin = self.root / "bin"
         # A socket's path must fit in 104 bytes, and TMPDIR may be deep inside a checkout.
         self.tmux_dir = Path(tempfile.mkdtemp(prefix="akt-", dir="/tmp")).resolve()
-        # The Home's lifeline: this process alone holds the pipe on the reaper's stdin, so the
-        # reaper reads its end once this process dies, however it died, and does `close`'s work.
-        # Waiting is a shell's; Python starts only then.  It holds neither of this process's
+        # The Home's lifeline: only this process holds the pipe on the reaper's stdin, so the
+        # reaper reads its end once this process dies, however it died, and does `close`'s work;
+        # a shell waits, and Python starts only then.  It holds neither of this process's
         # outputs, which a runner reads to their end, and no group of this process kills it.
         self._reaper = subprocess.Popen(
             ["/bin/sh", "-c", 'read _ || exec "$@"', "sh", sys.executable, "-I",
