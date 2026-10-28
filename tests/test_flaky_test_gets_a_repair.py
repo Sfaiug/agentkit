@@ -4,10 +4,11 @@ run naming it, owned by the run whose check saw it the second time; one tree get
 no second starts until a merged change edits the test or the week has passed.
 
 Offline: real Git and the lander's own check, the suite faked to say what it found, sandbox
-records, an injected clock and the repair's launch caught.
+records, an injected clock and the repair's launch caught, leaving the record it would.
 """
 
 from contextlib import nullcontext
+import json
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -18,7 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_lander
 from agentkit import config, gate, land, record, run, watch
 
-TEST = "test_timing.py"
+TEST, LINT = "test_timing.py", "acme-lint"
+CMDS = [LINT, test_lander.SUITE]
 
 
 class FlakyTestGetsARepair(test_lander.LanderFixture, unittest.TestCase):
@@ -28,15 +30,20 @@ class FlakyTestGetsARepair(test_lander.LanderFixture, unittest.TestCase):
         self.stack.enter_context(patch.object(land, "time", SimpleNamespace(time=lambda: self.now)))
         self.stack.enter_context(patch.object(gate, "gate_turn", return_value=nullcontext()))
         self.stack.enter_context(patch.object(watch, "seat_closed", return_value=False))
-        self.launch = self.stack.enter_context(patch.object(run, "launch_for_seat"))
+        self.launch = self.stack.enter_context(patch.object(
+            run, "launch_for_seat", side_effect=lambda directory, state, origin, *_, **_kw:
+            (directory / "run.json").write_text(json.dumps(
+                {**origin, "run_id": directory.name, "state": "running"}))))
 
     def check(self, cmds, cwd, log_path, *args, flaky, marks, pieces, confirmed, **kw):
-        """The suite as `found` says: tests failing, then passing, or `failed` ones confirmed."""
-        failed = self.found.get("failed")
+        """The checks as `found` says: tests failing, then passing, and by command those
+        confirmed `failed`, an empty list for a command red with none named."""
         flaky.extend(self.found.get("flaky", ()))
-        marks.append(int(bool(failed)))
-        pieces[cmds[0]], confirmed[cmds[0]] = {"1/1": int(bool(failed))}, {"1/1": failed or []}
-        return not failed, ""
+        for cmd in cmds:
+            failed = self.found.get("failed", {}).get(cmd)
+            marks.append(int(failed is not None))
+            pieces[cmd], confirmed[cmd] = {"1/1": marks[-1]}, {"1/1": failed or []}
+        return not any(marks), ""
 
     def seen(self, name, files=None, **found):
         """Member `name`, its tree adding `files` (its name by default), checked once."""
@@ -44,8 +51,7 @@ class FlakyTestGetsARepair(test_lander.LanderFixture, unittest.TestCase):
         state = {**record.read_state(directory), "launched_session": "seat"}
         run.git(self.repo, "checkout", "-q", "--detach", state["review"]["head_sha"])
         self.found = found or {"flaky": [TEST]}
-        land._check(directory, state, self.repo, [test_lander.SUITE], directory / "lander.log",
-                    lambda _: None)
+        land._check(directory, state, self.repo, CMDS, directory / "lander.log", lambda _: None)
         run.git(self.repo, "checkout", "-q", "main")
 
     def merge(self, path):
@@ -60,21 +66,26 @@ class FlakyTestGetsARepair(test_lander.LanderFixture, unittest.TestCase):
         self.seen("two")
         (directory, state, origin, *_), = (call.args for call in self.launch.call_args_list)
         self.assertEqual(state["run_id"], "two")
-        self.assertEqual(origin["repair"], {"target": "main", "command": TEST})
+        self.assertEqual(origin["repair"], {"target": "main", "command": TEST, "flaky": 1000.0})
         self.assertEqual(origin["repair_tip"], run.git(self.repo, "rev-parse", "origin/main"))
         task = (directory / "task.md").read_text()
         for said in (f"# Make {TEST} deterministic", f"`{TEST}` in {self.repo}", "2 times",
-                     *(str(config.RUNS / name / "lander.log") for name in ("one", "two")),
+                     *(str(config.RUNS / name / "lander-1000.log") for name in ("one", "two")),
                      "without weakening what it checks", f"```bash\n{test_lander.SUITE}  # once\n```"):
             self.assertIn(said, task)
         self.assertNotIn("not-needed", task)
 
-    def test_a_red_that_passes_on_its_own_tree_is_one_of_them(self):
-        self.seen("one", failed=[TEST])
-        self.seen("again", {"one.txt": "one"}, flaky=[])
+    def test_a_red_test_its_command_passes_later_on_its_tree_is_one_of_them(self):
+        self.seen("one", failed={LINT: ["lint.py"], test_lander.SUITE: [TEST]})
+        self.now += 1
+        self.seen("again", {"one.txt": "one"}, failed={LINT: []})
         self.launch.assert_not_called()
         self.seen("two")
-        self.assertEqual(self.launch.call_count, 1)
+        task = (self.launch.call_args.args[0] / "task.md").read_text()
+        for name in ("one/lander-1000", "again/lander-1001", "two/lander-1001"):
+            self.assertIn(str(config.RUNS / f"{name}.log"), task)
+        self.seen("three", {"three.txt": "3"}, flaky=["lint.py"])
+        self.assertEqual(self.launch.call_count, 1)     # its command never passed on one's tree
 
     def test_one_flake_or_two_on_one_tree_start_none(self):
         self.seen("one", {})
@@ -100,6 +111,7 @@ class FlakyTestGetsARepair(test_lander.LanderFixture, unittest.TestCase):
         self.seen("one")
         self.seen("two")
         self.merge(TEST)
+        self.now += 1
         self.seen("three")
         self.assertEqual(self.launch.call_count, 1)
         self.seen("four")

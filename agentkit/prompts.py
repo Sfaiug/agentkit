@@ -739,8 +739,8 @@ def red_target_text(cmd, upstream, tip, output, where, piece=None):
 
 def flaky_test_text(test, repo, upstream, seen):
     """What a flaky test's repair is told: the test, its repository, and each time the landing
-    line saw it fail, then pass, on one tree, with the log that shows it."""
-    logs = "\n".join(f"- {sight['log']}" for sight in seen)
+    line saw it fail, then pass, on one tree, with the logs that show it."""
+    logs = "\n".join(f"- {log}" for sight in seen for log in sight["logs"])
     return (f"`{test}` in {repo} failed and then passed on the same tree {len(seen)} times "
             f"within a week, on {len({sight['tree'] for sight in seen})} trees of {upstream}: "
             f"each time the landing line ran it again. The logs that show it:\n\n{logs}\n\n"

@@ -46,7 +46,7 @@ class RedPieceConfirmedByItsTests(unittest.TestCase):
         self.run_dir.mkdir()
         record.save_state(self.run_dir, {"run_id": "fixture", "state": "running"})
 
-    def suite(self, piece):
+    def suite(self, piece, **kw):
         """The suite in two pieces, `piece(shard, only, failed)` giving each attempt's exit;
         an attempt that runs only named tests sees `AK_SHARD=1/1`."""
         calls = []
@@ -59,7 +59,7 @@ class RedPieceConfirmedByItsTests(unittest.TestCase):
         with patch.object(worker, "boxed", side_effect=boxed):
             code, text, killed = gate.run_suite(
                 SUITE, 10, cwd=self.root, activity=self.run_dir / "live.log",
-                output=BytesIO(), run_dir=self.run_dir)
+                output=BytesIO(), run_dir=self.run_dir, **kw)
         self.assertEqual(sorted(calls[:2]), [("1/2", None), ("2/2", None)])
         return code, text, killed, calls[2:]
 
@@ -88,9 +88,11 @@ class RedPieceConfirmedByItsTests(unittest.TestCase):
                         return 1
                     return second
 
-                code, text, killed, retries = self.suite(piece)
+                flaky = []
+                code, text, killed, retries = self.suite(piece, flaky=flaky)
                 self.assertEqual((code, killed), (second, False))
                 self.assertEqual(retries, [("1/1", NAMED[:1]), ("1/2", None)])
+                self.assertEqual(flaky, NAMED[:1])   # failed, then passed alone, whatever after
                 self.assertEqual("its failed tests passed run alone: the failure needs the "
                                  "tests that ran before them" in text, bool(second))
                 self.assertEqual("flaky: " in text, not second)

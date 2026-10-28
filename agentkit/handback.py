@@ -1118,7 +1118,8 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
     is an open repair of the same repository, target and command instead of a receipt.
     Returns the repair's run, started, already open, or left queued by a launch that
     raised, or None when none is.  A `flaky` repair's command is a test the landing line saw
-    fail, then pass, and its `text` all it is told: a passing run says nothing there.
+    fail, then pass, `flaky` when it first did, which keys it too, and its `text` all it is
+    told: a passing run says nothing there.
     A slow suite's `split` starts the same way, with ak's task and check. Its cost record
     keeps the receipt even after run retention, whatever the run's ending.
     """
@@ -1171,7 +1172,8 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
             previous = gate.read_suite_cost(Path(split["cost"])).get("split_run")
             if previous:
                 return previous
-        key = repair and {"target": target, "command": repair["command"]}
+        key = repair and {"target": target, "command": repair["command"],
+                          **({"flaky": repair["flaky"]} if "flaky" in repair else {})}
         for item in items:
             started = None if request else started_by(run_dir, item)
             if started:

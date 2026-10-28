@@ -225,11 +225,12 @@ def piece(away, shard, command):
                    command)
 
 
-def failed(away, shard):
-    """The tests the ended piece of `shard` named as failed there (`AK_FAILED`), from the file
-    piece.sh gives it, never from what it printed; none where the helper does not answer."""
+def failed(away, shard, named="failed"):
+    """The tests the ended piece of `shard` named as failed there (`AK_FAILED`), or with `named`
+    "flaky" as failed, then passed (`AK_FLAKY`), from the file piece.sh gives it, never from
+    what it printed; none where the helper does not answer."""
     try:
-        reply = _remote(away.alias, "failed", away.key, _vm(away, shard), text=True,
+        reply = _remote(away.alias, "failed", away.key, _vm(away, shard), named, text=True,
                         errors="replace", timeout=30)
     except (OSError, subprocess.TimeoutExpired):
         return []

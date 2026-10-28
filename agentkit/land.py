@@ -17,6 +17,7 @@ import functools
 import json
 import math
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -362,12 +363,13 @@ def _start_repair(state, directory, repair, log):
         return None
 
 
-def _flaked(directory, state, scratch, tree, cmds, ok, red, flaky, log_path, log):
-    """Keep the tests that failed, then passed, on `tree`, as this member's checks found them
-    there: those `gate.run_done_when` names, and those an earlier check confirmed red there
-    once a check of their command passes.  A test seen so on two trees within FLAKY gets one
-    repair of the target, owned by this member, and holds it until a change editing it merges
-    or FLAKY has passed; what it saw before then is that repair's."""
+def _flaked(directory, state, scratch, tree, log_path, log, flaky, failed, passed):
+    """Keep the tests that failed, then passed, on `tree`, as this member's check there found
+    them: `flaky`, those `gate.run_done_when` names, and those a check confirmed red there
+    (`failed`, by command) once a later one passes them (`passed`, by command: the tests it
+    ran, None for all).  A test seen so on two trees within FLAKY gets one repair of the
+    target, owned by this member, and holds it until a change editing it merges or FLAKY has
+    passed; what it saw before then is that repair's."""
     from . import run
     turn, now = config.RUNS / state["waiting_on"]["line"], time.time()
     with turn.with_suffix(".flakes.lock").open("a") as lock:
@@ -377,29 +379,39 @@ def _flaked(directory, state, scratch, tree, cmds, ok, red, flaky, log_path, log
             kept = json.loads(path.read_text())
         except (OSError, ValueError):
             kept = {}
-        reds = {key: entry for key, entry in kept.get("red", {}).items()
-                if now - entry["at"] < FLAKY}
         tests = {test: entry for test, entry in kept.get("tests", {}).items()
                  if now - (entry.get("repair") or entry["seen"][-1])["at"] < FLAKY}
-        was = reds.pop(tree) if ok and reds.get(tree, {}).get("command") in cmds else {}
-        if not (flaky or was or red.get("tests")):
+        logs, reds = {test: [] for test in flaky}, []     # each test seen, its red's log first
+        for red in (red for red in kept.get("red", ()) if now - red["at"] < FLAKY):
+            ran = passed.get(red["command"], ()) if red["tree"] == tree else ()
+            logs.update((test, [red["log"]]) for test in red["tests"] if ran is None or test in ran)
+            rest = [test for test in red["tests"] if ran is not None and test not in ran]
+            if rest:
+                reds.append({**red, "tests": rest})
+        if not (logs or any(failed.values())):
             return
-        if red.get("tests"):
-            reds[tree] = {"at": now, "command": red["command"], "tests": red["tests"]}
-        for test in dict.fromkeys([*flaky, *was.get("tests", ())]):
+        # a later check of the tree writes over its log: the one that shows it is kept
+        shown = log_path.with_name(f"{log_path.stem}-{now:.0f}{log_path.suffix}")
+        shutil.copyfile(log_path, shown)
+        reds += [{"tree": tree, "command": cmd, "tests": named, "at": now, "log": str(shown)}
+                 for cmd, named in failed.items() if named]
+        for test, before in logs.items():
             upstream, held = _upstream(state), tests.get(test, {}).get("repair")
             if held and not run.git_out(scratch, "diff", "--quiet", held["sha"], upstream, "--",
                                         test)[0]:
                 continue
             seen = [sight for sight in tests.get(test, {}).get("seen", ())
-                    if now - sight["at"] < FLAKY] + [{"tree": tree, "at": now, "log": str(log_path)}]
+                    if now - sight["at"] < FLAKY] + [
+                        {"tree": tree, "at": now, "logs": [*before, str(shown)]}]
             tests[test] = {"seen": seen}
             trees = {sight["tree"] for sight in seen}
             if len(trees) > 1:
                 tip = run.git(scratch, "rev-parse", f"{upstream}^{{commit}}")
                 suite = gitcall.declared_suite(scratch, ref=tip)
+                # its first sight keys the repair: no run of an earlier hold answers for it
                 name = _start_repair(state, directory, {
-                    "command": test, "check": f"{suite}  # once", "sha": tip, "flaky": True,
+                    "command": test, "check": f"{suite}  # once", "sha": tip,
+                    "flaky": seen[0]["at"],
                     "text": prompts.flaky_test_text(test, state["repo"], upstream, seen)}, log)
                 if name:
                     log(f"{test} failed, then passed, on {len(trees)} trees: repaired by {name}")
@@ -610,20 +622,23 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
             silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True,
             marks=marks, shard=shard, pieces=pieces, only=only, confirmed=confirmed,
             run_dir=run_dir, flaky=flaky)
-    if (not clean or gitcall.commit_identity(scratch) != identity
-            or run.git_out(scratch, "diff", "--quiet", "HEAD")[0]):
+    moved = (not clean or gitcall.commit_identity(scratch) != identity
+             or run.git_out(scratch, "diff", "--quiet", "HEAD")[0])
+    if moved:
         ok = False
         confirmed.clear()   # a test that failed on whatever it moved to says nothing of the pin
-        flaky.clear()
         text += ("\n\nCheckout changed during the final check; "
                  "these commands do not verify the pinned commit.")
     text = f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}"
     log_path.write_text(text)
-    red = red_part(cmds, marks, pieces, confirmed, suite, ok)
-    if context:
-        _flaked(directory, state, scratch, identity["tree_sha"], cmds, ok, red, flaky, log_path,
-                log)
-    return ok, text, red
+    if context and not moved:
+        # a pinned piece passing ran just `only` of its tests, and without them, none it names
+        _flaked(directory, state, scratch, identity["tree_sha"], log_path, log, flaky,
+                {cmd: [test for tests in confirmed.get(cmd, {}).values() for test in tests]
+                 for cmd in cmds},
+                {cmd: only if shard else None for cmd, mark in zip(cmds, marks)
+                 if mark == 0 and (only or not shard)})
+    return ok, text, red_part(cmds, marks, pieces, confirmed, suite, ok)
 
 
 def _upstream(state):
