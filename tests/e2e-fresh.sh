@@ -615,6 +615,7 @@ drive() {   # drive <name> <TERM> <command...>; the script is $WORK/<name>.exp
 # Match the text without line anchors: tmux can position a row without emitting a newline.
 PROMPT='bypass permissions on|[▌›] Ask Codex to do (?:anything|something)|[\w.-]+ · \w+ · [^\n]+ · YOLO'
 MENU='n new '
+MODELS='⏎ start   esc back'   # the models screen's key line: menu1.exp waits for it, PICKED reads up to it
 NODIALOG='Do you trust|trust the files|No, exit|Choose the text style|Select a theme|Yes, I accept|WARNING: Claude Code running|Update available|Sign in with|sign in again|Trust this directory|Trust directory'
 
 # ==== d) the menu, through a pty, on both terminals ==========================
@@ -627,9 +628,7 @@ expect 120 $MENU
 send n
 expect 60 tab models
 send atoll\t
-expect 240 choose   esc back
-send \x1b
-expect 60 tab models
+expect 240 $MODELS
 send \n
 expect 240 $PROMPT
 refute $NODIALOG
@@ -643,18 +642,18 @@ EXP
   LIST=$(as 'ak orch list' 2>&1)
   must "ak orch list does not show the seat" grep -q '^atoll ' <<<"$LIST"
   # The orchestrator is the picker's, which live quota chooses: the model marked ● (* on an
-  # ASCII terminal) in its last frame, before Esc took it back to the row.  A frame's rows are
+  # ASCII terminal) in its last frame, before Enter started the seat.  A frame's rows are
   # drawn by cursor moves, so in the transcript they can run together on one line.  The picker
   # names a model in full (`Opus 5.5`) and the list by its key (`opus`), so the list's key counts
   # as picked when its full name is what the last mark follows.
   PICKED=$(env -i HOME="$UH" PATH="$EPATH" PYTHONPATH="$UH/agentkit" python3 -c 'import re, sys
 from agentkit import config
 key, text = sys.argv[1], open(sys.argv[2], encoding="utf-8", errors="replace").read()
-frame = text[:text.rfind("choose   esc back")]
+frame = text[:text.rfind(sys.argv[3])]
 marks = list(re.finditer(r" +[●*] ", frame))
 name = config.model_name(config.load(), key) if key else ""
 print(key.lower() if name and marks and frame[:marks[-1].start()].endswith(name) else "")' \
-    "$(awk -F'  +' '/^atoll /{print $5}' <<<"$LIST")" "$WORK/pty/menu1.txt" 2>/dev/null </dev/null)
+    "$(awk -F'  +' '/^atoll /{print $5}' <<<"$LIST")" "$WORK/pty/menu1.txt" "$MODELS" 2>/dev/null </dev/null)
   must "ak orch list does not show the models the picker chose${PICKED:+ (orchestrator $PICKED)}" \
     awk -F'  +' -v m="$PICKED" '/^atoll /{ok = (m != "" && tolower($5) == m && $6 != "" && $6 != "—")} END{exit !ok}' <<<"$LIST"
   SEAT=atoll
@@ -805,18 +804,17 @@ fi
 
 # ==== d, closing: x and Stop stop the seat ==================================
 if doing d && [ -n "$SEATLOGIN" ]; then
-  # x takes the row off at once and stops the seat in a process of its own, which the menu
-  # does not wait for: `p past` on the key line says only that the row went.
+  # x is the popup's over its own seat (`Ctrl-b m`): Stop closes the popup and stops the seat
+  # in a process of its own, which the popup does not wait for; the sleep ends as it closes.
   cat >"$WORK/menu3.exp" <<EXP
 expect 120 $MENU
 send x
-expect 60 Keep
+expect 60 Stop $SEAT and everything it runs
 send j
 send \n
-expect 60 p past
-send \x1b
+sleep 30
 EXP
-  drive menu3 xterm-256color ak
+  drive menu3 xterm-256color ak attach --overlay
   D3=$?
   # A stopped seat stays listed, `idle`; only a seat whose process is gone reads closed by
   # the owner, so one Stop still running after a minute fails here whatever its word.
@@ -828,7 +826,7 @@ EXP
   must "x and Stop did not stop the seat" test "$D3" = 0
   must "atoll does not read closed by the owner" \
     grep -q '^  reason: *session closed by the owner' "$WORK/orch-after.txt"
-  verdict "d2 menu: x, Stop stops the session" "atoll stopped, it reads closed by the owner"
+  verdict "d2 popup over the seat: x, Stop stops the session" "atoll stopped, it reads closed by the owner"
   [ "$D3" = 0 ] || { sed 's/^/      /' "$WORK/menu3.log" | tail -4; tail -c 400 "$WORK/pty/menu3.txt" | sed 's/^/      | /'; }
 fi
 
