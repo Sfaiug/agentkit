@@ -562,8 +562,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
         text += ("\n\nCheckout changed during the final check; "
                  "these commands do not verify the pinned commit.")
     text = f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}"
-    if ok:    # a red check leaves the cut its red piece had for the tip's probe of it
-        suite_times.keep(scratch, text)
+    suite_times.keep(scratch, log_path)    # whole until `text`, its capped form, replaces it
     log_path.write_text(text)
     return ok, text, red_part(cmds, marks, pieces, confirmed, suite, ok)
 

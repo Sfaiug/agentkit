@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -19,7 +20,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(REPO), str(REPO / "tests")]
 import every_file
 import suite_shares
-from agentkit import config, gate, land, suite_times
+from agentkit import config, gate, land, suite_times, turns
 
 # name: (bytes, seconds it takes); by size test_big.py would fill a piece alone
 FILES = {"test_slow.py": (300, 60), "test_mid_a.py": (300, 30), "test_mid_b.py": (300, 30),
@@ -49,13 +50,15 @@ class SuitePiecesByMeasuredTime(unittest.TestCase):
             "PATH": os.environ.get("PATH", os.defpath), "PYTHONDONTWRITEBYTECODE": "1"},
             clear=True))
 
-    def piece(self, shard, times=""):
-        """The files the piece starts, in order, and what it printed."""
+    def piece(self, shard, times="", failing=()):
+        """The files the piece starts, in order, and what it printed; those `failing` fail
+        their first run."""
         starts, out = [], io.StringIO()
 
         def measured(_root, path, _env, **_kw):
             starts.append(path.name)
-            return 0, "TESTS_RUN=1\n", FILES[path.name][1]
+            return path.name in failing and starts.count(path.name) == 1, "TESTS_RUN=1\n", \
+                FILES[path.name][1]
 
         # A serial pool shows start order without depending on thread scheduling.
         with patch.dict(os.environ, {"AK_SHARD": shard, "AK_TIMES": times}), \
@@ -65,20 +68,24 @@ class SuitePiecesByMeasuredTime(unittest.TestCase):
             self.assertEqual(every_file.main(self.root), 0)
         return starts, out.getvalue()
 
-    def land_check(self, scratch, ok, text):
+    def land_check(self, scratch, ok, whole):
+        """A landing check whose pieces printed `whole`; it hands back only the end."""
+        def done_when(_cmds, _cwd, log_path, *_a, **_kw):
+            log_path.write_text(whole)
+            return ok, whole[-turns.OUT_CAP:]
+
         with patch.object(gate, "gate_turn", return_value=nullcontext()), \
-                patch.object(gate, "run_done_when", return_value=(ok, text)):
+                patch.object(gate, "run_done_when", side_effect=done_when):
             land._check(self.sandbox, {}, scratch, ["python3 tests/landing.py"],
                         self.sandbox / "lander-acme.log", lambda _line: None)
 
     def keep_a_suite(self):
-        """A suite cut by size, its two pieces' logs kept by a passing landing check."""
+        """A suite cut by size, its two pieces' logs kept by a red and a passing landing check."""
         logs = [self.piece(f"{k}/2")[1] for k in (1, 2)]
-        self.land_check(self.root, False, "\n".join(logs))
-        self.assertEqual(suite_times.handed(self.root), "", "a red check keeps no times")
+        self.land_check(self.root, False, f"--- AK_SHARD=1/2 ---\n{logs[0]}FAIL  acme\n")
         # One piece on the suite helper: its log reaches the lander as the other's does.
-        self.land_check(self.root, True, f"--- AK_SHARD=1/2 ---\n{logs[0]}\n"
-                        f"--- AK_SHARD=2/2 ---\n{logs[1]}\nPASS  tests/test_gone.py (9.0s)\n")
+        self.land_check(self.root, True, f"--- AK_SHARD=2/2 ---\n{logs[1]}"
+                        "PASS  tests/test_gone.py (9.0s)\n" + "acme output\n" * turns.OUT_CAP)
 
     def test_times_from_a_finished_pieces_log_survive_a_new_box(self):
         self.keep_a_suite()
@@ -95,6 +102,18 @@ class SuitePiecesByMeasuredTime(unittest.TestCase):
             shlex.quote(times), shlex.quote(f'printf %s "$AK_TIMES" >{seen}'))],
             cwd=box, check=True)
         self.assertEqual(seen.read_text(), times)
+
+    def test_a_newer_time_replaces_the_older_and_no_record_stops_no_check(self):
+        self.keep_a_suite()
+        # test_slow.py fails once and passes on its re-run, its time the re-run's.
+        self.land_check(self.root, True, self.piece("1/1", failing={"test_slow.py"})[1]
+                        .replace("(60.0s)", "(75.0s)"))
+        self.assertEqual(suite_times.read(suite_times.handed(self.root))["tests/test_slow.py"],
+                         75)
+        shutil.rmtree(config.STATE)
+        config.STATE.write_text("a file cannot hold the record")
+        self.land_check(self.root, True, self.piece("1/1")[1])
+        self.assertEqual(suite_times.handed(self.root), "")
 
     def test_shares_balance_measured_time_and_place_the_unmeasured_by_size(self):
         by_size = [set(self.piece(f"{k}/2")[0]) for k in (1, 2)]

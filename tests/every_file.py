@@ -263,6 +263,7 @@ def main(root, others=None):
             if code == 0 and cases_run(rerun) > 0:
                 flaky += 1
                 print(f"flaky: {name} failed, then passed on its re-run")
+                print(suite_times.passed(name, took))
             else:
                 failed.append(name)
                 out = rerun

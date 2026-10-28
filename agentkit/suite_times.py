@@ -1,7 +1,7 @@
 """Each test file's last measured seconds, per repository on this host.
 
 A suite's box throws its HOME writes away, so the times live in ak's state instead: the lander
-keeps those a passing check's pieces printed (`passed`, wherever each piece ran), and every piece
+keeps those a check's pieces printed (`passed`, wherever each piece ran), and every piece
 of a suite gets one copy, AK_TIMES, taken as the suite starts, so all of them cut the same shares
 (tests/every_file.py)."""
 
@@ -13,7 +13,7 @@ import tempfile
 
 from . import config, gitcall
 
-PASSED = re.compile(r"^PASS  (\S+) \((\d+(?:\.\d+)?)s\)$", re.MULTILINE)
+PASSED = re.compile(r"PASS  (\S+) \((\d+(?:\.\d+)?)s\)$")
 
 
 def passed(name, took):
@@ -45,10 +45,15 @@ def read(text):
             if type(seconds) in (int, float) and seconds >= 0} if isinstance(times, dict) else {}
 
 
-def keep(cwd, output):
-    """Add the times `output` printed to the record of `cwd`, the checkout the suite ran on;
-    a file that checkout no longer has leaves it."""
-    found = {name: float(seconds) for name, seconds in PASSED.findall(output)}
+def keep(cwd, log):
+    """Add the times the check whose whole output is the file `log` printed to the record of
+    `cwd`, the checkout it ran on, the latest of a file's winning; a file that checkout no
+    longer has leaves it.  Read a line at a time: a check can print more than memory holds."""
+    try:
+        with open(log, errors="replace") as lines:
+            found = {match[1]: float(match[2]) for line in lines if (match := PASSED.match(line))}
+    except OSError:
+        return
     if not found:
         return
     from . import watch
