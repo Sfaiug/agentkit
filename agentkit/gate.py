@@ -483,11 +483,13 @@ def wait_for_slot(run_dir, between=None):
     so far where this run waits behind the first: it may replace this process with the same
     launch on newer code, or with a waiter that execs that launch back (`run.pickup_while_queued`),
     which counts as it waits and hands the count back (`waiter.SLOT_WAIT_ENV`)."""
-    announced = False
     first_poll = True
     handed = os.environ.pop(waiter.SLOT_WAIT_ENV, "").split()
     # back from the waiter: it waited behind the first, uncounted since `counted`
     behind = len(handed) == 2
+    # and it announced this wait before it went there, so its log and its seat's bar say it
+    # already: every waiter comes back when the install moves, and a bar job is a whole ak
+    announced = behind
     wait_kind = None
     counted = tuple(map(float, handed)) if behind else None
     while True:
