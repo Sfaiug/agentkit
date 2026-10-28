@@ -5,8 +5,9 @@ after a green one blames its newest member, whose fixer waits until the runs ahe
 that stack have left the line; later stacks are rebuilt without it.
 A red suite piece runs again on the target's tip alone before anyone is blamed: red there
 pauses the line on the retry ladder, and red through the ladder is the target's own and
-gets one repair, at once where the tests that failed it fail again there alone. The lander
-never owns a member's process or delivery.
+gets one repair, at once where the tests that failed it fail again there alone.  So does a
+test that failed, then passed, on two trees (`_flaked`).  The lander never owns a member's
+process or delivery.
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -26,6 +27,8 @@ from . import config, gitcall, prompts, record, transitions, turns, update
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 CHECKED = 60        # a pass shorter than a minute checked nothing: it says nothing of the pace
+FLAKY = 7 * 24 * 3600   # a test failing, then passing, on two trees this close gets one repair,
+                        # which holds it as long unless a change editing it merges first
 # A stack's scratch checkout says so in its own git directory: gc takes one a killed lander
 # left, whatever it holds, and no other checkout for it.
 SCRATCH_MARK = "ak-lander-scratch"
@@ -341,16 +344,70 @@ def _repair(turn, directory, state, tree, red, log):
                     "line": red["probe"]["text"].splitlines()[0], "log": str(path)}}
         watch.launch_resume(directory.name, log)
         return None
-    try:
-        name = handback.start_followups(state, directory, log, repair=red["probe"])
-    except record.StopRequested:
-        raise
-    except Exception as exc:  # a refused repair leaves the line waiting, unblamed
-        log(f"WARN no target repair could start: {exc}")
-        return None
+    name = _start_repair(state, directory, red["probe"], log)
     if name:
         note(turn, [], directory.name, red={tree: {**red, "run": name}})
     return name
+
+
+def _start_repair(state, directory, repair, log):
+    """The repair run of the target `repair` asks for, owned by the member in `directory`:
+    started, already open, or None."""
+    from . import handback
+    try:
+        return handback.start_followups(state, directory, log, repair=repair)
+    except record.StopRequested:
+        raise
+    except Exception as exc:  # a refused repair leaves the line waiting, unblamed
+        log(f"WARN no repair could start: {exc}")
+        return None
+
+
+def _flaked(directory, state, scratch, tree, cmds, ok, red, flaky, log_path, log):
+    """Keep the tests that failed, then passed, on `tree`, as this member's checks found them
+    there: those `gate.run_done_when` names, and those an earlier check confirmed red there
+    once a check of their command passes.  A test seen so on two trees within FLAKY gets one
+    repair of the target, owned by this member, and holds it until a change editing it merges
+    or FLAKY has passed; what it saw before then is that repair's."""
+    from . import run
+    turn, now = config.RUNS / state["waiting_on"]["line"], time.time()
+    with turn.with_suffix(".flakes.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        path = turn.with_suffix(".flakes")
+        try:
+            kept = json.loads(path.read_text())
+        except (OSError, ValueError):
+            kept = {}
+        reds = {key: entry for key, entry in kept.get("red", {}).items()
+                if now - entry["at"] < FLAKY}
+        tests = {test: entry for test, entry in kept.get("tests", {}).items()
+                 if now - (entry.get("repair") or entry["seen"][-1])["at"] < FLAKY}
+        was = reds.pop(tree, {}) if ok else {}
+        if not (flaky or was or red.get("tests")):
+            return
+        if red.get("tests"):
+            reds[tree] = {"at": now, "command": red["command"], "tests": red["tests"]}
+        for test in dict.fromkeys([*flaky, *(was["tests"] if was.get("command") in cmds else ())]):
+            upstream, held = _upstream(state), tests.get(test, {}).get("repair")
+            if held and not run.git_out(scratch, "diff", "--quiet", held["sha"], upstream, "--",
+                                        test)[0]:
+                continue
+            seen = [sight for sight in tests.get(test, {}).get("seen", ())
+                    if now - sight["at"] < FLAKY] + [{"tree": tree, "at": now, "log": str(log_path)}]
+            tests[test] = {"seen": seen}
+            trees = {sight["tree"] for sight in seen}
+            if len(trees) > 1:
+                tip = run.git(scratch, "rev-parse", f"{upstream}^{{commit}}")
+                suite = gitcall.declared_suite(scratch, ref=tip)
+                name = _start_repair(state, directory, {
+                    "command": test, "check": f"{suite}  # once", "sha": tip, "flaky": True,
+                    "text": prompts.flaky_test_text(test, state["repo"], upstream, seen)}, log)
+                if name:
+                    log(f"{test} failed, then passed, on {len(trees)} trees: repaired by {name}")
+                    tests[test] = {"repair": {"run": name, "at": now, "sha": tip}}
+        fresh = path.with_name(path.name + ".new")
+        fresh.write_text(json.dumps({"red": reds, "tests": tests}))
+        fresh.replace(path)
 
 
 def check_line(turn, log=lambda _: None):
@@ -393,8 +450,7 @@ def check_line(turn, log=lambda _: None):
                 gitcall.no_auto_gc(repo)
                 # The repository's machine-side settings, as a run's own checks get them.
                 os.environ.update(config.repo_env(Path(state["repo"])))
-                upstream = state.get("target") or state["base"]
-                upstream = upstream if upstream.startswith("origin/") else f"origin/{upstream}"
+                upstream = _upstream(state)
                 run.fetch(repo, "origin", "--prune", check=True)
                 tip = run.git(repo, "rev-parse", f"{upstream}^{{commit}}")
                 target = tip, run.git(repo, "rev-parse", f"{tip}^{{tree}}")
@@ -547,23 +603,34 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
                 "since": wait["joined"], "line": wait["line"]} if wait.get("line") else None)
     run_dir = None if context else directory
     sharded = None if shard else next((cmd for cmd in cmds if gate.names_shard(cmd)), None)
-    marks, pieces, confirmed = [], {}, {}
+    marks, pieces, confirmed, flaky = [], {}, {}, []
     with gate.gate_turn(run_dir, log_path, log, sharded, scratch, context=context):
         ok, text = gate.run_done_when(
             cmds, scratch, log_path, set() if artifacts is None else artifacts,
             3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
             silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True,
             marks=marks, shard=shard, pieces=pieces, only=only, confirmed=confirmed,
-            run_dir=run_dir)
+            run_dir=run_dir, flaky=flaky)
     if (not clean or gitcall.commit_identity(scratch) != identity
             or run.git_out(scratch, "diff", "--quiet", "HEAD")[0]):
         ok = False
         confirmed.clear()   # a test that failed on whatever it moved to says nothing of the pin
+        flaky.clear()
         text += ("\n\nCheckout changed during the final check; "
                  "these commands do not verify the pinned commit.")
     text = f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}"
     log_path.write_text(text)
-    return ok, text, red_part(cmds, marks, pieces, confirmed, suite, ok)
+    red = red_part(cmds, marks, pieces, confirmed, suite, ok)
+    if context:
+        _flaked(directory, state, scratch, identity["tree_sha"], cmds, ok, red, flaky, log_path,
+                log)
+    return ok, text, red
+
+
+def _upstream(state):
+    """The remote branch `state`'s run lands on."""
+    upstream = state.get("target") or state["base"]
+    return upstream if upstream.startswith("origin/") else f"origin/{upstream}"
 
 
 def _put_back(scratch, commit):
@@ -686,8 +753,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
         if wait.get("tested", wait["land"]) != wait["land"]:
             return {}
     directory, state = members[0]
-    upstream = state.get("target") or state["base"]
-    upstream = upstream if upstream.startswith("origin/") else f"origin/{upstream}"
+    upstream = _upstream(state)
     config.WT.mkdir(parents=True, exist_ok=True)
     pending, verdicts = list(members), {}
     heads = {}      # each PR's head on GitHub, read once a pass

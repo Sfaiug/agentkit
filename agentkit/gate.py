@@ -1573,7 +1573,7 @@ def unnamed(code, only, ran, output):
 
 def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
               on_wait=None, measure=False, shard=None, pieces=None, later=None, only=None,
-              confirmed=None, changed=None, **kwargs):
+              confirmed=None, changed=None, flaky=None, **kwargs):
     """One command, or all its opted-in pieces, with failed pieces retried alone.
 
     Callers keep one command and one outcome. Each piece has its own silence window;
@@ -1595,6 +1595,9 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     where it ended in a failing exit: one dead by a signal, its exit negative, repeats nothing;
     for a command not split, under `1/1`, those its failing run named as failed.
     `changed`, a file of paths, is what `AK_CHANGED` names; it keeps the pieces on this host.
+    `flaky`, a list, gets the tests that failed, then passed on this tree: those a command run
+    on this host named so (`AK_FLAKY`), and a red piece's named tests that passed run alone
+    where the piece then passed.
     Every piece gets the file times recorded as the suite starts (`suite_times`): a record
     another suite changes meanwhile would cut a later piece's share differently.
     """
@@ -1611,7 +1614,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         ran, failed = (None, None) if only is None else ([], [])
         code, text, killed = worker.boxed(
             ["bash", "-c", command], limit, cwd=str(cwd), activity=activity, output=output,
-            env={**env, "AK_SHARD": share}, only=only, ran=ran, failed=failed, **kwargs)
+            env={**env, "AK_SHARD": share}, only=only, ran=ran, failed=failed, flaky=flaky,
+            **kwargs)
         if confirmed is not None and only is not None:
             confirmed[shard] = [test for test in only if code > 0 and test in ran and test in failed]
         if ran is not None:
@@ -1633,7 +1637,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         result = worker.boxed(["bash", "-c", command], limit, cwd=str(cwd), activity=activity,
                               output=output, env=env, abort=abort,
                               cpu=measured.cpu if measured else None,
-                              quiet=measured.quiet if measured else None, failed=failed, **kwargs)
+                              quiet=measured.quiet if measured else None, failed=failed,
+                              flaky=flaky, **kwargs)
         if failed is not None:
             confirmed["1/1"] = failed if result[0] > 0 else []
         if measured and not result[2] and result[0] != SUITE_BUSY:
@@ -1745,7 +1750,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     own[worker.RUN_MARKER] += f"/piece-{shard.replace('/', '-')}"
                 try:
                     here = {} if there else {"cpu": measure.cpu, "quiet": measure.quiet,
-                                             "only": only, "failed": tests}
+                                             "only": only, "failed": tests, "flaky": flaky}
                     kills = measure.oom("oom_kill")
                     code, _, killed = (worker.limited if there else worker.boxed)(
                         helper.piece(there, shard, PINNED_PIECE.format(
@@ -1901,7 +1906,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             chunks, red, flakes = [], [], []
             for index, (code, piece, killed, tests) in enumerate(results, 1):
                 shard = f"{index}/{count}"
-                failed = only = alone = None
+                failed = only = alone = cleared = None
                 how = "failed"
                 if shard in silenced and not cancel.is_set():
                     # stopped at its suite's pace: once more alone, with the rest of the limit
@@ -1940,7 +1945,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             if confirmed is not None:
                                 confirmed[shard] = tests
                             break
-                        only = None
+                        cleared, only = only, None
                     elif not code:
                         break
                     elif failed is None:
@@ -1954,6 +1959,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     piece.seek(0)
                     flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
                                                piece.read(), activity, run_dir, log, how))
+                    if flaky is not None:
+                        flaky.extend(cleared or ())
                 results[index - 1] = code, piece, killed, tests
                 text = turns.cut_file(piece, 0, run_dir or activity.parent,
                                       f"{activity.stem}-AK_SHARD-{shard.replace('/', '-of-')}")
@@ -2016,7 +2023,7 @@ def _running_commands(pid):
 
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
                   run_dir=None, heavy=False, marks=None, shard=None, pieces=None, only=None,
-                  confirmed=None, changed=None):
+                  confirmed=None, changed=None, flaky=None):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -2056,8 +2063,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     for each sharded command's pieces, by command then share (`run_suite`); `shard` runs
     every command as that one piece alone, a command like any other, its re-run included,
     and with `only` just those of its tests.  `confirmed`, a dict, gets by command what
-    `run_suite` confirms: the tests a red piece named that failed again alone.  `changed`, a
-    file of paths, is what `AK_CHANGED` names to every command.
+    `run_suite` confirms: the tests a red piece named that failed again alone, and `flaky`, a
+    list, the tests it found failing, then passing.  `changed`, a file of paths, is what
+    `AK_CHANGED` names to every command.
     The test files' times the commands printed are kept (`suite_times`) before the log, whole
     until then, takes `text`, its capped form.
     """
@@ -2109,7 +2117,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         pieces=None if pieces is None else pieces.setdefault(cmd, {}),
                         only=only,
                         confirmed=None if confirmed is None else confirmed.setdefault(cmd, {}),
-                        changed=changed)
+                        changed=changed, flaky=flaky)
                     end = progress.tell()
                 if log is not None and run_dir is not None:
                     turns.memory_cap_note(run_dir, log)
