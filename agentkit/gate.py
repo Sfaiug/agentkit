@@ -169,10 +169,11 @@ def slot_counts(state, *, remember=False):
         count, before = previous.get(seat, (0, []))
         if set(pending).intersection(before):
             turns[seat] = (count, pending)
-            floor[seat[:3]] = min(count, floor.get(seat[:3], count))
-    # A new batch joins its priority's round level with the seat served least. From 0 it went
-    # ahead of every seat still working down an older batch: one whose backlog outlived the
-    # other seats' batches got no slot for four days while they took about 300.
+            floor[seat[:3]] = max(count, floor.get(seat[:3], 0))
+    # A new batch joins the back of its priority's round, level with the seat served most. From
+    # 0, or level with the least, it went ahead of every seat still working down an older batch:
+    # one whose backlog outlived the other seats' batches got no slot for four days while they
+    # took about 300.
     for seat, pending in batches.items():
         turns.setdefault(seat, (floor.get(seat[:3], 0), pending))
     seats, orders = {seat: turn[0] for seat, turn in turns.items()}, []

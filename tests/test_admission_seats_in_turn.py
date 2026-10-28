@@ -192,6 +192,24 @@ class AdmissionSeatsInTurn(unittest.TestCase):
         self.queued("fix-api-3", 7, "fix-api")
         self.assert_order(["acme-3", "fix-api-2", "acme-4", "fix-api-3"])
 
+    def test_seats_renewing_their_batches_leave_an_older_backlog_its_turn(self):
+        for queued_at, name in enumerate(("acme-1", "acme-2", "fix-api-1", "docs-1"), 1):
+            self.queued(name, queued_at, name.rsplit("-", 1)[0])
+        admitted = []
+        while "acme-2" not in admitted and len(admitted) < 6:
+            _, ahead, others = gate.slot_counts(self.state("acme-2"))
+            name = others[0] if ahead else "acme-2"
+            self.assertFalse(self.claim(name))  # first healthy poll
+            self.assertTrue(self.claim(name))
+            state = self.state(name)
+            state["state"] = "pass"
+            record.save_state(config.RUNS / name, state)
+            admitted.append(name)
+            seat = state["launched_session"]
+            if seat != "acme":  # each other seat queues its next batch once its last is in
+                self.queued(f"{seat}-{len(admitted)}", 4 + len(admitted), seat)
+        self.assertEqual(admitted, ["acme-1", "fix-api-1", "docs-1", "acme-2"])
+
     def test_each_rank_is_fifo_and_restarts_keep_their_first_queue_time(self):
         self.queued("acme-2", 5, "acme")
         self.queued("acme-1", 100, "acme", first_queued_at=2)
