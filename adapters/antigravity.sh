@@ -89,15 +89,17 @@ logged_in() {
 
 # 0 when agy may keep the usual login in a desktop keyring too: a Mac's always; elsewhere a
 # Secret Service answering on the session bus, started as agy would start it.  A bus with none,
-# as on a server, keeps no copy; with no busctl to ask, any bus may.
-keyring() {
+# as on a server, keeps no copy; with no busctl to ask, any bus may.  An empty address is none
+# to agy, which then takes the runtime socket, but one busctl fails to reach.
+keyring() (
   [ "$(uname)" = Darwin ] && return 0
+  [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] || unset DBUS_SESSION_BUS_ADDRESS
   [ "${DBUS_SESSION_BUS_ADDRESS:-}" = disabled: ] && return 1
   command -v busctl >/dev/null || { [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] ||
     [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus" ]; return; }
   busctl --user call org.freedesktop.secrets /org/freedesktop/secrets \
     org.freedesktop.DBus.Peer Ping >/dev/null 2>&1
-}
+)
 
 case "$cmd" in
 run)

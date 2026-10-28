@@ -575,14 +575,16 @@ class Antigravity(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in own.parent.iterdir()), ["brain", "conversations"])
         self.assertEqual(self.token.read_text(), usual)
         # the usual login's file goes too, but a keyring agy reaches may keep a copy only /logout
-        # clears: on Linux, whatever this host is, a Secret Service answering on the session bus
-        for name, text in (("uname", "echo Linux"), ("busctl", 'case "$*" in '
-                           '*org.freedesktop.secrets*) exit "$ANSWERS" ;; esac; exit 1')):
+        # clears: on Linux, whatever this host is, a Secret Service answering on the session bus,
+        # an empty address being the runtime socket's to agy and one busctl cannot reach
+        for name, text in (("uname", "echo Linux"), ("busctl", '[ "${DBUS_SESSION_BUS_ADDRESS-x}" ]'
+                           ' && case "$*" in *org.freedesktop.secrets*) exit "$ANSWERS" ;; esac; exit 1')):
             (self.bin / name).write_text(f"#!/bin/sh\n{text}\n")
             (self.bin / name).chmod(0o755)
-        for answers, code in (("0", 1), ("1", 0)):    # a server's bus answers with none
+        for address, answers, code in (("unix:path=/run/bus", "0", 1), ("", "0", 1),
+                                       ("unix:path=/run/bus", "1", 0)):  # a server's: none
             self.write_token("dummy-refresh")
-            proc = self.adapter("logout", env={"DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/bus",
+            proc = self.adapter("logout", env={"DBUS_SESSION_BUS_ADDRESS": address,
                                                "ANSWERS": answers})
             self.assertEqual((proc.returncode, "/logout" in proc.stderr), (code, code == 1))
             self.assertFalse(self.token.exists())
