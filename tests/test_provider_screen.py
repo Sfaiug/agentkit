@@ -91,7 +91,8 @@ ADD = "agentkit · config · add a subscription"
 # the key line on every page, on `+ add`'s list on a provider, and under a question; `r` and `a`
 # on new seats' matrix
 KEYS = {"row": "  ↑↓←→ move   ⏎ open   r recommended   a apply to all sessions   esc back",
-        "list": "  ↑↓←→ move   ⏎ add   esc back", "ask": "  ↑↓←→ move   ⏎ keep   esc back"}
+        "list": "  ↑↓←→ move   ⏎ add   esc back",
+        "ask": "  ↑↓←→ move   ⏎ keep   esc back"}
 GIVE, TAKE = "\x1b[?1049l", "\x1b[?1049h"
 
 
