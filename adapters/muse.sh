@@ -8,6 +8,7 @@
 #                     install      -> Meta's installer, unless muse is already here
 #                     login [again] -> `muse login`, unless already logged in; `again` signs
 #                                  in afresh over a login that still stands
+#                     logout       -> `muse logout` of this login alone; 0 at once where none
 #                     login-end    -> {"email","ends","plan"}: whose the login is; `ends` and
 #                                  `plan` are null, since Muse's auth file records neither
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
@@ -255,6 +256,9 @@ login)
   [ -t 0 ] || { echo "muse: not logged in; run \`$LOGIN\` in a terminal" >&2; exit 1; }
   home || exit 2
   MUSE_NO_AUTO_UPDATE=1 muse login ;;
+logout)
+  [ -e "$AUTH" ] || exit 0
+  muse logout ;;
 login-end)
   # Muse's auth file records a key and no expiry (see `auth`), and no plan's name; the email
   # is the one it signed in with
@@ -336,6 +340,6 @@ models)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" muse ;;
 *)
-  echo "usage: muse.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | muse.sh usage | muse.sh interactive <model> <effort> [session-id [new]] | muse.sh install | muse.sh login [again] | muse.sh login-end | muse.sh auth [seat] | muse.sh hooks | muse.sh hook | muse.sh models" >&2
+  echo "usage: muse.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | muse.sh usage | muse.sh interactive <model> <effort> [session-id [new]] | muse.sh install | muse.sh login [again] | muse.sh logout | muse.sh login-end | muse.sh auth [seat] | muse.sh hooks | muse.sh hook | muse.sh models" >&2
   exit 2 ;;
 esac

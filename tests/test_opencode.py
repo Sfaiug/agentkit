@@ -352,6 +352,16 @@ cat "$dir/bridge-eval"
         self.assertEqual(proc.returncode, 3)
 
     # --- auth, usage, install, login, hooks ----------------------------------
+    def test_logout_signs_out_the_named_provider_alone(self):
+        for saved, signed_out in (("mimo", ["auth logout --standalone mimo cred_mimo"]),
+                                  ("zai", [])):
+            self.argv_log.unlink(missing_ok=True)
+            proc = self.adapter("logout", env={"STUB_AUTH_LIST": listed(saved, "deepseek"),
+                                               "STUB_ARGV_LOG": str(self.argv_log)})
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual([line for line in self.argv_log.read_text().splitlines()
+                              if line.startswith("auth logout")], signed_out)
+
     def test_auth_reports_key_presence_and_absence(self):
         self.write_config("tp-dummy")
         proc = self.adapter("auth")

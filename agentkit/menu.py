@@ -2788,8 +2788,10 @@ def act_word(text):
 COMPANIES = {"anthropic": "Anthropic / Claude Code", "openai": "OpenAI / Codex",
              "meta": "Meta / Muse", "xai": "xAI / Grok Build", "google": "Google / Antigravity"}
 # What `− remove` asks, and what it means; then the same about one subscription of a provider.
-REMOVE_PROVIDER_ASK = ("Remove {} and its models?", "Its models leave the config with it.")
-REMOVE_SUBSCRIPTION_ASK = ("Remove {}?", "Nothing new starts on it.")
+REMOVE_PROVIDER_ASK = ("Remove {} and its models?",
+                       "Its models leave the config, and its logins are signed out on this machine.")
+REMOVE_SUBSCRIPTION_ASK = ("Remove {}?",
+                           "Nothing new starts on it, and its login is signed out on this machine.")
 # `c`'s cells along a model's row: each role's mark, 0 to 2, and beside it that role's effort, 3
 # to 5 (config.ROLE_EFFORTS's order), the owner's pick of 24 Oct 2026 (config_columns).
 CONFIG_ORDER = (0, 3, 1, 4, 2, 5)
@@ -4252,9 +4254,11 @@ def config_remove_provider(cfg, picked):
     only one, `Remove <subscription>?` for another, asked under its name, `Keep` picked and Esc
     keeping it.  config.remove_provider takes a provider's table, its models and their places
     in [defaults], and with its table goes its meter; a subscription leaves only the
-    provider's `accounts`.  The last provider is refused without asking.  What to say under
-    the screen, or "".
+    provider's `accounts`.  Once saved, each subscription that went is signed out on this machine
+    (_signed_out).  The last provider is refused without asking.  What to say under the screen,
+    or "".
     """
+    from . import logins    # here, not at the top: logins names subscriptions through the menu
     (name, account, label), title = picked, f"config · {picked[2]}"
     # a provider listing no subscription has its usual login, so its last one takes it along
     usual = account in (None, config.DEFAULT_ACCOUNT) or config.accounts(cfg, name) == [account]
@@ -4268,7 +4272,10 @@ def config_remove_provider(cfg, picked):
         return 3
     if not terminal.confirm(question.format(shown), means, "Remove", asked):
         return ""
-    before = copy.deepcopy(cfg)
+    before, harness = copy.deepcopy(cfg), logins.harness(cfg, name)
+    gone = {each: config.account_label(cfg, name, each, provider_name(cfg, name))
+            for each in config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]} if usual \
+        else {account: label}
     try:
         if usual:
             config.remove_provider(cfg, name)
@@ -4276,7 +4283,31 @@ def config_remove_provider(cfg, picked):
             cfg["providers"][name]["accounts"].remove(account)
     except (config.Error, OSError) as exc:
         return str(exc)
-    return _saved(cfg, cfg, before)
+    # no `waited`: its Esc would drop what a sign-out that failed says
+    return _saved(cfg, cfg, before) or _signed_out(harness, name, gone)
+
+
+def _signed_out(harness, provider, gone):
+    """Each login of `gone`, a subscription's label by its account, signed out on this machine
+    by `harness`'s adapter's `logout`.  What to say under the screen for each one that is still
+    on it: the last line its adapter said, and the command that signs it out by hand, which
+    names its account even when empty, as a seat's shell has one of its own; or ""."""
+    left = []
+    for account, label in gone.items():
+        env = {**config.account_env(account), **config.provider_env([provider])}
+        try:
+            done = subprocess.run([str(config.adapter(harness)), "logout"],
+                                  env={**config.child_env(), **env}, stdin=subprocess.DEVNULL,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+            said = (done.stderr.strip().splitlines() or [""])[-1] if done.returncode else None
+        except (config.Error, OSError) as exc:
+            said = str(exc)
+        if said is not None:
+            by_hand = " ".join([*(f"{key}={shlex.quote(value)}" for key, value in env.items()),
+                                shlex.quote(str(config.adapter_path(harness))), "logout"])
+            left.append(f"{label}'s login is still on this machine{f' ({said})' if said else ''};"
+                        f" sign it out with {by_hand}")
+    return "; ".join(left)
 
 
 @terminal.clicks_its_own

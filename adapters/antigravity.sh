@@ -14,6 +14,10 @@
 #                     install      -> Google's installer, unless agy is already here
 #                     login        -> `agy` in the terminal (a URL, then the code pasted back),
 #                                  ended once signed in, unless already logged in
+#                     logout       -> this login's token file removed, with the plan read for
+#                                  it: agy 1.4.7 has no sign-out of its own, and its TUI's
+#                                  /logout alone clears the desktop keyring's copy, so the usual
+#                                  login fails with that remedy where a keyring can be reached
 #                     login-end    -> {"email","ends","plan"}: whose the login is, and the plan
 #                                  `usage` last read for it; `ends` is null, since a Google
 #                                  refresh token ends only when revoked
@@ -271,6 +275,11 @@ login)
   while kill -0 "$pid" 2>/dev/null && ! logged_in; do sleep 0.5; done
   kill "$pid" 2>/dev/null; wait "$pid"
   logged_in || exit 1 ;;
+logout)
+  rm -f -- "$TOKEN" "$PLAN" || exit 1
+  [ -z "$ACCOUNT" ] && { [ "$(uname)" = Darwin ] || [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus" ] ||
+    case ${DBUS_SESSION_BUS_ADDRESS:-disabled:} in disabled:) false ;; esac; } || exit 0
+  echo "agy: run \`agy\` and type /logout to clear the desktop keyring's copy" >&2; exit 1 ;;
 login-end)
   # A Google refresh token ends only when revoked, which shows only once `auth` says so
   command -v jq >/dev/null || { echo "antigravity.sh login-end: jq is required" >&2; exit 2; }
@@ -327,6 +336,6 @@ models)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" antigravity ;;
 *)
-  echo "usage: antigravity.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | antigravity.sh usage | antigravity.sh interactive <model> <effort> [session-id [new]] | antigravity.sh install | antigravity.sh login | antigravity.sh login-end | antigravity.sh auth [seat] | antigravity.sh hooks | antigravity.sh models" >&2
+  echo "usage: antigravity.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | antigravity.sh usage | antigravity.sh interactive <model> <effort> [session-id [new]] | antigravity.sh install | antigravity.sh login | antigravity.sh logout | antigravity.sh login-end | antigravity.sh auth [seat] | antigravity.sh hooks | antigravity.sh models" >&2
   exit 2 ;;
 esac
