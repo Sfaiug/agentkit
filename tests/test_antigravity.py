@@ -15,6 +15,7 @@ import os
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -578,6 +579,15 @@ class Antigravity(unittest.TestCase):
         self.assertEqual(proc.returncode, 1)
         self.assertIn("/logout", proc.stderr)
         self.assertFalse(self.token.exists())
+        # a bus set to disabled: reaches no keyring, whatever socket the runtime directory holds
+        with tempfile.TemporaryDirectory(dir="/tmp") as runtime, socket.socket(socket.AF_UNIX) as bus:
+            bus.bind(f"{runtime}/bus")   # /tmp: a socket's path is held to 108 bytes
+            proc = self.adapter("logout", env={"DBUS_SESSION_BUS_ADDRESS": "disabled:",
+                                               "XDG_RUNTIME_DIR": runtime})
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            proc = self.adapter("logout", env={"DBUS_SESSION_BUS_ADDRESS": "",
+                                               "XDG_RUNTIME_DIR": runtime})
+            self.assertEqual(proc.returncode, 1)
 
     def test_the_usual_login_stays_today_s_beside_a_named_one(self):
         # `default` is the empty name: only the usual login answers, never `second`'s

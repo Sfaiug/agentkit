@@ -284,8 +284,9 @@ login)
   logged_in || exit 1 ;;
 logout)
   rm -f -- "$TOKEN" "$PLAN" || exit 1
-  [ -z "$ACCOUNT" ] && { [ "$(uname)" = Darwin ] || [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus" ] ||
-    case ${DBUS_SESSION_BUS_ADDRESS:-disabled:} in disabled:) false ;; esac; } || exit 0
+  # A session bus set names the keyring's way in; only one unset falls back to the runtime socket
+  [ -z "$ACCOUNT" ] && { [ "$(uname)" = Darwin ] || case ${DBUS_SESSION_BUS_ADDRESS:-} in
+    disabled:) false ;; "") [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus" ] ;; esac; } || exit 0
   echo "agy: run \`agy\` and type /logout to clear the desktop keyring's copy" >&2; exit 1 ;;
 login-end)
   # A Google refresh token ends only when revoked, which shows only once `auth` says so
