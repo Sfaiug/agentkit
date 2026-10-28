@@ -52,6 +52,19 @@ def running(*paths):
     return found
 
 
+def holding(pids, *pipes):
+    """Those of `pids` holding one of `pipes` open."""
+    names = {f"pipe:[{os.fstat(pipe.fileno()).st_ino}]" for pipe in pipes}
+    found = set()
+    for pid in pids:
+        try:
+            if names & {os.readlink(fd) for fd in Path(f"/proc/{pid}/fd").iterdir()}:
+                found.add(pid)
+        except OSError:      # gone meanwhile
+            continue
+    return found
+
+
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 @unittest.skipUnless(Path("/proc/self/environ").exists(), "no /proc to read processes from")
 class KilledTest(unittest.TestCase):
@@ -65,8 +78,10 @@ class KilledTest(unittest.TestCase):
         root, tmux_dir, *pids = json.loads(line)
         self.addCleanup(_clear, root, tmux_dir)     # what a failing reaper left
         self.assertLessEqual({*pids}, running(root, tmux_dir))
+        # a runner reads a test's output to its end
+        self.assertEqual(holding(running(root, tmux_dir), maker.stdout, maker.stderr), set())
         os.kill(maker.pid, signal.SIGKILL)
-        maker.communicate(timeout=60)       # nothing it left holds its output
+        maker.communicate(timeout=60)
         deadline = time.monotonic() + 60
         while (running(root, tmux_dir) or Path(root).exists() or Path(tmux_dir).exists()) \
                 and time.monotonic() < deadline:
