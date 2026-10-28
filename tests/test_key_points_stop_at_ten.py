@@ -70,6 +70,8 @@ class PointsStopAtTen(unittest.TestCase):
     def test_the_knob_is_ten_cells_a_point_never_broken(self):
         self.assertIn(AT_FIVE, self.models(5)[1])
         self.assertIn("  as good    ‹ ▰▰▰▰▰▱▱▱▱▱ ›  within 5.5", self.models(5.5, width=40)[1])
+        self.assertIn("  as good    ‹ ▰▰▰▰▰▰▰▰▰▱ ›  within 9.9999999 points of the best, then the "
+                      "cheapest", self.models(9.9999999)[1])
 
     def test_a_config_over_ten_is_refused(self):
         path = akconfig.write(self.home, MODELS, settings={"within": 11})
