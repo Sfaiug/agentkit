@@ -139,6 +139,10 @@ footer = [
   '(?:⏵⏵|⏸)\s*(?:accept edits|plan mode|manual mode)\b.*',
   # the hint drawn under its own usage-limit notice (2.1.286), which is what was said
   '/usage-credits to finish what you.re working on\.',
+  # the row it draws under the footer, for seconds at a time, where tmux has a setting it wants
+  # off (2.1.312): `tmux focus-events off · add 'set -g focus-events on' to ~/.tmux.conf and
+  # reattach for focus tracking`
+  'tmux [\w-]+ off · add .set -g [\w-]+ on. to ~/\.tmux\.conf and reattach for .+',
 ]
 # its composer always has its own rule under it: a prompt-marked line right on the footer is a
 # user's status line, never the composer, even with no composer drawn, as under a picker
