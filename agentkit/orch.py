@@ -47,7 +47,7 @@ from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, 
 from datetime import datetime
 from pathlib import Path
 
-from . import aside_editor, command_help, config, gitcall, guard, host, motion, plan, retention, staffing, terminal, transitions, update, usage
+from . import aside_editor, command_help, config, gitcall, guard, host, plan, retention, staffing, terminal, transitions, update, usage
 from . import record as run_record
 from .harness import LAUNCHER, load as harness_plugin
 
@@ -4318,51 +4318,6 @@ def unhanded(path, before):
         pass       # its rulebook is rewritten on the next launch from whatever is there
 
 
-def picker_lines(cfg, notes, selected, at, column, room, moves=None):
-    """Every model once under its harness, named as on `c`, with three marks; detail and spent
-    notes wrap below on a phone. `moves`
-    is handed each mark's line, key, glyph and how it moves (motion.toggled), for the clock."""
-    from . import menu   # here, not at the top: menu imports this module
-    names = list(notes)
-    marks = "●○■□" if terminal.utf8() else "*.x."
-    rest = sum(len(head) + 2 for head in ROLE_HEADS)
-    wide = min(max(terminal.cells(config.model_name(cfg, name)) for name in names),
-               max(1, min(room // 3, room - 2 - rest)))
-    lines = [terminal.styled(" " * (2 + wide) + "".join("  " + head for head in ROLE_HEADS),
-                             "dim")]
-    rows, cells = [], []
-    for at_row, name in enumerate(names):
-        entry, note = config.model(cfg, name), notes[name]
-        if at_row == 0 or entry["harness"] != config.model(cfg, names[at_row - 1])["harness"]:
-            lines.append(menu.model_heading(entry["harness"]))
-        line = "  " + terminal.pad(menu.model_label(cfg, name, wide), wide)
-        texts, builds = role_texts(selected, name, marks)
-        own = []
-        for number, (text, head) in enumerate(zip(texts, ROLE_HEADS)):
-            first = terminal.cells(line) + 3
-            kind = ("reverse" if at_row == at and column == number else
-                    "dim" if note or text in (marks[1], marks[3]) or builds and number == 1
-                    else None)
-            line += "  " + terminal.toggle(text, len(head), kind)
-            if moves is not None:
-                moves.append((len(lines), ("mark", name, number), text,
-                              motion.toggled(text, len(head), kind, at_row == at, first)))
-            own.append((first, first + len(head) - 1, number))
-        detail = entry["effort"] + (f" · {note}" if note else "")     # its harness heads it
-        parts = [line + "  " + terminal.styled(detail, "dim")]
-        if terminal.cells(parts[0]) > room:
-            parts = [line.rstrip(), *(terminal.styled("    " + part, "dim")
-                                     for part in terminal.wrap(detail, room - 4))]
-        if note:
-            parts[0] = "  " + terminal.styled(parts[0][2:], "dim")
-        first = len(lines)
-        lines.extend(terminal.highlight(part, number == 0) if at_row == at else part
-                     for number, part in enumerate(parts))
-        rows.append(range(first, len(lines)))
-        cells.append(own)
-    return lines, rows, cells
-
-
 def default_crew(cfg, providers, default):
     """What a new seat starts from: `default` orchestrating, and [defaults]' executors and
     reviewers, each with something left to spend.  A group all spent falls back by tier -- a
@@ -4399,80 +4354,6 @@ def default_crew(cfg, providers, default):
     return selected
 
 
-def pick(cfg, providers, selected):
-    """(orchestrator, workers, reviewers, start) off one screen, the new row's
-    (`menu.born_models`).
-
-    `agentkit · new session`, Tab on the menu's new row, starts from the row's `selected`, spent
-    models among them.  ↑/↓, k/j and the wheel move through models, ←/→ through roles; Space or
-    a click on a mark flips it, Enter starts the session with the marks shown (`start` true),
-    and Esc goes back to the row with them.  Reviewers keep one model; executors may be empty."""
-    notes = {name: spent_note(cfg, name, providers) for name in config.offered(cfg)}
-    return _picking(cfg, providers, notes, selected)
-
-
-@terminal.clicks_its_own
-def _picking(cfg, providers, notes, selected):
-    """`pick`'s screen, drawn over in place and read with the keys; the rows scroll to keep the
-    highlight on a screen too short for every model.  The pointer moves the highlight to the
-    model and the role it is on, that mark lit.  A mark
-    chosen fills and one let go empties, and one refused shakes, on the clock (motion.toggled),
-    which a key ends on its last frame."""
-    names = list(notes)
-    model = selected["orchestrator"]
-    at, top, column, note = names.index(model) if model in names else 0, 0, 0, ""
-    keys = terminal.keys("esc back", space="mark", enter="start")
-    clock = motion.Clock(page=True)
-    while True:
-        moves = []
-        body, rows, cells = picker_lines(cfg, notes, selected, None if terminal.away() else at,
-                                         column, terminal.layout_width(), moves)
-        said = [terminal.styled("  " + terminal.cut(note, terminal.layout_width() - 2), "dim")] \
-            if note else []
-        room = max(1, terminal.height() - 6 - len(terminal.key_line(keys)) - len(said))
-        top = max(1, min(max(top, rows[at].stop - room), rows[at].start, len(body) - room))
-        shown = body[top:top + room]
-        lines = [terminal.header_line("new session", time.strftime("%H:%M")),
-                 terminal.rule_line(), body[0], *shown, *said, ""]
-        # a model's lines from the screen's fourth row, its marks on its first
-        spots = {4 + line - top: (hit, cells[hit] if line == drawn.start else [])
-                 for hit, drawn in enumerate(rows) for line in drawn if top <= line < top + room}
-        spots.update(terminal.key_spots(terminal.key_line(keys), len(lines) + 1))
-        terminal.show(lines + terminal.key_line(keys), spots,
-                      lambda: clock.drawn(moves, lambda line: 4 + line - top
-                                          if top <= line < top + room else None))
-        while True:               # the clock's frames while it moves and no key is waiting
-            sys.stdout.flush()
-            key = terminal.read_key(clock.wait())
-            if key is not None or terminal.asked_again() or clock.wait() is None:
-                break
-            sys.stdout.write(clock.frame())
-        if key is None:
-            continue              # a resize: draw again
-        spot = terminal.under(key, spots)
-        if key.name in ("click", "point") and spot.what is not None:
-            at, column = spot.what, column if spot.cell is None else spot.cell
-        if key.name == "point":
-            continue              # the highlight on the pointer's model, its mark lit
-        clock.settle()
-        note = ""
-        if key.name == "click":
-            item = "space" if spot.what is not None else {"⏎": "enter", "␣": "space"}.get(
-                spot.cell, spot.cell)
-            key = terminal.Key(item if item in ("enter", "esc", "space") else "other")
-        if terminal.step(key):
-            at = min(max(at + terminal.step(key), 0), len(rows) - 1)
-        elif key.name in ("left", "right"):
-            column = min(max(column + (1 if key.name == "right" else -1), 0), 2)
-        elif key.name == "space":
-            selected, note = role_mark(cfg, selected, names[at], column, providers)
-            if note:
-                clock.touch(("mark", names[at], column))  # refused: the mark shakes
-        elif key.name in ("enter", "esc", "eof"):
-            return (selected["orchestrator"], selected["workers"], selected["reviewers"],
-                    key.name == "enter")
-
-
 def worker_names(cfg, raw):
     names = [part.strip() for part in raw.split(",")]
     if not names or any(not name for name in names):
@@ -4486,7 +4367,7 @@ def worker_names(cfg, raw):
 
 def select(cfg, providers, forced=None, forced_workers=None, prompting=True):
     """(orchestrator, reason, workers), off flags or line prompts; create inherits default
-    reviewers.  The new row picks its models on a screen of its own (`pick`)."""
+    reviewers.  The new row picks its models on `c`'s screen (`menu.born_models`)."""
     default, default_reason = choose(cfg, providers)
     if forced:
         config.model(cfg, forced)
@@ -4531,7 +4412,9 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
            selection=None, repo=None, unnamed=False, taken=None):
     """Select the models, record them, start the seat detached.  The TUI command it runs.
     `taken` is the names its caller listed for the name question (`taken_names`), which spares
-    listing them again; tmux is still asked whether it holds the name now."""
+    listing them again; tmux is still asked whether it holds the name now.  `selection` is
+    (providers, (orchestrator, reason, workers[, reviewers[, efforts]])), efforts as a record
+    holds them, the orchestrator launched at its own."""
     name = session_name(name)
     if not name:
         raise config.Error("a session needs a name")
@@ -4554,8 +4437,7 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     # Not for a dry run: a record of a seat nothing opened is one the next `ak orch` resumes.
     extra = {"cwd": str(cwd), "repo": str(repo) if repo else None, "created": time.time(),
              "account": account, "home_account": account}
-    if len(selected) == 4:
-        extra["reviewers"] = selected[3]
+    extra.update(zip(("reviewers", "efforts"), selected[3:]))
     if unnamed and not dry_run:
         # The adapter writes the rulebook while building its command, before the seat starts.
         extra["unnamed"] = True
@@ -4565,7 +4447,8 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     try:
         # the project this launch files it under, which no record says yet
         with scratch(dry_run), for_seat(name, str(repo) if repo else ""):
-            cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
+            cmd, conversation = fresh_command(config.at_efforts(cfg, extra), model, seat=name,
+                                              account=account)
     except Exception:
         if unnamed and not dry_run:
             config.discard_session(name, extra["created"])

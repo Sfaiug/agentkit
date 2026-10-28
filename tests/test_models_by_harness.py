@@ -12,7 +12,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 os.environ["HOME"] = tempfile.mkdtemp()
 
-from agentkit import config, menu, orch, terminal  # noqa: E402
+from agentkit import config, menu, terminal  # noqa: E402
 
 
 def cfg():
@@ -55,23 +55,20 @@ class ModelsByHarness(unittest.TestCase):
     def test_the_config_screen_lists_the_same_order(self):
         self.assertEqual(menu.config_models(cfg()), ORDER)
 
-    def test_the_new_session_and_config_screens_list_the_same_order_under_the_same_headings(self):
+    def test_the_config_screen_lists_each_model_under_its_harness_heading(self):
+        # `n`'s models screen is this one (menu.born_models)
         config_ = cfg()
-        notes = {name: "" for name in config.offered(config_)}   # as `n` builds them
         selected = {"orchestrator": "fable", "workers": ["fable"], "reviewers": ["astra"]}
-        lines, rows, _ = orch.picker_lines(config_, notes, selected, None, 0, 40)
         body, places = menu.config_body(config_, selected=selected)
         headings = [terminal.styled(name, colour) for name, colour in HEADINGS]
         self.assertEqual(len(set(headings)), len(HEADINGS))       # four colours, none the same
-        for drawn, positions in ((lines, [row.start for row in rows]),
-                                 (body, [line for line, (hit, _) in places.items()
-                                         if hit[0] == "model"])):
-            # each by its full name (config.model_name), cut where the screen is narrow
-            shown = [terminal.plain(drawn[line]).split()[0].rstrip("…") for line in positions]
-            self.assertEqual(len(shown), len(ORDER))
-            for text, name in zip(shown, ORDER):
-                self.assertTrue(config.model_name(config_, name).startswith(text), (text, name))
-            self.assertEqual([line for line in drawn if line in headings], headings)
+        # each by its full name (config.model_name), cut where the screen is narrow
+        shown = [terminal.plain(body[line]).split()[0].rstrip("…")
+                 for line, (hit, _) in places.items() if hit[0] == "model"]
+        self.assertEqual(len(shown), len(ORDER))
+        for text, name in zip(shown, ORDER):
+            self.assertTrue(config.model_name(config_, name).startswith(text), (text, name))
+        self.assertEqual([line for line in body if line in headings], headings)
 
     def test_a_harness_its_manifest_gives_no_colour_is_headed_in_the_accent(self):
         self.assertEqual(menu.model_heading("acme"), terminal.styled("acme", "accent"))

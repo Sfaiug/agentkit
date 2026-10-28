@@ -149,15 +149,12 @@ class ExecutorsOptional(Sandbox):
                 patch.object(terminal, "colour_depth", return_value=8), \
                 patch.object(terminal, "utf8", return_value=True):
             lines, _ = menu.config_body(self.cfg, selected=self.selected())
-            picker, _, _ = orch.picker_lines(self.cfg, dict.fromkeys(config.offered(self.cfg), ""),
-                                             self.selected(), None, 0, 100)
-            for screen in (lines, picker):
-                rows = {terminal.plain(line).lstrip("› ").split()[0]: line
-                        for line in screen if any(char in marks for char in terminal.plain(line))}
-                self.assertIn(terminal.styled(" ■ ", "dim"), rows["Opus"])
-                self.assertEqual(tuple("".join(char for char in terminal.plain(rows[name])
-                                               if char in marks) for name in ("Opus", "GPT-6-Astra")),
-                                 ("●■□", "○□■"))
+            rows = {terminal.plain(line).lstrip("› ").split()[0]: line
+                    for line in lines if any(char in marks for char in terminal.plain(line))}
+            self.assertIn(terminal.styled(" ■ ", "dim"), rows["Opus"])
+            self.assertEqual(tuple("".join(char for char in terminal.plain(rows[name])
+                                           if char in marks) for name in ("Opus", "GPT-6-Astra")),
+                             ("●■□", "○□■"))
 
     def test_defaults_without_executor_stay_without_on_the_new_session_screen(self):
         self.cfg["defaults"] = {"orchestrator": "opus", "workers": [], "reviewers": ["astra"]}

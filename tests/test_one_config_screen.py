@@ -376,9 +376,8 @@ class OneConfigScreen(unittest.TestCase):
         menu.screen()
         menu.press(b"k", lambda lines: "ACME" in highlighted(lines))
         lines = menu.models()
-        self.assertIn(full("opus"), highlighted(lines))     # the shipped defaults, the first time
-        self.assertEqual(marks(highlighted(lines)), "●■■")
-        menu.press(DOWN + SPACE, lambda lines: full("astra") in highlighted(lines)
+        self.assertEqual(roles(lines)["opus"], "●■■")      # the shipped defaults, the first time
+        menu.press(DOWN * 2 + SPACE, lambda lines: full("astra") in highlighted(lines)
                    and marks(highlighted(lines)) == "●■■")
         menu.press(UP * 2 + RIGHT + SPACE, lambda lines: full("fable") in highlighted(lines)
                    and marks(highlighted(lines)) == "○■□")
@@ -394,7 +393,6 @@ class OneConfigScreen(unittest.TestCase):
         menu.screen(after=mark)
         menu.press(b"k", lambda lines: "ACME" in highlighted(lines))
         lines = menu.models()
-        self.assertIn(full("astra"), highlighted(lines))
         rows = roles(lines)
         self.assertEqual((rows["astra"], rows["fable"], rows["opus"]), ("●■■", "○■□", "○■■"))
         # from a seat too: the last creation's, never that seat's executors and one reviewer

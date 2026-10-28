@@ -1259,9 +1259,17 @@ def discard_session(name, created):
 def remember_defaults(record, models=None):
     """[defaults] as `record` has them: what the next `n` starts from, and the one write of
     them (save), the `[models.*]` tables as `models` has them in the same write where given.
-    The file is read again first, so nothing else changed in it since is written back over; a
-    failed write keeps it as it was and says why, else ""."""
+    The file is read again first, so nothing else changed in it since is written back over, and
+    one holding them already is not written; a failed write keeps it as it was and says why,
+    else ""."""
+    defaults = {key: record[key] for key in _DEFAULTS_ORDER if key in record}
+
+    def meant(table):     # reviewers it leaves out are its workers
+        return {"reviewers": table.get("workers"), **table} if isinstance(table, dict) else None
     try:
+        if models is None and meant((_read_toml(HOME / CONFIG_NAME) or {}).get(
+                "defaults")) == meant(defaults):
+            return ""
         cfg = load()
         # a file from before it held the models (max_runs alone) loads as the shipped one: its
         # own keys are written back over the shipped ones, as they were
@@ -1269,7 +1277,7 @@ def remember_defaults(record, models=None):
                    if key not in ("defaults", "tiers", "models", "providers"))
         if models is not None:
             cfg["models"] = models
-        save(cfg, {key: record[key] for key in _DEFAULTS_ORDER if key in record})
+        save(cfg, defaults)
     except (Error, OSError) as exc:
         return str(exc)     # a seat is made all the same
     return ""

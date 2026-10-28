@@ -82,7 +82,7 @@ def mark_return(module, name):
 for module, name in ((menu, "config_matrix"), (menu, "models_page"),
                      (menu, "config_subscriptions"), (menu, "config_add_provider"),
                      (menu, "config_discord"), (menu, "config_audit"), (menu, "show_features"),
-                     (menu, "new_session"), (orch, "pick"),
+                     (menu, "new_session"),
                      (menu, "pause"), (terminal, "choose")):
     mark_return(module, name)
 code = menu.loop(cfg, overlay=os.environ.get("ESC_OVERLAY") == "1")
@@ -314,7 +314,7 @@ class EscBack(unittest.TestCase):
         menu_.press(b"n", born)
         mark = len(menu_.text())
         menu_.send(b"\t")
-        menu_.back("pick", lambda lines: title("new session")(lines) and "start" in lines[-1])
+        menu_.back("config_matrix", lambda lines: title("new session")(lines) and "start" in lines[-1])
         menu_.screen(born, after=mark)          # back on its row, and Esc takes that down
         menu_.press(ESC)
         menu_.leave()

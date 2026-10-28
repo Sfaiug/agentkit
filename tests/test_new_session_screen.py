@@ -41,7 +41,7 @@ def refused(*args, **kwargs):
     raise AssertionError("refused: nothing here launches")
 
 def create(cfg, name, cwd, *args, selection=None, **kwargs):
-    model, _, workers, reviewers = selection[1]
+    model, _, workers, reviewers = selection[1][:4]
     config.save_session(cfg, name, model, workers, {"reviewers": reviewers})
     print(f"<created {name} {model} {','.join(workers)} {','.join(reviewers)}>", flush=True)
     return ["fake"]
@@ -173,8 +173,9 @@ class Screen:
         return self.until(ready, f"a screen with {marker!r}")
 
     def picker(self, where=None, after=0):
-        # its heading, as its key line says what the pointer rests on after a click
-        return self.drawn("orch  builds  reviews", where, after)
+        # its title, and the marks under it
+        return self.drawn("agentkit · new session", lambda lines: any(map(marks, lines))
+                          and (where is None or where(lines)), after)
 
     def menu(self, after=0):
         return self.drawn("esc leave", after=after)
@@ -223,10 +224,10 @@ class NewSessionScreen(unittest.TestCase):
         screen.models()
         lines = screen.picker()
         self.assertTrue(lines[0].startswith("agentkit · new session"), lines)
-        self.assertIn(full("opus"), highlighted(lines))           # the cursor starts there
+        self.assertIn(full("fable"), highlighted(lines))          # the cursor starts on the first
         self.assertEqual(lines[2].split(), ["orch", "builds", "reviews"])
         self.assertEqual(len(models(lines)), 7)
-        self.assertEqual(marks(highlighted(lines)), "●■■")
+        self.assertEqual(marks(next(line for line in lines if full("opus") in line)), "●■■")
         self.assertEqual([row[2:].split("  ")[0] for row in models(lines) if marks(row)[1] == "■"],
                          [full("opus"), full("astra")])
         self.assertEqual([line for line in lines[3:-2]
@@ -243,7 +244,7 @@ class NewSessionScreen(unittest.TestCase):
         screen.menu()
         screen.models()
         screen.picker()
-        screen.send(DOWN)
+        screen.send(DOWN * 2)
         screen.picker(lambda lines: full("astra") in highlighted(lines))
         screen.send(SPACE)
         lines = screen.picker(lambda lines: full("astra") in highlighted(lines)
@@ -259,7 +260,7 @@ class NewSessionScreen(unittest.TestCase):
         screen.menu()
         screen.models()
         screen.picker()
-        screen.send(RIGHT + SPACE)             # Opus's executor mark
+        screen.send(DOWN + RIGHT * 2 + SPACE)  # past Opus's orch effort, its executor mark
         screen.picker(lambda lines: marks(highlighted(lines)) == "●□■")
         mark = len(screen.text())
         screen.send(DOWN + SPACE)              # Astra, the last executor, may go too
@@ -286,9 +287,8 @@ class NewSessionScreen(unittest.TestCase):
         opus = [row for row in lines if full("opus") in row]
         self.assertEqual(len(opus), 1)
         self.assertEqual(marks(opus[0]), "○□□")
-        self.assertIn("spent · resets", opus[0])
         self.assertRegex(screen.text()[mark:], r"\x1b\[[0-9;]*m" + re.escape(full("opus")))
-        self.assertEqual(marks(highlighted(lines)), "●■■")
+        self.assertEqual(marks(next(line for line in lines if full("astra") in line)), "●■■")
         # Astra reviewing itself could start, so the row's Enter creates a self-review.
         screen.start()
         screen.saw("<created new astra astra astra>")
@@ -301,11 +301,10 @@ class NewSessionScreen(unittest.TestCase):
         lines = screen.picker()
         # the row's crew, as it would launch: the default orchestrating, building and reviewing
         self.assertEqual([marks(row) for row in lines if "●" in row or "■" in row], ["●■■"])
-        self.assertIn(full("opus"), highlighted(lines))
         # a week at 100% whose reset nobody knows is spent all the same, only with no time
-        self.assertEqual(len([row for row in lines if full("astra") in row and "spent" in row]), 1)
-        screen.send(UP + SPACE)                    # Fable orchestrates
-        screen.send(RIGHT * 2 + DOWN * 2 + SPACE)  # Astra reviews
+        self.assertRegex(screen.text(), r"\x1b\[[0-9;]*m" + re.escape(full("astra")))
+        screen.send(SPACE)                         # Fable, the first, orchestrates
+        screen.send(RIGHT * 4 + DOWN * 2 + SPACE)  # past its efforts: Astra reviews
         screen.send(UP + SPACE)                    # and Opus no longer does
         screen.picker(lambda lines: full("opus") in highlighted(lines)
                       and marks(highlighted(lines)) == "○□□")
@@ -323,7 +322,7 @@ class NewSessionScreen(unittest.TestCase):
         screen.menu()
         screen.models()
         lines = screen.picker()
-        self.assertEqual(len([line for line in lines if "mmmmmmmmmmmm…" in line]), 1)
+        self.assertEqual(len([line for line in lines if "mmm…" in line]), 1)
         self.assertEqual([line for line in lines if terminal.cells(line) > 40], [])
         mark = len(screen.text())
         screen.send(ESC)
@@ -353,10 +352,8 @@ class NewSessionScreen(unittest.TestCase):
         screen.models()
         lines = screen.picker()
         self.assertTrue(lines[0].startswith("agentkit · new session"), lines)
-        self.assertIn(full("astra"), highlighted(lines))
-        self.assertEqual(marks(highlighted(lines)), "●■■")
-        self.assertIn("spent · resets", "\n".join(lines))
-        screen.send(RIGHT * 2 + DOWN + SPACE)
+        self.assertEqual(marks(next(line for line in lines if full("astra") in line)), "●■■")
+        screen.send(DOWN * 2 + RIGHT * 4 + DOWN + SPACE)
         screen.start()
         text = screen.saw("would attach new")
         screen.menu(after=text.index("would attach new"))
