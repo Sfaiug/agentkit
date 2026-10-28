@@ -476,6 +476,43 @@ class Antigravity(unittest.TestCase):
                 os.kill(int(pid.read_text()), 0)
             self.write_token("")
 
+    def test_login_again_signs_a_named_account_in_afresh(self):
+        # its token set aside, the sign-in `login` runs: quit with none, the old one is back
+        # and it fails; signed in, the new one stays.  The usual login has no `again`.
+        self.write_token("new-refresh")
+        signed = self.root / "signed-in"
+        self.token.rename(signed)
+        own = self.home / ".gemini/antigravity-cli-second/antigravity-oauth-token"
+        self.write_token("old-refresh")
+        own.parent.mkdir(parents=True)
+        self.token.rename(own)
+        self.write_token("usual-refresh")
+        usual, old, pid = self.token.read_text(), own.read_text(), self.root / "agy.pid"
+
+        def again(**env):
+            master, tty = os.openpty()
+            try:
+                return self.adapter("login", "again", stdin=tty, timeout=30,
+                                    env={"STUB_PID": str(pid), **env})
+            finally:
+                os.close(tty)
+                os.close(master)
+        for env, rc, kept in (({}, 1, old), ({"STUB_SIGNIN": str(signed)}, 0, signed.read_text())):
+            proc = again(AGENTKIT_ACCOUNT="second", **env)
+            self.assertEqual(proc.returncode, rc, proc.stderr)
+            self.assertIn("paste the code back", proc.stdout)
+            self.assertEqual(own.read_text(), kept)
+            self.assertEqual(sorted(p.name for p in own.parent.iterdir()),
+                             ["antigravity-oauth-token", "brain", "conversations"])
+        pid.unlink()
+        proc = again(STUB_SIGNIN=str(signed))
+        self.assertEqual((proc.returncode, proc.stdout), (0, "agy: already logged in\n"))
+        self.assertFalse(pid.exists())
+        # nothing of the usual login was touched, nor the stores both read
+        self.assertEqual(self.token.read_text(), usual)
+        for store in ("conversations", "brain"):
+            self.assertEqual((own.parent / store).resolve(), self.token.parent / store)
+
     # --- accounts ------------------------------------------------------------
     def test_a_named_account_uses_its_own_login_and_the_usual_conversations(self):
         # The usual login is here, beside an API key and a keyring's session bus: none of it

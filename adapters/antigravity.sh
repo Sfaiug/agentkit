@@ -12,8 +12,9 @@
 #                                  3: `--conversation` opens one that exists and nothing names
 #                                  one that does not, so an Antigravity seat is given no id
 #                     install      -> Google's installer, unless agy is already here
-#                     login        -> `agy` in the terminal (a URL, then the code pasted back),
-#                                  ended once signed in, unless already logged in
+#                     login [again] -> `agy` in the terminal (a URL, then the code pasted back),
+#                                  ended once signed in, unless already logged in; `again`
+#                                  signs a named account in afresh over a login that still stands
 #                     logout       -> this login's token file removed, with the plan read for
 #                                  it: agy 1.4.7 has no sign-out of its own, and its TUI's
 #                                  /logout alone clears the desktop keyring's copy, so the usual
@@ -263,8 +264,14 @@ install)
   curl -fsSL https://antigravity.google/cli/install.sh | bash ;;
 login)
   command -v agy >/dev/null || { echo "antigravity.sh login: agy is not installed" >&2; exit 2; }
-  logged_in && { echo "agy: already logged in"; exit 0; }
+  # `again` sets a named account's token aside, so agy opens on its sign-in, and puts it back
+  # however this ends without a new one.  The usual login has no `again`: agy would restore it
+  # from the desktop keyring, which only its own /logout clears.
+  aside=""; [ "${1:-}" = again ] && [ -n "$ACCOUNT" ] && [ -e "$TOKEN" ] && aside="$TOKEN.aside"
+  [ -z "$aside" ] && logged_in && { echo "agy: already logged in"; exit 0; }
   [ -t 0 ] || { echo "agy: not logged in; run \`$SIGNIN\` in a terminal, open the URL it prints and paste the code back" >&2; exit 1; }
+  [ -z "$aside" ] || { mv -f -- "$TOKEN" "$aside" || exit 1
+    trap 'if logged_in; then rm -f -- "$aside"; else mv -f -- "$aside" "$TOKEN"; fi' EXIT; }
   echo "agy: choose Google OAuth, open the URL and paste the code back"
   # agy 1.4.7 has no login of its own, only the TUI, so the sign-in ends here: once the token
   # file holds a refresh token, which it held none of above, agy is sent TERM -- it then
@@ -336,6 +343,6 @@ models)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" antigravity ;;
 *)
-  echo "usage: antigravity.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | antigravity.sh usage | antigravity.sh interactive <model> <effort> [session-id [new]] | antigravity.sh install | antigravity.sh login | antigravity.sh logout | antigravity.sh login-end | antigravity.sh auth [seat] | antigravity.sh hooks | antigravity.sh models" >&2
+  echo "usage: antigravity.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | antigravity.sh usage | antigravity.sh interactive <model> <effort> [session-id [new]] | antigravity.sh install | antigravity.sh login [again] | antigravity.sh logout | antigravity.sh login-end | antigravity.sh auth [seat] | antigravity.sh hooks | antigravity.sh models" >&2
   exit 2 ;;
 esac
