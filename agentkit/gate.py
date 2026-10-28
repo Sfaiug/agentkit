@@ -1640,7 +1640,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         places = (hold.pieces if hold else 0) + (away.count if away else 0)
         count = 2 * places or derived_heavy_limit(running=0, job_cpus=cpu, job_mem_mb=mem,
                                                   unit=True)
-        env = suite_env(changed, times)    # the piece threads do not inherit this thread's held turn
+        # the piece threads do not inherit this thread's held turn
+        env = suite_env(changed, times)
         deadline = time.monotonic() + limit
         cancel, writing = threading.Event(), threading.Lock()
         last_shard = None
