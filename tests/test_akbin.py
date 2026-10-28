@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import REAL_TMUX, SOCKET, Home
+from fixtures.akbin import REAL_TMUX, SOCKET, Home, _strays
 
 
 class Runner(unittest.TestCase):
@@ -46,7 +46,7 @@ class Runner(unittest.TestCase):
     def test_a_hang_fails_while_a_detached_process_still_holds_its_output(self):
         with self.assertRaisesRegex(AssertionError, "still running after 1 s"):
             self.home.run("sh", "-c", "setsid sleep 60 & sleep 60", timeout=1)
-        self.assertTrue(self.home._strays())
+        self.assertTrue(_strays(self.home.path))
 
     @unittest.skipUnless(Path("/proc/self/environ").exists(), "no /proc to find strays in")
     def test_a_process_the_program_detached_ends_with_the_home(self):
