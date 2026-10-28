@@ -17,7 +17,8 @@ from contextlib import ExitStack, contextmanager, nullcontext
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import config, gitcall, handback, helper, history, host, orch, stuck, transitions, turns
+from . import config, gitcall, handback, helper, history, host, orch, stuck, suite_times
+from . import transitions, turns
 from . import update
 from . import waiter
 from . import watch
@@ -42,7 +43,8 @@ ASKING = "ak-asks-the-suite-helper"    # a suite's late question to it, which no
 OUT_OF_MEMORY = "ran out of memory"   # `run_suite(pieces=)`: no exit tells it (`_SuiteMeasure.starved`)
 # A piece on the suite helper runs in a clone there, which land._check's look at this checkout
 # never sees: the piece checks that clone itself and fails, as land._check does, if it changed.
-PINNED_PIECE = ('head=$(git rev-parse HEAD) && bash -c {} || exit\n'
+# The helper hands it no environment: the piece's AK_TIMES goes in the command.
+PINNED_PIECE = ('export AK_TIMES={}\nhead=$(git rev-parse HEAD) && bash -c {} || exit\n'
                 '[ "$(git rev-parse HEAD)" = "$head" ] && git diff --quiet HEAD ||'
                 ' {{ echo "the piece changed the checkout it tests" >&2; exit 1; }}')
 QUIET_RUNS = 20       # a suite's pace: the longest any of its last runs went without output;
@@ -1284,9 +1286,9 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, l
             helper.finish(away)
 
 
-def suite_env(changed=None):
+def suite_env(changed=None, times=None):
     """A done-when command's environment, `AK_HEAVY_TURN=1` only while this thread holds a turn,
-    and `AK_CHANGED` naming the file `changed` when given.
+    `AK_CHANGED` naming the file `changed` and `AK_TIMES` holding `times` when given.
 
     A suite that queues behind a host-wide lock of its own would hold the turn for as long as
     another copy holds that lock; told it holds one, it says busy at once instead, exit
@@ -1294,12 +1296,15 @@ def suite_env(changed=None):
     a suite holds none of that suite's turn, nor its share, path or test lists.
     """
     env = gitcall.run_child_env()
-    for key in ("AK_HEAVY_TURN", "AK_SHARD", "AK_ONLY", "AK_FAILED", "AK_RAN", "AK_CHANGED"):
+    for key in ("AK_HEAVY_TURN", "AK_SHARD", "AK_ONLY", "AK_FAILED", "AK_RAN", "AK_CHANGED",
+                "AK_TIMES"):
         env.pop(key, None)
     if getattr(_GATE_HELD, "hold", None) is not None:
         env["AK_HEAVY_TURN"] = "1"
     if changed is not None:
         env["AK_CHANGED"] = str(changed)
+    if times is not None:
+        env["AK_TIMES"] = times
     return env
 
 
@@ -1579,8 +1584,11 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     where it ended in a failing exit: one dead by a signal, its exit negative, repeats nothing;
     for a command not split, under `1/1`, those its failing run named as failed.
     `changed`, a file of paths, is what `AK_CHANGED` names; it keeps the pieces on this host.
+    Every piece gets the file times recorded as the suite starts (`suite_times`): a record
+    another suite changes meanwhile would cut a later piece's share differently.
     """
-    env = suite_env(changed)
+    times = suite_times.handed(cwd)
+    env = suite_env(changed, times)
     if shard is not None:
         label, share = ((shard, shard) if only is None else
                         (f"{shard}, its failed tests alone", "1/1"))
@@ -1632,7 +1640,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         places = (hold.pieces if hold else 0) + (away.count if away else 0)
         count = 2 * places or derived_heavy_limit(running=0, job_cpus=cpu, job_mem_mb=mem,
                                                   unit=True)
-        env = suite_env(changed)    # the piece threads do not inherit this thread's held turn
+        # the piece threads do not inherit this thread's held turn
+        env = suite_env(changed, times)
         deadline = time.monotonic() + limit
         cancel, writing = threading.Event(), threading.Lock()
         last_shard = None
@@ -1728,7 +1737,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                                              "only": only, "failed": tests}
                     kills = measure.oom("oom_kill")
                     code, _, killed = (worker.limited if there else worker.boxed)(
-                        helper.piece(there, shard, PINNED_PIECE.format(shlex.quote(command)))
+                        helper.piece(there, shard, PINNED_PIECE.format(
+                            shlex.quote(times), shlex.quote(command)))
                         if there else ["bash", "-c", command],
                         left, cwd=str(cwd), activity=Path(piece.name), output=stream,
                         env=own, abort=abort,
@@ -1867,7 +1877,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     deadline += queued
                     if on_wait is not None:
                         on_wait(queued)
-                env = suite_env(changed)
+                env = suite_env(changed, times)
                 if pieces_left.waiting:
                     pull(hold.pieces if hold else len(pieces_left.waiting))
                 if again:
@@ -1904,7 +1914,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         hold = getattr(_GATE_HELD, "hold", None)
                         if hold is not None:
                             hold.alone()
-                        env = suite_env(changed)
+                        env = suite_env(changed, times)
                     elif shard in starved:
                         break   # the host's red, never a test's (`land.red_part`)
                     elif only is not None:
@@ -2037,6 +2047,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     and with `only` just those of its tests.  `confirmed`, a dict, gets by command what
     `run_suite` confirms: the tests a red piece named that failed again alone.  `changed`, a
     file of paths, is what `AK_CHANGED` names to every command.
+    The test files' times the commands printed are kept (`suite_times`) before the log, whole
+    until then, takes `text`, its capped form.
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
@@ -2157,6 +2169,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
         if log is not None:
             log(stopped_line)
     text = "\n\n".join(chunks)
+    suite_times.keep(cwd, log_path)
     log_path.write_text(text)
     # The gate is over and its children are not the round's: a command that exited 0 may
     # still have left processes behind, and they die with the gate, however detached.
