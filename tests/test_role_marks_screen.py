@@ -144,24 +144,26 @@ class RoleMarks(Sandbox):
                     "reviewers": ["opus", "astra"]}
         with patch.object(terminal, "layout_width", return_value=80), \
                 patch.object(menu, "config_meters", return_value=([], {})):
-            _, places = menu.config_body(self.cfg, selected=selected, rows=())
+            lines, places = menu.config_body(self.cfg, selected=selected, rows=())
             for name, column, before, expected in (
                     ("fable", 0, 2, ("fable", ["opus", "astra"], ["opus", "astra"])),
                     ("opus", 1, 0, ("opus", ["astra"], ["opus", "astra"])),
                     ("astra", 2, 0, ("opus", ["opus", "astra"], ["opus"]))):
                 line, cells = next((line, cells) for line, (row, cells) in places.items()
                                    if row == ("model", name))
-                for edge in (0, 1):     # the whole column is clickable, including its padding
-                    click = terminal.Key("click", row=line + 3, col=next(
-                        cell[edge] for cell in cells if cell[2] == column))
+                first, last = next(cell[:2] for cell in cells if cell[2] == column)
+                text = terminal.ANSI.sub("", lines[line])
+                for col in range(first, last + 1):     # its mark is clickable, its padding not
+                    click = terminal.Key("click", row=line + 3, col=col)
                     keys = [*[terminal.Key("right")] * before, click, terminal.Key("esc")]
                     picked = copy.deepcopy(selected)
-                    with self.subTest(column=column, edge=edge), \
+                    with self.subTest(column=column, col=col), \
                             patch.object(terminal, "read_key", side_effect=keys), \
                             redirect_stdout(io.StringIO()):
                         self.assertFalse(menu.config_matrix(self.cfg, None, "abc1234",
                                                             selected=picked, born=True))
-                    self.assertEqual(tuple(picked.values()), expected)
+                    self.assertEqual(tuple(picked.values()), tuple(selected.values())
+                                     if text[col - 1].isspace() else expected)
 
     def test_an_empty_role_falls_back_to_an_allowed_fresh_pair(self):
         for workers, reviewers, expected in (
@@ -235,17 +237,18 @@ class RoleMarksScreen(unittest.TestCase):
         lines = screen.frame()
         number, line = row(lines, "astra")
         first = next(line for line in lines if line.split()[:1] == ["orch"]).index("review") + 1
-        lines = screen.click(first, number,
+        mark = first + len(line[first - 1:]) - len(line[first - 1:].lstrip())   # its review mark
+        lines = screen.click(mark, number,
                              lambda lines: marks(row(lines, "astra")[1]) == "○□■")
         self.assertEqual(screen.record()["reviewers"], ["opus", "astra"])
         # Opus reviewing itself could start, so removing Astra saves.
-        lines = screen.click(first, number,
+        lines = screen.click(mark, number,
                              lambda lines: marks(row(lines, "astra")[1]) == "○□□")
         self.assertEqual(screen.record()["reviewers"], ["opus"])
         self.assertFalse(any("no allowed" in line for line in lines))
         before = screen.session.read_bytes()
         number, line = row(lines, "opus")
-        lines = screen.click(first, number,
+        lines = screen.click(mark, number,
                              lambda lines: any("at least one model reviews" in line for line in lines))
         self.assertEqual([line.strip() for line in lines if "at least one model reviews" in line],
                          ["at least one model reviews"])

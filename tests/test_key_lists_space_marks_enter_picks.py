@@ -81,7 +81,8 @@ class ListsSpaceMarksEnterPicks(unittest.TestCase):
         self.assertNotIn("fable", akconfig.read(self.home)["models"])
         shown = lines(self.term.screen())             # a click on a mark does as Space does
         row = next(n for n, line in enumerate(shown) if "□ Fable 5.1" in line) + 1
-        self.term.type(f"\x1b[<0;20;{row}M\x1b[<0;20;{row}m")
+        col = shown[row - 1].index("□") + 1
+        self.term.type(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m")
         self.to("  ■ Fable 5.1", CLOSE)
         before = akconfig.read(self.home)
         self.assertIn("fable", before["models"])

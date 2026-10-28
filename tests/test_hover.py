@@ -199,10 +199,11 @@ class Screens(Sandbox):
         beside = (label[0] + len("GPT-6-Astra") + 1, label[1])   # on its row, between its cells
         line = texts(first)[label[1] - 1]
         mark = (line.index("○", label[0]) + 1, label[1])          # its orchestrator mark
-        # on its row the keys' highlight moves there, and off its cells none lights
-        last = self.matrix(move(*beside) + ESC)[-1]
-        self.assertOneHighlight(last, "GPT-6-Astra")
-        self.assertEqual(marked(last, "lit"), {})
+        # blank on its row is on nothing: nothing lights, the keys' highlight off as off every
+        # row, and a key brings it back where it was
+        screens = self.matrix(move(*beside), DOWN, ESC)
+        self.assertEqual((highlighted(screens[1]), marked(screens[1], "lit")), ([], {}))
+        self.assertOneHighlight(screens[2], "Opus 5.5")
         # its label is a cell, a click's to put the highlight on its first mark
         self.assertEqual(marked(self.matrix(move(*label) + ESC)[-1], "lit"),
                          {label[1]: "GPT-6-Astra"})
@@ -219,7 +220,7 @@ class Screens(Sandbox):
         # off every row the row and its cell lose it, a key-line item lighting alone and
         # nothing on no item at all, and an arrow moves it on from where it was
         keys = at(first, "esc back")
-        screens = self.matrix(move(*beside), move(*keys), move(1, len(texts(first)) + 2), RIGHT,
+        screens = self.matrix(move(*mark), move(*keys), move(1, len(texts(first)) + 2), RIGHT,
                               ESC)
         self.assertEqual(len(screens), 5)
         self.assertEqual(marked(screens[2], "lit"), {keys[1]: "esc back"})
@@ -366,7 +367,7 @@ class Screens(Sandbox):
         self.assertFalse(answer)
         self.assertOneHighlight(screens[0], "Fable 5.1")      # the first model, as on `c`
         row = at(screens[0], "GPT-6-Astra")[1]
-        review = (at(screens[0], "review")[0] + 3, row)
+        review = (texts(screens[0])[row - 1].index("■", at(screens[0], "review")[0]) + 1, row)
         last = picking(move(*review) + ESC)[1][-1]
         self.assertEqual(len(highlighted(last)), 1)
         self.assertEqual(at(last, highlighted(last)[0])[1], row)
@@ -513,17 +514,18 @@ class Screens(Sandbox):
             found = select.select(ready, [], [], 0)[0]
             clock.now += 0 if found else timeout
             return found, [], []
+        drawn = ["", "", " aaaaaaaa", " bbbbbbbb"]       # rows a and b, columns 2 to 9
         with open(read, "rb", buffering=0) as stdin, patch.object(sys, "stdin", stdin), \
                 patch.multiple(terminal, _TAKEN=types.SimpleNamespace(again=(None, None)),
                                _KEYED=b"", _POINTER=None, _POINTED=terminal.Spot(), _MOVED=0.0,
                                _NEXT=None, select=types.SimpleNamespace(select=wait),
                                time=types.SimpleNamespace(monotonic=monotonic)):
-            terminal.lit((), {3: ("a", []), 4: ("b", [])})
+            terminal.lit(drawn, {3: ("a", []), 4: ("b", [])})
             os.write(write, move(2, 3))
             began = clock.now
             self.assertEqual(terminal.read_key(1).name, "point")
             self.assertLess(clock.now - began, 0.1)
-            terminal.lit((), {3: ("a", []), 4: ("b", [])})     # drawn: a is highlighted
+            terminal.lit(drawn, {3: ("a", []), 4: ("b", [])})     # drawn: a is highlighted
             os.write(write, move(9, 3))
             self.assertIsNone(terminal.read_key(0.2))
             os.write(write, move(9, 4) + b"j")                  # a key read past a move is next
@@ -531,7 +533,7 @@ class Screens(Sandbox):
             self.assertEqual(terminal.read_key(1), terminal.Key("char", "j"))
             self.assertIsNone(terminal._POINTER)                # and hands the highlight back
             # a move a frame has not come for is answered by a later read, once it has
-            terminal.lit((), {3: ("a", []), 4: ("b", [])})
+            terminal.lit(drawn, {3: ("a", []), 4: ("b", [])})
             clock.now += 0.06                                   # a frame since the last move
             os.write(write, move(2, 3))
             self.assertEqual(terminal.read_key(0).name, "point")
@@ -541,7 +543,7 @@ class Screens(Sandbox):
             self.assertEqual(terminal.read_key(1), terminal.Key("point", "", 2, 4))
             self.assertGreaterEqual(clock.now - began, 0.04)
             # moves on and on within one spot keep to the read's time
-            terminal.lit((), {3: ("a", []), 4: ("b", [])})
+            terminal.lit(drawn, {3: ("a", []), 4: ("b", [])})
             os.write(write, move(5, 4) * 300)     # faster than read, in a page every pipe holds
             began, clock.step = clock.now, 0.001
             self.assertIsNone(terminal.read_key(0.05))
