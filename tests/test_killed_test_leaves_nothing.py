@@ -22,20 +22,21 @@ TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS))
 from fixtures.akbin import REAL_TMUX, REPO, Home, _clear
 
-# A test's process, run from its checkout: it makes a Home with a server and a pane, forks a
-# helper that outlives it, says so and waits to be killed.
-MAKER = """import json, os, sys, time
+# A test's process, run from its checkout with its stdin closed: it makes a Home with a server
+# and a pane, forks a helper that outlives it, says so and waits to be killed.
+MAKER = """import json, os, signal, sys, time
 sys.path.insert(0, sys.argv[1])
 from test_killed_test_leaves_nothing import started
+os.close(0)
 home, pids = started()
 helper = os.fork()
 if not helper:
-    os.setsid()
     os.closerange(0, 3)
     time.sleep(600)
     os._exit(0)
+os.setpgid(helper, helper)
 print(json.dumps([str(home.root), str(home.tmux_dir), helper, *pids]), flush=True)
-sys.stdin.read()
+signal.pause()
 """
 
 
@@ -87,9 +88,8 @@ class KilledTest(unittest.TestCase):
             copy.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(path, copy)
         maker = subprocess.Popen([sys.executable, "-c", MAKER, str(checkout / "tests")],
-                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE, text=True, cwd=checkout,
-                                 start_new_session=True)
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                 cwd=checkout, start_new_session=True)
         line = maker.stdout.readline()
         if not line:
             self.fail(maker.communicate(timeout=60)[1])

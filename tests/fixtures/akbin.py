@@ -26,6 +26,7 @@ A test whose ticks act on processes it started, which that box cannot see, ends 
 """
 
 from collections import namedtuple
+import fcntl
 import functools
 import json
 import os
@@ -147,12 +148,15 @@ class Home:
         # died, and does `close`'s work.  A shell waits, holding this file open, and Python runs
         # it only then, though the checkout be gone by then.  It holds neither of this process's
         # outputs, which a runner reads to their end, and no group of this process kills it.
-        with open(__file__, "rb") as script:
-            self._reaper = subprocess.Popen(
-                ["/bin/sh", "-c", 'read _ || exec "$@"', "sh", sys.executable, "-I",
-                 f"/dev/fd/{script.fileno()}", "reap", self.root, self.tmux_dir],
-                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                start_new_session=True, pass_fds=[script.fileno()])
+        with open(__file__, "rb") as opened:
+            # past the standard streams, which the reaper's own replace
+            script = fcntl.fcntl(opened, fcntl.F_DUPFD_CLOEXEC, 3)
+        self._reaper = subprocess.Popen(
+            ["/bin/sh", "-c", 'read _ || exec "$@"', "sh", sys.executable, "-I",
+             f"/dev/fd/{script}", "reap", self.root, self.tmux_dir],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True, pass_fds=[script])
+        os.close(script)
         os.register_at_fork(after_in_child=self._reaper.stdin.close)
         self._spawned = []
         for directory in (self.path / ".agentkit" / "state", self.bin, self.root / "tmp",
