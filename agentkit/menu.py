@@ -4229,16 +4229,18 @@ def config_add_provider(cfg, keyboard):
                        [""] * (len(labels) + len(through) + len(more)),
                        terminal.keys("esc back", enter="open" if lit in through else "add"))
         return 3
-    picked = terminal.choose([*labels, *through, *more], around=around)
-    if picked is None:
-        return ""
-    if picked in through:
+    picked = None
+    while True:       # Esc in a harness's list comes back here, that harness highlighted
+        picked = terminal.choose([*labels, *through, *more], picked, around=around)
+        if picked is None:
+            return ""
+        if picked not in through:
+            break
         harness = through[picked]
         failed = _adapter_verbs(keyboard, harness, () if config.harness_present(harness)
                                 else ("install",), picked)
-        if not failed:
-            config_add(cfg, keyboard, through=harness)
-        return failed
+        if failed or config_add(cfg, keyboard, through=harness):
+            return failed
     if picked in more:
         return _add_subscription(cfg, keyboard, *more[picked], picked)
     name = labels[picked]
