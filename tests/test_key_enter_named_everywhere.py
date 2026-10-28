@@ -22,7 +22,8 @@ from fixtures.akterm import Terminal
 
 POPUP_KEYS = "  ↑↓←→ move   ⏎ open   n new   x stop   p past   c config   esc leave"
 ROW_KEYS = "  ⏎ start   tab models   esc back"
-KEEP, STOP, REMOVE = (f"  ↑↓←→ move   ⏎ {word}   esc back" for word in ("keep", "stop", "remove"))
+KEEP, STOP, REMOVE = (f"  ↑↓←→ move   ⏎ {word}   esc back"
+                      for word in ("keep", "stop", "remove"))
 NOW = int(time.time())
 
 

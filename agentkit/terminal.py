@@ -486,9 +486,10 @@ MOVE_KEYS = ("↑↓←→ move", "arrows move")
 def keys(*rest, space=None, enter):
     """A screen's key line: MOVE_KEYS, what Space does there (`space`) and what Enter does
     (`enter`), each left out where None, as it does nothing there, then that screen's own keys,
-    `rest`.  Enter has no word of its own: each screen names what it does there.  Space only changes the highlighted thing in place -- marks it, moves the ● to it,
-    steps its effort -- and a click on a mark does the same; Enter goes forward -- opens,
-    starts, answers -- and never flips a mark."""
+    `rest`.  Enter has no word of its own: each screen names what it does there.  Space only
+    changes the highlighted thing in place -- marks it, moves the ● to it, steps its effort --
+    and a click on a mark does the same; Enter goes forward -- opens, starts, answers -- and
+    never flips a mark."""
     ascii_ = not utf8()
     named = [f"{'space' if ascii_ else '␣'} {space}"] if space else []
     named += [f"{'enter' if ascii_ else '⏎'} {enter}"] if enter else []
@@ -1380,11 +1381,11 @@ def choose(choices, default=None, around=None, wait=None, warn=None):
     `around(choice)` draws the screen a list is asked inside, its key line naming what Enter
     does on `choice`, the highlighted one, and returns the row its first choice goes on; it is
     called again after every key and whenever the screen wants drawing again -- a resize -- so
-    the list and the rows a click is read against are always where that screen now puts them.  There a
-    click on a choice picks it; the key line's Enter answers as the
-    key does, and a click anywhere else goes back;
-    a button that went down before the list moved is no click.  The pointer on a choice moves
-    the highlight to it, and its screen is drawn again for what else it lights.
+    the list and the rows a click is read against are always where that screen now puts them.
+    There a click on a choice picks it; the key line's Enter answers as the key does, and a
+    click anywhere else goes back; a button that went down before the list moved is no click.
+    The pointer on a choice moves the highlight to it, and its screen is drawn again for what
+    else it lights.
     `wait`, where given, reads the key in `read_key`'s place, or None for a draw: the menu's own
     (`menu.moving`) keeps its dots breathing while the list is asked.  `warn` is a choice drawn
     in the warn colour: the one of `confirm`'s that ends something.
@@ -1443,8 +1444,9 @@ def confirm(question, meaning, answer, around, wait=None):
     `choose` reads them, so Enter or a click answers.  `around(card, keys)` draws the screen it
     is asked on with the card's lines where they go, under the card's own key line, `keys`:
     Enter named for the highlighted answer (`⏎ keep`, `⏎ stop`), nothing of that screen's.  It
-    returns the row the first line landed on, or None when there is none any more; it is called again on a resize, the card wrapped anew, and
-    whenever `wait` answers None: a `meaning` that is a function is asked again on each draw.
+    returns the row the first line landed on, or None when there is none any more; it is called
+    again on a resize, the card wrapped anew, and whenever `wait` answers None: a `meaning`
+    that is a function is asked again on each draw.
     """
     keep, act = f"{glyph('done')} Keep", f"{glyph('FAIL')} {answer}"
 
