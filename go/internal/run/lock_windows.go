@@ -9,8 +9,8 @@ import (
 const errorSharingViolation = syscall.Errno(32)
 
 // hold opens the named file in the run's directory shared with nobody, waiting its turn; the
-// directory's own lock is nothing here: Python ak never runs on Windows, so recovery.lock alone
-// keeps writes apart.
+// directory's own lock is nothing here: Python ak never runs on Windows, so the named file's
+// alone keeps writes apart.
 func hold(dir, name string) (func(), error) {
 	if name == "" {
 		return func() {}, nil

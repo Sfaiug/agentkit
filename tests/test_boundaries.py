@@ -119,11 +119,11 @@ RULES = [
               "agentkit/roundloop.py",
               "agentkit/deliver.py"),
      "max": 0},
-    # A run's writer owns the temporary files and recovery lock it leaves on disk.
+    # A run's writer owns the temporary files and recovery lock it leaves on disk, in each program.
     {"name": "run record write",
      "flags": (),
      "pattern": r"run\.tmp|delivery\.tmp|recovery\.lock",
-     "home": ("agentkit/record.py",),
+     "home": ("agentkit/record.py", "go/internal/run/write.go"),
      "max": 0},
     # A live loop writes its record through `Loop.write`, which keeps what the watcher or a
     # rename put there since; a whole save of its memory would put the old record back.
