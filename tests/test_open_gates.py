@@ -652,6 +652,13 @@ ak() { printf '%s\\n' "$ROW"; }
         self.assertEqual(set(links), {'.agentkit/secrets/claude_oauth_token'})
         self.assertEqual(copies, {'.config/opencode/opencode.json': '{"theme": "dark"}',
                                   '.agentkit/secrets/discord_webhook': 'fixture webhook'})
+        # Its silence with none lent is a skip too: a new HOME's first OpenCode is slow to start.
+        out, _, _, _ = gate('claude opencode', {'.agentkit/secrets/claude_oauth_token': 'fixture token'},
+                            {'claude': '0 fixture: worker token',
+                             'opencode': '2 opencode: provider discovery unavailable for mimo'})
+        self.assertIn('HERE= claude:anthropic\nSEAT=\nbad=\n', out)
+        self.assertIn("SKIP  c: opencode's login is not on this host, and its auth gave no answer: "
+                      "opencode: provider discovery unavailable for mimo", out)
         # A login this host lent that is refused, unanswered in time, unreadable or cannot be
         # linked fails, for every harness; no harness at all fails.
         for host, logins, answers, broken, why in (
