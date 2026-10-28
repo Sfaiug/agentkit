@@ -147,7 +147,7 @@ assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
                 row = next(s for s in orch.listing() if s["name"] == name)
                 # nobody is in it and it owes nothing: it rests, its number the way back in
                 self.assertEqual(menu.state(row), "idle")
-                self.assertIn("ownership unverified", menu.row(self.cfg, 1, row)[4])
+                self.assertIn("starts a new Codex conversation", menu.row(self.cfg, 1, row)[4])
                 for width in (40, 100):
                     with patch.object(terminal, "width", return_value=width), \
                             redirect_stdout(io.StringIO()) as output:
@@ -156,7 +156,7 @@ assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
                     # its reason says what the number will do -- whole where it fits.
                     self.assertIn("session closed: press 1 to reopen", output.getvalue())
                     if width == 100:
-                        self.assertRegex(output.getvalue(), r"starts\s+fresh")
+                        self.assertRegex(output.getvalue(), r"a\s+new\s+Codex\s+conversation")
                     self.assertTrue(all(terminal.cells(line) <= width
                                         for line in output.getvalue().splitlines()))
                 with patch.object(orch, "resume", return_value=0) as resume:
@@ -164,7 +164,7 @@ assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
                     resume.assert_called_once()
                 args, logs = self.resume(name)
                 self.assertNotIn("resume", args)
-                self.assertIn("ownership unverified; it starts fresh", logs[0])
+                self.assertIn("it starts a new Codex conversation", logs[0])
                 saved = config.session_records()[name]
                 self.assertEqual(saved["codex_history"][0]["conversation"], "old-guess")
                 self.assertEqual(saved["before"], ["old-data"])

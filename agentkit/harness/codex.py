@@ -48,7 +48,7 @@ QUESTION_TOOL = "request_user_input_async"
 # A Plan-mode turn asks with `request_user_input`, which waits in a dialog of the seat's own: its
 # PreToolUse is the seat asking.  One group takes both tools, as Codex reads a matcher as a regex.
 QUESTIONS = "request_user_input(_async)?"
-FRESH = "Codex ownership unverified; starts fresh"
+FRESH = "starts a new Codex conversation"
 BEGIN = "# --- agentkit browser bridge: managed by `ak browser mcp-register` ---"
 END = "# --- end agentkit browser bridge ---"
 
