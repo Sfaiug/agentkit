@@ -26,6 +26,7 @@ LOST = 255            # ssh's own failure
 LACKS = 3             # mac.sh's `prepare`: the Mac's copy lacks history the parcel left out
 SHORT = 254           # piece.sh: the kernel of the piece's VM killed a process for memory
 BATTERY, FULL, BROKEN = 251, 252, 253   # mac.sh: off power, no room for the VM, could not run
+GONE = (LOST, SHORT, BATTERY, FULL, BROKEN)   # a piece's exit when the Mac lost it
 TOOLS = config.REPO / "tools" / "helper"
 RECIPE = "tools/helper/Containerfile"     # a repository's recipe when `suite_image:` names none
 SSH = ("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15")

@@ -119,6 +119,9 @@ class SuiteHelper(unittest.TestCase):
         self.stack.enter_context(patch.object(gate, "time", clock))
         self.stack.enter_context(patch.object(gate, "_acquire_gate_turn", side_effect=self.turn))
         (config.HOME / config.CONFIG_NAME).write_text('suite_helper = "acme-mac"\n')
+        # A question a suite left the helper ends before the checkout it reads goes.
+        self.addCleanup(lambda: [thread.join() for thread in threading.enumerate()
+                                 if thread.name == gate.ASKING])
 
     def turn(self, *args, **_kw):
         if not _kw.get("wait", True):
@@ -142,13 +145,13 @@ class SuiteHelper(unittest.TestCase):
 
     def test_pieces_run_on_the_helper_and_take_no_turn_here(self):
         text, warned = self.check({})
-        for shard in ("1/3", "2/3", "3/3"):
+        for shard in (f"{k}/6" for k in range(1, 7)):    # its three VMs take six pieces
             self.assertIn(f"--- AK_SHARD={shard} ---\n[exit 0]\nhelper ran {shard}\npiece {shard}",
                           text)
         self.assertEqual((self.turns, warned), ([], []))
         verbs = (self.fake / "calls").read_text().split()
         self.assertEqual((verbs[:3], verbs.count("run"), verbs[-1]),
-                         (["probe", "known", "prepare"], 3, "finish"))
+                         (["probe", "known", "prepare"], 6, "finish"))
         with tarfile.open(self.fake / "parcel.tar") as tar:
             tar.extractall(self.fake / "parcel")
         heads = subprocess.run(["git", "bundle", "list-heads", "parcel/repo.bundle"], cwd=self.fake,
@@ -156,18 +159,18 @@ class SuiteHelper(unittest.TestCase):
         self.assertEqual(heads[1::2], ["HEAD", "refs/remotes/origin/main"])
 
     def test_what_the_helper_loses_or_fails_runs_here_on_a_turn(self):
-        for codes, warn in (({2: helper.LOST}, []), ({2: 1}, ["WARN AK_SHARD=2/3"])):
+        for codes, warn in (({2: helper.LOST}, []), ({2: 1}, ["WARN AK_SHARD=2/6"])):
             with self.subTest(codes=codes):
                 text, warned = self.check(codes)
-                self.assertIn("--- AK_SHARD=2/3 ---\n[exit 0]\npiece 2/3", text)
-                self.assertIn("helper ran 1/3", text)
+                self.assertIn("--- AK_SHARD=2/6 ---\n[exit 0]\npiece 2/6", text)
+                self.assertIn("helper ran 1/6", text)
                 self.assertNotIn("acme broke", text)
                 self.assertEqual(len(self.turns), 1)
                 self.assertEqual([line[:17] for line in warned], warn)
 
     def test_the_log_says_which_pieces_the_helper_lost_or_that_every_piece_passed_there(self):
         passed, lost = ("every piece passed on the suite helper acme-mac",
-                        "the suite helper lost AK_SHARD=2/3; it runs here")
+                        "the suite helper lost AK_SHARD=2/6; it runs here")
         for codes, said in (({}, [passed]), ({2: helper.LOST}, [lost]), ({2: 1}, []),
                             ({2: helper.SHORT}, [])):
             with self.subTest(codes=codes):
@@ -176,13 +179,13 @@ class SuiteHelper(unittest.TestCase):
 
     def test_a_piece_failed_there_keeps_what_it_printed_there(self):
         warned = self.check({2: 1})[1]
-        kept = re.fullmatch(r"WARN AK_SHARD=2/3 failed on the suite helper; "
+        kept = re.fullmatch(r"WARN AK_SHARD=2/6 failed on the suite helper; "
                             r"what it printed there: (.+)", warned[0])
-        self.assertEqual(Path(kept[1]).read_text(), "acme broke 2/3\n")
+        self.assertEqual(Path(kept[1]).read_text(), "acme broke 2/6\n")
 
     def test_a_vm_that_ran_out_of_memory_runs_its_piece_here_and_the_next_vms_are_larger(self):
         text, warned = self.check({2: helper.SHORT})
-        self.assertIn("--- AK_SHARD=2/3 ---\n[exit 0]\npiece 2/3", text)
+        self.assertIn("--- AK_SHARD=2/6 ---\n[exit 0]\npiece 2/6", text)
         self.assertEqual((len(self.turns), warned), (1, []))
         # each VM had twice a piece's 410 MiB; the next ones each get twice as much
         self.assertEqual([path.read_text() for path in config.STATE.glob("helper-memory-*")],
@@ -192,7 +195,7 @@ class SuiteHelper(unittest.TestCase):
 
     def test_a_vm_that_ran_out_of_memory_counts_when_a_sibling_runs_out_of_time(self):
         def limited(argv, _left, on_timeout, **_kw):
-            if argv == ["1/3"]:
+            if argv == ["1/6"]:
                 return helper.SHORT, "", False
             on_timeout("ceiling", 0)
             return worker.TIMEOUT, "", True
@@ -226,7 +229,7 @@ class SuiteHelper(unittest.TestCase):
         subprocess.run([*self.git, "commit", "-qm", "tracked"], check=True)
         warned = self.check({}, SUITE + "; echo altered >>tracked")[1]
         self.assertEqual(sorted(line[:17] for line in warned),
-                         [f"WARN AK_SHARD={k}/3" for k in (1, 2, 3)])
+                         [f"WARN AK_SHARD={k}/6" for k in range(1, 7)])
 
     def test_a_repository_s_own_recipe_builds_its_own_image(self):
         def commit(files):

@@ -1,5 +1,5 @@
-"""One suite uses the helper's pieces and free local turns together. Offline: fake ssh,
-gate turns and piece exits, with a barrier proving both hosts' pieces start together.
+"""One suite uses the helper's VMs and free local turns together. Offline: fake ssh, gate
+turns and piece exits, with a barrier proving each place's first piece starts together.
 """
 
 from collections import Counter
@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import test_suite_helper as fixture
-from agentkit import config, gate, helper, host, worker
+from agentkit import gate, helper, host, worker
 
 
 class Turn:
@@ -51,31 +51,30 @@ class SuiteOnBoth(unittest.TestCase):
         self.holds.append(hold)
         return hold
 
-    def check(self, codes=None, count=5):
-        self.calls, self.holds, self.turns = Counter(), [], []
+    def check(self, codes=None, places=5):
+        """The suite on `places` places; `codes[place]`: the exits of the first piece run there."""
+        self.calls, self.holds, self.turns, self.first = Counter(), [], [], {}
         self.local_turns, self.logs = [], []
-        started, finished, outcomes = set(), set(), {}
-        barrier, lock = threading.Barrier(count, timeout=10), threading.Lock()
+        started, outcomes = set(), {}
+        barrier, lock = threading.Barrier(places, timeout=10), threading.Lock()
 
         def execute(place, argv, _limit, *, env, output, **_kw):
             shard = env["AK_SHARD"]
             with lock:
                 key = place, shard
                 self.calls[key] += 1
-                attempt = self.calls[key]
                 first = shard not in started
                 started.add(shard)
+                failing = self.first.setdefault(place, shard) == shard
                 if place == "here":
                     self.assertEqual(argv, ["bash", "-c", fixture.SUITE])
                     self.assertEqual(env.get("AK_HEAVY_TURN"), "1")
                     self.local_turns.append((shard, len(self.holds[-1].slots)))
-            if first:
+            if first and len(started) <= places:
                 barrier.wait()
-            exits = (codes or {}).get(key, (0,))
-            code = exits[min(attempt - 1, len(exits) - 1)]
+            exits = (codes or {}).get(place, (0,)) if failing else (0,)
+            code = exits[min(self.calls[key] - 1, len(exits) - 1)]
             output.write(f"{place} {shard}: exit {code}\n".encode())
-            with lock:
-                finished.add(shard)
             return code, "", False
 
         with patch.object(worker, "limited", side_effect=lambda *a, **kw: execute(
@@ -84,72 +83,93 @@ class SuiteOnBoth(unittest.TestCase):
             code, text, killed = gate.run_suite(
                 fixture.SUITE, 30, cwd=self.repo, activity=self.root / "live.log",
                 output=io.BytesIO(), log=self.logs.append, pieces=outcomes)
-        self.assertEqual(started, {f"{i}/{count}" for i in range(1, count + 1)})
-        self.assertEqual(finished, started)
-        self.assertEqual(outcomes.keys(), started)
-        self.assertCountEqual([call.args[1] for call in sent.call_args_list],
-                              [f"{i}/{count}" for i in range(1, sent.call_count + 1)])
+        self.count = 2 * places
+        self.shards = {f"{i}/{self.count}" for i in range(1, self.count + 1)}
+        self.assertEqual(started, self.shards)
+        self.assertEqual(outcomes.keys(), self.shards)
+        sent = [call.args[1] for call in sent.call_args_list]
+        self.assertEqual(sorted(sent), sorted(set(sent)))    # the helper ran each piece once
+        self.assertEqual(sum(self.calls.values()), self.count + self.retried())
         self.assertTrue(all(hold.released for hold in self.holds))
         self.assertIsNone(gate._GATE_HELD.hold)
         return code, text, killed, outcomes
 
-    def initial_calls(self, count=5, remote=3):
-        return Counter({("helper" if i <= remote else "here", f"{i}/{count}"): 1
-                        for i in range(1, count + 1)})
+    def retried(self):
+        return sum(n - 1 for n in Counter(shard for _, shard in self.calls.elements()).values())
 
-    def test_three_helper_pieces_and_two_local_pieces_pass_as_one_suite(self):
+    def test_helper_pieces_and_local_pieces_pass_as_one_suite(self):
         code, text, killed, outcomes = self.check()
         self.assertEqual((code, killed), (0, False), text)
-        self.assertEqual(outcomes, {f"{i}/5": 0 for i in range(1, 6)})
-        self.assertEqual(self.calls, self.initial_calls())
+        self.assertEqual(outcomes, dict.fromkeys(self.shards, 0))
+        self.assertEqual(self.retried(), 0)
         self.assertEqual(self.turns, [False])
-        for shard in ("1/5", "2/5", "3/5"):
-            self.assertIn(f"AK_SHARD={shard} on acme-mac", self.logs)
-        for shard in ("4/5", "5/5"):
-            self.assertIn(f"AK_SHARD={shard} runs here: free heavy suite turns", self.logs)
+        for place, shard in self.calls:
+            self.assertIn(f"AK_SHARD={shard} on acme-mac" if place == "helper" else
+                          f"AK_SHARD={shard} runs here: free heavy suite turns", self.logs)
         self.assertIn("every piece passed on the suite helper acme-mac and this host", self.logs)
 
     def test_helper_failures_and_losses_rerun_here_on_the_turns_already_held(self):
         for failed in (1, helper.LOST):
             with self.subTest(failed=failed):
-                code, text, killed, outcomes = self.check({("helper", "2/5"): (failed,)})
+                code, text, killed, outcomes = self.check({"helper": (failed,)})
                 self.assertEqual((code, killed), (0, False), text)
                 self.assertTrue(all(code == 0 for code in outcomes.values()))
-                self.assertEqual(self.calls, self.initial_calls() + Counter({("here", "2/5"): 1}))
+                shard = self.first["helper"]
+                self.assertEqual(self.calls[("here", shard)], 1)
+                self.assertEqual(self.retried(), 1)
                 self.assertEqual(self.turns, [False])
-                self.assertIn(("2/5", 2), self.local_turns)
-                self.assertIn(f"AK_SHARD=2/5 runs here: helper acme-mac {helper.failure(failed)}",
-                              self.logs)
+                self.assertIn((shard, 2), self.local_turns)
+                self.assertIn(f"AK_SHARD={shard} runs here: helper acme-mac "
+                              f"{helper.failure(failed)}", self.logs)
 
     def test_local_failure_retries_alone_and_is_not_a_helper_failure(self):
-        code, text, killed, _ = self.check({("here", "4/5"): (1, 0)})
+        code, text, killed, _ = self.check({"here": (1, 0)})
         self.assertEqual((code, killed), (0, False), text)
-        self.assertEqual(self.calls, self.initial_calls() + Counter({("here", "4/5"): 1}))
-        self.assertIn(("4/5", 1), self.local_turns)
+        self.assertEqual(self.calls[("here", self.first["here"])], 2)
+        self.assertEqual(self.retried(), 1)
+        self.assertEqual(self.local_turns[-1], (self.first["here"], 1))
         self.assertEqual([line for line in self.logs if line.startswith("WARN")], [])
         self.assertIn("flaky:", text)
 
     def test_a_local_piece_still_failing_keeps_the_suite_red(self):
-        code, text, killed, outcomes = self.check({("here", "5/5"): (1,)})
+        code, text, killed, outcomes = self.check({"here": (1,)})
         self.assertEqual((code, killed), (1, False), text)
-        self.assertEqual(outcomes, {f"{i}/5": int(i == 5) for i in range(1, 6)})
-        self.assertEqual(self.calls, self.initial_calls() + Counter({("here", "5/5"): 1}))
+        self.assertEqual(outcomes, {shard: int(shard == self.first["here"])
+                                    for shard in self.shards})
+        self.assertEqual(self.calls[("here", self.first["here"])], 2)
 
-    def test_no_local_turn_runs_all_three_pieces_on_the_helper(self):
+    def test_no_local_turn_runs_every_piece_on_the_helper(self):
         self.local_count = 0
-        code, text, killed, _ = self.check(count=3)
+        code, text, killed, _ = self.check(places=3)
         self.assertEqual((code, killed), (0, False), text)
-        self.assertEqual(self.calls, self.initial_calls(count=3))
+        self.assertEqual({place for place, _ in self.calls}, {"helper"})
         self.assertEqual(self.turns, [False])
         self.assertEqual(self.holds, [])
         self.assertIn("every piece passed on the suite helper acme-mac", self.logs)
 
     def test_helper_refusal_runs_only_local_pieces(self):
         with patch.object(helper, "room", return_value=(None, "is on battery")):
-            code, text, killed, _ = self.check(count=2)
+            code, text, killed, _ = self.check(places=2)
         self.assertEqual((code, killed), (0, False), text)
-        self.assertEqual(self.calls, self.initial_calls(count=2, remote=0))
+        self.assertEqual({place for place, _ in self.calls}, {"here"})
         self.assertEqual(self.turns, [True])
+
+    def test_a_finished_suite_never_waits_on_the_helper_s_answer(self):
+        asked, returned, answered = threading.Event(), threading.Event(), threading.Event()
+
+        def start(*_args):
+            if self.turns:    # asked again while a piece waits: the suite ends meanwhile
+                asked.set()
+                returned.wait(10)
+                answered.set()
+            return None, "helper acme-mac is on battery"
+
+        self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.01))
+        self.addCleanup(returned.set)    # the helper answers only once the suite has returned
+        with patch.object(helper, "start", side_effect=start), \
+                patch.object(Turn, "take", lambda _hold, _stopped: asked.wait(10)):
+            code, text, killed, _ = self.check(places=2)
+        self.assertEqual((code, killed, answered.is_set()), (0, False, False), text)
 
     def test_local_admission_takes_free_turns_without_waiting_or_passing_an_older_waiter(self):
         for held, older in ((0, False), (2, False), (0, True)):

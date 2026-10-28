@@ -92,7 +92,7 @@ class WaitingSuiteGoesToTheMac(unittest.TestCase):
 
     def test_a_suite_the_mac_has_no_room_for_runs_here_once_a_turn_frees(self):
         shares, verbs = land(self, room_later=False)
-        self.assertEqual(shares, ["1/1"])
+        self.assertEqual(sorted(shares), ["1/2", "2/2"])
         self.assertNotIn("run", verbs)
 
 

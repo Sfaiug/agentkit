@@ -524,7 +524,7 @@ class Lander(LanderFixture, unittest.TestCase):
               patch.object(gate, "mark_gate_wait", side_effect=AssertionError("member write")),
               patch.object(gate.history, "close_step", side_effect=AssertionError("member step"))):
             land.check_line(self.turn)
-        self.assertEqual(sorted(pieces.read_text().splitlines()), ["1/2", "2/2"])
+        self.assertEqual(sorted(pieces.read_text().splitlines()), ["1/4", "2/4", "3/4", "4/4"])
         current = record.read_state(directory)
         tree = current["waiting_on"].pop("land")
         self.assertEqual(current["waiting_on"].pop("after"), {})

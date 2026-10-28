@@ -1,6 +1,6 @@
 """A piece that fails on the suite helper naming its failed tests runs those alone here: failing,
 it is red; passing, the piece runs whole here, and passing that too, the suite passes with a
-flake note naming the helper. One that names none runs whole here. Offline: the fake `ssh` of test_suite_helper, whose piece 2/3 fails there.
+flake note naming the helper. One that names none runs whole here. Offline: the fake `ssh` of test_suite_helper, whose piece 2/6 fails there.
 """
 
 import io
@@ -54,15 +54,15 @@ class MacFailureRerunsItsFiles(unittest.TestCase):
                     patch.object(gate, "busy_turn", return_value=0):
                 code, text = self.suite("tests/test_a.py\n")
                 self.assertEqual(code, 0, text)
-                self.assertIn("--- AK_SHARD=2/3 ---\n[exit 0]\npiece 2/3\n", text)
-                self.assertIn(f"flaky: {SUITE} (AK_SHARD=2/3) failed on the suite helper "
+                self.assertIn("--- AK_SHARD=2/6 ---\n[exit 0]\npiece 2/6\n", text)
+                self.assertIn(f"flaky: {SUITE} (AK_SHARD=2/6) failed on the suite helper "
                               "acme-mac, then passed on its re-run", text)
         self.assertEqual(busy, [["tests/test_a.py"]])
 
     def test_its_failed_tests_failing_here_keep_it_red(self):
         code, text = self.suite("tests/test_a.py\n", ACME_RED="1")
         self.assertEqual(code, 1, text)
-        self.assertIn("--- AK_SHARD=2/3 ---\n[exit 1]\n"
+        self.assertIn("--- AK_SHARD=2/6 ---\n[exit 1]\n"
                       "its failed tests failed again, run alone\n"
                       "listed [tests/test_a.py]", text)
         self.assertNotIn("flaky:", text)
@@ -70,7 +70,7 @@ class MacFailureRerunsItsFiles(unittest.TestCase):
     def test_a_piece_that_named_no_test_runs_whole_here(self):
         code, text = self.suite()
         self.assertEqual(code, 0, text)
-        self.assertIn("--- AK_SHARD=2/3 ---\n[exit 0]\npiece 2/3", text)
+        self.assertIn("--- AK_SHARD=2/6 ---\n[exit 0]\npiece 2/6", text)
         self.assertNotIn("listed", text)
 
 

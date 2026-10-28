@@ -98,7 +98,7 @@ case $5 in''')
     def test_helper_success_names_the_mac_and_each_piece(self):
         log = self.check()
         self.assertIn("suite on acme-mac: 3 pieces, 2 CPUs", log)
-        for shard in ("1/3", "2/3", "3/3"):
+        for shard in (f"{k}/6" for k in range(1, 7)):
             self.assertIn(f"AK_SHARD={shard} on acme-mac\n", log)
 
     def test_each_piece_returned_by_the_helper_names_its_reason_here(self):
@@ -108,8 +108,8 @@ case $5 in''')
             with self.subTest(code=code):
                 (self.fake / "code-2").write_text(str(code))
                 log = self.check()
-                self.assertIn("AK_SHARD=2/3 on acme-mac\n", log)
-                self.assertIn(f"AK_SHARD=2/3 runs here: helper acme-mac {reason}\n", log)
+                self.assertIn("AK_SHARD=2/6 on acme-mac\n", log)
+                self.assertIn(f"AK_SHARD=2/6 runs here: helper acme-mac {reason}\n", log)
 
     def test_unsplit_and_pinned_commands_say_they_are_not_sent_there(self):
         for landing in (True, False):

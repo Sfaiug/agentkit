@@ -61,7 +61,7 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
         """The suite in two pieces whose first go of 1/2 says `first` ("silence" or an exit),
         and whose second go, if any, says `second`: the calls, the stops the caller was told
         of, the result, and whether 2/2 saw its siblings cancelled once 1/2 had stopped."""
-        calls, told, cancelled, stopped = [], [], [], threading.Event()
+        calls, told, cancelled, stopped, begun = [], [], [], threading.Event(), threading.Event()
         self.markers = {}
 
         def boxed(cmd, limit, env, output, silence=None, on_timeout=None, abort=None, quiet=None,
@@ -71,6 +71,7 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
             self.markers[shard] = env.get(worker.RUN_MARKER)
             output.write(f"piece {shard}\n".encode())
             if shard == "2/2":
+                begun.set()
                 stopped.wait(10)
                 cancelled.append(abort())
                 if quiet is not None:
@@ -78,6 +79,7 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
                 return 0, "", False
             said = first if len([c for c in calls if c[0] == "1/2"]) == 1 else second
             if said == "silence":
+                begun.wait(10 if later is None else 0)    # its stop cancels a running sibling
                 on_timeout("silence", NOBODY)
                 stopped.set()
                 return worker.TIMEOUT, "", True
@@ -107,7 +109,7 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
 
     def test_a_piece_its_pace_stopped_on_the_helper_goes_again_here_on_a_turn(self):
         turns = []
-        with patch.object(gate._GATE_HELD, "away", SimpleNamespace(count=2), create=True), \
+        with patch.object(gate._GATE_HELD, "away", SimpleNamespace(count=1), create=True), \
                 patch.object(gate._GATE_HELD, "home", lambda: turns.append(1), create=True), \
                 patch.object(gitcall, "_RUN_CONTEXT", SimpleNamespace(state={"run_id": "fixture"})), \
                 patch.object(helper, "piece", lambda _away, _shard, _command: ["true"]):
@@ -139,7 +141,7 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
 
         hold = SimpleNamespace(slots=[1, 2], pieces=2, alone=lambda: None,
                                take=lambda stopped: True, give=lambda slot: None)
-        with patch.object(gate._GATE_HELD, "away", SimpleNamespace(count=2), create=True), \
+        with patch.object(gate._GATE_HELD, "away", SimpleNamespace(count=1), create=True), \
                 patch.object(gate._GATE_HELD, "hold", None, create=True), \
                 patch.object(gate._GATE_HELD, "home", lambda: hold, create=True), \
                 patch.object(helper, "piece", lambda _away, _shard, _command: ["true"]), \

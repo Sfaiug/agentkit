@@ -38,6 +38,7 @@ GATE_POLL = 15      # seconds between a waiting gate's tries for a turn; each re
 HEAVY_CPUS = 0.7      # initial measured estimates; a repository's pieces may cost more
 HEAVY_MEM_MB = 410
 SUITE_BUSY = 75       # sysexits' EX_TEMPFAIL: a heavy suite's own host-wide lock is another copy's
+ASKING = "ak-asks-the-suite-helper"    # a suite's late question to it, which nothing joins
 OUT_OF_MEMORY = "ran out of memory"   # `run_suite(pieces=)`: no exit tells it (`_SuiteMeasure.starved`)
 # A piece on the suite helper runs in a clone there, which land._check's look at this checkout
 # never sees: the piece checks that clone itself and fails, as land._check does, if it changed.
@@ -808,14 +809,56 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False):
     return False
 
 
+class _Pieces:
+    """A sharded suite's pieces not yet run, each taken by the next place to free, a turn here or
+    a VM on the suite helper; one the helper gave back (`helper.GONE`) waits for a turn here."""
+
+    def __init__(self, count):
+        self.waiting, self.back, self.out, self.there = list(range(count)), set(), 0, 0
+        self.cond, self.hold = threading.Condition(), None
+
+    def mine(self, here):
+        return [index for index in self.waiting if here or index not in self.back]
+
+    def next(self, ended, here):
+        """(the next piece, its turn here or True), or None once none may come for this place."""
+        while True:
+            with self.cond:
+                while here and not self.waiting and self.out and not ended():
+                    self.cond.wait(GATE_POLL)
+                if ended() or not self.mine(here):
+                    self.there -= not here
+                    return None
+            turn = self.hold.take(lambda: ended() or not self.waiting) if (
+                here and self.hold) else True
+            with self.cond:
+                if turn is not None and (mine := self.mine(here)):
+                    self.waiting.remove(mine[0])
+                    self.out += 1
+                    return mine[0], turn
+            if turn is not True:
+                self.hold.give(turn)
+
+    def done(self, index, back, turn):
+        if turn is not True:
+            self.hold.give(turn)
+        with self.cond:
+            self.out -= 1
+            if back:    # and its place there ends
+                self.waiting.insert(0, index)
+                self.back.add(index)
+                self.there -= 1
+            self.cond.notify_all()
+
+
 class _GateHold:
     """Held turns: the open slot files and those this thread locked.
 
     The hold owns its files rather than the frame that waited for them, so a fixer
     or a reviewer lets it go from inside the frame that took it.  Releasing unlocks
     the slot and closes the files, as leaving the frame would have.
-    A sharded suite splits into `pieces`, the derived limit it was admitted at; each
-    piece runs on a turn of its own (`take`), and turns the host frees join the hold (`more`).
+    A sharded suite has `pieces` places here, the derived limit it was admitted at; each
+    takes a turn of its own (`take`), and turns the host frees join the hold (`more`).
     """
 
     def __init__(self, files, slots, context=None, pieces=None, more=None, queued=None):
@@ -871,7 +914,7 @@ class _GateHold:
         if slot is not None:
             with self.lock:
                 self.idle.append(slot)
-                self.lock.notify()
+                self.lock.notify_all()    # a place waiting for a turn sees the list end
 
     def alone(self):
         for slot in self.slots[1:]:
@@ -1184,9 +1227,9 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, l
     typo would fail the next suite of every running run -- means a derived count,
     and a log line naming the problem.
     A check running while this thread already holds a turn takes no second one.
-    A command naming AK_SHARD splits into as many pieces as the derived limit fits, using its
+    A command naming AK_SHARD gets as many places as the derived limit fits, using its
     repository's measured cost when available: it takes the turns free now, then those freed
-    while it ranks first, one piece running on each (`_GateHold`).
+    while it ranks first, each running one piece at a time (`_GateHold`, `run_suite`).
     A suite the helper has room for (`helper.start`) also takes the local turns free now;
     one that waits asks it again while it ranks first, and goes there once it has room.
     A `local` one reads a file only this host holds, and never goes to the helper.
@@ -1427,16 +1470,17 @@ class _SuiteMeasure:
                 with self.lock:
                     self.peak = max(self.peak, held)
 
-    def save(self, path, pieces):
-        """`pieces` the ones that ran here."""
+    def save(self, path, pieces, places=None):
+        """`pieces` the ones that ran here, on `places` at once, as many where None."""
+        places = places or pieces
         elapsed = time.monotonic() - self.started
         if elapsed <= 0:
             return
         cost = {"wall_seconds": elapsed, "run_id": self.run_id}
         if len(self.cpu) == pieces:
-            cost["cpus"] = max(HEAVY_CPUS, sum(self.cpu) / (elapsed * pieces))
+            cost["cpus"] = max(HEAVY_CPUS, sum(self.cpu) / (elapsed * places))
         if self.baseline is not None:
-            cost["mem_mb"] = self.mem_mb = max(HEAVY_MEM_MB, (self.peak - self.baseline) / pieces)
+            cost["mem_mb"] = self.mem_mb = max(HEAVY_MEM_MB, (self.peak - self.baseline) / places)
         try:
             with watch.state_lock():
                 previous = read_suite_cost(path)
@@ -1572,11 +1616,11 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         hold = getattr(_GATE_HELD, "hold", None)
         away = getattr(_GATE_HELD, "away", None)
         path, cpu, mem = suite_cost(command, cwd, run_dir)
-        count = hold.pieces if hold else 0
-        if away:
-            count += away.count
-        elif not hold:
-            count = derived_heavy_limit(running=0, job_cpus=cpu, job_mem_mb=mem, unit=True)
+        # Twice the places it starts with, so a faster machine takes more and every place ends
+        # near the others; without a turn every piece runs at once.
+        places = (hold.pieces if hold else 0) + (away.count if away else 0)
+        count = 2 * places or derived_heavy_limit(running=0, job_cpus=cpu, job_mem_mb=mem,
+                                                  unit=True)
         env = suite_env(changed)    # the piece threads do not inherit this thread's held turn
         deadline = time.monotonic() + limit
         cancel, writing = threading.Event(), threading.Lock()
@@ -1593,8 +1637,13 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
 
         with ExitStack() as files:
             results = []
-            def attempt(shard, only=None, first=False):
-                """The piece of `shard`, or with `only` just those of its tests, as one share;
+            def over():
+                return run_record.stop_check(run_dir) or cancel.is_set() or (
+                    time.monotonic() >= deadline)
+
+            def attempt(shard, only=None, first=False, there=None, turn=None):
+                """The piece of `shard`, or with `only` just those of its tests, as one share,
+                on the helper's `there` or on this host's `turn` (one taken when None);
                 a `first` go stopped for silence goes again where the suite has a pace."""
                 run_record.stop_check(run_dir)
                 piece = files.enter_context(tempfile.NamedTemporaryFile(
@@ -1643,19 +1692,17 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     measure.sample()
                     return cancel.is_set()
 
-                there = away if away and int(shard.split("/")[0]) <= away.count else None
-                local = None if there else hold
-                turn = local.take(lambda: run_record.stop_check(run_dir) or cancel.is_set()
-                                  or time.monotonic() >= deadline) if local else True
+                local = None if there or turn else hold
+                turn = turn or (local.take(over) if local else True)
                 # The watchdog reads this piece's file, so a chatty sibling cannot hide silence.
                 left = deadline - time.monotonic()
-                if turn is None or left <= 0:
+                if turn is None or left <= 0 or cancel.is_set():
                     if local:
                         local.give(turn)
                     cancel.set()
                     return worker.TIMEOUT, piece, True, []
                 if log is not None:
-                    reason = home_reason if first else home_reasons.get(shard) or (
+                    reason = home_reasons.get(shard) or (home_reason if first else
                         "command is not sent to the suite helper (piece retry)")
                     with writing:
                         log(f"AK_SHARD={label} on {there.alias}" if there else
@@ -1686,13 +1733,12 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         local.give(turn)
                 return code, piece, killed, tests
 
-            def attempts(which, first=False, only=None):
+            def attempts(which, only=None):
                 """The pieces at `which`, each with `only`'s tests for it, if any, alone."""
                 only = only or {}
                 with ThreadPoolExecutor(max_workers=len(which)) as pool:
                     try:
-                        futures = [pool.submit(attempt, f"{index + 1}/{count}", only.get(index),
-                                               first=first)
+                        futures = [pool.submit(attempt, f"{index + 1}/{count}", only.get(index))
                                    for index in which]
                         for index, future in zip(which, futures):
                             results[index] = future.result()
@@ -1700,41 +1746,98 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         cancel.set()
                         raise
 
-            results = [None] * count
-            attempts(range(count), first=True)
+            def pull(here):
+                """`here` places on this host and `away`'s VMs each take the next waiting piece
+                as they free; while no VM takes any, the helper is asked again as each ends."""
+                pieces_left.hold, futures = hold, []
+
+                def place(there=None):    # a VM there ends with the piece it gives back
+                    back = False
+                    while not back and (taken := pieces_left.next(over, not there)) is not None:
+                        (index, turn), shard = taken, f"{taken[0] + 1}/{count}"
+                        result = attempt(shard, first=True, there=there, turn=turn)
+                        code, back = result[0], there and result[0] in helper.GONE and not result[2]
+                        pieces_left.done(index, back, turn)
+                        if there and code and log is not None:
+                            home_reasons[shard] = f"helper {there.alias} {helper.failure(code)}"
+                        if not back:
+                            results[index], where[index] = result, there
+                        elif code == helper.SHORT and (least := helper.short(there)) and log:
+                            log(f"the suite helper's VMs of {there.memory_mb} MiB ran out of "
+                                f"memory: its next VMs get {least} MiB")
+                        elif code == helper.LOST and log:
+                            # Without this a suite the helper lost reads as one it ran.
+                            log(f"the suite helper lost AK_SHARD={shard}; it runs here")
+
+                def ask():
+                    while True:
+                        with pieces_left.cond:
+                            if over() or not (pieces_left.waiting or pieces_left.out):
+                                return
+                            pieces_left.cond.wait(GATE_POLL)
+                            if pieces_left.there or not pieces_left.mine(False):
+                                continue
+                        said, answer = [], []
+                        # The suite never waits on an answer (a probe, a copy sent) past its
+                        # last piece: one that comes later finishes the helper it joined.
+                        threading.Thread(target=start, args=(said, answer), daemon=True,
+                                         name=ASKING).start()
+                        with pieces_left.cond:
+                            while not answer and not over() and (
+                                    pieces_left.waiting or pieces_left.out):
+                                pieces_left.cond.wait(GATE_POLL)
+                            answer.append(None)
+                        if joined := answer[0]:
+                            files.callback(helper.finish, joined)
+                            for line in said if log else ():
+                                log(line)
+                            run_there(joined)
+
+                def start(said, answer):
+                    joined = helper.start(cpu, mem, cwd, said.append)[0]
+                    with pieces_left.cond:
+                        answer.append(joined)
+                        pieces_left.cond.notify_all()
+                    if joined and answer[0] is None:
+                        helper.finish(joined)
+
+                def run_there(there):
+                    with pieces_left.cond:
+                        pieces_left.there += min(there.count, count)
+                    futures.extend(pool.submit(place, there) for _ in range(min(there.count, count)))
+
+                with ThreadPoolExecutor(max_workers=here + count + 1) as pool:
+                    futures.extend(pool.submit(place) for _ in range(here))
+                    if away:
+                        run_there(away)
+                    if here and changed is None:
+                        futures.append(pool.submit(ask))
+                    try:
+                        for future in futures:
+                            future.result()
+                    except BaseException:
+                        cancel.set()
+                        raise
+
+            results, where, pieces_left = [None] * count, [None] * count, _Pieces(count)
+            pull(hold.pieces if hold else 0 if away else count)
             # Pieces that waited for turns did not run at once: their measure is no piece's cost.
             # Those on the helper held none of this host's memory.
-            here = count - (away.count if away else 0)
-            if here and not (hold and hold.waited) and not any(
-                    killed or code == SUITE_BUSY for code, _, killed, _ in results):
-                measure.save(path, here)
-            again = [index for index, (code, _, killed, _) in enumerate(results)
-                     if away and index < away.count and code and not killed and not cancel.is_set()]
-            helped, away = away, None
+            ran = [result for result, there in zip(results, where) if result and not there]
+            if ran and not (hold and hold.waited) and not any(
+                    result[2] or result[0] == SUITE_BUSY for result in results if result):
+                measure.save(path, len(ran), min(len(ran), hold.pieces if hold else count))
+            again = [index for index, there in enumerate(where) if there and results[index][0]
+                     and not results[index][2] and not cancel.is_set()]
             named = {}    # by index, a piece red on the helper: what it printed there, its tests
-            if helped and log is not None:
-                home_reasons.update((f"{index + 1}/{count}",
-                                     f"helper {helped.alias} {helper.failure(code)}")
-                                    for index, (code, *_) in enumerate(results[:helped.count]) if code)
-            if helped and any(code == helper.SHORT for code, *_ in results[:helped.count]):
-                least = helper.short(helped)
-                if log is not None:
-                    log(f"the suite helper's VMs of {helped.memory_mb} MiB ran out of memory: "
-                        f"its next VMs get {least} MiB")
-            if helped and log is not None:
-                # Without these a suite the helper lost reads as one it ran.
-                for index in again:
-                    if results[index][0] == helper.LOST:
-                        log(f"the suite helper lost AK_SHARD={index + 1}/{count}; it runs here")
-                if not any(code or killed for code, _, killed, _ in results):
-                    log(f"every piece passed on the suite helper {helped.alias}"
-                        f"{' and this host' if count > helped.count else ''}")
-            if again or helped and silenced and not cancel.is_set():
+            if any(where) and log is not None and not pieces_left.back and all(
+                    result and not result[0] and not result[2] for result in results):
+                log(f"every piece passed on the suite helper {next(filter(None, where)).alias}"
+                    f"{' and this host' if not all(where) else ''}")
+            if (again or pieces_left.waiting or any(where) and silenced) and not cancel.is_set():
                 # What the helper lost, failed, ran out of memory for or stopped runs again
                 # here, on this host's own turns; a stopped piece alone, below.
-                for index in (index for index in again
-                              if results[index][0] not in (helper.LOST, helper.SHORT,
-                                  helper.BATTERY, helper.FULL, helper.BROKEN)):
+                for index in again:
                     if log is not None:
                         # its go here takes its place in the suite's output: a copy keeps this one
                         handle, kept = tempfile.mkstemp(dir=run_dir or activity.parent,
@@ -1744,7 +1847,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         shutil.copyfile(results[index][1].name, kept)
                         log(f"WARN AK_SHARD={index + 1}/{count} failed on the suite helper; "
                             f"what it printed there: {kept}")
-                    if tests := helper.failed(helped, f"{index + 1}/{count}"):
+                    if tests := helper.failed(where[index], f"{index + 1}/{count}"):
                         named[index] = results[index][1], tests
                 if hold is None:
                     began = time.monotonic()
@@ -1754,8 +1857,12 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     if on_wait is not None:
                         on_wait(queued)
                 env = suite_env(changed)
+                if pieces_left.waiting:
+                    pull(hold.pieces if hold else len(pieces_left.waiting))
                 if again:
                     attempts(again, only={index: tests for index, (_, tests) in named.items()})
+            for index in pieces_left.waiting:    # stopped before it ran
+                results[index] = attempt(f"{index + 1}/{count}")
             hold = getattr(_GATE_HELD, "hold", None)
             if hold is not None:
                 hold.alone()
@@ -1775,7 +1882,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 if index - 1 in named:    # its tests the helper named, run alone here
                     there, only = named[index - 1]
                     there.seek(0)
-                    failed, how = there.read(), f"failed on the suite helper {helped.alias}"
+                    failed = there.read()
+                    how = f"failed on the suite helper {where[index - 1].alias}"
                 while not killed and not cancel.is_set():
                     if code == SUITE_BUSY:
                         queued = busy_turn(run_dir, activity, log, command, cwd)
@@ -1824,7 +1932,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 # Existing failure diagnostics read the last output; leave a red piece last.
                 (red if code else chunks).append(f"--- AK_SHARD={shard} ---\n"
                     f"[{ended}]\n{text}".rstrip())
-            if not helped and not any(killed for _, _, killed, _ in results):
+            if not any(where) and not any(killed for _, _, killed, _ in results):
                 measure.paced(path, count)
             measure.overflowed(path, mem)
             text = "\n\n".join(chunks + red + flakes)
