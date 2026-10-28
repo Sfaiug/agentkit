@@ -173,7 +173,7 @@ def arena_boards():
     `arena.<board>.<category>` at that category."""
     from . import quality        # here, not at the top: quality reads `effort_rank` off this module
     return sorted({(*parts, "overall")[:2] for role in quality.ROLES.values()
-                   for column, _, _ in role
+                   for column, *_ in role
                    for prefix, *parts in [column.split(".")] if prefix == "arena"})
 
 

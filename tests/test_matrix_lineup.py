@@ -4,8 +4,8 @@ releases compared the best quality, the pick, the line of best quality for the m
 best of yours to take.
 
 Offline: both are handed what they read.  The models, harnesses and numbers are invented; on
-execute, with no `arena.webdev` anywhere, a row's quality is 100 less the mean of how far its
-frontier-code and terminal-bench shares are behind the best's, in hundredths.
+execute, with no `arena.agent` anywhere, a row's quality is 100 less the weighted mean of how far
+its frontier-code and terminal-bench shares are behind the best's, in hundredths.
 """
 
 from pathlib import Path
@@ -20,7 +20,7 @@ COST = quality.COSTS["execute"]
 
 
 def aa(slug, name, effort, release, frontier, terminal, cost=None, replaced_by=None):
-    values = {quality.INTEL: 50, "aa.frontierCode": frontier, "aa.terminalBench40": terminal}
+    values = {quality.INTEL: 50, "aa.frontierCode20": frontier, "aa.terminalBench40": terminal}
     if cost is not None:
         values[COST] = cost
     return {"model": name, "effort": effort, "values": values, "slug": slug,
@@ -30,7 +30,7 @@ def aa(slug, name, effort, release, frontier, terminal, cost=None, replaced_by=N
 
 BOARDS = {"artificialanalysis.ai": {"rows": [
     aa("acme-5", "Acme 5", "high", "acme-5", 0.60, 0.60, 4.0),        # 0 0: 100, the default
-    aa("acme-5-low", "Acme 5", "low", "acme-5", 0.52, 0.60, 2.0),     # 8 0: 96
+    aa("acme-5-low", "Acme 5", "low", "acme-5", 0.56, 0.56, 2.0),     # 4 4: 96
     aa("bolt-2", "Bolt 2", "high", "bolt-2", 0.58, 0.58, 1.0),        # 2 2: 98
     aa("crux-1", "Crux 1", "medium", "crux-1", 0.40, 0.40, 0.5),      # 20 20: 80
     aa("dune-1", "Dune 1", "high", "dune-1", 0.30, 0.30),             # 40 40: 70, no cost

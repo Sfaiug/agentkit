@@ -28,52 +28,57 @@ SCALES = {
                lambda best, value: 100 * math.log(10) / 400 * (t := 10 ** ((best - value) / 400))
                / (1 + t) ** 2),
 }
-# What each role is rated on: a column (board.field), its kind (`SCALES`) and, in plain words,
-# what it tests.  Pinned by tests/test_matrix_measures.py, so a change to it is a visible test change.
+# What each role is rated on: a column (board.field), its kind (`SCALES`), its weight and, in
+# plain words, what it tests.  A weight gives its measure its share of the role's say, weight ×
+# the spread of its points among the strongest models: orchestrate's four a quarter each
+# (Briefcase's rating spreads twice its own pass rate), execute's and review's own tasks 40%
+# each, and Terminal-Bench 4.0 (spread under its error) and review's Omniscience (least direct) 20%.
+# Gone: GDPval-AA ranked as Briefcase does, AA-LCR's, GDP.pdf's and FrontierCode 1.1's spread
+# was under their error, and Arena WebDev scores new apps, not changes to a repository.  Pinned
+# by tests/test_matrix_measures.py, so a change to it is a visible test change.
 ROLES = {
-    "orchestrate": (("aa.briefcaseBreakdown.overall.elo", "rating",
-                     "long business projects of hundreds of turns, delivering files"),
-                    ("aa.gdpval", "rating",
-                     "work products of 44 occupations, judged against each other in pairs"),
-                    ("arena.agent", "share", "agent sessions people judged done well"),
+    "orchestrate": (("aa.automationBenchPartialScore", "share", 0.35,
+                     "work across apps under a policy, a task that breaks a rule scoring nothing"),
+                    ("arena.agent", "share", 0.3, "agent sessions people judged done well"),
                     # the index, not its hallucination rate: the rate's best was a model that
                     # answers nothing, so it rewarded ignorance
-                    ("aa.omniscience", "percent",
+                    ("aa.omniscience", "percent", 0.2,
                      "right answers less wrong guesses, an admitted unknown counting neither"),
-                    ("aa.lcr", "share", "reasoning across documents of 100,000 words and more")),
-    "execute": (("aa.frontierCode", "share", "the hardest coding problems, each solved or not"),
-                ("aa.terminalBench40", "share",
-                 "hard terminal tasks that pass only when all their tests do"),
-                ("arena.webdev", "rating", "apps people pick between two built alike")),
-    "review": (("aa.deepsecBench", "share",
+                    ("aa.briefcaseBreakdown.overall.elo", "rating", 0.15,
+                     "long business projects of hundreds of turns, delivering files")),
+    "execute": (("aa.frontierCode20", "share", 0.4,
+                 "the hardest coding problems, each solved or not"),
+                ("arena.agent", "share", 0.4, "agent sessions people judged done well"),
+                ("aa.terminalBench40", "share", 0.2,
+                 "hard terminal tasks that pass only when all their tests do")),
+    "review": (("aa.deepsecBench", "share", 0.4,
                 "reviewing files for bugs, each report judged a true or a false finding"),
-               ("aa.omniscience", "percent",
-                "right answers less wrong guesses, an admitted unknown counting neither"),
-               ("aa.gdpPdfAllPass", "share", "documents it writes that pass every check"),
-               ("aa.frontierCode", "share", "the hardest coding problems, each solved or not"),
-               ("aa.lcr", "share", "reasoning across documents of 100,000 words and more")),
+               ("aa.frontierCode20", "share", 0.4,
+                "the hardest coding problems, each solved or not"),
+               ("aa.omniscience", "percent", 0.2,
+                "right answers less wrong guesses, an admitted unknown counting neither")),
 }
 # What a task of each role costs a row, in dollars: the Artificial Analysis evaluation nearest
-# the role's work.  Pinned beside `ROLES`.
+# the role's work, review's the one whose cost per effort tracks DeepSec Bench's best (0.95).
+# Pinned beside `ROLES`.
 COSTS = {
     "orchestrate": "aa.intelligenceIndexEvaluations.aa-briefcase.costPerTask",
-    "execute": "aa.intelligenceIndexEvaluations.terminalbench-4-0.costPerTask",
-    "review": "aa.intelligenceIndexEvaluations.gdp-pdf.costPerTask",
+    "execute": "aa.intelligenceIndexEvaluations.frontiercode-2-0.costPerTask",
+    "review": "aa.intelligenceIndexEvaluations.aa-briefcase.costPerTask",
 }
 # A measure's 95% interval, (lower, upper), where it is not `<column>` + `INTERVAL` (Arena's)
 INTERVALS = {"aa.briefcaseBreakdown.overall.elo": ("aa.briefcaseBreakdown.overall.lower95ci",
-                                                   "aa.briefcaseBreakdown.overall.upper95ci"),
-             "aa.gdpval": ("aa.gdpvalInterval.lower", "aa.gdpvalInterval.upper")}
+                                                   "aa.briefcaseBreakdown.overall.upper95ci")}
 # How many tasks a share without an interval is of: as Artificial Analysis's methodology pages
 # say, DeepSec Bench's as its authors' write-up does
-TASKS = {"aa.lcr": 100, "aa.frontierCode": 100, "aa.gdpPdfAllPass": 100, "aa.terminalBench40": 66,
+TASKS = {"aa.automationBenchPartialScore": 657, "aa.frontierCode20": 132, "aa.terminalBench40": 66,
          "aa.deepsecBench": 231}
 # Omniscience's questions, each +1 right, -1 wrong and 0 declined
-OMNISCIENCE = ("aa.omniscience", "aa.omniscienceAccuracy", "aa.omniscienceHallucinationRate", 6000)
+OMNISCIENCE = ("aa.omniscience", "aa.omniscienceAccuracy", "aa.omniscienceHallucinationRate", 3000)
 # The evaluations of the Intelligence Index, each `<slug>`'s score at `EVALUATION` + `.score`,
 # and the kind of those that are not shares: what an effort's change in them says of its error
 EVALUATION = "aa.intelligenceIndexEvaluations."
-EVALUATION_KINDS = {"aa-briefcase": "rating", "gdpval-aa": "rating", "omniscience": "percent"}
+EVALUATION_KINDS = {"aa-briefcase": "rating", "omniscience": "percent"}
 Z = 1.645       # qualities closer than Z errors of their difference are inside its 90% interval
 
 
@@ -110,13 +115,15 @@ def _error(values, column, kind, best):
 
 def rated(rows, role):
     """Each of `rows` ({"release", "effort", "values": {column: number}}) that has at least two
-    of `role`'s measures measured or carried, as itself with its "quality" (100 less its mean
-    points behind the best over the role's measures) and that quality's standard error "se",
-    its "cost" (`COSTS` at its own effort, else None) and per measure {"points", "how", "se"}:
-    measured, carried (with the effort it is "from" and the error of the shift, its "own") or
-    estimated (with the error of the row's own level, its "own")."""
+    of `role`'s measures measured or carried, as itself with its "quality" (100 less its
+    weighted mean points behind the best over the role's measures it has) and the same weights'
+    combination of their standard errors "se", its "cost" (`COSTS` at its own effort, else None)
+    and per measure {"points", "how", "se"}: measured, carried (with the effort it is "from" and
+    the error of the shift, its "own") or estimated (with the error of the row's own level, its
+    "own")."""
     measures = ROLES[role]
-    kinds = {column: kind for column, kind, _ in measures}
+    kinds = {column: kind for column, kind, _, _ in measures}
+    weights = {column: weight for column, _, weight, _ in measures}
     # each evaluation's kind and best, of every row scored on it: only its changes count
     evaluations = {column: (kind, SCALES[kind][0](row["values"][column] for row in rows
                                                   if column in row["values"]))
@@ -180,7 +187,7 @@ def rated(rows, role):
     complete = [points for row in indexed for points in [measured(row)]
                 if len(points) == len(measures)]
     gaps = {column: [points[column] - statistics.mean(points.values()) for points in complete]
-            for column, _, _ in measures}
+            for column in kinds}
     shape = ({column: (statistics.mean(found), statistics.stdev(found))
               for column, found in gaps.items()} if len(complete) >= 2 else {})
 
@@ -198,16 +205,18 @@ def rated(rows, role):
         if own:
             level = statistics.mean(points[column]["points"] - shape[column][0] for column in own)
             own_error = math.sqrt(sum(shape[column][1] ** 2 for column in own)) / len(own)
-            for column, _, _ in measures:
+            for column in kinds:
                 if column not in points and column in shape:
                     offset, spread = shape[column]
                     se = math.hypot(spread, own_error)
                     points[column] = {"points": level + offset + se, "how": "estimated",
                                       "se": se, "own": own_error}
-        found = points.values()
+        total = sum(weights[column] for column in points)
         out.append(dict(row, measures=points, cost=row["values"].get(COSTS[role]),
-                        quality=100 - statistics.mean(one["points"] for one in found),
-                        se=math.sqrt(sum(one["se"] ** 2 for one in found)) / len(found)))
+                        quality=100 - sum(weights[column] * one["points"]
+                                          for column, one in points.items()) / total,
+                        se=math.hypot(*(weights[column] * one["se"]
+                                        for column, one in points.items())) / total))
     return out
 
 
@@ -217,9 +226,10 @@ def tie(a, b, role):
     if a["release"] != b["release"]:
         apart = math.hypot(a["se"], b["se"])
     else:
-        columns = [column for column, _, _ in ROLES[role]
-                   if column in a["measures"] or column in b["measures"]]
-        apart = math.sqrt(sum(_unshared(a, b, column) for column in columns)) / len(columns)
+        weights = {column: weight for column, _, weight, _ in ROLES[role]
+                   if column in a["measures"] or column in b["measures"]}
+        apart = math.sqrt(sum(weight ** 2 * _unshared(a, b, column)
+                              for column, weight in weights.items())) / sum(weights.values())
     return abs(a["quality"] - b["quality"]) < Z * apart
 
 

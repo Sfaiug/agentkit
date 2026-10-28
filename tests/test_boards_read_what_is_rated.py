@@ -33,16 +33,17 @@ class ReadWhatIsRated(Sandbox):
     def test_one_collection_asks_artificial_analysis_and_the_arena_boards_rated_on(self):
         held = boards.collect(now=10000)
         rated = {column.split(".")[1] for column in matrix.needed()["arena.ai"]}
-        self.assertEqual(rated, {"agent", "webdev"})
+        self.assertEqual(rated, {"agent"})
         self.assertEqual(self.asked(), ({"artificialanalysis.ai", "datasets-server.huggingface.co"},
                                         rated))
         self.assertEqual(sorted(held), ["arena.ai", "artificialanalysis.ai"])
 
     def test_a_measure_on_another_arena_board_is_read_with_it(self):
-        factuality = ("arena.text_factuality.coding", "rating", "coding answers judged for facts")
+        factuality = ("arena.text_factuality.coding", "rating", 0.1,
+                      "coding answers judged for facts")
         with patch.dict(quality.ROLES, review=(*quality.ROLES["review"], factuality)):
             held = boards.collect(now=10000)
-        self.assertEqual(self.asked()[1], {"agent", "webdev", "text_factuality"})
+        self.assertEqual(self.asked()[1], {"agent", "text_factuality"})
         self.assertIn("arena.text_factuality.coding",
                       {column for row in held["arena.ai"]["rows"] for column in row["values"]})
 

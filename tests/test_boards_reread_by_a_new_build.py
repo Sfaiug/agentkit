@@ -37,8 +37,8 @@ class Reread(Sandbox):
         held = boards.collect(now=10000, build="abc1234")
         self.assertEqual(held["arena.ai"]["build"], "abc1234")
         asked = self.asked("huggingface")
-        needs = {"arena.ai": {"arena.webdev", "arena.agent"}}
-        self.forget("arena.ai", "arena.webdev")
+        needs = {"arena.ai": {"arena.agent.lower95ci", "arena.agent"}}
+        self.forget("arena.ai", "arena.agent.lower95ci")
         # the build that read them asks no board twice a day
         boards.collect(now=10001, needs=needs, build="abc1234")
         self.assertEqual(self.asked("huggingface"), asked)
@@ -49,14 +49,14 @@ class Reread(Sandbox):
         self.assertEqual(len(self.boards.asked) - self.asked("huggingface"), others)
         self.assertEqual((held["arena.ai"]["build"], held["arena.ai"]["fetched_at"]),
                          ("def5678", 10001))
-        self.assertTrue(any("arena.webdev" in row["values"]
+        self.assertTrue(any("arena.agent.lower95ci" in row["values"]
                             for row in held["arena.ai"]["rows"]))
         # a board whose rows carry every column of the need waits for the day, new build or not
         self.forget("arena.ai", "arena.agent")
-        boards.collect(now=10002, needs={"arena.ai": {"arena.webdev"}}, build="ghi9012")
+        boards.collect(now=10002, needs={"arena.ai": {"arena.agent.lower95ci"}}, build="ghi9012")
         self.assertEqual(self.asked("huggingface"), 2 * asked)
         # once: a column the board gives no row at all waits for the day like any other
-        self.forget("arena.ai", "arena.webdev")
+        self.forget("arena.ai", "arena.agent.lower95ci")
         boards.collect(now=10003, needs=needs, build="def5678")
         self.assertEqual(self.asked("huggingface"), 2 * asked)
         # and no build given, as `--refresh` and the tests ask, is the day alone
@@ -64,7 +64,7 @@ class Reread(Sandbox):
         self.assertEqual(self.asked("huggingface"), 2 * asked)
 
     def test_a_new_build_asks_again_for_a_board_whose_cache_holds_no_row(self):
-        needs = {"arena.ai": {"arena.webdev"}}
+        needs = {"arena.ai": {"arena.agent"}}
         self.boards.down.add("huggingface")
         boards.collect(now=10000, build="abc1234")          # a first read that failed: no rows at all
         self.boards.down.clear()
@@ -109,11 +109,13 @@ class Reread(Sandbox):
         # it publishes no interval for a share `quality` reads off its task count, nor for
         # Omniscience: a new build asks again only for what a measure's error cannot lack
         published = ({quality.INTEL, *quality.COSTS.values(), *quality.OMNISCIENCE[1:3]}
-                     | {column for role in quality.ROLES.values() for column, _, _ in role
+                     | {column for role in quality.ROLES.values() for column, *_ in role
                         if column.startswith("aa.")}
                      | {name for pair in quality.INTERVALS.values() for name in pair})
-        for without, again in ((None, False), ("aa.lcr", True), ("aa.omniscienceAccuracy", True),
-                               ("aa.gdpvalInterval.lower", True), (quality.COSTS["review"], True)):
+        for without, again in ((None, False), ("aa.frontierCode20", True),
+                               ("aa.omniscienceAccuracy", True),
+                               ("aa.briefcaseBreakdown.overall.lower95ci", True),
+                               (quality.COSTS["review"], True)):
             row = {"slug": "acme-one", "release": "acme-one", "maker": "Acme", "deprecated": False,
                    "values": dict.fromkeys(published - {without}, 0.5)}
             boards.cache_path().write_text(json.dumps({"artificialanalysis.ai": {
@@ -130,12 +132,12 @@ class Reread(Sandbox):
         self.assertIn("arena.agent.lower95ci", needs["arena.ai"])
         self.assertEqual({column for columns in needs.values() for column in columns},
                          {quality.INTEL, *quality.COSTS.values()}
-                         | {name for role in quality.ROLES.values() for column, _, _ in role
+                         | {name for role in quality.ROLES.values() for column, *_ in role
                             for name in (column, *quality.reads(column))})
         with patch.object(update, "agentkit_version", return_value="abc1234"):
             matrix.refresh(self.cfg, now=10000)
         asked = self.asked("huggingface")
-        self.forget("arena.ai", "arena.agent")
+        self.forget("arena.ai", "arena.agent.lower95ci")
         with patch.object(update, "agentkit_version", return_value="def5678"):
             held, _ = matrix.refresh(self.cfg, now=10001)
         self.assertGreater(self.asked("huggingface"), asked)
