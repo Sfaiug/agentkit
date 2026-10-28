@@ -167,7 +167,7 @@ func (r Readings) heavyLimit() int {
 // heavyLocks are the turn files on disk, a shrunk limit's higher ones included: the suites
 // still holding those count too.
 func heavyLocks() []string {
-	paths, _ := filepath.Glob(filepath.Join(config.Home(), "runs", ".heavy-*.lock"))
+	paths := config.Glob(filepath.Join(config.Home(), "runs"), ".heavy-*.lock")
 	highest := -1
 	for _, path := range paths {
 		name := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), ".heavy-"), ".lock")

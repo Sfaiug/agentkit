@@ -46,8 +46,7 @@ func CurrentSession() (string, map[string]any, error) {
 // SeatFiles are the files every seat keeps its record in.
 func SeatFiles() []string {
 	pattern, _ := sessionPath("*")
-	paths, _ := filepath.Glob(pattern)
-	return paths
+	return Glob(filepath.Dir(pattern), filepath.Base(pattern))
 }
 
 // SessionPath is where a seat's record is kept.
