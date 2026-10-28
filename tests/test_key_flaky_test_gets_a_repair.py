@@ -45,7 +45,8 @@ class FlakyTestGetsARepair(unittest.TestCase):
                     self.assertEqual(len(repairs), n > 1, (n, done.out))
                 repair = json.loads((repairs[0] / "run.json").read_text())
                 self.assertEqual(repair["followup"]["run"], "fix-2")
-                self.assertEqual(repair["repair"]["command"], name)
+                self.assertEqual({key: repair["repair"].get(key) for key in ("target", "command")},
+                                 {"target": "main", "command": name})
                 task = (repairs[0] / "task.md").read_text()
                 self.assertIn(f"# Make {name} deterministic", task)
                 self.assertIn(f"`{name}` in {line.rig.path}", task)

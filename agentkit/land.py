@@ -391,9 +391,11 @@ def _flaked(directory, state, scratch, tree, log_path, log, flaky, failed, passe
         if not (logs or any(failed.values())):
             return
         # a later check of the tree writes over its log: the one that shows it is kept
-        shown = log_path.with_name(f"{log_path.stem}-{now:.0f}{log_path.suffix}")
+        handle, shown = tempfile.mkstemp(dir=log_path.parent, prefix=f"{log_path.stem}-seen-",
+                                         suffix=log_path.suffix)
+        os.close(handle)
         shutil.copyfile(log_path, shown)
-        reds += [{"tree": tree, "command": cmd, "tests": named, "at": now, "log": str(shown)}
+        reds += [{"tree": tree, "command": cmd, "tests": named, "at": now, "log": shown}
                  for cmd, named in failed.items() if named]
         for test, before in logs.items():
             upstream, held = _upstream(state), tests.get(test, {}).get("repair")
@@ -402,7 +404,7 @@ def _flaked(directory, state, scratch, tree, log_path, log, flaky, failed, passe
                 continue
             seen = [sight for sight in tests.get(test, {}).get("seen", ())
                     if now - sight["at"] < FLAKY] + [
-                        {"tree": tree, "at": now, "logs": [*before, str(shown)]}]
+                        {"tree": tree, "at": now, "logs": [*before, shown]}]
             tests[test] = {"seen": seen}
             trees = {sight["tree"] for sight in seen}
             if len(trees) > 1:

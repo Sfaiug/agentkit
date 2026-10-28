@@ -95,7 +95,7 @@ class RedPieceConfirmedByItsTests(unittest.TestCase):
                 self.assertEqual(flaky, NAMED[:1])   # failed, then passed alone, whatever after
                 self.assertEqual("its failed tests passed run alone: the failure needs the "
                                  "tests that ran before them" in text, bool(second))
-                self.assertEqual("flaky: " in text, not second)
+                self.assertIn("flaky: ", text)     # its failing output kept either way
 
     def test_a_piece_naming_no_tests_retries_whole(self):
         code, text, killed, retries = self.suite(lambda shard, only, failed: int(shard == "1/2"))

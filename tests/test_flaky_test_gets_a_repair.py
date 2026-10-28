@@ -43,16 +43,24 @@ class FlakyTestGetsARepair(test_lander.LanderFixture, unittest.TestCase):
             failed = self.found.get("failed", {}).get(cmd)
             marks.append(int(failed is not None))
             pieces[cmd], confirmed[cmd] = {"1/1": marks[-1]}, {"1/1": failed or []}
-        return not any(marks), ""
+        return not any(marks), json.dumps(self.found)
 
     def seen(self, name, files=None, **found):
-        """Member `name`, its tree adding `files` (its name by default), checked once."""
-        directory = self.member(name, **({f"{name}.txt": name} if files is None else files))
+        """Member `name`, its tree adding `files` (its name by default), checked once more."""
+        directory = config.RUNS / name
+        if not directory.exists():
+            self.member(name, **({f"{name}.txt": name} if files is None else files))
         state = {**record.read_state(directory), "launched_session": "seat"}
         run.git(self.repo, "checkout", "-q", "--detach", state["review"]["head_sha"])
         self.found = found or {"flaky": [TEST]}
         land._check(directory, state, self.repo, CMDS, directory / "lander.log", lambda _: None)
         run.git(self.repo, "checkout", "-q", "main")
+
+    def shown(self):
+        """The logs the last repair's task names: the run of each, and what its check found."""
+        task = (self.launch.call_args.args[0] / "task.md").read_text()
+        logs = [Path(line[2:]) for line in task.splitlines() if line.startswith(f"- {config.RUNS}")]
+        return [(log.parent.name, json.loads(log.read_text().split("\n\n")[1])) for log in logs]
 
     def merge(self, path):
         """A change to `path` merged on the target."""
@@ -70,21 +78,20 @@ class FlakyTestGetsARepair(test_lander.LanderFixture, unittest.TestCase):
         self.assertEqual(origin["repair_tip"], run.git(self.repo, "rev-parse", "origin/main"))
         task = (directory / "task.md").read_text()
         for said in (f"# Make {TEST} deterministic", f"`{TEST}` in {self.repo}", "2 times",
-                     *(str(config.RUNS / name / "lander-1000.log") for name in ("one", "two")),
                      "without weakening what it checks",
                      f"```bash\n{test_lander.SUITE}  # once\n```"):
             self.assertIn(said, task)
         self.assertNotIn("not-needed", task)
+        self.assertEqual(self.shown(), [("one", {"flaky": [TEST]}), ("two", {"flaky": [TEST]})])
 
     def test_a_red_test_its_command_passes_later_on_its_tree_is_one_of_them(self):
-        self.seen("one", failed={LINT: ["lint.py"], test_lander.SUITE: [TEST]})
-        self.now += 1
-        self.seen("again", {"one.txt": "one"}, failed={LINT: []})
+        red = {"failed": {LINT: ["lint.py"], test_lander.SUITE: [TEST]}}
+        green = {"failed": {LINT: []}}
+        self.seen("one", **red)
+        self.seen("one", **green)       # its log written over, in the same second
         self.launch.assert_not_called()
         self.seen("two")
-        task = (self.launch.call_args.args[0] / "task.md").read_text()
-        for name in ("one/lander-1000", "again/lander-1001", "two/lander-1001"):
-            self.assertIn(str(config.RUNS / f"{name}.log"), task)
+        self.assertEqual(self.shown(), [("one", red), ("one", green), ("two", {"flaky": [TEST]})])
         self.seen("three", {"three.txt": "3"}, flaky=["lint.py"])
         self.assertEqual(self.launch.call_count, 1)     # its command never passed on one's tree
 

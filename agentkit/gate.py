@@ -1952,6 +1952,10 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             if confirmed is not None:
                                 confirmed[shard] = tests
                             break
+                        # passing alone, they failed, then passed, whatever the piece does next
+                        piece.seek(0)
+                        flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
+                                                   piece.read(), activity, run_dir, log, how))
                         if flaky is not None:
                             flaky.extend(only)
                         only = None
@@ -1964,7 +1968,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     else:
                         break
                     code, piece, killed, tests = attempt(shard, only)
-                if failed is not None and code == 0:
+                if failed is not None and code == 0 and alone is None:
                     piece.seek(0)
                     flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
                                                piece.read(), activity, run_dir, log, how))
