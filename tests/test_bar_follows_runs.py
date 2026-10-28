@@ -189,18 +189,23 @@ class BarFollowsRuns(unittest.TestCase):
                 self.assertEqual(hand.call_count, 1)
 
     def test_a_change_during_a_failed_handoff_hands_over_another(self):
-        handback.publish_seat("acme")
-        changes = []
-        def handoff(*_args, **_kw):
-            if not changes:
-                changes.append(threading.Thread(target=handback.redress_seat, args=("acme",)))
-                changes[0].start()
-                return 124, "timed out"
-            return 0, ""
-        with patch.object(orch, "tmux_out", side_effect=handoff) as hand:
-            handback.redress_seat("acme")
-            changes[0].join()
-        self.assertEqual(hand.call_count, 2)
+        for case in ("its job never started", "its job started all the same"):
+            with self.subTest(case):
+                handback.publish_seat("acme")
+                newer = threading.Thread(target=handback.redress_seat, args=("acme",))
+                def handoff(*_args, **_kw):
+                    if hand.call_count > 1:
+                        return 0, ""
+                    if case == "its job started all the same":
+                        handback.publish_seat("acme")
+                    newer.start()
+                    return 124, "timed out"
+                with patch.object(orch, "find", return_value=None), \
+                        patch.object(orch, "tmux_out", side_effect=handoff) as hand:
+                    handback.redress_seat("acme")
+                    newer.join()
+                    handback.redress_seat("acme")    # joins the newer change's job
+                self.assertEqual(hand.call_count, 2)
 
     def test_a_tmux_that_fails_never_reaches_the_run(self):
         with patch.object(orch, "tmux_out", side_effect=OSError("no tmux")):
