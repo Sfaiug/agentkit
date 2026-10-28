@@ -82,6 +82,9 @@ func hasTables(root *table) bool {
 	return false
 }
 
+// the most `within` can be: past ten points under the best, a point says nothing
+const points = 10
+
 var accountName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 func stringList(value any, nonempty bool) bool {
@@ -156,12 +159,12 @@ func validate(root *table) error {
 		valid := false
 		switch number := value.(type) {
 		case *big.Int:
-			valid = number.Sign() >= 0
+			valid = number.Sign() >= 0 && number.Cmp(big.NewInt(points)) <= 0
 		case float64:
-			valid = !(number < 0)
+			valid = number >= 0 && number <= points
 		}
 		if !valid {
-			return fmt.Errorf("within must be a number of points, 0 or more (got %s)", valueRepr(value))
+			return fmt.Errorf("within must be a number of points from 0 to %d (got %s)", points, valueRepr(value))
 		}
 	}
 	if value, exists := root.values["compare"]; exists {

@@ -161,6 +161,16 @@ def toggled(mark, width, kind, bright, column):
     return start
 
 
+def refused(text, value, column):
+    """How a knob drawn `text` from the screen's `column`, showing `value`, moves on a screen's
+    clock once a step of it was refused, news that changed nothing (`Clock.touch`): it nudges a
+    cell left, right, left and back in SHAKE seconds (`nudging`)."""
+    def start(clock, row, since, before):
+        if before == value:
+            clock.start([(row, column - 1)], *nudging(text, since))
+    return start
+
+
 def glowing(line, kind, amount):
     """How a seat's row on news moves on a screen's clock, `line` as the draw wrote it: its cells on
     a soft glow of `kind`'s colour, `amount` of the way to the background, that fades into the

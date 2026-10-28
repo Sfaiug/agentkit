@@ -42,9 +42,9 @@ REFUSED = {
         "no [models.*] entry names a provider with a [providers.*] table"),
     "defaults is not a table": ("defaults = 3\n\n" + MODELS, "[defaults] must be a table"),
     "within is a word": ('within = "x"\n' + BASE,
-                         "within must be a number of points, 0 or more (got 'x')"),
+                         "within must be a number of points from 0 to 10 (got 'x')"),
     "within is below zero": ("within = -1\n" + BASE,
-                             "within must be a number of points, 0 or more (got -1)"),
+                             "within must be a number of points from 0 to 10 (got -1)"),
     "orchestrator is a number": (changed('orchestrator = "beta"', "orchestrator = 3"),
                                  "[defaults].orchestrator must be a model name (got 3)"),
     "workers repeat a model": (

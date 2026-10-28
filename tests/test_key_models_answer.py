@@ -80,7 +80,7 @@ REVIEWS = ["  reviews · best 98.6  quality  a task",
            "    Acme Mid 5 high       98.6  $15.00  ★ pick",
            "    Bolt 3 medium         92.0   $3.00",
            "    Crux 2 low            84.0   $1.00"]
-LEGEND = ["  as good    within ‹ 5 › points of the best, then the cheapest",
+LEGEND = ["  as good    ‹ ▰▰▰▰▰▱▱▱▱▱ ›  within 5 points of the best, then the cheapest",
           "  ≈ tie      the boards cannot tell it from ★ pick",
           "  estimated  scores no effort of it has, counted low",
           f"  comparing all 4 models · boards read {time.strftime('%H:%M', time.gmtime(NOW))}"]
@@ -147,7 +147,7 @@ class ModelsAnswer(unittest.TestCase):
         self.assertEqual(shown[at:at + 21], [*pointed, *BUILDS, *REVIEWS, "", *LEGEND])
         self.assertEqual(next(line for line in reversed(shown) if line), KEYS)
         term.keys("Left")
-        shown = lines(term.wait("within ‹ 4 ›"))
+        shown = lines(term.wait("within 4 points"))
         at = shown.index(BUILDS[0])
         self.assertEqual(shown[at + 2:at + 5], ["    Acme Mid 5 high       98.0  $15.00  ★ pick",
                                                 "    Acme Max 5 high       95.5  $10.00  ≈ tie · no harness",
@@ -208,7 +208,7 @@ class ModelsAnswer(unittest.TestCase):
             "    Acme Mid 5 high", "       98.0  $15.00  ≈ tie",
             "    Acme Max 5 high", "       95.5  $10.00  ★ pick · no harness",
             "      r takes Acme Mid 5 high, 98.0,", "      $15.00"])
-        self.assertIn("  as good    within ‹ 5 › points of the", shown)
+        self.assertIn("  as good    ‹ ▰▰▰▰▰▱▱▱▱▱ ›  within 5", shown)
 
 
 if __name__ == "__main__":
