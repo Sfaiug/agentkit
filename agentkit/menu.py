@@ -3056,9 +3056,9 @@ def models_body(said, within, compared, total, fetched, at=None):
     put("", KNOB)
     knob = points_knob(within)
     word = "_" * (terminal.cells(knob) + 1)   # one word, so the knob never breaks, and its gap
+    points = str(within).removesuffix(".0")  # the threshold as configured, never rounded
     for name, text in LEGEND:
-        for number, part in enumerate(terminal.wrap(text.format(word, f"{within:g}"),
-                                                    room - NAMED)):
+        for number, part in enumerate(terminal.wrap(text.format(word, points), room - NAMED)):
             words = part.removeprefix(word)
             line = terminal.table_row(["" if number else name, words], [9, room - NAMED],
                                       indent="  ", kinds=(None, "dim"))
