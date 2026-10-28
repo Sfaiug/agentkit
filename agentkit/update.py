@@ -1146,16 +1146,16 @@ def fresh_standing(failed, lines, log_path):
     too, naming their `FAIL` `lines`.
 
     A line not yet told stands as written, its log saying when those checks failed, until the
-    tick delivers it under the upgrade lock; once told, the same checks hand back nothing new
-    until a clean pass clears it (`run_gate`).
+    tick delivers it under the upgrade lock; once told, no set of checks it has told since the
+    last clean pass hands back anything new, until a clean pass clears it (`run_gate`).
     """
     check = config.STATE / FRESH_FAULTS
-    record = _handed(check)
-    if record and (not record["told"] or record["failed"] == sorted(failed)):
+    record = _handed(check) or {"told": True, "sets": []}
+    if not record["told"] or sorted(failed) in record["sets"]:
         return
     check.mkdir(parents=True, exist_ok=True)
     _put(check / "handed", json.dumps(dict(
-        failed=sorted(failed), typed=None, told=False, line=_fitted(
+        sets=[*record["sets"], sorted(failed)], typed=None, told=False, line=_fitted(
             "The fresh-install gate failed checks that fail on the release before too", lines,
             f"Log: {config.tilde(log_path)}. Fix the standing faults."))))
 

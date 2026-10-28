@@ -103,6 +103,8 @@ class FreshStandingFaults(unittest.TestCase):
         self.update(["q"], ["q"])
         [line] = self.tick()
         self.assertIn("too: FAIL  q. Log:", line)
+        self.update(["c", "d"], ["c", "d"])     # told before q, and no clean pass since
+        self.assertEqual(self.tick(), [])
 
     def test_handed_back_when_the_release_tested_does_not_install_again(self):
         (self.home.root / "moves").touch()
