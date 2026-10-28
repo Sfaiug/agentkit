@@ -30,6 +30,7 @@ args = sys.argv[1:]
 call = {"args": args, "home": os.environ.get("CODEX_HOME"),
         "keys": [os.environ.get("OPENAI_API_KEY"), os.environ.get("CODEX_API_KEY")]}
 if "login" in args:
+    (home / "auth.json").unlink(missing_ok=True)    # as codex 0.163's: the old login goes first
     if not os.environ.get("FAKE_CUT_SHORT"):    # as codex 0.163's cut short: exit 0, no login
         (home / "auth.json").write_text('{"tokens":{"access_token":"tok-new"}}')
 elif "logout" in args:
@@ -212,6 +213,18 @@ class CodexAccounts(unittest.TestCase):
         finally:
             os.close(primary)
             os.close(secondary)
+
+    def test_login_again_cut_short_keeps_the_usual_login_too(self):
+        old = (self.usual / "auth.json").read_bytes()
+        self.env["FAKE_CUT_SHORT"] = "1"
+        primary, secondary = pty.openpty()
+        try:
+            proc, _ = self.adapter("default", "login", "again", stdin=secondary)
+        finally:
+            os.close(primary)
+            os.close(secondary)
+        self.assertEqual((self.usual / "auth.json").read_bytes(), old, proc.stderr)
+        self.assertEqual([p.name for p in self.usual.glob("auth.json*")], ["auth.json"])
 
     def test_logout_signs_out_the_account_login_alone(self):
         def logout(account, own, token):
