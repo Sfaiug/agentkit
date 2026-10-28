@@ -178,6 +178,20 @@ class AdmissionSeatsInTurn(unittest.TestCase):
         self.queued("acme-new", 5, "acme", **green)
         self.assert_order(["fix-api-1", "acme-new", "fix-api-2"])
 
+    def test_a_new_batch_joins_the_round_of_seats_still_working_down_theirs(self):
+        for number in range(1, 5):
+            self.queued(f"acme-{number}", number, "acme")
+        self.queued("fix-api-1", 5, "fix-api")
+        for name in ("acme-1", "fix-api-1", "acme-2"):
+            self.assertFalse(self.claim(name))  # first healthy poll
+            self.assertTrue(self.claim(name))
+            state = self.state(name)
+            state["state"] = "pass"
+            record.save_state(config.RUNS / name, state)
+        self.queued("fix-api-2", 6, "fix-api")
+        self.queued("fix-api-3", 7, "fix-api")
+        self.assert_order(["acme-3", "fix-api-2", "acme-4", "fix-api-3"])
+
     def test_each_rank_is_fifo_and_restarts_keep_their_first_queue_time(self):
         self.queued("acme-2", 5, "acme")
         self.queued("acme-1", 100, "acme", first_queued_at=2)
