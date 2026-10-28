@@ -45,6 +45,19 @@ func Absolute(path string) string {
 	return path
 }
 
+// Glob lists the entries of dir whose names match pattern. Dir is a path, never a pattern, as
+// Python's Path(dir).glob reads it: a home under "a[b]" still lists its files.
+func Glob(dir, pattern string) []string {
+	entries, _ := os.ReadDir(dir)
+	var paths []string
+	for _, entry := range entries {
+		if matched, _ := filepath.Match(pattern, entry.Name()); matched {
+			paths = append(paths, filepath.Join(dir, entry.Name()))
+		}
+	}
+	return paths
+}
+
 func Check() error {
 	_, err := load()
 	return err

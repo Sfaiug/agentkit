@@ -8,6 +8,26 @@ import (
 	"testing"
 )
 
+// A home under a folder named like a pattern is still read as the path it is.
+func TestSeatFilesUnderAHomeNamedLikeAPattern(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "a[b]")
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	state := filepath.Join(Home(), "state")
+	if err := os.MkdirAll(state, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"session-fix-web.json", "notes.json", "session-fix-api.json"} {
+		if err := os.WriteFile(filepath.Join(state, name), []byte("{}"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []string{filepath.Join(state, "session-fix-api.json"), filepath.Join(state, "session-fix-web.json")}
+	if got := SeatFiles(); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("SeatFiles() = %q, want %q", got, want)
+	}
+}
+
 func TestSessionRenameRefusals(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
