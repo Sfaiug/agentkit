@@ -167,6 +167,22 @@ class QueuedRunWaitsOnTheInstalledCode(unittest.TestCase):
         self.assertEqual(counted, [(self.run_dir.name, "slot", (1000.0, 5.0))])
         self.assertNotIn(waiter.SLOT_WAIT_ENV, os.environ)
 
+    def test_a_launch_the_waiter_hands_back_still_waiting_redraws_no_bar(self):
+        """Every waiter comes back when the install moves; only a launch's first wait is news."""
+        def back_to_the_waiter(counted):
+            raise Replaced
+
+        for handed, redrawn in (("", 1), ("1000.0 5.0", 0)):
+            with self.subTest(handed=handed):
+                handback.redress_seat.reset_mock()
+                os.environ[waiter.SLOT_WAIT_ENV] = handed
+                with patch.object(gate, "count_wait", lambda run_id, wait, counted: counted), \
+                        patch.object(gate, "_host_admits", return_value=False), \
+                        patch.object(gate.time, "sleep", lambda seconds: None), \
+                        self.assertRaises(Replaced):
+                    gate.wait_for_slot(self.run_dir, back_to_the_waiter)
+                self.assertEqual(handback.redress_seat.call_count, redrawn)
+
 
     def test_a_waiter_killed_behind_the_first_has_counted_each_poll(self):
         clock = [1000.0]
