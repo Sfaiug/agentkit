@@ -2962,15 +2962,14 @@ KNOB = ("legend", "within")
 NAMED = 13                        # the cells before a legend line's words: its name's column
 # the why's words: what a row does in each role, and each measure's evaluation by its name
 DOES = {"orchestrate": "orchestrates", "execute": "builds", "review": "reviews"}
-MEASURES = {"aa.briefcaseBreakdown.overall.elo": "AA-Briefcase", "aa.gdpval": "GDPval-AA",
-            "arena.agent": "Arena Agent", "aa.omniscience": "AA-Omniscience", "aa.lcr": "AA-LCR",
-            "aa.frontierCode": "FrontierCode", "aa.terminalBench40": "Terminal-Bench 4.0",
-            "arena.webdev": "Arena WebDev", "aa.deepsecBench": "DeepSec Bench",
-            "aa.gdpPdfAllPass": "GDP.pdf"}
-# a cost is a task of the evaluation its role's measure of the same name is from
+MEASURES = {"aa.automationBenchPartialScore": "AutomationBench", "arena.agent": "Arena Agent",
+            "aa.omniscience": "AA-Omniscience", "aa.briefcaseBreakdown.overall.elo": "AA-Briefcase",
+            "aa.frontierCode20": "FrontierCode 2.0", "aa.terminalBench40": "Terminal-Bench 4.0",
+            "aa.deepsecBench": "DeepSec Bench"}
+# a cost is a task of the evaluation of the measure of that name
 TASKS = {quality.COSTS[role]: MEASURES[column] for role, column in (
-    ("orchestrate", "aa.briefcaseBreakdown.overall.elo"), ("execute", "aa.terminalBench40"),
-    ("review", "aa.gdpPdfAllPass"))}
+    ("orchestrate", "aa.briefcaseBreakdown.overall.elo"), ("execute", "aa.frontierCode20"),
+    ("review", "aa.briefcaseBreakdown.overall.elo"))}
 BEHIND = "behind the best"
 
 
@@ -3127,7 +3126,7 @@ def models_why(found, role, row):
                    if one is not row and quality.tie(one, row, role)),
                   key=lambda one: -one["quality"])
     hows = [(MEASURES[column], f"{one['points']:.1f}" if one else "", scored(row, column, kind))
-            for column, kind, _ in quality.ROLES[role] for one in [row["measures"].get(column)]]
+            for column, kind, *_ in quality.ROLES[role] for one in [row["measures"].get(column)]]
     width = max(terminal.cells(name) for name, _, _ in hows)
     wide = width + 2 + len(BEHIND) + 2 + max(terminal.cells(how) for _, _, how in hows) <= room
     lines = [f"why {named(row, room - len(f'why  {DOES[role]}'))} {DOES[role]}",

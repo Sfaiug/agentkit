@@ -13,7 +13,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import quality
 
-F, T, W = "aa.frontierCode", "aa.terminalBench40", "arena.webdev"
+F, T, W = "aa.frontierCode20", "aa.terminalBench40", "arena.agent"     # 0.4 0.2 0.4
 I, C = quality.INTEL, quality.COSTS["execute"]
 
 
@@ -23,13 +23,13 @@ def row(release, effort, **values):
             "values": {names[key]: value for key, value in values.items()}}
 
 
-ROWS = [row("acme-5", "high", I=50, F=0.6, T=0.5, W=1400, C=2.0),     # 0 0 0, the best
+ROWS = [row("acme-5", "high", I=50, F=0.6, T=0.5, W=0.50, C=2.0),     # 0 0 0, the best
         row("acme-5", "low", I=45, T=0.4, C=0.5),                     # F, W from high, +5
-        row("bolt-2", "high", I=40, F=0.5, T=0.3, W=1400, C=1.0),     # 10 20 0
-        row("bolt-2", "low", I=42, F=0.5, W=1400),                    # T from high, never less
+        row("bolt-2", "high", I=40, F=0.5, T=0.3, W=0.50, C=1.0),     # 10 20 0
+        row("bolt-2", "low", I=42, F=0.5, W=0.50),                    # T from high, never less
         row("crux-1", "high", I=35, F=0.55, T=0.45),                  # W estimated
         row("dune-3", "max", F=0.3, T=0.3),                           # no index: 30 20
-        row("dune-3", "high", I=30, W=1400),                          # F, T from medium
+        row("dune-3", "high", I=30, W=0.50),                          # F, T from medium
         row("dune-3", "medium", I=25, F=0.2, T=0.2),                  # 40 30, W from high +5
         row("echo-1", "none", F=0.9, T=0.5),                          # above the best, no index
         row("fizz-1", "high", I=20, T=0.1)]                           # one measure: not rated
@@ -72,9 +72,10 @@ class QualityRatesEveryEffort(unittest.TestCase):
         self.assertEqual(points(self.rated, "echo-1", "none")[F], (-30, "measured"))
 
     def test_quality_and_cost(self):
-        self.assertAlmostEqual(found(self.rated, "acme-5", "low")["quality"], 100 - 20 / 3)
+        self.assertAlmostEqual(found(self.rated, "acme-5", "low")["quality"],
+                               100 - (0.4 * 5 + 0.2 * 10 + 0.4 * 5))
         self.assertAlmostEqual(found(self.rated, "crux-1", "high")["quality"],
-                               100 - (10 + CRUX_W) / 3)
+                               100 - (0.4 * 5 + 0.2 * 5 + 0.4 * CRUX_W))
         self.assertEqual([found(self.rated, release, effort)["cost"] for release, effort
                           in (("acme-5", "high"), ("bolt-2", "high"), ("crux-1", "high"))],
                          [2.0, 1.0, None])
