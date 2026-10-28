@@ -502,6 +502,9 @@ def wait_for_slot(run_dir, between=None):
     announced = behind
     wait_kind = None
     counted = tuple(map(float, handed)) if behind else None
+    if behind and between is not None and behind_first(run_dir.name):
+        # back only as the install moved: back to the waiter, or every waiter polls under the lock
+        between(counted)
     while True:
         if not first_poll:
             counted = counted or (time.time(), time.monotonic())
