@@ -43,15 +43,8 @@ def script(body):
     return done.stdout
 
 
-def sessions(home, name):
-    """The tmux sessions ak's server holds once `name` has run; after menu3, once the seat it
-    stops in a process of its own is gone, or a minute on."""
-    deadline = time.monotonic() + 60
-    while True:
-        held = home.tmux("list-sessions", "-F", "#{session_name}").out.split()
-        if name != "menu3" or SEAT not in held or time.monotonic() > deadline:
-            return held
-        time.sleep(0.1)
+def sessions(home):
+    return home.tmux("list-sessions", "-F", "#{session_name}").out.split()
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -76,7 +69,7 @@ class GateScripts(unittest.TestCase):
                 sys.executable, str(gate / "ptydrive.py"), str(gate / f"{name}.txt"),
                 str(gate / f"{name}.exp"), "--", AK, *argv[1:], timeout=600,
                 env={"TERM": term, "AGENTKIT_SESSION": session})
-            cls.sessions[name] = sessions(home, name)
+            cls.sessions[name] = sessions(home)
             session = SEAT    # the gate's drive names the seat once menu1 has made it
 
     def passed(self, name):
@@ -100,7 +93,11 @@ class GateScripts(unittest.TestCase):
 
     def test_menu3_stops_the_seat_from_its_popup(self):
         self.passed("menu3")
-        self.assertNotIn(SEAT, self.sessions["menu3"])
+        # the popup is gone; the seat stops behind it in a process of its own
+        deadline = time.monotonic() + 60
+        while SEAT in sessions(self.home) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        self.assertNotIn(SEAT, sessions(self.home))
 
 
 if __name__ == "__main__":
