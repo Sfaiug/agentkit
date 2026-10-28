@@ -203,9 +203,10 @@ class ProviderScreen(unittest.TestCase):
         mark = len(screen.text())
         lines = screen.press(DOWN * 2 + ENTER, lambda lines: title(lines) == PAGE)
         # install, because grok was nowhere; then login, on the terminal given back for it,
-        # then whose login it is, for the line its row opens
+        # then whether it has that login now, then whose login it is, for the line its row opens
         self.assertEqual((home / "verbs.log").read_text().split("\n"),
-                         ["grokbuild install", "grokbuild login", "grokbuild login-end", ""])
+                         ["grokbuild install", "grokbuild login", "grokbuild auth",
+                          "grokbuild login-end", ""])
         said = screen.text()[mark:]
         login = said.index("<grokbuild login on the terminal>")
         self.assertLess(said.index(GIVE), login)
@@ -225,8 +226,8 @@ class ProviderScreen(unittest.TestCase):
         pick(screen, ENTER, ADD, 6)
         screen.press(ENTER,
                      lambda lines: title(lines) == PAGE and "ChatGPT" in subscriptions(lines))
-        self.assertEqual((home / "verbs.log").read_text().split("\n")[3:],
-                         ["codex login", "codex login-end", ""])
+        self.assertEqual((home / "verbs.log").read_text().split("\n")[4:],
+                         ["codex login", "codex auth", "codex login-end", ""])
         saved = screen.saved()
         self.assertEqual(saved["providers"]["openai"], fresh("openai", saved))
         # under the name the shipped default gives it, whatever its catalog label

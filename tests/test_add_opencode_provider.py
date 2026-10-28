@@ -108,9 +108,10 @@ class AddOpenCodeProvider(unittest.TestCase):
         self.assertEqual(listed(lines), [["Zeta Cloud", "zeta", "log in"]])
         mark = len(screen.text())
         lines = screen.press(ENTER, lambda lines: "  model" in lines and "Comet 2" in str(lines))
-        # logged in on the terminal given back for it, then asked again: its model joins the
-        # list, highlighted
-        self.assertEqual(verbs(screen)[2:], ["opencode login zeta", "opencode providers "])
+        # logged in on the terminal given back for it, asked whether it has that login now,
+        # then asked again: its model joins the list, highlighted
+        self.assertEqual(verbs(screen)[2:], ["opencode login zeta", "opencode auth zeta",
+                                             "opencode providers "])
         said = screen.text()[mark:]
         login = said.index("<opencode login on the terminal>")
         self.assertLess(said.index(GIVE), login)

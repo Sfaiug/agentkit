@@ -101,11 +101,13 @@ class AddSubscription(unittest.TestCase):
         self.assertEqual(offered[-1], "  Claude II")       # after the providers not added
         mark = len(screen.text())
         screen.press(DOWN * (EVERY - 1) + ENTER, lambda lines: title(lines) == PAGE)
-        # its login, then whose login it is, asked for the line its row opens
-        [(harness, verb, account), asked] = [line.split() for line in
-                                             (home / "verbs.log").read_text().splitlines()]
-        self.assertEqual((harness, verb, asked), ("claude", "login", ["claude", "login-end",
-                                                                      account]))
+        # its login, then whether it has that login now, then whose login it is, asked for the
+        # line its row opens
+        [(harness, verb, account), probed, asked] = [line.split() for line in
+                                                     (home / "verbs.log").read_text().splitlines()]
+        self.assertEqual((harness, verb, probed, asked),
+                         ("claude", "login", ["claude", "auth", account],
+                          ["claude", "login-end", account]))
         said = screen.text()[mark:]
         self.assertLess(said.index("\x1b[?1049l"), said.index("<claude login on the terminal>"))
         self.assertEqual(screen.saved()["providers"]["anthropic"],
