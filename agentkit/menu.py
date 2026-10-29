@@ -3215,9 +3215,9 @@ def config_within(cfg, step):
 
 @terminal.clicks_its_own
 def models_screen(cfg, session, selected, providers):
-    """`models · <seat>`, or `models · new seats` without one, `r recommended` on `c`: each role
-    answered over the releases compared (models_body) until Esc, the rows' lines growing in
-    as they first show.  The boards are read as it opens
+    """`r recommended` on `c`, named as `c`'s other pages are: `config · recommended · <seat>`,
+    or `· new seats` without one.  Each role answered over the releases compared (models_body)
+    until Esc, the rows' lines growing in as they first show.  The boards are read as it opens
     (matrix.refresh), the rule gliding until they land and what was stored standing meanwhile, a
     failed reading said under the rows; the answer is computed once per landing and per knob
     step, never per draw.  ←/→ step `within`, saved at once (config_within), the knob nudging
@@ -3230,7 +3230,7 @@ def models_screen(cfg, session, selected, providers):
     reviewers, the orchestrator only said; without a seat new seats' three roles.
     """
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
-    here, top, note, title = None, 0, "", f"models · {session or NEW_SEATS}"
+    here, top, note, title = None, 0, "", f"config · recommended · {session or NEW_SEATS}"
     clock, lineup = motion.Clock(page=True), []
     while True:
         if fetch is not None and not fetch.is_alive():
