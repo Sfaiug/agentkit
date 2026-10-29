@@ -19,14 +19,14 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import SERVER, Terminal
 from test_key_models_answer import ENV, EVALUATIONS, NOW, OLD, aa, lines
 
-# Per release and effort: intelligence index, frontier-code and terminal shares, DeepSec Bench,
-# Omniscience, cost a task and Arena's agent share, none for Acme Max 5 high (carried from max)
-# and Crux 2 (missing); AutomationBench on Acme Max 5 max alone, so the rest miss or carry it
-ROWS = [("acme-max-5", "Acme Max 5", "max", 70, 0.80, 0.60, 50, 20.0, 0.80),
-        ("acme-max-5", "Acme Max 5", "high", 66, 0.74, 0.62, 48, 10.0, None),
-        ("acme-mid-5", "Acme Mid 5", "high", 66, 0.77, 0.66, 49, 15.0, 0.79),
-        ("bolt-3", "Bolt 3", "medium", 60, 0.70, 0.70, 45, 3.0, 0.78),
-        ("crux-2", "Crux 2", "low", 50, 0.60, 0.50, 42, 1.0, None)]
+# Per release and effort: intelligence index, frontier-code and terminal shares, Omniscience,
+# cost a task and Arena's agent share, none for Acme Max 5 high (carried from max) and Crux 2
+# (missing); AutomationBench on Acme Max 5 max alone, so the rest miss or carry it
+ROWS = [("acme-max-5", "Acme Max 5", "max", 70, 0.80, 50, 20.0, 0.80),
+        ("acme-max-5", "Acme Max 5", "high", 66, 0.74, 48, 10.0, None),
+        ("acme-mid-5", "Acme Mid 5", "high", 66, 0.77, 49, 15.0, 0.79),
+        ("bolt-3", "Bolt 3", "medium", 60, 0.70, 45, 3.0, 0.78),
+        ("crux-2", "Crux 2", "low", 50, 0.60, 42, 1.0, None)]
 
 
 def boards():
@@ -34,12 +34,11 @@ def boards():
             for board, names in OLD.items()}
     rows["artificialanalysis.ai"] = [aa("old-1", "Old 1", "high", rows["artificialanalysis.ai"][0]
                                         ["values"], retired=True)]
-    for release, name, effort, index, share, deepsec, omni, cost, agent in ROWS:
+    for release, name, effort, index, share, omni, cost, agent in ROWS:
         rows["artificialanalysis.ai"].append(aa(release, name, effort, {
             "aa.briefcaseBreakdown.overall.elo": 1400, "aa.omniscience": omni,
             **({"aa.automationBenchPartialScore": 0.9} if effort == "max" else {}),
             "aa.intelligenceIndex": index, "aa.frontierCode20": share, "aa.terminalBench40": share,
-            "aa.deepsecBench": deepsec,
             **{f"aa.intelligenceIndexEvaluations.{slug}.costPerTask": cost for slug in EVALUATIONS}}))
         if agent:
             rows["arena.ai"].append({"model": name, "effort": effort,
@@ -48,7 +47,7 @@ def boards():
             for board, found in rows.items()}
 
 
-ORCH_PICK = "›   Bolt 3 medium         96.7   $3.00  ★ pick · 1 missing"
+ORCH_PICK = "›   Bolt 3 medium          96.7   $3.00  ★ pick · 1 missing"
 CRUX_ORCH = ["  why Crux 2 low orchestrates",
              "  quality 93.2 ± 0.0   $1.00 a AA-Briefcase task",
              "  6.8 behind the best, Acme Max 5 max",
@@ -129,12 +128,12 @@ class ModelsWhy(unittest.TestCase):
         term.keys("Right")              # within 6: the orchestrator's front stands as it was
         shown = lines(term.wait("within 6 points"))
         self.assertIn(ORCH_PICK, shown)
-        self.assertIn("    Crux 2 low            80.0   $1.00  1 missing", shown)
+        self.assertIn("    Crux 2 low             80.0   $1.00  1 missing", shown)
         term.keys("Up", "Up")
-        term.wait("›   Acme Mid 5 high       99.2  $15.00  1 missing")
+        term.wait("›   Acme Mid 5 high        99.2  $15.00  1 missing")
         term.keys("Right")              # within 7: Acme Mid 5 high leaves the orchestrator's line
         shown = lines(term.wait("within 7 points"))
-        self.assertIn("›   Crux 2 low            93.2   $1.00  ★ pick · 2 missing", shown)
+        self.assertIn("›   Crux 2 low             93.2   $1.00  ★ pick · 2 missing", shown)
         self.assertEqual(sum(line.startswith("›") for line in shown), 1)
 
     def test_enter_says_where_a_rows_quality_comes_from_and_esc_returns(self):
@@ -142,7 +141,7 @@ class ModelsWhy(unittest.TestCase):
         self.assertEqual(self.why(term, "Down")[:len(CRUX_ORCH)], CRUX_ORCH)
         term.keys("Escape")
         shown = lines(term.wait("comparing all 4 models"))
-        self.assertIn("›   Crux 2 low            93.2   $1.00  2 missing", shown)
+        self.assertIn("›   Crux 2 low             93.2   $1.00  2 missing", shown)
         self.assertEqual(self.why(term, "Down", "Down", "Down")[:len(MAX_HIGH_BUILDS)],
                          MAX_HIGH_BUILDS)
 

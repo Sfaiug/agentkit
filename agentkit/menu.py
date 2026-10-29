@@ -2975,12 +2975,11 @@ NAMED = 13                        # the cells before a legend line's words: its 
 DOES = {"orchestrate": "orchestrates", "execute": "builds", "review": "reviews"}
 MEASURES = {"aa.automationBenchPartialScore": "AutomationBench", "arena.agent": "Arena Agent",
             "aa.omniscience": "AA-Omniscience", "aa.briefcaseBreakdown.overall.elo": "AA-Briefcase",
-            "aa.frontierCode20": "FrontierCode 2.0", "aa.terminalBench40": "Terminal-Bench 4.0",
-            "aa.deepsecBench": "DeepSec Bench"}
+            "aa.frontierCode20": "FrontierCode 2.0", "aa.terminalBench40": "Terminal-Bench 4.0"}
 # a cost is a task of the evaluation of the measure of that name
 TASKS = {quality.COSTS[role]: MEASURES[column] for role, column in (
     ("orchestrate", "aa.briefcaseBreakdown.overall.elo"), ("execute", "aa.frontierCode20"),
-    ("review", "aa.briefcaseBreakdown.overall.elo"))}
+    ("review", "aa.frontierCode20"))}
 BEHIND = "behind the best"
 
 
