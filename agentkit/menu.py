@@ -1440,7 +1440,10 @@ def v5o_column_widths(infos, term_width):
     # Every row's last column stands beside it, its line taking what its count leaves, or --
     # on a phone, or where that room would not hold some row's count or mark -- every row's
     # goes under it: never some rows one way and some the other (the owner, 29 Oct 2026).
-    least = max([10] + [terminal.cells(_last_text(info, 0, narrow=True)) for info in infos])
+    # A row's least is its count or `back` and its mark both: alone, the room would drop one.
+    least = max([10] + [terminal.cells("  ".join(filter(None, (
+        _last_text(dict(info, unsent=""), 0, narrow=True),
+        info.get("unsent") and unsent_mark())))) for info in infos])
     return {"room": room, "narrow": term_width < 60, "num": num_w, "name": name_w,
             "orch": orch_w, "count": count_w, "worker": orch_w,
             "under": term_width < 60 or room - fixed < least,

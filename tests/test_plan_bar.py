@@ -158,6 +158,20 @@ class PlanBar(Sandbox):
             with self.subTest(width=width):
                 blocks = menu.v5o_seat_blocks(rows, width)
                 self.assertEqual({len(block) for block in blocks}, {1 if width >= 60 else 2})
+        # a draft's mark never takes its row's count's place: rows too long for the room beside
+        # them all go under, theirs and every other row's
+        rows += [dict(rows[3], unsent="a draft"), dict(rows[2], bar=(1, 6), unsent="a draft"),
+                 dict(rows[0], word="out of usage", unsent="a draft", back=1800000000)]
+        said = ["113 of 117", "12 of 13", "1 of 1", "no plan yet", "4 of 8", "no plan yet",
+                "1 of 6", "back "]
+        for width in range(40, 121):
+            with self.subTest(width=width):
+                blocks = menu.v5o_seat_blocks(rows, width)
+                self.assertEqual(len({len(block) for block in blocks}), 1)
+                for row, block, count in zip(rows, blocks, said):
+                    drawn = " ".join(terminal.plain(line) for line in block)
+                    self.assertIn(count, drawn)
+                    self.assertEqual("unsent" in drawn, bool(row["unsent"]))
 
     def test_a_row_draws_its_last_column_in_the_cells_it_truly_has_left(self):
         # long name and model columns leave fewer than ten cells: neither the bar nor a sentence
