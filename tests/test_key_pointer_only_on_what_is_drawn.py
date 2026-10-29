@@ -61,8 +61,11 @@ class OnlyWhatIsDrawn(unittest.TestCase):
     def setUp(self):
         self.term = Terminal(self.home, size=(100, 30), env={"NO_COLOR": "1"})
         self.addCleanup(self.leave)
+        # the menu's own probe redraws each usage row once it is read, a moment after the menu
+        # opens: read the screen after it, so no row a test compares changes under it
         self.shown = lines(self.term.wait(lambda screen: KEYS in lines(screen)
-                                          and "› 1  atoll-fix  " in screen))
+                                          and "› 1  atoll-fix  " in screen
+                                          and "no reading yet" not in screen))
 
     def leave(self):
         for name in attached(self.home):
@@ -113,9 +116,7 @@ class OnlyWhatIsDrawn(unittest.TestCase):
         self.term.keys("Down")
         after = lines(self.term.wait("› Opus 5.5"))
         def marks(shown):          # the matrix's rows, the keys' highlight taken off
-            # the usage rows over it are not marks: the menu's own probe redraws them any time
-            matrix = shown[shown.index("  For  new seats"):shown.index("  Models")]
-            return [re.sub(r"[›\[\]]", " ", line) for line in matrix]
+            return [re.sub(r"[›\[\]]", " ", line) for line in shown[2:shown.index("  Models")]]
         self.assertEqual(marks(after), marks(shown))
         self.assertEqual((self.home.path / ".agentkit" / "config.toml").read_bytes(), config)
 
