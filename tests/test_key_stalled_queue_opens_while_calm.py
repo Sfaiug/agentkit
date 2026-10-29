@@ -77,13 +77,18 @@ class StalledQueueOpensWhileCalm(unittest.TestCase):
             return {}
 
     def stall(self, run):
-        """The run first in line two hours, past half an hour, the stall's floor."""
+        """The run first in line two hours, past half an hour, the stall's floor, its queue last
+        polled an hour ahead, so the run's next poll carries that wait on however late it comes:
+        one more than four polls after the last starts a new wait (`gate.first_in_line`), and a
+        loaded host's comes that late at AK_SLOT_POLL=0.5."""
         runs = run.parent
         with (runs / ".slots.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             queue = json.loads((runs / ".slots.queue").read_text())
             self.assertEqual(queue["queue"], [run.name])
-            (runs / ".slots.queue").write_text(json.dumps({**queue, "since": time.time() - 7200}))
+            now = time.time()
+            (runs / ".slots.queue").write_text(json.dumps({**queue, "since": now - 7200,
+                                                           "at": now + 3600}))
 
     def held(self, run, why):
         time.sleep(2)     # four polls: still held
