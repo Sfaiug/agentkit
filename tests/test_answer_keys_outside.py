@@ -15,8 +15,9 @@ from test_boundaries import where_change_left_main
 
 TESTS = Path(__file__).resolve().parent
 MAX = 9
-# Python code a key hands a Python as a string, which parsing the key reads as text only
-IMPORT = re.compile(r"\b(from\s+agentkit[\s.]|import\s+([\w.]+\s*,\s*)*agentkit\b)")
+# An import in code a key hands a Python as a string or bytes, which parsing the key reads as
+# text only: any import statement naming agentkit on its line, `as` names and all
+IMPORT = re.compile(r"\bfrom\s+agentkit[\s.]|\bimport\b[^;\n]*\bagentkit\b")
 
 
 def read(path, package):
@@ -33,8 +34,10 @@ def read(path, package):
             continue
         found.update(".".join(name.split(".")[:end]) for name in names
                      for end in range(1, name.count(".") + 2))
-    handed = any(isinstance(node, ast.Constant) and isinstance(node.value, str)
-                 and IMPORT.search(node.value) for node in ast.walk(tree))
+    handed = any(IMPORT.search(node.value if isinstance(node.value, str) else
+                               node.value.decode(errors="replace"))
+                 for node in ast.walk(tree)
+                 if isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes)))
     return "agentkit" in found or handed, found
 
 
