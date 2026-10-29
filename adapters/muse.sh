@@ -14,6 +14,8 @@
 #                                  it leads to; the usual login is refused
 #                     login-end    -> {"email","ends","plan"}: whose the login is; `ends` and
 #                                  `plan` are null, since Muse's auth file records neither
+#                     lend <home>  -> a copy of the login, a key nothing renews, where a turn
+#                                  with HOME=<home> reads it; prints nothing, as it never lapses
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
 #                                  `seat` is the same login here, and is accepted and ignored
 #                     hooks        -> a no-op: a seat's launch carries its hooks (`interactive`)
@@ -272,6 +274,15 @@ login-end)
   email=$(jq -r '.providers.meta.user_email // empty' "$AUTH" 2>/dev/null)
   jq -nc --arg email "$email" '{email: (if $email == "" then null else $email end), ends: null,
                                 plan: null}' ;;
+lend)
+  # Lent as it is: Muse's auth file records a key, which no renewal retires (see `auth`)
+  [ $# -ge 1 ] || { echo "muse.sh lend needs <home>" >&2; exit 2; }
+  command -v jq >/dev/null || { echo "muse.sh lend: jq is required" >&2; exit 2; }
+  lent=$(jq -c 'select(.providers.meta.api_key | strings | test("[^[:space:]]"))
+      | {ends: null, login: .}' "$AUTH" 2>/dev/null) && [ -n "$lent" ] || {
+    echo "muse: no key in $AUTH to lend; run \`$LOGIN\`" >&2; exit 1; }
+  printf '%s' "$lent" | python3 "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" \
+    "$1" .config/muse/auth.json ;;
 auth)
   # Can a headless turn authenticate right now?  Exit 0 and say so, or exit 1 with one line
   # saying why not; anything else is no answer, and the caller carries on as before.
@@ -346,6 +357,6 @@ models)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" muse ;;
 *)
-  echo "usage: muse.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | muse.sh usage | muse.sh interactive <model> <effort> [session-id [new]] | muse.sh install | muse.sh login [again] | muse.sh logout | muse.sh forget | muse.sh login-end | muse.sh auth [seat] | muse.sh hooks | muse.sh hook | muse.sh models" >&2
+  echo "usage: muse.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | muse.sh usage | muse.sh interactive <model> <effort> [session-id [new]] | muse.sh install | muse.sh login [again] | muse.sh logout | muse.sh forget | muse.sh login-end | muse.sh lend <home> | muse.sh auth [seat] | muse.sh hooks | muse.sh hook | muse.sh models" >&2
   exit 2 ;;
 esac
