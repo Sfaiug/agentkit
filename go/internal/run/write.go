@@ -2,11 +2,14 @@ package run
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"maps"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"agentkit/internal/lock"
 )
 
 // A write hides two things from its callers.  The locks, each taken when Python ak takes it:
@@ -28,6 +31,16 @@ func Lined(record *Object) bool {
 }
 
 var errUnreadable = errors.New("run.json cannot be read")
+
+// hold waits for one of Python ak's locks on a run, held until release: the named file's in
+// the run's directory, or with no name the directory's own.
+func hold(dir, name string) (func(), error) {
+	file, err := lock.Wait(context.Background(), filepath.Join(dir, name))
+	if err != nil {
+		return nil, err
+	}
+	return func() { file.Close() }, nil
+}
 
 // Change is Python's `record`: change changes the record as it stands under recovery.lock,
 // and what it changed is written, the old time budgets gone with the write as Python's
