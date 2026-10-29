@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"agentkit/internal/config"
+	"agentkit/internal/lock"
 )
 
 const (
@@ -111,7 +112,7 @@ func (m memory) inUse(name string) string {
 func (r Readings) heavyLimit() int {
 	running := 0
 	for _, path := range heavyLocks() {
-		if held(path) {
+		if lock.Held(path) {
 			running++
 		}
 	}

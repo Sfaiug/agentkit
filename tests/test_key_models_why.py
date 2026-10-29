@@ -9,6 +9,7 @@ harnesses fakes listing invented models, the boards held as just asked with inve
 judged by the screen.  Fails against /bin/false.
 """
 
+import re
 import sys
 from pathlib import Path
 import unittest
@@ -47,7 +48,7 @@ def boards():
             for board, found in rows.items()}
 
 
-ORCH_PICK = "›   Bolt 3 medium          96.7   $3.00  ★ pick · 1 missing"
+ORCH_PICK = "›   Bolt 3         medium  ~     96.7   $3.00  ★ pick · 1 missing"
 CRUX_ORCH = ["  why Crux 2 low orchestrates",
              "  quality 93.2 ± 0.0   $1.00 a AA-Briefcase task",
              "  6.8 behind the best, Acme Max 5 max",
@@ -122,26 +123,32 @@ class ModelsWhy(unittest.TestCase):
             screen.rstrip())[-1] == "  esc back"))
         return shown[shown.index(next(line for line in shown if line.startswith("  why "))):]
 
+    def rows(self, screen):
+        """The lines of `screen`, each row's quality line `~`: its drawing is
+        tests/test_key_models_rows_drawn_as_c.py's."""
+        return [re.sub("[━╸─]{8,}", "~", line) for line in lines(screen)]
+
     def test_the_pointer_keeps_its_row_through_a_knob_step_or_goes_to_its_pick(self):
-        term, shown = self.models()
-        self.assertIn(ORCH_PICK, shown)
+        term, _ = self.models()
+        self.assertIn(ORCH_PICK, self.rows(term.screen()))
         term.keys("Right")              # within 6: the orchestrator's front stands as it was
-        shown = lines(term.wait("within 6 points"))
+        shown = self.rows(term.wait("within 6 points"))
         self.assertIn(ORCH_PICK, shown)
-        self.assertIn("    Crux 2 low             80.0   $1.00  1 missing", shown)
+        self.assertIn("    Crux 2         low     ~     80.0   $1.00  1 missing", shown)
         term.keys("Up", "Up")
-        term.wait("›   Acme Mid 5 high        99.2  $15.00  1 missing")
+        term.wait(lambda screen: "›   Acme Mid 5     high    ~     99.2  $15.00  1 missing"
+                  in self.rows(screen))
         term.keys("Right")              # within 7: Acme Mid 5 high leaves the orchestrator's line
-        shown = lines(term.wait("within 7 points"))
-        self.assertIn("›   Crux 2 low             93.2   $1.00  ★ pick · 2 missing", shown)
+        shown = self.rows(term.wait("within 7 points"))
+        self.assertIn("›   Crux 2         low     ~     93.2   $1.00  ★ pick · 2 missing", shown)
         self.assertEqual(sum(line.startswith("›") for line in shown), 1)
 
     def test_enter_says_where_a_rows_quality_comes_from_and_esc_returns(self):
         term, _ = self.models()
         self.assertEqual(self.why(term, "Down")[:len(CRUX_ORCH)], CRUX_ORCH)
         term.keys("Escape")
-        shown = lines(term.wait("comparing all 4 models"))
-        self.assertIn("›   Crux 2 low             93.2   $1.00  2 missing", shown)
+        shown = self.rows(term.wait("comparing all 4 models"))
+        self.assertIn("›   Crux 2         low     ~     93.2   $1.00  2 missing", shown)
         self.assertEqual(self.why(term, "Down", "Down", "Down")[:len(MAX_HIGH_BUILDS)],
                          MAX_HIGH_BUILDS)
 

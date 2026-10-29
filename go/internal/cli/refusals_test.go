@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 const testConfig = "[models.acme]\nharness='echo'\nmodel='echo-1'\neffort='low'\nprovider='test'\n[providers.test]\nmode='subscription'\n"
@@ -117,14 +118,45 @@ func TestWorkerModelRefusals(t *testing.T) {
 	assertCall(t, []string{"worker", "acme", filepath.Join(home, "task.md")}, 3, "", "ak worker: not implemented in Go yet\n")
 }
 
-func TestNotifySessionRefusal(t *testing.T) {
-	sandbox(t)
-	assertCall(t, []string{"notify", "needs", "Which branch?"}, 2, "", "ak notify: notify needs a session: use --session NAME\n")
-	for _, flags := range [][]string{{"--dry-run"}, {"--session", "acme"}} {
-		assertCall(t, append([]string{"notify", "needs", "Which branch?"}, flags...), 3, "", "ak notify needs: not implemented in Go yet\n")
-	}
+func TestNotifyNeeds(t *testing.T) {
+	home := sandbox(t)
+	ask := func(args ...string) []string { return append([]string{"notify", "needs"}, args...) }
+	unimplemented := "ak notify needs: not implemented in Go yet\n"
+	assertCall(t, ask("Which branch?"), 2, "", "ak notify: notify needs a session: use --session NAME\n")
+	assertCall(t, ask("Which branch?", "--session", "acme"), 3, "", unimplemented)
+	// a seat asking for itself is its turn's to decide, before its record is read
 	t.Setenv("AGENTKIT_SESSION", "acme")
-	assertCall(t, []string{"notify", "needs", "Which branch?"}, 3, "", "ak notify needs: not implemented in Go yet\n")
+	write(t, filepath.Join(home, ".agentkit", "state", "session-acme.json"), "{")
+	for _, args := range [][]string{ask("Which branch?"), ask("Which branch?", "--dry-run"), ask("Which branch?", "--session", " acme"), ask("Which branch?", "--session", "acme", "--dry-run")} {
+		assertCall(t, args, 3, "", unimplemented)
+	}
+	write(t, filepath.Join(home, ".agentkit", "state", "session-acme.json"), `{"renamed": "acme-2"}`)
+	assertCall(t, ask("Which branch?", "--session", "acme-2", "--dry-run"), 3, "", unimplemented)
+	// Python's json.dumps(page, indent=2): its keys' order, past ASCII escaped, nothing HTML-escaped
+	t.Setenv("AGENTKIT_DISCORD_USER_ID", " <4\"2>\n")
+	page := `{
+  "username": "agentkit",
+  "content": "\ud83d\ude4b Needs you \u00b7 caf\u00e9 <@<4\"2>>",
+  "allowed_mentions": {
+    "users": [
+      "<4\"2>"
+    ]
+  }
+}
+`
+	notice := "Needs you · café: Which branch? It"
+	notice += strings.Repeat("x", 1000-utf8.RuneCountInString(notice))
+	assertCall(t, ask("Which\tbranch?\u200b\u200bIt"+strings.Repeat("x", 1000), "--session", "café", "--dry-run"), 0, page, "terminal notice: "+notice+"\n")
+	// what Go cannot read is Python's
+	t.Setenv("AGENTKIT_DISCORD_USER_ID", "")
+	write(t, filepath.Join(home, ".agentkit", "secrets", "discord_user_id", "id"), "42\n")
+	for _, args := range [][]string{ask("Which branch?\xff", "--session", "fix", "--dry-run"), ask("Which branch?", "--session", "fix\xff", "--dry-run"), ask("Which branch?", "--session", "fix", "--dry-run")} {
+		assertCall(t, args, 3, "", unimplemented)
+	}
+	// a worker's dry run says why it asks nothing, and logs nothing
+	t.Setenv("AK_RUN_ROLE", "worker")
+	t.Setenv("AK_RUN_LOG", filepath.Join(home, "run.log"))
+	assertCall(t, ask("no question", "--dry-run"), 0, "notify: needs suppressed: AK_RUN_ROLE=worker; only an orchestrator may notify\n", "")
 }
 
 func TestPlanInputRefusals(t *testing.T) {

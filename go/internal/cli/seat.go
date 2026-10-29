@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
@@ -15,42 +14,44 @@ func validateNotify(args []string) string {
 	if len(args) == 1 && args[0] == "--check" {
 		return ""
 	}
-	needs := len(args) > 0 && args[0] == "needs"
-	session, dryRun := "", false
-	var rest []string
-	start := 0
-	if needs {
-		start = 1
-	}
-	for i := start; i < len(args); i++ {
-		arg := args[i]
-		if needs && arg == "--session" {
-			if i+1 == len(args) {
-				return "--session needs a session name"
-			}
-			i++
-			session = args[i]
-		} else if needs && arg == "--file" {
-			return "--file was removed: notification cards carry no attachments"
-		} else if needs && arg == "--dry-run" {
-			dryRun = true
-		} else {
-			rest = append(rest, arg)
-		}
-	}
-	if !needs || len(rest) != 1 || strings.HasPrefix(rest[0], "-") || strings.TrimSpace(rest[0]) == "" {
+	if len(args) == 0 || args[0] != "needs" {
 		return commandhelp.Usage("notify")
 	}
-	if os.Getenv("AK_RUN_ROLE") != "worker" {
-		asked, _, found := strings.Cut(strings.Join(strings.Fields(rest[0]), " "), "?")
-		if !found || utf8.RuneCountInString(asked) >= 80 {
-			return `put the question first, its "?" within 80 characters: the status bar and the menu show a question's start; context goes after it`
-		}
-		if !dryRun && session == "" && os.Getenv("AGENTKIT_SESSION") == "" {
-			return "notify needs a session: use --session NAME"
+	_, problem := parseNeeds(args[1:])
+	return problem
+}
+
+// needs is `ak notify needs`'s words after `needs`; named is whether --session was given.
+type needs struct {
+	question, session string
+	named, dryRun     bool
+}
+
+func parseNeeds(args []string) (needs, string) {
+	var asked needs
+	var rest []string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--session":
+			// for a caller that speaks for a seat it is not in: `ak watch` speaks for `inbox`
+			if i+1 == len(args) {
+				return asked, "--session needs a session name"
+			}
+			i++
+			asked.session, asked.named = args[i], true
+		case "--dry-run":
+			asked.dryRun = true
+		case "--file":
+			return asked, "--file was removed: notification cards carry no attachments"
+		default:
+			rest = append(rest, args[i])
 		}
 	}
-	return ""
+	if len(rest) != 1 || strings.HasPrefix(rest[0], "-") || config.Fold(rest[0]) == "" {
+		return asked, commandhelp.Usage("notify")
+	}
+	asked.question = rest[0]
+	return asked, ""
 }
 
 func validatePlan(args []string) string {

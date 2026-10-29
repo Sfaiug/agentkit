@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"agentkit/internal/config"
+	"agentkit/internal/lock"
 )
 
 // a line as `ak plan add` writes it, eye lines (`your eye`, the owner's to judge live) among them:
@@ -86,6 +87,15 @@ func seatFile(kind, name, ext string) string {
 	return filepath.Join(config.Home(), "state", kind+"-"+name+"."+ext)
 }
 
+// hold holds path's lock, as Python ak's writers take it, until the file closes; a stop ends
+// the wait.
+func hold(ctx context.Context, path string) (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	return lock.Wait(ctx, path)
+}
+
 // held runs fn holding the seat's lock, the one Python ak's plan writers take
 // (`notify.session_lock`), with the name the seat goes by now: a rename taken while it waited
 // for the lock is followed.
@@ -95,7 +105,7 @@ func held(ctx context.Context, name string, fn func(current string) error) error
 		if err != nil {
 			return err
 		}
-		file, err := lock(ctx, seatFile("notify", current, "lock"))
+		file, err := hold(ctx, seatFile("notify", current, "lock"))
 		if err != nil {
 			return err
 		}
@@ -120,7 +130,7 @@ func verifying(ctx context.Context, name string, fn func() error) error {
 		if err != nil {
 			return err
 		}
-		file, err := lock(ctx, seatFile("verify", current, "lock"))
+		file, err := hold(ctx, seatFile("verify", current, "lock"))
 		if err != nil {
 			return err
 		}

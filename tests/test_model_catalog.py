@@ -7,7 +7,7 @@ release it ends at.  A series, one maker's releases of one release name, whose d
 name a successor takes its current variants along.  A reading an older build stored, its rows
 carrying no identity, is asked again once by this build, and until then nothing is current.
 
-Offline: the board's pages are handed in through `boards.fetch_bytes`, the other boards refuse,
+Offline: the board's page is handed in through `boards.fetch_bytes`, the other boards refuse,
 and a throwaway HOME holds the cache.  The models are invented.
 """
 
@@ -63,12 +63,12 @@ class Catalog(Sandbox):
 
     def fetch(self, url, headers=None):
         self.asked.append(url)
-        if url not in boards.AA_PAGES:
+        if url != boards.AA_PAGE:
             raise OSError("refused")
-        return page(RECORDS[:8] if url == boards.AA_PAGES[0] else RECORDS[8:])
+        return page(RECORDS)
 
     def aa_asks(self):
-        return sum(url in boards.AA_PAGES for url in self.asked)
+        return self.asked.count(boards.AA_PAGE)
 
     def test_each_row_keeps_its_record_s_identity_beside_its_numbers(self):
         rows = {row["slug"]: row for row in boards.collect(now=10000)[catalog.BOARD]["rows"]}

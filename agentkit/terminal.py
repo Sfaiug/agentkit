@@ -527,25 +527,29 @@ NO_PLAN = "no plan yet"     # a working seat's count where it has no plan (`plan
 
 def plan_bar(done, total, room=8, least=8, word="working", tmux=False):
     """A seat's progress in `room` cells, its count included: a smooth line of how much of its
-    plan is done, then `done of total` -- never under `least` cells of line, which a row too
-    short for it then draws under itself.  The done part is `━` in `word`'s colour, on a
-    terminal of more than eight colours fading in from half way to its background at the
-    line's start to the colour at its tip, with a half cell `╸` where the share ends inside one;
-    the rest is a dim `─`.  It says nothing of the tasks in flight, which the line under a
-    highlighted row has.  Without colour the shapes carry it, and without UTF-8 it is
-    `===------ 3 of 8`.  With no `least`, a room too small for a cell of line beside the count
-    draws the count alone.  `tmux` draws it as a tmux format, a seat's bar's, the same line: its
-    fade is a dark terminal's whichever process writes the bar, as the bar's colours are, so
-    the menu's draws and the tick's never disagree.  With no plan (`total` 0) it is the same
-    line with nothing done, `no plan yet` in the count's place."""
+    plan is done (`share_line`), then `done of total` -- never under `least` cells of line, which
+    a row too short for it then draws under itself.  It says nothing of the tasks in flight,
+    which the line under a highlighted row has.  With no `least`, a room too small for a cell of
+    line beside the count draws the count alone.  With no plan (`total` 0) it is the same line
+    with nothing done, `no plan yet` in the count's place."""
     total = max(0, int(total or 0))
     done = max(0, min(int(done or 0), total))
     count = f"{done} of {total}" if total else NO_PLAN
     size = max(least, room - len(count) - 1)
     if size < 1:
         return count
+    return share_line(done / (total or 1), size, word, tmux) + f" {count}"
+
+
+def share_line(share, size, word="working", tmux=False):
+    """A smooth line `size` cells long, `share` of it (0 to 1) full: `━` in `word`'s colour, on a
+    terminal of more than eight colours fading in from half way to its background at the
+    line's start to the colour at its tip, with a half cell `╸` where the share ends inside one;
+    the rest is a dim `─`.  Without colour the shapes carry it, and without UTF-8 it is
+    `===------`.  `tmux` draws it as a tmux format, a seat's bar's, the same line: its fade is a
+    dark terminal's whichever process writes the bar, as the bar's colours are, so the menu's
+    draws and the tick's never disagree."""
     full, half, empty = "━╸─" if utf8() else "=--"
-    share = done / (total or 1)
     halves = round(2 * size * share) if utf8() else 2 * round(size * share)
     ends = (halves + 1) // 2
     cells = [full if n < halves // 2 else half for n in range(ends)]
@@ -555,20 +559,19 @@ def plan_bar(done, total, room=8, least=8, word="working", tmux=False):
     if tmux:
         line = "".join(f"#[fg={faded(word, amount, dark=True)}]{char}"
                        for amount, char in zip(fades, cells))
-        return (line + (f"#[fg=#{STATE_STYLES['dim'][2]}]" + rest if rest else "")
-                + f"#[default] {count}")
+        return line + (f"#[fg=#{STATE_STYLES['dim'][2]}]" + rest if rest else "") + "#[default]"
     if colour_depth() <= 8:   # no tone between the word's colour and the background
-        return styled("".join(cells), word) + styled(rest, "dim") + f" {count}"
+        return styled("".join(cells), word) + styled(rest, "dim")
     line = "".join(styled(char, faded(word, amount)) for amount, char in zip(fades, cells))
-    return line + styled(rest, "dim") + f" {count}"
+    return line + styled(rest, "dim")
 
 
 def effort_cells(count, filled):
     """An effort's level before its word, a cell for each of the `count` its model offers: the
     first `filled` full and the rest open and dim (`▰▰▰▱▱` for high of five, the owner's pick of
-    18 Oct 2026); without UTF-8 `#` and `-`."""
+    18 Oct 2026); without UTF-8 `#` and `-`.  One effort is no level to show: no cell."""
     full, empty = "▰▱" if utf8() else "#-"
-    return [full if n < filled else styled(empty, "dim") for n in range(count)]
+    return [full if n < filled else styled(empty, "dim") for n in range(count)] * (count > 1)
 
 
 def toggle(mark, width, kind=None):
