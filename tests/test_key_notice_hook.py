@@ -4,13 +4,13 @@ nothing to the fact standing.
 A seat's row reads its word from the fact its hooks keep (`hook-<seat>.json`): the event, the
 payload field that tells one kind of it from another (a notice's type, the tool a permission is
 for, a compaction's trigger) and the words a person reads there, a question's own before a
-notice's, cut to 160 characters.  On a harness ak knows, a notice is written only when the
-manifest gives it a state the fact standing does not already mean: the permission notice Claude
-sends after the PermissionRequest that wrote the question down must not replace it, and a
-compaction Claude starts itself must not leave a `working` standing at a quiet prompt.  Where no
-record names the harness, every notice is written.  Black-box: Claude's hooks as ak's adapter
-registers them, fired as Claude fires them (tests/fixtures/hookdrive.py); this test fails
-against `/bin/false`.
+notice's, whole up to 4000 characters and past them ending in `…`.  On a harness ak knows, a
+notice is written only when the manifest gives it a state the fact standing does not already
+mean: the permission notice Claude sends after the PermissionRequest that wrote the question
+down must not replace it, and a compaction Claude starts itself must not leave a `working`
+standing at a quiet prompt.  Where no record names the harness, every notice is written.
+Black-box: Claude's hooks as ak's adapter registers them, fired as Claude fires them
+(tests/fixtures/hookdrive.py); this test fails against `/bin/false`.
 """
 
 import json
@@ -56,11 +56,11 @@ class NoticeHook(unittest.TestCase):
         fact = self.fact()
         return fact and (fact["event"], fact["kind"], fact["text"])
 
-    def test_a_notice_is_written_as_its_type_and_its_message_cut_to_160_characters(self):
-        self.fire("Notification", {"notification_type": "permission_prompt", "message": "m" * 300})
+    def test_a_notice_is_written_as_its_type_and_its_message_cut_to_4000_characters(self):
+        self.fire("Notification", {"notification_type": "permission_prompt", "message": "m" * 5000})
         fact = self.fact()
         self.assertEqual(fact, {"session": "acme", "event": "Notification",
-                                "kind": "permission_prompt", "text": "m" * 160,
+                                "kind": "permission_prompt", "text": "m" * 3999 + "…",
                                 "at": fact["at"]})
 
     def test_a_question_is_written_as_its_tool_and_its_own_words_before_the_notices(self):

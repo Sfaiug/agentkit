@@ -74,6 +74,16 @@ class Heard(Sandbox):
         self.assertEqual(answered["event"], "PostToolUse")
         self.assertEqual(read("working-after-question", answered), ("working", "hook"))
 
+    def test_a_long_question_is_heard_whole(self):
+        # what the seat's row opens under it is the whole question, never its first 160
+        # characters ending mid-sentence (the owner's popup, 29 Oct 2026: "... 1,230 GiB free and")
+        words = "Which backup should acme keep?\n\n" + " ".join(
+            f"Reason {n}: the restore test needs room the disk no longer has." for n in range(30))
+        card = {**QUESTION["tool_input"]["questions"][0], "question": words}
+        asked = self.hook("PermissionRequest", **{**QUESTION, "tool_input": {"questions": [card]}})
+        found = watch.classify("claude", pane("question"), asked, None, {}, asked["at"] + 1)
+        self.assertEqual((found["state"], found["evidence"]), ("asking", " ".join(words.split())))
+
     def test_a_plan_and_a_tool_permission_are_heard_and_read(self):
         prompt = self.hook("UserPromptSubmit", prompt="Plan hello.txt, then write it.")
         # drawn before any hook of its lands, each dialog is on the screen alone
