@@ -15,6 +15,12 @@ var envKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 var lineBreaks = strings.NewReplacer("\r\n", "\n", "\r", "\n", "\v", "\n", "\f", "\n", "\x1c", "\n",
 	"\x1d", "\n", "\x1e", "\n", "\u0085", "\n", " ", "\n", " ", "\n")
 
+// Space is a character Python's str.isspace() is true of, as its strip(), split() and a
+// regular expression's \s read one: Go's White_Space and the four information separators.
+func Space(r rune) bool {
+	return unicode.IsSpace(r) || (r >= 0x1c && r <= 0x1f)
+}
+
 // SplitLines is text's lines, as Python's str.splitlines() reads them.
 func SplitLines(text string) []string {
 	if text == "" {

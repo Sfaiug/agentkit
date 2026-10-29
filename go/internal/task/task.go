@@ -14,18 +14,19 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"agentkit/internal/commandhelp"
+	"agentkit/internal/config"
 )
 
 var (
-	doneWhen = regexp.MustCompile(`(?ims)^##\s+Done when\s*$(.*?)(?:^##\s|\z)`)
+	// \s as Python reads it, Unicode's whitespace included (config.Space)
+	doneWhen = regexp.MustCompile(strings.ReplaceAll(`(?ims)^##\s+Done when\s*$(.*?)(?:^##\s|\z)`, `\s`, `[\t\n\v\f\r\x{1c}-\x{1f} \x{85}\p{Z}]`))
 	fence    = regexp.MustCompile("(?s)```(?:bash|sh)?\n(.*?)```")
 	frontRe  = regexp.MustCompile(`(?s)^---\n(.*?)\n---\n?(.*)$`)
 	agentsRe = regexp.MustCompile(`(?s)^---\n(|.*?\n)---`)
 	onceRe   = regexp.MustCompile(`^#\s*once\s*$`)
-	// what Python's int() reads, so `rounds: 1_0` is ten rounds
-	pyInt = regexp.MustCompile(`^[+-]?[0-9]+(?:_[0-9]+)*$`)
 	// bash's own warning for a heredoc it never closes, from 3.2 (`bash: warning: …`) to 5.2
 	// (`bash: line 1: warning: …`)
 	unclosedHeredoc = regexp.MustCompile(`(?m)^[^:\n]+: (?:line \d+: )?warning: here-document at line \d+ delimited by end-of-file`)
@@ -45,8 +46,8 @@ func Read(path string) (map[string]string, []string, error) {
 	text := Text(data)
 	meta, body := map[string]string{}, text
 	if match := frontRe.FindStringSubmatch(text); match != nil {
-		for _, line := range strings.Split(match[1], "\n") {
-			line = strings.TrimSpace(line)
+		for _, line := range config.SplitLines(match[1]) {
+			line = strip(line)
 			if line == "" || strings.HasPrefix(line, "#") {
 				continue
 			}
@@ -54,12 +55,12 @@ func Read(path string) (map[string]string, []string, error) {
 			if !found {
 				return nil, nil, fmt.Errorf("%s: front matter line is not `key: value`: %s", path, commandhelp.Quote(line))
 			}
-			key = strings.TrimSpace(key)
+			key = strip(key)
 			if !slices.Contains(taskKeys, key) {
 				return nil, nil, fmt.Errorf("%s: unknown front-matter key %s; accepted keys: %s", path, commandhelp.Quote(key), strings.Join(taskKeys, ", "))
 			}
 			value, _, _ = strings.Cut(value, "#")
-			meta[key] = strings.TrimSpace(value)
+			meta[key] = strip(value)
 		}
 		body = match[2]
 	} else if strings.HasPrefix(text, "---\n") {
@@ -74,8 +75,8 @@ func Read(path string) (map[string]string, []string, error) {
 		return nil, nil, fmt.Errorf("%s: `## Done when` has no ```bash fenced command block", path)
 	}
 	var cmds []string
-	for _, line := range strings.Split(block[1], "\n") {
-		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
+	for _, line := range config.SplitLines(block[1]) {
+		if line = strip(line); line != "" && !strings.HasPrefix(line, "#") {
 			cmds = append(cmds, line)
 		}
 	}
@@ -103,11 +104,45 @@ func Refusal(meta map[string]string, cmds []string) string {
 // RoundsRefusal is the sentence for a round budget over three, or "": three rounds is the
 // budget, never a default to raise. A value that is no number is left to the check that says so.
 func RoundsRefusal(value, what string) string {
-	rounds, ok := new(big.Int).SetString(strings.ReplaceAll(value, "_", ""), 10)
-	if !pyInt.MatchString(value) || !ok || rounds.Cmp(big.NewInt(3)) <= 0 {
+	rounds := pyInt(value)
+	if rounds == nil || rounds.Cmp(big.NewInt(3)) <= 0 {
 		return ""
 	}
 	return fmt.Sprintf("%s %s is over the budget: 3 rounds, then a run goes back to its orchestrator to split or re-scope", what, rounds)
+}
+
+// pyInt is the number Python's int() reads in stripped text, or nil: a sign, then decimal
+// digits of any script, with single underscores between them, so `rounds: 1_0` is ten rounds.
+func pyInt(text string) *big.Int {
+	digits := strings.TrimLeft(text, "+-")
+	if len(text)-len(digits) > 1 {
+		return nil
+	}
+	var number strings.Builder
+	number.WriteString(text[:len(text)-len(digits)])
+	for _, part := range strings.Split(digits, "_") {
+		if part == "" {
+			return nil
+		}
+		for _, r := range part {
+			if !unicode.IsDigit(r) {
+				return nil
+			}
+			// Unicode keeps each script's digits in a run from 0 to 9
+			zero := r
+			for unicode.IsDigit(zero - 1) {
+				zero--
+			}
+			number.WriteRune('0' + (r-zero)%10)
+		}
+	}
+	rounds, _ := new(big.Int).SetString(number.String(), 10)
+	return rounds
+}
+
+// strip is Python's str.strip().
+func strip(text string) string {
+	return strings.TrimFunc(text, config.Space)
 }
 
 // opensHeredoc is whether bash's own parser, reading the command as a whole script, meets a
