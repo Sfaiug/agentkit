@@ -95,7 +95,7 @@ seat leaves its project for the past screen, `p` (`show_past`), listed by the da
 Enter reopens it where it stopped and `x` asks before it takes it off.  `c` holds
 the orchestrator, executors and reviewers of the seat the popup is over, or of new seats in a
 window of its own: the orchestrator moves the seat at once, the roles flip with the same keys
-and save at once; new seats' `a` gives theirs to every open seat (apply_defaults).
+and save at once; new seats' `a` gives theirs to every seat on the main screen (apply_defaults).
 `ak run status` and `ak browser` stay as commands for
 orchestrators; the menu no longer offers them. A gone session reads `session closed: press N
 to reopen`; one you stopped has no row under its project, only its row on the past screen; an
@@ -135,7 +135,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-from . import command_help, config, gitcall, history, matrix, motion, notify, orch, plan, quality, staffing, terminal, transitions, update, usage, worker
+from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, plan, quality, staffing, terminal, transitions, update, usage, worker
 from . import record
 from . import warm
 
@@ -2941,15 +2941,17 @@ def _stepped(cfg, record, steps, hold=()):
 
 def marks_saved(name, selected, changed):
     """A seat's role groups as `changed` has them, saved to its record at once and then into
-    `selected`; a save that fails leaves both alone.  What to say under the rows, or ""."""
+    `selected`, its bar redrawn (handback.redress_seat); a save that fails leaves all alone.
+    What to say under the rows, or ""."""
+    seat = config.resolve_session(name)     # a screen open across a rename has the old name
     try:
-        # a screen open across a rename has the old name
-        saved = config.update_session(config.resolve_session(name), workers=changed["workers"],
+        saved = config.update_session(seat, workers=changed["workers"],
                                       reviewers=changed["reviewers"])
     except OSError as exc:
         return f"session: {exc}"
     if saved is None:
         return f"session: {name} has no saved models"
+    handback.redress_seat(seat)
     # the groups alone: `changed` holds the rest of `selected` as it was, efforts and all
     selected.update(workers=changed["workers"], reviewers=changed["reviewers"])
     return ""
@@ -4978,26 +4980,27 @@ def defaults_saved(cfg, selected, changed, before):
 
 
 def apply_defaults(cfg, around):
-    """`a` on a fresh window's `c`: every open seat with a record but the weekly audit's takes
+    """`a` on a fresh window's `c`: every listed seat with a record but the weekly audit's takes
     [defaults]'s executors and reviewers and the entries' efforts for the models it then runs,
     once `Apply` is picked on the card `around` draws (terminal.confirm), which names each seat
     that restarts, one not running [defaults]'s orchestrator at its entry's effort; that one
     then restarts on it at that effort (orch.switch_orchestrator), the only way a seat's
     orchestrator effort changes, so a restart refused or failed leaves its record on the one
-    its harness runs, its other changes kept.
+    its harness runs, its other changes kept.  Listed: it has a row on the main screen, asleep or
+    gone from tmux too.  Each one's bar names what it took at once (handback.redress_seat).
     config.toml is not written.  What to say under the rows, one line a seat refused, or ""."""
     from . import audit     # here, not at the top: audit imports this module
     defaults, records = cfg["defaults"], config.session_records()
     skip = config.resolve_session(audit.NAME)
-    seats = {s["name"]: records[s["name"]] for s in orch.sessions()
-             if s["name"] in records and s["name"] != skip}
+    seats = {s["name"]: records[s["name"]] for s in orch.listing(reconcile=False)
+             if not s.get("closed") and s["name"] in records and s["name"] != skip}
     if not seats:
-        return "no open session to apply them to"
+        return "no session to apply them to"
     lead = defaults["orchestrator"]
     effort = config.efforts_of(cfg["models"][lead])["effort"]
     moving = [name for name, record in seats.items() if record.get("orchestrator") != lead
               or config.at_efforts(cfg, record)["models"][lead]["effort"] != effort]
-    count = f"{len(seats)} open session{'s' * (len(seats) > 1)}"
+    count = f"{len(seats)} session{'s' * (len(seats) > 1)}"
     means = (f"{', '.join(moving)} restart{'s' * (len(moving) == 1)} on "
              f"{config.model_name(cfg, lead)} at {effort}." if moving
              else "No session restarts.")
@@ -5030,6 +5033,7 @@ def apply_defaults(cfg, around):
         except (config.Error, OSError) as exc:
             said.append(f"{name}: {exc}")
             continue
+        handback.redress_seat(name)
         if name in moving:
             note = orch.switch_orchestrator(cfg, name, lead, providers, effort=effort)
             if note:

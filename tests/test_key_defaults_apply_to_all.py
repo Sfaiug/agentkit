@@ -7,8 +7,10 @@ seats it changes and which restart, each one not running [defaults]'s orchestrat
 entry's effort: Esc leaves every record as it was; `Apply` gives each seat [defaults]'s
 executors and reviewers and the entries' efforts for those models in its record, and restarts
 each one the card named on [defaults]'s orchestrator at that effort, config.toml as it was.
+A seat asleep takes them too, and each seat's bar names them at once (the owner, 29 Oct 2026:
+"it should reflect what runs from now on, and not what is still running").
 Black-box: the program `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py) over
-two seats as ak leaves them (tests/fixtures/akseat.py), its harnesses the fakes of
+four seats as ak leaves them (tests/fixtures/akseat.py), its harnesses the fakes of
 tests/fixtures/fakeadapter.py, judged by what the terminal shows, the seats' records, the launches
 their harnesses are asked for and config.toml; this test fails against `/bin/false`.
 """
@@ -24,17 +26,25 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
+from test_key_orch_list_rows import bar
 
 KEYS = "  ↑↓←→ move   ␣ mark   r recommended   a apply to all sessions   esc back"
 MODELS = {"fable": {"harness": "claude", "effort": "xhigh"}, "opus": "claude",
           "astra": {"harness": "codex", "effort": "high", "review_effort": "medium"}}
-SEATS = {"acme-same": {"model": "fable", "screen": "claude-prompt-pane.txt",
+# on [defaults]'s orchestrator at its effort, so it restarts nowhere, asleep or not
+CALM = {"workers": ["opus"], "reviewers": ["opus"], "efforts": {"fable": {"effort": "xhigh"}}}
+# made in the order the card names them, the main screen's, a tie going by name
+SEATS = {"acme-other": {"model": "astra", "screen": "codex-prompt-pane.txt",
+                        "record": {"workers": ["astra"], "reviewers": ["astra"],
+                                   "efforts": {"astra": {"effort": "low"}}}},
+         "acme-same": {"model": "fable", "screen": "claude-prompt-pane.txt",
                        "record": {"workers": ["opus"], "reviewers": ["fable"],
                                   "efforts": {"fable": {"effort": "max"},
                                               "opus": {"effort": "low"}}}},
-         "acme-other": {"model": "astra", "screen": "codex-prompt-pane.txt",
-                        "record": {"workers": ["astra"], "reviewers": ["astra"],
-                                   "efforts": {"astra": {"effort": "low"}}}}}
+         "acme-calm": {"model": "fable", "record": CALM},
+         "acme-asleep": {"model": "fable", "alive": False,
+                         "record": {**CALM, "asleep": time.time()}}}
+MOVING = ("acme-other", "acme-same")
 ROLES = ("orchestrator", "workers", "reviewers", "efforts")
 
 
@@ -54,8 +64,7 @@ class DefaultsApplyToAll(unittest.TestCase):
         self.fakes = fakeadapter.install(self.home, claude="pass", codex="pass")
         self.config = akconfig.write(self.home, MODELS, workers=["fable"], reviewers=["astra"])
         self.given = self.config.read_text()
-        for name, seat in SEATS.items():
-            Seat(self.home, name, **seat)
+        self.seats = {name: Seat(self.home, name, **seat) for name, seat in SEATS.items()}
         self.term = Terminal(self.home, size=(100, 30), env={"NO_COLOR": "1"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
                         "sleep 86400", server=SERVER)
@@ -72,7 +81,7 @@ class DefaultsApplyToAll(unittest.TestCase):
     def asked(self):
         self.term.keys("a")
         return self.term.wait(lambda screen: {
-            "  Give new seats' models and efforts to 2 open sessions?",
+            "  Give new seats' models and efforts to 4 sessions?",
             "  acme-other, acme-same restart on Fable 5.1 at xhigh.", "› ✓ Keep", "  ✗ Apply"}
             <= set(lines(screen)))
 
@@ -87,24 +96,28 @@ class DefaultsApplyToAll(unittest.TestCase):
         self.assertEqual(self.config.read_text(), self.given)
 
     def applied(self):
-        """`Apply` picked, once both seats run Fable at xhigh and the screen is back."""
+        """`Apply` picked, once every seat runs Fable at xhigh and the screen is back."""
         self.asked()
         self.term.keys("Down", "Enter")
         deadline = time.monotonic() + 30
-        while any((record["orchestrator"], record["efforts"]["fable"]["effort"])
+        while any((record["orchestrator"], record["efforts"].get("fable", {}).get("effort"))
                   != ("fable", "xhigh") for record in self.records().values()):
             self.assertLess(time.monotonic(), deadline, "a seat never restarted on fable")
             time.sleep(0.2)
         self.term.wait(lambda screen: key_line(screen) == KEYS)
         return self.records()
 
-    def test_apply_gives_every_seat_the_defaults_and_moves_the_other_one(self):
+    def test_apply_gives_every_seat_asleep_too_the_defaults_on_its_bar_at_once(self):
+        self.assertIn("Opus 5.5 ⚒◎", bar(self.home, self.seats["acme-calm"]))   # drawn before `a`
         for name, record in self.applied().items():
             with self.subTest(seat=name):
                 self.assertEqual((record["orchestrator"], record["workers"], record["reviewers"]),
                                  ("fable", ["fable"], ["astra"]))
                 self.assertEqual(record["efforts"]["astra"]["review_effort"], "medium")
         self.assertEqual(self.config.read_text(), self.given)
+        deadline = time.monotonic() + 10    # no look runs on `c`: only `a` redraws the bar
+        while "GPT-6-Astra ◎" not in bar(self.home, self.seats["acme-calm"]):
+            self.assertLess(time.monotonic(), deadline, "the bar kept the models it had")
 
     def test_apply_restarts_a_seat_at_new_seats_effort(self):
         launched = self.fakes["claude"].calls("interactive")
@@ -113,12 +126,12 @@ class DefaultsApplyToAll(unittest.TestCase):
                 self.assertEqual((record["efforts"]["fable"]["effort"],
                                   record["efforts"]["astra"]["review_effort"]), ("xhigh", "medium"))
         deadline = time.monotonic() + 30
-        while len(self.fakes["claude"].calls("interactive")) < len(launched) + len(SEATS):
+        while len(self.fakes["claude"].calls("interactive")) < len(launched) + len(MOVING):
             self.assertLess(time.monotonic(), deadline, "a seat's harness never launched again")
             time.sleep(0.1)
         again = self.fakes["claude"].calls("interactive")[len(launched):]
         self.assertEqual({(call["env"]["AGENTKIT_SESSION"], *call["argv"][:2]) for call in again},
-                         {(name, "claude-fable-5-1", "xhigh") for name in SEATS})
+                         {(name, "claude-fable-5-1", "xhigh") for name in MOVING})
 
     def test_a_seat_s_own_c_has_no_a_though_its_record_is_gone(self):
         Seat(self.home, "acme-bare", model="fable")
