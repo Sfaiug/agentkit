@@ -206,26 +206,29 @@ class QueuedRunWaitsOnTheInstalledCode(unittest.TestCase):
         self.assertEqual(history.phases(self.run_dir.name),
                          [{"phase": "slot wait", "started_at": 1000.0, "ended_at": 1090.0}])
 
-    def test_an_install_move_brings_the_line_back_in_order_over_a_poll(self):
-        line, clock, back = [f"20990101-000{n}-acme-fix" for n in range(5)], [0.0], []
+    def test_an_install_move_brings_the_line_back_spread_over_a_poll(self):
+        line, clock = [f"20990101-000{n}-acme-fix" for n in range(5)], [0.0]
 
         def sleep(seconds):     # its first polls on: the queue stays fresh
             clock[0] += seconds
             (config.RUNS / ".slots.queue").write_text(json.dumps({"at": clock[0], "queue": line}))
-        for run_id in line[1:]:
-            clock[0] = 1000.0
-            os.environ[waiter.SLOT_WAIT_ENV] = "1000.0 1000.0"
-            with patch.multiple(waiter.time, sleep=sleep, time=lambda: clock[0],
-                                monotonic=lambda: clock[0]), \
-                    patch.object(waiter, "head", return_value=NEW), \
-                    patch.object(waiter.os, "execv", side_effect=Replaced), \
-                    self.assertRaises(Replaced):
-                waiter.main([str(config.RUNS / ".slots.queue"), str(history.path()), run_id,
-                             "30", str(config.REPO), OLD, "ak"])
-            back.append(clock[0])
-        # each sees the move at its first poll, and the line comes back over the next
-        self.assertEqual(back, sorted(back))
-        self.assertGreaterEqual(back[-1] - back[0], 15)
+        # polls in step, as one move leaves them, or each a fifth of a poll before the one ahead
+        for apart in (0, 6):
+            back = []
+            for place, run_id in enumerate(line[1:], 1):
+                clock[0] = 1000.0 - apart * place
+                os.environ[waiter.SLOT_WAIT_ENV] = f"{clock[0]} {clock[0]}"
+                with patch.multiple(waiter.time, sleep=sleep, time=lambda: clock[0],
+                                    monotonic=lambda: clock[0]), \
+                        patch.object(waiter, "head", return_value=NEW), \
+                        patch.object(waiter.os, "execv", side_effect=Replaced), \
+                        self.assertRaises(Replaced):
+                    waiter.main([str(config.RUNS / ".slots.queue"), str(history.path()), run_id,
+                                 "30", str(config.REPO), OLD, "ak"])
+                back.append(clock[0])
+            # each sees the move at its first poll, and comes back at its own fifth of a poll
+            back.sort()
+            self.assertGreaterEqual(min(b - a for a, b in zip(back, back[1:])), 6, apart)
 
 
 if __name__ == "__main__":

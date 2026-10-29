@@ -46,17 +46,20 @@ def behind_first(queue, run_id, now, poll):
     return run_id in waiting[1:] and 0 <= now - at < stale_after(waiting.index(run_id), poll)
 
 
-def place(queue, run_id):
-    """The run's place in the queue file as a share of its line, 0 when it cannot be read: after
-    an install move it comes back that share of a poll late, so the line comes back in order over
-    a poll.  The waiters one move brought back poll together, and at the next 62 of them came
-    back within five seconds, 1.7 G at once (29 Oct 2026)."""
+def until_turn(queue, run_id, now, poll):
+    """Seconds from `now` to the run's turn in the clock's poll, its place in the queue file as a
+    share of its line (0 when it cannot be read): after an install move each waiter comes back
+    at its own turn, so the line comes back spread over a poll whatever phase its polls had.
+    The waiters one move brought back poll together, and at the next 62 of them came back
+    within five seconds, 1.7 G at once (29 Oct 2026); a share of each one's own poll late brings
+    back at once waiters whose polls lie those shares apart."""
     try:
         with open(queue, encoding="utf-8") as file:
             waiting = list(map(str, json.load(file)["queue"]))
-        return waiting.index(run_id) / len(waiting)
+        share = waiting.index(run_id) / len(waiting)
     except (OSError, ValueError, KeyError, TypeError):
-        return 0
+        share = 0
+    return (share * poll - now) % poll
 
 
 def head(repo, env=None):
@@ -124,7 +127,7 @@ def main(argv):
         if behind_first(queue, run_id, time.time(), poll):
             if not version or head(repo) in ("", version):
                 continue
-            time.sleep(poll * place(queue, run_id))
+            time.sleep(until_turn(queue, run_id, time.time(), poll))
         os.environ[SLOT_WAIT_ENV] = f"{began} {since}"
         os.execv(launch[0], launch)
 
