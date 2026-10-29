@@ -115,8 +115,10 @@ class OnlyWhatIsDrawn(unittest.TestCase):
         # a key after the click goes on from where the keys left the highlight, on Fable 5.1
         self.term.keys("Down")
         after = lines(self.term.wait("› Opus 5.5"))
-        def marks(shown):          # the matrix's rows, the keys' highlight taken off
-            return [re.sub(r"[›\[\]]", " ", line) for line in shown[2:shown.index("  Models")]]
+        # the model rows, the keys' highlight taken off: only they hold a mark, never the
+        # meters over them, whose readings come in on their own
+        def marks(shown):
+            return [re.sub(r"[›\[\]]", " ", line) for line in shown if re.search("[●○■□]", line)]
         self.assertEqual(marks(after), marks(shown))
         self.assertEqual((self.home.path / ".agentkit" / "config.toml").read_bytes(), config)
 
