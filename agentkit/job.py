@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import (box, config, deliver, gitcall, handback, host, notify, orch, retention, run,
-               staffing, task as taskfile, transitions, turns, watch)
+               sleep, staffing, task as taskfile, transitions, turns, watch)
 from . import land, record
 
 JOB_PICKER_INTERVAL = 60  # the executor picker is re-run on every job tick, at most this often
@@ -337,11 +337,14 @@ def job_hand_back(seat, line, log, typed=None, receipt=lambda mark: None):
 
     The seat has to be found and typed into in the same world -- see `launcher_world` -- and
     only at its own prompt, exactly as a single run's ending is handed back.  `busy` is a seat
-    that is there with a turn in flight: the line waits on the job's record and the tick types
-    it at the next quiet prompt, because a seat still in its chair is never a reason to ask the
-    owner instead.  Only `gone` is.  `typed` and `receipt` are the job record's side of
-    `watch.type_at_prompt`'s: a line in the composer is never typed a second time.
+    that is there with a turn in flight, or asleep and not yet back (`sleep.wake`): the line waits
+    on the job's record and the tick types it at the next quiet prompt, because a seat still in
+    its chair is never a reason to ask the owner instead.  Only `gone` is.  `typed` and
+    `receipt` are the job record's side of `watch.type_at_prompt`'s: a line in the composer is
+    never typed a second time.
     """
+    if not sleep.wake(seat, log):
+        return "busy"
     with handback.launcher_world(seat) as live:
         if not live:
             return "gone"
