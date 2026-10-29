@@ -25,7 +25,7 @@ func splitLines(text string) []string {
 }
 
 func oneCommand(command string) bool {
-	return len(splitLines(strings.TrimFunc(command, config.IsSpace))) == 1 && !strings.Contains(command, "`")
+	return len(splitLines(strings.TrimFunc(command, config.Space))) == 1 && !strings.Contains(command, "`")
 }
 
 type arguments struct {
@@ -70,14 +70,6 @@ func digits(value string) bool {
 
 func positive(value string) bool {
 	return digits(value) && strings.TrimLeft(value, "0") != ""
-}
-
-func rounds(value string) string {
-	trimmed := strings.TrimLeft(value, "0")
-	if digits(value) && (len(trimmed) > 1 || trimmed > "3") {
-		return fmt.Sprintf("--rounds %s is over the budget: 3 rounds, then a run goes back to its orchestrator to split or re-scope", trimmed)
-	}
-	return ""
 }
 
 func isFile(path string) bool {

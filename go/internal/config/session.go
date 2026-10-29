@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
 	"agentkit/internal/commandhelp"
@@ -21,14 +20,9 @@ const renameHops = 8
 // Renamed is the key a rename leaves in the old name's record: the name it goes by now.
 const Renamed = "renamed"
 
-// IsSpace is whitespace as Python's str.split() and str.strip() read it.
-func IsSpace(r rune) bool {
-	return unicode.IsSpace(r) || (r >= '\x1c' && r <= '\x1f')
-}
-
 // Fold is text's words one space apart, as Python's " ".join(text.split()) writes them.
 func Fold(text string) string {
-	return strings.Join(strings.FieldsFunc(text, IsSpace), " ")
+	return strings.Join(strings.FieldsFunc(text, Space), " ")
 }
 
 func sessionPath(name string) (string, error) {
@@ -50,8 +44,7 @@ func CurrentSession() (string, map[string]any, error) {
 // SeatFiles are the files every seat keeps its record in.
 func SeatFiles() []string {
 	pattern, _ := sessionPath("*")
-	paths, _ := filepath.Glob(pattern)
-	return paths
+	return Glob(filepath.Dir(pattern), filepath.Base(pattern))
 }
 
 // SessionPath is where a seat's record is kept.

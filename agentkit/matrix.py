@@ -245,7 +245,7 @@ def needed():
     of its task, the index and what each measure's error cannot be had without.  A board whose
     cached rows carry none of one is read again by a new build, since its reader changed."""
     columns = {quality.INTEL, *quality.COSTS.values()} | {
-        name for role in quality.ROLES.values() for column, _, _ in role
+        name for role in quality.ROLES.values() for column, *_ in role
         for name in (column, *quality.reads(column))}
     return {board: {column for column in columns if column.split(".")[0] == prefix}
             for board, prefix in PREFIX.items()}

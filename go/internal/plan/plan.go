@@ -318,7 +318,7 @@ func verify(ctx context.Context, name string) error {
 // branch first and must fail there, the line naming the commit it failed on, or prove nothing;
 // in a turn whose own ssh reached the live host, one that passes is written done on that commit.
 func Add(ctx context.Context, name, repo, what, check string) (string, error) {
-	what, check = config.Fold(what), strings.TrimFunc(check, config.IsSpace)
+	what, check = config.Fold(what), strings.TrimFunc(check, config.Space)
 	if err := holdsCheckout(check, repo); err != nil {
 		return "", err
 	}

@@ -108,9 +108,10 @@ class AddOpenCodeProvider(unittest.TestCase):
         self.assertEqual(listed(lines), [["Zeta Cloud", "zeta", "log in"]])
         mark = len(screen.text())
         lines = screen.press(ENTER, lambda lines: "  model" in lines and "Comet 2" in str(lines))
-        # logged in on the terminal given back for it, then asked again: its model joins the
-        # list, highlighted
-        self.assertEqual(verbs(screen)[2:], ["opencode login zeta", "opencode providers "])
+        # logged in on the terminal given back for it, asked whether it has that login now,
+        # then asked again: its model joins the list, highlighted
+        self.assertEqual(verbs(screen)[2:], ["opencode login zeta", "opencode auth zeta",
+                                             "opencode providers "])
         said = screen.text()[mark:]
         login = said.index("<opencode login on the terminal>")
         self.assertLess(said.index(GIVE), login)
@@ -231,6 +232,17 @@ class AddOpenCodeProvider(unittest.TestCase):
         self.assertEqual(screen.path.read_bytes(), before)
         back(screen)
         screen.leave()
+
+    def test_esc_while_opencode_s_list_is_asked_goes_back_one_list(self):
+        held = CHILD.replace("update.version =", "import threading\n"
+                             "config.catalog = lambda *_: threading.Event().wait()\n"
+                             "update.version =")
+        screen = Screen(self, child=held, text=ONE)
+        open_providers(screen)
+        pick(screen, ENTER, ADD, 6)
+        screen.press(DOWN * 4 + ENTER, lambda lines: title(lines) == THROUGH
+                     and any("reading the models opencode offers" in line for line in lines))
+        screen.press(ESC, lambda lines: title(lines) == ADD)
 
 
 if __name__ == "__main__":

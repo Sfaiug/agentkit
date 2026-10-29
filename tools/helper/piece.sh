@@ -16,9 +16,10 @@ for program in $programs; do   # the suite fakes every harness; it only looks fo
   printf '#!/bin/sh\n[ "$1" = --version ] && { echo "%s 0.0.0"; exit 0; }\nexit 127\n' "$program" \
     >"/home/ak/stand-ins/$program" && chmod +x "/home/ak/stand-ins/$program"
 done
-# The suite names its failed tests in /out, which mac.sh's `failed` hands ak.
+# The suite names its failed tests in /out, and those failing, then passing, which mac.sh's
+# `failed` hands ak.
 export PATH="$PATH:/home/ak/stand-ins" SHELL=/bin/bash LANG=C.UTF-8 AK_SHARD="$shard" \
-  AK_FAILED=/out/failed
+  AK_FAILED=/out/failed AK_FLAKY=/out/flaky
 offline() {
   unshare --user --map-current-user --net --keep-caps sh -c \
     'ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' - "$@"

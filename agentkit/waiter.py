@@ -25,17 +25,36 @@ import time
 SLOT_WAIT_ENV = "AK_SLOT_WAIT"
 
 
+def stale_after(place, poll):
+    """How old the queue gets before the run at `place` in it counts it again: its first polls
+    every poll, and once it stops or dies the run next in line comes back after two, a poll later
+    the one behind it, and so on: one comes back to count it, never the whole line.  A line of
+    110 coming back at once held the slot lock for minutes and about 3 G of memory, several times
+    an hour (28 Oct 2026)."""
+    return (1 + place) * poll
+
+
 def behind_first(queue, run_id, now, poll):
     """Whether the queue file still has this run waiting behind its first, who alone can be
-    admitted.  A queue no poll rewrote for two polls -- its first stopped or died -- is counted
-    again by whoever polls next."""
+    admitted, and not yet stale for it (`stale_after`)."""
     try:
         with open(queue, encoding="utf-8") as file:
             saved = json.load(file)
         at, waiting = float(saved["at"]), [str(run_id) for run_id in saved["queue"]]
     except (OSError, ValueError, KeyError, TypeError):
         return False
-    return 0 <= now - at < 2 * poll and run_id in waiting[1:]
+    return run_id in waiting[1:] and 0 <= now - at < stale_after(waiting.index(run_id), poll)
+
+
+def offset(queue, run_id, poll):
+    """How far into each interval on the clock the run polls, its place's share of the line: runs
+    at different places in it poll at different moments.  None when the queue does not list it."""
+    try:
+        with open(queue, encoding="utf-8") as file:
+            waiting = list(map(str, json.load(file)["queue"]))
+        return poll * waiting.index(run_id) / len(waiting)
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def head(repo, env=None):
@@ -98,7 +117,10 @@ def main(argv):
     poll = float(poll)
     began, since = map(float, os.environ[SLOT_WAIT_ENV].split())
     while True:
-        time.sleep(poll)
+        # Polled from when each came back, the waiters one install move brought back together
+        # all saw the next at one poll: 62 came back within five seconds, 1.7 G (29 Oct 2026).
+        at = offset(queue, run_id, poll)
+        time.sleep(poll if at is None else poll - (time.time() - at) % poll)
         since = count(database, run_id, began, since)
         if (not behind_first(queue, run_id, time.time(), poll)
                 or version and head(repo) not in ("", version)):

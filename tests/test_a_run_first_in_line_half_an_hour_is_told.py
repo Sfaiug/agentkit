@@ -78,6 +78,11 @@ class FirstInLineHalfAnHour(unittest.TestCase):
         self.polls(WEB, [API, WEB], NOW - 3000, NOW)
         self.assertEqual(self.found(NOW), [f"slot:{API}:{NOW - 3000}"])
 
+    def test_a_first_only_the_last_of_a_long_line_polls_is_a_stall(self):
+        line = [API, WEB, "20270115-0902-fix-ui", "20270115-0903-fix-db"]
+        self.polls(line[-1], line, NOW - 3000, NOW)     # it counts the queue every fourth poll
+        self.assertEqual(self.found(NOW), [f"slot:{API}:{NOW - 3000}"])
+
 
 if __name__ == "__main__":
     unittest.main()

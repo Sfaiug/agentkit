@@ -49,10 +49,11 @@ class HarnessGate(unittest.TestCase):
         self.assertEqual(self.gates.ran(), ["live"])
 
     def test_a_checkout_with_no_live_gate_upgrades_nothing_and_says_why(self):
-        # the program's own checkout, as it is but for tests/live.sh
+        # the program's own checkout, as it is but for tests/live.sh; other
+        # tests' scratch (.ak-test-*) sits in it and changes under the copy
         checkout = self.home.root / "checkout"
         shutil.copytree(Path(AK).resolve().parents[1], checkout,
-                        ignore=shutil.ignore_patterns(".git", "go", "tests", "__pycache__"))
+                        ignore=shutil.ignore_patterns(".git", "go", "tests", "__pycache__", ".ak-test-*"))
         (checkout / "tests").mkdir()
         for name in ("smoke.sh", "e2e-fresh.sh"):
             (checkout / "tests" / name).write_text("exit 0\n")

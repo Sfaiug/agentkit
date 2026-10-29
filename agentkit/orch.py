@@ -3053,7 +3053,7 @@ def sweep(log):
     there was one (`watch.seat_stopped_at`): a seat long gone from tmux that the owner stops
     today keeps its row and its number the whole week.
     """
-    from . import watch   # here, not at the top: watch imports this module
+    from . import sleep, watch   # here, not at the top: they import this module
     found = {s["name"]: s for s in sessions()}
     sweep_finished(found, log)
     protected = set()
@@ -3069,7 +3069,7 @@ def sweep(log):
         seat = found.get(name)
         since = (record.get("exited_since") if seat
                  else watch.seat_stopped_at(name) or record.get("seen"))
-        if (name in protected or unread_question(name)
+        if (name in protected or unread_question(name) or sleep.asleep(name)
                 or not retention.expired(since, now, config.SESSION_STALE)):
             continue
         # Resolve the configured directory, not the record itself: linked home directories
@@ -3343,20 +3343,21 @@ def maintenance(log=print):
 # --- the commands -----------------------------------------------------------
 
 
-def state_word(session, cfg=None):
+def state_word(session, cfg=None, records=None):
     """What the listing calls a seat: working, needs you, done, idle or out of usage, and
     nothing else.
 
     One function decides it -- `watch.session_state` -- so the list, the menu, the overlay,
     the status bar and the window title can never say different words about the same seat.
     A listing reads the seat's own screen first, as it always did, and publishes the answer
-    to that seat's bar; it writes no word of its own.
+    to that seat's bar; it writes no word of its own.  `records` are the listing's one pass
+    over the run records, read here where left out.
     """
     from . import watch   # here, not at the top: watch imports this module
-    return watch.announce_state(session, cfg=cfg, look=True)["word"]
+    return watch.announce_state(session, cfg=cfg, look=True, records=records)["word"]
 
 
-def explain(session, cfg):
+def explain(session, cfg, records=None):
     """The `--why` block for one seat: its word, why it has it, on what, and since when.
 
     The word is one of the five every screen says; the evidence lines under it are the facts
@@ -3364,7 +3365,7 @@ def explain(session, cfg):
     answer rather than inventing a rule that matched.
     """
     from . import watch   # here, not at the top: watch imports this module
-    found = watch.announce_state(session, cfg=cfg, look=True)
+    found = watch.announce_state(session, cfg=cfg, look=True, records=records)
     lines = [f"{session['name']}  {found['word']}"]
     lines.append(f"  reason:    {found['reason'] or '-'}")
     if any(session.get(key) for key in CLOSED):
@@ -3459,7 +3460,7 @@ def _narrow_table(rows, texts, notes, natural, width, gutter):
     return header, groups
 
 
-def list_table(found, cfg, tallies, width, selections=None):
+def list_table(found, cfg, tallies, width, selections=None, records=None):
     """The seats table: the same design as `ak run status`.
 
     Fixed columns with two-space gutters, sized once from the rows on screen:
@@ -3469,8 +3470,8 @@ def list_table(found, cfg, tallies, width, selections=None):
     shows only with `--why`. On a
     screen too narrow for the seven columns the header names the seat and its
     project, and the state, tally, orchestrator, age and workers ride their own
-    lines under it, every name whole. `selections` carries the seat records the
-    caller already loaded, so each record is read once per listing.
+    lines under it, every name whole. `selections` carries the seat records and
+    `records` the run records the caller already loaded, so each is read once per listing.
     """
     from . import menu   # here, not at the top: menu imports this module
     if not found:
@@ -3485,7 +3486,7 @@ def list_table(found, cfg, tallies, width, selections=None):
                 selection = config.load_session(cfg, s["name"], required=False)
             except config.Error:
                 selection = None
-        word = state_word(s, cfg)
+        word = state_word(s, cfg, records)
         rows.append([s["name"], project_name(s.get("repo")), word,
                      menu.tally(tallies.get(s["name"])),
                      selection["orchestrator"] if selection else "?",
@@ -3547,8 +3548,10 @@ def cmd_list(argv):
         return 0
     from . import handback, menu  # here, not at the top: menu imports this module
     cfg = config.load()
-    # the same tally each seat's menu row carries, from the same one pass over the records
-    tallies = handback.seat_tallies(state for _, state in menu.run_records())
+    # the same tally each seat's menu row carries, from the one pass over the records every
+    # seat's word, bar and `--why` block read too
+    records = menu.run_records()
+    tallies = handback.seat_tallies(state for _, state in records)
     # each seat's record is read once here and carried into the table, which
     # would otherwise read every seat again for the same rows
     selections, warnings = {}, []
@@ -3558,14 +3561,15 @@ def cmd_list(argv):
         except config.Error as exc:
             selections[s["name"]] = None
             warnings.append(str(exc))
-    header, groups = list_table(found, cfg, tallies, terminal.content_width(), selections)
+    header, groups = list_table(found, cfg, tallies, terminal.content_width(), selections,
+                                records)
     print(header)
     for s, group in zip(found, groups):
         print("\n".join(group))
         if why:
             # the checkout path and the seat's explanations, under its own row
             print(f"  path: {s['path']}")
-            print("\n".join(explain(s, cfg)[1:]))
+            print("\n".join(explain(s, cfg, records)[1:]))
     print_slice()
     for warning in warnings:
         print(f"WARN {warning}", file=sys.stderr)
@@ -3730,14 +3734,15 @@ def cmd_project(argv):
         name, checkout = config.resolve_session(argv[0]), argv[1]
     else:
         raise config.Error("usage: ak orch project [<seat>] <checkout>")
-    found = checkouts()
+    stands = listed()
+    found = checkouts(stands)
     repo = next((path for path in found if path.name == checkout), None)
     if repo is None:
         matches = [path for path in found if path.name.casefold() == checkout.casefold()]
         if len(matches) > 1:
             known = ", ".join(str(path) for path in matches)
             raise config.Error(f"ambiguous checkout: {checkout!r} (checkouts: {known})")
-        repo = matches[0] if matches else checkout_of(os.path.expanduser(checkout))
+        repo = matches[0] if matches else checkout_of(os.path.expanduser(checkout), stands)
     if repo is None:
         known = ", ".join(str(path) for path in found) or "none"
         raise config.Error(f"not a checkout: {checkout!r} (checkouts: {known})")
@@ -3746,7 +3751,7 @@ def cmd_project(argv):
         if config.update_session(name, repo=str(repo), filed=True) is None:
             raise config.Error(f"no orchestrator session {name!r}")
     print(f"filed {name} under {repo.name}")
-    flight = in_flight(name, repo)
+    flight = in_flight(name, repo, stands)
     print(f"in flight on {repo.name}, plan around it:" if flight
           else f"nothing else in flight on {repo.name}")
     room = terminal.layout_width() - 4
@@ -3762,7 +3767,7 @@ def cmd_project(argv):
     return 0
 
 
-def in_flight(name, repo):
+def in_flight(name, repo, stands=None):
     """What the other seats have in flight on that checkout, so two sessions never build the
     same thing unaware: [(seat, open plan lines, changed files)] by name.
 
@@ -3771,20 +3776,23 @@ def in_flight(name, repo):
     elsewhere only those written on this checkout; its files are what its going runs on the
     checkout change against their base, committed or not, or a queued run's task `files:`.  A
     seat with neither is left out.  A going run launched from no seat counts as `run <id>`.
+    Every repo is filed against one look at ~/code (`stands`, as `checkout_of` takes it),
+    however many seats and runs there are.
     """
     from . import menu, watch  # here, not at the top: menu imports this module
-    target = checkout_of(repo)
+    stands = listed() if stands is None else stands
+    target = checkout_of(repo, stands)
     if not target:
         return []
     filed = {seat for seat, record in config.session_records().items()
-             if checkout_of(record.get("repo")) == target}
+             if checkout_of(record.get("repo"), stands) == target}
     seats = {seat: ([], set()) for seat in filed if seat != name}
     rows = []
     for directory in run_record.run_dirs():
         state = run_record.read_state(directory) or {}
         seat = transitions.launched_session(state)
         if (seat != name and not menu.smoke_run(state) and transitions.going(state)
-                and checkout_of(state.get("repo")) == target):
+                and checkout_of(state.get("repo"), stands) == target):
             files = changed_files(state, directory)
             if seat:
                 seats.setdefault(seat, ([], set()))[1].update(files)
@@ -3794,7 +3802,7 @@ def in_flight(name, repo):
         for line in watch.plan_text(seat).splitlines():
             written = plan.LINE.match(line.strip())
             if plan.is_open(line) and (seat in filed or written and checkout_of(
-                    plan.place(seat, written["project"])) == target):
+                    plan.place(seat, written["project"]), stands) == target):
                 lines.append(plan.BOX.sub("", line, count=1).strip())
     rows.extend((seat, lines, files) for seat, (lines, files) in seats.items() if lines or files)
     return sorted(rows)

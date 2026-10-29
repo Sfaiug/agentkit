@@ -426,7 +426,8 @@ if true; then       # always: every step below needs the HOME to be logged in
   # Whether each harness can log in is worker.auth_ok's answer in the new HOME, as before a
   # turn: 0 for a yes, 3 for a no, anything else no answer.  Claude's worker token is a login
   # as good as the seat's pair.  A login this host lent that is refused, or that gets no
-  # answer at all, fails the step; a harness with none lent is skipped.
+  # answer at all, fails the step; a harness with none lent is skipped, silent or not: a new
+  # HOME's first OpenCode can outlast its probe's bound, and there is no login to judge.
   HERE=""       # the harnesses installed here with their login, one of which the gate needs
   here() { case "$HERE " in *" $1:"*) ;; *) return 1 ;; esac; }   # here <harness>
   for pair in "claude claude anthropic" "codex codex openai" "muse muse meta" \
@@ -443,7 +444,8 @@ sys.exit({True: 0, False: 3}.get(ok, 2))' "$1" 2>&1 </dev/null)
       0:*) HERE="$HERE $1:$3" ;;
       3:*" $1 "*) bad="$bad; $WHY" ;;
       3:*) skip "c: $1's login is not on this host: $WHY" ;;
-      *) bad="$bad; $1: its auth gave no answer: $WHY" ;;
+      *:*" $1 "*) bad="$bad; $1: its auth gave no answer: $WHY" ;;
+      *) skip "c: $1's login is not on this host, and its auth gave no answer: $WHY" ;;
     esac
   done
   [ -n "$HERE" ] || bad="$bad; no harness here is installed with its login; the gate needs one"

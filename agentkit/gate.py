@@ -238,12 +238,11 @@ def slot_queue():
 
 def first_in_line(now):
     """(the run first in line for a slot, since when it has waited there, how many wait behind
-    it, the waits there of the last firsts let in) while a poll within four rewrote the queue,
-    for `stuck`: its first polls every one, and once it is gone a waiter behind it within three
-    (`behind_first`); after a gap, a new wait.  A poll newer than `now`, one that ran while the
-    caller read, is the same wait."""
+    it, the waits there of the last firsts let in) while a poll rewrote the queue within three
+    of the last in line counting it again (`waiter.stale_after`), for `stuck`; after a gap, a new
+    wait.  A poll newer than `now`, one that ran while the caller read, is the same wait."""
     at, _, queue, since, took, _ = slot_queue()
-    if queue and since and now - at < 4 * SLOT_POLL:
+    if queue and since and now - at < waiter.stale_after(len(queue) - 1, SLOT_POLL) + 3 * SLOT_POLL:
         return queue[0], since, len(queue) - 1, took
     return None
 
@@ -362,6 +361,14 @@ def _wait_reason(readings, minimum, maximum, frozen=0):
         return (f"waiting for the unit's memory · {host._g(used)} of {host._g(unit[1])} G"
                 f"{_in_swap(unit)}", "unit memory")
     return None, None
+
+
+def memory_tight(readings=None):
+    """Why memory holds a run back now, else None; off under the tests' `AK_MAX_RUNS=0`."""
+    if os.environ.get("AK_MAX_RUNS") == "0":
+        return None
+    readings = _run_readings() if readings is None else readings
+    return _wait_reason(readings, resource_limits(readings)[0], 0)[0]
 
 
 def _host_admits(state, readings, is_first):
@@ -494,6 +501,9 @@ def wait_for_slot(run_dir, between=None):
     announced = behind
     wait_kind = None
     counted = tuple(map(float, handed)) if behind else None
+    if behind and between is not None and behind_first(run_dir.name):
+        # back only as the install moved: back to the waiter, or every waiter polls under the lock
+        between(counted)
     while True:
         if not first_poll:
             counted = counted or (time.time(), time.monotonic())
@@ -1562,7 +1572,7 @@ def unnamed(code, only, ran, output):
 
 def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
               on_wait=None, measure=False, shard=None, pieces=None, later=None, only=None,
-              confirmed=None, changed=None, **kwargs):
+              confirmed=None, changed=None, flaky=None, named=None, **kwargs):
     """One command, or all its opted-in pieces, with failed pieces retried alone.
 
     Callers keep one command and one outcome. Each piece has its own silence window;
@@ -1584,6 +1594,10 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     where it ended in a failing exit: one dead by a signal, its exit negative, repeats nothing;
     for a command not split, under `1/1`, those its failing run named as failed.
     `changed`, a file of paths, is what `AK_CHANGED` names; it keeps the pieces on this host.
+    `flaky`, a list, gets the tests that failed, then passed on this tree: those a command named
+    so (`AK_FLAKY`), here or on the suite helper, and a red piece's named tests that passed run
+    alone.  `named`, a list, gets those a failing run of the command as one piece (not split,
+    or `shard`) named as failed, confirmed or not.
     Every piece gets the file times recorded as the suite starts (`suite_times`): a record
     another suite changes meanwhile would cut a later piece's share differently.
     """
@@ -1597,12 +1611,15 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 "(pinned piece)")
         output.write(f"--- AK_SHARD={label} ---\n".encode())
         output.flush()
-        ran, failed = (None, None) if only is None else ([], [])
+        ran, failed = (None if only is None else []), []
         code, text, killed = worker.boxed(
             ["bash", "-c", command], limit, cwd=str(cwd), activity=activity, output=output,
-            env={**env, "AK_SHARD": share}, only=only, ran=ran, failed=failed, **kwargs)
+            env={**env, "AK_SHARD": share}, only=only, ran=ran, failed=failed, flaky=flaky,
+            **kwargs)
         if confirmed is not None and only is not None:
             confirmed[shard] = [test for test in only if code > 0 and test in ran and test in failed]
+        if named is not None and code > 0:
+            named.extend(failed)
         if ran is not None:
             code = unnamed(code, only, ran, output)
         if pieces is not None:
@@ -1618,13 +1635,16 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             if measured:
                 measured.sample()
             return aborting() if aborting else False
-        failed = None if confirmed is None else []
+        failed = []
         result = worker.boxed(["bash", "-c", command], limit, cwd=str(cwd), activity=activity,
                               output=output, env=env, abort=abort,
                               cpu=measured.cpu if measured else None,
-                              quiet=measured.quiet if measured else None, failed=failed, **kwargs)
-        if failed is not None:
+                              quiet=measured.quiet if measured else None, failed=failed,
+                              flaky=flaky, **kwargs)
+        if confirmed is not None:
             confirmed["1/1"] = failed if result[0] > 0 else []
+        if named is not None and result[0] > 0:
+            named.extend(failed)
         if measured and not result[2] and result[0] != SUITE_BUSY:
             measured.save(path, 1)
             measured.paced(path, 1)
@@ -1734,7 +1754,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     own[worker.RUN_MARKER] += f"/piece-{shard.replace('/', '-')}"
                 try:
                     here = {} if there else {"cpu": measure.cpu, "quiet": measure.quiet,
-                                             "only": only, "failed": tests}
+                                             "only": only, "failed": tests, "flaky": flaky}
                     kills = measure.oom("oom_kill")
                     code, _, killed = (worker.limited if there else worker.boxed)(
                         helper.piece(there, shard, PINNED_PIECE.format(
@@ -1779,6 +1799,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         result = attempt(shard, first=True, there=there, turn=turn)
                         code, back = result[0], there and result[0] in helper.GONE and not result[2]
                         pieces_left.done(index, back, turn)
+                        if there and not back and flaky is not None:
+                            flaky.extend(helper.failed(there, shard, "flaky"))
                         if there and code and log is not None:
                             home_reasons[shard] = f"helper {there.alias} {helper.failure(code)}"
                         if not back:
@@ -1929,6 +1951,12 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             if confirmed is not None:
                                 confirmed[shard] = tests
                             break
+                        # passing alone, they failed, then passed, whatever the piece does next
+                        piece.seek(0)
+                        flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
+                                                   piece.read(), activity, run_dir, log, how))
+                        if flaky is not None:
+                            flaky.extend(only)
                         only = None
                     elif not code:
                         break
@@ -1939,7 +1967,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     else:
                         break
                     code, piece, killed, tests = attempt(shard, only)
-                if failed is not None and code == 0:
+                if failed is not None and code == 0 and alone is None:
                     piece.seek(0)
                     flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
                                                piece.read(), activity, run_dir, log, how))
@@ -2005,7 +2033,7 @@ def _running_commands(pid):
 
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
                   run_dir=None, heavy=False, marks=None, shard=None, pieces=None, only=None,
-                  confirmed=None, changed=None):
+                  confirmed=None, changed=None, flaky=None):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -2045,8 +2073,10 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     for each sharded command's pieces, by command then share (`run_suite`); `shard` runs
     every command as that one piece alone, a command like any other, its re-run included,
     and with `only` just those of its tests.  `confirmed`, a dict, gets by command what
-    `run_suite` confirms: the tests a red piece named that failed again alone.  `changed`, a
-    file of paths, is what `AK_CHANGED` names to every command.
+    `run_suite` confirms: the tests a red piece named that failed again alone, and `flaky`, a
+    list, the tests it found failing, then passing, those a command run whole named failed
+    before its re-run passed among them.  `changed`, a file of paths, is what
+    `AK_CHANGED` names to every command.
     The test files' times the commands printed are kept (`suite_times`) before the log, whole
     until then, takes `text`, its capped form.
     """
@@ -2075,6 +2105,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
         for cmd in cmds:
             first_span = None   # the gate log's byte span of a first run that failed, while its
                                 # re-run decides: the flaky diff reads whole runs
+            named = []          # the tests this command's run named failed
             busy = False
             # stopped sooner at its suite's pace on its first go; a second has the rest
             window = quiet_window(cmd, cwd, run_dir, silence) if heavy else None
@@ -2098,7 +2129,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         pieces=None if pieces is None else pieces.setdefault(cmd, {}),
                         only=only,
                         confirmed=None if confirmed is None else confirmed.setdefault(cmd, {}),
-                        changed=changed)
+                        changed=changed, flaky=flaky, named=named)
                     end = progress.tell()
                 if log is not None and run_dir is not None:
                     turns.memory_cap_note(run_dir, log)
@@ -2116,7 +2147,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         break
                     how = f"was stopped after {window / 60:g} min of silence"
                     del reason[:], running[:]     # a stop of its second go is the one to name
-                first_span = (offset, end)
+                first_span, first, named = (offset, end), named, []
             if left <= 0 and first_span is None:
                 # the list is out of time: starting this command would give it a limit of its own
                 spent, killed, kept = cmd, False, ""
@@ -2146,6 +2177,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     progress.seek(offset)
                     rerun = progress.read(end - offset)
                 chunks.append(flaky_record(cmd, failed, rerun, log_path, run_dir, log, how))
+                if flaky is not None:
+                    flaky.extend(first)
             if killed:
                 spent, kept = cmd, out
                 break
