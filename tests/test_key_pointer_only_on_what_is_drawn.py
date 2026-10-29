@@ -113,7 +113,9 @@ class OnlyWhatIsDrawn(unittest.TestCase):
         self.term.keys("Down")
         after = lines(self.term.wait("› Opus 5.5"))
         def marks(shown):          # the matrix's rows, the keys' highlight taken off
-            return [re.sub(r"[›\[\]]", " ", line) for line in shown[2:shown.index("  Models")]]
+            # the usage rows over it are not marks: the menu's own probe redraws them any time
+            matrix = shown[shown.index("  For  new seats"):shown.index("  Models")]
+            return [re.sub(r"[›\[\]]", " ", line) for line in matrix]
         self.assertEqual(marks(after), marks(shown))
         self.assertEqual((self.home.path / ".agentkit" / "config.toml").read_bytes(), config)
 
