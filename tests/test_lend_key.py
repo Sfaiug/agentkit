@@ -141,8 +141,9 @@ class LendKey(unittest.TestCase):
         for harness in LOGINS:
             with self.subTest(harness=harness):
                 self.assert_none(*self.lend(harness))
-                self.fixture(harness, key="")
-                self.assert_none(*self.lend(harness))
+                for key in ("", " \t\n"):
+                    self.fixture(harness, key=key)
+                    self.assert_none(*self.lend(harness))
 
     def test_this_home_and_a_taken_place_are_refused(self):
         for harness, spec in LOGINS.items():
@@ -159,22 +160,34 @@ class LendKey(unittest.TestCase):
             self.assertEqual((taken / spec["usual"]).read_text(), "{}")
 
     def test_opencode_needs_a_key_for_each_provider_named(self):
-        self.fixture("opencode")
-        self.assert_none(*self.lend("opencode", provider="mimo acme"))
+        # acme has none but a blank one saved; nova's is in a legacy entry OpenCode drops for
+        # the native one naming nova
+        login = LOGINS["opencode"]["login"]("fixture-key")
+        login["provider"]["nova"] = {"options": {"apiKey": "fixture-dropped"}}
+        login["providers"] = {"nova": {"settings": {"baseURL": "https://nova.test"}}}
+        self.fixture("opencode", login=login)
+        self.saved.write_text(json.dumps([saved("acme", " \t")]))
+        for provider in ("acme", "nova"):
+            with self.subTest(provider=provider):
+                self.assert_none(*self.lend("opencode", provider=f"mimo {provider}"))
 
     def test_opencode_lends_the_keys_it_saved_where_the_config_sets_none(self):
-        # acme's blank and zen's missing take the active key OpenCode saved; mimo keeps its own,
-        # and an OAuth login holds no key
+        # acme's blank, zen's missing and nova's missing from the native entry OpenCode reads
+        # over its legacy one take the active key OpenCode saved; mimo keeps its own, and an
+        # OAuth login holds no key
         login = LOGINS["opencode"]["login"]("fixture-key")
-        login["provider"]["acme"] = {"options": {"apiKey": "", "baseURL": "https://acme.test"}}
+        login["provider"]["acme"] = {"options": {"apiKey": " \t", "baseURL": "https://acme.test"}}
+        login["provider"]["nova"] = {"options": {"apiKey": ""}}
+        login["providers"] = {"nova": {"settings": {"baseURL": "https://nova.test"}}}
         self.fixture("opencode", login=login)
         self.saved.write_text(json.dumps([
             saved("acme", "fixture-spare", active=False), saved("acme", "fixture-acme"),
-            saved("zen", "fixture-zen"), saved("mimo", "fixture-saved-mimo"),
-            saved("oauthco", "fixture-oauth", kind="oauth")]))
-        proc, home = self.lend("opencode", provider="acme zen mimo")
+            saved("zen", "fixture-zen"), saved("nova", "fixture-nova"),
+            saved("mimo", "fixture-saved-mimo"), saved("oauthco", "fixture-oauth", kind="oauth")]))
+        proc, home = self.lend("opencode", provider="acme zen nova mimo")
         login["provider"]["acme"]["options"]["apiKey"] = "fixture-acme"
         login["provider"]["zen"] = {"options": {"apiKey": "fixture-zen"}}
+        login["providers"]["nova"]["settings"]["apiKey"] = "fixture-nova"
         self.assert_lent("opencode", proc, home, login)
 
     def test_opencode_lends_a_provider_that_needs_no_login(self):

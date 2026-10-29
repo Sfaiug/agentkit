@@ -70,12 +70,14 @@ CFG="$CFGDIR/opencode.json"
 cmd=${1:-}; shift 2>/dev/null || true
 
 # The first non-blank apiKey configured for provider $1, or for any provider where $1 is
-# empty, in $CFG or the config file $2, failing when there is none.  The file is read whole
-# first (`-s`), so one that is not JSON fails before any key in it is printed.
+# empty, in $CFG or the config file $2, failing when there is none.  OpenCode (2.2.0) reads a
+# provider's legacy `provider` entry only where no native `providers` entry names it, so a
+# key in a legacy entry it drops is none.  The file is read whole first (`-s`), so one that
+# is not JSON fails before any key in it is printed.
 config_key() {
-  jq -ers --arg p "${1:-}" 'first(.[]
-      | (if $p == "" then . else [.provider[$p]?, .providers[$p]?] end)
-      | .. | objects | select(has("apiKey")) | .apiKey | strings | select(length > 0))' \
+  jq -ers --arg p "${1:-}" 'first(.[] | (.provider // {}) + (.providers // {})
+      | (if $p == "" then .[] else .[$p] end)
+      | .. | objects | select(has("apiKey")) | .apiKey | strings | select(test("[^[:space:]]")))' \
       "${2:-$CFG}" 2>/dev/null
 }
 
@@ -568,17 +570,21 @@ auth)
   exit 0 ;;
 lend)
   # The config, with the key of each provider's active login OpenCode saved itself (`auth
-  # export`, 2.2.0) as its `options.apiKey` where the config sets none or a blank one; a saved
-  # OAuth login holds no key.  Each provider named needs a key in the copy, or no login at all,
-  # as `auth` reads it.  Keys never leave jq and these pipes.
+  # export`, 2.2.0) as the `apiKey` of the entry OpenCode reads for it (see config_key) where
+  # that sets none or a blank one; a saved OAuth login holds no key.  Each provider named needs
+  # a key in the copy, or no login at all, as `auth` reads it.  Keys never leave jq and these
+  # pipes.
   [ $# -ge 1 ] || { echo "opencode.sh lend needs <home>" >&2; exit 2; }
   command -v jq >/dev/null || { echo "opencode.sh lend: jq is required" >&2; exit 2; }
   home=$1 cfg=$CFG; [ -r "$cfg" ] || cfg=/dev/null
   saved=$(command -v opencode >/dev/null && opencode auth export --standalone 2>/dev/null)
   copy=$(printf '%s' "$saved" | jq -Rsc --slurpfile cfg "$cfg" 'reduce (fromjson? | .[]?
-      | select(.active and .value.type == "key" and (.value.key | strings | length > 0)))
-      as $c ($cfg[0] // {}; .provider[$c.integrationID].options.apiKey
-        |= ((strings | select(length > 0)) // $c.value.key))' 2>/dev/null) || {
+      | select(.active and .value.type == "key" and (.value.key | strings | test("[^[:space:]]"))))
+      as $c ($cfg[0] // {}; (if .providers[$c.integrationID] then
+          ["providers", $c.integrationID, "settings", "apiKey"]
+        else ["provider", $c.integrationID, "options", "apiKey"] end) as $at
+      | setpath($at; (getpath($at) | strings | select(test("[^[:space:]]"))) // $c.value.key))' \
+      2>/dev/null) || {
     echo "opencode: $CFG cannot be read as JSON" >&2; exit 1; }
   set -f; set -- $PROVIDERS; set +f; [ $# -gt 0 ] || set -- ""
   for p in "$@"; do
