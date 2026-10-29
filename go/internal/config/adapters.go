@@ -26,8 +26,7 @@ func SeatEnv() ([]string, error) {
 		manifests[path.Base(each)], _ = adapters.ReadFile(each)
 	}
 	if dir := os.Getenv("AGENTKIT_ADAPTER_DIR"); dir != "" {
-		local, _ := filepath.Glob(filepath.Join(Expand(dir), "*.toml"))
-		for _, each := range local {
+		for _, each := range Glob(Expand(dir), "*.toml") {
 			data, err := os.ReadFile(each)
 			if err != nil {
 				return nil, fmt.Errorf("cannot read %s: %w", each, err)

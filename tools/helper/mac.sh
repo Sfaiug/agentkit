@@ -163,8 +163,9 @@ run)       # KEY IMAGE NAME CPUS MEMORY_MB REPO, then piece.sh's arguments
   kill $! 2>/dev/null; wait $! 2>/dev/null
   [ ! -e "$D/$name.lost" ] || exit "$(cat "$D/$name.lost")"
   exit "$code" ;;
-failed)    # KEY NAME: the tests piece NAME named as failed; never through a link it left there
-  f="$ROOT/$2/$3.out/failed"
+failed)    # KEY NAME [flaky]: the tests piece NAME named as failed (or flaky); never through a
+           # link it left there
+  f="$ROOT/$2/$3.out/${4:-failed}"
   [ ! -f "$f" ] || [ -L "$f" ] || cat "$f"; exit 0 ;;
 finish) rm -rf "${ROOT:?}/$2" ;;
 *) exit 253 ;;

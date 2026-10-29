@@ -4,9 +4,25 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
+
+func TestSeatEnvReadsAdaptersUnderAHomeNamedLikeAPattern(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "a[b]")
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("AGENTKIT_ADAPTER_DIR", "~/adapters")
+	dir := filepath.Join(home, "adapters")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "acme.toml"), []byte("[launch]\nseat_env = [\"ACME_SEAT\"]\n"), 0o600)
+	if names, err := SeatEnv(); err != nil || !slices.Contains(names, "ACME_SEAT") {
+		t.Fatalf("got %v %v", names, err)
+	}
+}
 
 func TestRepoEnvReadsTheProjectsEnvFile(t *testing.T) {
 	home := t.TempDir()

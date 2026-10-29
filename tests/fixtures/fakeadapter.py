@@ -98,7 +98,8 @@ class Adapter:
 
     def answer(self, verb, out, code=0, given=()):
         """What a verb other than `run` prints, and its exit status, from now on: for its calls
-        whose arguments end in `given`, every call when it is empty."""
+        whose arguments end in `given`, every call when it is empty.  A `code` of None waits
+        for a line on its terminal, then exits 0; ^C there ends it with 130."""
         answers = self._json("answers") or {}
         self._put("answers", json.dumps({**answers, " ".join([verb, *given]): [out, code]}))
 
@@ -169,7 +170,13 @@ def main(directory, harness, ak, verb="", *args):
         out, code = next((answers[key] for key in (" ".join([verb, *args[i:]])
                                                    for i in range(len(args) + 1))
                           if key in answers), [ANSWERS.get(verb, f"fake {harness}: {verb}"), 0])
-        print(out)
+        print(out, flush=True)
+        if code is None:    # a sign-in waiting on a code typed at its terminal, keys not taken
+            try:
+                input()
+                code = 0
+            except KeyboardInterrupt:
+                code = 130
     else:
         code = turn(fake, ak, call, *args)
     with fake._file("calls").open("a") as log:

@@ -8,12 +8,35 @@ import (
 )
 
 // A task saved with Windows line endings reads as Python reads it.
-func TestDoneWhenReadsAnyLineEnding(t *testing.T) {
+func TestReadReadsAnyLineEnding(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "task.md")
 	if err := os.WriteFile(path, []byte("---\r\nrounds: 2\r\n---\r\n# fix api\r\n\r\n## Done when\r\n\r\n```bash\r\nmake test\r\n```\r\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if cmds, ok := DoneWhen(path); !ok || !slices.Equal(cmds, []string{"make test"}) {
-		t.Fatalf("got %q, %v", cmds, ok)
+	if meta, cmds, err := Read(path); err != nil || meta["rounds"] != "2" || !slices.Equal(cmds, []string{"make test"}) {
+		t.Fatalf("got %q, %q, %v", meta, cmds, err)
+	}
+}
+
+// A round budget reads as Python's int() reads it, and only one over three is refused.
+func TestRoundsRefusalReadsAsPython(t *testing.T) {
+	for value, want := range map[string]string{"4": "4", "+4": "4", "0004": "4", "1_0": "10", "\uff14": "4", "\u0664": "4", "1_\uff10": "10", "+-4": "", "3": "", "-5": "", "4_": "", "_4": "", "1__0": "", "four": "", "": ""} {
+		got := RoundsRefusal(value, "task rounds")
+		if (want == "") != (got == "") || want != "" && got != "task rounds "+want+" is over the budget: 3 rounds, then a run goes back to its orchestrator to split or re-scope" {
+			t.Errorf("%q: got %q", value, got)
+		}
+	}
+}
+
+// Lines, whitespace and the heading read as Python reads them: a form feed ends a line, a
+// non-breaking space is space.
+func TestReadSplitsAndStripsAsPython(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "task.md")
+	text := "---\n# note\fafter: old.md\u00a0\n---\n##\u00a0Done when\u00a0\n```bash\n# note\u2028true\n```\n"
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if meta, cmds, err := Read(path); err != nil || meta["after"] != "old.md" || !slices.Equal(cmds, []string{"true"}) {
+		t.Fatalf("got %q, %q, %v", meta, cmds, err)
 	}
 }

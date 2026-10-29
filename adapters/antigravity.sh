@@ -87,6 +87,20 @@ logged_in() {
   jq -e '.token.refresh_token | strings | test("[^[:space:]]")' "$TOKEN" >/dev/null 2>&1
 }
 
+# 0 when agy may keep the usual login in a desktop keyring too: a Mac's always; elsewhere a
+# Secret Service answering on the session bus, started as agy would start it.  A bus with none,
+# as on a server, keeps no copy; with no busctl to ask, any bus may.  An empty address is none
+# to agy, which then takes the runtime socket, but one busctl fails to reach.
+keyring() (
+  [ "$(uname)" = Darwin ] && return 0
+  [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] || unset DBUS_SESSION_BUS_ADDRESS
+  [ "${DBUS_SESSION_BUS_ADDRESS:-}" = disabled: ] && return 1
+  command -v busctl >/dev/null || { [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] ||
+    [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus" ]; return; }
+  busctl --user call org.freedesktop.secrets /org/freedesktop/secrets \
+    org.freedesktop.DBus.Peer Ping >/dev/null 2>&1
+)
+
 case "$cmd" in
 run)
   [ $# -ge 5 ] || { echo "antigravity.sh run needs <model> <effort> <workspace> <prompt-file> <out-dir> [session-id]" >&2; exit 2; }
@@ -284,9 +298,7 @@ login)
   logged_in || exit 1 ;;
 logout)
   rm -f -- "$TOKEN" "$PLAN" || exit 1
-  # A session bus set names the keyring's way in; only one unset falls back to the runtime socket
-  [ -z "$ACCOUNT" ] && { [ "$(uname)" = Darwin ] || case ${DBUS_SESSION_BUS_ADDRESS:-} in
-    disabled:) false ;; "") [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus" ] ;; esac; } || exit 0
+  [ -z "$ACCOUNT" ] && keyring || exit 0
   echo "agy: run \`agy\` and type /logout to clear the desktop keyring's copy" >&2; exit 1 ;;
 login-end)
   # A Google refresh token ends only when revoked, which shows only once `auth` says so

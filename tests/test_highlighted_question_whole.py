@@ -86,7 +86,7 @@ class SeatQuestionWhole(Sandbox):
                 patch.object(terminal, "height", return_value=height), redirect_stdout(out):
             page, pages = menu.draw(self.cfg, [], cursor=cursor, drawn=drawn, groups=groups,
                                     look=False)
-        rows = {row: what for row, (what, _) in (drawn or {}).get("spots", {}).items()}
+        rows = {row: what for row, (what, *_) in (drawn or {}).get("spots", {}).items()}
         return (" ".join(terminal.plain(terminal.ANSI.sub("", out.getvalue())).split()),
                 (page, pages), rows)
 

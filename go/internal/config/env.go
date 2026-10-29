@@ -15,6 +15,17 @@ var envKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 var lineBreaks = strings.NewReplacer("\r\n", "\n", "\r", "\n", "\v", "\n", "\f", "\n", "\x1c", "\n",
 	"\x1d", "\n", "\x1e", "\n", "\u0085", "\n", " ", "\n", " ", "\n")
 
+// SpaceClass is Python's whitespace as a regular expression's class: what its str.isspace(),
+// strip(), split() and a regular expression's \s read as space, Unicode's separators included.
+const SpaceClass = `[\t\n\v\f\r\x{1c}-\x{1f} \x{85}\p{Z}]`
+
+var space = regexp.MustCompile(SpaceClass)
+
+// Space is whether Python reads the character as whitespace.
+func Space(r rune) bool {
+	return space.MatchString(string(r))
+}
+
 // SplitLines is text's lines, as Python's str.splitlines() reads them.
 func SplitLines(text string) []string {
 	if text == "" {

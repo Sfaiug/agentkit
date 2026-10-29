@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"agentkit/internal/config"
 	"agentkit/internal/tmux"
 )
 
@@ -206,7 +207,7 @@ func sliceCeiling() float64 {
 	}
 	found := 0.0
 	for _, base := range []string{"systemd/user", "systemd/user.control"} {
-		files, _ := filepath.Glob(filepath.Join(configHome, base, tmux.Own()+".slice.d", "*.conf"))
+		files := config.Glob(filepath.Join(configHome, base, tmux.Own()+".slice.d"), "*.conf")
 		sort.Strings(files)
 		for _, file := range files {
 			data, _ := os.ReadFile(file)

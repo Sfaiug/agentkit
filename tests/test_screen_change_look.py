@@ -176,6 +176,21 @@ class Check(unittest.TestCase):
         self.assertEqual(made, [True, True])
         self.assertEqual(watch.seat_read("herdr")["word"], "idle")
 
+    def test_login_words_the_tick_types_past_are_looked_at_and_so_is_the_prompt_without_them(self):
+        # both read as Claude's composer: only the login words tell them apart
+        state = watch.load_state()
+        state["stalls"]["herdr"] = {"kind": "login", "signature": "Please run /login",
+                                    "since": time.time()}
+        watch.save_state(state)
+        looks, made = self.looks()
+        self.show("claude-auth-401-pane.txt")
+        looks.check()
+        self.assertEqual(watch.seat_read("herdr")["reason"], "retrying: its login works again")
+        self.show("claude-prompt-pane.txt")
+        looks.check()
+        self.assertEqual(made, [True, True])
+        self.assertEqual(watch.seat_read("herdr")["word"], "idle")
+
     def test_a_pane_that_cannot_be_read_is_not_a_change(self):
         looks, made = self.looks()
         looks.read = lambda: None

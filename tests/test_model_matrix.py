@@ -7,7 +7,8 @@ beside them.  An install upgraded from before 20 Oct 2026 reads them once out of
 `state/matrix.json`, where they were kept beside the matrix, whole.
 
 Offline: the boards' answers are handed in as bytes, counted, and a throwaway HOME holds the
-cache, and a measure on Arena's factuality board at its coding category beside `quality`'s.
+cache, and measures on Arena's webdev board and its factuality board at its coding category
+beside `quality`'s, as a role reads no rating board of Arena's.
 Artificial Analysis's pages hand their scripts the records split across two strings,
 Arena's dataset answers in pages of two, its rows grouped by category as Hugging Face serves them: overall first, then the others
 in their alphabetical order.
@@ -114,9 +115,11 @@ class ModelBoards(Sandbox):
         super().setUp()
         self.boards = Boards()
         self.stack.enter_context(patch.object(boards, "fetch_bytes", self.boards))
-        factuality = ("arena.text_factuality.coding", "rating", "coding answers judged for facts")
+        others = (("arena.webdev", "rating", 0.1, "apps people pick between two built alike"),
+                  ("arena.text_factuality.coding", "rating", 0.1,
+                   "coding answers judged for facts"))
         self.stack.enter_context(patch.dict(quality.ROLES,
-                                            review=(*quality.ROLES["review"], factuality)))
+                                            review=(*quality.ROLES["review"], *others)))
 
     def test_artificial_analysis_s_pages_give_each_model_s_record_whole(self):
         held = boards.collect(now=10000)

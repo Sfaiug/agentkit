@@ -1,4 +1,4 @@
-"""A chooser's displayed Enter action answers just as its key does; other clicks go back.
+"""A chooser's Enter and Esc answer as their keys do; a click on nothing does nothing.
 
 Read real SGR mouse reports from a pipe against the frame's rendered key line, without
 taking a terminal or reading any user state.
@@ -24,7 +24,7 @@ def click(col, row):
 
 
 def action(spots, key):
-    return next((last, row) for row, (_, spans) in spots.items()
+    return next((last, row) for row, (_, spans, *_) in spots.items()
                 for _, last, cell in spans if cell == key)
 
 
@@ -65,10 +65,15 @@ class ChooseClick(unittest.TestCase):
 
         self.assertEqual(self.pick(events, default="Example"), "Demo")
 
-    def test_clicks_on_choices_and_elsewhere_keep_their_actions(self):
+    def test_clicks_on_choices_and_esc_keep_their_actions(self):
         self.assertEqual(self.pick(lambda spots: click(5, 5)), "Demo")
         self.assertIsNone(self.pick(lambda spots: click(*action(spots, "esc"))))
-        self.assertIsNone(self.pick(lambda spots: click(1, 2)))
+
+    def test_a_click_on_nothing_leaves_the_list_and_its_highlight(self):
+        for col, row in ((1, 2), (40, 3)):     # a blank row, and the empty rest of a choice's
+            with self.subTest(col=col, row=row):
+                self.assertEqual(self.pick(lambda spots: click(col, row) + b"\x1b[B\r"),
+                                 "Example")
 
 
 if __name__ == "__main__":

@@ -135,7 +135,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-from . import command_help, config, gitcall, history, matrix, motion, notify, orch, plan, quality, staffing, terminal, transitions, update, usage
+from . import command_help, config, gitcall, history, matrix, motion, notify, orch, plan, quality, staffing, terminal, transitions, update, usage, worker
 from . import record
 from . import warm
 
@@ -2962,15 +2962,14 @@ KNOB = ("legend", "within")
 NAMED = 13                        # the cells before a legend line's words: its name's column
 # the why's words: what a row does in each role, and each measure's evaluation by its name
 DOES = {"orchestrate": "orchestrates", "execute": "builds", "review": "reviews"}
-MEASURES = {"aa.briefcaseBreakdown.overall.elo": "AA-Briefcase", "aa.gdpval": "GDPval-AA",
-            "arena.agent": "Arena Agent", "aa.omniscience": "AA-Omniscience", "aa.lcr": "AA-LCR",
-            "aa.frontierCode": "FrontierCode", "aa.terminalBench40": "Terminal-Bench 4.0",
-            "arena.webdev": "Arena WebDev", "aa.deepsecBench": "DeepSec Bench",
-            "aa.gdpPdfAllPass": "GDP.pdf"}
-# a cost is a task of the evaluation its role's measure of the same name is from
+MEASURES = {"aa.automationBenchPartialScore": "AutomationBench", "arena.agent": "Arena Agent",
+            "aa.omniscience": "AA-Omniscience", "aa.briefcaseBreakdown.overall.elo": "AA-Briefcase",
+            "aa.frontierCode20": "FrontierCode 2.0", "aa.terminalBench40": "Terminal-Bench 4.0",
+            "aa.deepsecBench": "DeepSec Bench"}
+# a cost is a task of the evaluation of the measure of that name
 TASKS = {quality.COSTS[role]: MEASURES[column] for role, column in (
-    ("orchestrate", "aa.briefcaseBreakdown.overall.elo"), ("execute", "aa.terminalBench40"),
-    ("review", "aa.gdpPdfAllPass"))}
+    ("orchestrate", "aa.briefcaseBreakdown.overall.elo"), ("execute", "aa.frontierCode20"),
+    ("review", "aa.briefcaseBreakdown.overall.elo"))}
 BEHIND = "behind the best"
 
 
@@ -3127,7 +3126,7 @@ def models_why(found, role, row):
                    if one is not row and quality.tie(one, row, role)),
                   key=lambda one: -one["quality"])
     hows = [(MEASURES[column], f"{one['points']:.1f}" if one else "", scored(row, column, kind))
-            for column, kind, _ in quality.ROLES[role] for one in [row["measures"].get(column)]]
+            for column, kind, *_ in quality.ROLES[role] for one in [row["measures"].get(column)]]
     width = max(terminal.cells(name) for name, _, _ in hows)
     wide = width + 2 + len(BEHIND) + 2 + max(terminal.cells(how) for _, _, how in hows) <= room
     lines = [f"why {named(row, room - len(f'why  {DOES[role]}'))} {DOES[role]}",
@@ -3205,7 +3204,7 @@ def models_screen(cfg, session, selected, providers):
                 here = pointed(role, pick) if pick else next(
                     (row for row in rows if row[1] == role), rows[0] if rows else None)
         body, places = models_body(said, matrix.within(cfg), compared, len(current),
-                                   held.get("fetched_at"), here)
+                                   held.get("fetched_at"), None if terminal.away() else here)
         # the legend stands under the rows whatever the height: the pointer never reaches it
         fold = next(line for line, (row, _) in places.items() if row == KNOB)
         places = {line: place for line, place in places.items() if line < fold}
@@ -3309,8 +3308,10 @@ def compare_screen(cfg, title, lineup):
         seen = {maker for *_, maker in shown}
         above = makers_cut(lines[:top], seen, "above")
         below = makers_cut(lines[top + tall:], seen, "below")
-        body = [*filter(None, [above]), *(terminal.highlight(line) if what == here else line
-                                          for line, what, _ in shown), *filter(None, [below])]
+        lit = not terminal.away()
+        body = [*filter(None, [above]), *(terminal.highlight(line) if lit and what == here
+                                          else line for line, what, _ in shown),
+                *filter(None, [below])]
         start = len(heads) + bool(above)
         spots = terminal.frame(title, [*heads, *body, *said], keys, places={
             start + number: (what, []) for number, (_, what, _) in enumerate(shown) if what})
@@ -4151,16 +4152,27 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
         # a harness can take seconds to draw its own screen, and a blank one reads as hung
         print(f"Installing {config.harness_name(harness)}…" if verb == "install"
               else f"Opening {config.harness_name(harness)} to log in…", flush=True)
+        # ^C at a sign-in that waits on a code without taking the keys (codex's, grok's) reaches
+        # the whole foreground group: it ends that sign-in, not the menu.  A handler, unlike
+        # SIG_IGN, is not inherited by the harness.
+        interrupt = signal.signal(signal.SIGINT, lambda *_: None)
         try:
             code = subprocess.run([str(config.adapter(harness)), *verb.split()],
                                   env={**config.child_env(), **config.account_env(account),
                                        **config.provider_env([provider] if provider else [])}
                                   ).returncode
+            # a sign-in cut short can still exit 0 (codex 0.163's on ^C): it finished unless the
+            # harness says it has no login for it now -- no answer lets it stand
+            if not code and verb.startswith("login") and worker.auth_ok(
+                    harness, seat=True, account=account, provider=provider)[0] is False:
+                code = 1
         except (config.Error, OSError) as exc:
             print(f"{harness}: {exc}")
             code = 1
+        finally:
+            signal.signal(signal.SIGINT, interrupt)
         if code:
-            failed = f"{harness} {verb} did not finish; {picked} is not added"
+            failed = f"{config.harness_name(harness)} {verb} did not finish; {picked} is not added"
             pause()
             break
     keyboard.take()
@@ -4576,7 +4588,7 @@ def config_page(name, page):
         # with a list open its choices are what the keys move through, else the rows
         ids = [row for row, label, _ in drawn if (label is None) == bool(opened)]
         body, places = page_body(drawn, None if terminal.away() else here)
-        # a click anywhere on a mark's line acts as Space does (matrix_key's `marks`)
+        # a click on what a mark's line draws acts as Space does (matrix_key's `marks`)
         places = {line: (row, [(1, terminal.width(), 0)] if does(row)[0] else [])
                   for line, (row, _) in places.items()}
         space, enter = does(here)
@@ -5056,7 +5068,9 @@ def switches_command(checkout):
 
 def features_run(checkout, *words):
     """The project's features command with `words` after it: (its JSON answer, "") or (None,
-    the one line saying why).  Its stdin is nothing, so an ssh in it never reads the keys.
+    the one line saying why).  Its stdin is nothing, so an ssh in it never reads the keys, and it
+    carries no seat's name (`config.owner_env`): an ssh in it is never the live host reached by
+    a seat the screen was opened in (`guard.reached_live`).
 
     It runs in a session of its own, and one past FEATURES_WAIT is killed with everything it
     started: the shell alone would leave its ssh going, and a `set` said to have failed could
@@ -5069,7 +5083,7 @@ def features_run(checkout, *words):
         with subprocess.Popen(f"{command} {shlex.join(map(str, words))}", shell=True,
                               cwd=checkout, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, encoding="utf-8", errors="replace",
-                              env=config.child_env(), start_new_session=True) as proc:
+                              env=config.owner_env(), start_new_session=True) as proc:
             try:
                 out, err = proc.communicate(timeout=FEATURES_WAIT)
             except subprocess.TimeoutExpired:

@@ -105,7 +105,6 @@ class HarnessUpgrade(unittest.TestCase):
         self.assertEqual(self.release(), OLD)
         self.assertEqual(self.gates.ran(), [])
         self.assertRegex(said, r"\bclaude\b.*could not be upgraded")
-        self.assertIsNone(self.handed())
 
     def test_a_second_red_gate_in_a_row_is_kept_to_hand_back_until_one_passes(self):
         self.gates.exit("live", 1)

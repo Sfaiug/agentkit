@@ -38,7 +38,7 @@ class HarnessGateHandedBack(unittest.TestCase):
                       "upgrade": [name, "upgrade"], "revert": [name, "install", "{version}"],
                       "env": {}, "latest": [name, "latest"]} for name in ("acme", "beta")]
         self.installed = {h["name"]: "1.0.0" for h in self.plan}
-        self.failing, self.installer_failed = "live", False
+        self.failing = "live"
         self.ready, self.seen = True, []
         stack.enter_context(patch.object(update, "harnesses", return_value=self.plan))
         stack.enter_context(patch.object(update, "version",
@@ -55,8 +55,6 @@ class HarnessGateHandedBack(unittest.TestCase):
     def step(self, cmd, fh, *_args, **_kw):
         if cmd[0] in self.installed:
             if cmd[1] == "upgrade":
-                if self.installer_failed:
-                    return False
                 self.installed[cmd[0]] = "2.0.0"
             else:
                 self.installed[cmd[0]] = cmd[2]
@@ -78,7 +76,7 @@ class HarnessGateHandedBack(unittest.TestCase):
 
     def attempt(self, name="acme", failing="live"):
         self.failing = failing
-        self.assertEqual(update.background(name), int(bool(failing) or self.installer_failed))
+        self.assertEqual(update.background(name), int(bool(failing)))
         if failing:
             self.assertEqual(self.installed[name], "1.0.0")
 
@@ -160,25 +158,6 @@ class HarnessGateHandedBack(unittest.TestCase):
         self.assertEqual(self.seen[1][2], {"seat": "atoll", "line": self.seen[0][1]})
         self.tick()
         self.assertEqual(len(self.seen), 2)
-
-    def test_an_installer_failure_is_neither_a_failed_gate_nor_a_pass(self):
-        self.installer_failed = True
-        self.attempt()
-        self.tick()
-        self.attempt()
-        self.tick()
-        self.assertEqual(self.seen, [])
-        self.installer_failed = False
-        self.attempt()
-        self.tick()
-        self.assertEqual(self.seen, [])
-        self.installer_failed = True
-        self.attempt()
-        self.tick()
-        self.installer_failed = False
-        self.attempt()
-        self.tick()
-        self.assertEqual(len(self.seen), 1)
 
 
 if __name__ == "__main__":

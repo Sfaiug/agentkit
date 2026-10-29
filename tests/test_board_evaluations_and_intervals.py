@@ -17,7 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
-from agentkit import boards
+from agentkit import boards, quality
 from test_model_matrix import AA, ARENA, Boards
 
 EVALUATIONS = [{"slug": "acme-briefcase", "name": "Acme Briefcase", "score": 0.61,
@@ -46,6 +46,9 @@ class EvaluationsAndIntervals(Sandbox):
                                   "aa.intelligenceIndexEvaluations.acme-terminal.score": 0.4})
 
     def test_arena_s_agent_board_and_every_column_s_interval(self):
+        webdev = ("arena.webdev", "rating", 0.1, "apps people pick between two built alike")
+        self.stack.enter_context(patch.dict(quality.ROLES,
+                                            review=(*quality.ROLES["review"], webdev)))
         with patch.dict(ARENA, agent=[("Zeta 3 (max)", "overall", 0.42,
                                        {"score_ci_lower": 0.38, "score_ci_upper": 0.46})],
                         webdev=[("Zeta 3 (max)", "overall", 1500.0,

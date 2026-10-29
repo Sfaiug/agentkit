@@ -48,6 +48,7 @@ from . import (aside_editor, browser, command_help, config, gc, gitcall, handbac
                orch, questions, seat_tokens, staffing, statusbar, transitions, turns, update,
                usage, worker)
 from . import record as run_record
+from . import sleep
 from . import terminal as terminal_mod
 from .harness import LIMITED, SPENT, entries, says
 from .lifecycle import LIVE, WATCH, facts as hook_facts, held_work, state as hook_state
@@ -2141,10 +2142,13 @@ def observed(name, harness, pane, previous, at):
     found = classify(harness, pane_tail(pane), fact, previous.get("opened_at"), previous, at,
                      interrupted=ended)
     # read off this same capture, so a turn since answers it as soon as the screen does; a
-    # capture that failed says nothing of it
-    found["stall"] = (previous.get("stall") if not pane.strip() else
-                      stall_mark(harness, pane, name, lambda _: None)
-                      if found["state"] == "at_prompt" else None)
+    # capture that failed says nothing of it.  So are its harness's login words (`login`),
+    # which `stall_mark` leaves to the tick.
+    blank, at_prompt = not pane.strip(), found["state"] == "at_prompt"
+    found["stall"] = (previous.get("stall") if blank else
+                      stall_mark(harness, pane, name, lambda _: None) if at_prompt else None)
+    found["login"] = (previous.get("login") if blank else
+                      auth_expired_on(harness, pane_tail(pane), name) if at_prompt else None)
     held = screen_holds(harness, pane_tail(pane))
     if held is not None:    # unread work is no evidence that none runs: the last read stands
         found["holds"] = held
@@ -2179,10 +2183,11 @@ def holding(cfg, name, fact):
 
 def word_from(found):
     """What of an observation a seat's word is decided from and kept beside it: its state and
-    rule, and the words the owner reads in its reason, a question's, a draft's or the error a
-    retry is typed past -- never a spinner's own line, which a harness redraws with its timer."""
+    rule, and the words its reason stands on, a question's, a draft's or the error a retry is
+    typed past, its login words among them -- never a spinner's own line, which a harness
+    redraws with its timer."""
     said = (found.get("evidence") if found.get("state") in ("asking", "draft")
-            else found.get("stall")) or ""
+            else found.get("stall") or found.get("login")) or ""
     return [found.get("state"), found.get("rule"), said]
 
 
@@ -2469,7 +2474,9 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
       out of usage until then (`resumes_at`), or working while a move to another account
       that failed is retried;
     * its turn stopped on an error the tick types it back past, as its look saw it (`stall`),
-      so the seat is working, `retrying: <error>`, until the tick gives up (`stalls`);
+      so the seat is working, `retrying: <error>`, until the tick gives up (`stalls`); or on
+      its login words still on its screen, once the tick found that login working again, until it
+      typed past them;
     * a run of its own merged and its project has yet to prove itself live (`awaiting_live`),
       so the seat is working, unless a run below or a watcher's alert is his;
     * nobody is in the seat any more and its number is the way back in: one the owner closed
@@ -2723,18 +2730,43 @@ def parked_runs(mine, index, at):
 
 def owes_work(name, mine, index, at):
     """Whether that seat still owes work: a question or a watcher's alert still standing, what
-    keeps any resting seat the owner's (`still_owed`), or a run of its own going, parked, or
-    ended with nobody yet deciding it (the tally's own `needs you`).  It keeps a seat nobody is
-    in the owner's, and, beside what it was cut off owing (`cut_off`), brings
-    one back after a reboot.  `mine` is the seat's own (run_dir, state) pairs, `index` their
-    supersession index."""
+    keeps any resting seat the owner's (`still_owed`), or a run of its own that does
+    (`runs_owe`).  It keeps a seat nobody is in the owner's, and, beside what it was cut off
+    owing (`cut_off`), brings one back after a reboot."""
+    return bool(notify.last(name) or still_owed(name, stopped=False) is not None
+                or runs_owe(mine, index, at))
+
+
+def runs_owe(mine, index, at):
+    """Whether a run of `mine`, a seat's own (run_dir, state) pairs, is going, parked, or ended
+    with nobody yet deciding it (the tally's own `needs you`).  `index` is their supersession
+    index."""
     from . import menu as menu_mod    # the menu imports this module
-    last = notify.last(name)
-    return bool(parked_runs(mine, index, at) or last
-                or still_owed(name, stopped=False) is not None
+    return bool(parked_runs(mine, index, at)
                 or any(resumes_itself(state, at) or transitions.unfinished(state, index=index)
                        or menu_mod.v5o_needs_look(state, index=index, now=at)
                        for _, state in mine))
+
+
+def work_live(name):
+    """The line saying that seat's work is done and live, else None: its plan is finished
+    (`plan.finished`), and no run of its own owes work (`runs_owe`) or is merged and not yet
+    live (`awaiting_live`).  Nothing a wait names can bring it more: its wait is over
+    (`wait_over`), a new one is refused (`wait_main`), and a gone seat is not reopened to hear
+    so (17 Oct).  Run records are read only once the plan is finished."""
+    from . import menu as menu_mod    # the menu imports this module
+    from . import plan as plan_mod
+    if not plan_mod.finished(name):
+        return None
+    try:
+        records = menu_mod.run_records()
+    except (config.Error, OSError, ValueError):
+        return None
+    mine, at = own_runs(name, records), time.time()
+    if runs_owe(mine, transitions.supersession_index(records), at) or any(
+            awaiting_live(state, now=at) for _, state in mine):
+        return None
+    return "your plan is done and its changes are live"
 
 
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,
@@ -2906,11 +2938,17 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # `seat_account` for a bare 429): it moves on without the owner until the tick gives
     # up and tells them (`told`), so it is working.  A legacy seat the tick never types into.
     # The error is its own look's (`stall`), so a turn since -- the retry's or the owner's --
-    # answers it as soon as the screen does.
-    if (found.get("stall") and not gone and not session.get("legacy")
-            and not seat_closed_by_owner(name) and not (stalls.get(name) or {}).get("told")
+    # answers it as soon as the screen does.  Its harness's login words are the tick's: it
+    # records them (`stalls`, kind `login`) once that login works again and types past them
+    # once, so while the look still shows them (`login`) they are working only until it has.
+    stall = stalls.get(name) or {}
+    error = found.get("stall") or (
+        "its login works again" if found.get("login") and stall.get("kind") == "login"
+        and not stall.get("nudged_at") else None)
+    if (error and not gone and not session.get("legacy")
+            and not seat_closed_by_owner(name) and not stall.get("told")
             and not (seat_read(name).get("usage_refusal") or {}).get("told")):
-        return {"word": "working", "reason": f"retrying: {found['stall']}",
+        return {"word": "working", "reason": f"retrying: {error}",
                 "since": found.get("began")}
     # 3a. ... or a run of its own merged and its project has yet to prove itself live: ak's own
     # probe, read every tick (`awaiting_live`), so the stop hook, this word and the card it
@@ -2954,11 +2992,14 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         # One that went on its own is the owner's while it owes work: no ending is typed into a
         # seat nobody is in, so nothing moves it until it is opened.  With nothing owed it says
         # done where its plan is finished, or rests.
-        reason = closed(f"session closed: press {where} to reopen")
+        reason = closed(f"asleep: press {where} to wake it" if sleep.asleep(name)
+                        else f"session closed: press {where} to reopen")
         if owes_work(name, mine, index, at):
             return {"word": "needs you", "since": None, "reason": reason}
         if not plan_mod.finished(name):
             return {"word": "idle", "since": None, "reason": reason}
+        if sleep.asleep(name):
+            return {"word": "done", "since": None, "reason": reason}
     # 5. at its prompt with nothing running: a watcher's alert, a question on its screen, or
     # nothing at all
     if last:
@@ -3090,7 +3131,8 @@ def wait_fact(wait):
 
 def wait_over(cfg, log):
     """The tick's wait pass: a seat whose `ak wait` names a pull request or run that is now
-    merged, closed or ended is told so, once, and the wait is over.
+    merged, closed or ended, or whose own work is done and live (`work_live`), is told so,
+    once, and the wait is over.
 
     The fact is asked once per tick here and nowhere else, and written on the wait as `over`
     the moment it is seen, so every reader of `waiting_on` agrees from then on.  The line goes
@@ -3098,9 +3140,9 @@ def wait_over(cfg, log):
     is handed back; a seat mid-turn is tried again next tick.  It names the fact and nothing
     else: no other seat's words, no other seat's screen.  The send that took it is written on
     the wait as `told`, so it is typed once.  A seat gone without the owner closing it is
-    reopened with the line instead (`revive`), once.  An ending its own run hands back to the
-    seat (`handback.hand_back`) is that line already: none is typed for it, and the wait is
-    told once the hand-back is in.
+    reopened with the line instead (`revive`), once, unless its work is done.  An ending its
+    own run hands back to the seat (`handback.hand_back`) is that line already: none is typed
+    for it, and the wait is told once the hand-back is in.
     """
     waiting = {}
     for name in config.session_records():
@@ -3125,6 +3167,9 @@ def wait_over(cfg, log):
             continue
         if not wait.get("over"):
             over, reason, run = wait_fact(wait)
+            if not over and (done := work_live(name)):
+                # a stray wait no longer holds a seat whose own work is done (24 Oct)
+                over, reason, run = True, done, None
             if over is None:
                 log(f"WARN {name}: its wait on {wait['on']} cannot be read: {reason}")
                 if LOGGED_OUT.search(reason or ""):
@@ -3165,10 +3210,14 @@ def wait_over(cfg, log):
         line = f"{' '.join(str(wait['over']).split())}; your wait is over. Decide the next step."
         if closed:
             # a seat gone on its own hears it as a seat whose run ended does: reopened with the
-            # line, once.  One the owner closed stays closed, and one out of usage wakes by itself
+            # line, once.  One the owner closed stays closed, one out of usage wakes by itself,
+            # and one whose work is done has nothing to wake for: told, it reads done
             if (seat_closed(name) or seat_closed_by_owner(name)
                     or seat_read(name).get("usage_wait")
                     or not wait_mark(name, wait, told=time.time())):
+                continue
+            if work_live(name):
+                log(f"{name}: told that {wait['over']}, left closed: its work is done")
                 continue
             why = revive(name, line, log, cfg, prepare=lambda line: line)
             if why is None:
@@ -3193,9 +3242,10 @@ def wait_main(argv):
     nowhere else: no card, no notice.  Its next `ak wait` or `ak notify` replaces it.  A wait
     names a fact ak can read, never a session: the tick ends it when the pull request merges
     or closes, no run is going on it, or the run ends, and tells the seat so (`wait_over`).
-    One already over is refused with its fact (`wait_fact`): the tick would end it at once and
-    wake the seat for nothing.  A pull request the seat's own going run reviews or lands is
-    waited on as that run, whose hand-back then is the one line.
+    One already over is refused with its fact (`wait_fact`), as is any from a seat whose work
+    is done and live (`work_live`): the tick would end it at once and wake the seat for
+    nothing.  A pull request the seat's own going run reviews or lands is waited on as that
+    run, whose hand-back then is the one line.
     """
     if command_help.show("wait", argv):
         return 0
@@ -3221,7 +3271,7 @@ def wait_main(argv):
     if over is None:
         print(f"ak wait: gh cannot view {on}: {why}", file=sys.stderr)
         return 1
-    if over:
+    if over or (why := work_live(seat)):
         print(f"ak wait: {why}; nothing is left to wait on", file=sys.stderr)
         return 1
     if kind == "pr":
@@ -5120,6 +5170,25 @@ def health(cfg, state, dry_run, log):
                 continue        # an unanswered owner decision is never a reason to type a resume
             if entry.get("told"):
                 continue
+            # Its harness's own login words, that login asked this pass and passing: a login that
+            # failed and came back is a passing error, typed past once while the words stand,
+            # however the screen around them is redrawn.
+            if signature and logged_in(harness, state.get("auth_out")):
+                if entry.get("kind") != "login":
+                    entry = stalls[name] = {"kind": "login", "signature": signature, "since": now}
+                if entry.get("nudged_at") or now - entry["since"] < STALL_WAIT:
+                    continue
+                with nullcontext() if dry_run else state_lock():
+                    if (name in sync_seen(state, load_state()) or
+                            stalls.get(name, {}).get("told") or pane_text(session) != pane):
+                        continue
+                    keys = keystroke(harness, tail)
+                    if dry_run:
+                        log(f"would resume {name}, stopped on {signature!r}, with {keys!r}")
+                    elif type_into(session, keys, log):
+                        entry["nudged_at"] = time.time()
+                        log(f"{name}: {harness} can authenticate again; typed {keys!r}")
+                continue
             # Suspected auth takes the quiet escalation path even when `API Error` coexists.
             # Only verified auth messages get an immediate needs-login notice, but neither
             # known nor unknown logout wording can receive a capacity nudge.
@@ -5155,8 +5224,8 @@ def health(cfg, state, dry_run, log):
                         else:
                             log(f"WARN {name}: notification was not accepted; retry required")
                 continue
-            if entry.get("kind") == "quiet":
-                stalls.pop(name)
+            if entry.get("kind"):
+                stalls.pop(name)    # a quiet or login episode is over; this stall is a new one
             entry = stalls.setdefault(name, {"since": now})
             observe(entry, pane, harness, now)
             entry["signature"] = mark
@@ -6595,7 +6664,7 @@ def revive_seats(cfg, log):
                 # it).  Repeated deaths are bounded by time instead, as a run's are, below.
                 seat_write(name, reopened_at=None)   # live again: the next death is a new one
             continue
-        if (name not in going and name not in cut
+        if (name not in going and name not in cut or sleep.asleep(name)
                 or seat_closed(name) or marks.get("closed_by_owner")):
             continue
         died, deaths = time.time(), marks.get("reopened_at") or []
@@ -7771,6 +7840,7 @@ def local_passes(state, dry_run, log):
         # A seat that died under its running runs comes back, after its endings were announced
         # to it.
         ("the seat revival pass did not run", lambda: revive_seats(config.load(), log), False),
+        ("the idle-seat sleep pass did not run", lambda: sleep.tick(config.load(), log), False),
         ("git housekeeping did not finish", lambda: gc.git_housekeeping(log), False),
         # Expensive collection runs detached; malformed retention metadata cannot stop a tick.
         ("retention pass did not finish", lambda: gc.schedule_gc(log), False),

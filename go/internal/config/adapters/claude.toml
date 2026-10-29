@@ -37,6 +37,9 @@ latest = ["npm", "view", "@anthropic-ai/claude-code", "version"]
 [usage]
 probe_every = 900
 
+[sleep]
+own = []    # on an idle seat nothing of Claude's runs under it: what does is work (`agentkit.sleep`)
+
 # "hooks" means adapters/claude.sh hooks installs something that reports this state; "screen"
 # means only the rules below can say it.  A hook fact still gives way to a rule that positively
 # names a different state: Claude reports a dialog going up, and a question or plan answered,
@@ -136,6 +139,10 @@ footer = [
   '(?:⏵⏵|⏸)\s*(?:accept edits|plan mode|manual mode)\b.*',
   # the hint drawn under its own usage-limit notice (2.1.286), which is what was said
   '/usage-credits to finish what you.re working on\.',
+  # the row it draws under the footer, for seconds at a time, where tmux has a setting it wants
+  # off (2.1.312): `tmux focus-events off · add 'set -g focus-events on' to ~/.tmux.conf and
+  # reattach for focus tracking`
+  'tmux [\w-]+ off · add .set -g [\w-]+ on. to ~/\.tmux\.conf and reattach for .+',
 ]
 # its composer always has its own rule under it: a prompt-marked line right on the footer is a
 # user's status line, never the composer, even with no composer drawn, as under a picker

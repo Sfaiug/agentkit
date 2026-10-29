@@ -13,6 +13,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/job"
 	"agentkit/internal/run"
+	"agentkit/internal/task"
 )
 
 const runFlagsUsage = "ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N] | ak run --review-pr <url> [--review MODEL] [--first] [--bg]"
@@ -65,7 +66,7 @@ func validateRun(args []string) string {
 				return fmt.Sprintf("%s must be a positive integer (got %s)", flag, commandhelp.Quote(value))
 			}
 			if flag == "--rounds" {
-				if problem := rounds(value); problem != "" {
+				if problem := task.RoundsRefusal(value, "--rounds"); problem != "" {
 					return problem
 				}
 			}
@@ -77,9 +78,31 @@ func validateRun(args []string) string {
 	if _, parallel := parsed.values["--parallel"]; parallel && len(parsed.words) == 1 {
 		return "usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] [--anyway] [--first] [--no-worktree] [--no-merge] [--bg]: --parallel needs more than one task file"
 	}
-	for _, task := range parsed.words {
-		if path := config.Absolute(task); !isFile(path) {
+	// Every task is read before any is judged whole, so a job names the first file it cannot
+	// read before a sentence about another; a job's sentence names its file.
+	type read struct {
+		path string
+		meta map[string]string
+		cmds []string
+	}
+	var tasks []read
+	for _, word := range parsed.words {
+		path := config.Absolute(word)
+		if !isFile(path) {
 			return "no such task file: " + path
+		}
+		meta, cmds, err := task.Read(path)
+		if err != nil {
+			return err.Error()
+		}
+		tasks = append(tasks, read{path, meta, cmds})
+	}
+	for _, each := range tasks {
+		if refusal := task.Refusal(each.meta, each.cmds); refusal != "" {
+			if len(tasks) > 1 {
+				return each.path + ": " + refusal
+			}
+			return refusal
 		}
 	}
 	return ""
@@ -117,7 +140,7 @@ func validateRunSubcommand(verb string, args []string) string {
 		usage += " [--rounds N] [--bg]"
 		args = without(args, "--bg")
 		if len(args) == 3 && args[1] == "--rounds" && positive(args[2]) {
-			budget = rounds(args[2])
+			budget = task.RoundsRefusal(args[2], "--rounds")
 			args = args[:1]
 		}
 	}
