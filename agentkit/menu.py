@@ -1298,12 +1298,13 @@ def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", 
     sentence: what a seat asks or did opens under its row (`detail`).  Where the owner left text `unsent`, `✎ unsent` follows two cells after,
     in the needs-you colour.  The line keeps 8 cells at least; where `room` is all there is
     (`narrow`) -- a row's last column, each width of a seat's bar -- it takes that room and
-    never more, the count alone where no cell of line fits, the mark alone where both do not.
+    never more, the count alone where no cell of line fits, the mark alone where both do not;
+    a `room` of None, the fewest cells that hold its count and mark both.
     `tmux` draws it for a seat's bar.  The row and the bar read this one function, so the two
     can never disagree.  A seat out of usage says when it comes back, `back 19:20` (`back`), in
     its word's colour, in its progress's place."""
     mark = unsent_mark() if unsent else ""
-    left = room - (terminal.cells(mark) + 2 if mark else 0)
+    left = (room or 0) - (terminal.cells(mark) + 2 if mark else 0)
     if word == "out of usage":
         text = f"back {back_at(back)}" if back_at(back) else ""
         bar = _paint(text, word, tmux) if text else ""
@@ -1312,7 +1313,7 @@ def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", 
     else:
         text = terminal.plan_bar(done, total, left, 0)
         bar = terminal.plan_bar(done, total, left, 0 if narrow else 8, word, tmux)
-    if narrow and mark and terminal.cells(text) > left:
+    if narrow and mark and room is not None and terminal.cells(text) > left:
         bar = ""
     if not mark:
         return bar
@@ -1440,10 +1441,7 @@ def v5o_column_widths(infos, term_width):
     # Every row's last column stands beside it, its line taking what its count leaves, or --
     # on a phone, or where that room would not hold some row's count or mark -- every row's
     # goes under it: never some rows one way and some the other (the owner, 29 Oct 2026).
-    # A row's least is its count or `back` and its mark both: alone, the room would drop one.
-    least = max([10] + [terminal.cells("  ".join(filter(None, (
-        _last_text(dict(info, unsent=""), 0, narrow=True),
-        info.get("unsent") and unsent_mark())))) for info in infos])
+    least = max([10] + [terminal.cells(_last_text(info, None, narrow=True)) for info in infos])
     return {"room": room, "narrow": term_width < 60, "num": num_w, "name": name_w,
             "orch": orch_w, "count": count_w, "worker": orch_w,
             "under": term_width < 60 or room - fixed < least,
