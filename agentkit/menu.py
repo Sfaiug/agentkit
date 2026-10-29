@@ -1672,19 +1672,21 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     meters, compact = next((meters, compact) for meters, compact
                            in ((block, False), (summary, False), (summary, True))
                            if compact or _room(meters, True, compact, OPENS) >= least)
+    if compact:
+        # the readings a turning page leaves a seat under its heading, with a line under it, by
+        # the screen's size too; else what leaves one row
+        spare = _room(meters, True, True, 0) - 3
+        if spare < 0 and len(meters) > 1:
+            meters = usage_summary(cfg, layout, max(1, len(meters) + spare), rows)
+        meters = meters[:max(0, len(meters) + _room(meters, True, True, 0) - 1)]
     paged = len(flat) > 1 and len(flat) > _room(meters, False, compact)     # one page first
     room = _room(meters, paged, compact)
     # a seat under its heading: its row and, where it has one, a line under it
     need = 1 + min(2, max((len(block) for own in seat_blocks for block in own), default=0))
     # the opened lines take only what a page of `least` rows leaves -- on a compact screen what
-    # a seat under its heading does -- before the usage gives any of its own
+    # a seat under its heading does -- and a page that fits once they have is one
     opens = max(0, opens - max(0, (need if compact or not paged else least) - room))
-    room = _room(meters, paged, compact)
-    if compact and room < need and len(meters) > 1:
-        meters = usage_summary(cfg, layout, max(1, len(meters) + room - need), rows)
-        room = _room(meters, paged, compact)
-    if room < 1:
-        meters = meters[:max(0, len(meters) + room - 1)]      # what leaves one row
+    paged = paged and len(flat) > _room(meters, False, compact)
     room = max(1, _room(meters, paged, compact))
     pages = (project_pages([(heading(project), own) for project, own
                             in zip(ordered, _seat_blocks(room - 1))], room)

@@ -114,11 +114,12 @@ class SeatQuestionWhole(Sandbox):
         # the usage's form is the screen's size alone: a seat asking at length takes its lines
         # from the rows, never the usage's (the owner, 29 Oct 2026)
         short = [seat(1, "fix-api", sentence="Merge PR #8 by bob? yes/no")] + ROWS[1:]
-        for width in (44, 62, 100):
+        for width in (30, 44, 62, 100):
             for height in (*range(8, 30), 50):
                 with self.subTest(width=width, height=height):
                     forms = set()
-                    for seats in (ROWS, short, ROWS[:2]):
+                    for seats in (ROWS, short, ROWS[:2], ROWS[:1],
+                                  *([seat(1, "fix-api", sentence=said)] for said in ("Proceed?", ""))):
                         screen, _, _ = self.draw("fix-api", width, height, seats=seats)
                         forms.add((screen.startswith("agentkit"),
                                    screen[screen.index("Claude"):screen.index(" acme ")]))
@@ -143,7 +144,7 @@ class SeatQuestionWhole(Sandbox):
                     self.assertIn("esc leave", lines[-1])
 
     def test_no_page_turns_as_the_highlight_moves(self):
-        for width in (44, 62, 100):
+        for width in (30, 44, 62, 100):
             for height in (*range(8, 24), 50):
                 with self.subTest(width=width, height=height):
                     # the rows under the highlighted one move down for its lines, but every seat
