@@ -1213,22 +1213,25 @@ def by_project(infos, stands, unfiled=UNFILED):
     return groups
 
 
-def project_pages(projects, room, apart=True):
-    """`projects`, (heading, blocks) each in order, a block one seat's lines, in pages of `room`
-    lines, the main screen's and the past screen's alike: a blank line between two projects on
-    a page where `apart`, as on the screen that holds them all."""
+def project_pages(projects, room, apart=True, opens={}):
+    """`projects`, (heading, blocks) each in order, a block one seat's lines, each line with its
+    seat's name, in pages of `room` lines, the main screen's and the past screen's alike: a
+    blank line between two projects on a page where `apart`, as on the screen that holds them
+    all.  A page keeps free the most lines a seat on it opens under its row, `opens` by name,
+    so one seat asking at length takes lines from its own page only."""
     # Seat blocks packed whole under their project header, so a seat's lines never split
     # across pages: one taller than a page under its header is cut to it, as the highlight
     # shows only a seat's first page. A screen without room for a row and a line under it
     # falls back to bare line splits so tiny screens still fit.
-    pages, cur, cur_header = [], [], None
+    pages, cur, cur_header, kept = [], [], None, 0
     for header, own in projects:
         for block in own or [[]]:     # a heading with no seat under it still has its place
             need = (block if cur and cur_header == header else
                     [("", None)] * (bool(cur) and apart) + [header] + block)
-            if cur and len(cur) + len(need) > room:
+            own_opens = opens.get(block[0][1], 0) if block else 0
+            if cur and len(cur) + len(need) + max(kept, own_opens) > room:
                 pages.append(cur)
-                cur, cur_header = [], None
+                cur, cur_header, kept = [], None, 0
                 need = [header] + block
             if len(need) > room:
                 pages.append([header])
@@ -1237,7 +1240,7 @@ def project_pages(projects, room, apart=True):
                 cur_header = header
                 continue
             cur.extend(need)
-            cur_header = header
+            cur_header, kept = header, max(kept, own_opens)
     if cur:
         pages.append(cur)
     return pages
@@ -1639,9 +1642,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
               for project, own in zip(ordered, seat_blocks)]
     flat = _flat(blocks) or [("  no sessions; n starts one", None)]     # a row, budgeted as one
 
-    # The highlighted seat's lines go under its row: as many kept on every page as the most any
-    # seat opens, up to half the screen, so no page overflows or turns as the highlight moves;
-    # a question longer than that is cut to them, ending in `…`.
+    # The highlighted seat's lines go under its row: as many kept on its page as the most any
+    # seat on it opens, up to half the screen, so no page overflows or turns as the highlight
+    # moves; a question longer than that is cut to them, ending in `…`.
     opens = (min(max(map(len, said.values()), default=0), max(1, height // 2))
              if owned and not asked else 0)
     # a worker login that ends soon, or has, stands under the usage on every screen, grid or
@@ -1689,7 +1692,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     paged = paged and len(flat) > _room(meters, False, compact)
     room = max(1, _room(meters, paged, compact))
     pages = (project_pages([(heading(project), own) for project, own
-                            in zip(ordered, _seat_blocks(room - 1))], room)
+                            in zip(ordered, _seat_blocks(room - 1))], room + opens,
+                           opens={name: min(len(lines), opens) for name, lines in said.items()})
              if paged else [flat])
     if owned and cursor is not None:
         page = next((number for number, lines in enumerate(pages)
