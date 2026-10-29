@@ -1120,7 +1120,8 @@ def harness_gate_result(plan, passed, gate, log_path, titles=()):
     with none, a failed install, keeps one hand-back naming `titles`: the failed checks the red
     is the harness's for, or what could not be installed.
 
-    The upgrade lock also protects these records while the tick delivers them.
+    The upgrade lock also protects these records while the tick delivers them.  A record that
+    cannot be written costs its hand-back, never the upgrade, as a swap mark does.
     """
     for harness in plan:
         check = config.STATE / HARNESS_GATES / harness["name"]
@@ -1137,8 +1138,11 @@ def harness_gate_result(plan, passed, gate, log_path, titles=()):
             record.update(line=_fitted(f"The {harness['name']} harness upgrade {red}", list(titles),
                                        f"Log: {config.tilde(log_path)}. Fix the {fix}."),
                           typed=None, told=False)
-        check.mkdir(parents=True, exist_ok=True)
-        _put(check / "handed", json.dumps(record))
+        try:
+            check.mkdir(parents=True, exist_ok=True)
+            _put(check / "handed", json.dumps(record))
+        except OSError:
+            pass
 
 
 def fresh_standing(failed, lines, log_path):
