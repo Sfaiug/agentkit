@@ -4620,7 +4620,7 @@ def cmd_ended(argv):
         back = resume(cfg, name, hand_over=False, line=line)
         if line and back == "resumed":
             watch.relaunched(name, watch.seat_model(cfg, name)[0], line, at)
-        elif line:
+        elif line and back == "fresh":
             watch.owe_line(name, None, {"line": line + watch.FRESH_NOTE})
     return 0
 
