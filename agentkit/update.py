@@ -1252,9 +1252,10 @@ def keep_current(log, now=None):
     so; that release is started again once `RETRY_AFTER` has passed since its last start, and a
     newer one at once. Its second red in a row, gate or install, is handed back once until its
     gates pass, and the fresh gate's standing faults once (`fresh_standing`), retrying delivery
-    on later ticks while no seat can receive it.  A checkout that is somebody's work (`left_as_is`) holds it,
-    unstarted, until an ask finds it main again: its gates test that checkout, and refused a
-    half-moved ~/agentkit, a red that reverted a harness for nothing it did.
+    on later ticks while no seat can receive it.  A checkout that is somebody's work
+    (`left_as_is`) holds it, unstarted, until an ask finds it main again: its gates test that
+    checkout, and refused a half-moved ~/agentkit, a red that reverted a harness for nothing it
+    did.
     """
     if agentkit_dir().resolve() != config.REPO:
         return
