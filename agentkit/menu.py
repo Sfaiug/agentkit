@@ -4566,6 +4566,8 @@ def config_subscriptions(cfg, keyboard):
                 logins.renewed(cfg, *after[number - 1])
             if added:
                 here, column = ("sub", added[0]), None
+            elif after != before:     # a row removed: the one lit now opens as a line does,
+                column = None         # never on the act at remove's place: a reset spent at a key
 
 
 def opened_line(told, kind, texts, column, room):

@@ -127,6 +127,19 @@ class SubscriptionsPage(unittest.TestCase):
             "OpenAI", "  ChatGPT     ▰▰▰▰▰▰▰▰▰▰  100% left · 1 reset in hand", "",
             "  + add a subscription"])
 
+    def test_the_row_a_removal_lights_opens_on_its_first_act(self):
+        self.term.keys("Down", "Right")
+        self.term.wait(lambda screen: "    two@acme.test   ↻ log in again   [− remove]" in screen
+                       and PAGE_KEYS.format("remove") in lines(screen))
+        self.term.keys("Enter")
+        self.term.wait("Remove Claude II?")
+        self.term.keys("Down", "Enter")                  # Keep is picked first
+        left = self.term.wait(lambda screen: title(screen) == PAGE and "› ChatGPT" in screen)
+        # ChatGPT's second act, where remove was Claude II's, would spend its reset at one key
+        self.assertIn("    owner@acme.test · plus   [↻ log in again]   ↻ spend a reset   − remove",
+                      body(left))
+        self.assertIn(PAGE_KEYS.format("log in again"), lines(left))
+
     def test_a_reading_that_lands_shows_without_a_key(self):
         # the menu's opening probe written first, or it writes back the reading it took before
         usage = self.home.path / ".agentkit/state/usage.json"
