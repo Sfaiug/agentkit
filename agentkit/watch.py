@@ -2807,9 +2807,9 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         return {"word": "needs you", "reason": login_reason(first.get("waiting_for") or "a"),
                 "since": first.get("finished_at")}
     # 1b. ... and the one login no harness owns: a run of its own cannot push until he
-    # runs `gh auth login`, so the seat is blocked on him just the same
+    # runs install.sh's GH_LOGIN, so the seat is blocked on him just the same
     if name in (gh_out.get("seats") or []):
-        return {"word": "needs you", "reason": "gh login expired: run `gh auth login`",
+        return {"word": "needs you", "reason": "gh login expired: run `gh auth login -p https -w`",
                 "since": gh_out.get("at")}
     # 1c. a worker token is dead: every session reads it, on any harness, because any
     # seat's next turn on it fails.  The tick asks the `auth` verb once a day and keeps the

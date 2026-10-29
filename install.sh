@@ -36,6 +36,9 @@ OS=$(uname -s)
 TTY=0; if [ -t 0 ] && [ -t 1 ]; then TTY=1; fi
 have() { command -v "$1" >/dev/null 2>&1; }
 note() { echo "note: $*" >&2; }
+# gh's bare login asks host, protocol, git and browser-or-token before its one-time code;
+# these answer all four (`--web` takes github.com, and setup-git follows the login)
+GH_LOGIN="gh auth login -p https -w"
 # ak reads config.toml with tomllib, so the python3 on PATH has to be 3.11 or newer
 py_ok() { have python3 && python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; }
 # When the python3 on PATH is older, point $BIN/python3 -- first on PATH -- at a newer one.
@@ -346,13 +349,13 @@ if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
     fi
   done
   if have gh && ! gh auth status >/dev/null 2>&1; then
-    if [ "$TTY" = 1 ]; then gh auth login || note "gh auth login did not finish"
-    else note "gh is not logged in; run \`gh auth login\` so runs can push, open and merge PRs"; fi
+    if [ "$TTY" = 1 ]; then $GH_LOGIN || note "$GH_LOGIN did not finish"
+    else note "gh is not logged in; run \`$GH_LOGIN\` so runs can push, open and merge PRs"; fi
   fi
   # What a logged-in gh still leaves for git to fail on later, both of them three model calls
   # into the first run: no credential helper, so the push cannot authenticate, and no author,
-  # so `git commit` refuses with the address it guessed from the hostname.  `gh auth login`
-  # offers the first as a question; nothing offers the second.
+  # so `git commit` refuses with the address it guessed from the hostname.  The login above
+  # asks for neither.
   if have gh && have git && gh auth status >/dev/null 2>&1; then
     if [ -z "$(git config --global --get credential.https://github.com.helper 2>/dev/null || true)" ]; then
       if gh auth setup-git >/dev/null 2>&1; then echo "git: gh is the credential helper for github.com"
@@ -1161,7 +1164,7 @@ if [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
     fi
   done
   if have gh && ! gh auth status >/dev/null 2>&1; then
-    add_pending "gh login -- \`gh auth login\`, so runs can push, open and merge PRs"
+    add_pending "gh login -- \`$GH_LOGIN\`, so runs can push, open and merge PRs"
   fi
 fi
 if [ "$SANDBOX" = 0 ] && have tailscale && ! tailscale status >/dev/null 2>&1; then
