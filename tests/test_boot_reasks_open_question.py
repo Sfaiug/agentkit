@@ -110,7 +110,7 @@ class BootReasks(Sandbox):
                                               ("dialog", watch.ASKED_LINE),
                                               ("needs", watch.ASKED_LINE),
                                               ("working", watch.MIDTURN_LINE)])
-        self.assertIn("host restarted", watch.ASKED_LINE)
+        self.assertIn("ended, not by you", watch.ASKED_LINE)
         self.assertIn("Ask it again", watch.ASKED_LINE)
         # once per boot: the same boot's next passes type nothing more
         self.boot()

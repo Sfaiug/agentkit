@@ -55,11 +55,11 @@ from .lifecycle import LIVE, WATCH, facts as hook_facts, held_work, state as hoo
 
 INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is typed into
 # what a seat reopened after its process died mid-turn is told, in a run's mid-turn words
-MIDTURN_LINE = ("Your process was ended by the host, not by you, in the middle of a turn. "
+MIDTURN_LINE = ("Your process was ended, not by you, in the middle of a turn. "
                 "Continue that turn and finish it; do not start over.")
 # ... and one reopened while it asked the owner: its harness marks the open question interrupted
-ASKED_LINE = ("The host restarted while your question to the owner was still open. "
-              "Ask it again.")
+ASKED_LINE = ("Your process was ended, not by you, while your question to the owner was still "
+              "open. Ask it again.")
 # ... and one whose turn its usage cut off, on an account with usage again, this or another
 ACCOUNT_LINE = ("Your turn was cut off when its usage ran out, and there is usage again. "
                 "Continue that turn and finish it; do not start over.")
@@ -7866,8 +7866,10 @@ def local_passes(state, dry_run, log):
         # by then (`notify._retire`), so none goes out late for it.
         ("the notification retry did not run",
          lambda: notify.retry_pending(dry_run=dry_run, log=log), True),
-        # A seat that died under its running runs comes back, after its endings were announced
-        # to it.
+        # A seat whose harness ends without ak ending it comes back at once (`orch.cmd_ended`),
+        # on a server started before its conf said so too ...
+        ("the seats' end hook was not set", orch.set_ended_options, False),
+        # ... and one that died under its running runs, after its endings were announced to it.
         ("the seat revival pass did not run", lambda: revive_seats(config.load(), log), False),
         ("the idle-seat sleep pass did not run", lambda: sleep.tick(config.load(), log), False),
         ("git housekeeping did not finish", lambda: gc.git_housekeeping(log), False),

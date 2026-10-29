@@ -11,10 +11,13 @@ reach it at all.  Seats started before that server existed are still listed, fro
 server, as `legacy`, and are attached where they are.
 
 The session is tmux's, so it outlives the connection that made it -- and, with `remain-on-exit`,
-the orchestrator process too: a harness that exits leaves the seat standing, marked `exited`,
-and its number resumes its owned conversation or starts fresh in the same pane. A detached,
-exited seat is retired automatically after a week. Live and attached seats, and seats with
-unfinished run evidence, stay until `ak orch stop` (the menu's `x`).
+the orchestrator process too: a harness that ends without ak ending it -- the owner's `/exit`, a
+crash, a kill -- comes back in the same pane within seconds, on its own conversation
+(`cmd_ended`).  One that ended inside its warm-up, or in a seat the owner closed, leaves the
+seat standing, marked `exited`, its pane saying how to open it: its number resumes its owned
+conversation or starts fresh in the same pane. A detached, exited seat is retired automatically
+after a week. Live and attached seats, and seats with unfinished run evidence, stay until
+`ak orch stop` (the menu's `x`).
 
 Every seat agentkit starts is dressed on the way up: a two-line status bar (statusbar.py) saying
 who is in it, what it is doing, and the one key to the menu, and `Ctrl-b m` bound to that menu
@@ -79,6 +82,8 @@ NAME_CAP = 40              # a session name the menu, the status bar and a phone
 SEEN_EVERY = 300           # how often a live seat's record is stamped with the time
 CANNOT_PIN = 3             # the adapter's answer when its TUI cannot be told a conversation id
 POPUP_KEY = "m"            # Ctrl-b m inside a seat: the menu, over whatever is running
+# The one line a seat's pane shows where it stays dead, in place of tmux's `Pane is dead`
+WAY_BACK = f"The harness ended. To open it again: Ctrl-b {POPUP_KEY}, then this seat's number."
 POPUP_SIZE = "-w 80% -h 70%"          # the popup on a screen with room to spare around it
 POPUP_FULL = "-w 100% -h 100%"        # ... and on a phone, where the border is all it spares
 POPUP_TITLE = " agentkit "            # set into the popup's top edge
@@ -1987,7 +1992,8 @@ def tmux_conf():
     `mouse on` is what makes a touch scroll on the phone scroll the session's output instead of
     sending arrow keys into the harness, and 50000 lines of history is what there is to scroll.
     `remain-on-exit` is here as well as on the session itself, because a seat whose harness
-    exits in the moment it opens has to survive that too, and the file is read before it runs.
+    exits in the moment it opens has to survive that too, and the file is read before it runs;
+    so is what then brings it back (`ended_options`).
     `hyperlinks` hands a link a harness prints (OSC 8) on to the owner's terminal, so a login's,
     wrapped over a popup's rows, is one thing to click; tmux reads it as a terminal attaches, so
     one attached before this file was loaded gets the rows apart until it attaches again.
@@ -2029,6 +2035,8 @@ def tmux_conf():
             "set -g mouse on\n"
             "set -g history-limit 50000\n"
             "set -g remain-on-exit on\n"
+            + "".join(f"set -gq {option} {tmux_word(value)}\n"
+                      for option, value in ended_options().items()) +
             "set -g allow-passthrough on\n"
             'set -as terminal-features ",*:RGB:hyperlinks"\n'
             f"bind-key {POPUP_KEY} if-shell -F {tmux_word(SMALL_CLIENT)} "
@@ -2039,6 +2047,32 @@ def tmux_conf():
     except OSError as exc:
         raise config.Error(f"cannot write the tmux config {path}: {exc}")
     return path
+
+
+def ended_options():
+    """The server's options that bring back a seat whose harness ended without ak ending it.
+
+    tmux runs `pane-died` when a pane's program exits or is killed under `remain-on-exit`, and
+    never for `respawn-pane -k` or `kill-session`, the ways ak ends one: so the owner's `/exit`,
+    a crash and a kill from outside run `ak orch ended` (`cmd_ended`), and no relaunch or stop
+    of ak's does.  Server-wide, because tmux 3.5 holds the hook per window, not per seat.  ak is
+    named by its path, as in `popup_command`: the server's PATH may hold none.  `run-shell`
+    draws a job's output, and its failure, over the pane, so the tick's log takes all of it and
+    the job always succeeds.  A pane left dead says how to open it again, where tmux would say
+    `Pane is dead`; a tmux before 3.3 has no option for that, and `-q` keeps it quiet.
+    """
+    from . import watch   # here, not at the top: watch imports this module
+    ak = shlex.join([sys.executable, str(config.REPO / "bin" / "ak"), "orch", "ended"])
+    log = shlex.quote(str(watch.log_path()))
+    shell = f"{tmux_text(ak)} #{{q:session_name}} #{{pane_dead_time}} >>{tmux_text(log)} 2>&1; true"
+    return {"pane-died": f"run-shell -b {tmux_word(shell)}", "remain-on-exit-format": WAY_BACK}
+
+
+def set_ended_options():
+    """`ended_options` on ak's own server, which one started before them lacks: those alone,
+    since loading the whole conf again adds its `terminal-features` once more each time.  The
+    default server never gets them (`on_own_server`); a server that is not up gets nothing."""
+    tmux_lists([["set-option", "-gq", option, value] for option, value in ended_options().items()])
 
 
 # Beside a launch's harness in its scope, from just before the harness starts: the harness is
@@ -2134,8 +2168,10 @@ def start(name, cwd, cmd, orchestrator, started=lambda: None):
 
     `remain-on-exit` is what makes the seat outlive the orchestrator process: a harness that
     exits, crashes or is quit leaves the session, its scrollback and its name where they were,
-    and its number opens it again in the same pane -- on the conversation it was launched with,
-    or, for a seat that was never given one, fresh.  Only `ak orch stop` ends a seat.
+    and comes back in that same pane by itself (`cmd_ended`) -- on the conversation it was
+    launched with, or, for a seat that was never given one, fresh -- unless it ended inside its
+    warm-up or the owner closed the seat; then its number opens it again.  Only `ak orch stop`
+    ends a seat.
     """
     conf = tmux_conf()
     server = socket_name()
@@ -4554,6 +4590,36 @@ def ensure(cfg, name, log=print, saved=False, roles=None, repo=None):
     return True
 
 
+def cmd_ended(argv):
+    """`pane-died`'s (`ended_options`): a seat whose harness ended without ak ending it, at
+    WHEN by tmux's clock, comes back in its pane, as its number opens it, told what the end cut
+    off, as a reboot's seats are (`watch.resume_after_boot`).
+
+    Decided and done under the lock `cmd_stop` decides under, so a stop finds it back or this
+    finds it closed.  It is left as it is with no record, closed by the owner, live again or
+    gone, or ended inside its warm-up, so a harness that cannot start never loops.  A launch
+    under way writes its moment under the seat's lock: it is read under that lock too.
+    """
+    if len(argv) != 2:
+        raise config.Error("usage: ak orch ended NAME WHEN")
+    from . import notify, watch   # here, not at the top: both import this module
+    name, died = argv[0], float(argv[1])
+    cfg = config.load()
+    with watch.state_lock():
+        if name not in config.session_records():
+            return 0        # no seat of ak's: nothing of it to lock
+        with notify.session_lock(name) as name:
+            record = config.session_records().get(name)
+        session = find(name)
+        if (not record or watch.seat_closed_by_owner(name) or not (session and session["exited"])
+                or died - (record.get("launched") or 0) < watch.INBOX_WARMUP):
+            return 0
+        at, line = time.time(), watch.cut_off(cfg, name)[1]   # read before the relaunch writes
+        if resume(cfg, name, hand_over=False, line=line) == "resumed" and line:
+            watch.relaunched(name, watch.seat_model(cfg, name)[0], line, at)
+    return 0
+
+
 def main(argv):
     if command_help.show("orch", argv):
         return 0
@@ -4563,6 +4629,8 @@ def main(argv):
         return cmd_why(argv[1:])
     if argv[:1] == ["stop"]:
         return cmd_stop(argv[1:])
+    if argv[:1] == ["ended"]:
+        return cmd_ended(argv[1:])
     if argv[:1] == ["rename"]:
         return cmd_rename(argv[1:])
     if argv[:1] == ["project"]:
