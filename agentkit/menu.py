@@ -3036,7 +3036,7 @@ def models_body(said, within, compared, total, fetched, at=None, moves=None):
     has -- its line (terminal.share_line), taking the room the other columns leave, then its
     quality, cost and notes.  Where that leaves the line under 8 cells, from 40 cells up, each
     row's name and effort take a line and its line, numbers and notes the next, the name alone
-    cut; notes too wide for it take lines of their own under it, broken only between two.
+    cut; the notes that do not fit beside the numbers go under them, broken only between two.
     `moves`, a list, is handed each row's line, LINES and how it grows in as the screen opens,
     row after row (motion.growing).  Then the legend, opening on `within`'s knob (points_knob),
     never broken, and how many of the `total` models are `compared` (matrix.compared) and when
@@ -3095,13 +3095,15 @@ def models_body(said, within, compared, total, fetched, at=None, moves=None):
             if not wide:
                 put(lead, here)
                 lead = "    "
-            tail = (f"{terminal.share_line(near, size)}  {numbers[0]:>{widths[0]}}  "
-                    f"{numbers[1]:>{widths[1]}}")
-            fits = wide or terminal.cells(f"{lead}{tail}  {notes}") <= room
-            put(f"{lead}{tail}  {notes if fits else ''}", here)
+            tail = (f"{lead}{terminal.share_line(near, size)}  {numbers[0]:>{widths[0]}}  "
+                    f"{numbers[1]:>{widths[1]}}  ")
+            said = notes.split(" · ") if notes else []
+            beside = max((n for n in range(len(said) + 1)     # the notes that fit, the rest under
+                          if terminal.cells(tail + " · ".join(said[:n])) <= room), default=0)
+            put(tail + " · ".join(said[:beside]), here)
             if moves is not None:
                 grows(lead, rows.index(line))
-            for part in [] if fits else packed(notes.split(" · "), " · ", room - 6):
+            for part in packed(said[beside:], " · ", room - 6):
                 put("      " + part, here)
     put("", KNOB)
     knob = points_knob(within)
