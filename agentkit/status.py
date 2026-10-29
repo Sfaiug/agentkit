@@ -604,13 +604,10 @@ def owed_lines(found, seat, wanted):
     for directory, state in transitions.runs_by_seat(found).get(seat, []) if seat else ():
         if not handback.waits(state):
             continue
-        if not wanted:
-            owed[directory] = f"its ending waits for you: ak run status {directory.name}"
-            continue
-        try:
-            owed[directory] = handback.handback_line(state, directory)
-        except (config.Error, OSError):
-            pass        # left waiting: the tick types it at the seat's next quiet prompt
+        line = (handback.look_line(directory, state) if wanted
+                else f"its ending waits for you: ak run status {directory.name}")
+        if line:
+            owed[directory] = line
     return owed
 
 

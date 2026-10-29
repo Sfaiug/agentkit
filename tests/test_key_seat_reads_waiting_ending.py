@@ -3,8 +3,9 @@
 tick would type and records the ending handed back, so the tick never types it as news after.
 
 Only that seat's look by id records it: a listing can be cut before its row is read, a look whose
-output never got out told nobody, and a look finding the delivery lock held leaves the ending to
-the tick typing it.  The owner, another seat and `--json` read what they read before.
+output never got out told nobody, and a look finding the delivery lock held, never waiting for
+it, leaves the ending to the tick handing it back.  The owner, another seat and `--json` read
+what they read before.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, the
 ending's record under its HOME, the seat its name in the environment, as a seat's `ak` has it.
 """
@@ -32,13 +33,17 @@ class SeatReadsWaitingEnding(unittest.TestCase):
     def setUp(self):
         self.home = Home()
         self.addCleanup(self.home.close)
+        self.ended()
+
+    def ended(self, **fields):
+        """The run's record: its seat was busy as it ended, deferred and typed by nobody yet."""
         now = time.time()
-        # its seat was busy as it ended: deferred, typed by nobody yet
         self.home.write(f".agentkit/runs/{RUN}/run.json", {
             "run_id": RUN, "title": "Fix the parser", "launched_session": "acme",
             "state": "fail", "verdict": "FAIL", "error": "the parser drops the last row",
             "executor": "opus", "reviewer": "astra", "rounds": 2, "round_summaries": [{}, {}],
-            "started_at": now - 3600, "finished_at": now - 600, "handback_pending": True})
+            "started_at": now - 3600, "finished_at": now - 600, "handback_pending": True,
+            **fields})
 
     def record(self):
         return json.loads((self.home.path / f".agentkit/runs/{RUN}/run.json").read_text())
@@ -100,16 +105,21 @@ class SeatReadsWaitingEnding(unittest.TestCase):
         self.assertNotEqual(done.code, 0)
         self.assert_waiting()
 
-    def test_a_look_meeting_the_tick_typing_it_leaves_it_to_the_tick(self):
-        # first, what the tick's pass does to every ending: its loop's leftovers swept, once
-        self.status()
+    def test_a_look_meeting_the_tick_handing_it_back_leaves_it_to_the_tick(self):
+        # too long for a composer: its full notice goes to result.md, under the tick's lock
+        self.ended(state="not_needed", verdict="PASS",
+                   not_needed="the parser already keeps the last row; " * 40)
+        compact = re.compile(rf"^  run {RUN} finished DONE\. Result: \S+/{RUN}/result\.md\. "
+                             rf"Decide the next step\.$", re.M)
         lock = self.home.path / f".agentkit/runs/{RUN}/delivery.lock"
         with lock.open("a") as held:
             fcntl.flock(held, fcntl.LOCK_EX)
-            self.assertRegex(self.status(RUN), LINE)
+            self.assertNotRegex(self.status(RUN), compact)
             self.assert_waiting()
-        self.assertRegex(self.status(RUN), LINE)
+        self.assertRegex(self.status(RUN), compact)
         self.assertTrue(self.record()["handed_back"])
+        result = self.home.path / f".agentkit/runs/{RUN}/result.md"
+        self.assertIn("the parser already keeps the last row", result.read_text())
 
 
 if __name__ == "__main__":

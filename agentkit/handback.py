@@ -924,6 +924,18 @@ def printed_at_launch(run_dir, state, log):
 LOOKED_NOTE = "read by its seat's own ak run status: printed there, not typed"
 
 
+def look_line(run_dir, state):
+    """The hand-back line its own seat's `ak run status <id>` prints, or None.  Made under the
+    delivery lock, never waiting for it, which a long line's full notice is saved under
+    (`seat_notice`): one held elsewhere is the tick handing this ending back now, so the look
+    leaves the ending to it.  Released before the look prints (`printed_at_look`)."""
+    try:
+        with delivery_lock(run_dir, wait=False) as held:
+            return handback_line(state, run_dir) if held else None
+    except (config.Error, OSError):
+        return None     # left waiting: the tick types it at the seat's next quiet prompt
+
+
 def printed_at_look(run_dir, state):
     """An ending its own seat's `ak run status <id>` has just printed, the line the tick would
     type: the seat read it there, so it is recorded as handed back, as `printed_at_launch`
