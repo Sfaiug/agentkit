@@ -1,10 +1,12 @@
 """Every line for a sleeping seat wakes it and goes into it after the resume, at its prompt: its
-after-merge break, never into the other live seat on its repository, and its job's ending, which
-pages nobody.  A seat the owner closed as it slept stays closed, and its break goes to that other
-seat.  Black-box: `AK_BIN` runs from outside (tests/fixtures/akbin.py), each tick in the box
-`home.tick()` builds, a seat asleep as ak leaves one (its record marked asleep since its launch,
-gone from tmux, its conversation kept), on projects from gitrig.py and the GitHub of fakegh.py."""
+after-merge break, never into the other live seat on its repository, even once a failed wake let
+its merge leave the window, and its job's ending, which pages nobody.  A seat the owner closed as
+it slept stays closed, and its break goes to that other seat.  Black-box: `AK_BIN` runs from
+outside (tests/fixtures/akbin.py), each tick in the box `home.tick()` builds, a seat asleep as ak
+leaves one (its record marked asleep since its launch, gone from tmux, its conversation kept), on
+projects from gitrig.py and the GitHub of fakegh.py."""
 
+import json
 import re
 import shlex
 import sys
@@ -53,12 +55,16 @@ class Sleeping(unittest.TestCase):
         return seat
 
     @classmethod
+    def tick(cls):
+        done = cls.home.tick()
+        assert done.code == 0, done.out + done.err
+
+    @classmethod
     def tick_until_told(cls, seat):
         """Ticks until the seat took a line: the one that wakes it may find its harness not yet
         at its prompt, and the next types it."""
         for _ in range(3):
-            done = cls.home.tick()
-            assert done.code == 0, done.out + done.err
+            cls.tick()
             if seat.lines():
                 return
 
@@ -76,11 +82,18 @@ class AfterMergeBreak(Sleeping):
         for repo, sleeper, other in (("app", "acme", "beta"), ("api", "gamma", "delta")):
             rig = Rig(cls.home, repo)
             cls.seats[other] = Seat(cls.home, other, cwd=rig.path)
-            cls.seats[sleeper] = cls.asleep(sleeper, rig.path)
+            cls.seats[sleeper] = cls.asleep(sleeper)
             cls.merge(rig, other, 1, "success", age=1200)
             cls.merge(rig, sleeper, 2, "failure", age=600)
         done = cls.home.ak("orch", "stop", "gamma")    # the owner closes it as it sleeps
         assert done.code == 0, done.out + done.err
+        # acme's first wake fails, and its merge leaves the window before the next one
+        acme = cls.seats["acme"].cwd
+        gone = acme.rename(cls.home.path / "gone")
+        cls.tick()
+        gone.rename(acme)
+        run = cls.home.path / ".agentkit/runs/20261028-1200-app-2/run.json"
+        cls.home.write(run, {**json.loads(run.read_text()), "finished_at": time.time() - 4 * 3600})
         cls.tick_until_told(cls.seats["acme"])
 
     @classmethod

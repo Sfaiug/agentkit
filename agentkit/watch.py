@@ -7671,8 +7671,9 @@ def after_merge_checks(state, dry_run, log, now=None):
             composed.append(True)
             _save()
 
-        if expired_health:
-            # Keep a deadline failure even when no seat is available to compose it yet.
+        if expired_health or (session and sleep.asleep(session)):
+            # Keep a deadline failure, or one its seat wakes for, even when no seat is available
+            # to compose it yet: kept, it outlives the window its merge leaves meanwhile
             fresh(None)
             composed.clear()
             close_health()
