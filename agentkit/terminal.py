@@ -979,10 +979,10 @@ def read_key(timeout=None, wake=None):
     what was sent after it is read through to where the pointer ended, or a frame after the
     first of them, whichever is sooner, however soon the read's own time runs out: a flood of
     moves is one draw, never a draw each.  One that is not due when nothing more is sent is
-    answered by a read after it; a key read past one, next.  Every other key hands the
-    highlight to the keys, so the pointer lights nothing until it moves again, and Enter or
-    space -- a click on its key-line item too -- while the pointer is on no row (`away`) only
-    brings it back, answered as a draw.
+    answered by a read after it; a key read past one, next.  Every other key but a click on
+    nothing hands the highlight to the keys, so the pointer lights nothing until it moves
+    again, and Enter or space -- a click on its key-line item too -- while the pointer is on
+    no row (`away`) only brings it back, answered as a draw.
     """
     global _PRESSED, _ASKED, _POINTER, _MOVED, _NEXT, _HELD, _AWAY, _UNSEEN
     key, _NEXT = _NEXT, None
@@ -1032,8 +1032,11 @@ def read_key(timeout=None, wake=None):
             what is not None for what, *_ in _SPOTS.values())
         return key
     spot = under(key, _SPOTS) if key.name == "click" else Spot()
-    _UNSEEN, _AWAY = _AWAY and spot.what is None, False     # a click on a row names its own
-    _POINTER = key if key.name == "click" and not _UNSEEN else None
+    _UNSEEN = _AWAY and spot.what is None     # a click on a row names its own
+    if key.name == "click" and spot == Spot():
+        _POINTER = key             # on nothing: the highlight stays drawn or hidden, as it was
+        return key
+    _AWAY, _POINTER = False, key if key.name == "click" and not _UNSEEN else None
     if _UNSEEN and (key.name in ("enter", "space") or spot.what is None
                     and spot.cell in ("⏎", "enter", "␣", "space")):
         _ASKED = True
