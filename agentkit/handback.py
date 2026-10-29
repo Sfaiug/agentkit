@@ -768,6 +768,14 @@ def already_handed_back(state):
     return True
 
 
+def waits(state):
+    """Whether this ending waits for its seat's next quiet prompt and nothing has said it yet:
+    deferred, not handed back, and its line not already in the composer for its Enter, which
+    is the typed path's (`handback_typed`)."""
+    return bool(state.get("handback_pending") and not state.get("handback_typed")
+                and not already_handed_back(state))
+
+
 def owes_ending(state):
     """Whether this ending still has to be said, and nothing has said it.
 
@@ -911,6 +919,24 @@ def printed_at_launch(run_dir, state, log):
             handback_pending=None, handback_typed=None, handback_wait_reason=None,
             notification_pending=None):
         log(f"run {run_dir.name} {PRINTED_NOTE}")
+
+
+LOOKED_NOTE = "read by its seat's own ak run status: printed there, not typed"
+
+
+def printed_at_look(run_dir, state):
+    """An ending its own seat's `ak run status <id>` has just printed, the line the tick would
+    type: the seat read it there, so it is recorded as handed back, as `printed_at_launch`
+    records a refusal -- typed in as well, it would be news the seat had already acted on
+    (28 Oct).  Only while this attempt's ending still waits (`waits`), and never waiting for
+    the lock: one held elsewhere is the tick typing that ending now, so it is left to it, and
+    the seat may read it twice."""
+    with delivery_lock(run_dir, wait=False) as held:
+        said = held and run_record.read_state(run_dir)
+        if said and same_attempt(state, said) and waits(said):
+            mark_delivery(run_dir, said, handed_back=time.time(), reported=True,
+                          handback_note=LOOKED_NOTE, handback_pending=None,
+                          handback_wait_reason=None, notification_pending=None)
 
 
 def seat_owes_nothing(state):
@@ -1446,8 +1472,7 @@ def riding(session):
                 said = held and run_record.read_state(run_dir)
                 if not said or not same_attempt(state, said):
                     continue
-                if (said.get("handback_pending") and not said.get("handback_typed")
-                        and not already_handed_back(said)):
+                if waits(said):
                     line = handback_line(said, run_dir)
                     if mark_delivery(run_dir, said, handed_back=time.time(), reported=True,
                                      handback_pending=None, handback_note=None,
