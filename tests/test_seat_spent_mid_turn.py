@@ -42,6 +42,7 @@ class SpentMidTurn(SpentSeat):
 
     def test_a_wrapped_up_turn_with_no_other_account_waits_and_goes_on_at_its_reset(self):
         self.cfg["providers"]["anthropic"].pop("accounts")
+        config.save(self.cfg)
         self.meters(20, 0, single=True)
         self.wrapped()
         self.tick()

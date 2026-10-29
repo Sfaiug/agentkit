@@ -211,6 +211,7 @@ class UsualAccountFirst(unittest.TestCase):
         self.meters(100, 100)
         self.assertEqual(usage.account(self.cfg, "anthropic"), ("default", False))
         self.cfg["providers"]["anthropic"].pop("accounts")
+        config.save(self.cfg)
         self.assertEqual(usage.account(self.cfg, "anthropic"), (None, None))
 
 

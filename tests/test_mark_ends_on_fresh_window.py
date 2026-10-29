@@ -255,6 +255,7 @@ class FreshWindowEndsMark(unittest.TestCase):
 
     def test_a_fresh_account_window_leaves_the_other_accounts_mark_intact(self):
         self.cfg["providers"]["alpha"]["accounts"] = ["first", "second"]
+        config.save(self.cfg)
         self.set_meters("alpha", self.old_window(used=100), account="first")
         self.set_meters("alpha", [{"name": "weekly", "used": 10,
                                    "resets_at": NOW + WEEK / 4, "window_secs": WEEK}],
@@ -290,6 +291,7 @@ class FreshWindowEndsMark(unittest.TestCase):
 
     def two_accounts(self):
         self.cfg["providers"]["alpha"]["accounts"] = ["first", "second"]
+        config.save(self.cfg)
         self.set_meters("alpha", self.old_window(), account="first")
         self.set_meters("alpha", self.old_window(), account="second")
         self.set_meters("beta", self.old_window(used=10))
