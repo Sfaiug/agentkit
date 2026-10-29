@@ -46,6 +46,19 @@ def behind_first(queue, run_id, now, poll):
     return run_id in waiting[1:] and 0 <= now - at < stale_after(waiting.index(run_id), poll)
 
 
+def place(queue, run_id):
+    """The run's place in the queue file as a share of its line, 0 when it cannot be read: after
+    an install move it comes back that share of a poll late, so the line comes back in order over
+    a poll.  The waiters one move brought back poll together, and at the next 62 of them came
+    back within five seconds, 1.7 G at once (29 Oct 2026)."""
+    try:
+        with open(queue, encoding="utf-8") as file:
+            waiting = list(map(str, json.load(file)["queue"]))
+        return waiting.index(run_id) / len(waiting)
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0
+
+
 def head(repo, env=None):
     """The checkout at `repo` as a short commit, or "" when it cannot be read.
 
@@ -108,10 +121,12 @@ def main(argv):
     while True:
         time.sleep(poll)
         since = count(database, run_id, began, since)
-        if (not behind_first(queue, run_id, time.time(), poll)
-                or version and head(repo) not in ("", version)):
-            os.environ[SLOT_WAIT_ENV] = f"{began} {since}"
-            os.execv(launch[0], launch)
+        if behind_first(queue, run_id, time.time(), poll):
+            if not version or head(repo) in ("", version):
+                continue
+            time.sleep(poll * place(queue, run_id))
+        os.environ[SLOT_WAIT_ENV] = f"{began} {since}"
+        os.execv(launch[0], launch)
 
 
 if __name__ == "__main__":
