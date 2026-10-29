@@ -4,28 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 )
 
-var lineBreak = regexp.MustCompile(`\r\n|[\n\r\v\f\x1c-\x1e\x{85}\x{2028}\x{2029}]`)
-
-func splitLines(text string) []string {
-	if text == "" {
-		return nil
-	}
-	lines := lineBreak.Split(text, -1)
-	if lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
-	return lines
-}
-
 func oneCommand(command string) bool {
-	return len(splitLines(strings.TrimFunc(command, config.Space))) == 1 && !strings.Contains(command, "`")
+	return len(config.SplitLines(strings.TrimFunc(command, config.Space))) == 1 && !strings.Contains(command, "`")
 }
 
 type arguments struct {
@@ -56,20 +42,8 @@ func parse(args, values, flags []string, unknownUsage string) (arguments, string
 	return parsed, ""
 }
 
-func digits(value string) bool {
-	if value == "" {
-		return false
-	}
-	for _, r := range value {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
-}
-
 func positive(value string) bool {
-	return digits(value) && strings.TrimLeft(value, "0") != ""
+	return config.Digits(value) && strings.TrimLeft(value, "0") != ""
 }
 
 func isFile(path string) bool {

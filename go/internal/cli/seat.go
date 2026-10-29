@@ -78,7 +78,7 @@ func validatePlan(args []string) string {
 		}
 		return ""
 	}
-	if len(args) == 3 && args[0] == "check" && digits(args[1]) {
+	if len(args) == 3 && args[0] == "check" && config.Digits(args[1]) {
 		if !oneCommand(args[2]) {
 			return "a check is one shell command without backticks or line breaks"
 		}
