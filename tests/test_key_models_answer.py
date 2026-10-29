@@ -29,7 +29,7 @@ KEYS = "  ↑↓ move   ←→ points   ⏎ why   p pick   r take   esc back"
 EVALUATIONS = ("aa-briefcase", "frontiercode-2-0")     # each role's cost a task
 # Per release and effort: intelligence index, frontier-code and terminal shares, DeepSec Bench,
 # Arena's agent share and cost a task; each but Crux 2 with a terminal share, so Crux 2's is
-# estimated, and every one alike on the rest (`SAME`)
+# missing, and every one alike on the rest (`SAME`)
 ROWS = [("acme-max-5", "Acme Max 5", "max", 70, 0.80, 0.60, 0.80, 20.0),
         ("acme-max-5", "Acme Max 5", "high", 65, 0.735, 0.55, 0.78, 10.0),
         ("acme-mid-5", "Acme Mid 5", "high", 66, 0.77, 0.70, 0.79, 15.0),
@@ -74,14 +74,14 @@ BUILDS = ["  builds · best 100.0  quality  a task",
           "    Acme Max 5 high       95.3  $10.00  ★ pick · no harness",
           "      r takes Acme Mid 5 high, 97.8, $15.00",
           "    Bolt 3 medium         93.2   $3.00  ≈ tie",
-          "    Crux 2 low            74.3   $1.00  1 estimated"]
+          "    Crux 2 low            74.0   $1.00  1 missing"]
 REVIEWS = ["  reviews · best 98.8  quality  a task",
            "    Acme Mid 5 high       98.8  $15.00  ★ pick",
            "    Bolt 3 medium         92.0   $3.00",
            "    Crux 2 low            84.0   $1.00"]
 LEGEND = ["  as good    ‹ ▰▰▰▰▰▱▱▱▱▱ ›  within 5 points of the best, then the cheapest",
           "  ≈ tie      the boards cannot tell it from ★ pick",
-          "  estimated  scores no effort of it has, counted low",
+          "  missing    scores no effort of it has, counted as its worst",
           f"  comparing all 4 models · boards read {time.strftime('%H:%M', time.gmtime(NOW))}"]
 SEATS = ("acme-fix", "acme-ask")
 
