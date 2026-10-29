@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import SERVER, Terminal
-from test_key_models_answer import ENV, aa, boards, lines
+from test_key_models_answer import ENV, aa, bar, boards, lines
 
 LIST = ["  ■ all 4 models", "  Acme", "    □ Acme Max 5", "    □ Acme Mid 5", "  Bolt",
         "    □ Bolt 3", "  Crux", "    □ Crux 2"]
@@ -85,8 +85,9 @@ class ModelsPick(unittest.TestCase):
         self.assertEqual(self.compare(), ["acme-max-5", "acme-mid-5"])
         term.keys("Escape")
         shown = lines(term.wait("comparing 2 of 4 models"))
-        at = shown.index("  orch · best 100.0     quality  a task")      # was Bolt 3's
-        self.assertEqual(shown[at + 3], "›   Acme Max 5 high        99.4  $10.00  ★ pick · no harness")
+        at = shown.index("  orch · best 100.0".ljust(64) + "quality  a task")      # was Bolt 3's
+        self.assertEqual(shown[at + 3], f"›   Acme Max 5  ▰▱ high  {bar(35, size=37)}     99.4  "
+                                        "$10.00  ★ pick · no harness")
 
     def test_find_narrows_the_list(self):
         term, _ = self.pick()
@@ -144,9 +145,9 @@ class ModelsPick(unittest.TestCase):
         term.keys("Escape")
         shown = lines(term.wait("comparing 1 of 4 models"))
         at = shown.index("  builds · best 74.0")
-        self.assertEqual(shown[at + 2:at + 5], ["    Crux 2 low",
-                                                "       74.0   $1.00  ★ pick · 1 missing",
-                                                " " * 21 + "no harness"])
+        self.assertEqual(shown[at + 2:at + 5], ["    Crux 2  low",
+                                                f"    {bar(8, size=8)}     74.0   $1.00  ★ pick",
+                                                "      1 missing · no harness"])
         self.assertEqual(shown[shown.index("  comparing 1 of 4 models") + 1][:14], "  boards read ")
 
 
