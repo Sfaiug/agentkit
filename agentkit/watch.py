@@ -7018,9 +7018,10 @@ def say(dry_run, log, text, url, session, merged=False):
 
     Never to Discord.  The run learns it first, where the menu and `ak run status` were
     already showing `waiting for the maintainer` -- a seat that cannot be typed into never
-    holds that back -- and a live seat is typed the line at its quiet prompt, never into a
-    running turn (`type_at_prompt`), exactly as a run's ending is, its mark kept on the run
-    (`decision_typed`) so a line typed and never seen sent gets its Enter, not a second copy,
+    holds that back -- and a live seat, one asleep once woken, is typed the line at its quiet
+    prompt, never into a running turn (`type_at_prompt`), exactly as a run's ending is, its
+    mark kept on the run (`decision_typed`) so a line typed and never seen sent gets its Enter,
+    not a second copy,
     and is sent (`handback.finish_typed`) before a later decision is typed or a routine merge ends
     the following.  A merge is the exception: routine, recorded on the run and typed into no seat, unless its
     run's seat owes work (`handback.routine_ending`), as the follow-ups it put in that seat's plan that no run took.
@@ -7052,6 +7053,8 @@ def say(dry_run, log, text, url, session, merged=False):
 
     if merged and (not run_dir or handback.routine_ending(run_state)):
         return finished()
+    if session and not sleep.wake(session, log):
+        return False        # its seat, asleep: the line is owed it, the next tick wakes it
     seat = orch.find(config.resolve_session(session)) if session else None
     if seat and not any(seat.get(key) for key in ("exited", "resumable", "restart")):
         line = (f"{text} -- {url}. Nothing was posted to Discord; this is the maintainer's "
@@ -7409,17 +7412,17 @@ def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None, typed
         line = handback.seat_notice(line, {}, run_dir,
                                   f"run {run_dir.name}: a check failed after its merge.",
                                   "Fix the target.")
-    seat = after_merge_seat(run_state, repo_key, typed)
+    seat = after_merge_seat(run_state, repo_key, typed, log)
     if seat is None:
         return None
     return seat["name"] if type_at_prompt(seat, line, log, cfg=cfg, typed=typed,
                                           receipt=receipt) else None
 
 
-def after_merge_seat(run_state, repo_key, typed=None):
+def after_merge_seat(run_state, repo_key, typed, log):
     """The seat an after-merge notice goes to: the one its line was typed into (`typed`, the
-    mark naming it by its `created`) while that is live, else its own when live, else the
-    fallback."""
+    mark naming it by its `created`) while that is live, else its own when live, woken if it
+    sleeps (none until it wakes), else the fallback."""
     marked = typed.get("seat") if isinstance(typed, dict) else None
     if marked is not None:
         try:
@@ -7433,6 +7436,8 @@ def after_merge_seat(run_state, repo_key, typed=None):
     except config.Error:
         session = None
     if session:
+        if not sleep.wake(session, log):
+            return None     # its own seat, asleep: the notice is owed it, the next tick wakes it
         try:
             seat = orch.find(session)
         except (config.Error, OSError, ValueError, AttributeError):
@@ -7666,8 +7671,9 @@ def after_merge_checks(state, dry_run, log, now=None):
             composed.append(True)
             _save()
 
-        if expired_health:
-            # Keep a deadline failure even when no seat is available to compose it yet.
+        if expired_health or (session and sleep.asleep(session)):
+            # Keep a deadline failure, or one its seat wakes for, even when no seat is available
+            # to compose it yet: kept, it outlives the window its merge leaves meanwhile
             fresh(None)
             composed.clear()
             close_health()
@@ -7680,8 +7686,6 @@ def after_merge_checks(state, dry_run, log, now=None):
         elif composed:
             log(f"run {name}'s after-merge notice sits in a composer; "
                 "the next tick presses Enter")
-        elif after_merge_seat(st, key) is None:
-            log(f"no live seat for {key}; run {name}'s after-merge notice waits for one")
         else:
             log(f"run {name}'s after-merge notice waits for a live seat at its prompt")
 
