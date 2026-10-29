@@ -2,6 +2,7 @@
 
 import json
 import re
+import sys
 import time
 from pathlib import Path
 
@@ -360,15 +361,19 @@ def death_lines(state):
 STATUS_HEADERS = ["id", "title", "state", "worker", "round", "age"]
 
 
-def status_state_word(state, index=None):
+def status_state_word(state, index=None, owed=False):
     """`ak run status`'s word for a run: `menu.run_state_word`'s, except that a `needs you`
-    ending already `settled` reads `done`.
+    ending already `settled` reads `done`, and one `owed`, waiting for the seat reading,
+    reads `needs you`.
 
     The record's own word stays the menu's.  This is the listing's, which knows what came
     after the run, so it tells the truth the seat's row tells: an ending handed back,
-    acknowledged or superseded is nobody's question any more.
+    acknowledged or superseded is nobody's question any more -- but one still waiting for
+    its seat's next quiet prompt is that seat's own (`owed_lines`).
     """
     from . import menu
+    if owed:
+        return "needs you"
     word = menu.run_state_word(state)
     return "done" if word == "needs you" and transitions.settled(state, index) else word
 
@@ -406,7 +411,7 @@ def status_id_cell(name, room):
     return head + current + "…"
 
 
-def status_rows(found, width, index=None, cfg=None):
+def status_rows(found, width, index=None, cfg=None, owed=()):
     """The status table's header and one line group per row.
 
     Fixed columns with two-space gutters, sized once from the rows on screen:
@@ -419,7 +424,7 @@ def status_rows(found, width, index=None, cfg=None):
     one row, so the caller can print a run's detail lines indented under it.
     `index` is the listing's `supersession_index`, for `status_state_word`.
     `cfg` tells an alias from another model for the mark; without it only the
-    same name marks.
+    same name marks.  The runs in `owed` wait for the seat reading (`owed_lines`).
     """
     from . import menu, terminal
     if not found:
@@ -440,7 +445,7 @@ def status_rows(found, width, index=None, cfg=None):
         if staffing.self_reviewed(state, cfg):
             worker += " self-reviewed"
         rows.append([directory.name, state.get("title") or directory.name,
-                     status_state_word(state, index), worker, rounds,
+                     status_state_word(state, index, directory in owed), worker, rounds,
                      resume_age(state) or terminal.format_age(menu.run_age_secs(state))])
     fixed = [2, 3, 4, 5]
     natural = [max([terminal.cells(row[i]) for row in rows] + [terminal.cells(STATUS_HEADERS[i])])
@@ -521,13 +526,14 @@ def status_final_check(directory, state):
     return handback.final_check_line(state, cmds)
 
 
-def status_details(directory, state, providers=None, cfg=None, index=None):
+def status_details(directory, state, providers=None, cfg=None, index=None, owed=""):
     """The lines indented under one status row: result, record, workspace,
     and -- where the run waits -- why it stopped and what reopens it.
 
     `providers` and `cfg` are one listing's usage cache and config, handed
     down so a waiting run's line does not re-read them per row; `index` is its
-    `supersession_index`, so a blocked note wears the row's glyph.
+    `supersession_index`, so a blocked note wears the row's glyph.  `owed` is
+    the run's line for the seat its ending waits for (`owed_lines`), last.
     """
     paths = result_paths(directory, state)
     lines = [f"  result: {paths['result']}", f"  record: {paths['record']}",
@@ -561,7 +567,7 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
         # what it waits for, never that the owner should reach for its number
         lines.append(f"  {reason}; {wait}" if wait else
                      f"  {reason}; ak run resume {directory.name} offers recovery")
-    note = blocked_note(state, status_state_word(state, index))
+    note = blocked_note(state, status_state_word(state, index, bool(owed)))
     if note:
         from . import terminal
         lines.append("  " + terminal.styled(note, "dim"))
@@ -582,7 +588,27 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
     onward = transitions.continue_line(state, directory)
     if onward:
         lines.append(f"  {onward}")
+    if owed:
+        lines.append(f"  {owed}")
     return lines
+
+
+def owed_lines(found, seat, wanted):
+    """The line under each of `found` whose ending waits for `seat`, the one reading
+    (`handback.waits`), matched as `runs_by_seat` matches it: that seat's listing points to
+    the look by id, and that look prints the line the tick would type, which it then records
+    as handed back (`handback.printed_at_look`).  A listing records nothing: `head` can cut
+    it before its row is read.
+    """
+    owed = {}
+    for directory, state in transitions.runs_by_seat(found).get(seat, []) if seat else ():
+        if not handback.waits(state):
+            continue
+        line = (handback.look_line(directory, state) if wanted
+                else f"its ending waits for you: ak run status {directory.name}")
+        if line:
+            owed[directory] = line
+    return owed
 
 
 def size_summary_line(repo):
@@ -620,7 +646,8 @@ def cmd_status(argv):
     receipts = [(d, job) for d, job in receipts if job and isinstance(job.get("tasks"), list)]
     # A seat reads its own work after a compaction or a resume, not the whole host's;
     # `ak orch list` tallies every seat's, and any run still shows by its id.
-    seat = None if wanted else config.current_session()
+    caller = config.current_session()
+    seat = None if wanted else caller
     if seat:
         # a job names the seat it was launched from `seat`; it resolves as a run's does
         owned = {d for d, _ in transitions.runs_by_seat(
@@ -707,6 +734,7 @@ def cmd_status(argv):
             rows.append({**row, **state, "paths": result_paths(directory, state)})
         print(json.dumps(rows, indent=2))
         return 0
+    owed = owed_lines(found, caller, wanted)
     shown_jobs = 0
     if not wanted:
         now = time.time()
@@ -772,6 +800,8 @@ def cmd_status(argv):
                 from . import terminal as _terminal
                 line += f"  {_terminal.styled(waiting, 'dim')}"
             print(line)
+            if d in owed:
+                print(f"  {owed[d]}")
             if transitions.landing_line(state):
                 print(f"  {parked_line(state, d.name)}")
             elif state.get("state") == "queued":
@@ -809,7 +839,7 @@ def cmd_status(argv):
             table_cfg = config.load()
         except config.Error:
             table_cfg = None
-        header, groups = status_rows(found, terminal.content_width(), index, table_cfg)
+        header, groups = status_rows(found, terminal.content_width(), index, table_cfg, owed)
         if wanted or why:
             # one id, or every run with --why: each run's lines indented under
             # its own row, never in one block after the table. The usage cache
@@ -829,14 +859,16 @@ def cmd_status(argv):
             for (directory, state), group in zip(found, groups):
                 print("\n".join(group))
                 for line in status_details(directory, state, scope_providers, scope_cfg,
-                                           index):
+                                           index, owed.get(directory, "")):
                     print(line)
         elif found:
             print(header)
             for (directory, state), group in zip(found, groups):
                 print("\n".join(group))
                 parked = parked_line(state, directory.name)
-                if state.get("state") == "queued":
+                if directory in owed:
+                    print(f"  {owed[directory]}")
+                elif state.get("state") == "queued":
                     print(f"  {gate.slot_note(state)}")
                 elif gate.gate_turn_note(state):
                     print(f"  {gate.gate_turn_note(state)}")
@@ -863,4 +895,11 @@ def cmd_status(argv):
             line = size_summary_line(repo)
             if line:
                 print(line)
+    if wanted and owed:
+        # printed first, recorded after, and no lock held while it wrote: a look whose
+        # output never got out records nothing
+        sys.stdout.flush()
+        for directory, state in found:
+            if directory in owed:
+                handback.printed_at_look(directory, state)
     return 0

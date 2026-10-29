@@ -3,9 +3,51 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// Every place ak keeps is owner-only after EnsureDirs, one made before by someone else too,
+// and a file where a place goes is refused and left as it was.
+func TestEnsureDirs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	state := filepath.Join(Home(), "state")
+	if err := os.MkdirAll(state, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(state, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	for _, place := range []string{"", "runs", "wt", "state", "secrets", "tmp", "env", "work", "jobs"} {
+		info, err := os.Stat(filepath.Join(Home(), place))
+		if err != nil || !info.IsDir() || runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
+			t.Fatalf("%q after EnsureDirs: %v %v", place, info, err)
+		}
+	}
+	jobs := filepath.Join(Home(), "jobs")
+	if err := os.Remove(jobs); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jobs, []byte("acme"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(jobs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureDirs(); err == nil {
+		t.Fatal("EnsureDirs took a file named jobs for its folder")
+	}
+	if after, err := os.Stat(jobs); err != nil || after.Mode() != before.Mode() {
+		t.Fatalf("the file named jobs was changed: %v %v", after, err)
+	}
+}
 
 func TestEmbeddedDefault(t *testing.T) {
 	data, err := os.ReadFile("../../../config.default.toml")

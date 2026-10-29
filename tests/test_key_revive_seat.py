@@ -4,11 +4,14 @@ The run will hand its ending back to its seat, so a seat whose harness died unde
 a kill, a reboot) is reopened on its own conversation, in its own session, and told in one
 line that the run is still going; the owner is not asked.  Once per death: a seat seen live
 again and dying again is reopened again.  A seat ak cannot reopen is one of the few failures
-only the owner can fix, so it pages them, once.  Black-box: the program `AK_BIN` names runs
-`ak watch` from outside through tests/fixtures/akbin.py, beside a seat of tests/fixtures/akseat.py
-and a run whose turn a scripted harness of fakeadapter.py holds, paging tests/fixtures/sink.py.
+only the owner can fix, so it pages them, once.  Each death here is inside its harness's
+warm-up, the kind ak leaves to the tick (tests/test_key_exited_seat_comes_back.py).  Black-box:
+the program `AK_BIN` names runs `ak watch` from outside through tests/fixtures/akbin.py, beside a
+seat of tests/fixtures/akseat.py and a run whose turn a scripted harness of fakeadapter.py holds,
+paging tests/fixtures/sink.py.
 """
 
+import json
 import re
 import shlex
 import socket
@@ -58,7 +61,10 @@ def going(test, home, seat, *, opens):
 
 
 def end(home, name, bound=30):
-    """End the harness in the seat's pane, which tmux keeps, dead, as it keeps a seat's."""
+    """End the harness in the seat's pane as it starts, which tmux keeps, dead, as it keeps a
+    seat's."""
+    path = home.path / ".agentkit" / "state" / f"session-{name}.json"
+    path.write_text(json.dumps({**json.loads(path.read_text()), "launched": time.time()}))
     done = home.tmux("respawn-pane", "-k", "-t", f"={name}:", "true")
     assert done.code == 0, done.err
     deadline = time.monotonic() + bound

@@ -378,7 +378,9 @@ def _host_admits(state, readings, is_first):
     (`_strain`), `slot_stall` naming the one it went past: the gates derived from those readings
     were retuned again and again, and one held every run for 22 hours of a calm host."""
     readings = _run_readings() if readings is None else readings
-    if stuck.slot_stall(time.time()) != state.get("run_id"):
+    # Judged when this poll saved the queue, under the same lock (`claim_slot`): a pause since
+    # is no gap in its polling, and judged later it read as one.
+    if stuck.slot_stall(slot_queue()[0]) != state.get("run_id"):
         return _gates_admit(state, readings, is_first)
     reason, kind = _strain(readings, resource_limits(readings)[0])
     if reason:

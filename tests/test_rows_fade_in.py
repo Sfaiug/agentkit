@@ -46,6 +46,9 @@ class FadeIn(Sandbox):
         return [terminal.ANSI.sub("", line) for line in lines], drawn
 
     def test_the_line_under_a_row_the_highlight_comes_to_fades_in(self):
+        # the clock stands still: a draw slower than the fade, as a garbage collection under
+        # load makes one, would see it over before it starts
+        self.stack.enter_context(patch.object(motion.time, "monotonic", return_value=10.0))
         self.draw("acme-01")
         self.assertFalse([cell for cell in self.clock.cells if cell[1] == 1])   # drawn as it is
         lines, _ = self.draw("acme-02")

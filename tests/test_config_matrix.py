@@ -391,6 +391,18 @@ class Matrix(unittest.TestCase):
         self.assertEqual(screen.effort("opus"), "high")
         screen.leave()
 
+    def test_an_effort_shrinking_off_the_pointer_takes_its_row_s_highlight(self):
+        screen = Screen(self)
+        lines = screen.frame()
+        number, line = row(lines, "opus")
+        word = line.index("xhigh") + 1                  # its last letter, blank once it is max
+        mark = len(screen.text())
+        screen.press(f"\x1b[<0;{word + 4};{number}M\x1b[<0;{word + 4};{number}m"
+                     f"\x1b[<35;{word + 3};{number}M".encode(),     # and on, still past max
+                     lambda lines: lines[number - 1][word - 1:].startswith("max "))
+        self.assertNotIn("›", screen.text()[mark:])    # no frame drawn it, not even at first
+        screen.leave()
+
     def test_tab_changes_nothing(self):
         screen = Screen(self)
         screen.frame()

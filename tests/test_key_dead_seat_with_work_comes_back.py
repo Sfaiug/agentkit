@@ -6,12 +6,14 @@ run going, so it sat dead for two hours until the owner opened it and typed "con
 tick now judges a gone seat as a reboot does: one cut off in its turn, a Stop on background
 agents among them, is reopened on its own conversation and told to go on, once per death.  One
 the owner closed stays closed; one that died idle is
-tests/test_key_dead_seat_holding_work_comes_back.py's.  Black-box: the program `AK_BIN` names
-runs `ak watch` from outside through tests/fixtures/akbin.py, beside seats of
-tests/fixtures/akseat.py whose hooks are fired as Claude fires them (tests/fixtures/hookdrive.py),
-each reopened by a scripted harness of fakeadapter.py.
+tests/test_key_dead_seat_holding_work_comes_back.py's.  Each death here is inside its harness's
+warm-up, the kind ak leaves to the tick (tests/test_key_exited_seat_comes_back.py).  Black-box:
+the program `AK_BIN` names runs `ak watch` from outside through tests/fixtures/akbin.py, beside
+seats of tests/fixtures/akseat.py whose hooks are fired as Claude fires them
+(tests/fixtures/hookdrive.py), each reopened by a scripted harness of fakeadapter.py.
 """
 
+import json
 import re
 import shlex
 import socket
@@ -38,7 +40,10 @@ def conversation(n):
 
 
 def end(home, name, bound=30):
-    """End the harness in the seat's pane, which tmux keeps, dead, as it keeps a seat's."""
+    """End the harness in the seat's pane as it starts, which tmux keeps, dead, as it keeps a
+    seat's."""
+    path = home.path / ".agentkit" / "state" / f"session-{name}.json"
+    path.write_text(json.dumps({**json.loads(path.read_text()), "launched": time.time()}))
     done = home.tmux("respawn-pane", "-k", "-t", f"={name}:", "true")
     assert done.code == 0, done.err
     deadline = time.monotonic() + bound

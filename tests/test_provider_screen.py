@@ -1,8 +1,8 @@
 """`Subscriptions` in `c` adds a provider the way it ships and removes one: `+ add a
 subscription` offers the shipped default's providers the config has not, installs the picked
 one's harness when its program is missing, logs it in on the terminal, then adds its shipped table
-and its first catalog model; `− remove` under a subscription's row asks with `Keep` picked and
-takes its models, the last provider stays, and a free provider, which has no meter, goes with its
+and its first catalog model; `− remove` under a provider's last subscription asks with `Keep`
+picked and takes the provider's models, the last provider stays, and a free provider, which has no meter, goes with its
 last model.
 
 Each test runs `menu.show_config` with a real `terminal.Keyboard` in a child process on a pty of

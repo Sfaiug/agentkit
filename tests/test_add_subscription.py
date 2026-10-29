@@ -3,8 +3,8 @@ removed under its row there: `+ add` lists one more of every provider the config
 it will get (`Claude II`),
 logs it in on the terminal under a fresh AGENTKIT_ACCOUNT and appends that name to the
 provider's `accounts`, `default` first when it listed none; a login that fails adds nothing.
-`− remove` under the row of each but the usual login of a provider with several asks with
-`Keep` picked, takes that one name out of `accounts` and signs out that login alone.
+`− remove` under the row of any subscription of a provider with several asks with `Keep`
+picked, takes that one name out of `accounts` and signs out that login alone.
 
 Each test runs `menu.show_config` with a real `terminal.Keyboard` in a child process on a pty of
 its own, through tests/test_config_matrix.py's Screen, in a temporary HOME.  The adapters are
@@ -140,7 +140,10 @@ class AddSubscription(unittest.TestCase):
         lines = screen.press(ENTER, lambda lines: title(lines) == PAGE)   # read, then back
         self.assertIn("Codex login did not finish; ChatGPT II is not added", lines[-3])
         self.assertEqual(screen.path.read_bytes(), before)
-        self.assertEqual(len((home / "verbs.log").read_text().split()), 3)
+        # its login, then what it left for that account forgotten
+        [(harness, verb, account), forgot] = [line.split() for line in
+                                              (home / "verbs.log").read_text().splitlines()]
+        self.assertEqual((harness, verb, forgot), ("codex", "login", ["codex", "forget", account]))
         back(screen)
         screen.leave()
 

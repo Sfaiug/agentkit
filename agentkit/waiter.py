@@ -3,7 +3,7 @@
 Only the first in line can be admitted, so a run behind it only reads `.slots.queue`.  Its
 launch execs into this script (`run.pickup_while_queued`), run as `python3 -I -S`: it imports
 nothing of agentkit, so the waiting process holds a few megabytes instead of a whole `ak run`.
-It counts its wait in history each poll, as `gate.count_wait` does, and execs the same launch
+It counts its wait in history as it polls, as `gate.count_wait` does, and execs the same launch
 back, keeping the pid and so the receipt and its place in line, once it may be first or the
 installed agentkit moved.  What both need to know lives here, for ak to import.
 
@@ -73,11 +73,12 @@ def head(repo, env=None):
 
 
 @contextlib.contextmanager
-def writing(database):
+def writing(database, wait=True):
     """One writer of history.db at a time, across processes: runs, the tick and the menu each
-    write, and sqlite's own wait gives up after its timeout and the write would be lost."""
+    write, and sqlite's own wait gives up after its timeout and the write would be lost.
+    Without `wait`, BlockingIOError while another writer has it."""
     with Path(database).with_suffix(".lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        fcntl.flock(lock, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
         yield
 
 
@@ -100,13 +101,18 @@ def phase(connection, run_id, name, started_at, ended_at):
 
 def count(database, run_id, began, since):
     """Add the wait since the monotonic `since` to the run's history, so a waiter that dies
-    loses at most a poll; the moment it is counted to.  History never ends the wait."""
+    loses at most the polls since it found history free; the moment it is counted to.  One that
+    finds another writer on it counts at a later poll: a hundred waiters queued on the lock
+    behind a busy disk's flushes held the first in line for minutes (29 Oct 2026).  History
+    never ends the wait."""
     now = time.monotonic()
     try:
-        with writing(database), contextlib.closing(
+        with writing(database, wait=False), contextlib.closing(
                 sqlite3.connect(database, timeout=2)) as connection:
             add_wait(connection, run_id, "slot", max(0.0, now - since), began, time.time())
             connection.commit()
+    except BlockingIOError:
+        return since
     except (OSError, sqlite3.Error):
         pass
     return now

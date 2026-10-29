@@ -38,7 +38,8 @@ class ModelsCommand(unittest.TestCase):
     def test_each_role_s_answer_then_ak_s_own_numbers(self):
         shown = [line.rstrip() for line in self.models().splitlines()]
         at = shown.index(ORCH[0])
-        self.assertEqual(shown[at:at + 21], [*ORCH, *BUILDS, *REVIEWS, "", *LEGEND])
+        answer = [*ORCH, *BUILDS, *REVIEWS, "", *LEGEND]
+        self.assertEqual(shown[at:at + len(answer)], answer)
         self.assertEqual(shown[-3:], OWN)
 
     def test_json_gives_each_role_s_front_and_ak_s_own_numbers(self):
@@ -51,7 +52,7 @@ class ModelsCommand(unittest.TestCase):
             ("Acme Mid 5", "high", 97.8, 15.0, ["tie"]),
             ("Acme Max 5", "high", 95.3, 10.0, ["pick", "no harness"]),
             ("Bolt 3", "medium", 93.2, 3.0, ["tie"]),
-            ("Crux 2", "low", 74.3, 1.0, ["1 estimated"])])
+            ("Crux 2", "low", 74.0, 1.0, ["1 missing"])])
         self.assertEqual(found["execute"]["front"][0]["release"], "acme-max-5")
         self.assertGreater(found["execute"]["front"][0]["se"], 0)
         self.assertEqual(found["live"], {name: dict.fromkeys(("orchestrate", "execute", "review"))

@@ -979,10 +979,10 @@ def read_key(timeout=None, wake=None):
     what was sent after it is read through to where the pointer ended, or a frame after the
     first of them, whichever is sooner, however soon the read's own time runs out: a flood of
     moves is one draw, never a draw each.  One that is not due when nothing more is sent is
-    answered by a read after it; a key read past one, next.  Every other key hands the
-    highlight to the keys, so the pointer lights nothing until it moves again, and Enter or
-    space -- a click on its key-line item too -- while the pointer is on no row (`away`) only
-    brings it back, answered as a draw.
+    answered by a read after it; a key read past one, next.  Every other key but a click on
+    nothing hands the highlight to the keys, so the pointer lights nothing until it moves
+    again, and Enter or space -- a click on its key-line item too -- while the pointer is on
+    no row (`away`) only brings it back, answered as a draw.
     """
     global _PRESSED, _ASKED, _POINTER, _MOVED, _NEXT, _HELD, _AWAY, _UNSEEN
     key, _NEXT = _NEXT, None
@@ -1032,8 +1032,11 @@ def read_key(timeout=None, wake=None):
             what is not None for what, *_ in _SPOTS.values())
         return key
     spot = under(key, _SPOTS) if key.name == "click" else Spot()
-    _UNSEEN, _AWAY = _AWAY and spot.what is None, False     # a click on a row names its own
-    _POINTER = key if key.name == "click" and not _UNSEEN else None
+    _UNSEEN = _AWAY and spot.what is None     # a click on a row names its own
+    if key.name == "click" and spot == Spot():
+        _POINTER = key             # on nothing: the highlight stays drawn or hidden, as it was
+        return key
+    _AWAY, _POINTER = False, key if key.name == "click" and not _UNSEEN else None
     if _UNSEEN and (key.name in ("enter", "space") or spot.what is None
                     and spot.cell in ("⏎", "enter", "␣", "space")):
         _ASKED = True
@@ -1197,12 +1200,19 @@ def lit(lines, spots):
     screen's to light: the keys' highlight is moved onto the pointer's.  With no colour at all
     nothing is lit, and what only explains -- a cell that is a tuple -- is never lit.  Nothing
     the pointer rests on says anything more of itself: the screen is its own manual.
+    A row drawn again on its line no longer reaching the still pointer -- a click shrank its
+    cell -- is the pointer moved off it, held for `read_key` to answer, and `show` draws that;
+    till then the pointer is on nothing drawn, so no move within one spot lets that one go.
     """
-    global _SPOTS, _POINTED, _SHOWN, _PAINTED
+    global _SPOTS, _POINTED, _SHOWN, _PAINTED, _HELD, _POINTER
+    on = pointer_spot(_SPOTS).what
     _SHOWN = _PAINTED = lines = list(lines)
     spots.update({row: (what, places, lines[row - 1] if 0 < row <= len(lines) else "")
                   for row, (what, places, *_) in spots.items()})
     _SPOTS, _POINTED = spots, pointer_spot(spots)
+    if (_HELD is None and on is not None and _POINTED.what is None
+            and spots.get(_POINTER.row, (None,))[0] == on):
+        _HELD, _POINTER = (_POINTER._replace(name="point"), time.monotonic()), None
     if (_POINTED.cell is None or isinstance(_POINTED.cell, tuple) or not colour_depth()
             or not 0 < _POINTER.row <= len(lines)):
         return lines
@@ -1318,7 +1328,9 @@ def show(lines, spots, drawn=None):
     `drawn()`, a clock's frame over them and whether they come up in it (`motion.Clock.drawn`),
     goes in the same write: lines that come up are the frame's to write, never first as they are.
     """
-    lines = lit(lines, spots)
+    held, lines = _HELD, lit(lines, spots)
+    if _HELD is not held:   # its row's highlight is stale: drawn again once the move is answered
+        return
     moved, rising = drawn() if drawn else ("", False)
     sys.stdout.write("\033[H" + ("" if rising else "".join(f"\033[K{line}\n" for line in lines))
                      + "\033[J" + moved)

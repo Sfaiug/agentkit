@@ -20,8 +20,9 @@ const renameHops = 8
 // Renamed is the key a rename leaves in the old name's record: the name it goes by now.
 const Renamed = "renamed"
 
-func normalizeSession(name string) string {
-	return strings.Join(strings.FieldsFunc(name, Space), " ")
+// Fold is text's words one space apart, as Python's " ".join(text.split()) writes them.
+func Fold(text string) string {
+	return strings.Join(strings.FieldsFunc(text, Space), " ")
 }
 
 func sessionPath(name string) (string, error) {
@@ -48,20 +49,23 @@ func SeatFiles() []string {
 
 // SessionPath is where a seat's record is kept.
 func SessionPath(name string) (string, error) {
-	return sessionPath(normalizeSession(name))
+	return sessionPath(Fold(name))
 }
 
 // A rename leaves a pointer because the running seat keeps its original
 // environment. Return the resolved record with its name so lookups agree.
 func ResolveSession(name string) (string, map[string]any, error) {
-	name = normalizeSession(name)
+	name = Fold(name)
 	path, err := sessionPath(name)
 	if err != nil {
 		return "", nil, err
 	}
 	if strings.Contains(name, " ") {
 		if _, err := os.Stat(path); err != nil {
-			name = sessionPunctuation.ReplaceAllString(strings.ToLower(name), "-")
+			// Python's lower() maps İ to i and a combining dot, which then reads as
+			// punctuation; Go's ToLower maps it to a lone i, which names another seat.
+			name = strings.ToLower(strings.ReplaceAll(name, "\u0130", "i\u0307"))
+			name = sessionPunctuation.ReplaceAllString(name, "-")
 			name = strings.Trim(sessionDashes.ReplaceAllString(name, "-"), "-")
 			if len(name) > 40 {
 				name = name[:40]
@@ -101,7 +105,7 @@ func ResolveSession(name string) (string, map[string]any, error) {
 		if !renamed {
 			return name, record, nil
 		}
-		name = normalizeSession(next)
+		name = Fold(next)
 		for _, old := range seen {
 			if name == old {
 				return "", nil, fmt.Errorf("%s: the rename chain loops through %s", origin, strings.Join(seen, " -> "))

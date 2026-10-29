@@ -95,7 +95,7 @@ seat leaves its project for the past screen, `p` (`show_past`), listed by the da
 Enter reopens it where it stopped and `x` asks before it takes it off.  `c` holds
 the orchestrator, executors and reviewers of the seat the popup is over, or of new seats in a
 window of its own: the orchestrator moves the seat at once, the roles flip with the same keys
-and save at once; new seats' `a` gives theirs to every open seat (apply_defaults).
+and save at once; new seats' `a` gives theirs to every seat on the main screen (apply_defaults).
 `ak run status` and `ak browser` stay as commands for
 orchestrators; the menu no longer offers them. A gone session reads `session closed: press N
 to reopen`; one you stopped has no row under its project, only its row on the past screen; an
@@ -135,7 +135,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-from . import command_help, config, gitcall, history, matrix, motion, notify, orch, plan, quality, staffing, terminal, transitions, update, usage, worker
+from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, plan, quality, staffing, terminal, transitions, update, usage, worker
 from . import record
 from . import warm
 
@@ -146,6 +146,7 @@ BORN = " new"            # the name of the row `n` makes: none of a seat's, whic
 BORN_KEYS = "⏎ start   tab models   esc back"
 UNFILED = "not assigned yet"   # the heading of the seats no project has yet, the new row's too
 LEAST = 3                # rows a page keeps; the usage block folds before it holds fewer
+OPENS = 4                # lines a page keeps for what a row opens before the usage folds
 # The whole vocabulary, worst first: a rollup of seats says the one that wants him, and an idle
 # seat sorts last in its project.  `watch.session_state` is what decides which of the five a
 # seat is.
@@ -1296,14 +1297,15 @@ def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", 
     with neither draws that line with nothing done and `no plan yet`, a light going round it
     on the menu alone (`motion.circling`); else empty -- never `N running`, and no other
     sentence: what a seat asks or did opens under its row (`detail`).  Where the owner left text `unsent`, `✎ unsent` follows two cells after,
-    in the needs-you colour.  The line keeps 8 cells at least, which a row too short for them
-    draws under itself; where `room` is all there is -- a `narrow` screen's line, each width of
-    a seat's bar -- it takes that room and never more, the mark alone where both do not fit.
+    in the needs-you colour.  The line keeps 8 cells at least; where `room` is all there is
+    (`narrow`) -- a row's last column, each width of a seat's bar -- it takes that room and
+    never more, the count alone where no cell of line fits, the mark alone where both do not;
+    a `room` of None, the fewest cells that hold its count and mark both.
     `tmux` draws it for a seat's bar.  The row and the bar read this one function, so the two
     can never disagree.  A seat out of usage says when it comes back, `back 19:20` (`back`), in
     its word's colour, in its progress's place."""
     mark = unsent_mark() if unsent else ""
-    left = room - (terminal.cells(mark) + 2 if mark else 0)
+    left = (room or 0) - (terminal.cells(mark) + 2 if mark else 0)
     if word == "out of usage":
         text = f"back {back_at(back)}" if back_at(back) else ""
         bar = _paint(text, word, tmux) if text else ""
@@ -1312,7 +1314,7 @@ def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", 
     else:
         text = terminal.plan_bar(done, total, left, 0)
         bar = terminal.plan_bar(done, total, left, 0 if narrow else 8, word, tmux)
-    if narrow and mark and terminal.cells(text) > left:
+    if narrow and mark and room is not None and terminal.cells(text) > left:
         bar = ""
     if not mark:
         return bar
@@ -1437,8 +1439,13 @@ def v5o_column_widths(infos, term_width):
         else:
             orch_w -= 1
     fixed = 2 + num_w + 2 + name_w + 2 + orch_w + state_w + 2
+    # Every row's last column stands beside it, its line taking what its count leaves, or --
+    # on a phone, or where that room would not hold some row's count or mark -- every row's
+    # goes under it: never some rows one way and some the other (the owner, 29 Oct 2026).
+    least = max([10] + [terminal.cells(_last_text(info, None, narrow=True)) for info in infos])
     return {"room": room, "narrow": term_width < 60, "num": num_w, "name": name_w,
-            "orch": orch_w, "count": count_w, "worker": orch_w, "bar": 0,
+            "orch": orch_w, "count": count_w, "worker": orch_w,
+            "under": term_width < 60 or room - fixed < least,
             "sent": max(10, room - fixed), "free": room - fixed}
 
 
@@ -1466,8 +1473,9 @@ def v5o_seat_blocks(infos, term_width, widths=None, most=None, details=None):
 
     Fixed columns with two-space gutters, from `widths` (one `v5o_column_widths`
     per draw): number, name, orchestrator, state, and one last column, the seat's progress
-    line (`_last_text`) where it has a plan. Content is capped at 100 columns. A line too long
-    for the column, or one on a narrow phone, goes whole on the indented line under its row.
+    line (`_last_text`) where it has a plan, in the room beside the row. Content is capped at
+    100 columns. On a narrow phone, or where that room holds no row's count, every row's line
+    goes whole on the indented line under it (`v5o_column_widths`).
     `details` are the lines each seat named in it opens under its row (`detail`), indented
     under the name; a block of more than `most` lines is cut to them, ending in `…`. Never cut
     inside a glyph or a colour sequence.
@@ -1481,12 +1489,12 @@ def v5o_seat_blocks(infos, term_width, widths=None, most=None, details=None):
     blocks = []
     for info in infos:
         head = _head(info, widths)
-        last = "" if narrow else _last_text(info, widths["free"])
-        if last and widths["free"] >= 10 and terminal.cells(last) <= widths["free"]:
+        last = "" if widths["under"] else _last_text(info, widths["free"], narrow=True)
+        if last:
             block = [head + "  " + last]
         else:
-            # a line too long for the column is never wrapped, which drops its colours, and a
-            # row without ten cells left starts nothing: it goes under its row, in that room
+            # a line is never wrapped, which drops its colours: on a screen whose rows have no
+            # room beside them it goes under its row, in that room
             cont = max(1, room - 4)
             under = _last_text(info, cont, narrow=narrow)
             if terminal.cells(under) > cont:       # a count alone, on the narrowest screens
@@ -1644,40 +1652,41 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                                        "amber" if "expired" in token else "dim")
                 if token else "")
 
-    def _room(meters, paged, compact=False):
-        keys = (k_paged if paged else k_single) + opens
+    def _room(meters, paged, compact=False, opened=None):
+        keys = (k_paged if paged else k_single) + (opens if opened is None else opened)
         if compact:
             return height - 2 - (keys + len(meters) + bool(standing))
         chrome = 2 + len(meters) + 2 + 1 + keys
         return height - 2 - chrome
 
     # The usage stays on top and the keys at the bottom, whatever the number of seats: those
-    # that do not fit between them turn pages.  The block folds to its readings, each whole
-    # (`usage_summary`), where that keeps every seat on one page or where the whole block
-    # leaves too few rows a page; a screen too short for that drops the frame and the blank
-    # lines too (compact), and only one with no room for a seat under its heading even then
-    # cuts the readings.
+    # that do not fit between them turn pages.  Its form is the screen's size alone, so it
+    # keeps it while seats come, go and open (the owner, 29 Oct 2026): the whole block wherever
+    # that leaves a page `least` rows and OPENS lines for what one of them opens, else its
+    # readings, each whole (`usage_summary`); a screen too short for those drops the frame and
+    # the blank lines too (compact), and only one with no room for a seat under its heading
+    # even then cuts the readings.
     least = LEAST * (2 if width < 60 else 1)
     summary = usage_summary(cfg, layout, rows=rows)
     block = meters_full or summary     # a width with no grid says the readings
-    # one page before pages, the whole block before its readings, and compact last
-    for meters, compact, paged in ((block, False, False), (summary, False, False),
-                                   (block, False, True), (summary, False, True),
-                                   (summary, True, False), (summary, True, True)):
-        paged = paged and len(flat) > 1
-        room = _room(meters, paged, compact)
-        if (len(flat) <= room) if not paged else (room >= least or compact):
-            break
+    meters, compact = next((meters, compact) for meters, compact
+                           in ((block, False), (summary, False), (summary, True))
+                           if compact or _room(meters, True, compact, OPENS) >= least)
+    if compact:
+        # the readings a turning page leaves a seat under its heading, with a line under it, by
+        # the screen's size too; else what leaves one row
+        spare = _room(meters, True, True, 0) - 3
+        if spare < 0 and len(meters) > 1:
+            meters = usage_summary(cfg, layout, max(1, len(meters) + spare), rows)
+        meters = meters[:max(0, len(meters) + _room(meters, True, True, 0) - 1)]
+    paged = len(flat) > 1 and len(flat) > _room(meters, False, compact)     # one page first
+    room = _room(meters, paged, compact)
     # a seat under its heading: its row and, where it has one, a line under it
     need = 1 + min(2, max((len(block) for own in seat_blocks for block in own), default=0))
-    # the opened lines take only what that leaves, before the usage gives any of its own
-    opens = max(0, opens - max(0, need - room))
-    room = _room(meters, paged, compact)
-    if compact and room < need and len(meters) > 1:
-        meters = usage_summary(cfg, layout, max(1, len(meters) + room - need), rows)
-        room = _room(meters, paged, compact)
-    if room < 1:
-        meters = meters[:max(0, len(meters) + room - 1)]      # what leaves one row
+    # the opened lines take only what a page of `least` rows leaves -- on a compact screen what
+    # a seat under its heading does -- and a page that fits once they have is one
+    opens = max(0, opens - max(0, (need if compact or not paged else least) - room))
+    paged = paged and len(flat) > _room(meters, False, compact)
     room = max(1, _room(meters, paged, compact))
     pages = (project_pages([(heading(project), own) for project, own
                             in zip(ordered, _seat_blocks(room - 1))], room)
@@ -2932,15 +2941,17 @@ def _stepped(cfg, record, steps, hold=()):
 
 def marks_saved(name, selected, changed):
     """A seat's role groups as `changed` has them, saved to its record at once and then into
-    `selected`; a save that fails leaves both alone.  What to say under the rows, or ""."""
+    `selected`, its bar redrawn (handback.redress_seat); a save that fails leaves all alone.
+    What to say under the rows, or ""."""
+    seat = config.resolve_session(name)     # a screen open across a rename has the old name
     try:
-        # a screen open across a rename has the old name
-        saved = config.update_session(config.resolve_session(name), workers=changed["workers"],
+        saved = config.update_session(seat, workers=changed["workers"],
                                       reviewers=changed["reviewers"])
     except OSError as exc:
         return f"session: {exc}"
     if saved is None:
         return f"session: {name} has no saved models"
+    handback.redress_seat(seat)
     # the groups alone: `changed` holds the rest of `selected` as it was, efforts and all
     selected.update(workers=changed["workers"], reviewers=changed["reviewers"])
     return ""
@@ -2957,19 +2968,18 @@ MODELS_KEYS = {"answer": ("↑↓ move   ←→ points   ⏎ why   p pick   r ta
 NEAR = 2                          # the line's rows shown either side of the pick
 LEGEND = (("as good", "{} within {} points of the best, then the cheapest"),
           ("≈ tie", "the boards cannot tell it from ★ pick"),
-          ("estimated", "scores no effort of it has, counted low"))
+          ("missing", "scores no effort of it has, counted as its worst"))
 KNOB = ("legend", "within")
 NAMED = 13                        # the cells before a legend line's words: its name's column
 # the why's words: what a row does in each role, and each measure's evaluation by its name
 DOES = {"orchestrate": "orchestrates", "execute": "builds", "review": "reviews"}
 MEASURES = {"aa.automationBenchPartialScore": "AutomationBench", "arena.agent": "Arena Agent",
             "aa.omniscience": "AA-Omniscience", "aa.briefcaseBreakdown.overall.elo": "AA-Briefcase",
-            "aa.frontierCode20": "FrontierCode 2.0", "aa.terminalBench40": "Terminal-Bench 4.0",
-            "aa.deepsecBench": "DeepSec Bench"}
+            "aa.frontierCode20": "FrontierCode 2.0", "aa.terminalBench40": "Terminal-Bench 4.0"}
 # a cost is a task of the evaluation of the measure of that name
 TASKS = {quality.COSTS[role]: MEASURES[column] for role, column in (
     ("orchestrate", "aa.briefcaseBreakdown.overall.elo"), ("execute", "aa.frontierCode20"),
-    ("review", "aa.briefcaseBreakdown.overall.elo"))}
+    ("review", "aa.frontierCode20"))}
 BEHIND = "behind the best"
 
 
@@ -2993,10 +3003,10 @@ def models_said(answer):
         at = front.index(pick) if pick else 0
         lines = [] if pick or not front else ["no row with a cost is as good"]
         for row in front[max(0, at - NEAR):at + NEAR + 1]:
-            estimated = sum(one["how"] == "estimated" for one in row["measures"].values())
+            missing = sum(one["how"] == "missing" for one in row["measures"].values())
             notes = ("★ pick" if row is pick else
-                     "≈ tie" if pick and quality.tie(row, pick, role) else "",
-                     f"{estimated} estimated" if estimated else "",
+                     "≈ tie" if pick and quality.tie(row, pick) else "",
+                     f"{missing} missing" if missing else "",
                      "" if row["yours"] else "no harness")
             lines.append((pointed(role, row), row["name"], effort(row), f"{row['quality']:.1f}",
                           f"${row['cost']:.2f}", " · ".join(filter(None, notes))))
@@ -3109,8 +3119,8 @@ def scored(row, column, kind):
         return "no score"
     if one["how"] == "carried":
         return f"carried from {one['from']}"
-    if one["how"] == "estimated":
-        return f"estimated, counted {one['se']:.1f} low"
+    if one["how"] == "missing":
+        return "no score, counted as its worst"
     value = row["values"][column]
     return "measured, " + (f"{100 * value:.1f}%" if kind == "share" else f"{value:g}")
 
@@ -3123,7 +3133,7 @@ def models_why(found, role, row):
     room = terminal.layout_width() - 2
     top = max(found["rated"], key=lambda one: one["quality"])
     ties = sorted((one for one in found["rated"]
-                   if one is not row and quality.tie(one, row, role)),
+                   if one is not row and quality.tie(one, row)),
                   key=lambda one: -one["quality"])
     hows = [(MEASURES[column], f"{one['points']:.1f}" if one else "", scored(row, column, kind))
             for column, kind, *_ in quality.ROLES[role] for one in [row["measures"].get(column)]]
@@ -4134,13 +4144,16 @@ def _by_label(names, label):
             for text, name in zip(labels, names)}
 
 
-def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None):
+def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None, new=False):
     """Each of `verbs` of `harness`'s adapter (one with its words, `login again`), run as
     install.sh runs them, for `account`'s
     login when one is named and of `provider` when one is (config.provider_env), with the
     terminal given back for them, each said in one line as it starts, and taken again after.  The
     first that fails ends them, and waits until what it said has been read: what to say about
-    it under the matrix, or "".  No verbs is nothing to run, and the terminal stays."""
+    it under the matrix, or "".  With `new`, `account` is a name no subscription lists yet, and
+    one that fails first takes what the harness made for it with it (its adapter's `forget`):
+    a login nobody lists is one nobody signs out, and ^C or a closed terminal can end that
+    wait.  No verbs is nothing to run, and the terminal stays."""
     if not verbs:
         return ""
     keyboard.give()
@@ -4173,35 +4186,47 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
             signal.signal(signal.SIGINT, interrupt)
         if code:
             failed = f"{config.harness_name(harness)} {verb} did not finish; {picked} is not added"
+            if new:
+                try:
+                    subprocess.run([str(config.adapter(harness)), "forget"],
+                                   env={**config.child_env(), **config.account_env(account)},
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL)
+                except (config.Error, OSError):
+                    pass              # no adapter to run: nothing ran to make anything either
             pause()
             break
     keyboard.take()
     return failed
 
 
-def sign_in(cfg, keyboard, provider, account):
-    """`provider`'s login for `account` (None: its only one) made afresh on the terminal, its
-    `↻ log in again` (`subscription_acts`): its harness's `login again` (`logins.harness`), and the
-    menu back as soon as that ends, one that failed once what it said has been read.  One that
-    finished is asked its end at once (`logins.renewed`), so the menu comes back with its meter grey."""
+def sign_in(cfg, keyboard, picked):
+    """`picked`'s login, its subscription as (provider, account, label), made afresh on the
+    terminal, its `↻ log in again` (`subscription_acts`): its harness's `login again`
+    (`logins.harness`), and the menu back as soon as that ends, one that failed once what it
+    said has been read.  One that finished is asked its end at once (`logins.renewed`), so the
+    menu comes back with its meter grey.  What to say under the screen, or ""."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
-    harness = logins.harness(cfg, provider)
-    if harness and not _adapter_verbs(keyboard, harness, ("login again",), provider, account,
-                                      provider):
-        logins.renewed(cfg, provider, account or config.DEFAULT_ACCOUNT)
+    provider, account, label = picked
+    if _adapter_verbs(keyboard, logins.harness(cfg, provider), ("login again",), label, account,
+                      provider):
+        return f"{label}'s sign-in did not finish"
+    logins.renewed(cfg, provider, account or config.DEFAULT_ACCOUNT)
+    return ""
 
 
 def _add_subscription(cfg, keyboard, provider, listed, picked):
     """Another subscription of `provider`, `picked` being the name it will get: its harness's
-    login, run on the terminal under the account name last in `listed`, then `listed` as the
-    provider's `accounts` -- the ones it had, `default` when it had none, and that name.  Its
-    harness is its models' or, with none left, the shipped default's
+    login, run on the terminal under the account name last in `listed`, new (_adapter_verbs),
+    then `listed` as the provider's `accounts` -- the ones it had, `default` when it had none,
+    and that name.  Its harness is its models' or, with none left, the shipped default's
     (config.provider_harnesses).  A login that fails adds nothing.  What to say under the
     matrix, or ""."""
     harnesses = config.provider_harnesses(cfg, provider)
     if not harnesses:
         return f"config: no model names a harness for [providers.{provider}]"
-    failed = _adapter_verbs(keyboard, harnesses[0], ("login",), picked, listed[-1], provider)
+    failed = _adapter_verbs(keyboard, harnesses[0], ("login",), picked, listed[-1], provider,
+                            new=True)
     if failed:
         return failed
     before = copy.deepcopy(cfg)
@@ -4217,7 +4242,8 @@ def config_add_provider(cfg, keyboard):
     of a provider the config has, which is only logged in and listed (_add_subscription), where
     its harness keeps more than one login (config.one_login).  Each is signed in under a new
     random account name (`fresh`), so its login starts empty and the owner picks the account
-    signed in to.  A harness that runs any provider it can log in
+    signed in to; one that does not finish leaves nothing of it (_adapter_verbs).  A harness
+    that runs any provider it can log in
     to (config.provider_hosts) is listed by its name after the shipped providers, standing in
     for those shipped on it: picked, it is installed where its program is missing, then
     `config_add` through it picks the provider, logs it in, and adds the model.
@@ -4284,7 +4310,7 @@ def config_add_provider(cfg, keyboard):
     if first in cfg["models"]:
         return f"{picked} adds its model as {first}, and a model has that name; nothing added"
     verbs = () if config.harness_present(harness) else ("install",)
-    failed = _adapter_verbs(keyboard, harness, (*verbs, "login"), picked, fresh, name)
+    failed = _adapter_verbs(keyboard, harness, (*verbs, "login"), picked, fresh, name, new=True)
     if failed:
         return failed
     table = {**shipped["providers"][name], "accounts": [fresh]}
@@ -4307,22 +4333,22 @@ def config_add_provider(cfg, keyboard):
 @terminal.clicks_its_own
 def config_remove_provider(cfg, picked):
     """`− remove` under a row of `Subscriptions` (subscription_acts): `picked`, its subscription as
-    (provider, account, label), `Remove <provider> and its models?` for its usual login or its
-    only one, `Remove <subscription>?` for another, asked under its name, `Keep` picked and Esc
-    keeping it.  config.remove_provider takes a provider's table, its models and their places
-    in [defaults], and with its table goes its meter; a subscription leaves only the
-    provider's `accounts`.  Once saved, each subscription that went is signed out on this machine
-    (_signed_out).  The last provider is refused without asking.  What to say under the screen,
-    or "".
+    (provider, account, label), `Remove <provider> and its models?` for its provider's last
+    one, `Remove <subscription>?` for any other, the usual login too, asked under its name,
+    `Keep` picked and Esc keeping it.  config.remove_provider takes a provider's table, its
+    models and their places in [defaults], and with its table goes its meter; a subscription
+    leaves only the provider's `accounts`.  Once saved, the subscription that went is signed out
+    on this machine (_signed_out).  The last provider is refused without asking.  What to say
+    under the screen, or "".
     """
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     (name, account, label), title = picked, f"config · {picked[2]}"
-    # a provider listing no subscription has its usual login, so its last one takes it along
-    usual = account in (None, config.DEFAULT_ACCOUNT) or config.accounts(cfg, name) == [account]
-    if usual and len(cfg["providers"]) < 2:
+    # a provider listing no subscription has its usual login alone
+    last = len(config.accounts(cfg, name)) < 2
+    if last and len(cfg["providers"]) < 2:
         return "the config needs one provider"
-    shown = provider_name(cfg, name) if usual else label
-    question, means = REMOVE_PROVIDER_ASK if usual else REMOVE_SUBSCRIPTION_ASK
+    shown = provider_name(cfg, name) if last else label
+    question, means = REMOVE_PROVIDER_ASK if last else REMOVE_SUBSCRIPTION_ASK
 
     def asked(card, keys):
         terminal.frame(title, card, keys)
@@ -4330,41 +4356,36 @@ def config_remove_provider(cfg, picked):
     if not terminal.confirm(question.format(shown), means, "Remove", asked):
         return ""
     before, harness = copy.deepcopy(cfg), logins.harness(cfg, name)
-    gone = {each: config.account_label(cfg, name, each, provider_name(cfg, name))
-            for each in config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]} if usual \
-        else {account: label}
     try:
-        if usual:
+        if last:
             config.remove_provider(cfg, name)
         else:
             cfg["providers"][name]["accounts"].remove(account)
     except (config.Error, OSError) as exc:
         return str(exc)
     # no `waited`: its Esc would drop what a sign-out that failed says
-    return _saved(cfg, cfg, before) or _signed_out(harness, name, gone)
+    return _saved(cfg, cfg, before) or _signed_out(harness, name, account, label)
 
 
-def _signed_out(harness, provider, gone):
-    """Each login of `gone`, a subscription's label by its account, signed out on this machine
-    by `harness`'s adapter's `logout`.  What to say under the screen for each one that is still
-    on it: the last line its adapter said, and the command that signs it out by hand, which
-    names its account even when empty, as a seat's shell has one of its own; or ""."""
-    left = []
-    for account, label in gone.items():
-        env = {**config.account_env(account), **config.provider_env([provider])}
-        try:
-            done = subprocess.run([str(config.adapter(harness)), "logout"],
-                                  env={**config.child_env(), **env}, stdin=subprocess.DEVNULL,
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-            said = (done.stderr.strip().splitlines() or [""])[-1] if done.returncode else None
-        except (config.Error, OSError) as exc:
-            said = str(exc)
-        if said is not None:
-            by_hand = " ".join([*(f"{key}={shlex.quote(value)}" for key, value in env.items()),
-                                shlex.quote(str(config.adapter_path(harness))), "logout"])
-            left.append(f"{label}'s login is still on this machine{f' ({said})' if said else ''};"
-                        f" sign it out with {by_hand}")
-    return "; ".join(left)
+def _signed_out(harness, provider, account, label):
+    """`provider`'s subscription `account`, read `label`, signed out on this machine by
+    `harness`'s adapter's `logout`.  What to say under the screen while it is still on it: the
+    last line its adapter said, and the command that signs it out by hand, which names its
+    account even when empty, as a seat's shell has one of its own; or ""."""
+    env = {**config.account_env(account), **config.provider_env([provider])}
+    try:
+        done = subprocess.run([str(config.adapter(harness)), "logout"],
+                              env={**config.child_env(), **env}, stdin=subprocess.DEVNULL,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        if not done.returncode:
+            return ""
+        said = (done.stderr.strip().splitlines() or [""])[-1]
+    except (config.Error, OSError) as exc:
+        said = str(exc)
+    by_hand = " ".join([*(f"{key}={shlex.quote(value)}" for key, value in env.items()),
+                        shlex.quote(str(config.adapter_path(harness))), "logout"])
+    return (f"{label}'s login is still on this machine{f' ({said})' if said else ''};"
+            f" sign it out with {by_hand}")
 
 
 @terminal.clicks_its_own
@@ -4400,7 +4421,7 @@ def subscription_acts(cfg, keyboard, number, remove=False):
     picked = (name, account, label)
     harness = logins.harness(cfg, name)
     return [(text[0 if terminal.utf8() else 1], act) for text, act, offers in (
-        (SUBSCRIPTION_ACTS[0], lambda: sign_in(cfg, keyboard, name, account) or "",
+        (SUBSCRIPTION_ACTS[0], lambda: sign_in(cfg, keyboard, picked),
          harness and config.signs_in_again(harness, account)),
         (SUBSCRIPTION_ACTS[1], lambda: config_spend_reset(cfg, picked), in_hand(prov)),
         (SUBSCRIPTION_ACTS[2], lambda: config_remove_provider(cfg, picked), remove)) if offers]
@@ -4958,26 +4979,27 @@ def defaults_saved(cfg, selected, changed, before):
 
 
 def apply_defaults(cfg, around):
-    """`a` on a fresh window's `c`: every open seat with a record but the weekly audit's takes
+    """`a` on a fresh window's `c`: every listed seat with a record but the weekly audit's takes
     [defaults]'s executors and reviewers and the entries' efforts for the models it then runs,
     once `Apply` is picked on the card `around` draws (terminal.confirm), which names each seat
     that restarts, one not running [defaults]'s orchestrator at its entry's effort; that one
     then restarts on it at that effort (orch.switch_orchestrator), the only way a seat's
     orchestrator effort changes, so a restart refused or failed leaves its record on the one
-    its harness runs, its other changes kept.
+    its harness runs, its other changes kept.  Listed: it has a row on the main screen, asleep or
+    gone from tmux too.  Each one's bar names what it took at once (handback.redress_seat).
     config.toml is not written.  What to say under the rows, one line a seat refused, or ""."""
     from . import audit     # here, not at the top: audit imports this module
     defaults, records = cfg["defaults"], config.session_records()
     skip = config.resolve_session(audit.NAME)
-    seats = {s["name"]: records[s["name"]] for s in orch.sessions()
-             if s["name"] in records and s["name"] != skip}
+    seats = {s["name"]: records[s["name"]] for s in orch.listing(reconcile=False)
+             if not s.get("closed") and s["name"] in records and s["name"] != skip}
     if not seats:
-        return "no open session to apply them to"
+        return "no session to apply them to"
     lead = defaults["orchestrator"]
     effort = config.efforts_of(cfg["models"][lead])["effort"]
     moving = [name for name, record in seats.items() if record.get("orchestrator") != lead
               or config.at_efforts(cfg, record)["models"][lead]["effort"] != effort]
-    count = f"{len(seats)} open session{'s' * (len(seats) > 1)}"
+    count = f"{len(seats)} session{'s' * (len(seats) > 1)}"
     means = (f"{', '.join(moving)} restart{'s' * (len(moving) == 1)} on "
              f"{config.model_name(cfg, lead)} at {effort}." if moving
              else "No session restarts.")
@@ -5014,6 +5036,8 @@ def apply_defaults(cfg, around):
             note = orch.switch_orchestrator(cfg, name, lead, providers, effort=effort)
             if note:
                 said.append(f"{name}: {note}")
+        # after the restart, whose launch dresses a bar with no roles yet
+        handback.redress_seat(name)
     return "\n".join(said)
 
 

@@ -19,15 +19,14 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import SERVER, Terminal
 from test_key_models_answer import ENV, EVALUATIONS, NOW, OLD, aa, lines
 
-# Per release and effort: intelligence index, frontier-code and terminal shares, DeepSec Bench,
-# Omniscience, cost a task and Arena's agent share, none for Acme Max 5 high (carried from max)
-# and Crux 2 (estimated, or no score where too few rows have every measure); AutomationBench on
-# Acme Max 5 max alone, so the rest have none or carry it
-ROWS = [("acme-max-5", "Acme Max 5", "max", 70, 0.80, 0.60, 50, 20.0, 0.80),
-        ("acme-max-5", "Acme Max 5", "high", 66, 0.74, 0.62, 48, 10.0, None),
-        ("acme-mid-5", "Acme Mid 5", "high", 66, 0.77, 0.66, 49, 15.0, 0.79),
-        ("bolt-3", "Bolt 3", "medium", 60, 0.70, 0.70, 45, 3.0, 0.78),
-        ("crux-2", "Crux 2", "low", 50, 0.60, 0.50, 38, 1.0, None)]
+# Per release and effort: intelligence index, frontier-code and terminal shares, Omniscience,
+# cost a task and Arena's agent share, none for Acme Max 5 high (carried from max) and Crux 2
+# (missing); AutomationBench on Acme Max 5 max alone, so the rest miss or carry it
+ROWS = [("acme-max-5", "Acme Max 5", "max", 70, 0.80, 50, 20.0, 0.80),
+        ("acme-max-5", "Acme Max 5", "high", 66, 0.74, 48, 10.0, None),
+        ("acme-mid-5", "Acme Mid 5", "high", 66, 0.77, 49, 15.0, 0.79),
+        ("bolt-3", "Bolt 3", "medium", 60, 0.70, 45, 3.0, 0.78),
+        ("crux-2", "Crux 2", "low", 50, 0.60, 42, 1.0, None)]
 
 
 def boards():
@@ -35,12 +34,11 @@ def boards():
             for board, names in OLD.items()}
     rows["artificialanalysis.ai"] = [aa("old-1", "Old 1", "high", rows["artificialanalysis.ai"][0]
                                         ["values"], retired=True)]
-    for release, name, effort, index, share, deepsec, omni, cost, agent in ROWS:
+    for release, name, effort, index, share, omni, cost, agent in ROWS:
         rows["artificialanalysis.ai"].append(aa(release, name, effort, {
             "aa.briefcaseBreakdown.overall.elo": 1400, "aa.omniscience": omni,
             **({"aa.automationBenchPartialScore": 0.9} if effort == "max" else {}),
             "aa.intelligenceIndex": index, "aa.frontierCode20": share, "aa.terminalBench40": share,
-            "aa.deepsecBench": deepsec,
             **{f"aa.intelligenceIndexEvaluations.{slug}.costPerTask": cost for slug in EVALUATIONS}}))
         if agent:
             rows["arena.ai"].append({"model": name, "effort": effort,
@@ -49,22 +47,22 @@ def boards():
             for board, found in rows.items()}
 
 
-ORCH_PICK = "›   Bolt 3 medium         97.5   $3.00  ★ pick"
+ORCH_PICK = "›   Bolt 3 medium          96.7   $3.00  ★ pick · 1 missing"
 CRUX_ORCH = ["  why Crux 2 low orchestrates",
-             "  quality 93.1 ± 0.0   $1.00 a AA-Briefcase task",
-             "  6.9 behind the best, Acme Max 5 max",
+             "  quality 93.2 ± 0.0   $1.00 a AA-Briefcase task",
+             "  6.8 behind the best, Acme Max 5 max",
              "",
              "                   behind the best",
-             "  AutomationBench                   no score",
-             "  Arena Agent                       no score",
-             "  AA-Omniscience              12.0  measured, 38",
+             "  AutomationBench              8.0  no score, counted as its worst",
+             "  Arena Agent                  8.0  no score, counted as its worst",
+             "  AA-Omniscience               8.0  measured, 42",
              "  AA-Briefcase                 0.0  measured, 1400",
              "",
              "  no tie: the boards tell it from every other row",
              "",
              "  esc back"]
 MAX_HIGH_BUILDS = ["  why Acme Max 5 high builds",
-                   "  quality 94.8 ± 2.2   $10.00 a FrontierCode 2.0 task",
+                   "  quality 94.8 ± 1.9   $10.00 a FrontierCode 2.0 task",
                    "  5.2 behind the best, Acme Max 5 max",
                    "",
                    "                      behind the best",
@@ -75,15 +73,15 @@ MAX_HIGH_BUILDS = ["  why Acme Max 5 high builds",
                    "  ≈ tie with 2 rows, among them:",
                    "    Acme Mid 5 high · Bolt 3 medium"]
 CRUX_BUILDS_40 = ["  why Crux 2 low builds",
-                  "  quality 80.2 ± 2.4",
+                  "  quality 80.0 ± 3.6",
                   "  $1.00 a FrontierCode 2.0 task",
-                  "  19.8 behind the best, Acme Max 5 max",
+                  "  20.0 behind the best, Acme Max 5 max",
                   "",
                   "                      behind the best",
                   "  FrontierCode 2.0               20.0",
                   "    measured, 60.0%",
-                  "  Arena Agent                    19.6",
-                  "    estimated, counted 2.9 low",
+                  "  Arena Agent                    20.0",
+                  "    no score, counted as its worst",
                   "  Terminal-Bench 4.0             20.0",
                   "    measured, 60.0%",
                   "",
@@ -130,12 +128,12 @@ class ModelsWhy(unittest.TestCase):
         term.keys("Right")              # within 6: the orchestrator's front stands as it was
         shown = lines(term.wait("within 6 points"))
         self.assertIn(ORCH_PICK, shown)
-        self.assertIn("    Crux 2 low            80.2   $1.00  1 estimated", shown)
+        self.assertIn("    Crux 2 low             80.0   $1.00  1 missing", shown)
         term.keys("Up", "Up")
-        term.wait("›   Acme Max 5 max       100.0  $20.00  no harness")
-        term.keys("Right")              # within 7: Acme Max 5 max leaves the orchestrator's line
+        term.wait("›   Acme Mid 5 high        99.2  $15.00  1 missing")
+        term.keys("Right")              # within 7: Acme Mid 5 high leaves the orchestrator's line
         shown = lines(term.wait("within 7 points"))
-        self.assertIn("›   Crux 2 low            93.1   $1.00  ★ pick", shown)
+        self.assertIn("›   Crux 2 low             93.2   $1.00  ★ pick · 2 missing", shown)
         self.assertEqual(sum(line.startswith("›") for line in shown), 1)
 
     def test_enter_says_where_a_rows_quality_comes_from_and_esc_returns(self):
@@ -143,7 +141,7 @@ class ModelsWhy(unittest.TestCase):
         self.assertEqual(self.why(term, "Down")[:len(CRUX_ORCH)], CRUX_ORCH)
         term.keys("Escape")
         shown = lines(term.wait("comparing all 4 models"))
-        self.assertIn("›   Crux 2 low            93.1   $1.00", shown)
+        self.assertIn("›   Crux 2 low             93.2   $1.00  2 missing", shown)
         self.assertEqual(self.why(term, "Down", "Down", "Down")[:len(MAX_HIGH_BUILDS)],
                          MAX_HIGH_BUILDS)
 

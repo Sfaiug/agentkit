@@ -7,11 +7,25 @@ units on its own; tests/fixtures/akbin.py is all that stands between it and the 
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REAL_TMUX, SOCKET, Home, _strays
+from fixtures.clock import Clock
+
+
+class Exec:
+    """A /proc entry whose reads come in turn, as from a process in the middle of an exec, the
+    last of each for good."""
+
+    def __init__(self, pid, **reads):
+        self.name, self.reads = str(pid), reads
+
+    def __truediv__(self, field):
+        reads = self.reads[field]
+        return SimpleNamespace(read_bytes=lambda: reads.pop(0) if len(reads) > 1 else reads[0])
 
 
 class Runner(unittest.TestCase):
@@ -56,6 +70,19 @@ class Runner(unittest.TestCase):
         with self.assertRaises(ProcessLookupError):
             os.kill(pid, 0)
         self.assertFalse(self.home.root.exists())
+
+    def test_a_process_caught_in_an_exec_is_found_once_the_exec_sets_its_environment(self):
+        fields = [b"1"] * 50
+        fields[23:25] = [b"0", b"0"]      # its environment being walked, its code not placed yet
+        execing = b"7 (sh) " + b" ".join(fields)
+        entries = [Exec(6, environ=[b""], stat=[execing]),        # stuck there for good
+                   Exec(7, environ=[b"", b"", f"HOME={self.home.path}\0".encode()],
+                        stat=[execing])]
+        slept = []      # each sleep a second, so the stuck exec is given up after STUCK of them
+        clock = Clock(slept.append)
+        clock.monotonic = lambda: len(slept)
+        with patch.object(Path, "glob", return_value=entries), patch("fixtures.akbin.time", clock):
+            self.assertEqual(_strays(self.home.path), [7])
 
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
     def test_tmux_is_real_and_only_this_homes_own(self):

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"agentkit/internal/commandhelp"
+	"agentkit/internal/config"
 )
 
 var lineBreak = regexp.MustCompile(`\r\n|[\n\r\v\f\x1c-\x1e\x{85}\x{2028}\x{2029}]`)
@@ -24,7 +25,7 @@ func splitLines(text string) []string {
 }
 
 func oneCommand(command string) bool {
-	return len(splitLines(strings.TrimSpace(command))) == 1 && !strings.Contains(command, "`")
+	return len(splitLines(strings.TrimFunc(command, config.Space))) == 1 && !strings.Contains(command, "`")
 }
 
 type arguments struct {
