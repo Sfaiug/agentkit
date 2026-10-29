@@ -2993,16 +2993,15 @@ def models_said(answer, lineup):
     """What the models screen says of `answer` (matrix.answer) per role: (its head and best,
     `none` with no front, its lines): the front best first, the pick and up to NEAR rows either
     side, each (where the pointer is on it, name, its effort's cells out of the efforts its
-    release has in `lineup` (terminal.effort_cells), its effort or "" for none, how near the
-    role's best it is from 0, config.POINTS behind or more, to 1, quality, cost, notes), and
-    under a pick not yours what `r` takes.  With no pick, no priced row being within `within`
-    of the best, the front from its best, said so."""
+    release has in `lineup`, a row naming none one of them (terminal.effort_cells), its effort
+    or "" for none, how near the role's best it is from 0, config.POINTS behind or more, to 1,
+    quality, cost, notes), and under a pick not yours what `r` takes.  With no pick, no priced
+    row being within `within` of the best, the front from its best, said so."""
     def effort(row):
         return f" {row['effort']}" if row["effort"] else ""
-    levels = {}     # each release's efforts on the boards, weakest first
+    levels = {}     # each release's efforts on the boards, weakest first, a row naming none one
     for row in lineup:
-        if row["effort"]:
-            levels.setdefault(row["release"], []).append(row["effort"])
+        levels.setdefault(row["release"], []).append(row["effort"])
     said = []
     for role, head in zip(quality.ROLES, orch.ROLE_HEADS):
         found = answer[role]
@@ -3015,9 +3014,9 @@ def models_said(answer, lineup):
                      "≈ tie" if pick and quality.tie(row, pick) else "",
                      f"{missing} missing" if missing else "",
                      "" if row["yours"] else "no harness")
-            taken = levels.get(row["release"], [])
+            taken = levels[row["release"]]
             lines.append((pointed(role, row), row["name"], terminal.effort_cells(
-                len(taken), taken.index(row["effort"]) + 1 if row["effort"] in taken else 0),
+                len(taken), taken.index(row["effort"]) + 1),
                 row["effort"] or "", max(0, 1 - (found["best"] - row["quality"]) / config.POINTS),
                 f"{row['quality']:.1f}", f"${row['cost']:.2f}", " · ".join(filter(None, notes))))
             if row is pick and not row["yours"]:
@@ -3035,9 +3034,10 @@ def models_body(said, within, compared, total, fetched, at=None, moves=None):
     Per role (models_said) its head over the columns, then its lines: a row's name, its effort
     as `c` draws one -- its cells, then its word, in one column after the most cells any row
     has -- its line (terminal.share_line), taking the room the other columns leave, then its
-    quality, cost and notes.  Where that leaves the line under 8 cells, from 40 cells up, each
-    row's name and effort take a line and its line, numbers and notes the next, the name alone
-    cut; the notes that do not fit beside the numbers go under them, broken only between two.
+    quality, cost and notes.  Where that leaves the line under 8 cells, or a role's head wider
+    than the columns before the numbers, from 40 cells up, each row's name and effort take a
+    line and its line, numbers and notes the next, the name alone cut; the notes that do not
+    fit beside the numbers go under them, broken only between two.
     `moves`, a list, is handed each row's line, LINES and how it grows in as the screen opens,
     row after row (motion.growing).  Then the legend, opening on `within`'s knob (points_knob),
     never broken, and how many of the `total` models are `compared` (matrix.compared) and when
@@ -3056,7 +3056,8 @@ def models_body(said, within, compared, total, fetched, at=None, moves=None):
               for n, head in ((5, "quality"), (6, "a task"), (7, ""))]
     after = 2 + widths[0] + 2 + widths[1] + 2 + widths[2]     # the columns after the line
     size = room - 4 - label - 2 - levelled - 2 - after
-    wide = size >= 8
+    heads = max((terminal.cells(head) for head, _ in said), default=0)
+    wide = size >= max(8, heads - label - levelled - 6)     # a line of 8 or more, no head cut
     size = size if wide else max(8, room - 4 - after)
     lines, places = [], {}
 
