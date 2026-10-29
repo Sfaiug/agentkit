@@ -114,9 +114,8 @@ class UnfinishedSignInLeavesNothing(unittest.TestCase):
             self.term.wait(lambda screen: lines(screen)[now] != shown[now])
         self.fail(f"the highlight never reached {row}")
 
-    def add_quitting(self, row):
-        """`row` picked under `+ add a subscription`, its sign-in quit, and the page back saying
-        so."""
+    def quit_sign_in(self, row):
+        """`row` picked under `+ add a subscription`, and its sign-in quit."""
         self.to("+ add a subscription")
         self.term.keys("Enter")
         # its frame is drawn before its rows, top to bottom
@@ -124,6 +123,10 @@ class UnfinishedSignInLeavesNothing(unittest.TestCase):
                                       and row in offered(screen)))
         self.term.keys(*["Down"] * rows.index(row), "Enter")
         self.term.wait(QUIT)
+
+    def add_quitting(self, row):
+        """`row`'s sign-in quit, and the page back saying so."""
+        self.quit_sign_in(row)
         self.term.keys("Enter")                           # what it said read
         self.term.wait(lambda screen: on_page(screen) and "is not added" in screen)
 
@@ -140,6 +143,15 @@ class UnfinishedSignInLeavesNothing(unittest.TestCase):
         self.open({"fable": "claude"})
         before = files(self.home)
         self.add_quitting("OpenAI / Codex")
+        self.assertEqual(files(self.home), before)
+
+    def test_an_add_ended_while_what_its_sign_in_said_waits_leaves_nothing_either(self):
+        self.open({"fable": "claude"})
+        before = files(self.home)
+        self.quit_sign_in("Claude II")
+        self.term.wait("esc back")                        # the screen was cleared for the quit
+        self.term.keys("C-c")
+        self.term.exit_code()
         self.assertEqual(files(self.home), before)
 
     def test_a_log_in_again_that_does_not_finish_says_so_and_keeps_its_login(self):
