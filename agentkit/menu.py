@@ -5033,11 +5033,12 @@ def apply_defaults(cfg, around):
         except (config.Error, OSError) as exc:
             said.append(f"{name}: {exc}")
             continue
-        handback.redress_seat(name)
         if name in moving:
             note = orch.switch_orchestrator(cfg, name, lead, providers, effort=effort)
             if note:
                 said.append(f"{name}: {note}")
+        # after the restart, whose launch dresses a bar with no roles yet
+        handback.redress_seat(name)
     return "\n".join(said)
 
 

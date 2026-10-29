@@ -118,6 +118,12 @@ class DefaultsApplyToAll(unittest.TestCase):
         deadline = time.monotonic() + 10    # no look runs on `c`: only `a` redraws the bar
         while "GPT-6-Astra ◎" not in bar(self.home, self.seats["acme-calm"]):
             self.assertLess(time.monotonic(), deadline, "the bar kept the models it had")
+        for name in MOVING:     # its restart dresses a new bar, which names them too
+            with self.subTest(seat=name):
+                while "GPT-6-Astra ◎" not in self.home.tmux(
+                        "show-options", "-qv", "-t", f"={name}:", "@ak_why").out:
+                    self.assertLess(time.monotonic(), deadline, "the restart left a bare bar")
+                    time.sleep(0.2)
 
     def test_apply_restarts_a_seat_at_new_seats_effort(self):
         launched = self.fakes["claude"].calls("interactive")
