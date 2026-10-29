@@ -197,9 +197,15 @@ class SuiteHelper(unittest.TestCase):
         self.assertIn("suite on acme-mac: 3 pieces, 2 CPUs and 1640 MiB each", self.logs)
 
     def test_a_vm_that_ran_out_of_memory_counts_when_a_sibling_runs_out_of_time(self):
+        ran, lock = [], threading.Lock()
+
         def limited(argv, _left, on_timeout, **_kw):
-            if argv == ["1/6"]:
-                return helper.SHORT, "", False
+            # The first piece to start runs out of memory, whichever it is: a sibling's ceiling
+            # cancels every piece not yet started, so a fixed piece may never run.
+            with lock:
+                ran.append(argv)
+                if len(ran) == 1:
+                    return helper.SHORT, "", False
             on_timeout("ceiling", 0)
             return worker.TIMEOUT, "", True
         with patch.object(helper, "piece", side_effect=lambda _away, shard, _command: [shard]), \
