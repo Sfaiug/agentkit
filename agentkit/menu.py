@@ -2957,7 +2957,7 @@ MODELS_KEYS = {"answer": ("↑↓ move   ←→ points   ⏎ why   p pick   r ta
 NEAR = 2                          # the line's rows shown either side of the pick
 LEGEND = (("as good", "{} within {} points of the best, then the cheapest"),
           ("≈ tie", "the boards cannot tell it from ★ pick"),
-          ("estimated", "scores no effort of it has, counted low"))
+          ("missing", "scores no effort of it has, counted as its worst"))
 KNOB = ("legend", "within")
 NAMED = 13                        # the cells before a legend line's words: its name's column
 # the why's words: what a row does in each role, and each measure's evaluation by its name
@@ -2993,10 +2993,10 @@ def models_said(answer):
         at = front.index(pick) if pick else 0
         lines = [] if pick or not front else ["no row with a cost is as good"]
         for row in front[max(0, at - NEAR):at + NEAR + 1]:
-            estimated = sum(one["how"] == "estimated" for one in row["measures"].values())
+            missing = sum(one["how"] == "missing" for one in row["measures"].values())
             notes = ("★ pick" if row is pick else
-                     "≈ tie" if pick and quality.tie(row, pick, role) else "",
-                     f"{estimated} estimated" if estimated else "",
+                     "≈ tie" if pick and quality.tie(row, pick) else "",
+                     f"{missing} missing" if missing else "",
                      "" if row["yours"] else "no harness")
             lines.append((pointed(role, row), row["name"], effort(row), f"{row['quality']:.1f}",
                           f"${row['cost']:.2f}", " · ".join(filter(None, notes))))
@@ -3109,8 +3109,8 @@ def scored(row, column, kind):
         return "no score"
     if one["how"] == "carried":
         return f"carried from {one['from']}"
-    if one["how"] == "estimated":
-        return f"estimated, counted {one['se']:.1f} low"
+    if one["how"] == "missing":
+        return "no score, counted as its worst"
     value = row["values"][column]
     return "measured, " + (f"{100 * value:.1f}%" if kind == "share" else f"{value:g}")
 
@@ -3123,7 +3123,7 @@ def models_why(found, role, row):
     room = terminal.layout_width() - 2
     top = max(found["rated"], key=lambda one: one["quality"])
     ties = sorted((one for one in found["rated"]
-                   if one is not row and quality.tie(one, row, role)),
+                   if one is not row and quality.tie(one, row)),
                   key=lambda one: -one["quality"])
     hows = [(MEASURES[column], f"{one['points']:.1f}" if one else "", scored(row, column, kind))
             for column, kind, *_ in quality.ROLES[role] for one in [row["measures"].get(column)]]

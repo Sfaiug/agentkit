@@ -3,11 +3,11 @@ and models and not others.
 
 Every row is rated, none left out for a missing score, and a missing score never helps it: a
 measure another effort of its release has is carried from there, never credited upward, and
-one no effort has is estimated from the rows measured on all of the role's measures, plus one
-standard error of that estimate.  Every score carries its standard error, and two rows whose
-qualities the errors cannot tell apart are a tie (`tie`), which never picks: a model with
-noisier scores would tie more often, and so win more often.  Reads no board, config or clock:
-rows come in, ratings go out.
+one no effort has counts as far behind as the row's furthest-behind measure, with that one's
+error.  Every score carries its standard error, each error counted once however many scores
+take it, and two rows whose qualities the errors cannot tell apart are a tie (`tie`), which
+never picks: a model with noisier scores would tie more often, and so win more often.  Reads
+no board, config or clock: rows come in, ratings go out.
 """
 
 import math
@@ -116,11 +116,11 @@ def _error(values, column, kind, best):
 def rated(rows, role):
     """Each of `rows` ({"release", "effort", "values": {column: number}}) that has at least two
     of `role`'s measures measured or carried, as itself with its "quality" (100 less its
-    weighted mean points behind the best over the role's measures it has) and the same weights'
-    combination of their standard errors "se", its "cost" (`COSTS` at its own effort, else None)
-    and per measure {"points", "how", "se"}: measured, carried (with the effort it is "from" and
-    the error of the shift, its "own") or estimated (with the error of the row's own level, its
-    "own")."""
+    weighted mean points behind the best over the role's measures a row of the index has), its
+    error's "parts" by the score each comes from ({(release, effort, column): points of
+    quality}) and "se", their root of squares, its "cost" (`COSTS` at its own effort, else
+    None) and per measure {"points", "how", "parts"}: measured, carried (with the effort it is
+    "from", its own part the shift's error) or missing (as its furthest-behind measure)."""
     measures = ROLES[role]
     kinds = {column: kind for column, kind, _, _ in measures}
     weights = {column: weight for column, _, weight, _ in measures}
@@ -151,6 +151,9 @@ def rated(rows, role):
         found = errors_of[id(row)][column]
         return typical.get(column, 0.0) if found is None else found
 
+    def score(row, column):
+        return row["release"], row["effort"], column
+
     def shift(row, source, column):
         # how far the measure's change between two efforts can be off, from how unevenly the
         # index's evaluations changed between them
@@ -159,7 +162,7 @@ def rated(rows, role):
                    for name, (kind, top) in evaluations.items()
                    if name in row["values"] and name in source["values"]]
         if len(changes) < 2:
-            return shape.get(column, (0.0, 0.0))[1]
+            return typical.get(column, 0.0)
         return statistics.stdev(changes) / math.sqrt(len(changes))
 
     def carried(row, column):
@@ -178,22 +181,14 @@ def rated(rows, role):
             if not nearest:
                 return None
             value = measured(nearest)[column]
-        own = shift(row, nearest, column)
-        return {"points": value, "how": "carried", "from": nearest["effort"], "own": own,
-                "se": math.hypot(error(nearest, column), own)}
-
-    # per measure, (offset, spread) of how its points stand from a row's mean, over the rows
-    # measured on every measure
-    complete = [points for row in indexed for points in [measured(row)]
-                if len(points) == len(measures)]
-    gaps = {column: [points[column] - statistics.mean(points.values()) for points in complete]
-            for column in kinds}
-    shape = ({column: (statistics.mean(found), statistics.stdev(found))
-              for column, found in gaps.items()} if len(complete) >= 2 else {})
+        return {"points": value, "how": "carried", "from": nearest["effort"],
+                "parts": {score(nearest, column): error(nearest, column),
+                          score(row, column): shift(row, nearest, column)}}
 
     out = []
     for row in rows:
-        points = {column: {"points": value, "how": "measured", "se": error(row, column)}
+        points = {column: {"points": value, "how": "measured",
+                           "parts": {score(row, column): error(row, column)}}
                   for column, value in measured(row).items()}
         for column in kinds:
             found = None if column in points else carried(row, column)
@@ -201,50 +196,30 @@ def rated(rows, role):
                 points[column] = found
         if len(points) < 2:
             continue
-        own = [column for column in points if column in shape]
-        if own:
-            level = statistics.mean(points[column]["points"] - shape[column][0] for column in own)
-            own_error = math.sqrt(sum(shape[column][1] ** 2 for column in own)) / len(own)
-            for column in kinds:
-                if column not in points and column in shape:
-                    offset, spread = shape[column]
-                    se = math.hypot(spread, own_error)
-                    points[column] = {"points": level + offset + se, "how": "estimated",
-                                      "se": se, "own": own_error}
+        worst = max(points.values(), key=lambda one: one["points"])
+        for column in best:
+            points.setdefault(column, {"points": worst["points"], "how": "missing",
+                                       "parts": worst["parts"]})
         total = sum(weights[column] for column in points)
+        parts = {}
+        for column, one in points.items():
+            for source, part in one["parts"].items():
+                parts[source] = parts.get(source, 0.0) + weights[column] * part / total
         out.append(dict(row, measures=points, cost=row["values"].get(COSTS[role]),
                         quality=100 - sum(weights[column] * one["points"]
                                           for column, one in points.items()) / total,
-                        se=math.hypot(*(weights[column] * one["se"]
-                                        for column, one in points.items())) / total))
+                        parts=parts, se=math.hypot(*parts.values())))
     return out
 
 
-def tie(a, b, role):
-    """Whether two rows `rated` gave for `role` are ones the boards cannot tell apart: their
-    qualities differ by less than `Z` errors of their difference."""
-    if a["release"] != b["release"]:
-        apart = math.hypot(a["se"], b["se"])
-    else:
-        weights = {column: weight for column, _, weight, _ in ROLES[role]
-                   if column in a["measures"] or column in b["measures"]}
-        apart = math.sqrt(sum(weight ** 2 * _unshared(a, b, column)
-                              for column, weight in weights.items())) / sum(weights.values())
+def tie(a, b):
+    """Whether two rows `rated` gave for one role are ones the boards cannot tell apart: their
+    qualities differ by less than `Z` errors of their difference, a part of their errors both
+    hold (what one carried from the other, or both from a third) counting by how much more of
+    it one holds."""
+    apart = math.hypot(*(a["parts"].get(source, 0.0) - b["parts"].get(source, 0.0)
+                         for source in a["parts"].keys() | b["parts"].keys()))
     return abs(a["quality"] - b["quality"]) < Z * apart
-
-
-def _unshared(a, b, column):
-    """The squared error of `column`'s difference between two efforts of one release, counting
-    only what one did not take from the other or from where the other did: what one carried
-    from the other is off only by the shift, and two estimates only by each row's own level."""
-    one, other = a["measures"].get(column, {}), b["measures"].get(column, {})
-    if "from" in one and one["from"] == b["effort"]:
-        return one["own"] ** 2
-    if "from" in other and other["from"] == a["effort"]:
-        return other["own"] ** 2
-    if "own" in one and one["how"] == other.get("how") and one.get("from") == other.get("from"):
-        return one["own"] ** 2 + other["own"] ** 2
-    return one.get("se", 0.0) ** 2 + other.get("se", 0.0) ** 2
 
 
 def pick(rated, within):
