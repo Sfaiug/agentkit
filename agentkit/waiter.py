@@ -47,19 +47,20 @@ def behind_first(queue, run_id, now, poll):
 
 
 def until_turn(queue, run_id, now, poll):
-    """Seconds from `now` to the run's turn in the clock's poll, its place in the queue file as a
-    share of its line (0 when it cannot be read): after an install move each waiter comes back
-    at its own turn, so the line comes back spread over a poll whatever phase its polls had.
-    The waiters one move brought back poll together, and at the next 62 of them came back
-    within five seconds, 1.7 G at once (29 Oct 2026); a share of each one's own poll late brings
-    back at once waiters whose polls lie those shares apart."""
+    """Seconds from `now` to the run's turn after an install move: the clock's next poll, and
+    then its place in the queue file as that share of a poll (0 when it cannot be read).  The
+    waiters that see the move within one of the clock's polls come back in line order over the
+    next, and as all see it within a poll of the move, no two places come back together
+    whatever phase their polls had.  The waiters one move brought back poll together, and at
+    the next 62 of them came back within five seconds, 1.7 G at once (29 Oct 2026); a share of
+    each one's own poll late brings back at once waiters whose polls lie those shares apart."""
     try:
         with open(queue, encoding="utf-8") as file:
             waiting = list(map(str, json.load(file)["queue"]))
         share = waiting.index(run_id) / len(waiting)
     except (OSError, ValueError, KeyError, TypeError):
         share = 0
-    return (share * poll - now) % poll
+    return -now % poll + share * poll
 
 
 def head(repo, env=None):

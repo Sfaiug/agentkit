@@ -206,15 +206,15 @@ class QueuedRunWaitsOnTheInstalledCode(unittest.TestCase):
         self.assertEqual(history.phases(self.run_dir.name),
                          [{"phase": "slot wait", "started_at": 1000.0, "ended_at": 1090.0}])
 
-    def test_an_install_move_brings_the_line_back_spread_over_a_poll(self):
+    def test_an_install_move_brings_the_line_back_in_order_over_a_poll(self):
         line, clock = [f"20990101-000{n}-acme-fix" for n in range(5)], [0.0]
 
         def sleep(seconds):     # its first polls on: the queue stays fresh
             clock[0] += seconds
             (config.RUNS / ".slots.queue").write_text(json.dumps({"at": clock[0], "queue": line}))
-        # polls in step, as one move leaves them, or each a fifth of a poll before the one ahead
-        for apart in (0, 6):
-            back = []
+
+        def back(apart):        # each one's polls `apart` before the one ahead's
+            returns = []
             for place, run_id in enumerate(line[1:], 1):
                 clock[0] = 1000.0 - apart * place
                 os.environ[waiter.SLOT_WAIT_ENV] = f"{clock[0]} {clock[0]}"
@@ -225,10 +225,14 @@ class QueuedRunWaitsOnTheInstalledCode(unittest.TestCase):
                         self.assertRaises(Replaced):
                     waiter.main([str(config.RUNS / ".slots.queue"), str(history.path()), run_id,
                                  "30", str(config.REPO), OLD, "ak"])
-                back.append(clock[0])
-            # each sees the move at its first poll, and comes back at its own fifth of a poll
-            back.sort()
-            self.assertGreaterEqual(min(b - a for a, b in zip(back, back[1:])), 6, apart)
+                returns.append(clock[0])
+            return returns
+        # each sees the move at its first poll: in step, as one move leaves them, the line comes
+        # back in order, and whatever their phases no two come back within a fifth of a poll
+        in_step = back(0)
+        self.assertEqual(in_step, sorted(in_step))
+        for returns in (in_step, sorted(back(6))):
+            self.assertGreaterEqual(min(b - a for a, b in zip(returns, returns[1:])), 6, returns)
 
 
 if __name__ == "__main__":
