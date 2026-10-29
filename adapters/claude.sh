@@ -16,6 +16,8 @@
 #                       login-end    -> {"email","ends","plan"}: whose the interactive login is, the
 #                                    epoch second it ends, after which only a new login serves,
 #                                    and the plan it is on
+#                       lend <home>  -> a copy of the interactive login nothing renews, where a
+#                                    turn with HOME=<home> reads it, and the epoch second it lapses
 #                       hooks        -> wire this harness's lifecycle hooks, idempotently
 #                       models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                    Anthropic's models API, else the [catalog] table of
@@ -330,6 +332,23 @@ login-end)
                  | join(" ")) // null)}' 2>/dev/null \
     || jq -nc --arg email "$email" '{email: (if $email == "" then null else $email end), ends: null,
                                      plan: null}' ;;
+lend)
+  # Renewing retires the login renewed (28 Oct: a check's renewal left every seat a dead one),
+  # so the copy holds the access token alone, which runs a turn until `expiresAt` -- one that
+  # says it lapses in a minute still does -- and not the MCP servers' logins, which renew too.
+  # Read, never renewed: a lapsed login is none to lend.
+  [ $# -ge 1 ] || { echo "claude.sh lend needs <home>" >&2; exit 2; }
+  command -v jq >/dev/null || { echo "claude.sh lend: jq is required" >&2; exit 2; }
+  blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
+    || blob=$(cat "$CREDS" 2>/dev/null) || blob=
+  lent=$(printf '%s' "$blob" | jq -c --argjson now "$(date +%s)" '.claudeAiOauth
+      | (.expiresAt | numbers | if . > 99999999999 then . / 1000 | floor else . end) as $ends
+      | select((.accessToken | strings | test("[^[:space:]]")) and $ends > $now)
+      | {ends: $ends, login: {claudeAiOauth: del(.refreshToken)}}' 2>/dev/null) &&
+    [ -n "$lent" ] || {
+    echo "claude: no unexpired access token in $CREDS to lend; run /login" >&2; exit 1; }
+  printf '%s' "$lent" | python3 "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" \
+    "$1" .claude/.credentials.json ;;
 auth)
   # Can a turn authenticate right now?  Exit 0 and name the token, or exit 1 with one line
   # saying why not.  The loop asks before every turn and again after a turn that produced
@@ -543,6 +562,6 @@ models)
       | @tsv' 2>/dev/null) || listed=
   printf '%s\n' "${listed:-$table}" ;;
 *)
-  echo "usage: claude.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | claude.sh usage | claude.sh interactive <model> <effort> [session-id [new]] | claude.sh install | claude.sh login [again] | claude.sh logout | claude.sh login-end | claude.sh auth [seat] | claude.sh hooks | claude.sh models" >&2
+  echo "usage: claude.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | claude.sh usage | claude.sh interactive <model> <effort> [session-id [new]] | claude.sh install | claude.sh login [again] | claude.sh logout | claude.sh login-end | claude.sh lend <home> | claude.sh auth [seat] | claude.sh hooks | claude.sh models" >&2
   exit 2 ;;
 esac

@@ -15,6 +15,8 @@
 #                     login-end    -> {"email","ends","plan"}: whose the login is, and the ChatGPT
 #                                  plan its id token names; `ends` is null, since Codex writes
 #                                  down no day its login ends
+#                     lend <home>  -> a copy of the login nothing renews, where a turn with
+#                                  HOME=<home> reads it, and the epoch second it lapses, if it does
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
 #                                  `seat` is the same login here, and is accepted and ignored;
 #                                  a yes ends `; logged in as <email>` where the login says
@@ -303,6 +305,26 @@ login-end)
   jq -nc --arg email "$(claim '["email"]')" \
     --arg plan "$(claim '["https://api.openai.com/auth", "chatgpt_plan_type"]')" \
     '{email: $email, ends: null, plan: $plan} | map_values(if . == "" then null else . end)' ;;
+lend)
+  # Renewing retires the refresh token used, so the copy's is a placeholder wherever the login
+  # keeps tokens: with none at all codex sends no credentials (401), and with one it runs a
+  # turn on the access token until the `exp` that token carries.  A login by API key alone
+  # (`codex login --with-api-key`) is lent as it is: no renewal retires a key.
+  [ $# -ge 1 ] || { echo "codex.sh lend needs <home>" >&2; exit 2; }
+  command -v jq >/dev/null || { echo "codex.sh lend: jq is required" >&2; exit 2; }
+  lent=$(jq -c --argjson now "$(date +%s)" '
+      ((.tokens.access_token? | strings | select(test("[^[:space:]]"))
+        | (split(".")[1] | gsub("-"; "+") | gsub("_"; "/") | @base64d | fromjson | .exp
+           | numbers)? // 0)
+       // (.OPENAI_API_KEY | strings | select(test("[^[:space:]]")) | null)) as $ends
+      | select($ends == null or $ends > $now)
+      | {ends: $ends, login: (if (.tokens | type) == "object"
+                              then .tokens.refresh_token = "lent: renews nothing" else . end)}' \
+      "$AUTH" 2>/dev/null) && [ -n "$lent" ] || {
+    echo "codex: no unexpired access token or API key in $AUTH to lend; run \`codex login\`" >&2
+    exit 1; }
+  printf '%s' "$lent" | python3 "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" \
+    "$1" .codex/auth.json ;;
 auth)
   # Can a turn authenticate right now?  Exit 0 and say so, or exit 1 with one line saying why
   # not.  Without jq the file cannot be read at all, so the question is not answered: exit 2 is
@@ -360,6 +382,6 @@ models)
     python3 "$REPO/tools/catalog.py" codex
   fi ;;
 *)
-  echo "usage: codex.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | codex.sh usage | codex.sh reset-status | codex.sh reset | codex.sh interactive <model> <effort> [session-id [new]] | codex.sh install | codex.sh login [again] | codex.sh logout | codex.sh login-end | codex.sh auth [seat] | codex.sh hooks | codex.sh models" >&2
+  echo "usage: codex.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | codex.sh usage | codex.sh reset-status | codex.sh reset | codex.sh interactive <model> <effort> [session-id [new]] | codex.sh install | codex.sh login [again] | codex.sh logout | codex.sh login-end | codex.sh lend <home> | codex.sh auth [seat] | codex.sh hooks | codex.sh models" >&2
   exit 2 ;;
 esac
