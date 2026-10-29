@@ -19,11 +19,10 @@ var lineBreaks = strings.NewReplacer("\r\n", "\n", "\r", "\n", "\v", "\n", "\f",
 // strip(), split() and a regular expression's \s read as space, Unicode's separators included.
 const SpaceClass = `[\t\n\v\f\r\x{1c}-\x{1f} \x{85}\p{Z}]`
 
-var space = regexp.MustCompile(SpaceClass)
-
-// Space is whether Python reads the character as whitespace.
+// Space is whether Python reads the character as whitespace: Go's White_Space and the four
+// information separators, the set SpaceClass names.
 func Space(r rune) bool {
-	return space.MatchString(string(r))
+	return unicode.IsSpace(r) || r >= 0x1c && r <= 0x1f
 }
 
 // SplitLines is text's lines, as Python's str.splitlines() reads them.
@@ -59,18 +58,18 @@ func RepoEnv(repo string) (map[string]string, error) {
 	}
 	env := map[string]string{}
 	for n, line := range SplitLines(string(data)) {
-		line = strings.TrimSpace(line)
+		line = strings.TrimFunc(line, Space)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		if rest, ok := strings.CutPrefix(line, "export "); ok {
-			line = strings.TrimLeftFunc(rest, unicode.IsSpace)
+			line = strings.TrimLeftFunc(rest, Space)
 		}
 		key, value, found := strings.Cut(line, "=")
-		if key = strings.TrimSpace(key); !found || !envKey.MatchString(key) {
+		if key = strings.TrimFunc(key, Space); !found || !envKey.MatchString(key) {
 			return nil, fmt.Errorf("%s:%d: not a KEY=value line", path, n+1)
 		}
-		value = strings.TrimSpace(value)
+		value = strings.TrimFunc(value, Space)
 		if len(value) > 1 && value[0] == value[len(value)-1] && strings.ContainsRune(`"'`, rune(value[0])) {
 			value = value[1 : len(value)-1]
 		}

@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode"
 
+	"agentkit/internal/config"
 	"agentkit/internal/terminal"
 )
 
@@ -85,9 +85,7 @@ func at(lines []string, i int) string {
 }
 
 func wordCount(text []byte) int {
-	return len(strings.FieldsFunc(strings.ToValidUTF8(string(text), "�"), func(r rune) bool {
-		return unicode.IsSpace(r) || r >= '\x1c' && r <= '\x1f'
-	}))
+	return len(strings.FieldsFunc(strings.ToValidUTF8(string(text), "�"), config.Space))
 }
 
 // akCheckout is the top of the checkout this ak was built in, whose size the board reports.
