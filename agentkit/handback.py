@@ -722,12 +722,13 @@ def followup_report(state):
     return "\n".join(parts)
 
 
-def seat_notice(line, state, run_dir, brief, action="Decide the next step."):
+def seat_notice(line, state, run_dir, brief, action="Decide the next step.", save=True):
     """A run line that fits stays unchanged; otherwise its files carry the whole news.
 
     Use the bound of a typed line (`watch.too_long`), including its byte limit, after every addition to the
     line. Never type even the compact form unless that bound accepts it and its full notice
     and follow-ups have been saved in result.md, including for an older pending ending.
+    Without `save` the caller leaves that to whoever holds the delivery lock (`look_line`).
     """
     from . import watch  # here, not at the top: it reaches run
     if not watch.too_long(line):
@@ -747,7 +748,8 @@ def seat_notice(line, state, run_dir, brief, action="Decide the next step."):
     refusal = watch.too_long(compact)
     if refusal:
         raise config.Error(refusal)
-    save_result(run_dir, notices=(line, followup_report(state)))
+    if save:
+        save_result(run_dir, notices=(line, followup_report(state)))
     return compact
 
 
@@ -925,13 +927,13 @@ LOOKED_NOTE = "read by its seat's own ak run status: printed there, not typed"
 
 
 def look_line(run_dir, state):
-    """The hand-back line its own seat's `ak run status <id>` prints, or None.  Made under the
-    delivery lock, never waiting for it, which a long line's full notice is saved under
-    (`seat_notice`): one held elsewhere is the tick handing this ending back now, so the look
-    leaves the ending to it.  Released before the look prints (`printed_at_look`)."""
+    """The hand-back line its own seat's `ak run status <id>` prints, or None.  A long line's
+    full notice is saved to result.md under the delivery lock (`seat_notice`), taken here
+    without waiting and released before the look prints: one held elsewhere is the tick
+    handing this ending back now, saving that notice itself."""
     try:
         with delivery_lock(run_dir, wait=False) as held:
-            return handback_line(state, run_dir) if held else None
+            return handback_line(state, run_dir, save=held)
     except (config.Error, OSError):
         return None     # left waiting: the tick types it at the seat's next quiet prompt
 
@@ -1352,7 +1354,7 @@ def live_line(state, run_dir):
                        f"run {run_dir.name} is live.")
 
 
-def handback_line(state, run_dir, cfg=None):
+def handback_line(state, run_dir, cfg=None, save=True):
     """The one line a finished run types into the seat that launched it.
 
     `run <id> finished <verdict>: <why>. Result: <path>. Decide the next step.` -- an ending
@@ -1378,7 +1380,7 @@ def handback_line(state, run_dir, cfg=None):
         split = f" {word} rounds spent: split or re-scope"
         line += split
         action += split
-    return seat_notice(line, state, run_dir, f"run {run_dir.name} {ending}.", action)
+    return seat_notice(line, state, run_dir, f"run {run_dir.name} {ending}.", action, save)
 
 
 def hand_back(state, run_dir, log, cfg=None, busy=None):

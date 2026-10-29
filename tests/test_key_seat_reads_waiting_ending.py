@@ -4,8 +4,8 @@ tick would type and records the ending handed back, so the tick never types it a
 
 Only that seat's look by id records it: a listing can be cut before its row is read, a look whose
 output never got out told nobody, and a look finding the delivery lock held, never waiting for
-it, leaves the ending to the tick handing it back.  The owner, another seat and `--json` read
-what they read before.
+it, prints the line and leaves the record to the tick handing that ending back.  The owner,
+another seat and `--json` read what they read before.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, the
 ending's record under its HOME, the seat its name in the environment, as a seat's `ak` has it.
 """
@@ -105,21 +105,24 @@ class SeatReadsWaitingEnding(unittest.TestCase):
         self.assertNotEqual(done.code, 0)
         self.assert_waiting()
 
-    def test_a_look_meeting_the_tick_handing_it_back_leaves_it_to_the_tick(self):
-        # too long for a composer: its full notice goes to result.md, under the tick's lock
-        self.ended(state="not_needed", verdict="PASS",
-                   not_needed="the parser already keeps the last row; " * 40)
+    def test_a_look_meeting_the_tick_handing_it_back_prints_it_and_leaves_the_record(self):
+        lock = self.home.path / f".agentkit/runs/{RUN}/delivery.lock"
+        # the short line, then one too long for a composer, whose full notice goes to
+        # result.md under that lock: the tick holding it saves it, and the look never waits
+        long = "the parser already keeps the last row; " * 40
         compact = re.compile(rf"^  run {RUN} finished DONE\. Result: \S+/{RUN}/result\.md\. "
                              rf"Decide the next step\.$", re.M)
-        lock = self.home.path / f".agentkit/runs/{RUN}/delivery.lock"
-        with lock.open("a") as held:
-            fcntl.flock(held, fcntl.LOCK_EX)
-            self.assertNotRegex(self.status(RUN), compact)
-            self.assert_waiting()
-        self.assertRegex(self.status(RUN), compact)
-        self.assertTrue(self.record()["handed_back"])
+        for fields, line in (({}, LINE), ({"state": "not_needed", "not_needed": long}, compact)):
+            self.ended(**fields)
+            self.status()       # first, as the tick's pass does: its loop's leftovers swept
+            with lock.open("a") as held:
+                fcntl.flock(held, fcntl.LOCK_EX)
+                self.assertRegex(self.status(RUN), line)
+                self.assert_waiting()
+            self.assertRegex(self.status(RUN), line)
+            self.assertTrue(self.record()["handed_back"])
         result = self.home.path / f".agentkit/runs/{RUN}/result.md"
-        self.assertIn("the parser already keeps the last row", result.read_text())
+        self.assertIn(long.strip(), result.read_text())
 
 
 if __name__ == "__main__":
