@@ -319,6 +319,11 @@ class Home:
         return {key: value for key, value in merged.items() if value is not None}
 
 
+# Seconds a Home's cleanup waits for a process to end, or for an exec to finish: a host slower
+# than that is stuck, and the cleanup goes on without it.
+STUCK = 30
+
+
 def _clear(root, tmux_dir):
     """End the tmux servers the Home at `root` started, and its strays, and remove it."""
     servers = Path(tmux_dir, f"tmux-{os.getuid()}")
@@ -340,49 +345,54 @@ def _clear(root, tmux_dir):
 
 
 def _strays(home):
-    """Processes still running in a Home: their environment names `home` as HOME."""
+    """Processes still running in a Home: their environment names `home` as HOME.  Those caught
+    in an exec are read again till it ends, for `STUCK` seconds in all: an exec stuck longer,
+    the Home's or another's, would hold the cleanup up for good."""
     mark = f"HOME={home}".encode()
-    found = []
-    for entry in Path("/proc").glob("[0-9]*"):
-        try:
-            if mark in _environ(entry).split(b"\0"):
+    found, entries, deadline = [], Path("/proc").glob("[0-9]*"), time.monotonic() + STUCK
+    while True:
+        execing = []
+        for entry in entries:
+            try:
+                env = _environ(entry)
+            except OSError:      # gone meanwhile, or not ours to read
+                continue
+            if env is None:
+                execing.append(entry)
+            elif mark in env.split(b"\0"):
                 found.append(int(entry.name))
-        except OSError:      # gone meanwhile, or not ours to read
-            continue
-    return found
+        if not execing or time.monotonic() >= deadline:
+            return found
+        entries = execing
+        time.sleep(0.001)
 
 
 def _environ(entry):
-    """The environment of the process at `entry`.  Linux's exec places the new image's code
-    (`start_code`) only once its environment is set, so a process caught in one, like a child
-    its program just detached, reads as having none.  An empty read is believed only from a
-    process with no memory (a zombie, a kernel thread), from one older than this process, which
-    made or reaps the Home before any of its processes started, or between two equal looks at
-    one image whose code is placed.  Anything else saw an exec, which always ends, so the
-    process is read again."""
+    """The environment of the process at `entry`, or None while an exec sets it.  Linux's exec
+    places the new image's code (`start_code`) only once its environment is set, so a process
+    caught in one, like a child its program just detached, reads as having none: an empty read
+    is believed only from a process with no memory (a zombie, a kernel thread), or between two
+    equal looks at one image whose code is placed."""
     env = (entry / "environ").read_bytes()
-    while not env:
-        before = _image(entry)
-        env = (entry / "environ").read_bytes()
-        started, size, image = _image(entry)
-        if env or not size or started < _image(Path("/proc/self"))[0] or (
-                image == before[2] and image[0] != b"0"):
-            break
-        time.sleep(0.001)
-    return env
+    if env:
+        return env
+    before = _image(entry)
+    env = (entry / "environ").read_bytes()
+    size, image = _image(entry)
+    return env if env or not size or image == before[1] and image[0] != b"0" else None
 
 
 def _image(entry):
-    """When it started, its memory's size, and where its image lies: code, stack, arguments
-    and environment, each of which an exec moves.  From its stat: fields 22, 23, 26-28, 48-51."""
+    """Its memory's size, and where its image lies: code, stack, arguments and environment,
+    each of which an exec moves.  From its stat: fields 23, 26-28 and 48-51."""
     fields = (entry / "stat").read_bytes().rsplit(b")", 1)[1].split()   # bytes: any name
-    return int(fields[19]), int(fields[20]), [fields[i] for i in (23, 24, 25, 45, 46, 47, 48)]
+    return int(fields[20]), [fields[i] for i in (23, 24, 25, 45, 46, 47, 48)]
 
 
-def _wait_gone(pid, bound=30):
+def _wait_gone(pid):
     """Wait for a process that is not this one's child to end; a tmux server goes a moment after
     it is told to."""
-    deadline = time.monotonic() + bound
+    deadline = time.monotonic() + STUCK
     while pid and time.monotonic() < deadline:
         try:
             os.kill(pid, 0)

@@ -13,16 +13,19 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REAL_TMUX, SOCKET, Home, _strays
+from fixtures.clock import Clock
 
 
 class Exec:
-    """A /proc entry whose reads come in turn, as from a process in the middle of an exec."""
+    """A /proc entry whose reads come in turn, as from a process in the middle of an exec, the
+    last of each for good."""
 
     def __init__(self, pid, **reads):
         self.name, self.reads = str(pid), reads
 
     def __truediv__(self, field):
-        return SimpleNamespace(read_bytes=lambda: self.reads[field].pop(0))
+        reads = self.reads[field]
+        return SimpleNamespace(read_bytes=lambda: reads.pop(0) if len(reads) > 1 else reads[0])
 
 
 class Runner(unittest.TestCase):
@@ -68,17 +71,17 @@ class Runner(unittest.TestCase):
             os.kill(pid, 0)
         self.assertFalse(self.home.root.exists())
 
-    @unittest.skipUnless(Path("/proc/self/environ").exists(), "no /proc to find strays in")
-    def test_an_exec_is_waited_out_only_in_a_process_the_home_could_have_started(self):
-        image = Path("/proc/self/stat").read_bytes().rsplit(b")", 1)[1].split()   # this one's
-        # its environment being walked, its code not placed yet: the middle of an exec
-        execing = [*image[:23], b"0", b"0", *image[25:48], image[47], *image[49:]]
-        older = [*execing[:19], b"0", *execing[20:]]        # started at boot, before this test
-        stats = lambda *images: [b"(sh) " + b" ".join(fields) for fields in images]
-        entries = [Exec(6, environ=[b"", b""], stat=stats(older, older)),
+    def test_a_process_caught_in_an_exec_is_found_once_the_exec_sets_its_environment(self):
+        fields = [b"1"] * 50
+        fields[23:25] = [b"0", b"0"]      # its environment being walked, its code not placed yet
+        execing = b"7 (sh) " + b" ".join(fields)
+        entries = [Exec(6, environ=[b""], stat=[execing]),        # stuck there for good
                    Exec(7, environ=[b"", b"", f"HOME={self.home.path}\0".encode()],
-                        stat=stats(execing, execing, image, image))]
-        with patch.object(Path, "glob", return_value=entries):
+                        stat=[execing])]
+        slept = []      # each sleep a second, so the stuck exec is given up after STUCK of them
+        clock = Clock(slept.append)
+        clock.monotonic = lambda: len(slept)
+        with patch.object(Path, "glob", return_value=entries), patch("fixtures.akbin.time", clock):
             self.assertEqual(_strays(self.home.path), [7])
 
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
