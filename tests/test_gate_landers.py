@@ -137,7 +137,7 @@ class GateLanders(unittest.TestCase):
         # its first landing wait starts at its first look at the turns, as its file says
         self.assertLessEqual(lander_first, lander_mark["since"])
         # and its record says the start its file says: a waiter on older code reads the record
-        self.assertIn((lander_first, "landing-waiter"), gate._landing_waiters())
+        self.assertIn((True, lander_first, "landing-waiter"), gate._landing_waiters())
         repo = gitcall.main_checkout(ACME)
         self.assertTrue(gate._gate_waiter_before(repo, "round-waiter", round_since))
         self.assertFalse(gate._gate_waiter_before(repo, "landing-waiter", lander_first, True))
