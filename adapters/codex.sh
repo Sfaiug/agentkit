@@ -308,15 +308,19 @@ login-end)
 lend)
   # Renewing retires the refresh token used, so the copy's is a placeholder wherever the login
   # keeps tokens: with none at all codex sends no credentials (401), and with one it runs a
-  # turn on the access token until the `exp` that token carries.  A login by API key alone
-  # (`codex login --with-api-key`) is lent as it is: no renewal retires a key.
+  # turn on the access token until the `exp` that token carries.  A login by API key
+  # (`codex login --with-api-key`) is lent as it is: no renewal retires a key.  Which of the
+  # two a turn uses is codex's own choice: `auth_mode`, else the key wherever one is saved.
+  # It is read where a turn reads it, a Codex home set outside ak's included.
   [ $# -ge 1 ] || { echo "codex.sh lend needs <home>" >&2; exit 2; }
   command -v jq >/dev/null || { echo "codex.sh lend: jq is required" >&2; exit 2; }
+  AUTH=${CODEX_HOME:-$HOME/.codex}/auth.json
   lent=$(jq -c --argjson now "$(date +%s)" '
-      ((.tokens.access_token? | strings | select(test("[^[:space:]]"))
-        | (split(".")[1] | gsub("-"; "+") | gsub("_"; "/") | @base64d | fromjson | .exp
-           | numbers)? // 0)
-       // (.OPENAI_API_KEY | strings | select(test("[^[:space:]]")) | null)) as $ends
+      (if (.auth_mode // (if .OPENAI_API_KEY == null then "chatgpt" else "apikey" end)) == "apikey"
+       then .OPENAI_API_KEY | strings | select(test("[^[:space:]]")) | null
+       else .tokens.access_token? | strings | select(test("[^[:space:]]"))
+         | (split(".")[1] | gsub("-"; "+") | gsub("_"; "/") | @base64d | fromjson | .exp
+            | numbers)? // 0 end) as $ends
       | select($ends == null or $ends > $now)
       | {ends: $ends, login: (if (.tokens | type) == "object"
                               then .tokens.refresh_token = "lent: renews nothing" else . end)}' \

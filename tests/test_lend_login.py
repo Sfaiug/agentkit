@@ -50,11 +50,13 @@ def codex_lent(login, copy):
 
 
 # Each harness's login as it keeps it: the file under HOME, the one an account `second` keeps,
-# the login around a key and its expiry, and the copy lent of it.  Every renewal secret holds
+# the one in a home set outside ak by `var`, the login around a key and its expiry, and the
+# copy lent of it.  Every renewal secret holds
 # `fixture-refresh`, so a copy holding that word holds one.
 LOGINS = {
     "claude": dict(
         usual=".claude/.credentials.json", second=".claude-second/.credentials.json",
+        chosen="chosen/.credentials.json", var="CLAUDE_CONFIG_DIR",
         login=lambda key, ends: {
             "claudeAiOauth": {"accessToken": key, "refreshToken": "fixture-refresh",
                               "expiresAt": ends * 1000, "subscriptionType": "max"},
@@ -64,6 +66,7 @@ LOGINS = {
                                                            "refreshToken")}),
     "codex": dict(
         usual=".codex/auth.json", second=".codex-second/auth.json",
+        chosen="chosen/auth.json", var="CODEX_HOME",
         login=lambda key, ends: {
             "OPENAI_API_KEY": None, "last_refresh": "2026-10-28T17:36:12Z",
             "tokens": {"id_token": jwt({"email": "owner@acme.test"}), "access_token": key,
@@ -71,6 +74,7 @@ LOGINS = {
         lent=codex_lent),
     "grokbuild": dict(
         usual=".grok/auth.json", second=".grok-second/auth.json",
+        chosen="chosen/auth.json", var="GROK_HOME",
         login=lambda key, ends: {"https://auth.x.ai::fixture": {
             "key": key, "auth_mode": "oidc", "refresh_token": "fixture-refresh",
             "expires_at": iso(ends), "email": "owner@acme.test"}},
@@ -112,10 +116,10 @@ class Lend(unittest.TestCase):
         login = LOGINS[harness]["login"](key, ends)
         return self.write(harness, which, login), login
 
-    def lend(self, harness, account="", home=None):
+    def lend(self, harness, account="", home=None, **variables):
         """Lend into `home`, by default a fresh one that does not exist yet."""
         home = home or self.root / f"lent-{next(self.homes)}"
-        env = {"HOME": str(self.home), "PATH": self.path, "AGENTKIT_ACCOUNT": account}
+        env = {"HOME": str(self.home), "PATH": self.path, "AGENTKIT_ACCOUNT": account, **variables}
         proc = subprocess.run(["bash", str(REPO / f"adapters/{harness}.sh"), "lend", str(home)],
                               capture_output=True, text=True, env=env, timeout=60)
         self.assertFalse(self.ran.exists(), f"{harness} ran a harness program to lend")
@@ -138,13 +142,15 @@ class Lend(unittest.TestCase):
         self.assertEqual(copy, LOGINS[harness]["lent"](login, copy))
 
     def test_a_copy_of_the_login_that_cannot_renew_it(self):
-        # the usual login, then an account's own beside it
-        for account, which, ends in (("", "usual", ENDS), ("second", "second", ENDS + 6)):
-            for harness in LOGINS:
-                with self.subTest(harness=harness, account=account):
+        # the usual login, an account's own beside it, then one in a home set outside ak
+        for account, which, ends in (("", "usual", ENDS), ("second", "second", ENDS + 6),
+                                     ("", "chosen", ENDS + 9)):
+            for harness, spec in LOGINS.items():
+                with self.subTest(harness=harness, which=which):
                     original, login = self.fixture(harness, which, account, ends=ends)
                     before = original.read_bytes()
-                    self.assert_lent(harness, *self.lend(harness, account), login, ends)
+                    chosen = {spec["var"]: str(original.parent)} if which == "chosen" else {}
+                    self.assert_lent(harness, *self.lend(harness, account, **chosen), login, ends)
                     self.assertEqual(original.read_bytes(), before)
 
     def test_no_login_a_blank_key_and_a_lapsed_one_are_none_to_lend(self):
@@ -180,12 +186,19 @@ class Lend(unittest.TestCase):
                 self.assertEqual((proc.returncode, proc.stdout), (2, ""), proc.stderr)
                 self.assertEqual((original.read_bytes(), original.stat().st_ino), before)
 
-    def test_a_codex_api_key_is_lent_as_it_is(self):
-        for tokens in ({}, {"tokens": {"access_token": "", "refresh_token": "fixture-refresh"}}):
-            with self.subTest(tokens=tokens):
-                login = {"auth_mode": "apikey", "OPENAI_API_KEY": "fixture-api-key", **tokens}
+    def test_a_codex_login_by_api_key_is_lent_as_it_is(self):
+        # codex runs on the key where `auth_mode` says so, or says nothing and a key is saved,
+        # never on the tokens beside it, here lapsed; and a ChatGPT login never on a saved key
+        key = {"OPENAI_API_KEY": "fixture-api-key"}
+        tokens = {"access_token": jwt({"exp": LAPSED}), "refresh_token": "fixture-refresh"}
+        for login in ({"auth_mode": "apikey", **key},
+                      {"auth_mode": "apikey", **key, "tokens": tokens}, {**key, "tokens": tokens}):
+            with self.subTest(login=login):
                 self.write("codex", "usual", login)
                 self.assert_lent("codex", *self.lend("codex"), login, None)
+        self.write("codex", "usual", {"auth_mode": "chatgpt", **key,
+                                      "tokens": {**tokens, "access_token": ""}})
+        self.assert_none(*self.lend("codex"))
 
     def test_a_grok_expiry_reads_in_every_iso_8601_form(self):
         for form in ("2099-10-28T17:36:12Z", "2099-10-28T17:36:12.25Z",
