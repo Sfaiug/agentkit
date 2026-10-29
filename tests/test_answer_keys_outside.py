@@ -1,8 +1,7 @@
-"""Answer keys judge the program `AK_BIN` names from outside, so they hold for any build and
-outlive the Python they were written against.  A key whose text, or a test module or fixture it
-imports, holds an import of an agentkit module, its own or in code it hands a Python, runs
-Python ak's insides: against Go it tests Python, and it stops running once the Python is gone.
-`MAX` counts those keys on the day this was written, and only goes down.  Offline: tests/.
+"""Answer keys judge the program `AK_BIN` names from outside, so they outlive the Python they
+were written against.  A key whose text, or a test module or fixture it imports, holds an import
+of an agentkit module, its own or in code it hands a Python, tests Python ak's insides even under
+Go.  `MAX` counts those keys on the day this was written, and only goes down.  Offline: tests/.
 """
 
 import ast
@@ -16,8 +15,7 @@ IMPORT = re.compile(r"\b(from agentkit[ .]|import agentkit\b)")
 
 
 def read(path, package):
-    """Whether `path`'s text holds an agentkit import, and the modules it imports, a relative
-    import read inside `package`."""
+    """Whether `path` holds an agentkit import in its text, and the modules it imports."""
     text, found = path.read_text(), set()
     for node in ast.walk(ast.parse(text, str(path))):
         if isinstance(node, ast.Import):
@@ -33,7 +31,6 @@ class AnswerKeysOutside(unittest.TestCase):
         files = {path.stem: read(path, "") for path in TESTS.glob("*.py")}
         files.update({f"fixtures.{path.stem}": read(path, "fixtures")
                       for path in (TESTS / "fixtures").glob("*.py")})
-
         def inside(name, seen):
             holds, imports = files[name]
             seen.add(name)
