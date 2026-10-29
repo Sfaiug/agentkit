@@ -345,11 +345,35 @@ def _strays(home):
     found = []
     for entry in Path("/proc").glob("[0-9]*"):
         try:
-            if mark in (entry / "environ").read_bytes().split(b"\0"):
+            if mark in _environ(entry).split(b"\0"):
                 found.append(int(entry.name))
         except OSError:      # gone meanwhile, or not ours to read
             continue
     return found
+
+
+def _environ(entry):
+    """The environment of the process at `entry`.  An exec sets the new image's environment
+    last, so a process caught in one, like a child its program just detached, reads as having
+    none: an empty read is believed only from a process with no memory (a zombie, a kernel
+    thread), or between two equal looks at one image whose environment is set.  Anything else
+    saw an exec, which always ends, so the process is read again."""
+    env = (entry / "environ").read_bytes()
+    while not env:
+        before = _image(entry)
+        env = (entry / "environ").read_bytes()
+        after = _image(entry)
+        if env or after[0] == b"0" or before[1] == after[1] and after[1][-1] != b"0":
+            break
+        time.sleep(0.001)
+    return env
+
+
+def _image(entry):
+    """Its memory's size and where its image lies, from its stat: code, stack, arguments and
+    environment (fields 23, 26-28 and 48-51), each of which an exec moves."""
+    fields = (entry / "stat").read_bytes().rsplit(b")", 1)[1].split()   # bytes: any name
+    return fields[20], [fields[i] for i in (23, 24, 25, 45, 46, 47, 48)]
 
 
 def _wait_gone(pid, bound=30):
