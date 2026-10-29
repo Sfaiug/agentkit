@@ -39,6 +39,10 @@ probe_every = 900
 
 [sleep]
 own = []    # on an idle seat nothing of Claude's runs under it: what does is work (`agentkit.sleep`)
+# how many seconds its prompt cache lives: rested longer, a seat sleeps whatever memory reads, a
+# resume costing nothing staying awake would not, Claude having compacted it idle by then
+# (`idleCompaction`, at about 0.9 of the hour)
+cache = 3600
 
 # "hooks" means adapters/claude.sh hooks installs something that reports this state; "screen"
 # means only the rules below can say it.  A hook fact still gives way to a rule that positively
