@@ -19,6 +19,9 @@
 #                                  it: agy 1.4.7 has no sign-out of its own, and its TUI's
 #                                  /logout alone clears the desktop keyring's copy, so the usual
 #                                  login fails with that remedy where a keyring can be reached
+#                     forget       -> a named account's own files removed, its app data
+#                                  directory with its token and plan: a link in it goes, never
+#                                  what it leads to; the usual login is refused
 #                     login-end    -> {"email","ends","plan"}: whose the login is, and the plan
 #                                  `usage` last read for it; `ends` is null, since a Google
 #                                  refresh token ends only when revoked
@@ -300,6 +303,9 @@ logout)
   rm -f -- "$TOKEN" "$PLAN" || exit 1
   [ -z "$ACCOUNT" ] && keyring || exit 0
   echo "agy: run \`agy\` and type /logout to clear the desktop keyring's copy" >&2; exit 1 ;;
+forget)
+  [ -n "$ACCOUNT" ] || { echo "antigravity.sh forget: the usual login is never forgotten" >&2; exit 2; }
+  rm -rf -- "${TOKEN%/*}" ;;
 login-end)
   # A Google refresh token ends only when revoked, which shows only once `auth` says so
   command -v jq >/dev/null || { echo "antigravity.sh login-end: jq is required" >&2; exit 2; }
@@ -356,6 +362,6 @@ models)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" antigravity ;;
 *)
-  echo "usage: antigravity.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | antigravity.sh usage | antigravity.sh interactive <model> <effort> [session-id [new]] | antigravity.sh install | antigravity.sh login [again] | antigravity.sh logout | antigravity.sh login-end | antigravity.sh auth [seat] | antigravity.sh hooks | antigravity.sh models" >&2
+  echo "usage: antigravity.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | antigravity.sh usage | antigravity.sh interactive <model> <effort> [session-id [new]] | antigravity.sh install | antigravity.sh login [again] | antigravity.sh logout | antigravity.sh forget | antigravity.sh login-end | antigravity.sh auth [seat] | antigravity.sh hooks | antigravity.sh models" >&2
   exit 2 ;;
 esac

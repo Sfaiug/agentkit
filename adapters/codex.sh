@@ -12,6 +12,9 @@
 #                                  signs in afresh over a login that still stands
 #                     logout       -> `codex logout` of this login alone; 0 at once where an
 #                                  account's home holds none
+#                     forget       -> a named account's own files removed, its Codex home: a
+#                                  link in it goes, never what it leads to; the usual login is
+#                                  refused
 #                     login-end    -> {"email","ends","plan"}: whose the login is, and the ChatGPT
 #                                  plan its id token names; `ends` is null, since Codex writes
 #                                  down no day its login ends
@@ -298,6 +301,9 @@ logout)
   set --
   if [ -n "$ACCOUNT" ]; then [ -e "$AUTH" ] || exit 0; set -- -c "$STORE"; fi
   codex "$@" logout ;;
+forget)
+  [ -n "$ACCOUNT" ] || { echo "codex.sh forget: the usual login is never forgotten" >&2; exit 2; }
+  rm -rf -- "$CODEX_HOME" ;;
 login-end)
   # Codex renews its access token with a refresh token that names no end: a login that dies
   # shows only once `auth` says so
@@ -384,6 +390,6 @@ models)
     python3 "$REPO/tools/catalog.py" codex
   fi ;;
 *)
-  echo "usage: codex.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | codex.sh usage | codex.sh reset-status | codex.sh reset | codex.sh interactive <model> <effort> [session-id [new]] | codex.sh install | codex.sh login [again] | codex.sh logout | codex.sh login-end | codex.sh lend <home> | codex.sh auth [seat] | codex.sh hooks | codex.sh models" >&2
+  echo "usage: codex.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | codex.sh usage | codex.sh reset-status | codex.sh reset | codex.sh interactive <model> <effort> [session-id [new]] | codex.sh install | codex.sh login [again] | codex.sh logout | codex.sh forget | codex.sh login-end | codex.sh lend <home> | codex.sh auth [seat] | codex.sh hooks | codex.sh models" >&2
   exit 2 ;;
 esac

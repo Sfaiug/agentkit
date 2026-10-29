@@ -9,6 +9,9 @@
 #                     login [again] -> `muse login`, unless already logged in; `again` signs
 #                                  in afresh over a login that still stands
 #                     logout       -> `muse logout` of this login alone; 0 at once where none
+#                     forget       -> a named account's own files removed, its config home and
+#                                  the quota recorded about it: a link in them goes, never what
+#                                  it leads to; the usual login is refused
 #                     login-end    -> {"email","ends","plan"}: whose the login is; `ends` and
 #                                  `plan` are null, since Muse's auth file records neither
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
@@ -259,6 +262,9 @@ login)
 logout)
   [ -e "$AUTH" ] || exit 0
   muse logout ;;
+forget)
+  [ -n "$ACCOUNT" ] || { echo "muse.sh forget: the usual login is never forgotten" >&2; exit 2; }
+  rm -rf -- "$XDG_CONFIG_HOME" "$QUOTA" ;;
 login-end)
   # Muse's auth file records a key and no expiry (see `auth`), and no plan's name; the email
   # is the one it signed in with
@@ -340,6 +346,6 @@ models)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" muse ;;
 *)
-  echo "usage: muse.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | muse.sh usage | muse.sh interactive <model> <effort> [session-id [new]] | muse.sh install | muse.sh login [again] | muse.sh logout | muse.sh login-end | muse.sh auth [seat] | muse.sh hooks | muse.sh hook | muse.sh models" >&2
+  echo "usage: muse.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | muse.sh usage | muse.sh interactive <model> <effort> [session-id [new]] | muse.sh install | muse.sh login [again] | muse.sh logout | muse.sh forget | muse.sh login-end | muse.sh auth [seat] | muse.sh hooks | muse.sh hook | muse.sh models" >&2
   exit 2 ;;
 esac

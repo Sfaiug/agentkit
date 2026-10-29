@@ -9,6 +9,9 @@
 #                                    `again` signs in afresh over a login that still stands
 #                       logout       -> Claude Code's own sign-out of this login, and its worker
 #                                    token removed; 0 at once where nothing is signed in
+#                       forget       -> a named account's own files removed, its config directory
+#                                    and worker token: a link in them goes, never what it leads
+#                                    to; the usual login is refused
 #                       auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
 #                                    `seat` asks about the interactive login alone, never the
 #                                    worker token, because the two expire apart; a yes ends
@@ -311,6 +314,9 @@ logout)
   [ -e "$CREDS" ] || security find-generic-password -s "Claude Code-credentials" >/dev/null 2>&1 || exit 0
   unset CLAUDE_CODE_OAUTH_TOKEN   # the sign-out is the login's own, never a token's
   claude auth logout ;;
+forget)
+  [ -n "$ACCOUNT" ] || { echo "claude.sh forget: the usual login is never forgotten" >&2; exit 2; }
+  rm -rf -- "$CLAUDE_CONFIG_DIR" "$TOKEN" ;;
 login-end)
   # Claude Code renews the hour-long access token itself, but the refresh token it renews it
   # with dies on the day `refreshTokenExpiresAt` names (epoch milliseconds), some thirty days
@@ -562,6 +568,6 @@ models)
       | @tsv' 2>/dev/null) || listed=
   printf '%s\n' "${listed:-$table}" ;;
 *)
-  echo "usage: claude.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | claude.sh usage | claude.sh interactive <model> <effort> [session-id [new]] | claude.sh install | claude.sh login [again] | claude.sh logout | claude.sh login-end | claude.sh lend <home> | claude.sh auth [seat] | claude.sh hooks | claude.sh models" >&2
+  echo "usage: claude.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | claude.sh usage | claude.sh interactive <model> <effort> [session-id [new]] | claude.sh install | claude.sh login [again] | claude.sh logout | claude.sh forget | claude.sh login-end | claude.sh lend <home> | claude.sh auth [seat] | claude.sh hooks | claude.sh models" >&2
   exit 2 ;;
 esac

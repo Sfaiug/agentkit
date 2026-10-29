@@ -4143,13 +4143,16 @@ def _by_label(names, label):
             for text, name in zip(labels, names)}
 
 
-def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None):
+def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None, new=False):
     """Each of `verbs` of `harness`'s adapter (one with its words, `login again`), run as
     install.sh runs them, for `account`'s
     login when one is named and of `provider` when one is (config.provider_env), with the
     terminal given back for them, each said in one line as it starts, and taken again after.  The
     first that fails ends them, and waits until what it said has been read: what to say about
-    it under the matrix, or "".  No verbs is nothing to run, and the terminal stays."""
+    it under the matrix, or "".  With `new`, `account` is a name no subscription lists yet, and
+    one that fails first takes what the harness made for it with it (its adapter's `forget`):
+    a login nobody lists is one nobody signs out, and ^C or a closed terminal can end that
+    wait.  No verbs is nothing to run, and the terminal stays."""
     if not verbs:
         return ""
     keyboard.give()
@@ -4182,35 +4185,47 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
             signal.signal(signal.SIGINT, interrupt)
         if code:
             failed = f"{config.harness_name(harness)} {verb} did not finish; {picked} is not added"
+            if new:
+                try:
+                    subprocess.run([str(config.adapter(harness)), "forget"],
+                                   env={**config.child_env(), **config.account_env(account)},
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL)
+                except (config.Error, OSError):
+                    pass              # no adapter to run: nothing ran to make anything either
             pause()
             break
     keyboard.take()
     return failed
 
 
-def sign_in(cfg, keyboard, provider, account):
-    """`provider`'s login for `account` (None: its only one) made afresh on the terminal, its
-    `↻ log in again` (`subscription_acts`): its harness's `login again` (`logins.harness`), and the
-    menu back as soon as that ends, one that failed once what it said has been read.  One that
-    finished is asked its end at once (`logins.renewed`), so the menu comes back with its meter grey."""
+def sign_in(cfg, keyboard, picked):
+    """`picked`'s login, its subscription as (provider, account, label), made afresh on the
+    terminal, its `↻ log in again` (`subscription_acts`): its harness's `login again`
+    (`logins.harness`), and the menu back as soon as that ends, one that failed once what it
+    said has been read.  One that finished is asked its end at once (`logins.renewed`), so the
+    menu comes back with its meter grey.  What to say under the screen, or ""."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
-    harness = logins.harness(cfg, provider)
-    if harness and not _adapter_verbs(keyboard, harness, ("login again",), provider, account,
-                                      provider):
-        logins.renewed(cfg, provider, account or config.DEFAULT_ACCOUNT)
+    provider, account, label = picked
+    if _adapter_verbs(keyboard, logins.harness(cfg, provider), ("login again",), label, account,
+                      provider):
+        return f"{label}'s sign-in did not finish"
+    logins.renewed(cfg, provider, account or config.DEFAULT_ACCOUNT)
+    return ""
 
 
 def _add_subscription(cfg, keyboard, provider, listed, picked):
     """Another subscription of `provider`, `picked` being the name it will get: its harness's
-    login, run on the terminal under the account name last in `listed`, then `listed` as the
-    provider's `accounts` -- the ones it had, `default` when it had none, and that name.  Its
-    harness is its models' or, with none left, the shipped default's
+    login, run on the terminal under the account name last in `listed`, new (_adapter_verbs),
+    then `listed` as the provider's `accounts` -- the ones it had, `default` when it had none,
+    and that name.  Its harness is its models' or, with none left, the shipped default's
     (config.provider_harnesses).  A login that fails adds nothing.  What to say under the
     matrix, or ""."""
     harnesses = config.provider_harnesses(cfg, provider)
     if not harnesses:
         return f"config: no model names a harness for [providers.{provider}]"
-    failed = _adapter_verbs(keyboard, harnesses[0], ("login",), picked, listed[-1], provider)
+    failed = _adapter_verbs(keyboard, harnesses[0], ("login",), picked, listed[-1], provider,
+                            new=True)
     if failed:
         return failed
     before = copy.deepcopy(cfg)
@@ -4226,7 +4241,8 @@ def config_add_provider(cfg, keyboard):
     of a provider the config has, which is only logged in and listed (_add_subscription), where
     its harness keeps more than one login (config.one_login).  Each is signed in under a new
     random account name (`fresh`), so its login starts empty and the owner picks the account
-    signed in to.  A harness that runs any provider it can log in
+    signed in to; one that does not finish leaves nothing of it (_adapter_verbs).  A harness
+    that runs any provider it can log in
     to (config.provider_hosts) is listed by its name after the shipped providers, standing in
     for those shipped on it: picked, it is installed where its program is missing, then
     `config_add` through it picks the provider, logs it in, and adds the model.
@@ -4293,7 +4309,7 @@ def config_add_provider(cfg, keyboard):
     if first in cfg["models"]:
         return f"{picked} adds its model as {first}, and a model has that name; nothing added"
     verbs = () if config.harness_present(harness) else ("install",)
-    failed = _adapter_verbs(keyboard, harness, (*verbs, "login"), picked, fresh, name)
+    failed = _adapter_verbs(keyboard, harness, (*verbs, "login"), picked, fresh, name, new=True)
     if failed:
         return failed
     table = {**shipped["providers"][name], "accounts": [fresh]}
@@ -4404,7 +4420,7 @@ def subscription_acts(cfg, keyboard, number, remove=False):
     picked = (name, account, label)
     harness = logins.harness(cfg, name)
     return [(text[0 if terminal.utf8() else 1], act) for text, act, offers in (
-        (SUBSCRIPTION_ACTS[0], lambda: sign_in(cfg, keyboard, name, account) or "",
+        (SUBSCRIPTION_ACTS[0], lambda: sign_in(cfg, keyboard, picked),
          harness and config.signs_in_again(harness, account)),
         (SUBSCRIPTION_ACTS[1], lambda: config_spend_reset(cfg, picked), in_hand(prov)),
         (SUBSCRIPTION_ACTS[2], lambda: config_remove_provider(cfg, picked), remove)) if offers]
