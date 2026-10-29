@@ -16,6 +16,8 @@
 #                       login-end    -> {"email","ends","plan"}: whose the interactive login is, the
 #                                    epoch second it ends, after which only a new login serves,
 #                                    and the plan it is on
+#                       lend <home>  -> a copy of the interactive login nothing renews, where a
+#                                    turn with HOME=<home> reads it, and the epoch second it lapses
 #                       hooks        -> wire this harness's lifecycle hooks, idempotently
 #                       models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                    Anthropic's models API, else the [catalog] table of
@@ -38,7 +40,6 @@ OWN_RULES_OFF="CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=
 # `renew` pass it and `interactive` prints it.
 PINS='{"permissions":{"defaultMode":"bypassPermissions"},"crossSessionInbound":"refuse","switchModelsOnFlag":true}'
 TMPD="$HOME/.agentkit/tmp"
-CREDS="$HOME/.claude/.credentials.json"
 # `claude setup-token` mints a long-lived token; install.sh writes it here, 0600.  A worker given
 # one never reads or refreshes the seat's own OAuth pair, so a refresh race between the seat and
 # a dozen workers cannot log everybody out at one in the morning.
@@ -54,10 +55,12 @@ ACCOUNT=${AGENTKIT_ACCOUNT:-}
 if [ -n "$ACCOUNT" ]; then
   TOKEN="$TOKEN.$ACCOUNT"
   export CLAUDE_CONFIG_DIR="$HOME/.claude-$ACCOUNT"
-  CREDS="$CLAUDE_CONFIG_DIR/.credentials.json"
   unset CLAUDE_CODE_OAUTH_TOKEN
-  security() { return 1; }   # the Keychain's `Claude Code-credentials` is the usual login's
 fi
+# The login every verb reads is the one a turn reads: its config directory's, one the user set
+# included.  The Keychain's `Claude Code-credentials` is the usual directory's alone.
+CREDS="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json"
+[ -z "${CLAUDE_CONFIG_DIR:-}" ] || security() { return 1; }
 cmd=${1:-}; shift 2>/dev/null || true
 
 # Who this login is, as Claude Code keeps it beside the login: what `auth` ends with.  Silent
@@ -98,7 +101,6 @@ renew() {
     # the seat login's own directory, never a token that would stand in for it; a worker's
     # role keeps the seat hooks quiet when the caller is a seat
     unset CLAUDE_CODE_OAUTH_TOKEN
-    [ -n "$ACCOUNT" ] || unset CLAUDE_CONFIG_DIR
     echo hi | AK_RUN_ROLE=worker claude -p --model haiku --tools "" --no-session-persistence \
       --settings "$PINS" 9>&-
   ) >/dev/null 2>&1 9>>"$TMPD/claude-login${ACCOUNT:+.$ACCOUNT}.lock"
@@ -330,6 +332,23 @@ login-end)
                  | join(" ")) // null)}' 2>/dev/null \
     || jq -nc --arg email "$email" '{email: (if $email == "" then null else $email end), ends: null,
                                      plan: null}' ;;
+lend)
+  # Renewing retires the login renewed (28 Oct: a check's renewal left every seat a dead one),
+  # so the copy holds the access token alone, which runs a turn until `expiresAt` -- one that
+  # says it lapses in a minute still does -- and not the MCP servers' logins, which renew too.
+  # Read, never renewed: a lapsed login is none to lend.
+  [ $# -ge 1 ] || { echo "claude.sh lend needs <home>" >&2; exit 2; }
+  command -v jq >/dev/null || { echo "claude.sh lend: jq is required" >&2; exit 2; }
+  blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
+    || blob=$(cat "$CREDS" 2>/dev/null) || blob=
+  lent=$(printf '%s' "$blob" | jq -c --argjson now "$(date +%s)" '.claudeAiOauth
+      | (.expiresAt | numbers | if . > 99999999999 then . / 1000 | floor else . end) as $ends
+      | select((.accessToken | strings | test("[^[:space:]]")) and $ends > $now)
+      | {ends: $ends, login: {claudeAiOauth: del(.refreshToken)}}' 2>/dev/null) &&
+    [ -n "$lent" ] || {
+    echo "claude: no unexpired access token in $CREDS to lend; run /login" >&2; exit 1; }
+  printf '%s' "$lent" | python3 "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" \
+    "$1" .claude/.credentials.json ;;
 auth)
   # Can a turn authenticate right now?  Exit 0 and name the token, or exit 1 with one line
   # saying why not.  The loop asks before every turn and again after a turn that produced
@@ -543,6 +562,6 @@ models)
       | @tsv' 2>/dev/null) || listed=
   printf '%s\n' "${listed:-$table}" ;;
 *)
-  echo "usage: claude.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | claude.sh usage | claude.sh interactive <model> <effort> [session-id [new]] | claude.sh install | claude.sh login [again] | claude.sh logout | claude.sh login-end | claude.sh auth [seat] | claude.sh hooks | claude.sh models" >&2
+  echo "usage: claude.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | claude.sh usage | claude.sh interactive <model> <effort> [session-id [new]] | claude.sh install | claude.sh login [again] | claude.sh logout | claude.sh login-end | claude.sh lend <home> | claude.sh auth [seat] | claude.sh hooks | claude.sh models" >&2
   exit 2 ;;
 esac

@@ -30,6 +30,8 @@
 #                     login-end    -> {"email","ends","plan"}: whose the login is and its tier;
 #                                  `ends` is null, since grok writes down no day its refresh
 #                                  token ends
+#                     lend <home>  -> a copy of the login nothing renews, where a turn with
+#                                  HOME=<home> reads it, and the epoch second it lapses
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why: a
 #                                  refresh token or an unexpired key is a login grok can use,
 #                                  unless `usage` saw the endpoint refuse the key grok renewed;
@@ -356,6 +358,23 @@ login-end)
     "$GROK_HOME/settings_cache.json" 2>/dev/null)
   jq -nc --arg email "$email" --arg plan "$plan" \
     '{email: $email, ends: null, plan: $plan} | map_values(if . == "" then null else . end)' ;;
+lend)
+  # Renewing retires the refresh token used, so the copy keeps each entry's key without one:
+  # grok runs a turn on a key until its ISO-8601 `expires_at`, the latest where several are,
+  # read to the second less its offset from UTC, which fromdateiso8601 cannot read.
+  [ $# -ge 1 ] || { echo "grokbuild.sh lend needs <home>" >&2; exit 2; }
+  command -v jq >/dev/null || { echo "grokbuild.sh lend: jq is required" >&2; exit 2; }
+  lent=$(jq -c --argjson now "$(date +%s)" '
+      ([.[] | objects | select(.key | strings | test("[^[:space:]]")) | .expires_at | strings
+        | capture("^(?<t>.{19})(\\.[0-9]+)?(Z|(?<s>[+-])(?<h>[0-9]{2}):?(?<m>[0-9]{2}))$")
+        | ((.t + "Z" | fromdateiso8601) - (if .s == "-" then -1 else 1 end)
+           * ((.h // "0" | tonumber) * 3600 + (.m // "0" | tonumber) * 60))?] | max) as $ends
+      | select($ends > $now)
+      | {ends: $ends, login: map_values(if type == "object" then del(.refresh_token) else . end)}' \
+      "$AUTH" 2>/dev/null) && [ -n "$lent" ] || {
+    echo "grok: no unexpired session key in $AUTH to lend; run \`grok login\`" >&2; exit 1; }
+  printf '%s' "$lent" | python3 "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" \
+    "$1" .grok/auth.json ;;
 auth)
   # Can a headless turn authenticate right now?  Exit 0 and say so, or exit 1 with one line
   # saying why not; anything else is no answer, and the caller carries on as before.  The
@@ -462,6 +481,6 @@ models)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" grokbuild $ids ;;
 *)
-  echo "usage: grokbuild.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | grokbuild.sh usage | grokbuild.sh interactive <model> <effort> [session-id [new]] | grokbuild.sh install | grokbuild.sh login [again] | grokbuild.sh logout | grokbuild.sh login-end | grokbuild.sh auth [seat] | grokbuild.sh hooks | grokbuild.sh models" >&2
+  echo "usage: grokbuild.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | grokbuild.sh usage | grokbuild.sh interactive <model> <effort> [session-id [new]] | grokbuild.sh install | grokbuild.sh login [again] | grokbuild.sh logout | grokbuild.sh login-end | grokbuild.sh lend <home> | grokbuild.sh auth [seat] | grokbuild.sh hooks | grokbuild.sh models" >&2
   exit 2 ;;
 esac

@@ -1615,6 +1615,10 @@ def adapter(harness):
         0 at once where it holds none, touching no other login nor a store they share.
     login-end
         one JSON object: `email`, and `ends`, the epoch second the login stops serving, or null.
+    lend <home>
+        a copy of that login where a turn run with HOME=<home> reads it, holding nothing whose
+        use renews the login (`tools/lend.py` places it); prints the epoch second it stops
+        authenticating, nothing where it never does, or exits 1 with why there is none.
     providers
         a harness that runs any provider it can log in to: an `id<TAB>name<TAB>mode` line each,
         those it can run first with `subscription` or `payg`, the rest with no mode.
