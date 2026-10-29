@@ -305,6 +305,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
 
     def test_unanswered_seat_login_is_skipped_for_another_of_the_same_provider(self):
         self.cfg["providers"]["anthropic"]["accounts"].append("third")
+        config.save(self.cfg)
         self.cached(lambda p: p["anthropic"]["accounts"].update(
             third=p["anthropic"]["accounts"]["second"]))
         self.auth.side_effect = lambda harness, seat=False, account=None: (
@@ -335,6 +336,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
 
     def test_single_subscription_waits_and_reopens_itself_when_usage_returns(self):
         self.cfg["providers"]["anthropic"].pop("accounts")
+        config.save(self.cfg)
         self.meters(100, 0, single=True)
         self.tick()
         self.assertEqual(self.answer()["word"], "out of usage")
@@ -466,6 +468,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
     def test_codex_named_login_is_checked_for_creation_rollover_and_explicit_resume(self):
         self.codex_seat()
         self.cfg["providers"]["openai"]["accounts"] = ["default", "second", "third"]
+        config.save(self.cfg)
         login = self.root / ".codex/auth.json"
         login.parent.mkdir()
         login.write_text('{"tokens":{"access_token":"fake-default"}}')
@@ -526,6 +529,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         at 95%: it moves there, exactly as with none held, and spends nothing."""
         self.codex_seat(account)
         self.cfg["providers"]["openai"]["accounts"] = ["default", "second"]
+        config.save(self.cfg)
         def reading(used):
             return {"provider": "openai", "harness": "codex", "resets": 2,
                     "meters": [usage._normalized({"name": "primary_window", "used": used,
@@ -553,6 +557,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         default spends nothing and is parked, and the conversation goes on on second."""
         self.codex_seat()
         self.cfg["providers"]["openai"]["accounts"] = ["default", "second"]
+        config.save(self.cfg)
         def reading(used, resets):
             return {"provider": "openai", "harness": "codex", "resets": resets,
                     "meters": [usage._normalized({"name": "primary_window", "used": used,
