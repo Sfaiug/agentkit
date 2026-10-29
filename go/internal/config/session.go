@@ -62,7 +62,10 @@ func ResolveSession(name string) (string, map[string]any, error) {
 	}
 	if strings.Contains(name, " ") {
 		if _, err := os.Stat(path); err != nil {
-			name = sessionPunctuation.ReplaceAllString(strings.ToLower(name), "-")
+			// Python's lower() maps İ to i and a combining dot, which then reads as
+			// punctuation; Go's ToLower maps it to a lone i, which names another seat.
+			name = strings.ToLower(strings.ReplaceAll(name, "\u0130", "i\u0307"))
+			name = sessionPunctuation.ReplaceAllString(name, "-")
 			name = strings.Trim(sessionDashes.ReplaceAllString(name, "-"), "-")
 			if len(name) > 40 {
 				name = name[:40]

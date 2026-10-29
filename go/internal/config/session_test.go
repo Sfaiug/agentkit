@@ -66,3 +66,16 @@ func TestSessionRenameRefusals(t *testing.T) {
 		t.Fatalf("invalid session path: %v", err)
 	}
 }
+
+// A spaced name no record holds is the seat name Python's session_name makes of it, where
+// Python's lower() and Go's ToLower part ways too.
+func TestSpacedNameIsPythonsSeatName(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	for raw, want := range map[string]string{"Fix Api": "fix-api", "F\u0130x Api": "fi-x-api", "KELVIN \u212a": "kelvin-k"} {
+		if name, _, err := ResolveSession(raw); err != nil || name != want {
+			t.Errorf("ResolveSession(%q) = %q, %v; Python names it %q", raw, name, err, want)
+		}
+	}
+}
