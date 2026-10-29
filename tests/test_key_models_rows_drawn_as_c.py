@@ -42,7 +42,8 @@ def boards():
         rows["artificialanalysis.ai"].append(aa(release, name, effort, {
             "aa.intelligenceIndex": 60, "aa.frontierCode20": 0.7, "aa.terminalBench40": 0.7,
             "aa.briefcaseBreakdown.overall.elo": 1400, "aa.omniscience": omniscience,
-            **{f"aa.intelligenceIndexEvaluations.{slug}.costPerTask": cost for slug in EVALUATIONS}}))
+            **{f"aa.intelligenceIndexEvaluations.{slug}.costPerTask": cost
+               for slug in EVALUATIONS}}))
     return {board: {"asked_at": NOW, "fetched_at": NOW, "error": None, "build": "", "rows": found}
             for board, found in rows.items()}
 

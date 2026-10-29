@@ -1,9 +1,10 @@
 """`r recommended` on `c` answers each role over every current model on the boards: its best,
 then its line of best quality for the money around the pick, each row's notes, and under a pick
-no harness of yours runs what `r` takes, the pointer on the first role's pick.  ←/→ step `within` and the answer follows; on 40 cells
-each row's line, numbers and notes take a line under its name.  `r` takes each role's take at its effort: into
-new seats' [defaults] in a window of its own, and into a seat's record alone, its orchestrator
-only said, over a seat; a save that fails changes nothing and says why.
+no harness of yours runs what `r` takes, the pointer on the first role's pick.  ←/→ step
+`within` and the answer follows; on 40 cells each row's line, numbers and notes take a line
+under its name.  `r` takes each role's take at its effort: into new seats' [defaults] in a
+window of its own, and into a seat's record alone, its orchestrator only said, over a seat; a
+save that fails changes nothing and says why.
 
 Black-box: the program `AK_BIN` names in a terminal (tests/fixtures/akterm.py), its harnesses
 fakes listing invented models, the boards held as just asked with invented rows and any board

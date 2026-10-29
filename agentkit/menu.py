@@ -2999,9 +2999,10 @@ def models_said(answer, lineup):
     of the best, the front from its best, said so."""
     def effort(row):
         return f" {row['effort']}" if row["effort"] else ""
-    levels = {}
+    levels = {}     # each release's efforts on the boards, weakest first
     for row in lineup:
-        levels.setdefault(row["release"], []).extend([row["effort"]] if row["effort"] else [])
+        if row["effort"]:
+            levels.setdefault(row["release"], []).append(row["effort"])
     said = []
     for role, head in zip(quality.ROLES, orch.ROLE_HEADS):
         found = answer[role]
@@ -3048,14 +3049,15 @@ def models_body(said, within, compared, total, fetched, at=None, moves=None):
     def effort(cells, word):
         lead = "".join(cells) + " " * (tall - len(cells) + 1) if tall else ""
         return lead + word if word else ""
-    label, levelled = (max((terminal.cells(text) for text in texts), default=0) for texts in (
-        [name for _, name, *_ in rows], [effort(cells, word) for _, _, cells, word, *_ in rows]))
+    label = max((terminal.cells(name) for _, name, *_ in rows), default=0)
+    levelled = max((terminal.cells(effort(cells, word)) for _, _, cells, word, *_ in rows),
+                   default=0)
     widths = [max(terminal.cells(text) for text in [head, *(row[n] for row in rows)])
               for n, head in ((5, "quality"), (6, "a task"), (7, ""))]
-    beside = 2 + widths[0] + 2 + widths[1] + 2 + widths[2]    # what follows the line
-    size = room - 4 - label - 2 - levelled - 2 - beside
+    after = 2 + widths[0] + 2 + widths[1] + 2 + widths[2]     # the columns after the line
+    size = room - 4 - label - 2 - levelled - 2 - after
     wide = size >= 8
-    size = size if wide else max(8, room - 4 - beside)
+    size = size if wide else max(8, room - 4 - after)
     lines, places = [], {}
 
     def put(line, here=None):
@@ -3066,13 +3068,12 @@ def models_body(said, within, compared, total, fetched, at=None, moves=None):
             places[len(lines)] = (here, [])
         lines.append(line)
 
-    def grows(lead, after):
-        """The line just put, after its `lead`, grows in `after` rows' lines from the first."""
-        drawn, span = lines[-1], slice(len(terminal.cell_texts(lead)),
-                                       len(terminal.cell_texts(lead)) + size)
+    def grows(lead, above):
+        """The line just put, from its cells after `lead`, grows in after the `above` rows'."""
+        drawn, start = lines[-1], len(terminal.cell_texts(lead))
         moves.append((len(lines) - 1, LINES, None, lambda clock, row, since, _: grow_line(
-            clock, row, drawn, span, lambda cells: motion.growing(
-                cells, since + after * motion.STAGGER))))
+            clock, row, drawn, slice(start, start + size), lambda cells: motion.growing(
+                cells, since + above * motion.STAGGER))))
     for head, said_lines in said:
         here, columns = None, ["quality", "a task"]
         if wide and said_lines:
@@ -3097,13 +3098,13 @@ def models_body(said, within, compared, total, fetched, at=None, moves=None):
                 lead = "    "
             tail = (f"{lead}{terminal.share_line(near, size)}  {numbers[0]:>{widths[0]}}  "
                     f"{numbers[1]:>{widths[1]}}  ")
-            said = notes.split(" · ") if notes else []
-            beside = max((n for n in range(len(said) + 1)     # the notes that fit, the rest under
-                          if terminal.cells(tail + " · ".join(said[:n])) <= room), default=0)
-            put(tail + " · ".join(said[:beside]), here)
+            parts = notes.split(" · ") if notes else []
+            fit = max((n for n in range(len(parts) + 1)      # the notes that fit, the rest under
+                       if terminal.cells(tail + " · ".join(parts[:n])) <= room), default=0)
+            put(tail + " · ".join(parts[:fit]), here)
             if moves is not None:
                 grows(lead, rows.index(line))
-            for part in packed(said[beside:], " · ", room - 6):
+            for part in packed(parts[fit:], " · ", room - 6):
                 put("      " + part, here)
     put("", KNOB)
     knob = points_knob(within)
@@ -3214,7 +3215,8 @@ def config_within(cfg, step):
 @terminal.clicks_its_own
 def models_screen(cfg, session, selected, providers):
     """`models · <seat>`, or `models · new seats` without one, `r recommended` on `c`: each role
-    answered over the releases compared (models_body) until Esc.  The boards are read as it opens
+    answered over the releases compared (models_body) until Esc, the rows' lines growing in
+    as they first show.  The boards are read as it opens
     (matrix.refresh), the rule gliding until they land and what was stored standing meanwhile, a
     failed reading said under the rows; the answer is computed once per landing and per knob
     step, never per draw.  ←/→ step `within`, saved at once (config_within), the knob nudging
