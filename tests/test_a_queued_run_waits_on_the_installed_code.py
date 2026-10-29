@@ -202,9 +202,34 @@ class QueuedRunWaitsOnTheInstalledCode(unittest.TestCase):
                 self.assertRaises(Replaced):
             waiter.main([str(config.RUNS / ".slots.queue"), str(history.path()),
                          self.run_dir.name, "30", str(config.REPO), ""])
-        self.assertEqual(history.get(self.run_dir.name)["slot_wait_seconds"], 90)
+        # counted up to its last poll, wherever in the interval it polls
+        self.assertEqual(history.get(self.run_dir.name)["slot_wait_seconds"], clock[0] - 1000)
         self.assertEqual(history.phases(self.run_dir.name),
-                         [{"phase": "slot wait", "started_at": 1000.0, "ended_at": 1090.0}])
+                         [{"phase": "slot wait", "started_at": 1000.0, "ended_at": clock[0]}])
+
+    def test_waiters_come_back_from_an_install_move_spaced_by_their_places(self):
+        line, clock = [f"20990101-000{n}-acme-fix" for n in range(5)], [0.0]
+
+        def sleep(seconds):     # its first polls on: the queue stays fresh
+            clock[0] += seconds
+            (config.RUNS / ".slots.queue").write_text(json.dumps({"at": clock[0], "queue": line}))
+        for starts in ([1000.0] * 4, [994.0, 988.0, 982.0, 976.0]):    # together, or staggered
+            back = []
+            for run_id, start in zip(line[1:], starts):
+                clock[0] = start
+                sleep(0)
+                os.environ[waiter.SLOT_WAIT_ENV] = f"{start} {start}"
+                with patch.multiple(waiter.time, sleep=sleep, time=lambda: clock[0],
+                                    monotonic=lambda: clock[0]), \
+                        patch.object(waiter, "head", lambda _: NEW if clock[0] >= 1000 else OLD), \
+                        patch.object(waiter.os, "execv", side_effect=Replaced), \
+                        self.assertRaises(Replaced):
+                    waiter.main([str(config.RUNS / ".slots.queue"), str(history.path()), run_id,
+                                 "30", str(config.REPO), OLD, "ak"])
+                back.append(clock[0])
+            # the install moved at 1000: each back within the poll after, a fifth of one apart
+            self.assertTrue(all(1000 <= at < 1030 for at in back), back)
+            self.assertEqual(min(b - a for a, b in zip(sorted(back), sorted(back)[1:])), 6, back)
 
 
 if __name__ == "__main__":

@@ -462,6 +462,10 @@ class StopNudge(unittest.TestCase):
                                               lambda *_: (self.harness, "meta")))
         self.stack.enter_context(patch.object(menu, "run_records", lambda **_kw: list(self.records)))
         self.stack.enter_context(patch.object(notify, "progress", return_value=None))
+        # logged out, as the captured login screen says: the adapter's own answer reads the
+        # owner's login, and a host logged in to Muse has a tick type past that screen
+        self.stack.enter_context(patch.object(watch.worker, "auth_ok",
+                                              return_value=(False, "muse: no login")))
         self.pane = BANNER
         self.stack.enter_context(patch.object(watch, "pane_text", lambda _: self.pane))
         self.typed = self.stack.enter_context(
