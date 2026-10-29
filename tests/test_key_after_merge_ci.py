@@ -7,12 +7,14 @@ three hours and types one line into the seat that launched the run, at its promp
 request's where the check names no page of its own.  Only the newest failing merge of a
 repository is told, and only once: a break already told holds back a later failing merge
 there, and a later merge that passed tells nothing.  An older merge tells nothing; a seat in a
-turn is told at its next prompt; a tick GitHub does not answer tells nothing, and the next one
-does.  None of it pages the owner.  Black-box: the program `AK_BIN` names runs from outside
-through tests/fixtures/akbin.py, each tick in the box `home.tick()` builds, on projects from
-gitrig.py, the GitHub of fakegh.py, seats from akseat.py and the webhook of sink.py.
+turn is told at its next prompt, however long the turn; a tick GitHub does not answer tells
+nothing, and the next one does.  None of it pages the owner.  Black-box: the program `AK_BIN`
+names runs from outside through tests/fixtures/akbin.py, each tick in the box `home.tick()`
+builds, on projects from gitrig.py, the GitHub of fakegh.py, seats from akseat.py and the
+webhook of sink.py.
 """
 
+import json
 from pathlib import Path
 import sys
 import time
@@ -57,7 +59,7 @@ class Merges(unittest.TestCase):
     def merge(cls, repo, seat, number, check, conclusion, *, age=600,
               screen="claude-prompt-pane.txt"):
         """Seat `seat` merged PR `number` into `repo` `age` seconds ago, and `check` ran on
-        the merge commit."""
+        the merge commit; the run's record."""
         if repo not in cls.rigs:
             cls.rigs[repo] = Rig(cls.home, repo)
             cls.seats[seat] = Seat(cls.home, seat, cwd=cls.rigs[repo].path, screen=screen)
@@ -65,7 +67,7 @@ class Merges(unittest.TestCase):
         sha = rig.commit({f"pr-{number}.txt": f"{number}\n"}, f"Merge {number}")
         cls.gh.check(sha, check, conclusion=conclusion)
         now, run = time.time(), f"20261020-1200-{repo}-{number}"
-        cls.home.write(f".agentkit/runs/{run}/run.json", {
+        return cls.home.write(f".agentkit/runs/{run}/run.json", {
             "run_id": run, "state": "pass", "verdict": "PASS", "merged": True,
             "finished_at": now - age, "started_at": now - age - 600, "repo": str(rig.path),
             "pr": f"https://github.com/acme/{repo}/pull/{number}", "merge_sha": sha,
@@ -112,6 +114,31 @@ class OncePerRepository(Merges):
 
     def test_no_break_pages_the_owner(self):
         self.assertEqual([r for r in self.sink.requests if r.method == "POST"], [])
+
+
+class LongTurn(Merges):
+    @classmethod
+    def stage(cls):
+        run = cls.merge("cli", "kappa", 1, "ci", "failure", screen="claude-working-pane.txt")
+        tick(cls.home)
+        cls.first = cls.seats["kappa"].lines()
+        # the turn outlasts the three hours a merge's checks are followed
+        record = json.loads(run.read_text())
+        record["finished_at"] -= 3 * 3600
+        run.write_text(json.dumps(record))
+        tick(cls.home)
+        cls.late = cls.seats["kappa"].lines()
+        cls.seats["kappa"].show("claude-prompt-pane.txt")
+        tick(cls.home)
+        cls.told = cls.seats["kappa"].lines()
+        tick(cls.home)
+
+    def test_a_seat_in_a_turn_is_told_nothing_while_the_turn_lasts(self):
+        self.assertEqual((self.first, self.late), ([], []))
+
+    def test_it_is_told_once_at_its_next_prompt_after_the_merge_left_the_window(self):
+        self.assertEqual(self.told, [told("ci", "cli", 1)])
+        self.assertEqual(self.lines("kappa"), [told("ci", "cli", 1)])
 
 
 class GitHubDown(Merges):
