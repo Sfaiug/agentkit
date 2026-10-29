@@ -443,6 +443,23 @@ class Screens(Sandbox):
         self.assertOneHighlight(screens[2], "ChatGPT")
         self.assertEqual(highlighted(screens[-1]), [])
 
+    def test_the_models_screens_draw_no_highlight_off_every_row(self):
+        role = next(iter(menu.quality.ROLES))
+        row = {"release": "alpha", "effort": "high", "maker": "Acme", "name": "Alpha"}
+        said = [("orch · best 100.0", [(menu.pointed(role, row), "Alpha", " high", "100.0",
+                                        "$1.00", "★ pick")])]
+        for name, value in (("stored", {"lineup": [row]}), ("refresh", ({}, None)),
+                            ("answer", {role: {"pick": row}})):
+            self.stack.enter_context(patch.object(menu.matrix, name, return_value=value))
+        self.stack.enter_context(patch.object(menu, "models_said", return_value=said))
+        for screen in (lambda: menu.models_screen(self.cfg, None, {}, {}),
+                       lambda: menu.compare_screen(self.cfg, "models", [row])):
+            # the pointer on the header lights no row, and a key brings it back where it was
+            screens = run(screen, move(1, 1), b"\x1b[A", ESC)[1]
+            self.assertEqual(len(highlighted(screens[0])), 1)
+            self.assertEqual(highlighted(screens[1]), [])
+            self.assertEqual(highlighted(screens[2]), highlighted(screens[0]))
+
     def test_a_screens_key_line_lights_the_item_under_the_pointer(self):
         def screen():
             while True:

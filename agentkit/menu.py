@@ -3204,7 +3204,7 @@ def models_screen(cfg, session, selected, providers):
                 here = pointed(role, pick) if pick else next(
                     (row for row in rows if row[1] == role), rows[0] if rows else None)
         body, places = models_body(said, matrix.within(cfg), compared, len(current),
-                                   held.get("fetched_at"), here)
+                                   held.get("fetched_at"), None if terminal.away() else here)
         # the legend stands under the rows whatever the height: the pointer never reaches it
         fold = next(line for line, (row, _) in places.items() if row == KNOB)
         places = {line: place for line, place in places.items() if line < fold}
@@ -3308,8 +3308,10 @@ def compare_screen(cfg, title, lineup):
         seen = {maker for *_, maker in shown}
         above = makers_cut(lines[:top], seen, "above")
         below = makers_cut(lines[top + tall:], seen, "below")
-        body = [*filter(None, [above]), *(terminal.highlight(line) if what == here else line
-                                          for line, what, _ in shown), *filter(None, [below])]
+        lit = not terminal.away()
+        body = [*filter(None, [above]), *(terminal.highlight(line) if lit and what == here
+                                          else line for line, what, _ in shown),
+                *filter(None, [below])]
         start = len(heads) + bool(above)
         spots = terminal.frame(title, [*heads, *body, *said], keys, places={
             start + number: (what, []) for number, (_, what, _) in enumerate(shown) if what})
