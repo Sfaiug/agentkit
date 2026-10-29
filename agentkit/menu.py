@@ -4595,13 +4595,14 @@ def opened_line(told, kind, texts, column, room):
     return lines
 
 
-def page_body(rows, at=None):
+def page_body(rows, at=None, moves=None):
     """The lines of a page `c` opens -- `Models`, `Discord`, `Weekly audit` -- and the row each is,
     {line: (row, [])}: of `rows`, (row, label, value) each, its label and then its value,
     lined up past the widest label as `c`'s own rows are, or with no label a choice of a list
     opened under the row above it, indented as `add a subscription`'s are.  A value is text, or
     parts, (text, kind) each, a space apart, wrapped at a word under itself as `c`'s own
-    values are, never cut; `at` is the row lit."""
+    values are, never cut; `at` is the row lit, and `moves` is handed each mark leading a value
+    (`■`, `□`, `●`, `○`) as config_body hands its own."""
     room = terminal.layout_width()
     wide = max((terminal.cells(label) for _, label, _ in rows if label is not None), default=0)
     lines, places = [], {}
@@ -4609,6 +4610,9 @@ def page_body(rows, at=None):
         # a label is never wider than `wide`, so padding it keeps its colour
         lead = "    " if label is None else f"  {label}{' ' * (wide - terminal.cells(label))}  "
         left, wrapped, used = max(1, room - terminal.cells(lead)), [[]], 0
+        if moves is not None and not isinstance(value, str) and value[0][0] in motion.HALF:
+            moves.append((len(lines), ("mark", row), value[0][0], motion.toggled(
+                value[0][0], 3, value[0][1], row == at, terminal.cells(lead))))
         for text, kind in [(value, None)] if isinstance(value, str) else value:
             for piece in terminal.wrap(text, left):
                 if used and used + 1 + terminal.cells(piece) > left:
@@ -4626,20 +4630,24 @@ def page_body(rows, at=None):
 def config_page(name, page):
     """`config · <name>`, a page `c` opens: `page()` gives its rows -- (label, value, act) each
     -- and the note under them, asked again for every draw, drawn as page_body draws them and
-    read with `c`'s keys until Esc.
+    read with `c`'s keys until Esc.  It comes up as `c` does as it opens, its name writing
+    itself out in the header (motion.Clock), and a mark leading a value fills or empties as it
+    flips (motion.toggled); one gone back to from a list or a field is drawn as it is.
 
     A row's act is a mark, ("mark", flip), Space or a click flipping it; a list, (choices,
-    several), Enter or a click opening it under the row, the highlight on the first choice
-    marked; or a field, Enter or a click calling it with `draw`, which draws the page with
-    lines under the row and returns the screen row of the first, as terminal.field takes it.
-    `choices()` gives (value, pick, mark) each, asked as the list opens and again after each
-    pick, so a reading that moves underneath never moves the highlight onto another choice.
+    several), Enter or a click opening it under the row, coming up there (motion.fading), the
+    highlight on the first choice marked; or a field, Enter or a click calling it with `draw`,
+    which draws the page with lines under the row and returns the screen row of the first, as
+    terminal.field takes it.  `choices()` gives (value, pick, mark) each, asked as the list
+    opens and again after each pick, so a reading that moves underneath never moves the
+    highlight onto another choice.
     `mark` is a mark's state, Space or a click calling `pick()` and the list staying open,
     Enter closing it, first picking the highlighted choice unless `several`; or an act's word,
     Enter or a click calling `pick()`, "" doing nothing.  Esc closes the list.  What a call
     returns is said under the rows, over the note, until the next key."""
     here, top, said, opened, title = ("row", 0), 0, "", None, f"config · {name}"
     listed = []                       # the open list's choices, as last asked
+    clock = motion.Clock(page=True)   # it comes up as `c` does, and its marks move as `c`'s
 
     def does(row):                    # what Space and Enter do on `row` (terminal.keys)
         if len(row) == 3:
@@ -4658,14 +4666,19 @@ def config_page(name, page):
                                                   for number, (value, _, _) in enumerate(listed)]
         # with a list open its choices are what the keys move through, else the rows
         ids = [row for row, label, _ in drawn if (label is None) == bool(opened)]
-        body, places = page_body(drawn, None if terminal.away() else here)
+        moves = []
+        body, places = page_body(drawn, None if terminal.away() else here, moves)
+        # an open list comes up under its row as the line under the menu's highlighted row does
+        moves += [(line, ("opened",), opened[0], motion.fading(body[line], motion.OPEN))
+                  for line, (row, _) in places.items() if len(row) == 3]
         # a click on what a mark's line draws acts as Space does (matrix_key's `marks`)
         places = {line: (row, [(1, terminal.width(), 0)] if does(row)[0] else [])
                   for line, (row, _) in places.items()}
         space, enter = does(here)
         keys = terminal.keys("esc back", space=space, enter=enter)
         act, moved, _, top = matrix_key(title, body, places, ids, here, top,
-                                        "\n".join(filter(None, (said, note))), keys, marks=1)
+                                        "\n".join(filter(None, (said, note))), keys, marks=1,
+                                        clock=clock, moves=moves)
         # the pointer on a row off-list, unless it clicked it, which closes an open list
         here = moved if moved in ids or act in ("enter", "space") else here
         opened = opened if len(here) == 3 else None
@@ -4691,12 +4704,15 @@ def config_page(name, page):
             said = rows[here[1]][2][1]() or ""
         elif isinstance(rows[here[1]][2], tuple):
             opened = (here[1], *rows[here[1]][2])
+            clock.forget()            # what it asks may draw a screen: the page back is up
             listed = opened[1]()
+            clock.touch(("opened",))  # news: the list comes up
             here = (*here, next((number for number, (_, _, mark) in enumerate(listed)
                                  if mark is True), 0))
         else:
             # typed in, the arrows move nothing: Enter saves what was typed
             opened, at = None, here[1]
+            clock.forget()            # drawn off the clock: the page back is drawn as it is
             keys = terminal.keys("esc back", enter="save", move=False)
 
             def draw(lines):          # the page of matrix_key's height that holds the lines
