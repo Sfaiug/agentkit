@@ -207,6 +207,39 @@ class QueuedRunWaitsOnTheInstalledCode(unittest.TestCase):
         self.assertEqual(history.phases(self.run_dir.name),
                          [{"phase": "slot wait", "started_at": 1000.0, "ended_at": clock[0]}])
 
+    def test_a_waiter_that_finds_history_busy_waits_on_no_one_and_counts_it_later(self):
+        clock, polls, waited = [1000.0], [], []
+        held, freed = threading.Event(), threading.Event()
+
+        def writer():       # another writer on history's lock, until the waiter's next poll
+            with waiter.writing(history.path()):
+                held.set()
+                waited.append(freed.wait(5))
+        other = threading.Thread(target=writer)
+
+        def sleep(seconds):
+            polls.append(clock[0])
+            if len(polls) == 2:
+                freed.set()
+                other.join()
+            elif len(polls) == 3:
+                raise Replaced
+            clock[0] += seconds
+            (config.RUNS / ".slots.queue").write_text(json.dumps(
+                {"at": clock[0], "queue": ["20990101-0000-acme-older", self.run_dir.name]}))
+
+        history.start_run(self.run_dir.name, repo="acme", started_at=clock[0])
+        other.start()
+        held.wait(5)
+        os.environ[waiter.SLOT_WAIT_ENV] = "1000.0 1000.0"
+        with patch.multiple(waiter.time, sleep=sleep, time=lambda: clock[0],
+                            monotonic=lambda: clock[0]), self.assertRaises(Replaced):
+            waiter.main([str(config.RUNS / ".slots.queue"), str(history.path()),
+                         self.run_dir.name, "30", str(config.REPO), ""])
+        self.assertEqual(waited, [True])    # freed by its next poll: its first never waited
+        # the busy poll's seconds counted with the next
+        self.assertEqual(history.get(self.run_dir.name)["slot_wait_seconds"], clock[0] - 1000)
+
     def test_waiters_come_back_from_an_install_move_spaced_by_their_places(self):
         line, clock = [f"20990101-000{n}-acme-fix" for n in range(5)], [0.0]
 
