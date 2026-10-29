@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"agentkit/internal/lock"
 )
 
 const (
@@ -19,10 +21,7 @@ const (
 	silence = 15 * time.Second
 )
 
-var (
-	requestID = regexp.MustCompile(`^[a-f0-9]{16}$`)
-	errHeld   = errors.New("another connection holds serve.lock; exiting")
-)
+var requestID = regexp.MustCompile(`^[a-f0-9]{16}$`)
 
 // serve hands the Mac each pending request as `<id>\t<path>`, once the Mac has beaten, until it
 // hangs up or falls silent. One connection owns the queue for its entire lifetime: a reconnect
@@ -33,16 +32,16 @@ func serve(in io.Reader, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "ak fetch: "+err.Error())
 		return 2
 	}
-	lock, err := lockServe(filepath.Join(root, "serve.lock"))
-	if errors.Is(err, errHeld) {
-		fmt.Fprintln(errOut, "ak fetch --serve: "+err.Error())
+	serving, err := lock.Try(filepath.Join(root, "serve.lock"))
+	if errors.Is(err, lock.ErrHeld) {
+		fmt.Fprintln(errOut, "ak fetch --serve: another connection holds serve.lock; exiting")
 		return 0
 	}
 	if err != nil {
 		fmt.Fprintln(errOut, "ak fetch: "+err.Error())
 		return 2
 	}
-	defer lock.Close()
+	defer serving.Close()
 	beats := make(chan struct{})
 	go func() {
 		defer close(beats)
