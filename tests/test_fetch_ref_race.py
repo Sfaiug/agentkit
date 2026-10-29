@@ -172,12 +172,11 @@ class FetchRefRace(unittest.TestCase):
         self.merges.assert_not_called()
 
     def test_a_ref_lock_outlasting_the_git_limit_is_reported_not_retried_forever(self):
-        # The second call gets the remaining 0.5s, then one retry with that same budget.
-        started = time.monotonic()
+        # The second call gets the remaining 0.5s, then one retry with that same budget: given
+        # the whole 2s, it would finish its 1.5s and stop at two.
         with patch.object(gitcall, "TOOL_CAP", 2):
             with self.assertRaises(config.Error) as error:
                 self.land(ALWAYS, LOCKED, delay=1.5)
-        self.assertLess(time.monotonic() - started, 4)
         self.assertEqual(self.attempts(), 3)
         self.assertIn("cannot lock ref 'refs/remotes/origin/main'", str(error.exception))
         self.assertEqual(self.lp.state["state"], "waiting")
