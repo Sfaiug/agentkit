@@ -179,7 +179,8 @@ class InstallQuestion(unittest.TestCase):
         self.assertEqual(rc, 0, question)
         self.assertIn("Which harness to install and log in "
                       "(claude, codex, grok, opencode, agy, or all)? [all] ", question)
-        self.assertNotIn("muse", question)
+        self.assertNotIn("muse install", self.calls())
+        self.assertNotIn("muse login", self.calls())
         self.assertEqual(len(self.calls()), 10)
 
     def test_all_selects_every_adapter_present(self):
