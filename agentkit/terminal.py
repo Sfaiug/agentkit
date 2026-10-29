@@ -974,7 +974,8 @@ def read_key(timeout=None, wake=None):
 
     The pointer is answered, `point`, only once it is on another spot of the screen up than it
     was when that was drawn (`lit`): another row, another cell, or off what it was on; a move
-    within one is read and let go, keeping to `timeout` however long the pointer goes on.  A
+    within one, none held, is read and let go, keeping to `timeout` however long the pointer
+    goes on, and one held, `lit`'s too, is answered where the pointer ended.  A
     move is answered once a frame of the clock's (motion.FRAME) is due since the last, and once
     what was sent after it is read through to where the pointer ended, or a frame after the
     first of them, whichever is sooner, however soon the read's own time runs out: a flood of
@@ -1015,7 +1016,7 @@ def read_key(timeout=None, wake=None):
         elif key.name == "click":  # and a button that went down before the keyboard was taken
             key, _PRESSED = key if _PRESSED else Key("other"), False
         elif key.name == "point":
-            moved = _POINTER is None or under(key, _SPOTS)[:2] != _POINTED[:2]
+            moved = _HELD is not None or _POINTER is None or under(key, _SPOTS)[:2] != _POINTED[:2]
             _HELD, key = (key, _HELD[1] if _HELD else time.monotonic()) if moved else None, None
         if key is None:
             now = time.monotonic()

@@ -397,7 +397,8 @@ class Matrix(unittest.TestCase):
         number, line = row(lines, "opus")
         word = line.index("xhigh") + 1                  # its last letter, blank once it is max
         mark = len(screen.text())
-        screen.click(word + 4, number,
+        screen.press(f"\x1b[<0;{word + 4};{number}M\x1b[<0;{word + 4};{number}m"
+                     f"\x1b[<35;{word + 3};{number}M".encode(),     # and on, still past max
                      lambda lines: lines[number - 1][word - 1:].startswith("max "))
         self.assertNotIn("›", screen.text()[mark:])    # no frame drawn it, not even at first
         screen.leave()
