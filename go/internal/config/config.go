@@ -234,17 +234,21 @@ func validate(root *table) error {
 	return nil
 }
 
-func CheckModel(name string) error {
+// ModelNamed is the [models.*] entry by that name, or why no seat or turn runs on it.
+func ModelNamed(name string) (Model, error) {
 	root, err := load()
 	if err != nil {
-		return err
+		return Model{}, err
 	}
-	_, err = resolve(root, name)
-	return err
+	return resolve(root, name)
 }
 
-// A Model is what a [models.*] entry runs on: its provider and the provider's model id.
-type Model struct{ Provider, ID string }
+// A Model is what a [models.*] entry runs on: its provider, the provider's model id, the
+// harness that runs it at its effort, and the subscriptions its provider lists, none for one.
+type Model struct {
+	Provider, ID, Harness, Effort string
+	Accounts                      []string
+}
 
 // Models is every entry `resolve` runs.
 func Models() (map[string]Model, error) {
@@ -277,10 +281,18 @@ func resolve(root *table, name string) (Model, error) {
 		}
 	}
 	provider, valid := entry.values["provider"].(string)
-	if _, exists := root.values["providers"].(*table).values[provider]; !valid || !exists {
+	listed, exists := root.values["providers"].(*table).values[provider]
+	if !valid || !exists {
 		return Model{}, fmt.Errorf("~/.agentkit/config.toml: [models.%s].provider=%s has no [providers.*] entry", name, valueRepr(entry.values["provider"]))
 	}
-	return Model{provider, fmt.Sprint(entry.values["model"])}, nil
+	model := Model{Provider: provider, ID: fmt.Sprint(entry.values["model"]), Harness: fmt.Sprint(entry.values["harness"]), Effort: fmt.Sprint(entry.values["effort"])}
+	if listed, ok := listed.(*table); ok {
+		accounts, _ := listed.values["accounts"].([]any)
+		for _, account := range accounts {
+			model.Accounts = append(model.Accounts, account.(string))
+		}
+	}
+	return model, nil
 }
 
 func valueRepr(value any) string {

@@ -190,3 +190,9 @@ func (s Screen) TableRow(texts []string, widths []int, words []string) string {
 	}
 	return strings.TrimRight(strings.Join(parts, "  "), " ")
 }
+
+// Typed is whether a person is at this command's keyboard: agents run ak with no terminal on
+// stdin.
+func Typed() bool {
+	return isTerminal(os.Stdin)
+}

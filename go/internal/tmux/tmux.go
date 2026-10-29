@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -29,23 +30,58 @@ func Own() string {
 	return "agentkit"
 }
 
-// A Session is one tmux session's name and its Mark, empty where it has none.
-type Session struct{ Name, Mark string }
+// A Session is one tmux session: its name, its Mark (empty where it has none), the directory
+// it started in and when, in seconds since the epoch.
+type Session struct {
+	Name, Mark, Path string
+	Created          int64
+}
 
 // Sessions are the sessions one server holds, Control aside. A server not running, no tmux,
 // or one not answering holds none; asking starts no server.
 func Sessions(server string) []Session {
-	out, err := run(server, "list-sessions", "-F", "#{session_name}\t#{"+Mark+"}")
+	out, err := run(server, "list-sessions", "-F", "#{session_name}\t#{session_path}\t#{session_created}\t#{"+Mark+"}")
 	if err != nil {
 		return nil
 	}
 	var found []Session
 	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
-		if at := strings.LastIndexByte(line, '\t'); at >= 0 && line[:at] != Control {
-			found = append(found, Session{line[:at], line[at+1:]})
+		if parts := strings.Split(line, "\t"); len(parts) == 4 && parts[0] != Control {
+			created, err := strconv.ParseInt(parts[2], 10, 64)
+			if err != nil {
+				created = time.Now().Unix()
+			}
+			found = append(found, Session{parts[0], parts[3], parts[1], created})
 		}
 	}
 	return found
+}
+
+// Dead are the sessions on that server whose panes have all exited, which tmux still holds.
+func Dead(server string) map[string]bool {
+	dead, alive := map[string]bool{}, map[string]bool{}
+	out, err := run(server, "list-panes", "-a", "-F", "#{session_name}\t#{pane_dead}")
+	if err != nil {
+		return dead
+	}
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		if name, flag, _ := strings.Cut(line, "\t"); flag == "1" {
+			dead[name] = !alive[name]
+		} else {
+			alive[name], dead[name] = true, false
+		}
+	}
+	return dead
+}
+
+// Term is the TERM tmux is run with where this box has no terminfo for the one in the
+// environment, and "" where it has: tmux refuses a terminal it cannot describe.
+func Term() string {
+	term := os.Getenv("TERM")
+	if term == "" || term == "xterm-256color" || exec.Command("infocmp", term).Run() == nil {
+		return ""
+	}
+	return "xterm-256color"
 }
 
 // run asks one server. $TMUX goes: inside somebody's tmux, a call to the default server

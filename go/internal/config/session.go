@@ -25,6 +25,20 @@ func Fold(text string) string {
 	return strings.Join(strings.FieldsFunc(text, Space), " ")
 }
 
+// SessionName is the name a seat typed as raw is opened under: lower case, a dash for each run
+// of anything else, at most 40 characters, and none for the name of Go's control session.
+func SessionName(raw string) string {
+	name := sessionPunctuation.ReplaceAllString(strings.ToLower(Fold(raw)), "-")
+	name = strings.Trim(sessionDashes.ReplaceAllString(name, "-"), "-")
+	if len(name) > 40 {
+		name = name[:40]
+	}
+	if name = strings.Trim(name, "-"); name == "_ak" {
+		return ""
+	}
+	return name
+}
+
 func sessionPath(name string) (string, error) {
 	if name == "" || name == "." || name == ".." || filepath.Base(name) != name {
 		return "", fmt.Errorf("invalid AGENTKIT_SESSION name %s", commandhelp.Quote(name))
@@ -62,15 +76,7 @@ func ResolveSession(name string) (string, map[string]any, error) {
 	}
 	if strings.Contains(name, " ") {
 		if _, err := os.Stat(path); err != nil {
-			name = sessionPunctuation.ReplaceAllString(strings.ToLower(name), "-")
-			name = strings.Trim(sessionDashes.ReplaceAllString(name, "-"), "-")
-			if len(name) > 40 {
-				name = name[:40]
-			}
-			name = strings.Trim(name, "-")
-			if name == "_ak" {
-				name = ""
-			}
+			name = SessionName(name)
 		}
 	}
 	origin, err := sessionPath(name)

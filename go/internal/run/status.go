@@ -32,7 +32,7 @@ func sameModel(models map[string]config.Model, first, second string) bool {
 	}
 	one, ok := models[first]
 	two, found := models[second]
-	return ok && found && one == two
+	return ok && found && one.Provider == two.Provider && one.ID == two.ID
 }
 
 // SelfReviewed is whether the executor's own model reviews the run: the recorded review's
@@ -194,11 +194,11 @@ func StepWord(record *Object, now time.Time) string {
 	if _, isBool := record.Get("step_at").(bool); !ok || isBool {
 		return Text(record.Get("step"))
 	}
-	return Text(record.Get("step")) + " " + span(seconds(now)-at)
+	return Text(record.Get("step")) + " " + Span(seconds(now)-at)
 }
 
-// span is a length of time in the one unit that says the most about it: `2d`, `3h`, `45s`.
-func span(elapsed float64) string {
+// Span is a length of time in the one unit that says the most about it: `2d`, `3h`, `45s`.
+func Span(elapsed float64) string {
 	secs := int64(max(0, elapsed))
 	for _, unit := range []struct {
 		name string

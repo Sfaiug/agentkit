@@ -33,7 +33,7 @@ func validateWorker(args []string) string {
 	if !isDir(workspace) {
 		return "no such workspace: " + workspace
 	}
-	if err := config.CheckModel(parsed.words[0]); err != nil {
+	if _, err := config.ModelNamed(parsed.words[0]); err != nil {
 		return err.Error()
 	}
 	return ""
