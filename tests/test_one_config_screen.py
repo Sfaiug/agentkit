@@ -8,8 +8,8 @@ tests/test_session_models_screen.py does, in a temporary HOME holding the shippe
 seat `fix-api`'s record and ~/code/ACME, whose AGENTS.md names its feature switches so its
 heading is a row.  A `tmux` on PATH writes down each call and answers nothing.  The seat
 listing, each seat's word, the usage rows, the meters, the orchestrator switch (it only writes
-the record), a seat's harness command, its launch and opening it are faked; the records, the
-config file and `orch.create` are real.  Nothing starts a seat or a tmux server, and the only
+the record), its bar's redraw, a seat's harness command, its launch and opening it are faked;
+the records, the config file and `orch.create` are real.  Nothing starts a seat or a tmux server, and the only
 process signalled is the test's own child.
 """
 
@@ -38,7 +38,7 @@ from agentkit import config, terminal
 CHILD = r"""
 import os, sys
 sys.path.insert(0, os.environ["ONE_REPO"])
-from agentkit import config, menu, motion, orch, run, usage
+from agentkit import config, handback, menu, motion, orch, run, usage
 motion.FADE = 0     # each page as drawn from its first frame: test_page_comes_up.py's
 
 cfg = config.load()
@@ -47,6 +47,7 @@ config.save_session(cfg, "fix-api", "opus", ["opus", "astra"],
 orch.listing = lambda reconcile=True: [{"name": "fix-api", "repo": str(config.CODE / "ACME"),
                                         "path": "/", "created": 0}]     # under ACME's heading
 orch.job_notices = lambda: []
+handback.redress_seat = lambda session: None    # a bar to redraw needs a seat
 menu.seat_row_state = lambda cfg, session, **facts: {"word": "working", "reason": "",
                                                      "since": None}
 menu.usage_lines = lambda cfg, width, **_kw: []
