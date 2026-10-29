@@ -348,7 +348,7 @@ func statusIDCell(name string, room int) string {
 	if terminal.Cells(name) <= room {
 		return name
 	}
-	if len(name) < 14 || !digitsOnly(name[:8]) || name[8] != '-' || !digitsOnly(name[9:13]) || name[13] != '-' {
+	if len(name) < 14 || !config.Digits(name[:8]) || name[8] != '-' || !config.Digits(name[9:13]) || name[13] != '-' {
 		return terminal.Cut(name, room)
 	}
 	head, slug := name[:8]+" "+name[9:13]+" ", name[14:]
@@ -375,15 +375,6 @@ func statusIDCell(name string, room int) string {
 		return head + terminal.Cut(slug, room)
 	}
 	return head + current + "…"
-}
-
-func digitsOnly(text string) bool {
-	for _, r := range text {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return text != ""
 }
 
 // roundCell is `round 2/3`, with any extension.

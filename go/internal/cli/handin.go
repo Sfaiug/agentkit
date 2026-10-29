@@ -176,7 +176,7 @@ func validateHandIn(args []string) string {
 
 func checkedSite(site, root, quote string, hasQuote bool) error {
 	colon := strings.LastIndexByte(site, ':')
-	if colon < 1 || !digits(site[colon+1:]) {
+	if colon < 1 || !config.Digits(site[colon+1:]) {
 		return fmt.Errorf("name the location as path:line with a numeric line")
 	}
 	name := site[:colon]
@@ -192,7 +192,7 @@ func checkedSite(site, root, quote string, hasQuote bool) error {
 	if err != nil {
 		return err
 	}
-	lines := len(splitLines(content))
+	lines := len(config.SplitLines(content))
 	line, err := strconv.Atoi(site[colon+1:])
 	if err != nil || line < 1 || line > lines {
 		return fmt.Errorf("choose a line from 1 to %d in %s", lines, relative)

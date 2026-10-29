@@ -43,7 +43,7 @@ func count(key string) (int, error) {
 // MaxRuns is the host's count ceiling; zero means no count cap.
 func MaxRuns() (int, error) {
 	if override, set := os.LookupEnv("AK_MAX_RUNS"); set {
-		if !digitsOnly(override) {
+		if !Digits(override) {
 			return 0, fmt.Errorf("AK_MAX_RUNS must be a non-negative integer (0 disables the cap for tests)")
 		}
 		value, _ := strconv.Atoi(override)
@@ -113,13 +113,4 @@ func MaxLoadSet() bool {
 	}
 	value, _, err := topLevel("max_load")
 	return err == nil && value != nil
-}
-
-func digitsOnly(text string) bool {
-	for _, r := range text {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return text != ""
 }

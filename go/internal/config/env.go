@@ -34,6 +34,16 @@ func SplitLines(text string) []string {
 	return strings.Split(strings.TrimSuffix(lineBreaks.Replace(text), "\n"), "\n")
 }
 
+// Digits is whether text is one or more of the ASCII digits 0 to 9.
+func Digits(text string) bool {
+	for _, r := range text {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return text != ""
+}
+
 // RepoEnv is the KEY=value pairs of ~/.agentkit/env/<checkout name>.env, none without that
 // file: a project's test secrets live on the machine, never in its repository.  A line the file
 // gets wrong is an error, by its number and without its value: a variable dropped in silence

@@ -36,7 +36,7 @@ func Main(args []string, out, errOut io.Writer) int {
 		if _, set := os.LookupEnv("AK_RUN_DEPTH"); !set {
 			raw = "0"
 		}
-		if !digits(raw) {
+		if !config.Digits(raw) {
 			fmt.Fprintln(errOut, "ak run: AK_RUN_DEPTH must be a non-negative integer")
 			return 2
 		}
