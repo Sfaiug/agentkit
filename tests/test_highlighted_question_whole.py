@@ -108,7 +108,7 @@ class SeatQuestionWhole(Sandbox):
         # and the rows after it stay on the page
         self.assertIn("Reason 5: the parser reads… 2 acme-web", screen)
         self.assertIn("2 acme-web opus ! needs you", screen)
-        self.assertTrue(screen.endswith("← 1 / 6 → n new c config esc leave"), screen)
+        self.assertTrue(screen.endswith("← 1 / 3 → n new c config esc leave"), screen)
 
     def test_the_usage_keeps_its_form_however_long_a_question(self):
         # the usage's form is the screen's size alone: a seat asking at length takes its lines
@@ -142,6 +142,16 @@ class SeatQuestionWhole(Sandbox):
                     self.assertLessEqual(len(lines), height - 2, "\n".join(lines))
                     self.assertTrue(lines[0].startswith("  Claude"), lines)
                     self.assertIn("esc leave", lines[-1])
+
+    def test_a_long_question_takes_lines_from_its_own_page_only(self):
+        # one seat asking at length shrinks its own page, never the others (the owner, 29 Oct
+        # 2026: "sometimes its also only 2 shown here, even though it could be more")
+        short = [seat(1, "fix-api", sentence="Merge PR #8 by bob? yes/no")] + ROWS[1:]
+        for width, height in ((62, 19), (64, 28), (100, 30)):
+            with self.subTest(width=width, height=height):
+                _, (_, long_pages), _ = self.draw("fix-api", width, height)
+                _, (_, short_pages), _ = self.draw("fix-api", width, height, seats=short)
+                self.assertLessEqual(long_pages, short_pages + 1)
 
     def test_no_page_turns_as_the_highlight_moves(self):
         for width in (44, 62, 100):
