@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+
+	"agentkit/internal/config"
 )
 
 type span struct{ lo, hi rune }
@@ -27,12 +29,6 @@ func cell(r rune) int {
 	return 1
 }
 
-// space is a character Python's str.split() splits on: Go's White_Space and the
-// four information separators.
-func space(r rune) bool {
-	return unicode.IsSpace(r) || (r >= 0x1c && r <= 0x1f)
-}
-
 // Cells is the columns a terminal gives text, its colour escapes taking none.
 func Cells(text string) int {
 	total := 0
@@ -49,11 +45,11 @@ func Plain(text string) string {
 	for i, r := range text {
 		// a byte that is no UTF-8 is a lone surrogate to Python, a control like any other
 		invalid := r == unicode.ReplacementChar && !strings.HasPrefix(text[i:], "\uFFFD")
-		if !invalid && (space(r) || !unicode.In(r, unicode.C)) {
+		if !invalid && (config.Space(r) || !unicode.In(r, unicode.C)) {
 			kept.WriteRune(r)
 		}
 	}
-	return strings.Join(strings.FieldsFunc(kept.String(), space), " ")
+	return strings.Join(strings.FieldsFunc(kept.String(), config.Space), " ")
 }
 
 // Cut fits text in room with one ellipsis, preferring a word boundary at most four

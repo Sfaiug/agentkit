@@ -4,9 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 func TestSeatEnvReadsAdaptersUnderAHomeNamedLikeAPattern(t *testing.T) {
@@ -39,9 +41,24 @@ func TestRepoEnvReadsTheProjectsEnvFile(t *testing.T) {
 	if want := map[string]string{"TOKEN": "a b", "PLAIN": "x=y", "QUOTE": "'"}; err != nil || !reflect.DeepEqual(env, want) {
 		t.Fatalf("got %v %v", env, err)
 	}
+	// Python's strip() takes the unit separator, which no line break splits on, off both ends
+	os.WriteFile(path, []byte("\x1fexport\x20\x1fKEY\x1f=\x1fv\x1f\n"), 0o600)
+	if env, err := RepoEnv("/code/acme"); err != nil || !reflect.DeepEqual(env, map[string]string{"KEY": "v"}) {
+		t.Fatalf("got %v %v", env, err)
+	}
 	os.WriteFile(path, []byte("A=1\nsecret value\n"), 0o600)
 	if _, err := RepoEnv("/code/acme"); err == nil || !strings.HasSuffix(err.Error(), "acme.env:2: not a KEY=value line") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// Space is the set SpaceClass names, so a rune and a regular expression read whitespace alike.
+func TestSpaceIsSpaceClass(t *testing.T) {
+	class := regexp.MustCompile(SpaceClass)
+	for r := rune(0); r <= unicode.MaxRune; r++ {
+		if Space(r) != class.MatchString(string(r)) {
+			t.Fatalf("%U: Space says %v, SpaceClass the opposite", r, Space(r))
+		}
 	}
 }
 
