@@ -149,6 +149,27 @@ class TurnMeters(unittest.TestCase):
         self.assertEqual(self.used("default", "session")["used"], 10)
         self.assertEqual(self.used("default", "weekly_scoped")["used"], 40)
 
+    def test_a_usual_login_turn_lands_where_the_config_keeps_that_login_now(self):
+        self.cache()
+        # The turn's copy of the config is from before `accounts` was added.
+        stale = {**self.cfg, "providers": {"anthropic": {}}}
+        meters = claude_hook.turn_meters(self.out(self.event(0.02, 0.8)))
+        self.assertTrue(usage.record_turn_meters(stale, "anthropic", meters, None,
+                                                 now=self.now + 10))
+        self.assertEqual(self.used("default")["used"], 80.0)
+        self.assertEqual(self.used("acme-second")["used"], 55)
+        # ... and one named `default` after they were removed is the provider's own record.
+        (config.HOME / "config.toml").write_text(
+            CONFIG.replace('accounts = ["default", "acme-second"]\n', ""))
+        blob = json.loads((config.STATE / "usage.json").read_text())
+        blob["providers"]["anthropic"] = blob["providers"]["anthropic"]["accounts"]["acme-second"]
+        (config.STATE / "usage.json").write_text(json.dumps(blob))
+        meters = claude_hook.turn_meters(self.out(self.event(0.02, 0.4)))
+        self.assertTrue(usage.record_turn_meters(self.cfg, "anthropic", meters, "default",
+                                                 now=self.now + 20))
+        self.assertEqual(next(m["used"] for m in usage.collect(self.cfg)["anthropic"]["meters"]
+                              if m["name"] == "weekly_all"), 40.0)
+
     def test_a_turn_without_the_event_changes_nothing(self):
         self.cache()
         before = (config.STATE / "usage.json").read_text()
