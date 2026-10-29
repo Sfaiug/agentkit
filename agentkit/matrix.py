@@ -308,13 +308,13 @@ def rank(cfg, role, names):
             for name, row in found.items()}
 
 
-def notes(row, said, role):
-    """What the models screen notes beside a front row of `said`, `answer`'s for `role`."""
-    estimated = sum(one["how"] == "estimated" for one in row["measures"].values())
+def notes(row, said):
+    """What the models screen notes beside a front row of `said`, `answer`'s for a role."""
+    missing = sum(one["how"] == "missing" for one in row["measures"].values())
     return [word for word, true in (
         ("pick", row is said["pick"]),
-        ("tie", row is not said["pick"] and said["pick"] and quality.tie(row, said["pick"], role)),
-        (f"{estimated} estimated", estimated), ("no harness", not row["yours"])) if true]
+        ("tie", row is not said["pick"] and said["pick"] and quality.tie(row, said["pick"])),
+        (f"{missing} missing", missing), ("no harness", not row["yours"])) if true]
 
 
 def main(argv):
@@ -332,7 +332,7 @@ def main(argv):
     if "--json" in flags:
         json.dump({**{role: {"best": said["best"], "front": [
             {**{key: row[key] for key in ("release", "name", "effort", "quality", "se", "cost")},
-             "notes": notes(row, said, role)} for row in said["front"][::-1]]}
+             "notes": notes(row, said)} for row in said["front"][::-1]]}
             for role, said in found.items()}, "live": own}, sys.stdout, indent=2)
         print()
         return 0

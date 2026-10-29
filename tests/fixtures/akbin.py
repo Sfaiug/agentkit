@@ -151,12 +151,14 @@ class Home:
         with open(__file__, "rb") as opened:
             # past the standard streams, which the reaper's own replace
             script = fcntl.fcntl(opened, fcntl.F_DUPFD_CLOEXEC, 3)
-        self._reaper = subprocess.Popen(
-            ["/bin/sh", "-c", 'read _ || exec "$@"', "sh", sys.executable, "-I",
-             f"/dev/fd/{script}", "reap", self.root, self.tmux_dir],
-            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True, pass_fds=[script])
-        os.close(script)
+        try:
+            self._reaper = subprocess.Popen(
+                ["/bin/sh", "-c", 'read _ || exec "$@"', "sh", sys.executable, "-I",
+                 f"/dev/fd/{script}", "reap", self.root, self.tmux_dir],
+                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True, pass_fds=[script])
+        finally:
+            os.close(script)
         os.register_at_fork(after_in_child=self._reaper.stdin.close)
         self._spawned = []
         for directory in (self.path / ".agentkit" / "state", self.bin, self.root / "tmp",

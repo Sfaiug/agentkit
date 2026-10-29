@@ -51,7 +51,7 @@ class ModelsCommand(unittest.TestCase):
             ("Acme Mid 5", "high", 97.8, 15.0, ["tie"]),
             ("Acme Max 5", "high", 95.3, 10.0, ["pick", "no harness"]),
             ("Bolt 3", "medium", 93.2, 3.0, ["tie"]),
-            ("Crux 2", "low", 74.3, 1.0, ["1 estimated"])])
+            ("Crux 2", "low", 74.0, 1.0, ["1 missing"])])
         self.assertEqual(found["execute"]["front"][0]["release"], "acme-max-5")
         self.assertGreater(found["execute"]["front"][0]["se"], 0)
         self.assertEqual(found["live"], {name: dict.fromkeys(("orchestrate", "execute", "review"))
