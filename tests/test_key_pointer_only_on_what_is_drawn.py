@@ -61,8 +61,11 @@ class OnlyWhatIsDrawn(unittest.TestCase):
     def setUp(self):
         self.term = Terminal(self.home, size=(100, 30), env={"NO_COLOR": "1"})
         self.addCleanup(self.leave)
+        # the menu's own probe redraws each usage row once it is read, a moment after the menu
+        # opens: read the screen after it, so no row a test compares changes under it
         self.shown = lines(self.term.wait(lambda screen: KEYS in lines(screen)
-                                          and "› 1  atoll-fix  " in screen))
+                                          and "› 1  atoll-fix  " in screen
+                                          and "no reading yet" not in screen))
 
     def leave(self):
         for name in attached(self.home):
