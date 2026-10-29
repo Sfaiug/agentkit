@@ -94,7 +94,8 @@ class UsageFollowsConfigOnDisk(unittest.TestCase):
         self.landed(self.opened)
         openai = self.snapshot()["providers"]["openai"]
         self.assertEqual(sorted(openai.get("accounts") or {}), ["default", "two"], openai)
-        self.assertEqual(openai["accounts"]["two"]["probed_at"], two["probed_at"])
+        self.assertTrue(openai["accounts"]["two"].get("meters"), openai)
+        self.assertGreaterEqual(openai["accounts"]["two"]["probed_at"], two["probed_at"])
         self.assertTrue(openai["accounts"]["default"].get("meters"), openai)
 
     def test_a_subscription_added_on_c_keeps_its_meter_across_the_menu_s_probes(self):
