@@ -336,7 +336,7 @@ def main(argv):
             for role, said in found.items()}, "live": own}, sys.stdout, indent=2)
         print()
         return 0
-    body, _ = menu.models_body(menu.models_said(found), within(cfg), marked, len(current),
+    body, _ = menu.models_body(menu.models_said(found, rows), within(cfg), marked, len(current),
                                stored().get("fetched_at"))
     print("\n".join([*body, *(["", *live_lines(own)] if own else [])]))
     return 0

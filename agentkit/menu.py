@@ -2970,6 +2970,7 @@ LEGEND = (("as good", "{} within {} points of the best, then the cheapest"),
           ("≈ tie", "the boards cannot tell it from ★ pick"),
           ("missing", "scores no effort of it has, counted as its worst"))
 KNOB = ("legend", "within")
+LINES = ("lines",)                # the rows' lines, which grow in as they first show
 NAMED = 13                        # the cells before a legend line's words: its name's column
 # the why's words: what a row does in each role, and each measure's evaluation by its name
 DOES = {"orchestrate": "orchestrates", "execute": "builds", "review": "reviews"}
@@ -2988,14 +2989,19 @@ def pointed(role, row):
     return ("row", role, row["release"], row["effort"])
 
 
-def models_said(answer):
+def models_said(answer, lineup):
     """What the models screen says of `answer` (matrix.answer) per role: (its head and best,
     `none` with no front, its lines): the front best first, the pick and up to NEAR rows either
-    side, each (where the pointer is on it, name, ` effort` or "" for none, quality, cost,
-    notes), and under a pick not yours what `r` takes.  With no pick, no priced row being within `within` of the best, the
-    front from its best, said so."""
+    side, each (where the pointer is on it, name, its effort's cells out of the efforts its
+    release has in `lineup` (terminal.effort_cells), its effort or "" for none, how near the
+    role's best it is from 0, config.POINTS behind or more, to 1, quality, cost, notes), and
+    under a pick not yours what `r` takes.  With no pick, no priced row being within `within`
+    of the best, the front from its best, said so."""
     def effort(row):
         return f" {row['effort']}" if row["effort"] else ""
+    levels = {}
+    for row in lineup:
+        levels.setdefault(row["release"], []).extend([row["effort"]] if row["effort"] else [])
     said = []
     for role, head in zip(quality.ROLES, orch.ROLE_HEADS):
         found = answer[role]
@@ -3004,12 +3010,15 @@ def models_said(answer):
         lines = [] if pick or not front else ["no row with a cost is as good"]
         for row in front[max(0, at - NEAR):at + NEAR + 1]:
             missing = sum(one["how"] == "missing" for one in row["measures"].values())
-            notes = ("★ pick" if row is pick else
+            notes = (terminal.styled("★ pick", "accent") if row is pick else
                      "≈ tie" if pick and quality.tie(row, pick) else "",
                      f"{missing} missing" if missing else "",
                      "" if row["yours"] else "no harness")
-            lines.append((pointed(role, row), row["name"], effort(row), f"{row['quality']:.1f}",
-                          f"${row['cost']:.2f}", " · ".join(filter(None, notes))))
+            taken = levels.get(row["release"], [])
+            lines.append((pointed(role, row), row["name"], terminal.effort_cells(
+                len(taken), taken.index(row["effort"]) + 1 if row["effort"] in taken else 0),
+                row["effort"] or "", max(0, 1 - (found["best"] - row["quality"]) / config.POINTS),
+                f"{row['quality']:.1f}", f"${row['cost']:.2f}", " · ".join(filter(None, notes))))
             if row is pick and not row["yours"]:
                 lines.append(f"r takes {take['name']}{effort(take)}, {take['quality']:.1f}, "
                              f"${take['cost']:.2f}" if take
@@ -3018,56 +3027,82 @@ def models_said(answer):
     return said
 
 
-def models_body(said, within, compared, total, fetched, at=None):
+def models_body(said, within, compared, total, fetched, at=None, moves=None):
     """The models screen's lines, and the row each says, the row `at` marked, or the legend
     (KNOB): {line: (row, [])}.
 
-    Per role (models_said) its head over the columns, then its lines.  Where a row is too wide
-    for the screen, from 40 cells up, each row's numbers and notes take a line under its name,
-    the name alone cut, its effort kept, its notes broken only between two.  Then the legend,
-    opening on `within`'s knob (points_knob), never broken, and how many of the
-    `total` models are `compared` (matrix.compared) and when the boards were read, broken only
-    at ` · `."""
+    Per role (models_said) its head over the columns, then its lines: a row's name, its effort
+    as `c` draws one -- its cells, then its word, in one column after the most cells any row
+    has -- its line (terminal.share_line), taking the room the other columns leave, then its
+    quality, cost and notes.  Where that leaves the line under 8 cells, from 40 cells up, each
+    row's name and effort take a line and its line, numbers and notes the next, the name alone
+    cut; notes too wide for it take lines of their own under it, broken only between two.
+    `moves`, a list, is handed each row's line, LINES and how it grows in as the screen opens,
+    row after row (motion.growing).  Then the legend, opening on `within`'s knob (points_knob),
+    never broken, and how many of the `total` models are `compared` (matrix.compared) and when
+    the boards were read, broken only at ` · `."""
     room = terminal.layout_width()
     rows = [line for _, lines in said for line in lines if isinstance(line, tuple)]
-    widths = [max([terminal.cells(head) - 2 for head, _ in said]
-                  + [terminal.cells(name + effort) for _, name, effort, *_ in rows]),
-              *(max(terminal.cells(text) for text in [head, *(row[n] for row in rows)])
-                for n, head in ((3, "quality"), (4, "a task"), (5, "")))]
-    wide = 4 + sum(widths) + 6 <= room
+    tall = max((len(cells) for _, _, cells, *_ in rows), default=0)
+
+    def effort(cells, word):
+        lead = "".join(cells) + " " * (tall - len(cells) + 1) if tall else ""
+        return lead + word if word else ""
+    label, levelled = (max((terminal.cells(text) for text in texts), default=0) for texts in (
+        [name for _, name, *_ in rows], [effort(cells, word) for _, _, cells, word, *_ in rows]))
+    widths = [max(terminal.cells(text) for text in [head, *(row[n] for row in rows)])
+              for n, head in ((5, "quality"), (6, "a task"), (7, ""))]
+    beside = 2 + widths[0] + 2 + widths[1] + 2 + widths[2]    # what follows the line
+    size = room - 4 - label - 2 - levelled - 2 - beside
+    wide = size >= 8
+    size = size if wide else max(8, room - 4 - beside)
     lines, places = [], {}
 
     def put(line, here=None):
+        line = line.rstrip()
         if here is not None:
             if here == at:
                 line = terminal.highlight(line, here not in [row for row, _ in places.values()])
             places[len(lines)] = (here, [])
         lines.append(line)
+
+    def grows(lead, after):
+        """The line just put, after its `lead`, grows in `after` rows' lines from the first."""
+        drawn, span = lines[-1], slice(len(terminal.cell_texts(lead)),
+                                       len(terminal.cell_texts(lead)) + size)
+        moves.append((len(lines) - 1, LINES, None, lambda clock, row, since, _: grow_line(
+            clock, row, drawn, span, lambda cells: motion.growing(
+                cells, since + after * motion.STAGGER))))
     for head, said_lines in said:
         here, columns = None, ["quality", "a task"]
         if wide and said_lines:
-            put(terminal.table_row([head, *columns], [widths[0] + 2, *widths[1:3]], indent="  ",
-                                   kinds=(None, "dim", "dim"), right=(1, 2)))
+            put(terminal.table_row([head, *columns], [label + levelled + size + 6, *widths[:2]],
+                                   indent="  ", kinds=(None, "dim", "dim"), right=(1, 2)))
         else:
             put("  " + head)
             if said_lines:
-                put(terminal.table_row(columns, widths[1:3], indent="    ", kinds=("dim", "dim"),
-                                       right=(0, 1)))
+                put(terminal.table_row(columns, widths[:2], indent=" " * (6 + size),
+                                       kinds=("dim", "dim"), right=(0, 1)))
         for line in said_lines:
             if isinstance(line, str):     # the words under the pick, wrapped at words, are its row's
                 for part in terminal.wrap(line, room - 6):
                     put("      " + part, here)
                 continue
-            here, name, effort, *numbers, notes = line
-            if wide:
-                put(terminal.table_row([name + effort, *numbers, notes], widths, indent="    ",
-                                       right=(1, 2)), here)
-                continue
-            put(f"    {terminal.cut(name, room - 4 - terminal.cells(effort))}{effort}", here)
-            numbers = terminal.table_row(numbers, widths[1:3], indent="    ", right=(0, 1))
-            gap = " " * (terminal.cells(numbers) + 2)
-            for number, part in enumerate(packed(notes.split(" · "), " · ", room - len(gap))):
-                put(((numbers + "  " if number == 0 else gap) + part).rstrip(), here)
+            here, name, cells, word, near, *numbers, notes = line
+            text = effort(cells, word)
+            name = terminal.pad(name, label if wide else min(label, room - 6 - levelled))
+            lead = f"    {name}  {text}{' ' * (levelled - terminal.cells(text))}  "
+            if not wide:
+                put(lead, here)
+                lead = "    "
+            tail = (f"{terminal.share_line(near, size)}  {numbers[0]:>{widths[0]}}  "
+                    f"{numbers[1]:>{widths[1]}}")
+            fits = wide or terminal.cells(f"{lead}{tail}  {notes}") <= room
+            put(f"{lead}{tail}  {notes if fits else ''}", here)
+            if moves is not None:
+                grows(lead, rows.index(line))
+            for part in [] if fits else packed(notes.split(" · "), " · ", room - 6):
+                put("      " + part, here)
     put("", KNOB)
     knob = points_knob(within)
     word = "_" * (terminal.cells(knob) + 1)   # one word, so the knob never breaks, and its gap
@@ -3191,7 +3226,7 @@ def models_screen(cfg, session, selected, providers):
     """
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
     here, top, note, title = None, 0, "", f"models · {session or NEW_SEATS}"
-    clock = motion.Clock(page=True)
+    clock, lineup = motion.Clock(page=True), []
     while True:
         if fetch is not None and not fetch.is_alive():
             try:                      # a board that failed answers with its error, kept a day
@@ -3202,19 +3237,23 @@ def models_screen(cfg, session, selected, providers):
             note = f"the boards were not read: {failed}" if failed else note
             held, fetch, answer = matrix.stored(), None, None
         if answer is None:
-            lineup = held.get("lineup") or []
+            lineup, was = held.get("lineup") or [], lineup
+            if lineup and not was:
+                clock.touch(LINES)    # news as they first show: the lines grow in
             current = {row["release"] for row in lineup}
             compared = matrix.compared(cfg, current)
             answer = matrix.answer(lineup, matrix.within(cfg), compared)
-            said = models_said(answer)
+            said = models_said(answer, lineup)
             rows = [line[0] for _, lines in said for line in lines if isinstance(line, tuple)]
             if here not in rows:
                 role = here[1] if here else next(iter(quality.ROLES))
                 pick = answer[role]["pick"]
                 here = pointed(role, pick) if pick else next(
                     (row for row in rows if row[1] == role), rows[0] if rows else None)
+        moves = []
         body, places = models_body(said, matrix.within(cfg), compared, len(current),
-                                   held.get("fetched_at"), None if terminal.away() else here)
+                                   held.get("fetched_at"), None if terminal.away() else here,
+                                   moves)
         # the legend stands under the rows whatever the height: the pointer never reaches it
         fold = next(line for line, (row, _) in places.items() if row == KNOB)
         places = {line: place for line, place in places.items() if line < fold}
@@ -3223,7 +3262,8 @@ def models_screen(cfg, session, selected, providers):
         act, here, _, top = matrix_key(title, body[:fold], places, rows, here, top, note,
                                        MODELS_KEYS["answer"][not terminal.utf8()], marks=0,
                                        under=body[fold:],
-                                       moves=[(fold + 1, KNOB, matrix.within(cfg), knob)],
+                                       moves=[*moves, (fold + 1, KNOB, matrix.within(cfg),
+                                                       knob)],
                                        clock=clock, fetched=lambda: fetch.began
                                        if fetch is not None and fetch.is_alive() else None,
                                        # one landed since the look above is taken at once
@@ -3389,9 +3429,8 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
         entry, taken = models[name], levels[name]
         for number, key in enumerate(config.ROLE_EFFORTS.values(), 3):
             effort = efforts[name, number] = entry.get(key, entry.get("effort", "?"))
-            # one effort is nothing to step to and no level to show
             levelled[name, number] = terminal.effort_cells(len(taken), taken.index(
-                effort) + 1 if effort in taken else 0) if len(taken) > 1 else []
+                effort) + 1 if effort in taken else 0)
     shows = {name: config_columns(selected, name) for name in names}
     beside = [(name, number) for name in names for number in shows[name] if number >= 3]
     label = max(terminal.cells(config.model_name(cfg, name)) for name in names)
