@@ -1,7 +1,7 @@
 """Every yes-or-no question reads as one calm card, `terminal.confirm`: a blank line, the question,
 one dim line on what the answer means, `✓ Keep` highlighted then `✗ <answer>` in the warn colour,
-and a blank line.  Esc keeps; Enter or a click answers.  On the main screen and in the popup it
-opens under the seat's row, the rows below moving down, and on a phone no choice wraps.
+and a blank line.  Esc keeps; Enter or a click on a choice answers.  On the main screen and in the
+popup it opens under the seat's row, the rows below moving down, and on a phone no choice wraps.
 
 The card is read in-process with the keys faked, and drawn on the real menu in a child on a pty
 of its own through tests/test_close_and_info.py's Menu, in a throwaway HOME with the seats and the
@@ -86,7 +86,8 @@ class QuestionCard(unittest.TestCase):
         self.assertFalse(ask([Key("enter")])[0])                    # Enter on Keep keeps too
         self.assertTrue(ask([Key("down"), Key("enter")])[0])
         self.assertTrue(ask([Key("click", col=4, row=9)])[0])      # a click on `✗ Stop`
-        self.assertFalse(ask([Key("click", col=4, row=2)])[0])     # ... and anywhere else keeps
+        # ... and one on nothing leaves the card up for the keys
+        self.assertTrue(ask([Key("click", col=4, row=2), Key("down"), Key("enter")])[0])
 
     def test_the_stop_card_opens_under_its_row_at_120_and_40_columns(self):
         for cols in (120, 40):
