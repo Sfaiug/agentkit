@@ -87,9 +87,10 @@ class UsageOneRequest(unittest.TestCase):
         self.env["FAKE"] = str(self.fake)
         # English weekday and month names, on any host: the HTTP date is parsed in them.
         self.env["LC_ALL"] = "C"
-        # A leaked export would outrank the worker token file and hide the choice.
-        self.env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
-        self.env.pop("AGENTKIT_ACCOUNT", None)
+        # A leaked export would outrank the worker token file and hide the choice, and a seat's
+        # account or config directory would be the login read instead of this one.
+        for name in ("CLAUDE_CODE_OAUTH_TOKEN", "AGENTKIT_ACCOUNT", "CLAUDE_CONFIG_DIR"):
+            self.env.pop(name, None)
 
     # --- the fixture ------------------------------------------------------
 

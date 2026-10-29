@@ -173,8 +173,10 @@ class Login(unittest.TestCase):
             "AGENTKIT_TMUX_SOCKET": "agentkit-test", "TMUX_TMPDIR": str(sockets),
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
             "PYTHONDONTWRITEBYTECODE": "1"}))
-        # a worker on another subscription names its account; these ask the usual login
-        os.environ.pop(config.ACCOUNT_ENV, None)
+        # a worker on another subscription names its account and hands down its login's home;
+        # these ask the usual login
+        for name in (config.ACCOUNT_ENV, "CLAUDE_CONFIG_DIR", "CODEX_HOME"):
+            os.environ.pop(name, None)
         config.ensure_dirs()
         self.cfg = config.load()
         self.fixture = self.root / "fixture"

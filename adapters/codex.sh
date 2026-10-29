@@ -30,7 +30,6 @@
 # subscription's own login, and no other
 set -uo pipefail
 command -v codex >/dev/null || PATH="$HOME/.npm-global/bin${PATH:+:$PATH}"   # install.sh's npm prefix puts it here: the fallback when PATH has no answer
-AUTH="$HOME/.codex/auth.json"
 TMPD="$HOME/.agentkit/tmp"
 # The repository's AGENTS.md is kept out of a worker's turn and a seat (`codex debug
 # prompt-input` shows it gone): their rules are the ones ak hands them, a seat's its rulebook
@@ -46,9 +45,10 @@ case ${CODEX_HOME:-} in "$HOME"/.codex-*) unset CODEX_HOME ;; esac
 ACCOUNT=${AGENTKIT_ACCOUNT:-}
 if [ -n "$ACCOUNT" ]; then
   export CODEX_HOME="$HOME/.codex-$ACCOUNT"
-  AUTH="$CODEX_HOME/auth.json"
   unset OPENAI_API_KEY CODEX_API_KEY
 fi
+# The login every verb reads is the one a turn reads: its Codex home's, one the user set included
+AUTH="${CODEX_HOME:-$HOME/.codex}/auth.json"
 # The three read/write endpoints the Codex TUI itself uses: /usage carries the meters and the
 # reset count, /rate-limit-reset-credits lists the credits, and .../consume spends one.
 API=https://chatgpt.com/backend-api/wham
@@ -311,10 +311,8 @@ lend)
   # turn on the access token until the `exp` that token carries.  A login by API key
   # (`codex login --with-api-key`) is lent as it is: no renewal retires a key.  Which of the
   # two a turn uses is codex's own choice: `auth_mode`, else the key wherever one is saved.
-  # It is read where a turn reads it, a Codex home set outside ak's included.
   [ $# -ge 1 ] || { echo "codex.sh lend needs <home>" >&2; exit 2; }
   command -v jq >/dev/null || { echo "codex.sh lend: jq is required" >&2; exit 2; }
-  AUTH=${CODEX_HOME:-$HOME/.codex}/auth.json
   lent=$(jq -c --argjson now "$(date +%s)" '
       (if (.auth_mode // (if .OPENAI_API_KEY == null then "chatgpt" else "apikey" end)) == "apikey"
        then .OPENAI_API_KEY | strings | select(test("[^[:space:]]")) | null
