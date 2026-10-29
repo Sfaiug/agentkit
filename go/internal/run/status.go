@@ -235,8 +235,8 @@ func declaredSuite(worktree, target string) string {
 
 // FinalCheck is the run's `final check:` line, or "" where its task cannot be read.
 func FinalCheck(dir string, record *Object) string {
-	cmds, ok := task.DoneWhen(filepath.Join(dir, "task.md"))
-	if !ok {
+	_, cmds, err := task.Read(filepath.Join(dir, "task.md"))
+	if err != nil {
 		return ""
 	}
 	if check := record.Dict("final_check"); check != nil {
