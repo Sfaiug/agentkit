@@ -130,21 +130,34 @@ class PlanBar(Sandbox):
         self.assertEqual(terminal.cells(tail), 50)
         for line in self.draw(100) + lines:
             self.assertNotRegex(line, r"~\d+[mhd] left")
-        # sixteen cells hold the line and its count; a column too short for it draws it whole
-        # under the row: never wrapped or cut, its colours kept
+        # the room beside the row holds its line and its count, the line shorter as the room
+        # is: never wrapped or cut, its colours kept, and never under the row on one screen
+        # while beside it on another one as wide (the owner, 29 Oct 2026)
         info = {"number": "1", "name": "acme-progress-checks", "orchestrator": "gpt-astra",
                 "count": "working", "word": "working", "sentence": "", "bar": (1, 6)}
-        with patch.object(terminal, "colour_depth", return_value=24):
-            [line] = menu.v5o_seat_blocks([info], 64)[0]
-            head, under = menu.v5o_seat_blocks([info], 63)[0]
-        for drawn, width in ((line, 64), (under, 63)):
-            self.assertEqual(terminal.cells(drawn), width)
-            self.assertIn("38;2;137;180;250m╸", drawn)          # the tip, in working's colour
-            self.assertTrue(terminal.plain(drawn).endswith(" 1 of 6"), drawn)
-        self.assertTrue(terminal.plain(head).endswith("● working"), head)
-        self.assertTrue(under.startswith("    "), under)
+        for width in (64, 63):
+            with patch.object(terminal, "colour_depth", return_value=24):
+                [line] = menu.v5o_seat_blocks([info], width)[0]
+            self.assertEqual(terminal.cells(line), width)
+            self.assertRegex(line, r"38;2;137;180;250m[━╸]")   # the tip, in working's colour
+            self.assertTrue(terminal.plain(line).endswith(" 1 of 6"), line)
         self.assertFalse(hasattr(menu, "seat_estimate"))
         self.assertFalse(hasattr(history, "estimate_seconds"))
+
+    def test_every_row_on_a_screen_draws_its_line_the_same_way(self):
+        # the owner, 29 Oct 2026: short lines beside some rows and long ones under others were
+        # one screen drawn two ways.  A phone draws every line under its row, a wider screen
+        # every one beside it, a draft's mark and a count of any width alike
+        rows = [{"number": str(n), "name": name, "orchestrator": "Opus 5.5", "count": "working",
+                 "word": "working", "sentence": "", "bar": bar, "unsent": unsent}
+                for n, (name, bar, unsent) in enumerate([
+                    ("acme-review-flow", (113, 117), ""), ("acme-checkout", (12, 13), ""),
+                    ("fix-api", (1, 1), ""), ("acme-web", None, ""),
+                    ("acme-docs", (4, 8), "a draft")], 1)]
+        for width in range(40, 121):
+            with self.subTest(width=width):
+                blocks = menu.v5o_seat_blocks(rows, width)
+                self.assertEqual({len(block) for block in blocks}, {1 if width >= 60 else 2})
 
     def test_a_row_draws_its_last_column_in_the_cells_it_truly_has_left(self):
         # long name and model columns leave fewer than ten cells: neither the bar nor a sentence

@@ -1296,9 +1296,9 @@ def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", 
     with neither draws that line with nothing done and `no plan yet`, a light going round it
     on the menu alone (`motion.circling`); else empty -- never `N running`, and no other
     sentence: what a seat asks or did opens under its row (`detail`).  Where the owner left text `unsent`, `✎ unsent` follows two cells after,
-    in the needs-you colour.  The line keeps 8 cells at least, which a row too short for them
-    draws under itself; where `room` is all there is -- a `narrow` screen's line, each width of
-    a seat's bar -- it takes that room and never more, the mark alone where both do not fit.
+    in the needs-you colour.  The line keeps 8 cells at least; where `room` is all there is
+    (`narrow`) -- a row's last column, each width of a seat's bar -- it takes that room and
+    never more, the count alone where no cell of line fits, the mark alone where both do not.
     `tmux` draws it for a seat's bar.  The row and the bar read this one function, so the two
     can never disagree.  A seat out of usage says when it comes back, `back 19:20` (`back`), in
     its word's colour, in its progress's place."""
@@ -1437,8 +1437,13 @@ def v5o_column_widths(infos, term_width):
         else:
             orch_w -= 1
     fixed = 2 + num_w + 2 + name_w + 2 + orch_w + state_w + 2
+    # Every row's last column stands beside it, its line taking what its count leaves, or --
+    # on a phone, or where that room would not hold some row's count or mark -- every row's
+    # goes under it: never some rows one way and some the other (the owner, 29 Oct 2026).
+    least = max([10] + [terminal.cells(_last_text(info, 0, narrow=True)) for info in infos])
     return {"room": room, "narrow": term_width < 60, "num": num_w, "name": name_w,
-            "orch": orch_w, "count": count_w, "worker": orch_w, "bar": 0,
+            "orch": orch_w, "count": count_w, "worker": orch_w,
+            "under": term_width < 60 or room - fixed < least,
             "sent": max(10, room - fixed), "free": room - fixed}
 
 
@@ -1466,8 +1471,9 @@ def v5o_seat_blocks(infos, term_width, widths=None, most=None, details=None):
 
     Fixed columns with two-space gutters, from `widths` (one `v5o_column_widths`
     per draw): number, name, orchestrator, state, and one last column, the seat's progress
-    line (`_last_text`) where it has a plan. Content is capped at 100 columns. A line too long
-    for the column, or one on a narrow phone, goes whole on the indented line under its row.
+    line (`_last_text`) where it has a plan, in the room beside the row. Content is capped at
+    100 columns. On a narrow phone, or where that room holds no row's count, every row's line
+    goes whole on the indented line under it (`v5o_column_widths`).
     `details` are the lines each seat named in it opens under its row (`detail`), indented
     under the name; a block of more than `most` lines is cut to them, ending in `…`. Never cut
     inside a glyph or a colour sequence.
@@ -1481,12 +1487,12 @@ def v5o_seat_blocks(infos, term_width, widths=None, most=None, details=None):
     blocks = []
     for info in infos:
         head = _head(info, widths)
-        last = "" if narrow else _last_text(info, widths["free"])
-        if last and widths["free"] >= 10 and terminal.cells(last) <= widths["free"]:
+        last = "" if widths["under"] else _last_text(info, widths["free"], narrow=True)
+        if last:
             block = [head + "  " + last]
         else:
-            # a line too long for the column is never wrapped, which drops its colours, and a
-            # row without ten cells left starts nothing: it goes under its row, in that room
+            # a line is never wrapped, which drops its colours: on a screen whose rows have no
+            # room beside them it goes under its row, in that room
             cont = max(1, room - 4)
             under = _last_text(info, cont, narrow=narrow)
             if terminal.cells(under) > cont:       # a count alone, on the narrowest screens
