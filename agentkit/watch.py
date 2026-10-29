@@ -2724,18 +2724,43 @@ def parked_runs(mine, index, at):
 
 def owes_work(name, mine, index, at):
     """Whether that seat still owes work: a question or a watcher's alert still standing, what
-    keeps any resting seat the owner's (`still_owed`), or a run of its own going, parked, or
-    ended with nobody yet deciding it (the tally's own `needs you`).  It keeps a seat nobody is
-    in the owner's, and, beside what it was cut off owing (`cut_off`), brings
-    one back after a reboot.  `mine` is the seat's own (run_dir, state) pairs, `index` their
-    supersession index."""
+    keeps any resting seat the owner's (`still_owed`), or a run of its own that does
+    (`runs_owe`).  It keeps a seat nobody is in the owner's, and, beside what it was cut off
+    owing (`cut_off`), brings one back after a reboot."""
+    return bool(notify.last(name) or still_owed(name, stopped=False) is not None
+                or runs_owe(mine, index, at))
+
+
+def runs_owe(mine, index, at):
+    """Whether a run of `mine`, a seat's own (run_dir, state) pairs, is going, parked, or ended
+    with nobody yet deciding it (the tally's own `needs you`).  `index` is their supersession
+    index."""
     from . import menu as menu_mod    # the menu imports this module
-    last = notify.last(name)
-    return bool(parked_runs(mine, index, at) or last
-                or still_owed(name, stopped=False) is not None
+    return bool(parked_runs(mine, index, at)
                 or any(resumes_itself(state, at) or transitions.unfinished(state, index=index)
                        or menu_mod.v5o_needs_look(state, index=index, now=at)
                        for _, state in mine))
+
+
+def work_live(name):
+    """The line saying that seat's work is done and live, else None: its plan is finished
+    (`plan.finished`), and no run of its own owes work (`runs_owe`) or is merged and not yet
+    live (`awaiting_live`).  Nothing a wait names can bring it more: its wait is over
+    (`wait_over`), a new one is refused (`wait_main`), and a gone seat is not reopened to hear
+    so (17 Oct).  Run records are read only once the plan is finished."""
+    from . import menu as menu_mod    # the menu imports this module
+    from . import plan as plan_mod
+    if not plan_mod.finished(name):
+        return None
+    try:
+        records = menu_mod.run_records()
+    except (config.Error, OSError, ValueError):
+        return None
+    mine, at = own_runs(name, records), time.time()
+    if runs_owe(mine, transitions.supersession_index(records), at) or any(
+            awaiting_live(state, now=at) for _, state in mine):
+        return None
+    return "your plan is done and its changes are live"
 
 
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,
@@ -3094,7 +3119,8 @@ def wait_fact(wait):
 
 def wait_over(cfg, log):
     """The tick's wait pass: a seat whose `ak wait` names a pull request or run that is now
-    merged, closed or ended is told so, once, and the wait is over.
+    merged, closed or ended, or whose own work is done and live (`work_live`), is told so,
+    once, and the wait is over.
 
     The fact is asked once per tick here and nowhere else, and written on the wait as `over`
     the moment it is seen, so every reader of `waiting_on` agrees from then on.  The line goes
@@ -3102,9 +3128,9 @@ def wait_over(cfg, log):
     is handed back; a seat mid-turn is tried again next tick.  It names the fact and nothing
     else: no other seat's words, no other seat's screen.  The send that took it is written on
     the wait as `told`, so it is typed once.  A seat gone without the owner closing it is
-    reopened with the line instead (`revive`), once.  An ending its own run hands back to the
-    seat (`handback.hand_back`) is that line already: none is typed for it, and the wait is
-    told once the hand-back is in.
+    reopened with the line instead (`revive`), once, unless its work is done.  An ending its
+    own run hands back to the seat (`handback.hand_back`) is that line already: none is typed
+    for it, and the wait is told once the hand-back is in.
     """
     waiting = {}
     for name in config.session_records():
@@ -3129,6 +3155,9 @@ def wait_over(cfg, log):
             continue
         if not wait.get("over"):
             over, reason, run = wait_fact(wait)
+            if not over and (done := work_live(name)):
+                # a stray wait no longer holds a seat whose own work is done (24 Oct)
+                over, reason, run = True, done, None
             if over is None:
                 log(f"WARN {name}: its wait on {wait['on']} cannot be read: {reason}")
                 if LOGGED_OUT.search(reason or ""):
@@ -3169,10 +3198,14 @@ def wait_over(cfg, log):
         line = f"{' '.join(str(wait['over']).split())}; your wait is over. Decide the next step."
         if closed:
             # a seat gone on its own hears it as a seat whose run ended does: reopened with the
-            # line, once.  One the owner closed stays closed, and one out of usage wakes by itself
+            # line, once.  One the owner closed stays closed, one out of usage wakes by itself,
+            # and one whose work is done has nothing to wake for: told, it reads done
             if (seat_closed(name) or seat_closed_by_owner(name)
                     or seat_read(name).get("usage_wait")
                     or not wait_mark(name, wait, told=time.time())):
+                continue
+            if work_live(name):
+                log(f"{name}: told that {wait['over']}, left closed: its work is done")
                 continue
             why = revive(name, line, log, cfg, prepare=lambda line: line)
             if why is None:
@@ -3197,9 +3230,10 @@ def wait_main(argv):
     nowhere else: no card, no notice.  Its next `ak wait` or `ak notify` replaces it.  A wait
     names a fact ak can read, never a session: the tick ends it when the pull request merges
     or closes, no run is going on it, or the run ends, and tells the seat so (`wait_over`).
-    One already over is refused with its fact (`wait_fact`): the tick would end it at once and
-    wake the seat for nothing.  A pull request the seat's own going run reviews or lands is
-    waited on as that run, whose hand-back then is the one line.
+    One already over is refused with its fact (`wait_fact`), as is any from a seat whose work
+    is done and live (`work_live`): the tick would end it at once and wake the seat for
+    nothing.  A pull request the seat's own going run reviews or lands is waited on as that
+    run, whose hand-back then is the one line.
     """
     if command_help.show("wait", argv):
         return 0
@@ -3225,7 +3259,7 @@ def wait_main(argv):
     if over is None:
         print(f"ak wait: gh cannot view {on}: {why}", file=sys.stderr)
         return 1
-    if over:
+    if over or (why := work_live(seat)):
         print(f"ak wait: {why}; nothing is left to wait on", file=sys.stderr)
         return 1
     if kind == "pr":
