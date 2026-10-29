@@ -2,11 +2,12 @@
 
 Two runs building the same change in one repository waste a round each and then collide at
 landing, so `ak run` refuses a task that looks already under way there: one whose title shares
-at least four significant words with a run still going, or whose checks name the same test
-file.  The refusal exits 2, names the going run, whose it is, when it started and its title,
-says what they share and what to do, and leaves no run behind.  Outside a seat `--anyway`
-starts the second run regardless, and the run's log names the one it started beside.  Once
-the first run has ended the same task starts again.  Black-box: the program `AK_BIN` names
+at least four significant words with a run still going, and at least half of the shorter
+title's, or whose checks name the same test file.  Four words two long titles share are not
+the same change.  The refusal exits 2, names the going run, whose it is, when it started and
+its title, says what they share and what to do, and leaves no run behind.  Outside a seat
+`--anyway` starts the second run regardless, and the run's log names the one it started beside.
+Once the first run has ended the same task starts again.  Black-box: the program `AK_BIN` names
 runs from outside through tests/fixtures/akbin.py, on a project from gitrig.py, with the first
 run's executor held by fakeadapter.py until the test releases it.
 """
@@ -25,7 +26,9 @@ from fixtures import akconfig, fakeadapter, taskfile
 from fixtures.akbin import Home
 from fixtures.gitrig import Rig
 
-TITLE = "Add retry file handling logic"     # four significant words: retry, file, handling, logic
+TITLE = "Add retry file handling logic so slow uploads resume on flaky mobile networks"
+# ten significant words, four of them in the title of the task refused for its title
+CORE = "Retry file handling logic"
 CHECKS = ("test -f retry.txt", "test ! -e tests/test_parser.py")
 REFUSAL = ("ak run: this looks already under way: {id} (nobody's, started HH:MM, \"{title}\") "
            "shares {detail}; wait for it, or add --anyway to start a second run")
@@ -54,11 +57,14 @@ class SecondRunRefused(unittest.TestCase):
                        for stamp in range(int(before), int(time.time()) + 2)}
         cls.first = taskfile.only_run(cls.home)
         same = taskfile.write(cls.home, cls.rig.path, TITLE, name="same")
-        cls.by_title = cls.launch(same)
+        cls.by_title = cls.launch(taskfile.write(cls.home, cls.rig.path, CORE, name="core"))
         cls.by_file = cls.launch(taskfile.write(cls.home, cls.rig.path, "Tidy widget colours",
                                                 done_when=CHECKS, name="colours"))
         cls.three_words = cls.launch(taskfile.write(cls.home, cls.rig.path,
                                                     "Add retry file handling", name="three"))
+        cls.under_half = cls.launch(taskfile.write(
+            cls.home, cls.rig.path,
+            f"{CORE} stays the oldest code behind every widget colour palette", name="palette"))
         cls.anyway = cls.launch(same, "--anyway")
         cls.settle()
         cls.after_end = cls.launch(same)
@@ -119,6 +125,9 @@ class SecondRunRefused(unittest.TestCase):
 
     def test_three_shared_title_words_are_not_the_same_change(self):
         self.started(self.three_words)
+
+    def test_four_shared_title_words_under_half_the_shorter_title_are_not_the_same_change(self):
+        self.started(self.under_half)
 
     def test_anyway_starts_the_second_run_and_its_log_names_the_one_beside_it(self):
         expected = f"--- preflight: started alongside {self.first.name} (--anyway)"

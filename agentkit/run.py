@@ -2687,7 +2687,8 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
     (`process_active`), in the task's repository, launched by anybody, where either a
     done-when of the new task and of the running run name the same test file -- not a
     general check, which three other jobs there whose titles do not name it ran too,
-    unless both titles name it -- or their titles share at least four significant words.  Each match is a dict with the run's
+    unless both titles name it -- or their titles share at least four significant words, at
+    least half of the shorter title's.  Each match is a dict with the run's
     id, seat (None for nobody's), started_at, title, shared test files and shared
     title-word count.  Read-only: run state comes only from run_dirs(), read_state()
     and process_active(), and a run's done-when from its own task.md.  A
@@ -2817,9 +2818,12 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
             continue
         other_title = state.get("title") or parsed_title or directory.name
         shared = sorted(specific(mine_files & test_files(other_cmds), other_title))
-        words = (len(mine_words & significant_words(other_title, repo.name))
-                 if state.get("title") or parsed_title else 0)
-        if not shared and words < 4:
+        theirs = (significant_words(other_title, repo.name)
+                  if state.get("title") or parsed_title else set())
+        words = len(mine_words & theirs)
+        # Long titles share four common words (`line`, `turn`, `only`, `wait`) without being
+        # one job: 20 of 27 refusals on title words alone in a week of Oct 2026 named other work.
+        if not shared and (words < 4 or 2 * words < min(len(mine_words), len(theirs))):
             continue
         try:
             seat = launched_session(state)
