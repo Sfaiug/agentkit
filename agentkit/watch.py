@@ -2142,10 +2142,13 @@ def observed(name, harness, pane, previous, at):
     found = classify(harness, pane_tail(pane), fact, previous.get("opened_at"), previous, at,
                      interrupted=ended)
     # read off this same capture, so a turn since answers it as soon as the screen does; a
-    # capture that failed says nothing of it
-    found["stall"] = (previous.get("stall") if not pane.strip() else
-                      stall_mark(harness, pane, name, lambda _: None)
-                      if found["state"] == "at_prompt" else None)
+    # capture that failed says nothing of it.  So are its harness's login words (`login`),
+    # which `stall_mark` leaves to the tick.
+    blank, at_prompt = not pane.strip(), found["state"] == "at_prompt"
+    found["stall"] = (previous.get("stall") if blank else
+                      stall_mark(harness, pane, name, lambda _: None) if at_prompt else None)
+    found["login"] = (previous.get("login") if blank else
+                      auth_expired_on(harness, pane_tail(pane), name) if at_prompt else None)
     held = screen_holds(harness, pane_tail(pane))
     if held is not None:    # unread work is no evidence that none runs: the last read stands
         found["holds"] = held
@@ -2471,7 +2474,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
       that failed is retried;
     * its turn stopped on an error the tick types it back past, as its look saw it (`stall`),
       so the seat is working, `retrying: <error>`, until the tick gives up (`stalls`); or on
-      its login words, once the tick found that login working again, until it typed past them;
+      its login words still on its screen, once the tick found that login working again, until it
+      typed past them;
     * a run of its own merged and its project has yet to prove itself live (`awaiting_live`),
       so the seat is working, unless a run below or a watcher's alert is his;
     * nobody is in the seat any more and its number is the way back in: one the owner closed
@@ -2935,11 +2939,11 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # The error is its own look's (`stall`), so a turn since -- the retry's or the owner's --
     # answers it as soon as the screen does.  Its harness's login words are the tick's: it
     # records them (`stalls`, kind `login`) once that login works again and types past them
-    # once, so they are working only until it has.
+    # once, so while the look still shows them (`login`) they are working only until it has.
     stall = stalls.get(name) or {}
     error = found.get("stall") or (
-        "its login works again" if stall.get("kind") == "login" and not stall.get("nudged_at")
-        and found.get("state") == "at_prompt" else None)
+        "its login works again" if found.get("login") and stall.get("kind") == "login"
+        and not stall.get("nudged_at") else None)
     if (error and not gone and not session.get("legacy")
             and not seat_closed_by_owner(name) and not stall.get("told")
             and not (seat_read(name).get("usage_refusal") or {}).get("told")):

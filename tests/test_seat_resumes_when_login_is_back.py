@@ -6,7 +6,8 @@ seat shows that harness's login words, whatever else they say: while the verb re
 reads `needs you` and nothing is typed into it, however long it stands; once the verb passes,
 the seat reads `working` and is typed past the words with its harness's resume keys, once, after
 the three minutes any passing error stands, and nothing more while those words stand, on the
-same screen or one redrawn around them, where it reads `idle`: nothing will move it.  The
+same screen or one redrawn around them, where it reads `idle`: nothing will move it.  Nor will
+anything once the words are gone before then: it reads `idle` at once, and nothing is typed.  The
 stall's clock is set back as ak keeps it, not waited out.  Black-box: the program `AK_BIN` names
 runs from outside through tests/fixtures/akbin.py, each tick in the box `home.tick()` builds,
 before seats of tests/fixtures/akseat.py showing a real Claude pane stopped on its login words,
@@ -55,6 +56,7 @@ class LoginBack(unittest.TestCase):
         claude = fakeadapter.install(home, claude="pass")["claude"]
         cls.seats = seats = [Seat(home, "acme", screen=SCREEN), Seat(home, "beta", screen=BARE),
                              Seat(home, "gamma", screen=TIP)]
+        cleared = Seat(home, "delta", screen=SCREEN)
         claude.answer("auth", "token expired", 1)
         cls.ticks = [home.tick()]
         stood(home)
@@ -65,9 +67,12 @@ class LoginBack(unittest.TestCase):
         cls.ticks.append(home.tick())
         cls.back = [(state(home, f"seat-{seat.name}.json")["word"], seat.lines())
                     for seat in seats]
+        cleared.show("claude-prompt-pane.txt")
+        cls.cleared = home.ak("orch", "why", "delta")
         stood(home)
         cls.ticks.append(home.tick())
         cls.resumed = [seat.wait_lines(1) for seat in seats]
+        cls.cleared_typed = cleared.lines()
         stood(home)
         cls.ticks.append(home.tick())
         cls.again = [(state(home, f"seat-{seat.name}.json")["word"], seat.lines())
@@ -89,6 +94,11 @@ class LoginBack(unittest.TestCase):
     def test_a_login_that_works_again_is_typed_past_once_after_the_wait(self):
         self.assertEqual(self.back, [("working", [])] * 3)
         self.assertEqual(self.resumed, [["continue"]] * 3)
+
+    def test_words_gone_before_the_resume_read_idle_and_nothing_is_typed(self):
+        self.assertEqual(self.cleared.code, 0, self.cleared.err)
+        self.assertEqual(self.cleared.out.split()[:2], ["delta", "idle"], self.cleared.out)
+        self.assertEqual(self.cleared_typed, [])
 
     def test_the_next_tick_on_the_same_screen_types_nothing_more(self):
         self.assertEqual(self.again, [("idle", ["continue"])] * 3)
