@@ -363,7 +363,8 @@ STATUS_HEADERS = ["id", "title", "state", "worker", "round", "age"]
 
 def status_state_word(state, index=None, owed=False):
     """`ak run status`'s word for a run: `menu.run_state_word`'s, except that a `needs you`
-    ending already `settled` reads `done`, and one `owed` the seat reading reads `needs you`.
+    ending already `settled` reads `done`, and one `owed`, waiting for the seat reading,
+    reads `needs you`.
 
     The record's own word stays the menu's.  This is the listing's, which knows what came
     after the run, so it tells the truth the seat's row tells: an ending handed back,
