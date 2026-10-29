@@ -412,8 +412,10 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         # the --bg parent already picked and printed this pair: adopt it through the
         # same resuming validation a resume uses, so the line stays truthful when
         # usage moved between the two picks.  An explicit pair re-picks, as before.
-        if preset_rev not in order:
-            preset_rev = None   # a saved reviewer keeps its identity; a stale one does not
+        if preset_rev not in order or same_model(cfg, preset_exec, preset_rev):
+            # a saved reviewer keeps its identity; a stale one does not, nor a self-review
+            # picked in a shortage the slot wait may have outlasted: the pick decides again
+            preset_rev = None
         executor, reviewer = pick_models(cfg, providers, preset_exec, preset_rev, log,
                                          resuming=True, repo=repo, workers=workers,
                                          reviewers=reviewers)
