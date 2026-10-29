@@ -974,8 +974,7 @@ def read_key(timeout=None, wake=None):
 
     The pointer is answered, `point`, only once it is on another spot of the screen up than it
     was when that was drawn (`lit`): another row, another cell, or off what it was on; a move
-    within one, none held, is read and let go, keeping to `timeout` however long the pointer
-    goes on, and one held, `lit`'s too, is answered where the pointer ended.  A
+    within one is read and let go, keeping to `timeout` however long the pointer goes on.  A
     move is answered once a frame of the clock's (motion.FRAME) is due since the last, and once
     what was sent after it is read through to where the pointer ended, or a frame after the
     first of them, whichever is sooner, however soon the read's own time runs out: a flood of
@@ -1016,7 +1015,7 @@ def read_key(timeout=None, wake=None):
         elif key.name == "click":  # and a button that went down before the keyboard was taken
             key, _PRESSED = key if _PRESSED else Key("other"), False
         elif key.name == "point":
-            moved = _HELD is not None or _POINTER is None or under(key, _SPOTS)[:2] != _POINTED[:2]
+            moved = _POINTER is None or under(key, _SPOTS)[:2] != _POINTED[:2]
             _HELD, key = (key, _HELD[1] if _HELD else time.monotonic()) if moved else None, None
         if key is None:
             now = time.monotonic()
@@ -1202,9 +1201,10 @@ def lit(lines, spots):
     nothing is lit, and what only explains -- a cell that is a tuple -- is never lit.  Nothing
     the pointer rests on says anything more of itself: the screen is its own manual.
     A row drawn again on its line no longer reaching the still pointer -- a click shrank its
-    cell -- is the pointer moved off it, held for `read_key` to answer, and `show` draws that.
+    cell -- is the pointer moved off it, held for `read_key` to answer, and `show` draws that;
+    till then the pointer is on nothing drawn, so no move within one spot lets that one go.
     """
-    global _SPOTS, _POINTED, _SHOWN, _PAINTED, _HELD
+    global _SPOTS, _POINTED, _SHOWN, _PAINTED, _HELD, _POINTER
     on = pointer_spot(_SPOTS).what
     _SHOWN = _PAINTED = lines = list(lines)
     spots.update({row: (what, places, lines[row - 1] if 0 < row <= len(lines) else "")
@@ -1212,7 +1212,7 @@ def lit(lines, spots):
     _SPOTS, _POINTED = spots, pointer_spot(spots)
     if (_HELD is None and on is not None and _POINTED.what is None
             and spots.get(_POINTER.row, (None,))[0] == on):
-        _HELD = _POINTER._replace(name="point"), time.monotonic()
+        _HELD, _POINTER = (_POINTER._replace(name="point"), time.monotonic()), None
     if (_POINTED.cell is None or isinstance(_POINTED.cell, tuple) or not colour_depth()
             or not 0 < _POINTER.row <= len(lines)):
         return lines
