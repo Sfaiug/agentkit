@@ -4,14 +4,14 @@ A login can fail for a minute and come back by itself, and a turn that ended on 
 seat at its prompt with its work half done.  The tick asks the harness's `auth` verb whenever a
 seat shows that harness's login words, whatever else they say: while the verb refuses, the seat
 reads `needs you` and nothing is typed into it, however long it stands; once the verb passes,
-the seat is typed past the words with its harness's resume keys, once, after the three minutes
-any passing error stands, and nothing more while those words stand, on the same screen or one
-redrawn around them.  The stall's clock is set back as ak keeps it, not waited out.  Black-box:
-the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, each tick in the
-box `home.tick()` builds, before seats of tests/fixtures/akseat.py showing a real Claude pane
-stopped on its login words, one with the row Claude draws under its footer for seconds at a
-time, on a fake harness from tests/fixtures/fakeadapter.py whose `auth` verb the test refuses
-and passes.
+the seat reads `working` and is typed past the words with its harness's resume keys, once, after
+the three minutes any passing error stands, and nothing more while those words stand, on the
+same screen or one redrawn around them, where it reads `idle`: nothing will move it.  The
+stall's clock is set back as ak keeps it, not waited out.  Black-box: the program `AK_BIN` names
+runs from outside through tests/fixtures/akbin.py, each tick in the box `home.tick()` builds,
+before seats of tests/fixtures/akseat.py showing a real Claude pane stopped on its login words,
+one with the row Claude draws under its footer for seconds at a time, on a fake harness from
+tests/fixtures/fakeadapter.py whose `auth` verb the test refuses and passes.
 """
 
 import json
@@ -63,13 +63,15 @@ class LoginBack(unittest.TestCase):
                        for seat in seats]
         claude.answer("auth", "logged in: ~/.claude/.credentials.json", 0)
         cls.ticks.append(home.tick())
-        cls.back = [seat.lines() for seat in seats]
+        cls.back = [(state(home, f"seat-{seat.name}.json")["word"], seat.lines())
+                    for seat in seats]
         stood(home)
         cls.ticks.append(home.tick())
         cls.resumed = [seat.wait_lines(1) for seat in seats]
         stood(home)
         cls.ticks.append(home.tick())
-        cls.again = [seat.lines() for seat in seats]
+        cls.again = [(state(home, f"seat-{seat.name}.json")["word"], seat.lines())
+                     for seat in seats]
         for seat in seats:
             seat.show(seat.screen.replace("\n\n❯ Say OK", "\n\n\n❯ Say OK", 1))
         cls.ticks.append(home.tick())
@@ -85,11 +87,11 @@ class LoginBack(unittest.TestCase):
         self.assertEqual(self.refused, [("needs you", [])] * 3)
 
     def test_a_login_that_works_again_is_typed_past_once_after_the_wait(self):
-        self.assertEqual(self.back, [[]] * 3)
+        self.assertEqual(self.back, [("working", [])] * 3)
         self.assertEqual(self.resumed, [["continue"]] * 3)
 
     def test_the_next_tick_on_the_same_screen_types_nothing_more(self):
-        self.assertEqual(self.again, [["continue"]] * 3)
+        self.assertEqual(self.again, [("idle", ["continue"])] * 3)
 
     def test_a_screen_redrawn_around_the_same_words_types_nothing_more(self):
         self.assertEqual(self.redrawn, [["continue"]] * 3)
