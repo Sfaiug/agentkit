@@ -5,6 +5,8 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -46,6 +48,23 @@ func Sessions(server string) []Session {
 		}
 	}
 	return found
+}
+
+// Panes are the process IDs of those sessions' live panes; false where the server did not answer.
+func Panes(server string, names []string) ([]int, bool) {
+	out, err := run(server, "list-panes", "-a", "-F", "#{session_name}\t#{pane_pid}\t#{pane_dead}")
+	if err != nil {
+		return nil, false
+	}
+	var found []int
+	for _, line := range strings.Split(out, "\n") {
+		if parts := strings.Split(line, "\t"); len(parts) == 3 && parts[2] != "1" && slices.Contains(names, parts[0]) {
+			if pid, err := strconv.Atoi(parts[1]); err == nil {
+				found = append(found, pid)
+			}
+		}
+	}
+	return found, true
 }
 
 // run asks one server. $TMUX goes: inside somebody's tmux, a call to the default server
