@@ -1116,11 +1116,12 @@ def _contender(state, seat, since, resolved=None):
 
 
 def harness_gate_result(plan, passed, gate, log_path, titles=()):
-    """A gate pass clears each harness's episode; its second red keeps one hand-back, naming the
-    failed checks' `titles` the red is the harness's for.
+    """A gate pass clears each harness's episode; its second red in a row, a failed `gate` or,
+    with none, a failed install, keeps one hand-back naming `titles`: the failed checks the red
+    is the harness's for, or what could not be installed.
 
-    The upgrade lock also protects these records while the tick delivers them.
-    Installer failures never reach here: only an actual gate outcome counts.
+    The upgrade lock also protects these records while the tick delivers them.  A record that
+    cannot be written costs its hand-back, never the upgrade, as a swap mark does.
     """
     for harness in plan:
         check = config.STATE / HARNESS_GATES / harness["name"]
@@ -1132,13 +1133,16 @@ def harness_gate_result(plan, passed, gate, log_path, titles=()):
             continue
         record["reds"] += 1
         if record["reds"] == 2:
-            record.update(line=_fitted(
-                f"The {harness['name']} harness upgrade failed its gate twice in a row ({gate})",
-                list(titles),
-                f"Log: {config.tilde(log_path)}. Fix the harness upgrade gate."),
-                typed=None, told=False)
-        check.mkdir(parents=True, exist_ok=True)
-        _put(check / "handed", json.dumps(record))
+            red, fix = ((f"failed its gate twice in a row ({gate})", "harness upgrade gate") if gate
+                        else ("could not be installed twice in a row", "harness install"))
+            record.update(line=_fitted(f"The {harness['name']} harness upgrade {red}", list(titles),
+                                       f"Log: {config.tilde(log_path)}. Fix the {fix}."),
+                          typed=None, told=False)
+        try:
+            check.mkdir(parents=True, exist_ok=True)
+            _put(check / "handed", json.dumps(record))
+        except OSError:
+            pass
 
 
 def fresh_standing(failed, lines, log_path):
@@ -1248,13 +1252,14 @@ def keep_current(log, now=None):
     Only the checkout this tick runs from does it, as with `go_live`, so a tick from a
     worktree -- a test's above all -- never upgrades this host's harnesses.  A harness this
     host has is asked its `[update] latest` at most once an hour; one behind it is upgraded by
-    `background`, one at a time.  A failed gate has put the harness back and said so; that
-    release is started again once `RETRY_AFTER` has passed since its last start, and a newer
-    one at once. Its second red gate is handed back once until its gates pass, and the fresh
-    gate's standing faults once (`fresh_standing`), retrying delivery on later ticks while no
-    seat can receive it.  A checkout that is somebody's work (`left_as_is`) holds it,
-    unstarted, until an ask finds it main again: its gates test that checkout, and refused a
-    half-moved ~/agentkit, a red that reverted a harness for nothing it did.
+    `background`, one at a time.  A failed gate or install has put the harness back and said
+    so; that release is started again once `RETRY_AFTER` has passed since its last start, and a
+    newer one at once. Its second red in a row, gate or install, is handed back once until its
+    gates pass, and the fresh gate's standing faults once (`fresh_standing`), retrying delivery
+    on later ticks while no seat can receive it.  A checkout that is somebody's work
+    (`left_as_is`) holds it, unstarted, until an ask finds it main again: its gates test that
+    checkout, and refused a half-moved ~/agentkit, a red that reverted a harness for nothing it
+    did.
     """
     if agentkit_dir().resolve() != config.REPO:
         return
@@ -1278,7 +1283,7 @@ def keep_current(log, now=None):
             episode = _handed(check)
             if episode and episode["reds"] >= 2:
                 if _gate_hand_back(check, episode, log):
-                    log(f"handed {check.name}'s failed harness upgrade gate back to fix")
+                    log(f"handed {check.name}'s failed harness upgrade back to fix")
         faults = config.STATE / FRESH_FAULTS
         if (record := _handed(faults)) and _gate_hand_back(faults, record, log):
             log("handed the fresh-install gate's standing faults back to fix")
@@ -1479,8 +1484,8 @@ def upgrade(plan, before):
         # Upgrading every one of them is the job.  An upgrade that never ran is not a success,
         # whatever the gate then says about the versions that are still sitting there -- so it
         # is named in the result line and it costs the exit code.
-        trouble = [f"{n} could not be upgraded" for n in failed]
-        trouble += [f"{n} failed its version check" for n in missing]
+        trouble = {**{n: f"{n} could not be upgraded" for n in failed},
+                   **{n: f"{n} failed its version check" for n in missing}}
         if trouble:
             # Nothing here is worth verifying: with one harness left behind, the gate would
             # either bless a box that is half new and half old, or -- when nothing ran at all --
@@ -1494,9 +1499,12 @@ def upgrade(plan, before):
                         "a part of an upgrade is not one")
             else:
                 head = f"{', '.join(upgraded)} did not move"
-            print(f"update: {head} ({'; '.join(trouble)}); the gate was not run "
+            print(f"update: {head} ({'; '.join(trouble.values())}); the gate was not run "
                   f"-- see {log_path}", file=sys.stderr)
             report(landed, sys.stderr)
+            for harness in plan:    # one that installed fine counts no red: no gate judged it
+                if harness["name"] in trouble:
+                    harness_gate_result([harness], False, "", log_path, [trouble[harness["name"]]])
             return 1
         say(f"update: {', '.join(changed) if changed else 'no harness moved'}; "
             f"running {live.name}")
