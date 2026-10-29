@@ -758,6 +758,21 @@ def _carry_mark(old, prov, now):
     return mark
 
 
+def _on_disk(cfg):
+    """The config as config.toml holds it now: what says which providers and accounts exist
+    wherever this module reads or writes the snapshot.
+
+    A caller can hold its copy for hours -- a menu sitting in `c`, an `ak run` -- and a read
+    lays the file out for the providers and accounts it takes to exist: one with a copy from
+    before an account was added read the provider as one login over both accounts' readings.
+    `cfg`, the caller's copy, stands in only where there is no such file, or it cannot be read.
+    """
+    try:
+        return config.load() if (config.HOME / config.CONFIG_NAME).exists() else cfg
+    except (OSError, config.Error):
+        return cfg
+
+
 def collect(cfg, *, refresh=False):
     """Providers keyed by name, from a <=5 min cache.
 
@@ -775,6 +790,7 @@ def collect(cfg, *, refresh=False):
     `fetched_at` is when it was last assembled, which is what the five minutes above are
     counted from.
     """
+    cfg = _on_disk(cfg)
     cache = config.STATE / "usage.json"
     now = time.time()
     try:
@@ -895,6 +911,7 @@ def replenish(cfg, provider, account=None):
 
     Returns (was a credit really spent, the resets left in hand).
     """
+    cfg = _on_disk(cfg)
     now = time.time()
     prov = _without_past(_probe_gently(cfg, provider, account), now, "the adapter")
     if account is not None:
@@ -1120,7 +1137,7 @@ def record_pairs(cfg, name, account, before, tokens, meters, now=None):
     provider = config.model(cfg, name)["provider"]
     at = time.time() if now is None else now
     if not meters:
-        prov = _probe_gently(cfg, provider, account)
+        prov = _probe_gently(_on_disk(cfg), provider, account)
         meters = prov.get("meters") or []
         taken = _number(prov["fetched_at"] if "fetched_at" in prov else prov.get("probed_at"))
         if taken is None or taken < at:
@@ -1275,7 +1292,7 @@ def account(cfg, provider, model=None):
     (`model_low`), or unread, after every one that is not.  (None, None) for a provider that
     lists no accounts, which is asked nothing: it is one login, exactly as it always was.
     """
-    names = config.accounts(cfg, provider)
+    names = config.accounts(_on_disk(cfg), provider)
     if not names:
         return None, None
     prov = collect(cfg).get(provider) or {}
