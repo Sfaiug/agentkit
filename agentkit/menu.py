@@ -146,6 +146,7 @@ BORN = " new"            # the name of the row `n` makes: none of a seat's, whic
 BORN_KEYS = "⏎ start   tab models   esc back"
 UNFILED = "not assigned yet"   # the heading of the seats no project has yet, the new row's too
 LEAST = 3                # rows a page keeps; the usage block folds before it holds fewer
+OPENS = 4                # lines a page keeps for what a row opens before the usage folds
 # The whole vocabulary, worst first: a rollup of seats says the one that wants him, and an idle
 # seat sorts last in its project.  `watch.session_state` is what decides which of the five a
 # seat is.
@@ -1651,34 +1652,33 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                                        "amber" if "expired" in token else "dim")
                 if token else "")
 
-    def _room(meters, paged, compact=False):
-        keys = (k_paged if paged else k_single) + opens
+    def _room(meters, paged, compact=False, opened=None):
+        keys = (k_paged if paged else k_single) + (opens if opened is None else opened)
         if compact:
             return height - 2 - (keys + len(meters) + bool(standing))
         chrome = 2 + len(meters) + 2 + 1 + keys
         return height - 2 - chrome
 
     # The usage stays on top and the keys at the bottom, whatever the number of seats: those
-    # that do not fit between them turn pages.  The block folds to its readings, each whole
-    # (`usage_summary`), where that keeps every seat on one page or where the whole block
-    # leaves too few rows a page; a screen too short for that drops the frame and the blank
-    # lines too (compact), and only one with no room for a seat under its heading even then
-    # cuts the readings.
+    # that do not fit between them turn pages.  Its form is the screen's size alone, so it
+    # keeps it while seats come, go and open (the owner, 29 Oct 2026): the whole block wherever
+    # that leaves a page `least` rows and OPENS lines for what one of them opens, else its
+    # readings, each whole (`usage_summary`); a screen too short for those drops the frame and
+    # the blank lines too (compact), and only one with no room for a seat under its heading
+    # even then cuts the readings.
     least = LEAST * (2 if width < 60 else 1)
     summary = usage_summary(cfg, layout, rows=rows)
     block = meters_full or summary     # a width with no grid says the readings
-    # one page before pages, the whole block before its readings, and compact last
-    for meters, compact, paged in ((block, False, False), (summary, False, False),
-                                   (block, False, True), (summary, False, True),
-                                   (summary, True, False), (summary, True, True)):
-        paged = paged and len(flat) > 1
-        room = _room(meters, paged, compact)
-        if (len(flat) <= room) if not paged else (room >= least or compact):
-            break
+    meters, compact = next((meters, compact) for meters, compact
+                           in ((block, False), (summary, False), (summary, True))
+                           if compact or _room(meters, True, compact, OPENS) >= least)
+    paged = len(flat) > 1 and len(flat) > _room(meters, False, compact)     # one page first
+    room = _room(meters, paged, compact)
     # a seat under its heading: its row and, where it has one, a line under it
     need = 1 + min(2, max((len(block) for own in seat_blocks for block in own), default=0))
-    # the opened lines take only what that leaves, before the usage gives any of its own
-    opens = max(0, opens - max(0, need - room))
+    # the opened lines take only what a page of `least` rows leaves -- on a compact screen what
+    # a seat under its heading does -- before the usage gives any of its own
+    opens = max(0, opens - max(0, (need if compact or not paged else least) - room))
     room = _room(meters, paged, compact)
     if compact and room < need and len(meters) > 1:
         meters = usage_summary(cfg, layout, max(1, len(meters) + room - need), rows)
