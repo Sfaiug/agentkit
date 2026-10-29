@@ -1200,12 +1200,19 @@ def lit(lines, spots):
     screen's to light: the keys' highlight is moved onto the pointer's.  With no colour at all
     nothing is lit, and what only explains -- a cell that is a tuple -- is never lit.  Nothing
     the pointer rests on says anything more of itself: the screen is its own manual.
+    A row drawn again on its line no longer reaching the still pointer -- a click shrank its
+    cell -- is the pointer moved off it, held for `read_key` to answer, and `show` draws that;
+    till then the pointer is on nothing drawn, so no move within one spot lets that one go.
     """
-    global _SPOTS, _POINTED, _SHOWN, _PAINTED
+    global _SPOTS, _POINTED, _SHOWN, _PAINTED, _HELD, _POINTER
+    on = pointer_spot(_SPOTS).what
     _SHOWN = _PAINTED = lines = list(lines)
     spots.update({row: (what, places, lines[row - 1] if 0 < row <= len(lines) else "")
                   for row, (what, places, *_) in spots.items()})
     _SPOTS, _POINTED = spots, pointer_spot(spots)
+    if (_HELD is None and on is not None and _POINTED.what is None
+            and spots.get(_POINTER.row, (None,))[0] == on):
+        _HELD, _POINTER = (_POINTER._replace(name="point"), time.monotonic()), None
     if (_POINTED.cell is None or isinstance(_POINTED.cell, tuple) or not colour_depth()
             or not 0 < _POINTER.row <= len(lines)):
         return lines
@@ -1321,7 +1328,9 @@ def show(lines, spots, drawn=None):
     `drawn()`, a clock's frame over them and whether they come up in it (`motion.Clock.drawn`),
     goes in the same write: lines that come up are the frame's to write, never first as they are.
     """
-    lines = lit(lines, spots)
+    held, lines = _HELD, lit(lines, spots)
+    if _HELD is not held:   # its row's highlight is stale: drawn again once the move is answered
+        return
     moved, rising = drawn() if drawn else ("", False)
     sys.stdout.write("\033[H" + ("" if rising else "".join(f"\033[K{line}\n" for line in lines))
                      + "\033[J" + moved)
