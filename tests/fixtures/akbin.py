@@ -353,27 +353,30 @@ def _strays(home):
 
 
 def _environ(entry):
-    """The environment of the process at `entry`.  An exec sets the new image's environment
-    last, so a process caught in one, like a child its program just detached, reads as having
-    none: an empty read is believed only from a process with no memory (a zombie, a kernel
-    thread), or between two equal looks at one image whose environment is set.  Anything else
-    saw an exec, which always ends, so the process is read again."""
+    """The environment of the process at `entry`.  Linux's exec places the new image's code
+    (`start_code`) only once its environment is set, so a process caught in one, like a child
+    its program just detached, reads as having none.  An empty read is believed only from a
+    process with no memory (a zombie, a kernel thread), from one older than this process, which
+    made or reaps the Home before any of its processes started, or between two equal looks at
+    one image whose code is placed.  Anything else saw an exec, which always ends, so the
+    process is read again."""
     env = (entry / "environ").read_bytes()
     while not env:
         before = _image(entry)
         env = (entry / "environ").read_bytes()
-        after = _image(entry)
-        if env or after[0] == b"0" or before[1] == after[1] and after[1][-1] != b"0":
+        started, size, image = _image(entry)
+        if env or not size or started < _image(Path("/proc/self"))[0] or (
+                image == before[2] and image[0] != b"0"):
             break
         time.sleep(0.001)
     return env
 
 
 def _image(entry):
-    """Its memory's size and where its image lies, from its stat: code, stack, arguments and
-    environment (fields 23, 26-28 and 48-51), each of which an exec moves."""
+    """When it started, its memory's size, and where its image lies: code, stack, arguments
+    and environment, each of which an exec moves.  From its stat: fields 22, 23, 26-28, 48-51."""
     fields = (entry / "stat").read_bytes().rsplit(b")", 1)[1].split()   # bytes: any name
-    return fields[20], [fields[i] for i in (23, 24, 25, 45, 46, 47, 48)]
+    return int(fields[19]), int(fields[20]), [fields[i] for i in (23, 24, 25, 45, 46, 47, 48)]
 
 
 def _wait_gone(pid, bound=30):

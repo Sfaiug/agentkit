@@ -17,10 +17,9 @@ from fixtures.akbin import REAL_TMUX, SOCKET, Home, _strays
 
 class Exec:
     """A /proc entry whose reads come in turn, as from a process in the middle of an exec."""
-    name = "7"
 
-    def __init__(self, **reads):
-        self.reads = reads
+    def __init__(self, pid, **reads):
+        self.name, self.reads = str(pid), reads
 
     def __truediv__(self, field):
         return SimpleNamespace(read_bytes=lambda: self.reads[field].pop(0))
@@ -69,12 +68,17 @@ class Runner(unittest.TestCase):
             os.kill(pid, 0)
         self.assertFalse(self.home.root.exists())
 
-    def test_a_process_caught_in_an_exec_is_found_once_the_exec_sets_its_environment(self):
-        image = [b"1"] * 50
-        execing = [*image[:47], b"0", b"0", b"1"]       # its environment not set yet
-        stats = [b"7 (sh) " + b" ".join(fields) for fields in (execing, execing, image, image)]
-        entry = Exec(environ=[b"", b"", f"HOME={self.home.path}\0".encode()], stat=stats)
-        with patch.object(Path, "glob", return_value=[entry]):
+    @unittest.skipUnless(Path("/proc/self/environ").exists(), "no /proc to find strays in")
+    def test_an_exec_is_waited_out_only_in_a_process_the_home_could_have_started(self):
+        image = Path("/proc/self/stat").read_bytes().rsplit(b")", 1)[1].split()   # this one's
+        # its environment being walked, its code not placed yet: the middle of an exec
+        execing = [*image[:23], b"0", b"0", *image[25:48], image[47], *image[49:]]
+        older = [*execing[:19], b"0", *execing[20:]]        # started at boot, before this test
+        stats = lambda *images: [b"(sh) " + b" ".join(fields) for fields in images]
+        entries = [Exec(6, environ=[b"", b""], stat=stats(older, older)),
+                   Exec(7, environ=[b"", b"", f"HOME={self.home.path}\0".encode()],
+                        stat=stats(execing, execing, image, image))]
+        with patch.object(Path, "glob", return_value=entries):
             self.assertEqual(_strays(self.home.path), [7])
 
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
