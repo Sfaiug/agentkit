@@ -3,11 +3,11 @@ package config
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -26,27 +26,13 @@ var adapters embed.FS
 
 // SeatEnv is the variables a launch sets for its seat alone, as the manifests' `[launch]
 // seat_env` declare them: nothing the seat starts may be told them, or a check would run
-// to the orchestrator's rules.  $AGENTKIT_ADAPTER_DIR's manifest of a harness comes first.
+// to the orchestrator's rules.
 func SeatEnv() ([]string, error) {
-	manifests := map[string][]byte{}
-	shipped, _ := fs.Glob(adapters, "adapters/*.toml")
-	for _, each := range shipped {
-		manifests[path.Base(each)], _ = adapters.ReadFile(each)
-	}
-	if dir := os.Getenv("AGENTKIT_ADAPTER_DIR"); dir != "" {
-		for _, each := range Glob(Expand(dir), "*.toml") {
-			data, err := os.ReadFile(each)
-			if err != nil {
-				return nil, fmt.Errorf("cannot read %s: %w", each, err)
-			}
-			manifests[filepath.Base(each)] = data
-		}
-	}
 	var names []string
-	for name, data := range manifests {
-		root, err := parseDocument(string(data))
+	for _, harness := range harnesses() {
+		root, err := manifest(harness)
 		if err != nil {
-			return nil, fmt.Errorf("adapter manifest %s: %w", name, err)
+			return nil, err
 		}
 		launch, _ := root.values["launch"].(*table)
 		if launch == nil {
@@ -60,6 +46,51 @@ func SeatEnv() ([]string, error) {
 		}
 	}
 	return names, nil
+}
+
+// AgentPrograms are the names, as patterns, a process in a pane goes by when it is an agent:
+// each harness's own, the program its `[update] version` command runs, and the `[launch]
+// programs` that one goes on to run.
+func AgentPrograms() []string {
+	var found []string
+	for _, harness := range harnesses() {
+		found = append(found, harness)
+		root, err := manifest(harness)
+		if err != nil {
+			continue
+		}
+		if update, ok := root.values["update"].(*table); ok {
+			if version, _ := update.values["version"].([]any); len(version) > 0 {
+				if program, ok := version[0].(string); ok {
+					found = append(found, filepath.Base(program))
+				}
+			}
+		}
+		if launch, ok := root.values["launch"].(*table); ok {
+			programs, _ := launch.values["programs"].([]any)
+			for _, each := range programs {
+				if pattern, ok := each.(string); ok {
+					found = append(found, pattern)
+				}
+			}
+		}
+	}
+	return found
+}
+
+// harnesses are those with a manifest: the shipped ones and $AGENTKIT_ADAPTER_DIR's.
+func harnesses() []string {
+	shipped, _ := fs.Glob(adapters, "adapters/*.toml")
+	if dir := os.Getenv("AGENTKIT_ADAPTER_DIR"); dir != "" {
+		shipped = append(shipped, Glob(Expand(dir), "*.toml")...)
+	}
+	var names []string
+	for _, each := range shipped {
+		if name := strings.TrimSuffix(filepath.Base(each), ".toml"); !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // Repo is the top of the checkout this ak was built in, where adapters/ and tools/ are.
@@ -172,14 +203,17 @@ func resolveAll(names []string, env map[string]string) []string {
 	return paths
 }
 
-// manifest is adapters/<harness>.toml, $AGENTKIT_ADAPTER_DIR's first; a harness with none
-// reads as an empty one.
+// manifest is adapters/<harness>.toml, $AGENTKIT_ADAPTER_DIR's where it has one; a harness
+// with none reads as an empty one.
 func manifest(harness string) (*table, error) {
 	name := harness + ".toml"
 	data, err := adapters.ReadFile("adapters/" + name)
 	if dir := os.Getenv("AGENTKIT_ADAPTER_DIR"); dir != "" {
-		if own, ownErr := os.ReadFile(filepath.Join(Expand(dir), name)); ownErr == nil {
-			data, err = own, nil
+		own := filepath.Join(Expand(dir), name)
+		if _, missing := os.Stat(own); missing == nil {
+			if data, err = os.ReadFile(own); err != nil {
+				return nil, fmt.Errorf("%s: %w", own, errors.Unwrap(err))
+			}
 		}
 	}
 	if err != nil {

@@ -57,21 +57,41 @@ func Sessions(server string) []Session {
 	return found
 }
 
-// Dead are the sessions on that server whose panes have all exited, which tmux still holds.
-func Dead(server string) map[string]bool {
-	dead, alive := map[string]bool{}, map[string]bool{}
-	out, err := run(server, "list-panes", "-a", "-F", "#{session_name}\t#{pane_dead}")
+// A Pane is one pane of a session: the process tmux started in it, and whether that ended.
+type Pane struct {
+	Session string
+	PID     int
+	Dead    bool
+}
+
+// Panes are every pane one server holds, and whether it answered.
+func Panes(server string) ([]Pane, bool) {
+	out, err := run(server, "list-panes", "-a", "-F", "#{session_name}\t#{pane_pid}\t#{pane_dead}")
 	if err != nil {
-		return dead
+		return nil, false
 	}
+	var panes []Pane
 	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
-		if name, flag, _ := strings.Cut(line, "\t"); flag == "1" {
-			dead[name] = !alive[name]
-		} else {
-			alive[name], dead[name] = true, false
+		if parts := strings.Split(line, "\t"); len(parts) == 3 {
+			pid, _ := strconv.Atoi(parts[1])
+			panes = append(panes, Pane{parts[0], pid, parts[2] == "1"})
 		}
 	}
-	return dead
+	return panes, true
+}
+
+// Exited is whether every pane of that session has ended, which tmux still holds.
+func Exited(panes []Pane, session string) bool {
+	exited := false
+	for _, pane := range panes {
+		if pane.Session == session {
+			if !pane.Dead {
+				return false
+			}
+			exited = true
+		}
+	}
+	return exited
 }
 
 // Term is the TERM tmux is run with where this box has no terminfo for the one in the
