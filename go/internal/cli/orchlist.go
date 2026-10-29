@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"agentkit/internal/agent"
 	"agentkit/internal/config"
 	"agentkit/internal/host"
 	"agentkit/internal/terminal"
@@ -27,9 +28,9 @@ func orchList(_ []string, out, errOut io.Writer) int {
 	return 0
 }
 
-// seatless is whether Python ak would find no seat: no session on ak's own server, no marked
-// one on the default server, no session record or rename pointer. Finding one, its listing
-// writes seat state, which Go does not do yet.
+// seatless is whether Python ak would find no seat: no session record or rename pointer, on
+// ak's own server only sessions it did not open running no agent, and no marked session on the
+// default server. Finding one, its listing writes seat state, which Go does not do yet.
 func seatless() bool {
 	files, _ := os.ReadDir(filepath.Join(config.Home(), "state"))
 	for _, file := range files {
@@ -37,13 +38,17 @@ func seatless() bool {
 			return false
 		}
 	}
-	if len(tmux.Sessions(tmux.Own())) > 0 {
-		return false
+	var strangers []string
+	for _, session := range tmux.Sessions(tmux.Own()) {
+		if session.Mark == "1" {
+			return false
+		}
+		strangers = append(strangers, session.Name)
 	}
 	for _, session := range tmux.Sessions(tmux.Default) {
 		if session.Mark == "1" {
 			return false
 		}
 	}
-	return true
+	return agent.Agentless(tmux.Own(), strangers)
 }
