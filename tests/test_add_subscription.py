@@ -140,7 +140,10 @@ class AddSubscription(unittest.TestCase):
         lines = screen.press(ENTER, lambda lines: title(lines) == PAGE)   # read, then back
         self.assertIn("Codex login did not finish; ChatGPT II is not added", lines[-3])
         self.assertEqual(screen.path.read_bytes(), before)
-        self.assertEqual(len((home / "verbs.log").read_text().split()), 3)
+        # its login, then what it left for that account forgotten
+        [(harness, verb, account), forgot] = [line.split() for line in
+                                              (home / "verbs.log").read_text().splitlines()]
+        self.assertEqual((harness, verb, forgot), ("codex", "login", ["codex", "forget", account]))
         back(screen)
         screen.leave()
 

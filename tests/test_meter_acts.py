@@ -104,7 +104,7 @@ class MeterActs(Sandbox):
             del cfg["providers"][picked[0]]
             return ""
         for name, fake in (("config_spend_reset", AssertionError),
-                           ("sign_in", lambda _cfg, _kb, name, _account: signed.append(name)),
+                           ("sign_in", lambda _cfg, _kb, picked: signed.append(picked[0]) or ""),
                            ("config_remove_provider", remove)):
             self.stack.enter_context(patch.object(menu, name, side_effect=fake))
         self.stack.enter_context(patch.object(terminal, "read_key",

@@ -27,6 +27,9 @@
 #                                  in afresh over a login that still stands
 #                     logout       -> this login's auth.json removed, with its lock and refusal:
 #                                  `grok logout` (1.0.40) says "No cached session" over one
+#                     forget       -> a named account's own files removed, its Grok home and its
+#                                  refusal: a link in them goes, never what it leads to; the
+#                                  usual login is refused
 #                     login-end    -> {"email","ends","plan"}: whose the login is and its tier;
 #                                  `ends` is null, since grok writes down no day its refresh
 #                                  token ends
@@ -348,6 +351,9 @@ login)
   grok login ;;
 logout)
   rm -f -- "$AUTH" "$AUTH.lock" "$REFUSED" ;;
+forget)
+  [ -n "$ACCOUNT" ] || { echo "grokbuild.sh forget: the usual login is never forgotten" >&2; exit 2; }
+  rm -rf -- "$GROK_HOME" "$REFUSED" ;;
 login-end)
   # grok trades its refresh token for a six-hour key itself, and that token names no end: a
   # login that dies shows only once `auth` says so.  The email is the saved entry's own, the
@@ -481,6 +487,6 @@ models)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" grokbuild $ids ;;
 *)
-  echo "usage: grokbuild.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | grokbuild.sh usage | grokbuild.sh interactive <model> <effort> [session-id [new]] | grokbuild.sh install | grokbuild.sh login [again] | grokbuild.sh logout | grokbuild.sh login-end | grokbuild.sh lend <home> | grokbuild.sh auth [seat] | grokbuild.sh hooks | grokbuild.sh models" >&2
+  echo "usage: grokbuild.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | grokbuild.sh usage | grokbuild.sh interactive <model> <effort> [session-id [new]] | grokbuild.sh install | grokbuild.sh login [again] | grokbuild.sh logout | grokbuild.sh forget | grokbuild.sh login-end | grokbuild.sh lend <home> | grokbuild.sh auth [seat] | grokbuild.sh hooks | grokbuild.sh models" >&2
   exit 2 ;;
 esac

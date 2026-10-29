@@ -1613,6 +1613,9 @@ def adapter(harness):
         install its lifecycle hooks idempotently; install it and log in on a fresh box, `again`
         signing in afresh over a login that still stands; sign that login out on this machine,
         0 at once where it holds none, touching no other login nor a store they share.
+    forget
+        a harness that keeps more than one login: every file of $AGENTKIT_ACCOUNT's own removed,
+        a link among them but never what it leads to; the usual login refused.
     login-end
         one JSON object: `email`, and `ends`, the epoch second the login stops serving, or null.
     lend <home>
