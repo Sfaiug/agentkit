@@ -4593,7 +4593,9 @@ def ensure(cfg, name, log=print, saved=False, roles=None, repo=None):
 def cmd_ended(argv):
     """`pane-died`'s (`ended_options`): a seat whose harness ended without ak ending it, at
     WHEN by tmux's clock, comes back in its pane, as its number opens it, told what the end cut
-    off, as a reboot's seats are (`watch.resume_after_boot`).
+    off, as a reboot's seats are (`watch.resume_after_boot`).  One whose past could not come
+    back took no line with its fresh conversation: it is owed that line, saying so, as a seat
+    the tick reopens is (`watch.revive`).
 
     Decided and done under the lock `cmd_stop` decides under, so a stop finds it back or this
     finds it closed.  It is left as it is with no record, closed by the owner, live again or
@@ -4615,8 +4617,11 @@ def cmd_ended(argv):
                 or died - (record.get("launched") or 0) < watch.INBOX_WARMUP):
             return 0
         at, line = time.time(), watch.cut_off(cfg, name)[1]   # read before the relaunch writes
-        if resume(cfg, name, hand_over=False, line=line) == "resumed" and line:
+        back = resume(cfg, name, hand_over=False, line=line)
+        if line and back == "resumed":
             watch.relaunched(name, watch.seat_model(cfg, name)[0], line, at)
+        elif line:
+            watch.owe_line(name, None, {"line": line + watch.FRESH_NOTE})
     return 0
 
 

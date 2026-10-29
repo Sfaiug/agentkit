@@ -5,9 +5,10 @@ On 28 Oct 2026 the owner typed `/exit` into a seat by accident.  `remain-on-exit
 dead, and a dead pane takes no keys: the only way back was Ctrl-b m and the seat's number.  A
 harness that ends without ak ending it -- an exit, a crash, a kill from outside -- now comes back
 within seconds the way its number opens it: in the same pane, on the conversation its record
-holds.  `ak orch stop` still ends a seat, a seat the owner closed stays down, and a harness that
-ends inside its warm-up stays down, so one that cannot start never loops; its pane says in one
-line how to open it again.  A server started before any of this gets the same from the tick.
+holds, or fresh where that cannot come back -- told, either way, what the end cut off.  `ak orch
+stop` still ends a seat, a seat the owner closed stays down, and a harness that ends inside its
+warm-up stays down, so one that cannot start never loops; its pane says in one line how to open
+it again.  A server started before any of this gets the same from the tick.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py on a real
 tmux of the test's own, each seat's harness a TUI of tests/fixtures/fakeadapter.py that quits at
 Enter, or at once where its folder says so.
@@ -16,6 +17,7 @@ Enter, or at once where its folder says so.
 import json
 import os
 import re
+import shlex
 import signal
 import sys
 import time
@@ -25,7 +27,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home, boxable
-from fixtures.akseat import Seat
+from fixtures.akseat import PANE, Seat
+from fixtures.hookdrive import Hooks
 
 TUI = "sh -c '[ -e quits-at-once ] || read line'"
 SEATS = ("quit", "crash", "stopped", "closed", "early")
@@ -167,6 +170,31 @@ class AServerStartedWithoutIt(unittest.TestCase):
                  and says(home, "acme", "#{pane_dead}") == "0", "acme never came back")
             self.assertEqual(says(home, "acme", "#{pane_id}\t#{@ak_harness_pane}"),
                              f"{seat.pane}\t{seat.pane}")
+
+
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
+class AHarnessWithNoPastToComeBackOn(unittest.TestCase):
+    def test_comes_back_fresh_and_is_still_told_what_its_end_cut_off(self):
+        with Home() as home:
+            akconfig.write(home, ["opus"])
+            fake = fakeadapter.install(home, claude="pass")["claude"]
+            # a conversation its harness never opened, cut off in the middle of a turn
+            seat = Seat(home, "acme")
+            fake.answer("interactive", shlex.join([sys.executable, str(PANE),
+                                                   str(seat.screen_file), str(seat.typed_file)]))
+            fired = Hooks(home).fire("UserPromptSubmit", {"prompt": "go"}, seat="acme", pane=seat)
+            self.assertEqual(fired.code, 0, fired)
+            ticked = home.tick()
+            self.assertEqual(ticked.code, 0, ticked.out + ticked.err)
+            os.kill(int(says(home, "acme", "#{pane_pid}")), signal.SIGKILL)
+            wait(lambda: len(fake.calls("interactive")) == 1
+                 and says(home, "acme", "#{pane_dead}") == "0", "acme never came back")
+            self.assertEqual(says(home, "acme", "#{pane_id}"), seat.pane)
+            ticked = home.tick()
+            self.assertEqual(ticked.code, 0, ticked.out + ticked.err)
+            line, = seat.wait_lines(1)
+            self.assertIn("in the middle of a turn", line)
+            self.assertIn("started fresh", line)
 
 
 if __name__ == "__main__":
