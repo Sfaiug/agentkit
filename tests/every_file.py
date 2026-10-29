@@ -20,9 +20,9 @@ checks. Python under agentkit/, tools/, bin/ and tests/ must parse with the gram
 3.11, the oldest ak supports, as `ast.parse`'s `feature_version` applies it (f-strings it still
 reads by the running interpreter's rules), and import only from the standard library or this
 repository, including files smoke.sh already ran. A file failing again is also named in the
-file AK_FAILED names; with AK_ONLY set only the files its file lists run, whatever the share,
-smoke.sh's among them, each named in the file AK_RAN names, and the imports go unchecked: they
-are no listed test.
+file AK_FAILED names, and one passing it in AK_FLAKY's; with AK_ONLY set only the files its
+file lists run, whatever the share, smoke.sh's among them, each named in the file AK_RAN names,
+and the imports go unchecked: they are no listed test.
 
     python3 tests/every_file.py [checkout [descriptor]]
 """
@@ -227,7 +227,7 @@ def main(root, others=None):
     env["PYTHONPYCACHEPREFIX"] = pycache.name
     pending = iter(todo)
     path = next(pending, None)
-    began, again, failed, flaky, jobs = time.monotonic(), [], [], 0, 0
+    began, again, failed, flaky, jobs = time.monotonic(), [], [], [], 0
     with pycache, ThreadPoolExecutor(max(1, len(todo))) as pool:
         running = {}
         while path is not None or running:
@@ -261,7 +261,7 @@ def main(root, others=None):
         for name, out in again:
             code, rerun, took = run_file(root, root / name, env)
             if code == 0 and cases_run(rerun) > 0:
-                flaky += 1
+                flaky.append(str(name))
                 print(suite_times.passed(name, took))
                 print(f"flaky: {name} failed, then passed on its re-run")
             else:
@@ -270,10 +270,11 @@ def main(root, others=None):
                 reason = f"exit {code}" if code else "no tests ran"
                 print(f"FAIL  {name}: {reason} after {took:.0f}s, its last lines:")
             print("\n".join(f"      {line}" for line in out.splitlines()[-TAIL:]), flush=True)
-    passed = f"{len(todo) - len(failed)} passed" + (f" ({flaky} flaky)" if flaky else "")
+    passed = f"{len(todo) - len(failed)} passed" + (f" ({len(flaky)} flaky)" if flaky else "")
     print(f"test files: {passed}, {len(failed)} failed, {jobs} at once, "
           f"{time.monotonic() - began:.0f}s")
     name_failed(failed)
+    name_failed(flaky, "AK_FLAKY")
     if only is not None:
         name_failed((str(path.relative_to(root)) for path in todo), "AK_RAN")
     return 1 if failed else 0

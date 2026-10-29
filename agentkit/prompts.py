@@ -737,6 +737,18 @@ def red_target_text(cmd, upstream, tip, output, where, piece=None):
             f"it. What it printed there:\n\n{printed}")
 
 
+def flaky_test_text(test, repo, upstream, seen):
+    """What a flaky test's repair is told: the test, its repository, and each time the landing
+    line saw it fail, then pass, on one tree, with the logs that show it."""
+    logs = "\n".join(f"- {log}" for sight in seen for log in sight["logs"])
+    return (f"`{test}` in {repo} failed and then passed on the same tree {len(seen)} times "
+            f"within a week, on {len({sight['tree'] for sight in seen})} trees of {upstream}: "
+            f"each time the landing line ran it again. The logs that show it:\n\n{logs}\n\n"
+            "Make it deterministic without weakening what it checks: find why it fails only "
+            "sometimes and remove that cause, in the test or in the code it tests. Never make it "
+            "retry, skip it or loosen what it asserts.")
+
+
 def done_when_block(cmds):
     """The `## Done when` section a PR review's task and its fixer's share."""
     return "## Done when\n```bash\n" + (cmds[0] if cmds else "true   # AGENTS.md declares no tests:") + "\n```\n"

@@ -16,8 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import test_suite_helper as fixture
 from agentkit import gate, helper, worker
 
-# The helper hands back what the failed piece named (`named`), as mac.sh's `failed` does.
-FAKE_SSH = fixture.FAKE_SSH.replace("esac", 'failed) cat "$here/named" 2>/dev/null ;;\nesac')
+# The helper hands back what the failed piece named, as failed or flaky, as mac.sh's `failed` does.
+FAKE_SSH = fixture.FAKE_SSH.replace("esac", 'failed) cat "$here/$8" 2>/dev/null ;;\nesac')
 
 # The whole piece, or the tests AK_ONLY lists, failing with ACME_RED.
 SUITE = ('[ -n "$AK_ONLY" ] || { printf "piece %s\\n" "$AK_SHARD"; exit; }; '
@@ -33,13 +33,20 @@ class MacFailureRerunsItsFiles(unittest.TestCase):
         (self.fake / "ssh").write_text(FAKE_SSH)
         (self.fake / "code-2").write_text("1")
 
-    def suite(self, named="", **env):
-        (self.fake / "named").write_text(named)
+    def suite(self, named="", flaky=None, **env):
+        (self.fake / "failed").write_text(named)
         with patch.dict(os.environ, env):
             code, text, _ = gate.run_suite(SUITE, 30, cwd=self.repo,
                                            activity=self.root / "live.log", output=io.BytesIO(),
-                                           log=lambda _line: None, stderr=subprocess.STDOUT)
+                                           log=lambda _line: None, stderr=subprocess.STDOUT,
+                                           flaky=flaky)
         return code, text
+
+    def test_what_a_piece_there_names_flaky_is_flaky(self):
+        (self.fake / "flaky").write_text("tests/test_b.py\n")
+        flaky = []
+        self.assertEqual(self.suite(flaky=flaky)[0], 0)
+        self.assertIn("tests/test_b.py", flaky)
 
     def test_its_failed_tests_alone_passing_here_run_it_whole_a_flake_of_the_helper(self):
         boxed, busy = worker.boxed, []
@@ -83,6 +90,8 @@ class MacHandsBackTheNames(unittest.TestCase):
         named.parent.mkdir(parents=True)
         named.write_text("tests/test_a.py\n\ntests/test_a.py\n")
         self.assertEqual(helper.failed(away, "1/1"), ["tests/test_a.py"])
+        named.with_name("flaky").write_text("tests/test_b.py\n")
+        self.assertEqual(helper.failed(away, "1/1", "flaky"), ["tests/test_b.py"])
         named.unlink()
         named.symlink_to(self.fake / "sysctl")    # a file of the Mac's own
         self.assertEqual(helper.failed(away, "1/1"), [])

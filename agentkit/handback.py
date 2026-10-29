@@ -1117,7 +1117,9 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
     run, launched ahead of the queue, makes the target pass that command again.  Its guard
     is an open repair of the same repository, target and command instead of a receipt.
     Returns the repair's run, started, already open, or left queued by a launch that
-    raised, or None when none is.
+    raised, or None when none is.  A `flaky` repair's command is a test the landing line saw
+    fail, then pass, `flaky` when it first did, which keys it too, and its `text` all it is
+    told: a passing run says nothing there.
     A slow suite's `split` starts the same way, with ak's task and check. Its cost record
     keeps the receipt even after run retention, whatever the run's ending.
     """
@@ -1170,7 +1172,8 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
             previous = gate.read_suite_cost(Path(split["cost"])).get("split_run")
             if previous:
                 return previous
-        key = repair and {"target": target, "command": repair["command"]}
+        key = repair and {"target": target, "command": repair["command"],
+                          **({"flaky": repair["flaky"]} if "flaky" in repair else {})}
         for item in items:
             started = None if request else started_by(run_dir, item)
             if started:
@@ -1186,7 +1189,8 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                 taken.add(item)
                 continue
             title = ("Split the slow test suite" if split else
-                     f"Make {target} pass `{repair['command']}` again" if repair
+                     f"Make {repair['command']} deterministic" if repair and repair.get("flaky")
+                     else f"Make {target} pass `{repair['command']}` again" if repair
                      else "Fix " + item.splitlines()[0])
             if len(title) > 256:  # GitHub rejects a longer PR title; the item stays whole below
                 title = title[:255] + "…"
@@ -1196,8 +1200,8 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                 check = shlex.quote(str(directory / turns.REGRESSION))
                 task = (f"---\nrepo: {repo}\nbase: origin/{target}\ntarget: {target}\n---\n"
                         f"# {title}\n\n{item}\n\n")
-                if split:
-                    task += f"## Done when\n```bash\n{split['check']}\n```\n"
+                if split or repair and repair.get("flaky"):
+                    task += f"## Done when\n```bash\n{request['check']}\n```\n"
                 elif repair or item in checks:
                     # the check is a given failing command, the target's own for a repair and the
                     # reviewer's for a follow-up, and the run makes it pass: one task for both
