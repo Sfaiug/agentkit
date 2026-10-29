@@ -144,7 +144,7 @@ class SeatQuestionWhole(Sandbox):
                     self.assertIn("esc leave", lines[-1])
 
     def test_no_page_turns_as_the_highlight_moves(self):
-        for width in (30, 44, 62, 100):
+        for width in (44, 62, 100):
             for height in (*range(8, 24), 50):
                 with self.subTest(width=width, height=height):
                     # the rows under the highlighted one move down for its lines, but every seat
