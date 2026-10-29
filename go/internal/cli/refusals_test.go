@@ -124,11 +124,14 @@ func TestNotifyNeeds(t *testing.T) {
 	unimplemented := "ak notify needs: not implemented in Go yet\n"
 	assertCall(t, ask("Which branch?"), 2, "", "ak notify: notify needs a session: use --session NAME\n")
 	assertCall(t, ask("Which branch?", "--session", "acme"), 3, "", unimplemented)
-	// a seat asking for itself is its turn's to decide
+	// a seat asking for itself is its turn's to decide, before its record is read
 	t.Setenv("AGENTKIT_SESSION", "acme")
-	for _, args := range [][]string{ask("Which branch?"), ask("Which branch?", "--dry-run"), ask("Which branch?", "--session", "acme", "--dry-run")} {
+	write(t, filepath.Join(home, ".agentkit", "state", "session-acme.json"), "{")
+	for _, args := range [][]string{ask("Which branch?"), ask("Which branch?", "--dry-run"), ask("Which branch?", "--session", " acme"), ask("Which branch?", "--session", "acme", "--dry-run")} {
 		assertCall(t, args, 3, "", unimplemented)
 	}
+	write(t, filepath.Join(home, ".agentkit", "state", "session-acme.json"), `{"renamed": "acme-2"}`)
+	assertCall(t, ask("Which branch?", "--session", "acme-2", "--dry-run"), 3, "", unimplemented)
 	// Python's json.dumps(page, indent=2): its keys' order, past ASCII escaped, nothing HTML-escaped
 	t.Setenv("AGENTKIT_DISCORD_USER_ID", " <4\"2>\n")
 	page := `{

@@ -27,21 +27,26 @@ func notifyNeeds(args []string, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "ak notify: %s\n", err)
 		return 2
 	}
-	// a seat name Go cannot read is left to Python, as is a question
-	if !utf8.ValidString(os.Getenv("AGENTKIT_SESSION")) || !utf8.ValidString(asked.session) {
+	// a seat asking for itself is left to Python before either name is resolved: its turn decides
+	own := os.Getenv("AGENTKIT_SESSION")
+	if own != "" && (!asked.named || config.Fold(asked.session) == config.Fold(own)) {
 		return notImplemented(errOut, "notify needs")
 	}
-	own, _, err := config.CurrentSession()
+	// a seat name Go cannot read is left to Python, as is a question
+	if !utf8.ValidString(own) || !utf8.ValidString(asked.session) {
+		return notImplemented(errOut, "notify needs")
+	}
+	current, _, err := config.CurrentSession()
 	seat := ""
-	if err == nil && (asked.session != "" || own != "" && asked.named) {
+	if err == nil && (asked.session != "" || current != "") {
 		seat, _, err = config.ResolveSession(asked.session)
 	}
 	if err != nil {
 		fmt.Fprintf(errOut, "ak notify: %s\n", err)
 		return 2
 	}
-	if own != "" && (!asked.named || seat == own) {
-		return notImplemented(errOut, "notify needs") // a seat asking for itself: its turn decides
+	if current != "" && seat == current {
+		return notImplemented(errOut, "notify needs") // itself, by a name it had before a rename
 	}
 	if !asked.dryRun && seat == "" {
 		fmt.Fprintln(errOut, "ak notify: notify needs a session: use --session NAME")
