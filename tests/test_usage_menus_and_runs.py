@@ -76,7 +76,9 @@ class UsageLeft(Sandbox):
 
     def draw(self, seats, width):
         out = io.StringIO()
+        # 30 rows: on fewer a 40-column screen says the usage as its readings
         with patch.object(terminal, "width", return_value=width), \
+                patch.object(terminal, "height", return_value=30), \
                 patch.object(menu.time, "strftime", wraps=time.strftime) as stamp, redirect_stdout(out):
             real = stamp._mock_wraps
             stamp.side_effect = lambda fmt, *args: "13:05" if not args else real(fmt, *args)

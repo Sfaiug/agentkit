@@ -78,9 +78,9 @@ class SeatQuestionWhole(Sandbox):
                 seat(2, "acme-web", word="working", sentence="", bar=(1, 3))]
         self.assertEqual(blocks(rows, 100, most=2), blocks(rows, 100))
 
-    def draw(self, cursor, width, height, keyboard=True):
+    def draw(self, cursor, width, height, keyboard=True, seats=ROWS):
         """The screen as plain text, the page count and the seat on each screen row."""
-        groups = ([{"name": "acme", "checkout": None, "seats": ROWS}], ROWS, 2, 0)
+        groups = ([{"name": "acme", "checkout": None, "seats": seats}], seats, 2, 0)
         out, drawn = io.StringIO(), {} if keyboard else None
         with patch.object(terminal, "width", return_value=width), \
                 patch.object(terminal, "height", return_value=height), redirect_stdout(out):
@@ -106,9 +106,24 @@ class SeatQuestionWhole(Sandbox):
         self.assertNotIn(QUESTION, screen)
         # its lines under the row are half the screen at most, the last ending in `…`,
         # and the rows after it stay on the page
-        self.assertIn("Reason 6: the parser reads both, and v2 drops the legac… 2 acme-web", screen)
+        self.assertIn("Reason 5: the parser reads… 2 acme-web", screen)
         self.assertIn("2 acme-web opus ! needs you", screen)
-        self.assertTrue(screen.endswith("← 1 / 3 → n new c config esc leave"), screen)
+        self.assertTrue(screen.endswith("← 1 / 6 → n new c config esc leave"), screen)
+
+    def test_the_usage_keeps_its_form_however_long_a_question(self):
+        # the usage's form is the screen's size alone: a seat asking at length takes its lines
+        # from the rows, never the usage's (the owner, 29 Oct 2026)
+        short = [seat(1, "fix-api", sentence="Merge PR #8 by bob? yes/no")] + ROWS[1:]
+        for width in (30, 44, 62, 100):
+            for height in (*range(8, 30), 50):
+                with self.subTest(width=width, height=height):
+                    forms = set()
+                    for seats in (ROWS, short, ROWS[:2], ROWS[:1],
+                                  *([seat(1, "fix-api", sentence=said)] for said in ("Proceed?", ""))):
+                        screen, _, _ = self.draw("fix-api", width, height, seats=seats)
+                        forms.add((screen.startswith("agentkit"),
+                                   screen[screen.index("Claude"):screen.index(" acme ")]))
+                    self.assertEqual(len(forms), 1, forms)
 
     def test_what_opens_takes_only_the_lines_the_screen_has_left(self):
         groups = ([{"name": "acme", "checkout": None, "seats": ROWS}], ROWS, 2, 0)

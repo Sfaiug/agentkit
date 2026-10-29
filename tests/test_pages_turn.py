@@ -110,13 +110,13 @@ class KeyLine(Sandbox):
         groups = menu.v5o_groups(self.cfg, self.seats, look=False)
         groups[0][0]["switches"] = []
         with patch.object(menu, "v5o_groups", return_value=groups):
-            lines, drawn = self.screen(60, 14, cursor=groups[0][0]["checkout"])
+            lines, drawn = self.screen(60, 11, cursor=groups[0][0]["checkout"])
             pages = len(drawn["turns"])
             self.assertGreater(pages, 2)
             for step, number in [(1, n) for n in range(2, pages + 1)] + [
                     (-1, n) for n in range(pages - 1, 0, -1)]:
                 cursor = menu.turned(drawn["turns"], number - 1 - step, drawn["cursor"], step)
-                lines, drawn = self.screen(60, 14, cursor=cursor)
+                lines, drawn = self.screen(60, 11, cursor=cursor)
                 self.assertEqual(page_of(lines), f"{number} / {pages}")
 
 
