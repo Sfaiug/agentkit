@@ -722,12 +722,13 @@ def followup_report(state):
     return "\n".join(parts)
 
 
-def seat_notice(line, state, run_dir, brief, action="Decide the next step."):
+def seat_notice(line, state, run_dir, brief, action="Decide the next step.", save=True):
     """A run line that fits stays unchanged; otherwise its files carry the whole news.
 
     Use the bound of a typed line (`watch.too_long`), including its byte limit, after every addition to the
     line. Never type even the compact form unless that bound accepts it and its full notice
     and follow-ups have been saved in result.md, including for an older pending ending.
+    Without `save` the caller leaves that to whoever holds the delivery lock (`look_line`).
     """
     from . import watch  # here, not at the top: it reaches run
     if not watch.too_long(line):
@@ -747,7 +748,8 @@ def seat_notice(line, state, run_dir, brief, action="Decide the next step."):
     refusal = watch.too_long(compact)
     if refusal:
         raise config.Error(refusal)
-    save_result(run_dir, notices=(line, followup_report(state)))
+    if save:
+        save_result(run_dir, notices=(line, followup_report(state)))
     return compact
 
 
@@ -766,6 +768,14 @@ def already_handed_back(state):
     if isinstance(ended, (int, float)) and not isinstance(ended, bool):
         return said >= ended
     return True
+
+
+def waits(state):
+    """Whether this ending waits for its seat's next quiet prompt and nothing has said it yet:
+    deferred, not handed back, and its line not already in the composer for its Enter, which
+    is the typed path's (`handback_typed`)."""
+    return bool(state.get("handback_pending") and not state.get("handback_typed")
+                and not already_handed_back(state))
 
 
 def owes_ending(state):
@@ -911,6 +921,36 @@ def printed_at_launch(run_dir, state, log):
             handback_pending=None, handback_typed=None, handback_wait_reason=None,
             notification_pending=None):
         log(f"run {run_dir.name} {PRINTED_NOTE}")
+
+
+LOOKED_NOTE = "read by its seat's own ak run status: printed there, not typed"
+
+
+def look_line(run_dir, state):
+    """The hand-back line its own seat's `ak run status <id>` prints, or None.  A long line's
+    full notice is saved to result.md under the delivery lock (`seat_notice`), taken here
+    without waiting and released before the look prints: one held elsewhere is the tick
+    handing this ending back now, saving that notice itself."""
+    try:
+        with delivery_lock(run_dir, wait=False) as held:
+            return handback_line(state, run_dir, save=held)
+    except (config.Error, OSError):
+        return None     # left waiting: the tick types it at the seat's next quiet prompt
+
+
+def printed_at_look(run_dir, state):
+    """An ending its own seat's `ak run status <id>` has just printed, the line the tick would
+    type: the seat read it there, so it is recorded as handed back, as `printed_at_launch`
+    records a refusal -- typed in as well, it would be news the seat had already acted on
+    (28 Oct).  Only while this attempt's ending still waits (`waits`), and never waiting for
+    the lock: one held elsewhere is the tick typing that ending now, so it is left to it, and
+    the seat may read it twice."""
+    with delivery_lock(run_dir, wait=False) as held:
+        said = held and run_record.read_state(run_dir)
+        if said and same_attempt(state, said) and waits(said):
+            mark_delivery(run_dir, said, handed_back=time.time(), reported=True,
+                          handback_note=LOOKED_NOTE, handback_pending=None,
+                          handback_wait_reason=None, notification_pending=None)
 
 
 def seat_owes_nothing(state):
@@ -1314,7 +1354,7 @@ def live_line(state, run_dir):
                        f"run {run_dir.name} is live.")
 
 
-def handback_line(state, run_dir, cfg=None):
+def handback_line(state, run_dir, cfg=None, save=True):
     """The one line a finished run types into the seat that launched it.
 
     `run <id> finished <verdict>: <why>. Result: <path>. Decide the next step.` -- an ending
@@ -1340,7 +1380,7 @@ def handback_line(state, run_dir, cfg=None):
         split = f" {word} rounds spent: split or re-scope"
         line += split
         action += split
-    return seat_notice(line, state, run_dir, f"run {run_dir.name} {ending}.", action)
+    return seat_notice(line, state, run_dir, f"run {run_dir.name} {ending}.", action, save)
 
 
 def hand_back(state, run_dir, log, cfg=None, busy=None):
@@ -1446,8 +1486,7 @@ def riding(session):
                 said = held and run_record.read_state(run_dir)
                 if not said or not same_attempt(state, said):
                     continue
-                if (said.get("handback_pending") and not said.get("handback_typed")
-                        and not already_handed_back(said)):
+                if waits(said):
                     line = handback_line(said, run_dir)
                     if mark_delivery(run_dir, said, handed_back=time.time(), reported=True,
                                      handback_pending=None, handback_note=None,
