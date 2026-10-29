@@ -567,10 +567,10 @@ auth)
   echo "opencode: $said"
   exit 0 ;;
 lend)
-  # The config, with each key OpenCode saved itself (`auth export`, 2.2.0, its active login
-  # for each provider) as that provider's `options.apiKey` where the config sets none or a
-  # blank one; a saved OAuth login holds no key.  Each provider named needs a key in the copy,
-  # or no login at all, as `auth` reads it.  Keys never leave jq and these pipes.
+  # The config, with the key of each provider's active login OpenCode saved itself (`auth
+  # export`, 2.2.0) as its `options.apiKey` where the config sets none or a blank one; a saved
+  # OAuth login holds no key.  Each provider named needs a key in the copy, or no login at all,
+  # as `auth` reads it.  Keys never leave jq and these pipes.
   [ $# -ge 1 ] || { echo "opencode.sh lend needs <home>" >&2; exit 2; }
   command -v jq >/dev/null || { echo "opencode.sh lend: jq is required" >&2; exit 2; }
   home=$1 cfg=$CFG; [ -r "$cfg" ] || cfg=/dev/null
