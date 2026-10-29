@@ -75,7 +75,10 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
     def to(self, row):
         """The highlight moved, a line at a time, onto the line that reads `row`."""
         for _ in range(20):
-            screen = self.term.screen()
+            # a whole frame: one the terminal has only begun to read shows its first lines
+            # over the last screen's, with the row missing or a highlight too many or too few
+            screen = self.term.wait(lambda screen: row_at(screen, row) is not None and sum(
+                line.startswith("› ") for line in lines(screen)) == 1)
             if row_at(screen, row, "›") is not None:
                 return
             shown = lines(screen)
