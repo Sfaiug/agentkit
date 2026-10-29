@@ -21,8 +21,8 @@ import (
 )
 
 var (
-	// \s as Python reads it, Unicode's whitespace included (config.Space)
-	doneWhen = regexp.MustCompile(strings.ReplaceAll(`(?ims)^##\s+Done when\s*$(.*?)(?:^##\s|\z)`, `\s`, `[\t\n\v\f\r\x{1c}-\x{1f} \x{85}\p{Z}]`))
+	// \s as Python reads it, Unicode's whitespace included
+	doneWhen = regexp.MustCompile(strings.ReplaceAll(`(?ims)^##\s+Done when\s*$(.*?)(?:^##\s|\z)`, `\s`, config.SpaceClass))
 	fence    = regexp.MustCompile("(?s)```(?:bash|sh)?\n(.*?)```")
 	frontRe  = regexp.MustCompile(`(?s)^---\n(.*?)\n---\n?(.*)$`)
 	agentsRe = regexp.MustCompile(`(?s)^---\n(|.*?\n)---`)
@@ -47,7 +47,7 @@ func Read(path string) (map[string]string, []string, error) {
 	meta, body := map[string]string{}, text
 	if match := frontRe.FindStringSubmatch(text); match != nil {
 		for _, line := range config.SplitLines(match[1]) {
-			line = strip(line)
+			line = strings.TrimFunc(line, config.Space)
 			if line == "" || strings.HasPrefix(line, "#") {
 				continue
 			}
@@ -55,12 +55,12 @@ func Read(path string) (map[string]string, []string, error) {
 			if !found {
 				return nil, nil, fmt.Errorf("%s: front matter line is not `key: value`: %s", path, commandhelp.Quote(line))
 			}
-			key = strip(key)
+			key = strings.TrimFunc(key, config.Space)
 			if !slices.Contains(taskKeys, key) {
 				return nil, nil, fmt.Errorf("%s: unknown front-matter key %s; accepted keys: %s", path, commandhelp.Quote(key), strings.Join(taskKeys, ", "))
 			}
 			value, _, _ = strings.Cut(value, "#")
-			meta[key] = strip(value)
+			meta[key] = strings.TrimFunc(value, config.Space)
 		}
 		body = match[2]
 	} else if strings.HasPrefix(text, "---\n") {
@@ -76,7 +76,7 @@ func Read(path string) (map[string]string, []string, error) {
 	}
 	var cmds []string
 	for _, line := range config.SplitLines(block[1]) {
-		if line = strip(line); line != "" && !strings.HasPrefix(line, "#") {
+		if line = strings.TrimFunc(line, config.Space); line != "" && !strings.HasPrefix(line, "#") {
 			cmds = append(cmds, line)
 		}
 	}
@@ -138,11 +138,6 @@ func pyInt(text string) *big.Int {
 	}
 	rounds, _ := new(big.Int).SetString(number.String(), 10)
 	return rounds
-}
-
-// strip is Python's str.strip().
-func strip(text string) string {
-	return strings.TrimFunc(text, config.Space)
 }
 
 // opensHeredoc is whether bash's own parser, reading the command as a whole script, meets a
