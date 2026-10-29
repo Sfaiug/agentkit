@@ -1,6 +1,6 @@
 """`ak models` reads the two public boards once a day into `state/boards.json`.
 
-Artificial Analysis is read off its site's pages, Arena through its dataset's pages, each of its
+Artificial Analysis is read off a page of its site, Arena through its dataset's pages, each of its
 boards at its category; a board's row is one model at one effort, or at none where the board names no effort; within a day nothing
 is asked again, `--refresh` asks now, and a board that fails keeps its last rows with the error
 beside them.  An install upgraded from before 20 Oct 2026 reads them once out of
@@ -9,7 +9,7 @@ beside them.  An install upgraded from before 20 Oct 2026 reads them once out of
 Offline: the boards' answers are handed in as bytes, counted, and a throwaway HOME holds the
 cache, and measures on Arena's webdev board and its factuality board at its coding category
 beside `quality`'s, as a role reads no rating board of Arena's.
-Artificial Analysis's pages hand their scripts the records split across two strings,
+Artificial Analysis's page hands its scripts the records split across two strings,
 Arena's dataset answers in pages of two, its rows grouped by category as Hugging Face serves them: overall first, then the others
 in their alphabetical order.
 """
@@ -32,7 +32,7 @@ sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
 from agentkit import boards, config, matrix, quality
 
-# Artificial Analysis's records on its retired model's page, and on DeepsecBench's
+# Artificial Analysis's records on its retired model's page
 AA = [
     {"name": "Claude Opus 5.5 (max)", "intelligenceIndex": 58, "terminalBench40": 0.6,
      "price1mInputTokens": 4.0, "isReasoning": True, "omniscienceHallucinationRate": None,
@@ -42,7 +42,6 @@ AA = [
     {"name": "Claude Haiku 4.5 (Non-reasoning)", "intelligenceIndex": 9.0,
      "intelligenceIndexEvaluations": [{"slug": "acme-bench", "score": 0.3}]},
     {"name": "Claude Sonnet 4.6 (Thinking)", "briefcaseBreakdown": {"overall": {"elo": 1500.0}}}]
-DEEPSEC = [{"name": "Claude Opus 5.5 (max)", "deepsecBench": 0.27, "intelligenceIndex": None}]
 # each Arena board's rows as (model, category, the board's number, any other fields), in the
 # order it serves them
 ARENA = {"agent": [("Acme 9", "overall", 0.3, {"score_ci_lower": 0.25, "score_ci_upper": 0.35})],
@@ -80,8 +79,8 @@ class Boards:
         for part in self.down:
             if part in url:
                 raise OSError(f"{part} refused")
-        if url in boards.AA_PAGES:
-            return aa_page(DEEPSEC if "deepsec" in url else AA)
+        if url == boards.AA_PAGE:
+            return aa_page(AA)
         if "huggingface" in url:
             if self.hold:
                 try:
@@ -125,20 +124,19 @@ class ModelBoards(Sandbox):
         held = boards.collect(now=10000)
         aa = {(row["model"], row["effort"]): row["values"] for row in held["artificialanalysis.ai"]["rows"]}
         # a table's fields under its name, Briefcase's overall rating under `overall` however
-        # the record gives it, and DeepsecBench's page's score merged in, its nulls never
+        # the record gives it, and no null
         self.assertEqual(aa[("Claude Opus 5.5", "max")],
                          {"aa.intelligenceIndex": 58, "aa.terminalBench40": 0.6,
                           "aa.price1mInputTokens": 4.0, "aa.briefcaseBreakdown.overall.elo": 1800.0,
                           "aa.briefcaseBreakdown.rubricPassRate": 0.6,
-                          "aa.intelligenceIndexCostPerTask.cost.total": 5.98,
-                          "aa.deepsecBench": 0.27})
+                          "aa.intelligenceIndexCostPerTask.cost.total": 5.98})
         self.assertEqual(len(aa), 4)                               # no row for the maker
         self.assertIn(("Claude Opus 5.5", "xhigh"), aa)
         self.assertIn(("Claude Haiku 4.5", "none"), aa)            # a board's words, as ak's
         self.assertEqual(aa[("Claude Sonnet 4.6", None)],          # a bracket naming no effort
                          {"aa.briefcaseBreakdown.overall.elo": 1500.0})
         self.assertEqual([url for url, _ in self.boards.asked if "artificialanalysis" in url],
-                         list(boards.AA_PAGES))
+                         [boards.AA_PAGE])
 
     def test_each_board_s_rows_are_a_model_at_an_effort_with_its_numbers(self):
         held = boards.collect(now=10000)
@@ -187,10 +185,10 @@ class ModelBoards(Sandbox):
                              {**held["arena.ai"], "error": "arena.ai: text_factuality's coding "
                                                            "rows are not where its counts put them"})
         # a page with no model's record on it is no answer: the site changed
-        with patch.object(sys.modules[__name__], "DEEPSEC", []):
+        with patch.object(sys.modules[__name__], "AA", []):
             held = boards.collect(now=20000, refresh=True)
         self.assertEqual(held["artificialanalysis.ai"]["error"],
-                         f"no model's record on {boards.AA_PAGES[1]}")
+                         f"no model's record on {boards.AA_PAGE}")
         self.assertEqual(len(held["artificialanalysis.ai"]["rows"]), 4)
 
     def test_callers_at_once_share_one_collection(self):
