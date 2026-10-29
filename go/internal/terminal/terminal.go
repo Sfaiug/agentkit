@@ -196,3 +196,9 @@ func (s Screen) TableRow(texts []string, widths []int, words []string) string {
 func Typed() bool {
 	return isTerminal(os.Stdin)
 }
+
+// Shows is whether out is a terminal a person reads, not a pipe or file.
+func Shows(out io.Writer) bool {
+	file, ok := out.(*os.File)
+	return ok && isTerminal(file)
+}

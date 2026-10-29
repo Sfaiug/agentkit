@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -204,9 +205,6 @@ func validate(root *table) error {
 			return fmt.Errorf("[defaults].orchestrator must be a model name (got %s)", valueRepr(value))
 		}
 	}
-	if _, exists := defaults.values["workers"]; !exists {
-		defaults.put("workers", []any{})
-	}
 	for _, key := range []string{"workers", "reviewers"} {
 		if value, exists := defaults.values[key]; exists && !stringList(value, key == "reviewers") {
 			return fmt.Errorf("[defaults].%s must list distinct model names (got %s)", key, valueRepr(value))
@@ -241,6 +239,53 @@ func ModelNamed(name string) (Model, error) {
 		return Model{}, err
 	}
 	return resolve(root, name)
+}
+
+// Offered is every model a seat may run on, each under its harness as every list of models
+// reads them, and the workers [defaults] starts a new seat with, as Python's load leaves them:
+// those still offered, or the first model where none is, unless the group was written empty
+// beside its reviewers.
+func Offered() ([]string, []string, error) {
+	root, err := load()
+	if err != nil {
+		return nil, nil, err
+	}
+	models, providers := root.values["models"].(*table), root.values["providers"].(*table)
+	var names, harnesses []string
+	for _, name := range models.keys {
+		entry, _ := models.values[name].(*table)
+		if entry == nil {
+			continue
+		}
+		harness, named := entry.values["harness"].(string)
+		provider, _ := entry.values["provider"].(string)
+		if _, listed := providers.values[provider]; named && listed {
+			names = append(names, name)
+			if !slices.Contains(harnesses, harness) {
+				harnesses = append(harnesses, harness)
+			}
+		}
+	}
+	var offered []string
+	for _, harness := range harnesses {
+		for _, name := range names {
+			if models.values[name].(*table).values["harness"] == harness {
+				offered = append(offered, name)
+			}
+		}
+	}
+	defaults := root.values["defaults"].(*table)
+	given, written := defaults.values["workers"].([]any)
+	var workers []string
+	for _, name := range given {
+		if slices.Contains(offered, name.(string)) {
+			workers = append(workers, name.(string))
+		}
+	}
+	if _, reviewers := defaults.values["reviewers"]; len(workers) == 0 && !(len(given) == 0 && written && reviewers) {
+		workers = offered[:1]
+	}
+	return offered, workers, nil
 }
 
 // A Model is what a [models.*] entry runs on: its provider, the provider's model id, the

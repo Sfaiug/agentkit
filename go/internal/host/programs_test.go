@@ -21,3 +21,23 @@ func TestProgramReadsAnInterpretersScript(t *testing.T) {
 		t.Errorf("an empty word is no script: %q", got)
 	}
 }
+
+// Each answer is Python's fnmatch.fnmatchcase(name, pattern).
+func TestPatternsMatchAsPythonsFnmatchDoes(t *testing.T) {
+	for _, each := range []struct {
+		pattern, name string
+		matches       bool
+	}{
+		{"echo-[!0-9]*", "echo-seat", true}, {"echo-[!0-9]*", "echo-1", false}, {"claude*", "claude-code", true},
+		{"c?dex", "codex", true}, {"[", "[", true}, {"a[", "a[", true}, {"[]]", "]", true}, {"[!]]", "a", true},
+		{"[!]]", "]", false}, {"[a-c]x", "bx", true}, {"[c-a]x", "bx", false}, {"[z-a]", "z", false},
+		{"[!z-a]", "q", true}, {"[a-]", "-", true}, {"[-a]", "-", true}, {"[a-c-e]", "d", false},
+		{"[a-c-e]", "-", true}, {"x.y", "xzy", false}, {"[^a]", "^", true}, {`[\]`, `\`, true},
+		{"a*b", "a\nb", true}, {"[!a-c]", "b", false}, {"[!a-c]", "d", true}, {"é?", "éa", true},
+		{"[a--]", "-", false}, {"[a--]", "a", false}, {"[&&]", "&", true},
+	} {
+		if got := Match(each.pattern, each.name); got != each.matches {
+			t.Errorf("Match(%q, %q) = %v", each.pattern, each.name, got)
+		}
+	}
+}

@@ -2,6 +2,7 @@ package host
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -111,4 +112,99 @@ func Program(words []string) string {
 		return name
 	}
 	return name
+}
+
+// Match is whether name matches the pattern as Python's fnmatch.fnmatchcase reads it, the
+// language adapter manifests write their programs in: `*`, `?`, and a `[...]` set that a
+// leading `!` negates.  A `[` with no `]` after it is itself.
+func Match(pattern, name string) bool {
+	pat := []rune(pattern)
+	var re strings.Builder
+	re.WriteString(`^(?s:`)
+	for i, n := 0, len(pat); i < n; {
+		c := pat[i]
+		i++
+		switch c {
+		case '*':
+			re.WriteString(`.*`)
+		case '?':
+			re.WriteString(`.`)
+		case '[':
+			j := i
+			if j < n && pat[j] == '!' {
+				j++
+			}
+			if j < n && pat[j] == ']' {
+				j++
+			}
+			for j < n && pat[j] != ']' {
+				j++
+			}
+			if j >= n {
+				re.WriteString(`\[`)
+				continue
+			}
+			re.WriteString(set(pat, i, j))
+			i = j + 1
+		default:
+			re.WriteString(regexp.QuoteMeta(string(c)))
+		}
+	}
+	matched, err := regexp.MatchString(re.String()+`)$`, name)
+	return err == nil && matched
+}
+
+// set is the expression for the set pat[i:j] names, as fnmatch translates it: a `-` between
+// two characters a range, one running backwards dropped with its ends.
+func set(pat []rune, i, j int) string {
+	chunks := [][]rune{pat[i:j]}
+	if slices.Contains(pat[i:j], '-') {
+		chunks = nil
+		k := i + 1
+		if pat[i] == '!' {
+			k++
+		}
+		for ; k < j; k += 3 {
+			found := slices.Index(pat[k:j], '-')
+			if found < 0 {
+				break
+			}
+			k += found
+			chunks = append(chunks, pat[i:k])
+			i = k + 1
+		}
+		if i < j {
+			chunks = append(chunks, pat[i:j])
+		} else {
+			chunks[len(chunks)-1] = append(slices.Clip(chunks[len(chunks)-1]), '-')
+		}
+		for k := len(chunks) - 1; k > 0; k-- {
+			if before := chunks[k-1]; len(before) > 0 && len(chunks[k]) > 0 && before[len(before)-1] > chunks[k][0] {
+				chunks[k-1] = append(slices.Clip(before[:len(before)-1]), chunks[k][1:]...)
+				chunks = slices.Delete(chunks, k, k+1)
+			}
+		}
+	}
+	negated := len(chunks[0]) > 0 && chunks[0][0] == '!'
+	if negated {
+		chunks[0] = chunks[0][1:]
+	}
+	var body []string
+	for _, chunk := range chunks {
+		var escaped strings.Builder
+		for _, r := range chunk {
+			fmt.Fprintf(&escaped, `\x{%x}`, r)
+		}
+		body = append(body, escaped.String())
+	}
+	switch stuff := strings.Join(body, "-"); {
+	case stuff == "" && negated:
+		return `.`
+	case stuff == "":
+		return `[^\x{0}-\x{10ffff}]` // an empty set matches nothing
+	case negated:
+		return `[^` + stuff + `]`
+	default:
+		return `[` + stuff + `]`
+	}
 }

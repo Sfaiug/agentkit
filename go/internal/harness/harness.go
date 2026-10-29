@@ -13,9 +13,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"agentkit/internal/config"
+	"agentkit/internal/run"
 )
 
 // cannotPin is the adapter's answer when its TUI cannot be told a conversation id.
@@ -92,6 +94,37 @@ func interactive(name string, model config.Model, account string, told map[strin
 		}
 	}
 	return cmd, nil
+}
+
+// launcher is a record's `id_source` for a conversation id the launcher handed out.
+const launcher = "launcher"
+
+var launchToken = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
+// Rewrites is whether ak rewrites that seat record of the harness, or may, before anything
+// reads the seat as resumable (each `reconcile` in agentkit/harness): a conversation nothing
+// vouches for is dropped, and Codex's says it is resumable only where its launch receipt,
+// which Go does not read, proves a thread.  A field rewritten to what it holds is no rewrite.
+func Rewrites(harness string, record *run.Object) bool {
+	vouched := []string{launcher}
+	switch harness {
+	case "codex":
+		token := record.Str("codex_launch")
+		if launchToken.MatchString(token) && exists(filepath.Join(config.Home(), "state", "codex-launch-"+token+".json")) {
+			return true
+		}
+		resumable := record.Get("resumable")
+		number, numeric := run.Num(resumable)
+		return resumable != false && !(numeric && number == 0)
+	case "claude":
+		vouched = append(vouched, "claude-hook")
+	}
+	return record.Truthy("conversation") && !slices.Contains(vouched, record.Str("id_source"))
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 var assignment = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)

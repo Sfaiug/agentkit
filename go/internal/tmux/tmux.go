@@ -31,50 +31,54 @@ func Own() string {
 }
 
 // A Session is one tmux session: its name, its Mark (empty where it has none), the directory
-// it started in and when, in seconds since the epoch.
+// it started in and when, in seconds since the epoch, and whether a client shows it.
 type Session struct {
 	Name, Mark, Path string
 	Created          int64
+	Attached         bool
 }
 
 // Sessions are the sessions one server holds, Control aside. A server not running, no tmux,
 // or one not answering holds none; asking starts no server.
 func Sessions(server string) []Session {
-	out, err := run(server, "list-sessions", "-F", "#{session_name}\t#{session_path}\t#{session_created}\t#{"+Mark+"}")
+	out, err := run(server, "list-sessions", "-F", "#{session_name}\t#{session_path}\t#{session_created}\t#{session_attached}\t#{"+Mark+"}")
 	if err != nil {
 		return nil
 	}
 	var found []Session
 	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
-		if parts := strings.Split(line, "\t"); len(parts) == 4 && parts[0] != Control {
+		if parts := strings.Split(line, "\t"); len(parts) == 5 && parts[0] != Control {
 			created, err := strconv.ParseInt(parts[2], 10, 64)
 			if err != nil {
 				created = time.Now().Unix()
 			}
-			found = append(found, Session{parts[0], parts[3], parts[1], created})
+			found = append(found, Session{parts[0], parts[4], parts[1], created, parts[3] != "" && parts[3] != "0"})
 		}
 	}
 	return found
 }
 
-// A Pane is one pane of a session: the process tmux started in it, and whether that ended.
+// A Pane is one pane of a session: the process tmux started in it, whether that ended, and
+// when, in seconds since the epoch (0 while it runs).
 type Pane struct {
 	Session string
 	PID     int
 	Dead    bool
+	Died    int64
 }
 
 // Panes are every pane one server holds, and whether it answered.
 func Panes(server string) ([]Pane, bool) {
-	out, err := run(server, "list-panes", "-a", "-F", "#{session_name}\t#{pane_pid}\t#{pane_dead}")
+	out, err := run(server, "list-panes", "-a", "-F", "#{session_name}\t#{pane_pid}\t#{pane_dead}\t#{pane_dead_time}")
 	if err != nil {
 		return nil, false
 	}
 	var panes []Pane
 	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
-		if parts := strings.Split(line, "\t"); len(parts) == 3 {
+		if parts := strings.Split(line, "\t"); len(parts) == 4 {
 			pid, _ := strconv.Atoi(parts[1])
-			panes = append(panes, Pane{parts[0], pid, parts[2] == "1"})
+			died, _ := strconv.ParseInt(parts[3], 10, 64)
+			panes = append(panes, Pane{parts[0], pid, parts[2] == "1", died})
 		}
 	}
 	return panes, true

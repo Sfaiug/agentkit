@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
-	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -105,22 +108,29 @@ func init() { commands["orch"] = orch }
 // does on the way in, a seat by that name, the terminal and the models.  Go refuses an open
 // nobody typed, or models a person's open names wrongly, and previews a new seat; it leaves to
 // Python a way in that would act, a record its harness may rewrite, an attach, a resume, an
-// open, a question and models it would pick by their usage.
+// open, a name it would ask for, and an orchestrator or account it would pick by usage.
 func orch(args []string, out, errOut io.Writer) int {
 	name, flags, _ := parseOrch(args)
 	_, dryRun := flags["--dry-run"]
 	if !dryRun && wayInActs() {
 		return notImplemented(errOut, "orch")
 	}
-	held := false
+	forced, given := flags["--model"]
+	raw, listed := flags["--workers"]
+	held, seats := false, map[string]*run.Object{}
 	if name != "" {
 		seat, panes, stranger := seatNamed(name)
 		if seat != nil && dryRun && !tmux.Exited(panes, seat.Name) {
 			fmt.Fprintf(out, "orch: attaching to %s in %s (%s old)\n", name, seat.Path, run.Span(float64(time.Now().Unix()-seat.Created)))
 			return 0
 		}
-		// past a live seat, Python's records() has each harness reconcile every record
-		if seat != nil || len(seatRecords()) > 0 {
+		// past a live seat, Python's records() has each harness reconcile every record, and a
+		// seat whose session or record is left opens again as it was, unless a model or worker
+		// named asks for a new one
+		var readable bool
+		seats, readable = seatRecords()
+		_, recorded := seats[name]
+		if seat != nil || !readable || rewritten(seats) || recorded && forced == "" && raw == "" {
 			return notImplemented(errOut, "orch")
 		}
 		held = stranger
@@ -144,38 +154,46 @@ func orch(args []string, out, errOut io.Writer) int {
 			return refuse(errOut, seat+"; "+how+"\n"+orchUsage)
 		}
 	}
-	forced, chosen := flags["--model"]
-	raw, listed := flags["--workers"]
 	// Python reads a lone flag before it asks for the name, and a pair once it has it
-	if chosen != listed {
-		if problem := selectionProblem(forced, chosen, raw, listed); problem != "" {
+	if given != listed {
+		if problem := selectionProblem(forced, raw, listed); problem != "" {
 			return refuse(errOut, problem)
 		}
 	}
 	if name == "" {
 		return notImplemented(errOut, "orch")
 	}
-	if path, _ := config.SessionPath(name); exists(path) {
+	if _, recorded := seats[name]; !recorded && exists(sessionFile(name)) {
 		// a rename pointer by that name, which Python follows to see whether it leads anywhere
 		return notImplemented(errOut, "orch")
 	}
 	if held {
 		return refuse(errOut, fmt.Sprintf("tmux already holds a session named %s, and it is no seat; pick another name", commandhelp.Quote(name)))
 	}
-	if problem := selectionProblem(forced, chosen, raw, listed); problem != "" {
+	if forced == "" { // an empty --model names none: Python picks by usage
+		return notImplemented(errOut, "orch")
+	}
+	if problem := selectionProblem(forced, raw, listed); problem != "" {
 		return refuse(errOut, problem)
 	}
 	model, _ := config.ModelNamed(forced)
-	if !dryRun || !chosen || !listed || len(model.Accounts) > 0 {
+	if !dryRun || len(model.Accounts) > 0 {
 		return notImplemented(errOut, "orch")
 	}
-	return preview(name, forced, model, workerNames(raw), out, errOut)
+	workers := workerNames(raw)
+	if !listed {
+		var back bool
+		if workers, back = askWorkers(out); back {
+			return 0
+		}
+	}
+	return preview(name, forced, model, workers, out, errOut)
 }
 
-// selectionProblem is what is wrong with the models the flags given name, as Python's select
-// reads them: the orchestrator's, then the workers'.
-func selectionProblem(forced string, chosen bool, raw string, listed bool) string {
-	if _, err := config.ModelNamed(forced); chosen && err != nil {
+// selectionProblem is what is wrong with the models the flags name, as Python's select reads
+// them: the orchestrator's, then the workers'.
+func selectionProblem(forced, raw string, listed bool) string {
+	if _, err := config.ModelNamed(forced); forced != "" && err != nil {
 		return err.Error()
 	}
 	if !listed {
@@ -202,6 +220,135 @@ func workerNames(raw string) []string {
 		workers = append(workers, strings.TrimFunc(worker, config.Space))
 	}
 	return workers
+}
+
+// askWorkers is Python's Workers question (`orch.prompt_workers`): names or numbers separated
+// by spaces or commas, or all; Enter and the end of input take [defaults]' workers, and Esc
+// goes back (true).
+func askWorkers(out io.Writer) ([]string, bool) {
+	names, defaults, _ := config.Offered()
+	fmt.Fprintln(out)
+	picked, back := ask(out, "Workers", strings.Join(defaults, " "), names, func(raw string) []string {
+		if strings.ToLower(raw) == "all" {
+			return slices.Clone(names)
+		}
+		var selected []string
+		for _, part := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || config.Space(r) }) {
+			name, matches := "", choicesNamed(names, part)
+			if number, err := strconv.Atoi(part); err == nil && digits(part) && 1 <= number && number <= len(names) {
+				name = names[number-1]
+			} else if len(matches) == 1 {
+				name = matches[0]
+			}
+			if name == "" || slices.Contains(selected, name) {
+				return nil
+			}
+			selected = append(selected, name)
+		}
+		return selected
+	})
+	if !back && picked == nil {
+		picked = defaults
+	}
+	return picked, back
+}
+
+// ask is one new-seat question as Python's terminal.ask puts it: its choices dim above it,
+// numbered and joined by ` · ` where the screen is narrow, then the question with its default
+// in brackets.  The answer is a number or a name, or what allow makes of it; nothing typed is
+// nil, Esc is back (true), and anything else is a dim `not a choice` and the question again.
+func ask(out io.Writer, question, fallback string, choices []string, allow func(string) []string) ([]string, bool) {
+	screen := terminal.For(out)
+	room := screen.Width()
+	var joined []string
+	line := ""
+	for i, choice := range choices {
+		item := fmt.Sprintf("%d %s", i+1, choice)
+		if terminal.Cells(item)+2 > room { // one choice wider than the screen is wrapped
+			if line != "" {
+				joined, line = append(joined, line), ""
+			}
+			joined = append(joined, terminal.Wrap(item, room-2)...)
+			continue
+		}
+		added := item
+		if line != "" {
+			added = line + " · " + item
+		}
+		if line != "" && terminal.Cells(added)+2 > room {
+			joined, line = append(joined, line), item
+		} else {
+			line = added
+		}
+	}
+	if line != "" {
+		joined = append(joined, line)
+	}
+	shown := promptLines(question+" ["+fallback+"]: ", room)
+	in := bufio.NewReader(os.Stdin)
+	for {
+		for _, line := range joined {
+			fmt.Fprintln(out, "  "+screen.Styled(line, "dim"))
+		}
+		for _, line := range shown[:len(shown)-1] {
+			fmt.Fprintln(out, line)
+		}
+		fmt.Fprint(out, shown[len(shown)-1])
+		typed, _ := in.ReadString('\n')
+		if !terminal.Shows(out) {
+			fmt.Fprintln(out)
+		}
+		answer := strings.TrimFunc(typed, config.Space)
+		number, err := strconv.Atoi(answer)
+		matches := choicesNamed(choices, answer)
+		switch {
+		case answer == "\x1b":
+			return nil, true
+		case answer == "":
+			return nil, false
+		case strings.HasPrefix(answer, "\x1b"): // a key's sequence: asked again, with no word
+			continue
+		case err == nil && digits(answer) && 1 <= number && number <= len(choices):
+			return []string{choices[number-1]}, false
+		case slices.Contains(choices, answer):
+			return []string{answer}, false
+		case len(matches) == 1:
+			return matches, false
+		}
+		if accepted := allow(answer); accepted != nil {
+			return accepted, false
+		}
+		fmt.Fprintln(out, screen.Styled("not a choice: "+commandhelp.Quote(answer), "dim"))
+	}
+}
+
+// promptLines is a prompt wrapped on spaces to fit the screen, its cursor's space kept.
+func promptLines(prompt string, room int) []string {
+	room = max(1, room)
+	if terminal.Cells(prompt) <= room {
+		return []string{prompt}
+	}
+	body, pad := strings.CutSuffix(prompt, " ")
+	lines := terminal.Wrap(body, room)
+	if len(lines) == 0 {
+		lines = []string{body}
+	}
+	if pad && terminal.Cells(lines[len(lines)-1])+1 <= room {
+		lines[len(lines)-1] += " "
+	} else if pad {
+		lines = append(lines, " ")
+	}
+	return lines
+}
+
+func choicesNamed(choices []string, answer string) []string {
+	var found []string
+	for _, choice := range choices {
+		if strings.ToLower(choice) == strings.ToLower(answer) {
+			found = append(found, choice)
+		}
+	}
+	return found
 }
 
 // preview is a new seat's dry run: its selection, where it opens and the command it would run,
@@ -235,7 +382,7 @@ func preview(name, forced string, model config.Model, workers []string, out, err
 // a seat when ak marked it, a record names it or an agent runs in it; on the person's own, only
 // one ak marked is.
 func seatNamed(name string) (*tmux.Session, []tmux.Pane, bool) {
-	recorded := seatRecords()
+	seats, _ := seatRecords()
 	stranger := false
 	for _, server := range []string{tmux.Own(), tmux.Default} {
 		panes, _ := tmux.Panes(server)
@@ -243,7 +390,7 @@ func seatNamed(name string) (*tmux.Session, []tmux.Pane, bool) {
 			if config.Fold(session.Name) != name || server == tmux.Default && session.Mark != "1" {
 				continue
 			}
-			if session.Mark == "1" || recorded[session.Name] || !agentless(server, session.Name) {
+			if _, recorded := seats[session.Name]; session.Mark == "1" || recorded || !agentless(server, session.Name) {
 				return &session, panes, false
 			}
 			stranger = true
@@ -279,7 +426,7 @@ func agentless(server, session string) bool {
 		}
 		seen[pid] = true
 		running := host.Program(table[pid].Words)
-		if slices.ContainsFunc(patterns, func(pattern string) bool { matched, _ := path.Match(pattern, running); return matched }) {
+		if slices.ContainsFunc(patterns, func(pattern string) bool { return host.Match(pattern, running) }) {
 			if !host.Worker(pid) {
 				return false
 			}
@@ -290,33 +437,116 @@ func agentless(server, session string) bool {
 	return true
 }
 
-// seatRecords are the seats with a record, rename pointers aside; one Go cannot read counts.
-func seatRecords() map[string]bool {
-	records := map[string]bool{}
+// seatRecords are the seats' records, rename pointers aside, as Python's session_records reads
+// them, and whether Go read every one Python does.
+func seatRecords() (map[string]*run.Object, bool) {
+	seats, readable := map[string]*run.Object{}, true
 	for _, file := range config.SeatFiles() {
 		record, err := run.ReadJSON(file)
-		if err != nil || record == nil || record.Get(config.Renamed) == nil {
-			records[strings.TrimSuffix(strings.TrimPrefix(filepath.Base(file), "session-"), ".json")] = true
+		readable = readable && !errors.Is(err, run.ErrLoneSurrogate)
+		if record != nil && !record.Has(config.Renamed) {
+			seats[strings.TrimSuffix(strings.TrimPrefix(filepath.Base(file), "session-"), ".json")] = record
 		}
 	}
-	return records
+	return seats, readable
 }
 
-// wayInActs is whether what Python does on its way in, outside a dry run (`orch.maintenance`),
-// would act on a run or a seat, or might: reap a run, have a seat's harness reconcile its
-// record, note when a seat was seen or retire it, or close a session whose panes all ended.
-func wayInActs() bool {
-	every, _ := records("", "")
-	if every == nil || slices.ContainsFunc(every, actedOn) || len(seatRecords()) > 0 {
-		return true
-	}
-	panes, _ := tmux.Panes(tmux.Own())
-	for _, session := range tmux.Sessions(tmux.Own()) {
-		if session.Mark != "1" && tmux.Exited(panes, session.Name) {
+func sessionFile(name string) string {
+	path, _ := config.SessionPath(name)
+	return path
+}
+
+// rewritten is whether Python's records() would rewrite one of the records, or may: each
+// through its seat's harness.
+func rewritten(seats map[string]*run.Object) bool {
+	for _, record := range seats {
+		model, _ := config.ModelNamed(record.Str("orchestrator"))
+		if harness.Rewrites(model.Harness, record) {
 			return true
 		}
 	}
 	return false
+}
+
+// seenEvery is how often Python stamps a live seat's record with the time it was seen.
+const seenEvery = 300
+
+// wayInActs is whether what Python does on its way in, outside a dry run (`orch.maintenance`),
+// would act on a run or a seat, or might: reap a run (`reconcile`), rewrite a seat's record,
+// note when a seat was seen or ended (`stamp`), retire one gone or ended for a week, or close a
+// session that is no seat once all its panes ended a day ago (`sweep`).
+func wayInActs() bool {
+	every, _ := records("", "")
+	seats, readable := seatRecords()
+	if every == nil || !readable || slices.ContainsFunc(every, actedOn) || rewritten(seats) {
+		return true
+	}
+	now := float64(time.Now().UnixNano()) / 1e9
+	type held struct{ exited, attached bool }
+	sessions := map[string]held{}
+	for _, server := range []string{tmux.Own(), tmux.Default} {
+		panes, _ := tmux.Panes(server)
+		for _, session := range tmux.Sessions(server) {
+			_, recorded := seats[session.Name]
+			if server == tmux.Own() && session.Mark != "1" && !recorded && endedBefore(panes, session.Name, now-86400) {
+				return true
+			}
+			if _, found := sessions[session.Name]; !found && (server == tmux.Own() || session.Mark == "1") {
+				sessions[session.Name] = held{tmux.Exited(panes, session.Name), session.Attached}
+			}
+		}
+	}
+	for name, record := range seats {
+		session, seat := sessions[name]
+		seen, stamped := run.Num(record.Get("seen"))
+		switch since := record.Get("exited_since"); {
+		case seat && session.exited && !session.attached:
+			if !record.Truthy("exited_since") || expired(since, now) {
+				return true
+			}
+		case seat:
+			if record.Truthy("exited_since") || !stamped || now-seen > seenEvery {
+				return true
+			}
+		default:
+			if since = stoppedAt(name); since == nil {
+				since = record.Get("seen")
+			}
+			if !record.Truthy("seen") || expired(since, now) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// endedBefore is whether every pane of the session ended, the last before that moment.
+func endedBefore(panes []tmux.Pane, session string, moment float64) bool {
+	ended := false
+	for _, pane := range panes {
+		if pane.Session == session {
+			if !pane.Dead || pane.Died <= 0 || float64(pane.Died) > moment {
+				return false
+			}
+			ended = true
+		}
+	}
+	return ended
+}
+
+// expired is Python's retention.expired for a seat record: a finite moment a week or more ago.
+func expired(value any, now float64) bool {
+	moment, numeric := run.Num(value)
+	return numeric && !math.IsInf(moment, 0) && !math.IsNaN(moment) && 0 < moment && moment <= now-7*86400
+}
+
+// stoppedAt is when the owner stopped that seat, as its state file says, nil for never.
+func stoppedAt(name string) any {
+	state, _ := run.ReadJSON(filepath.Join(config.Home(), "state", "seat-"+name+".json"))
+	if state == nil || !state.Truthy("stopped_at") {
+		return nil
+	}
+	return state.Get("stopped_at")
 }
 
 func refuse(errOut io.Writer, problem string) int {
