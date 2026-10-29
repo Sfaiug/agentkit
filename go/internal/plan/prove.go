@@ -181,8 +181,8 @@ func rootOf(env []string, dir string) string {
 // named is how a line names the checkout it was written under, for good: its path (`~` for
 // home) and the repository there, by the root commit found where its check ran.
 func named(repo, found string) string {
-	shown := resolved(repo)
-	if rel, err := filepath.Rel(resolved(home()), shown); err == nil && filepath.IsLocal(rel) {
+	shown := config.Resolve(repo)
+	if rel, err := filepath.Rel(config.Resolve(home()), shown); err == nil && filepath.IsLocal(rel) {
 		shown = "~/" + rel
 	}
 	if found == "" {
@@ -198,9 +198,9 @@ func named(repo, found string) string {
 // and a longer name that starts with it (`acme-old`) is refused too.
 func holdsCheckout(check, repo string) error {
 	var paths []string
-	for _, path := range []string{filepath.Clean(repo), resolved(repo)} {
+	for _, path := range []string{filepath.Clean(repo), config.Resolve(repo)} {
 		paths = append(paths, path)
-		for _, top := range []string{home(), resolved(home())} {
+		for _, top := range []string{home(), config.Resolve(home())} {
 			if rel, err := filepath.Rel(top, path); err == nil && filepath.IsLocal(rel) {
 				paths = append(paths, "~/"+rel, "$HOME/"+rel, "${HOME}/"+rel)
 			}
@@ -222,13 +222,4 @@ var quotes = strings.NewReplacer(`"`, "", "'", "", `\`, "")
 func home() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Clean(home)
-}
-
-// resolved is path made absolute with its links followed, as far as they exist.
-func resolved(path string) string {
-	path, _ = filepath.Abs(path)
-	if real, err := filepath.EvalSymlinks(path); err == nil {
-		return real
-	}
-	return path
 }

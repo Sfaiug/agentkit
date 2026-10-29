@@ -38,7 +38,13 @@ func Expand(path string) string {
 }
 
 func Absolute(path string) string {
-	path, _ = filepath.Abs(Expand(path))
+	return Resolve(Expand(path))
+}
+
+// Resolve is path made absolute with its links followed, as far as they exist, and a leading
+// `~` kept literal, as Python's Path.resolve() reads it.
+func Resolve(path string) string {
+	path, _ = filepath.Abs(path)
 	if resolved, err := filepath.EvalSymlinks(path); err == nil {
 		return resolved
 	}
