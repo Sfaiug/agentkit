@@ -29,6 +29,29 @@ func Home() string {
 	return filepath.Join(home, ".agentkit")
 }
 
+// places are the folders ak keeps under Home, in Python's config.PLACES order.
+var places = []string{"runs", "wt", "state", "secrets", "tmp", "env", "work", "jobs"}
+
+// EnsureDirs makes Home and its places as Python's config.ensure_dirs does: each owner-only,
+// one someone else made included, and a file where one goes refused, never changed.
+func EnsureDirs() error {
+	if err := os.MkdirAll(filepath.Dir(Home()), 0o777); err != nil {
+		return err
+	}
+	for _, place := range append([]string{""}, places...) {
+		dir := filepath.Join(Home(), place)
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			if info, statErr := os.Stat(dir); statErr != nil || !info.IsDir() {
+				return err
+			}
+		}
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func Expand(path string) string {
 	if path == "~" || strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~"+string(filepath.Separator)) {
 		home, _ := os.UserHomeDir()
