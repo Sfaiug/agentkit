@@ -151,7 +151,8 @@ func TestPlanInputRefusals(t *testing.T) {
 	for _, name := range []string{"old", "  acme  ", "\u2003acme\t", "  acme   seat  ", " literal  seat "} {
 		t.Setenv("AGENTKIT_SESSION", name)
 		assertCall(t, []string{"plan", "add", "the parser works", "--check", "false\nfalse"}, 2, "", "ak plan: a check is one shell command without backticks or line breaks\n")
-		assertCall(t, []string{"plan", "add", "the parser works", "--check", "false"}, 3, "", "ak plan: not implemented in Go yet\n")
+		// each name reaches the seat's project: the check naming it is refused before it runs
+		assertCall(t, []string{"plan", "add", "the parser works", "--check", "cat " + home + "/x"}, 2, "", "ak plan: this check holds ~/., the path of the project's checkout, but a check runs in a clean checkout of its default branch: name paths relative to the repository, as in `python3 tests/test_x.py`\n")
 		assertCall(t, []string{"run", filepath.Join(home, "task.md"), "--exec", "acme"}, 2, "", "ak run: --exec: not a seat's; ak picks the models, decides what goes first and refuses a second run of a change under way, so launch without\n")
 	}
 }
