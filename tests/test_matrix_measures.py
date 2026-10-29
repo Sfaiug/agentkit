@@ -18,14 +18,12 @@ QUALITY = {
                     ("aa.briefcaseBreakdown.overall.elo", "rating", 0.15)),
     "execute": (("aa.frontierCode20", "share", 0.4), ("arena.agent", "share", 0.4),
                 ("aa.terminalBench40", "share", 0.2)),
-    "review": (("aa.deepsecBench", "share", 0.4), ("aa.frontierCode20", "share", 0.4),
-               ("aa.omniscience", "percent", 0.2)),
+    "review": (("aa.frontierCode20", "share", 0.8), ("aa.omniscience", "percent", 0.2)),
 }
 COSTS = {"orchestrate": "aa.intelligenceIndexEvaluations.aa-briefcase.costPerTask",
          "execute": "aa.intelligenceIndexEvaluations.frontiercode-2-0.costPerTask",
-         "review": "aa.intelligenceIndexEvaluations.aa-briefcase.costPerTask"}
-TASKS = {"aa.automationBenchPartialScore": 657, "aa.frontierCode20": 132, "aa.terminalBench40": 66,
-         "aa.deepsecBench": 231}
+         "review": "aa.intelligenceIndexEvaluations.frontiercode-2-0.costPerTask"}
+TASKS = {"aa.automationBenchPartialScore": 657, "aa.frontierCode20": 132, "aa.terminalBench40": 66}
 OMNISCIENCE_QUESTIONS = 3000
 
 

@@ -31,11 +31,13 @@ SCALES = {
 # What each role is rated on: a column (board.field), its kind (`SCALES`), its weight and, in
 # plain words, what it tests.  A weight gives its measure its share of the role's say, weight ×
 # the spread of its points among the strongest models: orchestrate's four a quarter each
-# (Briefcase's rating spreads twice its own pass rate), execute's and review's own tasks 40%
-# each, and Terminal-Bench 4.0 (spread under its error) and review's Omniscience (least direct) 20%.
-# Gone: GDPval-AA ranked as Briefcase does, AA-LCR's, GDP.pdf's and FrontierCode 1.1's spread
-# was under their error, and Arena WebDev scores new apps, not changes to a repository.  Pinned
-# by tests/test_matrix_measures.py, so a change to it is a visible test change.
+# (Briefcase's rating spreads twice its own pass rate), execute's own tasks 40% each, review's
+# FrontierCode 2.0 80%, and Terminal-Bench 4.0 (spread under its error) and review's Omniscience
+# (least direct) 20%.  Gone: GDPval-AA ranked as Briefcase does, AA-LCR's, GDP.pdf's and
+# FrontierCode 1.1's spread was under their error, Arena WebDev scores new apps, not changes to
+# a repository, and DeepSec Bench lacks 6 of the 10 strongest, so its gaps picked review:
+# Vercel's run of it filling in two moved the pick.  Pinned by tests/test_matrix_measures.py,
+# so a change to it is a visible test change.
 ROLES = {
     "orchestrate": (("aa.automationBenchPartialScore", "share", 0.35,
                      "work across apps under a policy, a task that breaks a rule scoring nothing"),
@@ -51,28 +53,24 @@ ROLES = {
                 ("arena.agent", "share", 0.4, "agent sessions people judged done well"),
                 ("aa.terminalBench40", "share", 0.2,
                  "hard terminal tasks that pass only when all their tests do")),
-    "review": (("aa.deepsecBench", "share", 0.4,
-                "reviewing files for bugs, each report judged a true or a false finding"),
-               ("aa.frontierCode20", "share", 0.4,
+    "review": (("aa.frontierCode20", "share", 0.8,
                 "the hardest coding problems, each solved or not"),
                ("aa.omniscience", "percent", 0.2,
                 "right answers less wrong guesses, an admitted unknown counting neither")),
 }
 # What a task of each role costs a row, in dollars: the Artificial Analysis evaluation nearest
-# the role's work, review's the one whose cost per effort tracks DeepSec Bench's best (0.95).
-# Pinned beside `ROLES`.
+# the role's work, review's that of FrontierCode 2.0, which holds most of its say.  Pinned
+# beside `ROLES`.
 COSTS = {
     "orchestrate": "aa.intelligenceIndexEvaluations.aa-briefcase.costPerTask",
     "execute": "aa.intelligenceIndexEvaluations.frontiercode-2-0.costPerTask",
-    "review": "aa.intelligenceIndexEvaluations.aa-briefcase.costPerTask",
+    "review": "aa.intelligenceIndexEvaluations.frontiercode-2-0.costPerTask",
 }
 # A measure's 95% interval, (lower, upper), where it is not `<column>` + `INTERVAL` (Arena's)
 INTERVALS = {"aa.briefcaseBreakdown.overall.elo": ("aa.briefcaseBreakdown.overall.lower95ci",
                                                    "aa.briefcaseBreakdown.overall.upper95ci")}
-# How many tasks a share without an interval is of: as Artificial Analysis's methodology pages
-# say, DeepSec Bench's as its authors' write-up does
-TASKS = {"aa.automationBenchPartialScore": 657, "aa.frontierCode20": 132, "aa.terminalBench40": 66,
-         "aa.deepsecBench": 231}
+# How many tasks a share without an interval is of, as Artificial Analysis's methodology pages say
+TASKS = {"aa.automationBenchPartialScore": 657, "aa.frontierCode20": 132, "aa.terminalBench40": 66}
 # Omniscience's questions, each +1 right, -1 wrong and 0 declined
 OMNISCIENCE = ("aa.omniscience", "aa.omniscienceAccuracy", "aa.omniscienceHallucinationRate", 3000)
 # The evaluations of the Intelligence Index, each `<slug>`'s score at `EVALUATION` + `.score`,
