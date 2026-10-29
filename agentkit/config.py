@@ -1628,9 +1628,9 @@ def adapter(harness):
     reset-status / reset
         optional, where the provider hands out usage-limit resets.
 
-    `usage`, `auth` and `login` are told the providers they answer for in $AGENTKIT_PROVIDER,
-    space-separated; a harness that runs one provider may ignore it.  Each manifest table is
-    explained at the code that reads it.
+    `usage`, `auth`, `login` and `lend` are told the providers they answer for in
+    $AGENTKIT_PROVIDER, space-separated; a harness that runs one provider may ignore it.  Each
+    manifest table is explained at the code that reads it.
     """
     path = adapter_path(harness)
     if not path.exists():

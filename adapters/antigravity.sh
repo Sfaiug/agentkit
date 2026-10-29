@@ -25,6 +25,9 @@
 #                     login-end    -> {"email","ends","plan"}: whose the login is, and the plan
 #                                  `usage` last read for it; `ends` is null, since a Google
 #                                  refresh token ends only when revoked
+#                     lend <home>  -> a copy of the login, a refresh token renewing leaves valid,
+#                                  where a turn with HOME=<home> reads it; prints nothing, as
+#                                  it never lapses
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
 #                                  `seat` is the same login here, and is accepted and ignored
 #                     hooks        -> says why this harness has none installed; writes nothing
@@ -313,6 +316,15 @@ login-end)
   plan=$(jq -r --arg email "$email" 'select(.email == $email) | .plan | strings' "$PLAN" 2>/dev/null)
   jq -nc --arg email "$email" --arg plan "$plan" \
     '{email: $email, ends: null, plan: $plan} | map_values(if . == "" then null else . end)' ;;
+lend)
+  # Lent as it is: a Google refresh token stays valid after use, until revoked (see `login-end`)
+  [ $# -ge 1 ] || { echo "antigravity.sh lend needs <home>" >&2; exit 2; }
+  command -v jq >/dev/null || { echo "antigravity.sh lend: jq is required" >&2; exit 2; }
+  lent=$(jq -c 'select(.token.refresh_token | strings | test("[^[:space:]]"))
+      | {ends: null, login: .}' "$TOKEN" 2>/dev/null) && [ -n "$lent" ] || {
+    echo "agy: no refresh token in $TOKEN to lend; run \`$SIGNIN\` and sign in" >&2; exit 1; }
+  printf '%s' "$lent" | python3 "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" \
+    "$1" .gemini/antigravity-cli/antigravity-oauth-token ;;
 auth)
   # Can a headless turn authenticate right now?  Exit 0 and say so, or exit 1 with one line
   # saying why not; anything else is no answer, and the caller carries on as before.  A
@@ -362,6 +374,6 @@ models)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" antigravity ;;
 *)
-  echo "usage: antigravity.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | antigravity.sh usage | antigravity.sh interactive <model> <effort> [session-id [new]] | antigravity.sh install | antigravity.sh login [again] | antigravity.sh logout | antigravity.sh forget | antigravity.sh login-end | antigravity.sh auth [seat] | antigravity.sh hooks | antigravity.sh models" >&2
+  echo "usage: antigravity.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | antigravity.sh usage | antigravity.sh interactive <model> <effort> [session-id [new]] | antigravity.sh install | antigravity.sh login [again] | antigravity.sh logout | antigravity.sh forget | antigravity.sh login-end | antigravity.sh lend <home> | antigravity.sh auth [seat] | antigravity.sh hooks | antigravity.sh models" >&2
   exit 2 ;;
 esac

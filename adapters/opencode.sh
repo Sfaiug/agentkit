@@ -16,6 +16,9 @@
 #                                  in; `again` signs in afresh over a login that still stands
 #                     logout       -> `opencode auth logout` of each login saved for the
 #                                  provider named, and of no other provider
+#                     lend <home>  -> a copy of the config, with the keys OpenCode saved in it,
+#                                  where a turn with HOME=<home> reads it; prints nothing, as
+#                                  no renewal retires a key
 #                     auth [seat]  -> 0 when a turn on each named provider can authenticate, 1
 #                                  and one line why; `seat` is the same login here, and is
 #                                  accepted and ignored
@@ -67,13 +70,13 @@ CFG="$CFGDIR/opencode.json"
 cmd=${1:-}; shift 2>/dev/null || true
 
 # The first non-blank apiKey configured for provider $1, or for any provider where $1 is
-# empty, failing when there is none.  The file is read whole first (`-s`), so one that is
-# not JSON fails before any key in it is printed.
+# empty, in $CFG or the config file $2, failing when there is none.  The file is read whole
+# first (`-s`), so one that is not JSON fails before any key in it is printed.
 config_key() {
   jq -ers --arg p "${1:-}" 'first(.[]
       | (if $p == "" then . else [.provider[$p]?, .providers[$p]?] end)
       | .. | objects | select(has("apiKey")) | .apiKey | strings | select(length > 0))' \
-      "$CFG" 2>/dev/null
+      "${2:-$CFG}" 2>/dev/null
 }
 
 # 0 when config_key finds one, non-zero when it does not, 2 when the question cannot be
@@ -563,6 +566,28 @@ auth)
   done
   echo "opencode: $said"
   exit 0 ;;
+lend)
+  # The config, with each key OpenCode saved itself (`auth export`, 2.2.0, its active login
+  # for each provider) as that provider's `options.apiKey` where the config sets none or a
+  # blank one; a saved OAuth login holds no key.  Each provider named needs a key in the copy,
+  # or no login at all, as `auth` reads it.  Keys never leave jq and these pipes.
+  [ $# -ge 1 ] || { echo "opencode.sh lend needs <home>" >&2; exit 2; }
+  command -v jq >/dev/null || { echo "opencode.sh lend: jq is required" >&2; exit 2; }
+  home=$1 cfg=$CFG; [ -r "$cfg" ] || cfg=/dev/null
+  saved=$(command -v opencode >/dev/null && opencode auth export --standalone 2>/dev/null)
+  copy=$(printf '%s' "$saved" | jq -Rsc --slurpfile cfg "$cfg" 'reduce (fromjson? | .[]?
+      | select(.active and .value.type == "key" and (.value.key | strings | length > 0)))
+      as $c ($cfg[0] // {}; .provider[$c.integrationID].options.apiKey
+        |= ((strings | select(length > 0)) // $c.value.key))' 2>/dev/null) || {
+    echo "opencode: $CFG cannot be read as JSON" >&2; exit 1; }
+  set -f; set -- $PROVIDERS; set +f; [ $# -gt 0 ] || set -- ""
+  for p in "$@"; do
+    printf '%s' "$copy" | config_key "$p" /dev/stdin >/dev/null || own_login "$p" || {
+      echo "opencode: no key${p:+ for $p} in $CFG or saved by OpenCode to lend;" \
+           "run \`opencode auth login${p:+ $p}\`" >&2; exit 1; }
+  done
+  printf '{"ends": null, "login": %s}' "$copy" | python3 \
+    "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" "$home" .config/opencode/opencode.json ;;
 hooks)
   # OpenCode 2.0.13 takes its hooks as a plugin, and this harness's plugin is installed per
   # launch: `interactive` names hooks/opencode-seat in OPENCODE_CONFIG_CONTENT, beside the
@@ -623,6 +648,6 @@ providers)
     echo "opencode: OpenCode did not list its providers" >&2; exit 1
   fi ;;
 *)
-  echo "usage: opencode.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | opencode.sh usage | opencode.sh interactive <model> <effort> [session-id [new]] | opencode.sh install | opencode.sh login [again] | opencode.sh logout | opencode.sh auth [seat] | opencode.sh hooks | opencode.sh models | opencode.sh providers" >&2
+  echo "usage: opencode.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | opencode.sh usage | opencode.sh interactive <model> <effort> [session-id [new]] | opencode.sh install | opencode.sh login [again] | opencode.sh logout | opencode.sh lend <home> | opencode.sh auth [seat] | opencode.sh hooks | opencode.sh models | opencode.sh providers" >&2
   exit 2 ;;
 esac
