@@ -2444,7 +2444,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
                   previous=None, auth_out=None, gh_out=None, token_out=None, card=False,
                   stalls=None):
     """`working`, `needs you`, `done`, `idle` or `out of usage` -- why, and since when.  The one
-    decision.
+    decision.  `working` on its runs, its `ak wait` or its live check alone is marked `waits`
+    where nothing else ak moves would move the seat: no turn, usage wait, retry or line to type.
 
     Every screen reads this and says one of those five words: the menu row, the project
     heading, the top line, `ak orch list`, `ak orch why`, the seat's own status bar and its
@@ -2855,6 +2856,48 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             and not notify.resolved(last) and not seat_closed_by_owner(name)):
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
                 "since": last.get("time")}
+    # What ak moves in the seat besides what it waits on, each read at its own rung below; the
+    # owner's rungs between them stop the ladder, never these.
+    def turn():
+        """2b. a turn in flight, which only a seat somebody is still in has a screen to show"""
+        flight, began = (_turn_in_flight(harness, found) if harness and not gone and not waiting
+                         else (False, None))
+        if flight:
+            long = (isinstance(began, (int, float)) and not isinstance(began, bool)
+                    and at - began > TURN_SECS)
+            return {"word": "working", "since": began, "reason":
+                    f"turn running {terminal_mod.format_age(at - began)}" if long else ""}
+
+    def usage():
+        """3b. its subscription ran out and ak resumes it, or moves it to another account"""
+        if waiting:
+            until = waiting.get("until")
+            return {"word": "out of usage" if until else "working", "reason": waiting["reason"],
+                    "since": waiting["since"], "resumes_at": until}
+
+    def retry():
+        """3c. its turn stopped on an error the tick types it back past"""
+        stall = stalls.get(name) or {}
+        error = found.get("stall") or (
+            "its login works again" if found.get("login") and stall.get("kind") == "login"
+            and not stall.get("nudged_at") else None)
+        if (error and not gone and not session.get("legacy")
+                and not seat_closed_by_owner(name) and not stall.get("told")
+                and not (seat_read(name).get("usage_refusal") or {}).get("told")):
+            return {"word": "working", "reason": f"retrying: {error}",
+                    "since": found.get("began")}
+
+    def telling():
+        """5. ak still has a line to type into it at its next quiet prompt"""
+        reason = (news_owed(name, mine, bool(found.get("authority")))
+                  if not gone and found.get("state") in ("at_prompt", "draft") else None)
+        return reason and {"word": "working", "reason": reason, "since": found.get("began")}
+
+    def waits(answer):
+        """`answer`, which only what the seat waits on gives it, marked `waits` where nothing
+        else moves it: `sleep` puts such a seat to sleep."""
+        return {**answer, "waits": not any(rung() for rung in (turn, usage, retry, telling))}
+
     # 2. a run of its own is unfinished and resumes itself: the seat is working.
     going = [(run_dir, state) for run_dir, state in mine if resumes_itself(state, at)]
     if going:
@@ -2881,25 +2924,21 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                   and not isinstance(s.get("started_at"), bool)]
         reason = (status_mod.parked_line(newest[1]) if transitions.landing_line(newest[1])
                   else " · ".join(parts))
-        return {"word": "working", "reason": reason,
-                "since": min(starts) if starts else None}
+        return waits({"word": "working", "reason": reason,
+                      "since": min(starts) if starts else None})
     # 2a. ... or it ended its turn on `ak wait`, and what it named is not over yet
     wait = waiting_on(name)
     if wait:
-        return {"word": "working", "reason": f"waiting on {wait['on']}", "since": wait["at"]}
+        return waits({"word": "working", "reason": f"waiting on {wait['on']}",
+                      "since": wait["at"]})
     # 2b. a turn is in flight: the seat is working, parked run or not.  Only a seat
     # somebody is still in has a screen to read.  The parked run below keeps its
     # word for the quiet prompt, but a turn answering him outranks it: the other
     # way round the word swung with every turn and each swing sent a new card.
     if gone:
         found = {}
-    elif harness and not waiting:
-        flight, began = _turn_in_flight(harness, found)
-        if flight:
-            long = (isinstance(began, (int, float)) and not isinstance(began, bool)
-                    and at - began > TURN_SECS)
-            return {"word": "working", "since": began, "reason":
-                    f"turn running {terminal_mod.format_age(at - began)}" if long else ""}
+    if moving := turn():
+        return moving
     # 3. ... or a run of its own is parked with no scheduled resume: then it is
     # him the run waits for, only while the same ending still counts in his tally.
     # An acknowledged, handed-back, superseded or aged-out error is nobody's new
@@ -2930,10 +2969,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # another account sooner: nothing moves until then unless he moves it, so it is out of
     # usage until when it comes back (`resumes_at`) -- and nothing on him outranked it above.
     # A move to another account that failed is retried: working.
-    if waiting:
-        until = waiting.get("until")
-        return {"word": "out of usage" if until else "working", "reason": waiting["reason"],
-                "since": waiting["since"], "resumes_at": until}
+    if moving := usage():
+        return moving
     # 3c. ... or its turn stopped on an error the tick types it back past (`health`, or
     # `seat_account` for a bare 429): it moves on without the owner until the tick gives
     # up and tells them (`told`), so it is working.  A legacy seat the tick never types into.
@@ -2941,15 +2978,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # answers it as soon as the screen does.  Its harness's login words are the tick's: it
     # records them (`stalls`, kind `login`) once that login works again and types past them
     # once, so while the look still shows them (`login`) they are working only until it has.
-    stall = stalls.get(name) or {}
-    error = found.get("stall") or (
-        "its login works again" if found.get("login") and stall.get("kind") == "login"
-        and not stall.get("nudged_at") else None)
-    if (error and not gone and not session.get("legacy")
-            and not seat_closed_by_owner(name) and not stall.get("told")
-            and not (seat_read(name).get("usage_refusal") or {}).get("told")):
-        return {"word": "working", "reason": f"retrying: {error}",
-                "since": found.get("began")}
+    if moving := retry():
+        return moving
     # 3a. ... or a run of its own merged and its project has yet to prove itself live: ak's own
     # probe, read every tick (`awaiting_live`), so the stop hook, this word and the card it
     # decides agree that nothing here is his.  Only where nothing below is his either: a run
@@ -2961,8 +2991,9 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             or last):
         newest = max(pending, key=lambda state: state.get("finished_at") or 0)
         title = " ".join(str(newest.get("title") or newest.get("run_id") or "").split())
-        return {"word": "working", "reason": f"waiting on the live check · {title}".rstrip(" ·"),
-                "since": min(state["finished_at"] for state in pending)}
+        return waits({"word": "working",
+                      "reason": f"waiting on the live check · {title}".rstrip(" ·"),
+                      "since": min(state["finished_at"] for state in pending)})
     # 4. nobody is in it: its number is the way back into the conversation.  A seat the
     # owner closed is `idle`: he ended it, so nothing in it is his to unblock, and a hand-back
     # waiting on it waits for him to want it back; one that went on its own is the owner's
@@ -3013,10 +3044,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # not the owner, who was paged `stopped with work open` while the line waited behind
     # their own unsent text (19 Oct 2026).  `classify` offers `at_prompt` with no `authority`
     # for a screen nobody can read, which takes no line yet (`news_owed`).
-    telling = (news_owed(name, mine, bool(found.get("authority")))
-               if found.get("state") in ("at_prompt", "draft") else None)
-    if telling:
-        return {"word": "working", "reason": telling, "since": found.get("began")}
+    if moving := telling():
+        return moving
     # Nothing running, asked or owed: a plan whose every line is proven is done, which ak reads
     # and nobody declares (owner, 19 Oct 2026); otherwise the seat rests and nothing on it is
     # the owner's to do -- a new seat, a conversation, a turn the owner stopped.
