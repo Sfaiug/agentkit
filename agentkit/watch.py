@@ -2183,10 +2183,11 @@ def holding(cfg, name, fact):
 
 def word_from(found):
     """What of an observation a seat's word is decided from and kept beside it: its state and
-    rule, and the words the owner reads in its reason, a question's, a draft's or the error a
-    retry is typed past -- never a spinner's own line, which a harness redraws with its timer."""
+    rule, and the words its reason stands on, a question's, a draft's or the error a retry is
+    typed past, its login words among them -- never a spinner's own line, which a harness
+    redraws with its timer."""
     said = (found.get("evidence") if found.get("state") in ("asking", "draft")
-            else found.get("stall")) or ""
+            else found.get("stall") or found.get("login")) or ""
     return [found.get("state"), found.get("rule"), said]
 
 
