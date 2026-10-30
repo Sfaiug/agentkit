@@ -3,7 +3,7 @@
 # in its container: WORK, the checkout at its path here, cloned as piece.sh clones it, with what
 # the checkout left uncommitted; then the adapter's ARGV, ak's bin and the harness program on
 # PATH. At its end /in/back.bundle holds refs/ak/left, a commit of what the turn left uncommitted
-# on its HEAD.
+# on its HEAD, and /in/code the turn's exit: its own is 0, so the helper's exits keep their meaning.
 work=$1 ak=$2 branch=$3 default=$4
 shift 4
 fail() { echo "ak machine: $*" >&2; exit 253; }
@@ -24,6 +24,5 @@ code=$?
 export GIT_INDEX_FILE=/in/left.index
 git read-tree HEAD && git add -A && git update-ref refs/ak/left "$(git -c user.name=ak \
   -c user.email=ak@localhost commit-tree "$(git write-tree)" -p HEAD -m left)" &&
-  git bundle create -q /in/back.bundle refs/ak/left "^$tree" ||
+  git bundle create -q /in/back.bundle refs/ak/left "^$tree" && echo "$code" >/in/code ||
   fail "what the turn did could not be bundled"
-exit "$code"

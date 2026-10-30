@@ -43,11 +43,13 @@ def call(harness, cmd, cwd, out_dir, env, places, watch):
             code, _, killed = watch(helper._remote(
                 away.alias, "turn", away.key, away.image, away.memory_mb, away.repo, *volumes,
                 "--", cwd, config.REPO, away.branch, away.default, *cmd), stdout=events, stderr=err)
-        if not killed and code not in (helper.LOST, helper.FULL) and not _home(away, cwd, out_dir):
-            code = helper.LOST
+        if code == helper.FULL:    # its room went to another before it started: it runs here
+            return None
+        if not killed:    # the turn's own exit comes home with its results
+            code = _home(away, cwd, out_dir) if code == 0 else helper.LOST
     finally:
         helper.finish(away)
-    return None if code == helper.FULL else (code, killed)    # no room left there: it runs here
+    return code, killed
 
 
 def _parcel(tar, harness, cwd, out_dir, env):
@@ -81,17 +83,18 @@ def _parcel(tar, harness, cwd, out_dir, env):
 
 
 def _home(away, cwd, out_dir):
-    """Whether the turn's results came home, all of them arrived before any applies: its commits,
+    """The turn's exit once all its results came home before any applied, else LOST: its commits,
     HEAD moved to its last, the checkout made its left commit and the index HEAD, so what it left
     uncommitted stays so; then the out dir, but the events and stderr streamed here already."""
     try:
         reply = helper._remote(away.alias, "collect", away.key, timeout=600)
         if reply.returncode:
-            return False
+            return helper.LOST
         # Its regular files by relative name alone: nothing it sends reaches past the out dir.
         with tarfile.open(fileobj=io.BytesIO(reply.stdout)) as tar:
             files = {member.name: tar.extractfile(member).read() for member in tar
                      if member.isfile() and ".." not in member.name.split("/")}
+        code = int(files.pop("code"))
         with tempfile.TemporaryDirectory() as back:
             bundle = Path(back, "back.bundle")
             bundle.write_bytes(files.pop("back.bundle"))
@@ -108,6 +111,6 @@ def _home(away, cwd, out_dir):
                 (out_dir / name[4:]).parent.mkdir(parents=True, exist_ok=True)
                 (out_dir / name[4:]).write_bytes(data)
     except (OSError, subprocess.SubprocessError, tarfile.TarError, IndexError, KeyError,
-            config.Error):
-        return False
-    return True
+            ValueError, config.Error):
+        return helper.LOST
+    return code

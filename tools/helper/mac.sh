@@ -173,7 +173,8 @@ prepare)   # KEY IMAGE REPO, the parcel on stdin
   # -p: the recipe's files keep HEAD's modes, whatever umask the machine's shell has.
   mkdir -p "$ROOT/$2" && tar -x -p -C "$ROOT/$2" && echo "$3" >"$ROOT/$2/image/name" || exit 253
   # A turn's harness program, which a later task installs, is $ROOT/harness/<harness>/<program>.
-  [ ! -f "$ROOT/$2/harness" ] || [ -x "$ROOT/harness/$(cat "$ROOT/$2/harness")" ] || exit 253
+  program=$ROOT/harness/$(cat "$ROOT/$2/harness" 2>/dev/null)
+  [ ! -f "$ROOT/$2/harness" ] || { [ -f "$program" ] && [ -x "$program" ]; } || exit 253
   # Dead callers' trees go after a day; the build lock and harness programs stay.
   find "$ROOT" -mindepth 1 -maxdepth 1 -type d ! -name mirrors ! -name harness -mtime +1 \
     -exec rm -rf {} + 2>/dev/null
@@ -197,7 +198,7 @@ failed)    # KEY NAME [flaky]: the tests piece NAME named as failed (or flaky); 
   [ ! -f "$f" ] || [ -L "$f" ] || cat "$f"; exit 0 ;;
 turn)      # KEY IMAGE MEMORY_MB REPO, volumes PART:PATH[:ro] of its parcel, `--`, turn.sh's
   # arguments: the turn's container, its events on stdout and harness's stderr on stderr, ended
-  # with ak's ssh session. It exits as the turn did.
+  # with ak's ssh session. It exits as turn.sh did: 0 once the turn's exit is in `code`.
   D="$ROOT/$2" image=$3 memory=$4 M="$MIRRORS/$5" name="ak-$2-turn" volumes=()
   H="$ROOT/harness/$(dirname "$(cat "$D/harness")")"
   shift 5
@@ -210,8 +211,8 @@ turn)      # KEY IMAGE MEMORY_MB REPO, volumes PART:PATH[:ro] of its parcel, `--
     wait "$turn"; code=$?; wait; exit "$code"
   }
   admitted streamed "$@" ;;
-collect)   # KEY: an ended turn's out dir and the bundle turn.sh left, as a tar on stdout
-  cd "$ROOT/$2" && [ -f back.bundle ] && tar -c out back.bundle || exit 253 ;;
+collect)   # KEY: an ended turn's out dir, the bundle and exit turn.sh left, as a tar on stdout
+  cd "$ROOT/$2" && [ -f code ] && tar -c out back.bundle code || exit 253 ;;
 finish) rm -rf "${ROOT:?}/$2" ;;
 *) exit 253 ;;
 esac
