@@ -146,8 +146,10 @@ def open_row(screen, name):
     lines = screen.frame()
     lines = lines if title(lines) == PAGE else open_page(screen)
     for key in [UP] * 20 + [DOWN] * 20:
-        if named(lines) == name:      # Enter's word is the lit act's, or `open`
-            screen.case.assertRegex(lines[-1], r"^  ↑↓←→ move   ⏎ [a-z ]+   esc back$")
+        # Enter's word is the lit act's, or `open`; none where nothing is lit, a login far from
+        # its end offering no `log in again`
+        if named(lines) == name:
+            screen.case.assertRegex(lines[-1], r"^  ↑↓←→ move   (⏎ [a-z ]+   )?esc back$")
             return lines
         lines = screen.press(key)
     screen.case.fail(f"no row of {name}: {lines}")
