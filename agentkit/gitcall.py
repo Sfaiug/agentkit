@@ -625,6 +625,9 @@ def reviewer_checkout(wt, out_dir, log):
         # Keep the copied refs without a mirror push destination back into the source.
         git(checkout, "config", "--remove-section", "remote.origin")
         git(checkout, "config", "core.bare", "false")
+        # A mirror copies origin/HEAD as a commit; it names the default branch here as there.
+        if default := git(wt, "symbolic-ref", "-q", "refs/remotes/origin/HEAD", check=False):
+            git(checkout, "symbolic-ref", "refs/remotes/origin/HEAD", default)
         git(checkout, "read-tree", git(wt, "write-tree"))
         copy_files(wt, checkout)
         for key in ("user.name", "user.email"):

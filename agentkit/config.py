@@ -296,10 +296,15 @@ def harness_present(harness):
         adapter(harness)
     except Error:
         return False
+    return bool(harness_binary(harness_program(harness)))
+
+
+def harness_program(harness):
+    """The program of that harness `harness_present` finds."""
     block = manifest(harness).get("update")
     version = block.get("version") if isinstance(block, dict) else None
     named = isinstance(version, list) and version and isinstance(version[0], str) and version[0]
-    return bool(harness_binary(version[0] if named else harness))
+    return version[0] if named else harness
 
 
 def seatless_env():
