@@ -54,7 +54,7 @@ class ATurnCarriesItsConversation(unittest.TestCase):
             "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
         GitHub(home).grant(rig.slug, "WRITE")
         akconfig.write(home, ["opus", "astra"],
-                       settings={"suite_helper": "acme-linux", "machine_turns": True})
+                       settings={"suite_helper": "acme-linux", "turns_on_machines": True})
         fakes = fakeadapter.install(home, claude=claude, codex=codex)
         machine = akmachine.install(home)
         for harness, version in (("claude", "1.2.3"), ("codex", "4.5.6")):

@@ -1,12 +1,12 @@
-"""A model turn on a rented machine once config.toml says `machine_turns = true`, its results back
-here when it ends. Hidden here: the machine, picked as agentkit/helper.py picks a suite's among
+"""A model turn on a rented machine once config.toml says `turns_on_machines = true`, its results
+back here when it ends. Hidden here: the machine, picked as agentkit/helper.py picks a suite's among
 those that take turns, and the ssh to it; the parcel beside a suite's: the out dir, the checkout's
 uncommitted paths, ak itself, a HOME of the turn's own, holding a copy of its login the adapter
-lends and the conversation it resumes, and the harness program to run, which the machine fetches
-the first time a turn names it (mac.sh's `fetch`), a new version here reaching it at its next turn;
-the container tools/helper/turn.sh runs the turn in, at this host's paths; and what comes back: the
-out dir, a bundle of the turn's commits, the last holding what it left uncommitted, which git
-applies here, and the conversation it reported, at its place under this host's HOME.
+lends and the conversation it resumes, and the harness program to run, which the machine fetches the
+first time a turn names it (mac.sh's `fetch`), a new version here reaching it at its next turn; the
+container tools/helper/turn.sh runs the turn in, at this host's paths; and what comes back: the out
+dir, a bundle of the turn's commits, the last holding what it left uncommitted, which git applies
+here, and the conversation it reported, at its place under this host's HOME.
 """
 
 import fnmatch
@@ -54,7 +54,7 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     came home leaves the conversation it reported, whatever its exit."""
     harness = entry["harness"]
     try:
-        on = (config._read_toml(config.HOME / config.CONFIG_NAME) or {}).get("machine_turns")
+        on = (config._read_toml(config.HOME / config.CONFIG_NAME) or {}).get("turns_on_machines")
         program = _program(harness) if on is True and not places and _sessions(harness) else None
     except config.Error:    # a config.toml mid-edit fails no turn: it runs here
         program = None

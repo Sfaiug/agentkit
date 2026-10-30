@@ -35,7 +35,7 @@ class ALostMachineKeepsTheConversationItHad(unittest.TestCase):
         stack = ExitStack()
         self.addCleanup(stack.close)
         stack.enter_context(patch.object(config, "_read_toml",
-                                         return_value={"machine_turns": True}))
+                                         return_value={"turns_on_machines": True}))
         stack.enter_context(patch.object(config, "manifest", return_value={
             "worker": {"sessions": ["~/.acme/{id}*"]}}))
         stack.enter_context(patch.object(machine_turn, "_program",
