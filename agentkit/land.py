@@ -414,7 +414,9 @@ def _flaked(turn, directory, state, scratch, tree, log_path, log, flaky, failed,
                        key=lambda repair: repair["at"], default=None)
             if held and not run.git_out(scratch, "diff", "--quiet", held["sha"], upstream, "--",
                                         file)[0]:
+                seen = [sight for sight in seen if _file(sight["test"]) != file]    # the repair's
                 continue
+            repairs = [repair for repair in repairs if repair["file"] != file]  # released for good
             seen += [{"test": test, "tree": tree, "at": now, "logs": [*before, shown]}
                      for test, before in logs.items() if _file(test) == file]
             sights = [sight for sight in seen if _file(sight["test"]) == file]

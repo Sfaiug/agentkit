@@ -127,6 +127,16 @@ class FlakyTestGetsARepair(test_lander.LanderFixture, unittest.TestCase):
         self.assertEqual(self.launch.call_count, 2)
         self.assertIn("2 times", (self.launch.call_args.args[0] / "task.md").read_text())
 
+    def test_a_released_hold_stays_released_once_its_edit_is_reverted(self):
+        self.seen("one")
+        self.seen("two")
+        self.merge(TEST)
+        self.seen("three")
+        run.git(self.repo, "revert", "--no-edit", "HEAD")
+        run.git(self.repo, "push", "-q", "origin", "main")
+        self.seen("four")
+        self.assertEqual(self.launch.call_count, 2)
+
     def kept(self, **tests):
         """A ledger from before files, keeping `tests` (`a` for `TEST::test_a`) by full name."""
         self.turn.with_suffix(".flakes").write_text(json.dumps(
@@ -163,6 +173,16 @@ class FlakyTestGetsARepair(test_lander.LanderFixture, unittest.TestCase):
                   b={"seen": [{"tree": "elsewhere", "at": self.now, "logs": ["elsewhere.log"]}]})
         self.merge(TEST)
         self.seen("one", flaky=[f"{TEST}::test_c"])
+        self.assertEqual(self.launch.call_count, 1)
+
+    def test_what_a_ledger_saw_under_a_hold_still_holding_is_the_repair_s(self):
+        self.kept(held=self.held(self.now),
+                  a={"seen": [{"tree": "elsewhere", "at": self.now, "logs": ["elsewhere.log"]}]})
+        self.seen("one", flaky=[f"{TEST}::test_held"])
+        self.merge(TEST)
+        self.seen("two", flaky=[f"{TEST}::test_b"])
+        self.launch.assert_not_called()
+        self.seen("three", flaky=[f"{TEST}::test_b"])
         self.assertEqual(self.launch.call_count, 1)
 
     def test_each_sighting_of_a_ledger_ages_alone(self):
