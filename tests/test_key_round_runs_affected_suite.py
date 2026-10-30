@@ -2,9 +2,11 @@
 
 A `tests:` line naming `AK_CHANGED` opts in: after the executor hands in, every round runs that
 suite besides the task's own checks, with `AK_CHANGED` naming a file of the paths the change
-edits relative to the target, on the round's tree merged onto the target as it is now.  A red
-goes back to the executor as any failing check does, unless every test that failed fails on the
-target alone too (`AK_ONLY`), which ak names.  A line without `AK_CHANGED` runs nothing extra.
+edits relative to the target, on the round's tree merged onto the target as it is now, or as
+the run last integrated it where the target has since moved with a conflicting change, which
+landing resolves outside the task budget.  A red goes back to the executor as any failing
+check does, unless every test that failed fails on the target alone too (`AK_ONLY`), which ak
+names.  A line without `AK_CHANGED` runs nothing extra.
 The fake suite here treats each file in tests/ as a test failing when it says bad, and runs
 just those a changed path names by its file name.  Black-box: the program `AK_BIN` names runs
 from outside through tests/fixtures/akbin.py, against the bare origin of gitrig.py and the
@@ -51,6 +53,25 @@ def edit(files, then=None):
             "commit": "edit", "final": "## Summary\nedited", "hand_in": [["done"]]}
 
 
+def sibling(case, files):
+    """The command an executor's turn runs to wait there while a sibling merges `files` into
+    the target, whose commit is then `case.sibling`."""
+    flag = case.fakes["claude"].dir
+    started, release = flag / "started", flag / "release"
+
+    def merge():
+        deadline = time.monotonic() + 120
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        case.sibling = case.rig.commit(files, "a sibling merges")
+        release.touch()
+    thread = threading.Thread(target=merge)
+    thread.start()
+    case.addClassCleanup(thread.join)
+    return (f"touch {shlex.quote(str(started))}; "
+            f"while [ ! -f {shlex.quote(str(release))} ]; do sleep 0.1; done")
+
+
 class Round:
     """One run of a task in widgets, in a Home of the class's own."""
     suite = NARROWS
@@ -93,23 +114,10 @@ class AffectedRed(Round, unittest.TestCase):
 
     @classmethod
     def during(cls):
-        flag = cls.fakes["claude"].dir
-        started, release = flag / "started", flag / "release"
         cls.fakes["claude"].behave(
             edit({"widget.txt": "v2\n", "tests/widget": "bad\n"},
-                 f"touch {shlex.quote(str(started))}; "
-                 f"while [ ! -f {shlex.quote(str(release))} ]; do sleep 0.1; done"),
+                 sibling(cls, {"sibling.txt": "merged\n"})),
             edit({"tests/widget": "ok\n"}))
-
-        def sibling():
-            deadline = time.monotonic() + 120
-            while not started.exists() and time.monotonic() < deadline:
-                time.sleep(0.1)
-            cls.sibling = cls.rig.commit({"sibling.txt": "merged\n"}, "a sibling merges")
-            release.touch()
-        cls.thread = threading.Thread(target=sibling)
-        cls.thread.start()
-        cls.addClassCleanup(cls.thread.join)
 
     def fixer(self):
         return (self.run_dir / "round-1" / "fixer" / "prompt.md").read_text()
@@ -148,6 +156,29 @@ class TargetsOwnRed(Round, unittest.TestCase):
                                r"own: widget\n")
         self.assertIn("done-when: all passed",
                       (self.run_dir / "log.txt").read_text())
+
+
+class ConflictingSibling(Round, unittest.TestCase):
+    """A sibling merges a change to the file the executor edits while it works: the conflict is
+    landing's to resolve, so the round judges the change on the target it started from."""
+
+    @classmethod
+    def during(cls):
+        cls.fakes["claude"].behave(
+            edit({"widget.txt": "v2\n"}, sibling(cls, {"widget.txt": "v3\n"})),
+            {"sh": "echo v3 v2 > widget.txt && git add widget.txt && "
+                   "GIT_EDITOR=true git rebase --continue",
+             "final": "Resolved.", "hand_in": [["done"]]})
+
+    def test_the_round_passes_and_landing_resolves_the_conflict_outside_the_task_budget(self):
+        self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
+        self.assertEqual((self.state["state"], self.state["merged"]), ("pass", True))
+        self.assertEqual(len(self.state["round_summaries"]), 1)
+        self.assertEqual(self.roles(), ["executor", "fixer"])
+        log = (self.run_dir / "log.txt").read_text()
+        self.assertIn(f"origin/main moved to {self.sibling[:12]} with a change conflicting", log)
+        self.assertIn("conflict round 1/", log)
+        self.assertEqual(self.rig.origin("show", "main:widget.txt"), "v3 v2")
 
 
 class NotNarrowing(Round, unittest.TestCase):

@@ -601,8 +601,11 @@ def affected_suite(lp):
     names: the paths the change edits relative to the target, one per line.  It runs on HEAD
     merged onto the target as just fetched, so a sibling merged since meets the change here
     rather than in the landing line, in a clone of its own, on the heavy-suite turns and shares
-    a landing check takes.  A red whose failing tests (`AK_FAILED`) all fail again on the
-    target's tip alone (`AK_ONLY`) is the target's, not the change's: it passes, and says which.
+    a landing check takes.  A sibling that conflicts with the change is landing's to bring in,
+    in conflict rounds outside the task budget (`integrate`): the round then judges its own
+    work, merged onto the target it last integrated with.  A red whose failing tests
+    (`AK_FAILED`) all fail again on that target alone (`AK_ONLY`) is the target's, not the
+    change's: it passes, and says which.
     """
     from . import gate, leases  # here, not at the top: gate reaches run
     suite = round_suite(lp)
@@ -612,7 +615,6 @@ def affected_suite(lp):
         lp.log(f"WARN cannot fetch {lp.upstream}: the suite meets it as last fetched")
     tip = gitcall.git(lp.wt, "rev-parse", f"{lp.upstream}^{{commit}}")
     head = gitcall.git(lp.wt, "rev-parse", "HEAD")
-    where = f"{head[:12]} merged onto {lp.upstream} at {tip[:12]}"
     with tempfile.TemporaryDirectory(dir=lp.run_dir) as tmp:
         checkout, changed = Path(tmp) / "checkout", Path(tmp) / "changed"
 
@@ -624,6 +626,14 @@ def affected_suite(lp):
 
         gitcall.git(lp.wt, "clone", "--quiet", "--shared", "--no-checkout", str(lp.wt), str(checkout))
         code, tree = gitcall.git_out(checkout, "merge-tree", "--write-tree", "--name-only", tip, head)
+        if code:
+            last = lp.state.get("target_sha") or lp.base_sha
+            lp.log(f"done-when: {lp.upstream} moved to {tip[:12]} with a change conflicting with "
+                   f"this one, which landing brings in; the suite meets {last[:12]}")
+            tip = last
+            code, tree = gitcall.git_out(checkout, "merge-tree", "--write-tree", "--name-only",
+                                         tip, head)
+        where = f"{head[:12]} merged onto {lp.upstream} at {tip[:12]}"
         if code:
             return False, f"$ {suite}\n[not run: {where} does not merge cleanly]\n{tree}"
         merged = gitcall.git(checkout, "commit-tree", tree.splitlines()[0], "-p", tip, "-p", head,
