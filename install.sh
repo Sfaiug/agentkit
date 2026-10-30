@@ -75,7 +75,8 @@ is_server_box() {
 if [ -z "$ROLE" ]; then
   [ ! -s "$AK/state/server" ] || ALIAS=$(head -n 1 -- "$AK/state/server")
   # a Mac whose record names its own Linux machine installs that server again
-  if [ -z "$ALIAS" ] || [ "$ALIAS" = "$LINUX_MACHINE" ] || is_server_box "$ALIAS"; then
+  if [ -z "$ALIAS" ] || { [ "$OS" = Darwin ] && [ "$ALIAS" = "$LINUX_MACHINE" ]; } ||
+     is_server_box "$ALIAS"; then
     ROLE=server
   else
     ROLE=client
@@ -283,12 +284,14 @@ UNATTENDED
 fi
 
 # --- (2b) this Mac's Linux machine, with ak's server installed in it -----------
-# The machine gets this checkout's commit from the Mac, so it needs no login to fetch it: a
+# A new machine gets this checkout's commit from the Mac, so it needs no login to fetch it: a
 # clone, and not the checkout, so that nothing uncommitted goes and git need not be there yet.
+# From then on its checkout is the server's own, which its tick keeps at origin/main
+# (update.go_live), its .git a file once a version is swapped in (versions.py).
 if [ "$MACHINE" = 1 ]; then
   linux_machine_up ||
     { echo "install.sh: this Mac's Linux machine is not up; see above, then run ./install.sh again" >&2; exit 1; }
-  if ! linux_machine_run test -d agentkit/.git; then
+  if ! linux_machine_run test -e agentkit/.git; then
     copy=$(mktemp -d)
     git clone -q --depth 1 -- "file://$REPO" "$copy/agentkit"
     origin=$(git -C "$REPO" remote get-url origin 2>/dev/null || true)
@@ -297,8 +300,9 @@ if [ "$MACHINE" = 1 ]; then
     rm -rf -- "$copy"
     echo "linux: ak $(git -C "$REPO" rev-parse --short HEAD) copied into this Mac's Linux machine"
   fi
+  # Failing here records no server, so the next install sets the machine up again.
   linux_machine_run bash agentkit/install.sh --server ||
-    note "the server install in this Mac's Linux machine did not finish; run ./install.sh again"
+    { echo "install.sh: the server install in this Mac's Linux machine did not finish; run ./install.sh again" >&2; exit 1; }
 fi
 
 # --- (3) the harnesses: each adapter installs and logs its own in ------------

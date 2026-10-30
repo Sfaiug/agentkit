@@ -49,7 +49,7 @@ elif args[0] == "shell":
     if command[:2] == ["bash", "agentkit/install.sh"]:
         with open(root / "logs/inside.log", "a") as log:
             log.write(json.dumps({{"args": command[2:], "tty": os.isatty(0)}}) + "\\n")
-        sys.exit(0)
+        sys.exit(int(os.environ.get("INSIDE_EXIT", "0")))
     sys.exit(subprocess.call(command, cwd=home, env={{**os.environ, "HOME": str(home)}}))
 """
 BREW = LOG + '[ "$*" != "install lima" ] || cp -- {limactl} {bin}/limactl\n'
@@ -179,6 +179,20 @@ class SmallMac(unittest.TestCase):
         [create] = [call for call in mac.lima() if call[0] == "create"]
         for flag in ("--cpus=2", "--memory=4", "--disk=50"):
             self.assertIn(flag, create)
+
+
+class KeptMachine(unittest.TestCase):
+    def test_a_version_it_swapped_in_stays_and_a_failed_server_install_records_no_server(self):
+        mac = Mac()
+        self.addCleanup(mac.close)
+        version = mac.guest / "agentkit/.git"       # a worktree of ~/agentkit.git (versions.py)
+        version.parent.mkdir(parents=True)
+        version.write_text("gitdir: /home/acme/agentkit.git/worktrees/acme\n")
+        mac.home.env["INSIDE_EXIT"] = "23"
+        done = installer.run(mac.home)
+        self.assertNotEqual(done.code, 0, done.out)
+        self.assertEqual(version.read_text(), "gitdir: /home/acme/agentkit.git/worktrees/acme\n")
+        self.assertIsNone(mac.server())
 
 
 class Client(unittest.TestCase):
