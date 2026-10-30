@@ -95,12 +95,13 @@ func Check(out, errOut io.Writer) (int, error) {
 		return 1, nil
 	}
 	status, err := answer(hook)
-	var quoting *url.Error
-	if errors.As(err, &quoting) {
-		err = quoting.Err // it quotes the URL, which is the secret
-	}
 	if err != nil {
-		fmt.Fprintf(errOut, "notify: fail (no response: %s)\n", err)
+		var quoting *url.Error
+		if errors.As(err, &quoting) {
+			err = quoting.Err // it quotes the URL with its password starred, which the scrub would miss
+		}
+		// the URL is the secret, and an error within may quote it, as a bad redirect's does
+		fmt.Fprintf(errOut, "notify: fail (no response: %s)\n", strings.ReplaceAll(err.Error(), hook, "<webhook>"))
 		return 1, nil
 	}
 	if status != http.StatusOK {
@@ -118,7 +119,14 @@ func answer(hook string) (int, error) {
 		return 0, err
 	}
 	request.Header.Set("User-Agent", "agentkit/1 (+https://github.com)")
-	response, err := (&http.Client{Timeout: 15 * time.Second}).Do(request)
+	client := &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(next *http.Request, via []*http.Request) error {
+		next.Header.Del("Referer") // Go's, which would hand the secret URL to where it redirects
+		if len(via) >= 10 {
+			return http.ErrUseLastResponse // past Python's 10, the redirect is the answer
+		}
+		return nil
+	}}
+	response, err := client.Do(request)
 	if err != nil {
 		return 0, err
 	}

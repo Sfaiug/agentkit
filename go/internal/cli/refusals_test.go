@@ -177,22 +177,36 @@ func TestNotifyCheck(t *testing.T) {
 	t.Setenv("AGENTKIT_DISCORD_WEBHOOK", "http://acme.example/secret-token%zz")
 	assertCall(t, check, 1, "", `notify: fail (no response: invalid URL escape "%zz")`+"\n")
 
-	agents := make(chan string, 2)
+	asked := make(chan http.Header, 5)
 	server := httptest.NewServer(http.HandlerFunc(func(reply http.ResponseWriter, request *http.Request) {
-		agents <- request.UserAgent()
-		status, _ := strconv.Atoi(strings.TrimPrefix(request.URL.Path, "/"))
-		reply.Header().Set("Content-Length", "2")
-		reply.WriteHeader(status)
-		reply.Write([]byte("x")) // one byte short: the connection closes on it
+		asked <- request.Header
+		if status, err := strconv.Atoi(strings.TrimPrefix(request.URL.Path, "/")); err == nil {
+			reply.Header().Set("Content-Length", "2")
+			reply.WriteHeader(status)
+			reply.Write([]byte("x")) // one byte short: the connection closes on it
+		} else if request.URL.Path == "/moved" {
+			http.Redirect(reply, request, "/404", http.StatusFound)
+		} else {
+			http.Redirect(reply, request, "http://"+request.Host+request.URL.Path+"%zz", http.StatusFound)
+		}
 	}))
 	defer server.Close()
 	t.Setenv("AGENTKIT_DISCORD_WEBHOOK", server.URL+"/200")
 	assertCall(t, check, 1, "", "notify: fail (no response: unexpected EOF)\n")
-	if agent := <-agents; agent != "agentkit/1 (+https://github.com)" {
+	if agent := (<-asked).Get("User-Agent"); agent != "agentkit/1 (+https://github.com)" {
 		t.Fatalf("User-Agent %q", agent)
 	}
 	t.Setenv("AGENTKIT_DISCORD_WEBHOOK", server.URL+"/404")
 	assertCall(t, check, 1, "notify: fail (404)\n", "")
+	<-asked
+	// a redirect takes no Referer along, which would carry the secret
+	t.Setenv("AGENTKIT_DISCORD_WEBHOOK", server.URL+"/moved")
+	assertCall(t, check, 1, "notify: fail (404)\n", "")
+	if <-asked; (<-asked).Get("Referer") != "" {
+		t.Fatal("a redirect carried the webhook as its Referer")
+	}
+	t.Setenv("AGENTKIT_DISCORD_WEBHOOK", server.URL+"/broken")
+	assertCall(t, check, 1, "", `notify: fail (no response: failed to parse Location header "<webhook>%zz": parse "<webhook>%zz": invalid URL escape "%zz")`+"\n")
 }
 
 func TestPlanInputRefusals(t *testing.T) {
