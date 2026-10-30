@@ -5,7 +5,8 @@
 #   ./install.sh --server               this machine holds the sessions and runs the `ak watch` cron
 #   ./install.sh --client [ALIAS]       this machine reaches the server over `ssh ALIAS` (default agentkit)
 #   ./install.sh --phone-key KEY|FILE   append the phone's public key with the `ak attach` forced command
-# A fresh Mac needs --client: without a saved server record, every host defaults to server.
+# Without a saved server record every host defaults to server; on a Mac the server is a Linux
+# machine of ak's own on it (tools/linux-machine.sh), and the Mac its client.
 # --link-doctrine and --vm are accepted for old callers and do nothing: the VM steps are
 # part of every run, and the rulebook reaches a session at launch instead of being linked.
 # Under a HOME that is not the account's own -- the smoke suite's throwaway HOME -- nothing
@@ -31,6 +32,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 OS=$(uname -s)
+. "$REPO/tools/linux-machine.sh"
 TTY=0; if [ -t 0 ] && [ -t 1 ]; then TTY=1; fi
 have() { command -v "$1" >/dev/null 2>&1; }
 note() { echo "note: $*" >&2; }
@@ -72,11 +74,20 @@ is_server_box() {
 }
 if [ -z "$ROLE" ]; then
   [ ! -s "$AK/state/server" ] || ALIAS=$(head -n 1 -- "$AK/state/server")
-  if [ -z "$ALIAS" ] || is_server_box "$ALIAS"; then
+  # a Mac whose record names its own Linux machine installs that server again
+  if [ -z "$ALIAS" ] || { [ "$OS" = Darwin ] && [ "$ALIAS" = "$LINUX_MACHINE" ]; } ||
+     is_server_box "$ALIAS"; then
     ROLE=server
   else
     ROLE=client
   fi
+fi
+# ak's worker box, landing gate and limits exist only on Linux, so a Mac's server is its own
+# Linux machine: the Mac is that machine's client, and the server install runs in it once the
+# packages below are in.  A sandbox HOME touches no machine.
+MACHINE=0
+if [ "$OS" = Darwin ] && [ "$ROLE" = server ] && [ "$SANDBOX" = 0 ]; then
+  MACHINE=1 ROLE=client ALIAS=$LINUX_MACHINE
 fi
 [ "$ROLE" = client ] && [ -z "$ALIAS" ] && ALIAS=$SERVER_NAME
 MODE=server
@@ -270,6 +281,28 @@ UNATTENDED
     mkdir -p -- "$NPM_PREFIX"
     [ "$(npm config get prefix 2>/dev/null)" = "$NPM_PREFIX" ] || npm config set prefix "$NPM_PREFIX" >/dev/null
   fi
+fi
+
+# --- (2b) this Mac's Linux machine, with ak's server installed in it -----------
+# A new machine gets this checkout's commit from the Mac, so it needs no login to fetch it: a
+# clone, and not the checkout, so that nothing uncommitted goes and git need not be there yet.
+# From then on its checkout is the server's own, which its tick keeps at origin/main
+# (update.go_live), its .git a file once a version is swapped in (versions.py).
+if [ "$MACHINE" = 1 ]; then
+  linux_machine_up ||
+    { echo "install.sh: this Mac's Linux machine is not up; see above, then run ./install.sh again" >&2; exit 1; }
+  if ! linux_machine_run test -e agentkit/.git; then
+    copy=$(mktemp -d)
+    git clone -q --depth 1 -- "file://$REPO" "$copy/agentkit"
+    origin=$(git -C "$REPO" remote get-url origin 2>/dev/null || true)
+    [ -z "$origin" ] || git -C "$copy/agentkit" remote set-url origin "$origin"
+    tar -C "$copy/agentkit" -cf - . | linux_machine_run sh -c 'mkdir -p agentkit && tar -xf - -C agentkit'
+    rm -rf -- "$copy"
+    echo "linux: ak $(git -C "$REPO" rev-parse --short HEAD) copied into this Mac's Linux machine"
+  fi
+  # Failing here records no server, so the next install sets the machine up again.
+  linux_machine_run bash agentkit/install.sh --server ||
+    { echo "install.sh: the server install in this Mac's Linux machine did not finish; run ./install.sh again" >&2; exit 1; }
 fi
 
 # --- (3) the harnesses: each adapter installs and logs its own in ------------
