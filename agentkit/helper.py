@@ -1,11 +1,14 @@
-"""A Mac that runs a sharded suite's pieces while it is awake and on power: `suite_helper` in
-config.toml names it by ssh alias. Each piece runs in a Linux VM of Apple's `container`, built
-from the recipe the repository's `suite_image:` names, else its tools/helper/Containerfile (ak's
-own), with only the tree under test and its repository's history mounted, read-only, and nothing
-beyond loopback: the Mac's own files, keys and logins never reach it. A repository with neither
-runs its suite here. The Mac keeps each repository's history between suites, so a suite sends
-only the commits it lacks. A piece the Mac lost -- it left its charger or slept, the connection
-or the VM broke -- returns a helper failure code.
+"""A machine that runs a sharded suite's pieces beside this one: `suite_helper` in config.toml
+names it by ssh alias. A Mac runs each piece in a Linux VM of Apple's `container` while it is awake
+and on power; a Linux machine with docker (on Debian, its packages `docker.io` and `docker-cli`,
+the ssh user in group `docker`), which holds nothing but ak's work and gives it all its memory but
+a tenth, in a container. Its image is built from the recipe the repository's `suite_image:` names,
+else its tools/helper/Containerfile (ak's own), with only the tree under test and its repository's
+history mounted, read-only, and nothing beyond loopback: the machine's own files, keys and logins
+never reach it. A repository with neither runs its suite here. The machine keeps each repository's
+history between suites, so a suite sends only the commits it lacks. A piece the machine lost -- a
+Mac left its charger or slept, the connection, the VM or the container broke -- returns a helper
+failure code.
 """
 
 from collections import namedtuple
@@ -20,13 +23,13 @@ import subprocess
 import tarfile
 import tempfile
 
-from . import config, gitcall, orch
+from . import config, gitcall, machines, orch
 
 LOST = 255            # ssh's own failure
-LACKS = 3             # mac.sh's `prepare`: the Mac's copy lacks history the parcel left out
-SHORT = 254           # piece.sh: the kernel of the piece's VM killed a process for memory
-BATTERY, FULL, BROKEN = 251, 252, 253   # mac.sh: off power, no room for the VM, could not run
-GONE = (LOST, SHORT, BATTERY, BROKEN)   # a piece's exit when the Mac lost it
+LACKS = 3             # mac.sh's `prepare`: the copy there lacks history the parcel left out
+SHORT = 254           # piece.sh: the kernel killed a process of the piece for memory
+BATTERY, FULL, BROKEN = 251, 252, 253   # mac.sh: off power, no room for the piece, could not run
+GONE = (LOST, SHORT, BATTERY, BROKEN)   # a piece's exit when the helper lost it
 TOOLS = config.REPO / "tools" / "helper"
 RECIPE = "tools/helper/Containerfile"     # a repository's recipe when `suite_image:` names none
 SSH = ("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15")
@@ -39,7 +42,8 @@ Away = namedtuple("Away", "alias key repo image count cpus memory_mb branch defa
 
 
 def _remote(alias, verb, *args, **kwargs):
-    script = (TOOLS / "mac.sh").read_text()
+    # Every kind of machine is sent every kind's functions, and picks its own by `uname`.
+    script = (TOOLS / "linux.sh").read_text() + (TOOLS / "mac.sh").read_text()
     argv = [*SSH, alias, shlex.join(["bash", "-c", script, "mac.sh", verb, *map(str, args)])]
     return subprocess.run(argv, capture_output=True, **kwargs) if kwargs else argv
 
@@ -89,7 +93,7 @@ def _tracked(cwd, path):
 def room(alias, piece_cpus, piece_mem_mb, least_mb=0):
     """((pieces, CPUs each, MiB each), reason): a fit, or (None, why it cannot run there).
     Its CPUs less its load, split equally, as VMs time-share them; the memory ak's VMs may still
-    be given there (mac.sh's `left`), beside other suites' VMs. A VM gets two CPUs or more, as a
+    be given there (`left`), beside other suites' VMs. A VM gets two CPUs or more, as a
     one-CPU VM's kernel hands a terminal's bytes over late and the suite's terminal tests read
     them at once, and twice the piece's measured memory, as it also holds its own kernel, page
     cache and clone, or `least_mb` where that is more."""
@@ -149,10 +153,14 @@ def _parcel(cwd, default, known, recipe, parcel):
 
 
 def start(piece_cpus, piece_mem_mb, cwd, log):
-    """(the suite sent to the helper, reason): an Away, or (None, why it runs here)."""
-    alias = config.suite_helper()
-    if not alias:
+    """(the suite sent to the roomiest helper, reason): an Away, or (None, why it runs here)."""
+    try:
+        aliases = machines.helpers()
+    except config.Error:  # a config.toml mid-edit fails no run's suite: it runs here
+        aliases = []
+    if not aliases:
         return None, "no suite helper set up"
+    alias = aliases[0]
     # A checkout's repository is the one its main checkout has, wherever the suite runs.
     repo = hashlib.sha256(str(gitcall.main_checkout(cwd)).encode()).hexdigest()[:12]
     try:
@@ -162,9 +170,11 @@ def start(piece_cpus, piece_mem_mb, cwd, log):
         return None, f"helper {alias} cannot build suite_image: {exc}"
     if not image:
         return None, f"no recipe for the suite helper {alias}"
-    fit, reason = room(alias, piece_cpus, piece_mem_mb, _least(repo))
+    rooms = {alias: room(alias, piece_cpus, piece_mem_mb, _least(repo)) for alias in aliases}
+    alias = max(aliases, key=lambda alias: (rooms[alias][0] or (0,))[0])
+    fit = rooms[alias][0]
     if fit is None:
-        return None, f"helper {alias} {reason}"
+        return None, " · ".join(f"helper {alias} {why}" for alias, (_, why) in rooms.items())
     code, branch = gitcall.git_out(cwd, "symbolic-ref", "-q", "--short", "HEAD")
     named, default = gitcall.git_out(cwd, "rev-parse", "--abbrev-ref", "origin/HEAD")
     programs = {program for program in orch.agent_programs() if config.harness_binary(program)}
@@ -239,7 +249,7 @@ def failed(away, shard, named="failed"):
 
 
 def finish(away):
-    """The suite's tree leaves the Mac; one that does not answer clears it a day later."""
+    """The suite's tree leaves the helper; one that does not answer clears it a day later."""
     try:
         _remote(away.alias, "finish", away.key, timeout=30)
     except (OSError, subprocess.TimeoutExpired):

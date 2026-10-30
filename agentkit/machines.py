@@ -53,11 +53,16 @@ class Machine(namedtuple("Machine", "name checks said")):
         return f"{self.name}: {' · '.join(words)}"
 
 
-def known():
-    """Every machine ak may use, this one first, as the ticks found it.  Named by the owner's
-    own config.toml, even one `config.load` passes over for the shipped models."""
+def helpers():
+    """Every machine ak may use but this one: the owner's config.toml as is, not `config.load`'s."""
     named = (config._read_toml(config.HOME / config.CONFIG_NAME) or {}).get("machines")
-    names = [HERE, *(named if isinstance(named, dict) else ()), config.suite_helper()]
+    names = [*(named if isinstance(named, dict) else ()), config.suite_helper()]
+    return [name for name in dict.fromkeys(names) if name]
+
+
+def known():
+    """Every machine ak may use, this one first, as the ticks found it."""
+    names = [HERE, *helpers()]
     try:
         record = json.loads(_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):

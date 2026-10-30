@@ -8,6 +8,7 @@ import os
 import shutil
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import tarfile
@@ -46,6 +47,7 @@ esac
 # listed beside the owner's own VM and an ended one, holding half the memory it was given.
 # Linux's `flock` takes `lockf`'s place.
 MAC_TOOLS = {
+    "uname": "echo Darwin",
     "pmset": 'n=$(( $(cat "$FAKE/readings" 2>/dev/null || echo 0) + 1 )); echo $n >"$FAKE/readings"\n'
              '[ $n -le "$FAKE_AC_CALLS" ] && echo "Now drawing from \'AC Power\'" ||'
              ' echo "Now drawing from \'Battery Power\'"',
@@ -289,9 +291,11 @@ class SuiteHelper(unittest.TestCase):
                                  ["WARN the suite helper cannot build suite_image"])
 
     def test_no_helper_named_runs_here(self):
-        (config.HOME / config.CONFIG_NAME).write_text("")
-        self.assertNotIn("helper ran", self.check({})[0])
-        self.assertFalse((self.fake / "calls").exists())
+        for text in ("", 'suite_helper = "acme-mac\n'):
+            with self.subTest(config=text):
+                (config.HOME / config.CONFIG_NAME).write_text(text)
+                self.assertNotIn("helper ran", self.check({})[0])
+                self.assertFalse((self.fake / "calls").exists())
 
 
 class HelperMac(unittest.TestCase):
@@ -352,6 +356,12 @@ class HelperMac(unittest.TestCase):
         (self.fake / "system-broken").unlink()
         os.environ["FAKE_AC_CALLS"] = "0"
         self.assertEqual(helper.room("acme-mac", 1.0, 500), (None, "is on battery"))
+
+    def test_mac_sh_alone_as_an_ak_updated_under_a_running_suite_sends_it_runs_the_mac(self):
+        probe = subprocess.run([str(self.fake / "ssh"), "acme-mac", shlex.join(
+            ["bash", "-c", (helper.TOOLS / "mac.sh").read_text(), "mac.sh", "probe"])],
+            capture_output=True, text=True)
+        self.assertEqual(probe.stdout, "cpus 10\nload 1.00\nroom_mb 4096\n", probe.stderr)
 
     def test_suites_prepare_beside_one_another_and_only_their_own_old_image_goes(self):
         prepare = lambda key: self.prepare(key)[0]

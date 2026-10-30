@@ -4488,19 +4488,22 @@ def config_subscriptions(cfg, keyboard):
     is and its plan (logins.whose; one ending as login_notes says it, amber), resets with no room
     beside its meter, then its acts (subscription_acts), ←/→ or the pointer moving, Enter or a
     click running one, the key line naming it.  One an act adds is asked whose it is
-    (logins.renewed), then pointed at."""
+    (logins.renewed), then pointed at.  It comes up as `c` does as it opens, and the pointed
+    row's label and meter wash into its company's colour and drain as `c`'s meters do
+    (motion.washing); back from what an act or an add drew, it is drawn as it is."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     here, column, top, said = ("sub", 1), None, 0, ""     # column None: as the line opens
+    clock = motion.Clock(page=True)
     while True:
         subs, width = usage_rows(cfg), terminal.layout_width()
         ids = [*(("sub", number) for number in range(1, len(subs) + 1)), ("row", "add")]
         here = here if here in ids else ids[-1]      # its row removed: onto the last
         at = None if terminal.away() else here
         lit = at[1] if at and at[0] == "sub" else None
-        ending = login_notes(subs)
-        drawn = usage_lines(cfg, width, lit=lit, rows=subs, ending=ending, columns=1) or [
-            "  " + label for _, label, _, _ in subs]     # no room for a meter beside a label
-        body, places, acts = [], {}, []
+        ending, spans = login_notes(subs), {}
+        drawn = usage_lines(cfg, width, lit=lit, rows=subs, spans=spans, ending=ending,
+                            columns=1) or ["  " + label for _, label, _, _ in subs]
+        body, places, acts, moves = [], {}, [], []
         for number, ((name, _, prov, account), line) in enumerate(zip(subs, drawn), 1):
             if number == 1 or subs[number - 2][0] != name:
                 body.append(terminal.styled(COMPANIES[name].split(" / ")[0] if name in COMPANIES
@@ -4509,6 +4512,9 @@ def config_subscriptions(cfg, keyboard):
             beside = held and terminal.cells(f"{terminal.plain(line)} · {held}") <= width
             line += terminal.styled(f" · {held}", "dim") if beside else ""
             places[len(body)] = (("sub", number), [])
+            # its label and meter's cells washing in and out as `c`'s do, on the page's clock
+            moves.append((len(body), ("sub", number), number == lit, motion.washing(
+                [cell[1:] for cell in spans.get(number, [])], colour(cfg, name), number == lit)))
             body.append(terminal.highlight(line) if number == lit else line)
             if number == lit:
                 acts = subscription_acts(cfg, keyboard, number, remove=True)
@@ -4524,12 +4530,14 @@ def config_subscriptions(cfg, keyboard):
                     body.append(shown)
         body.append("")
         places[len(body)] = (("row", "add"), [])
-        body.append(terminal.highlight("  + add a subscription", at == ("row", "add")))
+        add = "  + add a subscription"
+        body.append(terminal.highlight(add) if at == ("row", "add") else add)
         keys = terminal.keys("esc back", enter="open" if here[0] == "row" else act_word(
             acts[column][0]) if acts and column is not None else None)
         # every TICK as the main screen, so a reading that lands -- one just added -- shows
         act, moved, clicked, top = matrix_key("config · subscriptions", body, places, ids, here,
-                                              top, said, keys, timeout=TICK, marks=0)
+                                              top, said, keys, timeout=TICK, marks=0,
+                                              clock=clock, moves=moves)
         if clicked is not None:
             column = clicked
         elif moved != here:
@@ -4548,6 +4556,7 @@ def config_subscriptions(cfg, keyboard):
             def signed(rows):     # a provider's only login is its usual one, listed or not
                 return [(name, account or config.DEFAULT_ACCOUNT) for name, _, _, account in rows]
             before = signed(subs)
+            clock.forget()            # a card or a sign-in: the page back is drawn as it is
             said = (acts[column][1]() if here[0] == "sub"
                     else config_add_provider(cfg, keyboard)) or ""
             after = signed(usage_rows(cfg))

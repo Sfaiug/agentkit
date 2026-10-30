@@ -1,8 +1,9 @@
 """A page comes up as it opens: under its header and rule it fades in out of the background
 while the header keeps `agentkit` and writes the page's name out after it, in FADE seconds, and
 is then as drawn -- `c`, `p`, a project's features, the models, the new-session picker and the
-pages `c` opens as each opens.  A screen gone back to is drawn as it is, and a list one of `c`'s
-pages opens comes up under its row as the line under the menu's highlighted row does.
+pages `c` opens, Subscriptions among them, as each opens.  A screen gone back to is drawn as it
+is, and a list one of `c`'s pages opens comes up under its row as the line under the menu's
+highlighted row does.
 
 The owner's pick of 18 Oct 2026 (motion 5, a page that slides in).  Offline: a temporary HOME,
 no terminal, the motion clock's time injected and each frame it writes read back.
@@ -111,7 +112,8 @@ class PageComesUp(Sandbox):
         """The pages `c` opens: each one's name and how it opens."""
         return (("models", lambda: menu.models_page(self.cfg, None)),
                 ("discord", menu.config_discord),
-                ("weekly audit", lambda: menu.config_audit(self.cfg)))
+                ("weekly audit", lambda: menu.config_audit(self.cfg)),
+                ("subscriptions", lambda: menu.config_subscriptions(self.cfg, None)))
 
     def read(self, opens, keys, step=motion.FADE / 6):
         """What `opens()` writes read with `keys`, each `step` seconds after the one before,
@@ -140,11 +142,14 @@ class PageComesUp(Sandbox):
                 self.assert_comes_up(clock, f"config · {name}")
 
     def test_a_cs_page_gone_back_to_from_a_list_or_a_field_is_drawn_as_it_is(self):
-        """Inside the opening, Weekly audit's `Orchestrator` list opened and closed, and
-        Discord's `Mention` typed into and left."""
+        """Inside the opening, Weekly audit's `Orchestrator` list opened and closed, Discord's
+        `Mention` typed into and left, and Subscriptions' `+ add a subscription` opened and
+        left."""
         pages = dict(self.pages())
+        adds = [Key("down")] * len(menu.usage_rows(self.cfg))
         for name, keys in (("weekly audit", [Key("down"), Key("enter"), Key("esc")]),
-                           ("discord", [Key("enter"), Key("esc")])):
+                           ("discord", [Key("enter"), Key("esc")]),
+                           ("subscriptions", [*adds, Key("enter"), Key("esc")])):
             with self.subTest(name):
                 output, clock = self.read(pages[name], keys)
                 back = output.rsplit("\033[H", 1)[-1]
