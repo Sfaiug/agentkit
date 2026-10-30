@@ -1,6 +1,7 @@
 package plan
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -86,16 +87,17 @@ func place(project string, env []string) (repo, root string) {
 	return repo, root
 }
 
-// A branch is a project's default branch as just fetched, what its checks run on.
+// A branch is a project's default branch as just fetched, or the commit a line names: what checks run on.
 type branch struct {
 	repo, root, sha, commit string   // commit is `<sha12> <subject>`, as a tick names it
 	clean, env              []string // env adds the project's env file to clean
 }
 
-// defaultBranch fetches the project's default branch.  Git there and its checks get the
-// project's env file, as a run's checks do: what git does not hold, such as the project's
-// interpreter, it names there; which repository a checkout holds is read without it.
-func defaultBranch(ctx context.Context, repo, root string, clean []string) (*branch, error) {
+// defaultBranch fetches the project's default branch, or, given at, that commit: the one a
+// line's check was proven failing on.  Git there and its checks get the project's env file,
+// as a run's checks do: what git does not hold, such as the project's interpreter, it names
+// there; which repository a checkout holds is read without it.
+func defaultBranch(ctx context.Context, repo, root, at string, clean []string) (*branch, error) {
 	extra, err := config.RepoEnv(repo)
 	if err != nil {
 		return nil, err
@@ -117,7 +119,7 @@ func defaultBranch(ctx context.Context, repo, root string, clean []string) (*bra
 	run("fetch", "-q", "origin")
 	run("remote", "set-head", "origin", "--auto")
 	base := run("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
-	on.sha = run("rev-parse", "--verify", base+"^{commit}")
+	on.sha = run("rev-parse", "--verify", cmp.Or(at, base)+"^{commit}")
 	on.commit = run("log", "-1", "--format=%h %s", "--abbrev=12", on.sha)
 	if err != nil {
 		return nil, err

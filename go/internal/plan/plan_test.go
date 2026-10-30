@@ -1,6 +1,8 @@
 package plan
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,5 +58,30 @@ func TestOnlyTheRunningLaunchsTurnCountsAReachOfTheLiveHost(t *testing.T) {
 	put("live-old.txt", "200")
 	if !reachedLive("acme") {
 		t.Fatal("the running launch's reach counts")
+	}
+}
+
+func TestCheckFindsItsLineAsPythonsIntReadsTheNumber(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
+	state := filepath.Join(os.Getenv("HOME"), ".agentkit", "state")
+	line := "the parser works · check: `%s` · ~/code/gone#0123456789ab · written ٢٠٢٦-١٠-٠٢ 12:40"
+	plan := "# acme\n\x1f - [x] " + fmt.Sprintf(line, "false") + " · done by hand\n"
+	if os.MkdirAll(state, 0o700) != nil || os.WriteFile(filepath.Join(state, "session-acme.json"), []byte(`{}`), 0o600) != nil ||
+		os.WriteFile(filepath.Join(state, "plan-acme.md"), []byte(plan), 0o600) != nil {
+		t.Fatal("no plan")
+	}
+	for number, shown := range map[string]string{"00": "0", "2": "2", "0099999999999999999999": "99999999999999999999"} {
+		if _, err := Check(context.Background(), "acme", number, "true"); err == nil || err.Error() != "no plan line "+shown+"; `ak plan` lists them" {
+			t.Fatalf("%s: %v", number, err)
+		}
+	}
+	// a line naming no commit takes its check unproven, open, its leading space kept
+	want := "- [ ] " + fmt.Sprintf(line, "true")
+	if got, err := Check(context.Background(), "acme", "001", " true "); err != nil || got != want {
+		t.Fatalf("%q, %v", got, err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(state, "plan-acme.md")); string(data) != "# acme\n\x1f "+want+"\n" {
+		t.Fatalf("%q", data)
 	}
 }

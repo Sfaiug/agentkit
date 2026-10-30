@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
@@ -78,11 +79,23 @@ func validatePlan(args []string) string {
 		}
 		return ""
 	}
-	if len(args) == 3 && args[0] == "check" && config.Digits(args[1]) {
-		if !oneCommand(args[2]) {
+	if len(args) == 3 && args[0] == "check" && pythonDigits(args[1]) {
+		if lineNumber(args[1]) && !oneCommand(args[2]) {
 			return "a check is one shell command without backticks or line breaks"
 		}
 		return ""
 	}
 	return commandhelp.Usage("plan")
+}
+
+// pythonDigits is whether Python's isdigit may take text: each digit it takes is a decimal or
+// other number.  runPlan leaves one that is no lineNumber (`٣`, `²`) to Python, which reads it.
+func pythonDigits(text string) bool {
+	return text != "" && !strings.ContainsFunc(text, func(r rune) bool { return !unicode.IsDigit(r) && !unicode.Is(unicode.No, r) })
+}
+
+// lineNumber is whether Go reads text as Python's int reads a plan line's number: ASCII digits,
+// no more than the 640 every digit limit of Python's int takes (`PYTHONINTMAXSTRDIGITS`).
+func lineNumber(text string) bool {
+	return config.Digits(text) && len(text) <= 640
 }

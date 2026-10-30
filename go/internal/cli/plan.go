@@ -16,24 +16,30 @@ import (
 
 func init() { commands["plan"] = runPlan }
 
-// runPlan adds a line to the seat's plan (`add`), or lists the plan.
+// runPlan adds a line to the seat's plan (`add`), puts another check on one (`check`), or
+// lists the plan.
 func runPlan(args []string, out, errOut io.Writer) int {
-	if len(args) > 0 && args[0] != "add" {
-		return notImplemented(errOut, "plan") // `plan check` comes in a later milestone
+	if len(args) > 0 && args[0] == "check" && !lineNumber(args[1]) {
+		return notImplemented(errOut, "plan") // a number Python's int reads otherwise, as validatePlan let through
 	}
 	// a stop ends the check that runs and removes its checkout before ak exits
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	name, record, _ := config.CurrentSession() // validatePlan refused one it cannot read
 	var err error
-	if len(args) > 0 {
-		repo, _ := record["repo"].(string) // validatePlan refused a seat filed under no project
+	if len(args) == 0 {
+		err = listPlan(ctx, name, out)
+	} else {
 		var line string
-		if line, err = plan.Add(ctx, name, repo, args[1], args[3]); err == nil {
+		if args[0] == "add" {
+			repo, _ := record["repo"].(string) // validatePlan refused a seat filed under no project
+			line, err = plan.Add(ctx, name, repo, args[1], args[3])
+		} else {
+			line, err = plan.Check(ctx, name, args[1], args[2])
+		}
+		if err == nil {
 			fmt.Fprintln(out, line)
 		}
-	} else {
-		err = listPlan(ctx, name, out)
 	}
 	if ctx.Err() != nil {
 		return 128 + int(syscall.SIGTERM)
