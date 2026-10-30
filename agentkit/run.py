@@ -1280,11 +1280,10 @@ def preflight(run_dir, opts, log):
             commands += f"{' ; ' if commands else ''}once: {' ; '.join(once)}"
         # What this run will deliver, settled before it ever waits for a slot: a scratch task
         # and `--no-merge` both push nothing, and the receipt is read long before the loop
-        # writes the same answer into the full state -- `ak watch` reads it to know which
-        # seats a logged-out gh is holding up.  So is the project its seat is filed under, the
-        # same queued and once it works (`run_project`), and the seat is filed now.  Resolved
-        # here because only the process that launched the run stands in the checkout the task
-        # inherits when it names none, or the one a relative `repo:` means.
+        # writes the same answer into the full state.  So is the project its seat is filed
+        # under, the same queued and once it works (`run_project`), and the seat is filed now.
+        # Resolved here because only the process that launched the run stands in the checkout
+        # the task inherits when it names none, or the one a relative `repo:` means.
         checkout = task_project(repo if meta.get("repo") else None, state.get("task_file"))
         run_record.save_state(run_dir, {**(run_record.read_state(run_dir) or {}),
                              "repo": str(repo) if repo else None, "scratch": repo is None,

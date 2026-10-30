@@ -369,20 +369,14 @@ class Wait(Sandbox):
                                            "api.github.com check your internet connection or "
                                            "https://githubstatus.com); your wait is over. Decide the next step."])
         self.assertEqual(self.decide(), ("needs you", "stopped with work open: the parser parses"))
-        # a logged-out gh is the owner's to fix: the wait holds, and the seat is held up by gh
-        # like one with a push to make (rung 1b), however many ticks it takes
+        # a logged-out gh is the owner's to fix, which every seat says (rung 1b): the wait
+        # holds, however many ticks it takes
         self.gh = {"state": "OPEN", "number": 12, "mergeCommit": None}
         self.wait(PR)
         with patch.object(watch, "gh_json", return_value=(None, "HTTP 401: Bad credentials")):
             for _ in range(watch.UNREAD_TICKS + 1):
                 self.assertEqual(self.tick(), [])
         self.assertEqual(self.decide(), ("working", f"waiting on {PR}"))
-        self.assertIn(SEAT, watch.pushing_seats())
-        harness, live = watch.look_at(self.seats[SEAT], cfg=self.cfg)
-        found = watch.session_state(SEAT, NOW, session=self.seats[SEAT], cfg=self.cfg, live=live,
-                                    harness=harness, gh_out={"at": NOW, "seats": watch.pushing_seats()})
-        self.assertEqual((found["word"], found["reason"]),
-                         ("needs you", "gh login expired: run `gh auth login -p https -w`"))
 
     def test_o_an_empty_argument_names_no_run(self):
         for on in ("", " "):

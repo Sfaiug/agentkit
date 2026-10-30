@@ -2806,10 +2806,13 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         run_dir, first = min(parked, key=lambda pair: pair[1].get("finished_at") or 0)
         return {"word": "needs you", "reason": login_reason(first.get("waiting_for") or "a"),
                 "since": first.get("finished_at")}
-    # 1b. ... and the one login no harness owns: a run of its own cannot push until he
-    # runs install.sh's GH_LOGIN, so the seat is blocked on him just the same
-    if name in (gh_out.get("seats") or []):
-        return {"word": "needs you", "reason": "gh login expired: run `gh auth login -p https -w`",
+    # 1b. ... and the one login no harness owns, on every seat, as a dead worker token (1c):
+    # while gh is logged out the tick reads no pull request and the next run to deliver
+    # fails, whichever seat it is.  The remedy is install.sh's GH_LOGIN, which asks nothing
+    # but the one-time code.
+    if gh_out:
+        return {"word": "needs you",
+                "reason": "GitHub is logged out: run `gh auth login -p https -w`",
                 "since": gh_out.get("at")}
     # 1c. a worker token is dead: every session reads it, on any harness, because any
     # seat's next turn on it fails.  The tick asks the `auth` verb once a day and keeps the
@@ -3202,8 +3205,8 @@ def wait_over(cfg, log):
             if over is None:
                 log(f"WARN {name}: its wait on {wait['on']} cannot be read: {reason}")
                 if LOGGED_OUT.search(reason or ""):
-                    # the owner's login to fix: the seat is written down as held up by gh
-                    # (`pushing_seats`), and the wait holds until he has
+                    # the owner's login to fix: every seat says so (rung 1b), and the wait
+                    # holds until it is fixed
                     continue
                 unread = int(wait.get("unread") or 0) + 1
                 if unread < UNREAD_TICKS:
@@ -6747,58 +6750,6 @@ def revive_seats(cfg, log):
             log(f"WARN {name}: notification was not accepted; retry required")
 
 
-def wants_github(state):
-    """Does that run still owe GitHub something a logged-out `gh` would refuse?
-
-    Two shapes.  A run still going that has a delivery ahead of it: it ends at `git push` and
-    `gh pr create`, unless it is a scratch workspace or `--no-merge`, which push nothing --
-    except a `--review-pr` run, which pushes nothing either but cannot post its review.  A
-    launch settles that in its preflight, before it waits for a slot, because only the process
-    that launched it can resolve the repository a task inherits when it names none; a receipt
-    written before preflight did -- or by an install that did not -- still has the options it
-    was launched with, which is how `ak run resume` reads one, and one so old it saved no
-    options at all keeps its work local.  And a run already finished whose
-    delivery is the thing that failed, waiting on `ak run merge`: that is what
-    `handback.retry_command` answers, so the menu and `ak run status` cannot disagree about which
-    runs are still owed a push.
-    """
-    if state.get("state") in run_record.ACTIVE:
-        if state.get("review_pr"):
-            return True
-        if "no_merge" in state:
-            return not state["no_merge"]
-        return not (state.get("launch_opts") or {"--no-merge": True}).get("--no-merge")
-    return handback.retry_command(state) is not None
-
-
-def pushing_seats():
-    """The seats a logged-out `gh` is holding up, by the name each goes by now: one with a run
-    that still owes GitHub a push, and one whose wait names a pull request only gh can read.
-
-    No run.json can stop the tick from writing down the rest: a receipt half-written by a
-    launch that is still starting, or one somebody edited by hand, counts for nobody.
-    """
-    seats = set()
-    try:
-        directories = run_record.run_dirs()
-    except OSError:
-        return []
-    for run_dir in directories:
-        try:
-            state = run_record.read_state(run_dir)
-            if state and wants_github(state):
-                name = transitions.launched_session(state)
-                if name:
-                    seats.add(name)
-        except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError):
-            continue    # an unreadable run says nothing about whose seat it was
-    for name in config.session_records():
-        wait = waiting_on(name)
-        if wait and wait["kind"] == "pr":
-            seats.add(name)
-    return sorted(seats)
-
-
 def gh_json(cwd, *args, timeout=120):
     """The parsed JSON a gh command prints, or (None, why)."""
     try:
@@ -7934,11 +7885,10 @@ def main(argv):
                 # earlier tick did see stands until a tick can ask again and be answered.
                 log(f"WARN GitHub is unavailable; PR checks skipped ({reason})")
                 return 0
-            # This one is the user's to fix, and the seats with a run that still owes GitHub
-            # a push are written down for the menu to say so.
+            # This one is the user's to fix, and is written down for every seat to say so.
             log(f"gh is not logged in; PR checks skipped ({reason})")
             if not dry_run:
-                state["gh_out"] = {"at": time.time(), "seats": pushing_seats()}
+                state["gh_out"] = {"at": time.time()}
                 save_state(state)
             return 0
         if not dry_run:

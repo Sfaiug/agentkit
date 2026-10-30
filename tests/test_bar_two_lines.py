@@ -118,7 +118,7 @@ class TwoLines(Sandbox):
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
 
     def test_c1_what_needs_you_outside_the_chat_is_line_two_at_every_width(self):
-        reason = "gh login expired: run `gh auth login`"
+        reason = "GitHub is logged out: run `gh auth login -p https -w`"
         statusbar.redress(self.seat, {"word": "needs you", "reason": reason}, cfg=self.cfg)
         for option in statusbar.WHYS:
             self.assertEqual(drawn(self.options[option]), f"  {reason}")

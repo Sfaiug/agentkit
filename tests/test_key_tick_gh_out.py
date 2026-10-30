@@ -1,9 +1,9 @@
 """A tick that finds gh logged out writes it down and skips GitHub; no other gh failure does.
 
 Every `ak watch` tick asks GitHub who is logged in before its pull-request passes.  A gh that
-says it is logged out is a failure only the owner can fix, so the tick records `gh_out` in
-watch.json, when and which seats it holds up, for the menu to say so, and asks GitHub nothing
-more; the next tick gh answers clears it.  An outage, or no gh on PATH at all, is no login to
+says it is logged out is a failure only the owner can fix, so the tick records when as `gh_out`
+in watch.json, for every seat to say so, and asks GitHub nothing more; the next tick gh
+answers clears it.  An outage, or no gh on PATH at all, is no login to
 fix: the tick skips the same passes and records nothing, and a logged-out record an earlier
 tick made stands until gh answers again.  Black-box: the program `AK_BIN` names runs from
 outside through tests/fixtures/akbin.py, against the scripted gh of tests/fixtures/fakegh.py.
@@ -65,10 +65,9 @@ class LoggedOut(unittest.TestCase):
         GitHub(cls.home)
         cls.back, cls.back_calls, cls.back_watch = tick(cls.home)
 
-    def test_a_logged_out_tick_records_when_and_that_it_holds_up_no_seat(self):
+    def test_a_logged_out_tick_records_when(self):
         self.assertEqual(self.out.code, 0, self.out.err)
-        self.assertEqual(sorted(self.recorded or {}), ["at", "seats"], self.recorded)
-        self.assertEqual(self.recorded["seats"], [])
+        self.assertEqual(sorted(self.recorded or {}), ["at"], self.recorded)
         self.assertTrue(self.before <= self.recorded["at"] <= self.after, self.recorded)
 
     def test_a_logged_out_tick_asks_github_nothing_past_the_login(self):
