@@ -6,7 +6,7 @@
 #
 # What it cannot test, and what a newcomer does instead, is printed in the summary: the three
 # device-code logins are interactive by definition, so this test injects the caller's
-# GH_TOKEN and links its harness credentials into the throwaway HOME instead; one harness
+# GH_TOKEN and lends the throwaway HOME a copy of each harness's login instead; one harness
 # with its login is all it needs, and the rest are skipped by name.
 # Nothing here posts to Discord: every command's environment carries `AK_NOTIFY_SINK=dry-run`,
 # which outranks any webhook the HOME was given, the webhook is `off` besides, and the two
@@ -37,16 +37,9 @@ doing() { [ "$STEPS" = all ] || [ "${STEPS#*,$1,}" != "$STEPS" ]; }
 
 [ "$(uname -s)" = Linux ] || { echo "e2e-fresh.sh: Linux only (this is $(uname -s))" >&2; exit 2; }
 
-# The logins this test borrows are the caller's own, linked into the throwaway HOME from
-# wherever the caller's harnesses keep them.
 INVOKER=$(id -un)
 INVHOME=$HOME
 [ -n "$INVHOME" ] || { echo "e2e-fresh.sh: no home directory for $INVOKER" >&2; exit 2; }
-caller_config=${XDG_CONFIG_HOME:-$INVHOME/.config}
-caller_data=${XDG_DATA_HOME:-$INVHOME/.local/share}
-caller_claude=${CLAUDE_CONFIG_DIR:-$INVHOME/.claude}
-caller_grok=${GROK_HOME:-$INVHOME/.grok}
-caller_opencode=${OPENCODE_CONFIG:-${OPENCODE_CONFIG_DIR:-$caller_config/opencode}/opencode.json}
 
 TS=$(date +%Y%m%d-%H%M%S)
 MARKER="e2e-$TS.txt"                 # the file the real task adds to its sandbox branch
@@ -57,7 +50,9 @@ mkdir -p -- "$INVHOME/.agentkit/tmp" && WORK=$(mktemp -d "$INVHOME/.agentkit/tmp
 PYTHONPATH="$REPO" python3 -m agentkit.retention begin "$WORK" smoke "$$" || :
 UH="$WORK/home"
 mkdir -p -- "$UH"
-BORROWED=""   # every login and secret step c puts in the new HOME, for cleanup_logs to leave out
+# Every login and secret step c puts in the new HOME, for cleanup_logs to leave out: by its path
+# there, which no space splits, as the HOME's own path may hold one.
+BORROWED=""
 # Step f's run is nobody's worker and nobody's seat either: a session that executes tasks
 # exports AK_RUN_ROLE=worker, and it may export AGENTKIT_SESSION, which would record this
 # gate's throwaway run against the owner's live seat.
@@ -105,25 +100,13 @@ as() { env -i "HOME=$UH" "USER=$INVOKER" "LOGNAME=$INVOKER" SHELL=/bin/bash \
          "TMUX_TMPDIR=$E2E_TMUX_DIR" \
          bash -lc "cd \"\$HOME\" || exit 1; . \"\$HOME/.ak-e2e-env\" 2>/dev/null; $1"; }
 
-# A subscription login is one token, and the harnesses rotate it: whichever HOME refreshes
-# last holds the only one that still works.  The throwaway HOME links the caller's, so one
-# renewed in place is the caller's already; one a harness renamed over its link goes back,
-# when newer, before the workdir is deleted, or the caller is logged out.
-sync_back() {
-  python3 "$REPO/tests/merge_logins.py" "$UH" "$caller_claude/.credentials.json" \
-    "$caller_grok/auth.json" && return 0
-  say "WARN could not return a renewed login to $INVOKER; its HOME is kept"
-  return 1
-}
-
 cleanup_logs() {   # cleanup_logs <gate exit>: one archive of the latest failure, no tmp growth
   local rc=$1 archive staging=""
   if [ "$rc" != 0 ]; then
-    # Never retain the borrowed token, logins, secrets or phone private key with the evidence;
-    # sync_back has already returned any login a harness renewed here.
+    # Never retain the borrowed token, logins, secrets or phone private key with the evidence.
     archive="$INVHOME/.agentkit/tmp/e2e-fresh-failure.tar.gz"
-    if rm -f -- "$WORK/phone" "$WORK/phone.pub" "$WORK/ghenv" "$WORK/source.bundle" \
-         "$UH/.ak-e2e-env" $BORROWED &&
+    if rm -f -- "$WORK/phone" "$WORK/phone.pub" "$WORK/ghenv" "$WORK/source.bundle" &&
+       (cd "$UH" && rm -f -- .ak-e2e-env $BORROWED) &&
        mkdir -p -- "$(dirname -- "$archive")" &&
        staging=$(mktemp "$archive.XXXXXX") &&
        tar -czf "$staging" -C "$WORK" . &&
@@ -139,7 +122,6 @@ cleanup_logs() {   # cleanup_logs <gate exit>: one archive of the latest failure
 
 cleanup() {
   local rc=$?
-  sync_back || { KEEP=1 rc=1; }
   [ ! -f "$UH/.config/opencode/service.json" ] || env -i HOME="$UH" PATH="$EPATH" timeout 30 opencode service stop >/dev/null 2>&1 ||
     { say "WARN could not stop the OpenCode service of $UH; its HOME is kept"; KEEP=1 rc=1; }
   [ "$KEEP" = 1 ] && { echo "kept: HOME $UH, workdir $WORK"; exit "$rc"; }
@@ -255,12 +237,11 @@ fi
 
 # ==== c) logged in: the credentials a newcomer's three logins would leave ====
 if true; then       # always: every step below needs the HOME to be logged in
-  # Each login is linked, file by file, as tests/smoke.sh links its own: a harness here renews
-  # the caller's login as it would at home, and sync_back returns one it renamed over its link.
-  # The worker token keeps Claude's headless turns off the seat's own pair.  OpenCode's
-  # settings, which may hold its key, and the Discord secrets are copies, and lend no login.
+  # Each harness's login is a copy nothing can renew (agentkit/lend.py), and nothing goes back.
+  # The worker token, which never renews, is linked, keeping Claude's headless turns off the
+  # seat's own login.  The Discord secrets are copies, and lend no login.
   LENT=" "      # the harnesses whose login, or part of it, this host lent the new HOME
-  SEATPAIR=""   # Claude's own pair, which the menu's seat needs: the worker token is not one
+  SEATPAIR=""   # Claude's own login, which the menu's seat needs: the worker token is not one
   there() {   # there <caller's file>: 0 to borrow it, 1 when nothing is there, 2 when unreadable
     # A file this user cannot read, or cannot reach through a directory or a link, is there and
     # broken, not absent: it fails the step rather than letting another harness pass without it.
@@ -270,30 +251,24 @@ if true; then       # always: every step below needs the HOME to be logged in
     [ "$dir" != "$1" ] && [ -e "$dir" ] && { [ ! -d "$dir" ] || [ -x "$dir" ]; } && return 1
     bad="$bad; $1 cannot be read"; return 2
   }
-  lend() {   # lend <harness> <caller's file> <file under the new HOME>: 1 when absent
+  link() {   # link <harness> <caller's file> <file under the new HOME>: 1 when absent
     there "$2" || return
-    LENT="$LENT$1 " BORROWED="$BORROWED $UH/$3"
+    LENT="$LENT$1 " BORROWED="$BORROWED $3"
     install -d -m 0700 "$(dirname -- "$UH/$3")" && ln -s -- "$2" "$UH/$3" ||
       bad="$bad; $2 could not be linked into the new HOME"
   }
   copyin() {   # copyin <caller's file> <file under the new HOME>: 1 when absent
     there "$1" || return
-    BORROWED="$BORROWED $UH/$2"
+    BORROWED="$BORROWED $2"
     install -d -m 0700 "$(dirname -- "$UH/$2")" && install -m 0600 -- "$1" "$UH/$2" ||
       bad="$bad; $1 could not be copied into the new HOME"
   }
-  lend claude "$caller_claude/.credentials.json" .claude/.credentials.json && SEATPAIR=1
-  lend claude "$INVHOME/.agentkit/secrets/claude_oauth_token" .agentkit/secrets/claude_oauth_token
-  lend codex "${CODEX_HOME:-$INVHOME/.codex}/auth.json" .codex/auth.json
-  lend muse "$caller_config/muse/auth.json" .config/muse/auth.json
-  # Grok flocks auth.json.lock when it renews: the same inode guards both homes, even before
-  # the caller's first renewal has made it.
-  lend grokbuild "$caller_grok/auth.json" .grok/auth.json && { ln -s -- "$caller_grok/auth.json.lock" \
-    "$UH/.grok/auth.json.lock" || bad="$bad; Grok's lock could not be linked into the new HOME"; }
-  lend opencode "$caller_data/opencode/auth.json" .local/share/opencode/auth.json
-  lend antigravity "$INVHOME/.gemini/antigravity-cli/antigravity-oauth-token" \
-    .gemini/antigravity-cli/antigravity-oauth-token
-  copyin "$caller_opencode" .config/opencode/opencode.json
+  lent=$(PYTHONPATH="$REPO" python3 -m agentkit.lend "$UH") || bad="$bad; this host's logins could not be lent"
+  while read -r harness files; do
+    [ -z "$harness" ] || LENT="$LENT$harness " BORROWED="$BORROWED $files"
+    [ "$harness" != claude ] || SEATPAIR=1
+  done <<<"$lent"
+  link claude "$INVHOME/.agentkit/secrets/claude_oauth_token" .agentkit/secrets/claude_oauth_token
   # OpenCode 2.1 answers through a service on one fixed port, which this host's own OpenCode holds:
   # the new HOME's gets a free one or never answers.  It leaves this session, so cleanup stops it.
   case "$HOSTBIN" in *" opencode "*)
@@ -363,7 +338,7 @@ PY
     fi
   done
   must "an empty pick order" jq -e '.pick_order | type == "array" and length > 0' "$WORK/usage.json"
-  verdict "c  logged in: harness credentials linked + Discord secrets copied in" \
+  verdict "c  logged in: harness logins lent + Discord secrets copied in" \
     "ak usage --json meters $(jq -c '[.providers | to_entries[] | {(.key): (.value.meters|length)}] | add' "$WORK/usage.json" 2>/dev/null), pick_order $(jq -c .pick_order "$WORK/usage.json" 2>/dev/null)"
   [ -s "$WORK/usage.err" ] && sed 's/^/      /' "$WORK/usage.err" | head -5
 fi

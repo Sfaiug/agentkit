@@ -19,18 +19,18 @@ esac
 
 class FreshGateOpenCodeOwnPort(unittest.TestCase):
     def test_opencode_answers_beside_the_hosts_own_and_its_service_is_stopped(self):
-        step_c = (FRESH[FRESH.index('caller_config=${XDG_CONFIG_HOME'):FRESH.index('\nTS=$(date')] + '\n'
-                  + FRESH[FRESH.index('  # Each login is linked'):FRESH.index('  # `claude` also writes')])
+        step_c = FRESH[FRESH.index('  LENT=" "'):FRESH.index('  # `claude` also writes')]
         cleanup = FRESH[FRESH.index('cleanup() {'):FRESH.index('trap cleanup EXIT')]
         with tempfile.TemporaryDirectory(prefix=".ak-test-fresh-opencode-", dir=REPO) as tmp:
             (Path(tmp) / 'agentkit').symlink_to(REPO)
-            (Path(tmp) / 'opencode').write_text(OPENCODE)
-            (Path(tmp) / 'opencode').chmod(0o755)
+            for name, program in (('opencode', OPENCODE), ('security', '#!/bin/sh\nexit 97\n')):
+                (Path(tmp) / name).write_text(program)
+                (Path(tmp) / name).chmod(0o755)
             out = subprocess.run(
                 ['/bin/bash', '-c', '. "$REPO/tests/acceptance.sh"\nbad=""\n' + step_c + 'echo "bad=$bad"\n'
-                 'sync_back() { :; }; cleanup_logs() { :; }; tmux() { :; }\n'
+                 'cleanup_logs() { :; }; tmux() { :; }\n'
                  + cleanup + 'cleanup\n'],
-                env={'PATH': os.environ['PATH'],   # none of the caller's own logins or their homes
+                env={'PATH': f'{tmp}:{os.environ["PATH"]}',   # its OpenCode and macOS's Keychain, which the lends ask
                      'HOME': f'{tmp}/caller', 'WORK': tmp, 'REPO': str(REPO), 'INVHOME': f'{tmp}/caller', 'UH': tmp,
                      'HOSTBIN': ' opencode ', 'EPATH': f'{tmp}:/usr/bin:/bin'},
                 text=True, capture_output=True, timeout=60).stdout
