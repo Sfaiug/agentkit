@@ -4,10 +4,10 @@ A key `auth` passes can still be refused at every turn, and the tick resumes the
 straight back into the refusal.  The card names the login, is sent once, and stays up through
 resumes, refusals, a killed turn and the owner opening the seat; it comes down once the login
 answers, or once no run it refused is going, and a later run it refuses before it answers raises
-it at once.  One refusal
-whose next turn is answered raises none.  Black-box against `AK_BIN` (tests/fixtures/akbin.py),
-on fakeadapter.py's harness, whose `auth` says yes while its turns say its logout words, from a
-seat of akseat.py paging tests/fixtures/sink.py, each tick in the box `home.tick()` builds.
+it at once.  One refusal whose next turn is answered raises none.  Black-box against `AK_BIN`
+(tests/fixtures/akbin.py), on fakeadapter.py's harness, whose `auth` says yes while its turns say
+its logout words, from a seat of akseat.py paging tests/fixtures/sink.py, each tick in the box
+`home.tick()` builds.
 """
 
 import json
