@@ -1054,7 +1054,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                        elsewhere=None):
     """Hold host-wide heavy-suite turns.
 
-    While it waits and no waiter ranks before it, it asks `elsewhere()` each poll; once that
+    While it waits it asks `elsewhere()` each poll, before it looks for a turn here; once that
     answers, it stops waiting and holds none.
     """
     record = context if context is not None else (run_record.read_state(run_dir) or {}
@@ -1158,23 +1158,24 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                     # a checker's wait is its member's, kept beside that member's line time
                     if run_dir or is_landing:
                         counted = count_wait(self_id, "suite" if run_dir else "lander", counted)
+                    # Rank decides this host's turns, never who asks the helper (owner, 30 Oct
+                    # 2026: nothing waits for compute), as the first may not ask for long: it
+                    # waits here to rerun what the helper lost.  Only a line's own check waiting
+                    # holds the rest back, as it goes first (owner, 29 Oct 2026).
+                    if elsewhere and (line or not landing_waits()) and elsewhere():
+                        turnless = True
+                        break
                     slot, limit, held = admit()
                     if not limit:
                         turnless = True
                         break
                     said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
-                    if not slot:
-                        if not (elsewhere and not _gate_waiter_before(
-                                repo, self_id, waited_since, is_landing, line) and elsewhere()):
-                            continue
-                        turnless = True
+                    if slot and not _gate_waiter_before(repo, self_id, waited_since,
+                                                        is_landing, line):
                         break
-                    if _gate_waiter_before(repo, self_id, waited_since, is_landing, line):
-                        for fh in slot:
-                            fcntl.flock(fh, fcntl.LOCK_UN)
-                        slot = []
-                        continue
-                    break
+                    for fh in slot:
+                        fcntl.flock(fh, fcntl.LOCK_UN)
+                    slot = []
             finally:
                 if run_dir:
                     mark_gate_wait(run_dir, None)
@@ -1255,7 +1256,7 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, c
     repository's measured cost when available: it takes the turns free now, then those freed
     while it ranks first, each running one piece at a time (`_GateHold`, `run_suite`).
     A suite the helper has room for (`helper.start`) takes no turn here; one that waits asks it
-    again while it ranks first, and goes there once it has room.
+    again each poll, and goes there once it has room.
     `changed` is the file AK_CHANGED names, its paths in each piece's command there (`pinned`).
     """
     if (getattr(_GATE_HELD, "hold", None) is not None or getattr(_GATE_HELD, "away", None)
@@ -1282,9 +1283,7 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, c
     try:
         _GATE_HELD.home = lambda elsewhere: _acquire_gate_turn(
             run_dir, log_path, log, command, cwd, context=context, elsewhere=elsewhere)
-        # A suite gone to a helper takes no turn here: those are for what cannot leave this host,
-        # and its pieces waiting for one would rank first and keep every later waiter from asking
-        # the helper (owner, 30 Oct 2026: nothing waits for compute).
+        # A suite gone to a helper takes no turn here: those are for what cannot leave this host.
         _GATE_HELD.hold = None if _GATE_HELD.away else _acquire_gate_turn(
             run_dir, log_path, log, command, cwd, context=context, elsewhere=elsewhere)
         yield
