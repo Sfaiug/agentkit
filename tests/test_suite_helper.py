@@ -135,7 +135,7 @@ class SuiteHelper(unittest.TestCase):
         self.turns.append(args)
         self.waited += 60
 
-    def check(self, codes, suite=SUITE):
+    def check(self, codes, suite=SUITE, **kwargs):
         for path in [*self.fake.glob("code-*"), self.fake / "calls"]:
             path.unlink(missing_ok=True)
         for piece, code in codes.items():
@@ -144,7 +144,7 @@ class SuiteHelper(unittest.TestCase):
         self.logs = logs = []
         code, text, _ = gate.run_suite(suite, 30, cwd=self.repo, activity=self.root / "live.log",
                                        output=io.BytesIO(), log=logs.append,
-                                       stderr=subprocess.STDOUT)
+                                       stderr=subprocess.STDOUT, **kwargs)
         self.assertEqual(code, 0, text)
         return text, [line for line in logs if "WARN" in line]
 
@@ -291,6 +291,20 @@ class SuiteHelper(unittest.TestCase):
                 warned = commit({"ci/suite.Containerfile": f"FROM acme/base\n{line}\n"})
                 self.assertEqual([line[:46] for line in warned],
                                  ["WARN the suite helper cannot build suite_image"])
+
+    def test_a_list_of_paths_one_argument_cannot_hold_keeps_the_suite_here(self):
+        changed = self.root / "changed"
+        self.stack.enter_context(patch.dict(os.environ, {"TMPDIR": str(self.root)}))
+        # the paths alone fit in one argument the second time; with the rest of the line, not
+        for lines, there in ((4096, True), (helper.MAX_ARG_STRLEN // 16, False)):
+            with self.subTest(lines=lines):
+                changed.write_text("acme/widget.py\n" * lines)
+                text = self.check({}, SUITE + '; wc -l <"$AK_CHANGED"', changed=changed)[0]
+                self.assertEqual(("helper ran" in text, f"\n{lines}" in text,
+                                  (self.fake / "calls").exists()), (there, True, there), text)
+                said = "suite runs here: a piece's line to the suite helper would take"
+                self.assertEqual(any(line.startswith(said) for line in self.logs), not there,
+                                 self.logs)
 
     def test_no_helper_named_runs_here(self):
         for text in ("", 'suite_helper = "acme-mac\n'):
@@ -486,7 +500,7 @@ class HelperMac(unittest.TestCase):
                 patch.object(helper.orch, "agent_programs", return_value=[]), \
                 patch.object(helper, "_known", side_effect=gone):
             for _ in range(2):
-                away, reason = helper.start(1, 512, self.repo, logs.append)
+                away, reason = helper.start(1, 512, self.repo, logs.append, "true")
                 self.assertIsNotNone(away, logs)
                 self.assertEqual(reason, "")
                 helper.finish(away)
