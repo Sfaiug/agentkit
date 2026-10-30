@@ -64,16 +64,24 @@ FRESH_FAULTS = "fresh-gate-faults"  # under config.STATE: the fresh-install gate
 # signal to the group, so the group's id names no other process while it signals it.  Once the
 # script exits, KILL to the group ends whatever it left there; at the check's cap, or as soon
 # as the tick's TERM tells it to, TERM, then KILL after the grace, and a red exit code: so a
-# check ends on a host with no /proc for `worker.kill_marked` to read.
+# check ends on a host with no /proc for `worker.kill_marked` to read.  The exit code waits,
+# up to the grace, until signal 0 finds the group gone, zombies reaped; past the holder's
+# reaping it only probes, so an id named anew costs that wait and nothing else.
+# The worktree is added under `MOVING`, shared: one added while a move adopts ~/agentkit
+# (`versions.adopt`) names a repository that move takes away.  The script's fd 3 holds it, a
+# flock outliving the python that took it, until the add ends; git gets no fd 3, so nothing it
+# leaves running keeps it.
 # This script is the only writer of both files; the tick only creates the directory and reads it.
 LIVE_RUN = r'''import os, signal, subprocess, sys, time
-check, repo, commit, cap, grace = sys.argv[1:]
+check, repo, commit, cap, grace, moving = sys.argv[1:]
 os.chdir(check)
 os.environ["AK_LIVE_FAILED"] = f"{check}/failed"
 holder = subprocess.Popen(["sleep", "99999999"], process_group=0)
 with open("output.tmp", "w") as out:
-    script = subprocess.Popen(["sh", "-c", 'git -C "$0" worktree add --quiet --detach "$1" "$2" '
-                               '&& cd "$1" && bash tests/live.sh', repo, f"{check}/tree", commit],
+    script = subprocess.Popen(["sh", "-c", 'exec 3>>"$3" && "$4" -c "import fcntl; fcntl.flock(3, '
+                               'fcntl.LOCK_SH)" && git -C "$0" worktree add --quiet --detach "$1" "$2" '
+                               '3>&- && exec 3>&- && cd "$1" && bash tests/live.sh',
+                               repo, f"{check}/tree", commit, moving, sys.executable],
                               stdout=out, stderr=out, process_group=holder.pid)
 
 
@@ -100,6 +108,13 @@ if code is None:
 end(signal.SIGKILL)
 script.wait()
 holder.wait()
+gone = time.monotonic() + float(grace)
+while time.monotonic() < gone:  # a busy host runs what KILL reached only later
+    try:
+        os.killpg(holder.pid, 0)
+    except OSError:
+        break
+    time.sleep(0.01)
 subprocess.run(["git", "-C", repo, "worktree", "remove", "--force", f"{check}/tree"],
                capture_output=True)
 with open("output.tmp", "a") as out:
@@ -962,7 +977,7 @@ def live_tick(log, now, fetched):
     check.mkdir(parents=True)
     orch.start_in_slice(
         [sys.executable, "-c", LIVE_RUN, str(check), str(agentkit_dir()), tip,
-         str(int(now) + LIVE_CAP), str(worker.MARK_KILL_GRACE)],
+         str(int(now) + LIVE_CAP), str(worker.MARK_KILL_GRACE), str(config.TMP / MOVING)],
         f"agentkit-live-{check.name}",
         {**config.child_env(), **PINS, "AGENTKIT_ACCEPTANCE_REQUIRED": "1",
          worker.RUN_MARKER: str(check)}, os.devnull, log, target_slice=orch.slice_name())
