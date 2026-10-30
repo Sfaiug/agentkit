@@ -7692,12 +7692,13 @@ def offer_endings(log):
     other endings are marked waiting for the next pass instead of reading the same screen
     again each.
     """
-    ended = []
+    ended, records = [], []     # `records`: this pass's census, each seat's question answered from it
     for run_dir in run_record.run_dirs():
         try:
             receipt = run_record.read_state(run_dir)
             if receipt:
                 receipt = handback.reap(run_dir, receipt)
+                records.append((run_dir, receipt))
                 if receipt.get("state") in run_record.ENDED:
                     ended.append((run_dir, receipt))
         except PASS_ERRORS as exc:
@@ -7710,7 +7711,7 @@ def offer_endings(log):
             # does the ending of an attempt that was reaped without one.  `announce` decides
             # again which path it is, so a seat that died since gets the orphan one.
             if handback.owes_ending(receipt):
-                handback.announce(receipt, run_dir, log, busy=busy)
+                handback.announce(receipt, run_dir, log, busy=busy, records=records)
             # A question the seat never took is typed again before the user hears it; one it
             # took whose ping failed is only pinged, and so is one kept before `asked` was,
             # whose typing nobody knows the end of.
