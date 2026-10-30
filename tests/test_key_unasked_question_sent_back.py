@@ -23,7 +23,12 @@ from fixtures import hookdrive
 
 STOP = {"background_tasks": [], "stop_hook_active": False}
 QUESTION = "Merge it?"
-CLOSINGS = {"bold": f"**{QUESTION}**", "quoted": f'"{QUESTION}"', "bracketed": f"({QUESTION})"}
+CLOSINGS = {"plain": QUESTION, "bold": f"**{QUESTION}**", "quoted": f'"{QUESTION}"',
+            "bracketed": f"({QUESTION})"}
+# ak's reason for sending it back
+ASK = ("Your last message ends in a question, but it went through no question prompt, so the "
+       "owner is not told. Ask it through the question prompt (ak notify needs where there is "
+       "none), or go on without it.")
 # Claude Code's card, still waiting on the owner: no tool_result answers it
 CARD = {"type": "assistant", "message": {"role": "assistant", "content": [
     {"type": "tool_use", "id": "toolu_acme", "name": "AskUserQuestion", "input": {"questions": [
@@ -65,9 +70,7 @@ class UnaskedQuestion(unittest.TestCase):
         for form, closing in CLOSINGS.items():
             with self.subTest(form):
                 seat = self.seat(form)
-                back = self.sent_back(seat, closing)
-                self.assertEqual(len(back), 1, back)
-                self.assertTrue(isinstance(back[0], str) and back[0].strip(), back)
+                self.assertEqual(self.sent_back(seat, closing), [ASK])
                 self.assertEqual(self.sent_back(seat, closing, stop_hook_active=True), [])
 
     def test_a_question_mark_only_inside_the_message_stands(self):
@@ -93,7 +96,7 @@ class UnaskedQuestion(unittest.TestCase):
         seat = self.seat("helper")
         self.assertEqual(self.sent_back(seat, CLOSINGS["bold"], **SUB_AGENT), [])
         # nor does it spend the turn's one sending back
-        self.assertEqual(len(self.sent_back(seat, CLOSINGS["bold"])), 1)
+        self.assertEqual(self.sent_back(seat, CLOSINGS["bold"]), [ASK])
 
 
 if __name__ == "__main__":
