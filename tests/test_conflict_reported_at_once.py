@@ -10,6 +10,7 @@ Offline: the lander's sandbox (`test_lander.LanderFixture`).
 from pathlib import Path
 import sys
 import unittest
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -40,6 +41,17 @@ class ConflictReportedAtOnce(LanderFixture, unittest.TestCase):
         self.assertIn("land", self.wait(behind))
         self.assertEqual([call.args[0] for call in self.wake.call_args_list],
                          [self.conflicted.name, behind.name])
+
+    def test_a_member_that_integrates_cleanly_takes_one_checkout_not_two(self):
+        members = [self.member(f"add-{name}", joined=joined, **{f"{name}.txt": "new\n"})
+                   for joined, name in enumerate(("docs", "tests", "notes"), 1)]
+        self.advance(**{"other.txt": "target\n"})
+        scratch = land._scratch
+        with mock.patch.object(land, "_scratch", wraps=scratch) as checkouts:
+            land.check_line(self.turn)
+        self.assertEqual(checkouts.call_count, len(members))
+        for member in members:
+            self.assertIn("land", self.wait(member))
 
 
 if __name__ == "__main__":
