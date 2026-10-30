@@ -1421,9 +1421,11 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         return [n for n in staffing.ready_order(lp.cfg, providers, staffing.run_reviewers(lp.cfg, lp.state),
                                                 lp.log, role="reviewer", repo=lp.state.get("repo"))
                 if n not in failed]
-    if staffing.same_model(lp.cfg, exec_for_rule, lp.reviewer):
+    named = (lp.state.get("launch_opts") or {}).get("--review")
+    if lp.reviewer != named and staffing.same_model(lp.cfg, exec_for_rule, lp.reviewer):
         # the writer reviews its own work only while no other marked reviewer has room: a
-        # self-review picked in a shortage, at launch or on a resume, ends with the shortage
+        # self-review picked in a shortage, at launch or on a resume, ends with the shortage;
+        # one the launch named with --review is the owner's choice, not a pick
         pair = staffing.best_pair(lp.cfg, [exec_for_rule], ready_reviewers(), allow_self=False)
         if pair is not None:
             lp.log(f"reviewer {pair[1]} has room: {lp.reviewer} does not review its own work")
