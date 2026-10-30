@@ -11,7 +11,7 @@ func TestATickChangesOnlyTheBoxAndTheDone(t *testing.T) {
 	for text, want := range map[string]string{
 		// a check holding ` · done ` keeps it: only the done field the format parsed goes
 		"- [x] x · check: `grep ' · done ' log` · " + where + " · done by hand": "x · check: `grep ' · done ' log` · " + where,
-		"  - [ ] y · check: `true` · " + where + " on 0123456789ab  ":           "y · check: `true` · " + where + " on 0123456789ab",
+		"\x1f - [ ] y · check: `true` · " + where + " on 0123456789ab \x1f":     "y · check: `true` · " + where + " on 0123456789ab",
 	} {
 		line, ok := parse(text)
 		if !ok || line.proven() || line.ticked("") != "- [ ] "+want || line.ticked("abc1234 fix") != "- [x] "+want+" · done abc1234 fix" {
