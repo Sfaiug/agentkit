@@ -13,6 +13,7 @@ that writes down each start; this test fails against `/bin/false`.
 
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
+from itertools import combinations_with_replacement
 import json
 import shlex
 import sys
@@ -72,10 +73,11 @@ def ask(home, harness, verb, env):
 
 
 class AuthReadsLogin(unittest.TestCase):
-    def reads(self, harness, files, auth, seat=None, *, env=None, renewed=None, turns=0):
-        """In a Home holding `files` (a (data, seconds ago) pair back-dates one), `auth` and
-        `auth seat` asked at once answer `auth` and `seat` (`auth`'s when None), each a code and
-        a line with ~ for HOME, and the harness was started `turns` times."""
+    def reads(self, harness, files, auth, seat=None, *, env=None, renewed=None, turns=0,
+              asked=VERBS):
+        """In a Home holding `files` (a (data, seconds ago) pair back-dates one), the verbs
+        `asked` at once answer: `auth` with `auth`, `auth seat` with `seat` (`auth`'s when None),
+        each a code and a line with ~ for HOME; and the harness was started `turns` times."""
         with Home() as home:
             program, login = PROGRAM[harness]
             home.fake("security", NO_KEYCHAIN)
@@ -87,10 +89,11 @@ class AuthReadsLogin(unittest.TestCase):
             for path, data in files.items():
                 data, ago = data if isinstance(data, tuple) else (data, None)
                 home.write(path, data, ago=ago)
-            with ThreadPoolExecutor(len(VERBS)) as pool:
-                said = list(pool.map(lambda verb: ask(home, harness, verb, env), VERBS))
-            self.assertEqual(said, [(code, [line.replace("~/", f"{home.path}/")])
-                                    for code, line in (auth, seat or auth)])
+            with ThreadPoolExecutor(len(asked)) as pool:
+                said = list(pool.map(lambda verb: ask(home, harness, verb, env), asked))
+            answer = {verb: (code, [line.replace("~/", f"{home.path}/")])
+                      for verb, (code, line) in zip(VERBS, (auth, seat or auth))}
+            self.assertEqual(said, [answer[verb] for verb in asked])
             self.assertEqual(len(home.calls(program)), turns)
 
     # Claude Code
@@ -116,10 +119,14 @@ class AuthReadsLogin(unittest.TestCase):
 
     def test_claude_a_lapsed_login_gets_one_turn_and_is_read_as_it_left_it(self):
         lapsed = {**WHO, CREDS: oauth(LAPSED, refreshToken="acme-refresh")}
-        self.reads("claude", lapsed, (0, f"{VALID}; logged in as {EMAIL}"),
-                   renewed=oauth(FRESH, refreshToken="acme-refresh-2"), turns=1)
-        # a turn that renewed nothing left it lapsed, so the ask that waited gives it its own
-        self.reads("claude", lapsed, (1, EXPIRED), turns=2)
+        # Each pair in a Home of its own: in one crowd, whichever verb reaches a lock first
+        # could keep the others from racing each other.
+        for pair in combinations_with_replacement(VERBS, 2):
+            self.reads("claude", lapsed, (0, f"{VALID}; logged in as {EMAIL}"),
+                       renewed=oauth(FRESH, refreshToken="acme-refresh-2"), turns=1, asked=pair)
+        # asked alone, and its turn renews nothing: it is read as still lapsed
+        for verb in VERBS:
+            self.reads("claude", lapsed, (1, EXPIRED), asked=(verb,), turns=1)
 
     def test_claude_an_expired_login_with_nothing_to_renew_it_is_a_no(self):
         self.reads("claude", {**WHO, CREDS: oauth(LAPSED)}, (1, EXPIRED))
