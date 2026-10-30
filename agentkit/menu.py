@@ -4482,15 +4482,16 @@ def meter_acts(cfg, keyboard, number, screen):
 # The owner chose this layout on 26 Oct 2026, so the details stay calm until pointed at.
 @terminal.clicks_its_own
 def config_subscriptions(cfg, keyboard):
-    """`Subscriptions` on `c`: each subscription under its company (COMPANIES) as the main screen
-    draws it (usage_lines) with its resets in hand, then `+ add a subscription`
-    (config_add_provider).  The row the keys or the pointer are on opens a line: whose login it
-    is and its plan (logins.whose; one ending as login_notes says it, amber), resets with no room
-    beside its meter, then its acts (subscription_acts), ←/→ or the pointer moving, Enter or a
-    click running one, the key line naming it.  One an act adds is asked whose it is
-    (logins.renewed), then pointed at.  It comes up as `c` does as it opens, and the pointed
-    row's label and meter wash into its company's colour and drain as `c`'s meters do
-    (motion.washing); back from what an act or an add drew, it is drawn as it is."""
+    """`Subscriptions` on `c`: each subscription under its company (COMPANIES), named in its colour
+    as `c` names a harness, as the main screen draws it (usage_lines) with its resets in hand,
+    then `+ add a subscription` (config_add_provider).  The row the keys or the pointer are on
+    opens a line: whose login it is and its plan (logins.whose; one ending as login_notes says
+    it, amber), resets with no room beside its meter, then its acts (subscription_acts), ←/→ or
+    the pointer moving, Enter or a click running one, the key line naming it.  One an act adds is
+    asked whose it is (logins.renewed), then pointed at.  It comes up as `c` does as it opens,
+    the pointed row's label and meter wash into its company's colour and drain as `c`'s meters
+    do (motion.washing), and its line comes up under it as the line under the menu's highlighted
+    row does; back from what an act or an add drew, it is drawn as it is."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     here, column, top, said = ("sub", 1), None, 0, ""     # column None: as the line opens
     clock = motion.Clock(page=True)
@@ -4507,7 +4508,7 @@ def config_subscriptions(cfg, keyboard):
         for number, ((name, _, prov, account), line) in enumerate(zip(subs, drawn), 1):
             if number == 1 or subs[number - 2][0] != name:
                 body.append(terminal.styled(COMPANIES[name].split(" / ")[0] if name in COMPANIES
-                                            else provider_name(cfg, name), "bold"))
+                                            else provider_name(cfg, name), colour(cfg, name)))
             held = in_hand(prov)
             beside = held and terminal.cells(f"{terminal.plain(line)} · {held}") <= width
             line += terminal.styled(f" · {held}", "dim") if beside else ""
@@ -4527,7 +4528,10 @@ def config_subscriptions(cfg, keyboard):
                 for shown, cells in opened_line(told, "amber" if ending[number - 1] else "dim",
                                                 [text for text, _ in acts], column, width - 4):
                     places[len(body)] = (("sub", number), cells)
+                    moves.append((len(body), ("opened",), lit, motion.fading(shown, motion.OPEN)))
                     body.append(shown)
+        # seen with no line too, so the pointer coming back onto a row is news
+        moves.append((0, ("opened",), lit, lambda *_: None))
         body.append("")
         places[len(body)] = (("row", "add"), [])
         add = "  + add a subscription"
