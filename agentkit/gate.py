@@ -1684,8 +1684,9 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         path, cpu, mem = suite_cost(command, cwd, run_dir)
         there_command = pinned(command, times, changed)
         # Twice the places it starts with, so a faster machine takes more and every place ends
-        # near the others; without a turn every piece runs at once.
-        places = (hold.pieces if hold else 0) + (away.count if away else 0)
+        # near the others; without a turn every piece runs at once.  The helper's count as many
+        # as it fits empty: a suite starting on its little room grows into what frees there.
+        places = (hold.pieces if hold else 0) + (away.most if away else 0)
         count = 2 * places or derived_heavy_limit(running=0, job_cpus=cpu, job_mem_mb=mem,
                                                   unit=True)
         # the piece threads do not inherit this thread's held turn
