@@ -16,8 +16,10 @@ _LOCK = threading.Lock()
 SUMMARY_TASKS = 20    # the status line looks back over this many finished runs per repo
 SUMMARY_WORDS = 400   # ... and contrasts tasks over this many words outside the checks block
 SUMMARY_POINTS = 3    # ... and tasks over this many numbered goal points, by median rounds
-# The repositories the smoke and e2e suites clone: their runs are tests, never work to learn from.
-SANDBOX_REPOS = ("agentkit-smoke", "agentkit-e2e")
+# The repository the smoke and e2e suites clone: its runs are tests, never work to learn from.
+# A row holds its checkout's folder name, and every suite's checkout was named this, even the
+# e2e gate's of the remote it had of its own.
+SANDBOX_REPO = "agentkit-smoke"
 # How a row ends whose run went, record and all, before the row heard its ending
 # (`transitions.history_agree`): neither a pass nor a fail, so no statistic reads it.
 UNKNOWN = "unknown"
@@ -278,14 +280,13 @@ def _write(fn, log=None):
 def sandbox(repo):
     """Whether a repository is a test suite's throwaway, whose runs teach nothing about work.
 
-    The suites clone `agentkit-smoke` and `agentkit-e2e`, and make every other repository they
-    run in under some HOME's `.agentkit/tmp` -- the caller's, when the suite runs under a HOME
-    of its own.
+    The suites clone `agentkit-smoke`, and make every other repository they run in under some
+    HOME's `.agentkit/tmp` -- the caller's, when the suite runs under a HOME of its own.
     """
     if not isinstance(repo, (str, os.PathLike)) or not repo:
         return False
     path = Path(repo)
-    return path.name in SANDBOX_REPOS or any(
+    return path.name == SANDBOX_REPO or any(
         parent.name == "tmp" and parent.parent.name == ".agentkit" for parent in path.parents)
 
 
