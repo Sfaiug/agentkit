@@ -820,11 +820,15 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     log_path.write_text(moved + "\n")
                     alone(member, {"fix": {"line": moved, "log": str(log_path), "moved": True}})
                     continue
-                # Earlier changes can hide a target conflict, so try the bare tip first, by git's
-                # objects alone where they show none: a checkout of a large repository takes half
-                # a minute on a busy disk (twice for each of 24 members held a pass 28 minutes, 30
-                # Oct 2026), and this one would only be thrown away for the stacked one.
-                if top == tip or _may_conflict(repo, saved, tip):
+                # Earlier changes can hide a target conflict, so try the bare tip first, unless
+                # git's objects alone show none and the stack takes the member: merge-tree sees
+                # neither a rebase's every commit nor the member's own attributes, and a checkout
+                # of a large repository takes half a minute on a busy disk (twice for each of 24
+                # members held a pass 28 minutes, 30 Oct 2026), only to be thrown away.
+                stacked = None
+                if top != tip and not _may_conflict(repo, saved, tip):
+                    stacked = _stack_member(repo, saved, top, upstream, opened)
+                if stacked is None or stacked[1]:
                     scratch, text = _stack_member(repo, saved, tip, upstream, opened)
                     if text:
                         if member == directory or scratch is not None:
@@ -834,7 +838,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                                    **({"conflict": True} if scratch is not None else {})}})
                         continue
                 if top != tip:
-                    scratch, text = _stack_member(repo, saved, top, upstream, opened)
+                    scratch, text = stacked or _stack_member(repo, saved, top, upstream, opened)
                     if text:
                         continue
                 # AGENTS.md is measured on the tree that lands, before any evidence answers it: a

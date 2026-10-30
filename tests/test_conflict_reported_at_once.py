@@ -15,7 +15,7 @@ from unittest import mock
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from test_lander import LanderFixture
-from agentkit import land, record
+from agentkit import land, record, run
 
 
 class ConflictReportedAtOnce(LanderFixture, unittest.TestCase):
@@ -49,6 +49,34 @@ class ConflictReportedAtOnce(LanderFixture, unittest.TestCase):
         land.check_line(self.turn)
         self.assertIn("rebase of origin/main failed", self.wait(conflicted)["fix"]["line"])
         self.assertIn("land", self.wait(ahead))
+
+    def assert_told_behind_another(self, conflicted, **target):
+        ahead = self.member("add-docs", joined=1, **{"docs.txt": "docs\n"})
+        self.advance(**target)
+        land.check_line(self.turn)
+        self.assertTrue(self.wait(conflicted)["fix"]["conflict"])
+        self.assertIn("land", self.wait(ahead))
+        self.assertIn(conflicted.name, [call.args[0] for call in self.wake.call_args_list])
+
+    def test_a_rebase_conflicting_on_a_commit_a_later_one_undoes_is_told(self):
+        # git merge-tree reads the final tree alone, where the change to base.txt is undone
+        conflicted = self.member("fix-api", joined=2, **{"base.txt": "temporary\n"})
+        run.git(self.repo, "checkout", "ak/fix-api")
+        (self.repo / "base.txt").write_text("base\n")
+        self.commit("undo base")
+        with record.record(conflicted) as state:
+            state["review"].update(run.commit_identity(self.repo))
+        self.assert_told_behind_another(conflicted, **{"base.txt": "target\n"})
+
+    def test_a_merge_the_members_own_attributes_refuse_is_told(self):
+        # git merge-tree reads the line checkout's attributes, which union base.txt
+        (self.repo / ".gitattributes").write_text("base.txt -merge\n")
+        self.commit("base attribute")
+        run.git(self.repo, "push", "origin", "main")
+        self.base = run.git(self.repo, "rev-parse", "HEAD")
+        conflicted = self.member("fix-api", joined=2, method="merge", **{"base.txt": "branch\n"})
+        self.assert_told_behind_another(conflicted, **{"base.txt": "target\n",
+                                                       ".gitattributes": "base.txt merge=union\n"})
 
     def test_a_member_that_integrates_cleanly_takes_one_checkout_not_two(self):
         members = [self.member(f"add-{name}", joined=joined, **{f"{name}.txt": "new\n"})
