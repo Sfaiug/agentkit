@@ -2240,6 +2240,54 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     return ok, text
 
 
+def run_round(cmds, cwd, log_path, artifacts, limit, log, silence, run_dir):
+    """A round's done-when list, on the suite helper first: one piece of the tree at HEAD, so a
+    command reads what an earlier one left untracked, at the size of a piece of the repository's
+    `tests:` suite, taking no heavy turn here.  Green there is the whole answer.  Anything else
+    -- no helper, no recipe, no room, a red, the helper failing -- runs the list here at once
+    (`run_done_when`), and that decides, below what the piece printed there.  A list naming
+    AK_SHARD runs here, as a suite has its own way there (`run_suite`)."""
+    say, there = log or (lambda line: None), ""
+    if cmds and not any(map(names_shard, cmds)):
+        cost = suite_cost(gitcall.declared(cwd, "tests") or "", cwd, run_dir)[1:]
+        away, why = helper.start(*cost, cwd, lambda line: None)
+        if away:
+            say(f"done-when on the suite helper {away.alias}, as one piece")
+            # a header of its own: a record (`$ ...`) is what ran here
+            script = "\n".join(f"printf '%s\\n' {shlex.quote(f'--- $ {cmd} ---')} && "
+                               f"bash -c {shlex.quote(cmd)} || exit" for cmd in cmds)
+            try:
+                with log_path.open("wb") as progress:
+                    code, _, killed = worker.limited(
+                        helper.piece(away, "1/1", PINNED_PIECE.format(
+                            shlex.quote(suite_times.handed(cwd)), shlex.quote(script))),
+                        limit, cwd=str(cwd), activity=log_path, output=progress,
+                        env=suite_env(), silence=silence, stderr=subprocess.STDOUT,
+                        stdin=subprocess.DEVNULL)
+            finally:
+                helper.finish(away)
+            suite_times.keep(cwd, log_path)
+            with log_path.open("rb") as progress:
+                out = turns.cut_file(progress, 0, run_dir or log_path.parent, log_path.stem)
+            there = (f"On the suite helper {away.alias}, as one piece: "
+                     f"[{'killed at the limit' if killed else f'exit {code}'}]\n{out}").rstrip()
+            # A command that needs this host (its network, a file only it holds) is only
+            # slower: red in the helper's offline VM, it runs here, which decides.
+            if not code:
+                text = "\n\n".join([there, *(f"$ {cmd}\n[exit 0]" for cmd in cmds)])
+                log_path.write_text(text)
+                return True, text
+            why = f"helper {away.alias} " + ("stopped it at its limit" if killed else
+                                              helper.failure(code))
+        say(f"done-when runs here: {why}")
+    ok, text = run_done_when(cmds, cwd, log_path, artifacts, limit, log, silence=silence,
+                             run_dir=run_dir)
+    if there:
+        text = f"{there}\n\n{text}"
+        log_path.write_text(text)
+    return ok, text
+
+
 def turn_held():
     """Whether this thread holds a heavy-suite turn, including a directly acquired hold."""
     return bool(getattr(_GATE_HELD, "count", 0))
