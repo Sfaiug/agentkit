@@ -5,6 +5,8 @@ import (
 	"math"
 	"strings"
 	"testing"
+
+	"agentkit/internal/config"
 )
 
 func decoded(t *testing.T, text string) *Object {
@@ -64,7 +66,7 @@ func TestFloatIsPythonRepr(t *testing.T) {
 }
 
 func TestUnreadableJSONIsRefused(t *testing.T) {
-	long := make([]byte, maxDigits+1)
+	long := make([]byte, config.MaxDigits+1)
 	for i := range long {
 		long[i] = '1'
 	}
@@ -98,7 +100,7 @@ func TestRefusalsSayWhatPythonSays(t *testing.T) {
 		`{} x`:              "Extra data: line 1 column 4 (char 3)",
 		"\ufeff{}":          "Unexpected UTF-8 BOM (decode using utf-8-sig): line 1 column 1 (char 0)",
 		"{\n  \"\u00e9\U0001d11e\": 1\n  \"b\": 2}": "Expecting ',' delimiter: line 3 column 3 (char 14)",
-		strings.Repeat("1", maxDigits+1):            "Exceeds the limit (4300 digits) for integer string conversion: value has 4301 digits; use sys.set_int_max_str_digits() to increase the limit",
+		strings.Repeat("1", config.MaxDigits+1):     "Exceeds the limit (4300 digits) for integer string conversion: value has 4301 digits; use sys.set_int_max_str_digits() to increase the limit",
 	} {
 		if _, err := Decode([]byte(text)); err == nil || err.Error() != want {
 			t.Errorf("%.40q: %v", text, err)
@@ -110,19 +112,19 @@ func TestRefusalsSayWhatPythonSays(t *testing.T) {
 func TestLimitedReadsLeavePythonsLimitsToIt(t *testing.T) {
 	deep := func(n int) string { return strings.Repeat("[", n) + "0" + strings.Repeat("]", n) }
 	digits := func(n int) string { return strings.Repeat("1", n) }
-	for _, text := range []string{digits(minDigits), "-" + digits(minDigits), digits(maxDigits) + ".0",
-		"1e" + digits(maxDigits), deep(maxDepth), `{"a": ` + deep(maxDepth-1) + "}"} {
+	for _, text := range []string{digits(config.MinDigits), "-" + digits(config.MinDigits), digits(config.MaxDigits) + ".0",
+		"1e" + digits(config.MaxDigits), deep(maxDepth), `{"a": ` + deep(maxDepth-1) + "}"} {
 		if _, err := DecodeLimited([]byte(text)); err != nil {
 			t.Errorf("%.40q: %v", text, err)
 		}
 	}
-	for _, text := range []string{digits(minDigits + 1), "-" + digits(minDigits+1), digits(maxDigits + 1),
+	for _, text := range []string{digits(config.MinDigits + 1), "-" + digits(config.MinDigits+1), digits(config.MaxDigits + 1),
 		deep(maxDepth + 1), `{"a": ` + deep(maxDepth) + "}"} {
 		if _, err := DecodeLimited([]byte(text)); !errors.Is(err, ErrLimit) {
 			t.Errorf("%.40q: %v", text, err)
 		}
 	}
-	for _, text := range []string{digits(maxDigits), deep(20000)} {
+	for _, text := range []string{digits(config.MaxDigits), deep(20000)} {
 		if _, err := Decode([]byte(text)); err != nil {
 			t.Errorf("%.40q: %v", text, err)
 		}
