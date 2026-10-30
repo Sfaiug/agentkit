@@ -127,23 +127,51 @@ class FlakyTestGetsARepair(test_lander.LanderFixture, unittest.TestCase):
         self.assertEqual(self.launch.call_count, 2)
         self.assertIn("2 times", (self.launch.call_args.args[0] / "task.md").read_text())
 
+    def kept(self, **tests):
+        """A ledger from before files, keeping `tests` (`a` for `TEST::test_a`) by full name."""
+        self.turn.with_suffix(".flakes").write_text(json.dumps(
+            {"tests": {f"{TEST}::test_{name}": entry for name, entry in tests.items()}}))
+
+    def held(self, at):
+        """A repair held from `at` on the target's tip."""
+        return {"repair": {"run": "fix-old", "at": at,
+                           "sha": run.git(self.repo, "rev-parse", "origin/main")}}
+
     def test_what_a_ledger_keeps_under_a_test_s_full_name_counts_toward_its_file(self):
-        ledger = self.turn.with_suffix(".flakes")
-        ledger.write_text(json.dumps({"tests": {f"{TEST}::test_a": {"seen": [
-            {"tree": "elsewhere", "at": self.now, "logs": ["elsewhere.log"]}]}}}))
+        self.kept(a={"seen": [{"tree": "elsewhere", "at": self.now, "logs": ["elsewhere.log"]}]})
         self.seen("one", flaky=[f"{TEST}::test_b"])
         (directory, _, origin, *_), = (call.args for call in self.launch.call_args_list)
         self.assertEqual(origin["repair"]["command"], TEST)
         task = (directory / "task.md").read_text()
         self.assertIn(f"`{TEST}::test_a`:\n- elsewhere.log", task)
         self.assertIn(f"`{TEST}::test_b`", task)
-        held = {"run": "fix-old", "at": self.now,
-                "sha": run.git(self.repo, "rev-parse", "origin/main")}
-        ledger.write_text(json.dumps({"tests": {f"{TEST}::test_a": {"repair": held}}}))
+        self.kept(a=self.held(self.now))
         self.seen("two", flaky=[f"{TEST}::test_b"])
         self.seen("three", flaky=[f"{TEST}::test_b"])
         self.assertEqual(self.launch.call_count, 1)
 
+    def test_a_ledger_s_newest_hold_holds_the_file(self):
+        self.kept(a=self.held(self.now), b=self.held(self.now - land.FLAKY + 1))
+        self.now += 1
+        self.seen("one", flaky=[f"{TEST}::test_c"])
+        self.seen("two", flaky=[f"{TEST}::test_c"])
+        self.launch.assert_not_called()
+
+    def test_a_ledger_s_released_hold_leaves_the_sightings_after_it(self):
+        self.kept(a=self.held(self.now),
+                  b={"seen": [{"tree": "elsewhere", "at": self.now, "logs": ["elsewhere.log"]}]})
+        self.merge(TEST)
+        self.seen("one", flaky=[f"{TEST}::test_c"])
+        self.assertEqual(self.launch.call_count, 1)
+
+    def test_each_sighting_of_a_ledger_ages_alone(self):
+        self.kept(a={"seen": [{"tree": "elsewhere", "at": at, "logs": ["elsewhere.log"]}
+                              for at in (self.now - land.FLAKY + 1, self.now)]},
+                  b={"seen": [{"tree": "gone", "at": self.now - land.FLAKY + 1, "logs": []}]})
+        self.seen("other", flaky=["tests/test_other.py"])
+        self.now += 1
+        self.seen("one", flaky=[f"{TEST}::test_a"])
+        self.assertEqual(self.launch.call_count, 1)
 
 if __name__ == "__main__":
     unittest.main()
