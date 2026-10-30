@@ -1,10 +1,12 @@
 package config
 
 import (
+	"cmp"
 	"embed"
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
@@ -43,6 +45,44 @@ func manifests() (map[string]*table, error) {
 		found[strings.TrimSuffix(name, ".toml")] = root
 	}
 	return found, nil
+}
+
+// Section is one table of a harness's manifest, nil where it has none.
+func Section(harness, name string) (map[string]any, error) {
+	manifests, err := manifests()
+	if err != nil {
+		return nil, err
+	}
+	if root, ok := manifests[harness]; ok {
+		if block, ok := root.values[name].(*table); ok {
+			return block.values, nil
+		}
+	}
+	return nil, nil
+}
+
+// HarnessBinary is the program a harness's command names, found as its adapter finds it, as
+// Python's config.harness_binary: on PATH first, else in an installer's own folder no fresh
+// shell has on PATH; a path answers for itself.  "" where it is not found.
+func HarnessBinary(name string) string {
+	if strings.Contains(name, "/") {
+		if _, err := exec.LookPath(name); err == nil {
+			return name
+		}
+		return ""
+	}
+	if found, err := exec.LookPath(name); err == nil {
+		return found
+	}
+	home, _ := os.UserHomeDir()
+	for _, dir := range []string{filepath.Join(home, ".opencode", "bin"),
+		cmp.Or(os.Getenv("GROK_BIN_DIR"), filepath.Join(home, ".grok", "bin")),
+		filepath.Join(home, ".local", "bin"), filepath.Join(home, ".npm-global", "bin")} {
+		if found, err := exec.LookPath(filepath.Join(dir, name)); err == nil {
+			return found
+		}
+	}
+	return ""
 }
 
 // SeatEnv is the variables a launch sets for its seat alone, as the manifests' `[launch]

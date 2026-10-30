@@ -2,9 +2,26 @@ package commandhelp
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 )
+
+// shellSafe is a word Python's shlex.quote leaves bare.
+var shellSafe = regexp.MustCompile(`^[\w@%+=:,./-]+$`)
+
+// ShellJoin is a command line as Python's shlex.join writes it: each word a shell would read
+// otherwise in single quotes.
+func ShellJoin(words []string) string {
+	quoted := make([]string, len(words))
+	for i, word := range words {
+		quoted[i] = word
+		if !shellSafe.MatchString(word) {
+			quoted[i] = "'" + strings.ReplaceAll(word, "'", `'"'"'`) + "'"
+		}
+	}
+	return strings.Join(quoted, " ")
+}
 
 // Python's repr is part of the existing refusal text, including its choice of quotes.
 func Quote(value string) string {

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 )
@@ -31,6 +32,24 @@ func SplitLines(text string) []string {
 		return nil
 	}
 	return strings.Split(strings.TrimSuffix(lineBreaks.Replace(text), "\n"), "\n")
+}
+
+// ChildEnv is the environment for anything a run spawns, Python's config.child_env: the run's
+// folder, scope and account, and each seat's own variables, are the launch's and none of its
+// children's.
+func ChildEnv() ([]string, error) {
+	dropped, err := SeatEnv()
+	if err != nil {
+		return nil, err
+	}
+	dropped = append(dropped, "AGENTKIT_RUN_DIR", "AK_RUN_SCOPE", "AGENTKIT_ACCOUNT")
+	var env []string
+	for _, pair := range os.Environ() {
+		if key, _, _ := strings.Cut(pair, "="); !slices.Contains(dropped, key) {
+			env = append(env, pair)
+		}
+	}
+	return env, nil
 }
 
 // Digits is whether text is one or more of the ASCII digits 0 to 9.
