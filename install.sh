@@ -680,6 +680,7 @@ CRON_TAG="# agentkit watch"
 # A reinstall owns the one live line: every crontab line carrying the tag goes first, whether
 # it is the live one or a copy somebody commented out to pause the tick by hand. The match is
 # the tag with its `#`s and spacing loose, so a retyped or re-commented pause is still ours.
+# `ak move` reads this line to see a tick on the machine it would copy to.
 CRON_MATCH='#+[[:space:]]*agentkit[[:space:]]+watch([[:space:]]|$)'
 case "$ROLE" in
   client)

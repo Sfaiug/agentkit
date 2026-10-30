@@ -3,7 +3,7 @@ sends only what changed and deletes there what was deleted here.  Each machine k
 ak's tmp folder, `~/.ssh/authorized_keys` and the browser profile's lock files; sockets and pipes
 are not sent; a file vanishing mid-pass is no failure.  It refuses, changing nothing anywhere, when
 ALIAS is this machine, its home has another path, ak's tick is in its crontab or that crontab
-fails, or one of those kept is a link or under one on either machine.
+fails, or one of those kept is a link or under one, the home itself included, on either machine.
 
 Black-box, through tests/fixtures/akbin.py: the other machine is a second home on this one, which
 its ssh binds at this home's path with bubblewrap; its programs are sh, grep and rsync, and a
@@ -47,11 +47,11 @@ def mirrored(here, there):
 
 @unittest.skipUnless(boxable(), "no bwrap able to bind the other machine's home here")
 class AkMoveCopiesItsHome(unittest.TestCase):
-    def machines(self, ssh="another", crontab=None, link=None):
+    def machines(self, ssh="another", crontab=None, link=None, gone=None):
         """(home, the other machine's home): each with its own tmp folder, keys and profile lock,
         this one with files of each kind, that one with a file this one never had.  `ssh` is
         `another` machine, this `same` one, or this one with its home `elsewhere`; `link`, (side,
-        path), makes that path a link to where it was."""
+        path), makes that path a link to where it was; `gone` is a folder this home lacks."""
         home = Home()
         self.addCleanup(home.close)
         there, tools = home.root / "there", home.root / "there-bin"
@@ -73,12 +73,16 @@ class AkMoveCopiesItsHome(unittest.TestCase):
         os.mkfifo(home.path / "pipe")
         with socket.socket(socket.AF_UNIX) as listener:
             listener.bind(str(home.path / "sock"))
+        if gone:
+            shutil.rmtree(home.path / gone)
         if link:
             side, path = link
             place = (home.path if side == "here" else there) / path
             place.rename(home.root / "aside")
             place.symlink_to(home.root / "aside")
-        box = f"bwrap --dev-bind / / --bind {there} {home.path}" if ssh == "another" else ""
+        # bound where this home is, as bwrap mounts on no link
+        box = (f"bwrap --dev-bind / / --bind {there} {home.path.resolve()}" if ssh == "another"
+               else "")
         home.fake("ssh", SSH.format(box=box, home=there if ssh == "elsewhere" else home.path,
                                     bin=tools))
         return home, there
@@ -113,9 +117,11 @@ class AkMoveCopiesItsHome(unittest.TestCase):
     def test_a_refusal_changes_nothing_anywhere(self):
         for case, setting in {
                 "ALIAS is this machine": {"ssh": "same"},
-                "its home has another path": {"ssh": "elsewhere"},
+                "its home has another path, and this one no tmp folder":
+                    {"ssh": "elsewhere", "gone": ".agentkit/tmp"},
                 "the tick is in its crontab": {"crontab": f"echo '{TICK}'"},
                 "its crontab fails": {"crontab": "exit 1"},
+                "the home is a link here": {"link": ("here", "")},
                 "ak's tmp folder is a link here": {"link": ("here", ".agentkit/tmp")},
                 "the keys lie under a link there": {"link": ("there", ".ssh")},
                 "the profile lies under a link here": {"link": ("here", ".local/share")},
