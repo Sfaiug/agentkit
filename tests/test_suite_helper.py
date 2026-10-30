@@ -173,7 +173,8 @@ class SuiteHelper(unittest.TestCase):
 
     def test_the_log_says_which_pieces_the_helper_lost_or_that_every_piece_passed_there(self):
         passed, lost = ("every piece passed on the suite helper acme-mac",
-                        "the suite helper lost AK_SHARD=2/6; it runs here")
+                        "the suite helper acme-mac lost AK_SHARD=2/6; it runs again on the "
+                        "first machine with room, this one included")
         for codes, said in (({}, [passed]), ({2: helper.LOST}, [lost]), ({2: 1}, []),
                             ({2: helper.SHORT}, [])):
             with self.subTest(codes=codes):

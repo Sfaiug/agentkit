@@ -111,7 +111,7 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
         turns = []
         with patch.object(gate._GATE_HELD, "away", SimpleNamespace(count=1, most=1),
                           create=True), \
-                patch.object(gate._GATE_HELD, "home", lambda: turns.append(1), create=True), \
+                patch.object(gate._GATE_HELD, "home", lambda _: turns.append(1), create=True), \
                 patch.object(gitcall, "_RUN_CONTEXT", SimpleNamespace(state={"run_id": "fixture"})), \
                 patch.object(helper, "piece", lambda _away, _shard, _command: ["true"]):
             calls, told, (code, text, killed), _ = self.pieces("silence", 0)
@@ -145,7 +145,7 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
         with patch.object(gate._GATE_HELD, "away", SimpleNamespace(count=1, most=1),
                           create=True), \
                 patch.object(gate._GATE_HELD, "hold", None, create=True), \
-                patch.object(gate._GATE_HELD, "home", lambda: hold, create=True), \
+                patch.object(gate._GATE_HELD, "home", lambda _: hold, create=True), \
                 patch.object(helper, "piece", lambda _away, _shard, _command: ["true"]), \
                 patch.object(worker, "limited", side_effect=limited), \
                 patch.object(worker, "boxed", side_effect=boxed):
