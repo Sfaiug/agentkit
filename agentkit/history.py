@@ -18,9 +18,14 @@ SUMMARY_WORDS = 400   # ... and contrasts tasks over this many words outside the
 SUMMARY_POINTS = 3    # ... and tasks over this many numbered goal points, by median rounds
 # The repositories the smoke and e2e suites clone: their runs are tests, never work to learn from.
 SANDBOX_REPOS = ("agentkit-smoke", "agentkit-e2e")
-# The condition every statistic reads rows under: no stopped run and no suite's (`suite_run`).
-# Other values stay as written, except duplicated thread tokens repaired by `_recount_tokens`.
-REAL_WORK = "COALESCE(final_state,'') != 'stopped' AND NOT suite_run(run_id, repo)"
+# How a row ends whose run went, record and all, before the row heard its ending
+# (`transitions.history_agree`): neither a pass nor a fail, so no statistic reads it.
+UNKNOWN = "unknown"
+# The condition every statistic reads rows under: no stopped run, none of unknown ending and no
+# suite's (`suite_run`).  Other values stay as written, except duplicated thread tokens repaired
+# by `_recount_tokens`.
+REAL_WORK = (f"COALESCE(final_state,'') NOT IN ('stopped', '{UNKNOWN}') "
+             "AND NOT suite_run(run_id, repo)")
 STEP_COLUMNS = {"executor": "executor_seconds", "done-when": "done_when_seconds",
                 "reviewer": "reviewer_seconds", "merge": "merge_seconds"}
 # The waits a run marks, each summed across its resumes; NULL on a row written before them.
@@ -605,12 +610,16 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                finished_at=None, started_at=None, peak_rss_mb=None,
                executor=None, reviewer=None, session=None, repo=None, task_files=None,
                changed_lines=None, rules_bytes=None, own_orchestrator=None,
-               own_orchestrator_effort=None, log=None):
+               own_orchestrator_effort=None, saved=None, log=None):
     """Record the row's final lifecycle fields and duration in one commit.
 
     No reader sees an ending without the run time it closes.  `own_orchestrator` names the
     model whose seat wrote the pull request the run reviewed and `own_orchestrator_effort` the
-    effort it was captured at (`run.pr_writer`), none for another's or a task.
+    effort it was captured at (`run.pr_writer`), none for another's or a task.  `saved` is, for
+    a row that never heard its run's ending (`transitions.history_agree`), the record's
+    `(state, finished_at)` the ending was read from, `(None, None)` for a run gone: it is
+    written only to a row still running whose record still reads so, as a run started again
+    since writes its own row.
     """
     finished_at = time.time() if finished_at is None else finished_at
     values = {"final_state": final_state, "verdict": verdict, "rounds_used": rounds_used,
@@ -623,6 +632,12 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
     peak = values.pop("peak_rss_mb", None)
 
     def publish(connection):
+        if saved is not None:
+            now = record.read_state(config.RUNS / str(run_id)) or {}
+            if (now.get("state"), now.get("finished_at")) != saved or not connection.execute(
+                    "SELECT 1 FROM runs WHERE run_id=? AND final_state='running'",
+                    (run_id,)).fetchone():
+                return
         _update(connection, run_id, values)
         if peak is not None:
             connection.execute(
@@ -682,6 +697,20 @@ def get(run_id):
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
         return None
+
+
+def running():
+    """The ids of the rows still marked running, none where the database cannot answer."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                return [row[0] for row in connection.execute(
+                    "SELECT run_id FROM runs WHERE final_state='running'")]
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return []
 
 
 def _ensure_migrated():

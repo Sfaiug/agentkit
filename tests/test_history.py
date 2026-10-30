@@ -62,6 +62,30 @@ class HistoryTests(unittest.TestCase):
         # its landing failures were never counted: NULL, never the 0 and '' of an unbroken row
         self.assertEqual((row["landing_breaks"], row["broke_after_merge"]), (None, None))
 
+    def test_a_lost_ending_lands_only_while_its_run_still_reads_it(self):
+        # the tick read a run that failed at 20 (`transitions.history_agree`), and its write
+        # lands after the run was resumed, or even ended again
+        runs = self.home / "runs"
+        (runs / "r1").mkdir(parents=True)
+
+        def saves(**state):
+            (runs / "r1" / "run.json").write_text(json.dumps(state))
+
+        def lost():
+            history.finish_run("r1", final_state="fail", finished_at=20, saved=("fail", 20))
+            row = history.get("r1")
+            return row["final_state"], row["finished_at"]
+        with patch.object(config, "RUNS", runs):
+            history.start_run("r1", started_at=10)
+            saves(state="queued")
+            self.assertEqual(lost(), ("running", None))
+            saves(state="pass", finished_at=30)
+            history.finish_run("r1", final_state="pass", finished_at=30)
+            self.assertEqual(lost(), ("pass", 30))
+            history.start_run("r1")
+            saves(state="fail", finished_at=20)
+            self.assertEqual(lost(), ("fail", 20))
+
     def test_step_seconds_are_summed(self):
         history.start_run("r1", started_at=10)
         history.add_seconds("r1", "executor", 2)

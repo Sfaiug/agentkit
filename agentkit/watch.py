@@ -7848,6 +7848,7 @@ def local_passes(state, dry_run, log):
         # on its project, to take out of the code.
         ("the switch retirement pass did not run", lambda: retire.hand(log), False),
         ("the seat token pass did not run", lambda: seat_tokens.read(0, 0), False),
+        ("history was not brought up to date", lambda: transitions.history_agree(log), False),
         # The first tick of a week writes the board with its largest loss, and the `audit`
         # seat, opened with `[audit]`'s models, is told it at its quiet prompt.
         ("the weekly audit pass did not run", lambda: tell_audit(config.load(), log), False),
