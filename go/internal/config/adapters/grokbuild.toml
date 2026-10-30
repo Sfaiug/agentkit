@@ -124,6 +124,35 @@ kinds = ["idle_prompt"]
 name = "PostToolUse"
 state = "working"
 
+# The login's home (`~` is HOME, joined as text, as grokbuild.sh's shell spells it): an
+# account's own where $AGENTKIT_ACCOUNT names one, else the one `env` names, else `usual`.  An
+# `env` that is an account's home (`drop`, its `*` any text) was handed down by that account's
+# seat, so a call naming no account drops it rather than spend that subscription.
+[account]
+env = "GROK_HOME"
+usual = "~/.grok"
+home = "~/.grok-{account}"
+drop = "~/.grok-*"
+
+# What the Go build's `hooks` writes, as grokbuild.sh does until Go takes over.  The TUI reads
+# hooks only from its home's hooks/, so ak's are a file of its own there (`form`), written whole:
+# one group per event in this order, a matched one run only for the question, its answer and its
+# gate.  Grok also runs Claude's settings' hooks and drops only an identical (event, command)
+# pair, so these are the very commands claude.toml's are, or each would fire twice.
+[hooks.install]
+form = "file"
+settings = "{home}/hooks/agentkit.json"
+matchers = { PostToolUse = "ask_user_question", PreToolUse = "ask_user_question" }
+
+[hooks.install.events]
+UserPromptSubmit = ["seat-state.sh"]
+Stop = ["seat-state.sh", "orchestrator-stop.sh"]
+StopCancelled = ["seat-state.sh"]
+StopFailure = ["seat-state.sh"]
+Notification = ["seat-state.sh"]
+PostToolUse = ["seat-state.sh"]
+PreToolUse = ["orchestrator-stop.sh"]
+
 # The composer is grok's box: an empty `│ ❯` line, and the border underneath it carrying
 # the model, the effort and the permission mode.  The pattern matches the empty box only,
 # so typed text still reads as a draft.  The key hints underneath change with the state --
