@@ -142,9 +142,9 @@ class Turns:
             self.assertNotIn("--continue", run.words)
         if self.fresh_flag:
             ids = [self.after(run.words, self.fresh_flag) for run in (self.new, self.again)]
-            for given in ids:
-                self.assertEqual(str(uuid.UUID(given)), given)
-            self.assertNotEqual(*ids)
+            for given in ids:   # a UUID's own spelling, in either case: macOS's uuidgen's is upper
+                self.assertEqual(str(uuid.UUID(given)), given.lower())
+            self.assertNotEqual(*map(uuid.UUID, ids))
 
     def test_events_jsonl_and_stderr_log_hold_the_harness_s_output(self):
         for name, (run, _) in self.turns.items():
