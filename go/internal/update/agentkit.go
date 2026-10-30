@@ -181,7 +181,8 @@ func liveTarget(env []string, checkout string) string {
 
 // passedChecks are the commits a check of tests/live.sh passed, from the folders the tick keeps
 // under state/live-checks, `<commit>-<started>` each, as Python's live_checks and _live_passed
-// read them: one with anything of it still running has no verdict yet.
+// read them: one with anything of it still running has no verdict yet, and its verdict is read
+// only once the scan for that is over, so one the tick stops meanwhile reads `stopped`.
 func passedChecks() map[string]bool {
 	checks := filepath.Join(config.Home(), "state", "live-checks")
 	entries, _ := os.ReadDir(checks)
@@ -193,8 +194,10 @@ func passedChecks() map[string]bool {
 			continue
 		}
 		check := filepath.Join(checks, entry.Name())
-		code, ended := exitCode(check, at)
-		if !alive(check, at, ended) && ended && (code == 0 || failedLabels(check) && exists(filepath.Join(check, "baseline"))) {
+		if alive(check, at) {
+			continue
+		}
+		if code, ended := exitCode(check, at); ended && (code == 0 || failedLabels(check) && exists(filepath.Join(check, "baseline"))) {
 			passed[commit] = true
 		}
 	}
@@ -204,9 +207,12 @@ func passedChecks() map[string]bool {
 // exitCode is a check's exit code as Python's update._exit reads it, and whether it has one: one
 // written after the check's cap is none, and so is any once the tick wrote `stopped`.
 func exitCode(check string, started int64) (int, bool) {
+	if exists(filepath.Join(check, "stopped")) {
+		return 0, false
+	}
 	exit := filepath.Join(check, "exit")
 	info, err := os.Stat(exit)
-	if exists(filepath.Join(check, "stopped")) || err != nil || !info.ModTime().Before(time.Unix(started+liveCap, 0)) {
+	if err != nil || !info.ModTime().Before(time.Unix(started+liveCap, 0)) {
 		return 0, false
 	}
 	data, err := os.ReadFile(exit)
@@ -219,10 +225,11 @@ func exitCode(check string, started int64) (int, bool) {
 
 // alive is whether anything of a check still runs, as Python's update._alive: whatever carries
 // its marker, where /proc says, else until it has an exit code or its cap and grace have passed.
-func alive(check string, started int64, ended bool) bool {
+func alive(check string, started int64) bool {
 	if info, err := os.Stat("/proc"); err == nil && info.IsDir() {
 		return len(host.Marked(check)) > 0
 	}
+	_, ended := exitCode(check, started)
 	return !ended && time.Now().Unix() < started+liveCap+killGrace
 }
 
