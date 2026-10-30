@@ -17,6 +17,9 @@ first_prompt = true
 [worker]
 state = ["~/.claude", "$CLAUDE_CONFIG_DIR", "~/.claude-$AGENTKIT_ACCOUNT"]
 logins = ["~/.claude/.credentials.json", "$CLAUDE_CONFIG_DIR/.credentials.json", "~/.claude-$AGENTKIT_ACCOUNT/.credentials.json"]
+# where a turn's conversation lives, `{id}` its id: what travels with a turn on a machine
+# (agentkit/machine_turn.py); a harness without this takes no turns there
+sessions = ["~/.claude/projects/*/{id}*"]
 # the `type`s of events.jsonl records that only say a tool still runs: about every 30 s while
 # one Bash call blocks, so a hung call would never go silent if they counted
 heartbeats = ["tool_progress"]
