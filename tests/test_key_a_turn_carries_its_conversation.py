@@ -21,8 +21,10 @@ from fixtures.gitrig import Rig
 WHERE = 'echo "${container:-here}" >"${AK_HAND_IN%/*}/where"; '
 CLAUDE = ".claude/projects/acme/sid-1"
 CODEX = ".codex/sessions/2026/10/30/rollout-rev-1.jsonl"
-# What the machine's tar sends it as: a name that starts at the conversation and climbs out of HOME.
-CLIMBS = '#!/bin/sh\nexec {tar} -P --transform "s,/sid-1/climbs,/sid-1/../../../../climbed," "$@"\n'
+# What the machine's tar sends them as: names that start at the conversation and climb out of HOME,
+# or whose `.` or empty part matches a glob's `*` where a path drops it.
+CLIMBS = ('#!/bin/sh\nexec {tar} -P --transform "s,/sid-1/climbs,/sid-1/../../../../climbed,;'
+          's,/acme/sid-1/dot,/./sid-1-dot,;s,/acme/sid-1/empty,//sid-1-empty," "$@"\n')
 
 
 def adds(path, line, *lines_before):
@@ -32,12 +34,14 @@ def adds(path, line, *lines_before):
 
 
 # Outside the globs: beside its folders, in its folder but under another id or too shallow, a `..`
-# that lands there too, and a link at a glob's place.
+# that lands there too, a link at a glob's place, and a folder this host holds as a link.
 ELSEWHERE = ('echo x >"$HOME/elsewhere-sid-1.jsonl"; echo x >"$HOME/.claude/settings.json"; '
              f'echo x >"$HOME/{CLAUDE}/../other.jsonl"; '
              f'echo x >"$HOME/{CLAUDE}/../../sid-1-shallow.jsonl"; '
              f'echo x >"$HOME/{CLAUDE}/tools/../../../sid-1-up.jsonl"; '
-             f'ln -s "$HOME/.gitconfig" "$HOME/{CLAUDE}-link"; echo x >"$HOME/{CLAUDE}/climbs"; ')
+             f'ln -s "$HOME/.gitconfig" "$HOME/{CLAUDE}-link"; echo x >"$HOME/{CLAUDE}/climbs"; '
+             f'echo x >"$HOME/{CLAUDE}/dot"; echo x >"$HOME/{CLAUDE}/empty"; '
+             f'mkdir "$HOME/{CLAUDE}/linked"; echo x >"$HOME/{CLAUDE}/linked/key"; ')
 
 
 class ATurnCarriesItsConversation(unittest.TestCase):
@@ -80,6 +84,10 @@ class ATurnCarriesItsConversation(unittest.TestCase):
         tar = machine / "bin/tar"
         tar.write_text(CLIMBS.format(tar=shutil.which("tar")))
         tar.chmod(0o755)
+        outside = home.root / "outside"
+        outside.mkdir()
+        (home.path / CLAUDE).mkdir(parents=True)
+        (home.path / CLAUDE / "linked").symlink_to(outside)
         before = self.files(home)
         self.finish(home, rig)
 
@@ -91,6 +99,7 @@ class ATurnCarriesItsConversation(unittest.TestCase):
         self.assertEqual((home.path / CODEX).read_text(), "found\npassed\n")
         self.assertEqual(self.files(home) - before,
                          {f"{CLAUDE}.jsonl", f"{CLAUDE}/tools/part", CODEX})
+        self.assertEqual([*outside.iterdir()], [])
 
     def test_a_conversation_this_host_does_not_hold_resumes_here(self):
         # The second id's `/` would reach a file deeper than the glob's place, which is no
@@ -108,7 +117,7 @@ class ATurnCarriesItsConversation(unittest.TestCase):
 
     def test_a_harness_with_no_sessions_runs_here(self):
         home, fakes, _, rig = self.ready({**fakeadapter.WORK, "sh": WHERE},
-                                            {**fakeadapter.PASS, "sh": WHERE})
+                                         {**fakeadapter.PASS, "sh": WHERE})
         manifest = fakes["codex"].manifest
         manifest.write_text("".join(line for line in manifest.read_text().splitlines(True)
                                     if not line.startswith("sessions")))

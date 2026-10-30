@@ -21,7 +21,6 @@ import tempfile
 from . import config, gitcall, helper
 
 AK = ("adapters", "agentkit", "bin", "tools")    # ak itself, read-only there, `bin` on PATH
-LOST = helper.LOST    # a turn's exit when its results did not come home
 
 
 def _sessions(harness):
@@ -39,11 +38,13 @@ def _conversation(harness, session):
 
 
 def call(harness, cmd, cwd, out_dir, env, places, session, watch):
-    """(exit, killed) of the turn `cmd` on a machine with room, or None: it runs here, as with the
-    switch off, `places`, no recipe, no room, a harness with no `sessions`, or a `session` to resume
-    that this host does not hold, as here is where a later resume would look for it too.
+    """(exit, killed, session) of the turn `cmd` on a machine with room, or None: it runs here, as
+    with the switch off, `places`, no recipe, no room, a harness with no `sessions`, or a `session`
+    to resume that this host does not hold, as here is where a later resume would look for it too.
     `watch(argv, **streams)` runs ssh as the worker's watchdog runs a turn, into the out dir's
-    events.jsonl and stderr.log. A lost machine's turn fails, this host's files as they were."""
+    events.jsonl and stderr.log. A lost machine's turn fails, this host's files as they were, and
+    leaves `session`, the conversation it was given: the id it streamed names one that is nowhere.
+    One whose results came home leaves the conversation it reported, whatever its exit."""
     try:
         on = (config._read_toml(config.HOME / config.CONFIG_NAME) or {}).get("machine_turns")
     except config.Error:    # a config.toml mid-edit fails no turn: it runs here
@@ -69,11 +70,12 @@ def call(harness, cmd, cwd, out_dir, env, places, session, watch):
                 "--", cwd, config.REPO, away.branch, away.default, *cmd), stdout=events, stderr=err)
         if code == helper.FULL:    # its room went to another before it started: it runs here
             return None
-        if not killed:    # the turn's own exit comes home with its results
-            code = _home(away, harness, cwd, out_dir, env["HOME"]) if code == 0 else LOST
+        if not killed:    # the turn's own exit and conversation come home with its results
+            code, session = code == 0 and _home(away, harness, cwd, out_dir, env["HOME"]) or (
+                helper.LOST, session)
     finally:
         helper.finish(away)
-    return code, killed
+    return code, killed, session
 
 
 def _parcel(tar, harness, cwd, out_dir, env, held):
@@ -110,21 +112,23 @@ def _parcel(tar, harness, cwd, out_dir, env, held):
 
 
 def _home(away, harness, cwd, out_dir, home):
-    """The turn's exit once all its results came home before any applied, else LOST: its commits,
-    HEAD moved to its last, the checkout made its left commit and the index HEAD, so what it left
-    uncommitted stays so; then the out dir, but the events and stderr streamed here already; last
-    the conversation it reported, each file whole, which is all of its HOME that comes home: from
-    the folders `sessions` start from, so its caches do not travel."""
+    """(the turn's exit, the conversation it reported) once all its results came home before any
+    applied, else None: its commits, HEAD moved to its last, the checkout made its left commit and
+    the index HEAD, so what it left uncommitted stays so; then the out dir, but the events and
+    stderr streamed here already; last the conversation it reported, each file whole, which is all
+    of its HOME that comes home: from the folders `sessions` start from, so its caches do not
+    travel."""
     from .turns import session_of    # here, not at the top: the worker calls this module
     try:
         folders = {os.path.dirname(re.split(r"[*?[{]", place)[0]) for place in _sessions(harness)}
         reply = helper._remote(away.alias, "collect", away.key, *folders, timeout=600)
         if reply.returncode:
-            return LOST
-        # Its regular files by relative name alone: nothing it sends reaches past the out dir.
+            return None
+        # Its regular files by relative name alone, each part a name: nothing it sends reaches
+        # past the out dir, nor lands elsewhere than the name a glob matched.
         with tarfile.open(fileobj=io.BytesIO(reply.stdout)) as tar:
             files = {member.name: tar.extractfile(member).read() for member in tar
-                     if member.isfile() and ".." not in member.name.split("/")}
+                     if member.isfile() and {"", ".", ".."}.isdisjoint(member.name.split("/"))}
         code = int(files.pop("code"))
         with tempfile.TemporaryDirectory() as back:
             bundle = Path(back, "back.bundle")
@@ -141,13 +145,16 @@ def _home(away, harness, cwd, out_dir, home):
             if name.startswith("out/") and name not in ("out/events.jsonl", "out/stderr.log"):
                 (out_dir / name[4:]).parent.mkdir(parents=True, exist_ok=True)
                 (out_dir / name[4:]).write_bytes(data)
-        globs = [place.split("/") for place in _conversation(harness, session_of(out_dir))]
+        session = session_of(out_dir)
+        globs = [place.split("/") for place in _conversation(harness, session)]
+        real = Path(home).resolve()
         for name, data in files.items():
             parts = name.split("/")[1:]
-            if name.startswith("home/") and any(
+            path = real.joinpath(*parts)
+            # Through no link on its way, one a turn run here could leave to lead out of HOME.
+            if name.startswith("home/") and path.parent.resolve() == path.parent and any(
                     len(parts) >= len(place) and all(map(fnmatch.fnmatchcase, parts, place))
                     for place in globs):
-                path = Path(home, *parts)
                 path.parent.mkdir(parents=True, exist_ok=True)
                 # 0600, and a name no glob matches: a reader sees the old file or the whole new one.
                 with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".", delete=False) as part:
@@ -155,5 +162,5 @@ def _home(away, harness, cwd, out_dir, home):
                 Path(part.name).replace(path)
     except (OSError, subprocess.SubprocessError, tarfile.TarError, IndexError, KeyError,
             ValueError, config.Error):
-        return LOST
-    return code
+        return None
+    return code, session

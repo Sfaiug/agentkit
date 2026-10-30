@@ -1,35 +1,27 @@
-"""A turn on a machine whose results did not come home leaves the run on the conversation it had:
-the id it streamed names one that is nowhere, and a retry would resume nothing, for ever.
+"""A turn on a machine leaves the conversation it reported once its results came home, whatever
+its exit, else the one it was given: a lost or killed turn's streamed id names a conversation that
+is nowhere, and a retry resuming it would resume nothing, for ever.
 
-Offline: a temporary HOME, a fake harness `acme`, and a stand-in for the machine that streams an id
-and returns as `agentkit/machine_turn.py` does.
+Offline: a temporary HOME holding the conversation the turn resumes, and stand-ins for the
+machine's ssh (`helper`) and the worker's watchdog, which streams an id.
 """
 
 from contextlib import ExitStack
-import os
+import io
 from pathlib import Path
 import sys
+import tarfile
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, machine_turn, worker
+from agentkit import config, gitcall, helper, machine_turn
 
-CONFIG = """[defaults]
-orchestrator = "acme"
-workers = ["acme"]
-
-[models.acme]
-harness = "acme"
-model = "acme-1"
-effort = "low"
-provider = "acme"
-
-[providers.acme]
-mode = "subscription"
-"""
+AWAY = SimpleNamespace(alias="acme", key="turn", image="acme", memory_mb=1024, repo="acme",
+                       branch="main", default="main")
 
 
 class ALostMachineKeepsTheConversationItHad(unittest.TestCase):
@@ -37,44 +29,52 @@ class ALostMachineKeepsTheConversationItHad(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix="lost-machine-")
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
-        adapters = self.root / "adapters"
-        adapters.mkdir()
-        (adapters / "acme.sh").touch(0o755)
-        (adapters / "acme.toml").write_text("version = 1\n")
-        home = self.root / "home"
+        self.home = self.root / "home"
+        (self.home / ".acme").mkdir(parents=True)
+        (self.home / ".acme/had.jsonl").write_text("had\n")
         stack = ExitStack()
         self.addCleanup(stack.close)
-        stack.enter_context(patch.dict(os.environ, {
-            "HOME": str(home), config.ADAPTER_DIR_ENV: str(adapters), "AGENTKIT_RUN": ""}))
-        stack.enter_context(patch.object(config, "HOME", home))
-        for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
-            stack.enter_context(patch.object(config, name, home / name.lower()))
-        stack.enter_context(patch.dict(config._MANIFESTS))
-        stack.enter_context(patch.object(worker, "auth_ok", return_value=(True, "")))
-        config.ensure_dirs()
-        (home / "config.toml").write_text(CONFIG)
-        self.cfg = config.load()
+        stack.enter_context(patch.object(config, "_read_toml",
+                                         return_value={"machine_turns": True}))
+        stack.enter_context(patch.object(config, "manifest", return_value={
+            "worker": {"sessions": ["~/.acme/{id}*"]}}))
+        stack.enter_context(patch.object(helper, "start", return_value=(AWAY, "")))
+        stack.enter_context(patch.object(helper, "finish"))
+        stack.enter_context(patch.object(gitcall, "git", return_value="left"))
 
-    def session_after(self, result, session):
-        """The conversation `worker.call` says a machine's turn leaves, ended as `result`."""
-        def away(_harness, _cmd, _cwd, out_dir, *_args):
-            Path(out_dir, "events.jsonl").write_text('{"session_id": "streamed"}\n')
-            return result
+    def leaves(self, watched, collected=None):
+        """(exit, killed, session) of a turn resuming `had`, its ssh ending as `watched`
+        (exit, killed), its results the files `collected`, None: the machine does not answer."""
+        def remote(_alias, verb, *_args, **_kw):
+            if verb != "collect":
+                return ["ssh"]
+            data = io.BytesIO()
+            with tarfile.open(fileobj=data, mode="w") as tar:
+                for name, content in (collected or {}).items():
+                    info = tarfile.TarInfo(name)
+                    info.size = len(content)
+                    tar.addfile(info, io.BytesIO(content))
+            return SimpleNamespace(returncode=helper.LOST if collected is None else 0,
+                                   stdout=data.getvalue())
 
-        with patch.object(machine_turn, "call", away):
-            return worker.call(self.cfg, "acme", "do it", self.root,
-                               tempfile.mkdtemp(dir=self.root), session=session)[2]
+        def watch(_argv, stdout, **_kw):
+            stdout.write(b'{"session_id": "streamed"}\n')
+            return watched[0], "", watched[1]
 
-    def test_a_lost_or_killed_turn_goes_on_from_the_one_it_was_given(self):
-        for result in ((machine_turn.LOST, False), (124, True)):
-            with self.subTest(result=result):
-                self.assertIsNone(self.session_after(result, None))
-                self.assertEqual(self.session_after(result, "had"), "had")
+        with patch.object(helper, "_remote", remote):
+            return machine_turn.call("acme", ["run"], self.root, tempfile.mkdtemp(dir=self.root),
+                                     {"HOME": str(self.home)}, (), "had", watch)
 
-    def test_a_turn_that_came_home_reports_its_own(self):
-        for code in (0, 1):
-            with self.subTest(code=code):
-                self.assertEqual(self.session_after((code, False), "had"), "streamed")
+    def test_a_lost_or_killed_turn_leaves_the_one_it_was_given(self):
+        self.assertEqual(self.leaves((0, False)), (helper.LOST, False, "had"))
+        self.assertEqual(self.leaves((helper.LOST, False), {}), (helper.LOST, False, "had"))
+        self.assertEqual(self.leaves((124, True), {}), (124, True, "had"))
+
+    def test_a_turn_whose_results_came_home_leaves_its_own_whatever_its_exit(self):
+        self.assertEqual(self.leaves((0, False), {
+            "code": b"255", "back.bundle": b"", "out/session_id": b"received",
+            "home/.acme/received.jsonl": b"whole\n"}), (255, False, "received"))
+        self.assertEqual((self.home / ".acme/received.jsonl").read_text(), "whole\n")
 
 
 if __name__ == "__main__":

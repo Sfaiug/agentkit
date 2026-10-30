@@ -866,7 +866,7 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     away = machine_turn.call(entry["harness"], cmd, workspace, out_dir, turn_env, places, session,
                              lambda argv, **streams: limited(argv, None, **watch, **streams))
     if away:
-        code, killed = away
+        code, killed, session = away
     else:
         with box.command(cmd, turn_env, out_dir, cwd=workspace,
                          state=paths.get("state", ()), places=places,
@@ -888,11 +888,9 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
         pass
     final = out_dir / "final.md"
     text = final.read_text(errors="replace") if final.exists() else ""
-    sid_file = out_dir / "session_id"
-    sid = sid_file.read_text(errors="replace").strip() if sid_file.exists() else ""
-    # A machine's turn whose results did not come home streamed an id whose conversation is
-    # nowhere: its retry goes on from the one it was given, which this host still holds.
-    if not (away and (killed or code == machine_turn.LOST)):
+    if not away:    # a machine's turn says which conversation it leaves
+        sid_file = out_dir / "session_id"
+        sid = sid_file.read_text(errors="replace").strip() if sid_file.exists() else ""
         session = sid or recovered_session(out_dir)
     mark = watching(out_dir)
     if not mark and not killed and said_nothing(out_dir) \
