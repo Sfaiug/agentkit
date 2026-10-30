@@ -28,7 +28,8 @@ of argument lists for `ak hand-in`), `final` (final.md's text, where `{in N}` is
 seconds after the turn, as a refusal names when to come back), `session` (the id handed back:
 the one resumed, else `sid-<harness>-<n>`), `exit` (0).  A hand-in goes through the ak build
 under test, the one AK_BIN names.  Every other verb answers as `answer` set it, or as a harness
-that is logged in with no meter to read.
+that is logged in with no meter to read, its `lend` the real tools/lend.py fed a login of the
+call's account lasting a day: `lent(account)` at LENT under the home named.
 
 Each harness's Adapter: `n` counts its `run` calls, `runs()` and `calls(verb)` read its log,
 `behave(*steps)` scripts its next turns, `answer(verb, out, code, given)` sets what another verb
@@ -65,6 +66,11 @@ FAIL = {"final": "Found one.", "hand_in": [
      "test ! -f retry.txt"], ["done"]]}
 DISPUTE = {"final": "Disputed.", "hand_in": [
     ["dispute", "retry.txt:1", "not a defect", "--run", "true"], ["done"]]}
+LENT = ".fake/login.json"
+
+
+def lent(account):
+    return {"token": f"fixture-token-for-{account or 'usual'}"}
 
 
 def _every(step):
@@ -164,7 +170,12 @@ def main(directory, harness, ak, verb="", *args):
     fake = Adapter(Path(directory), harness)
     call = {"verb": verb, "argv": list(args), "cwd": os.getcwd(),
             "env": {k: v for k, v in os.environ.items() if k.startswith(("AK_", "AGENTKIT_"))}}
-    if verb != "run":
+    if verb == "lend" and "lend" not in (fake._json("answers") or {}):
+        code = subprocess.run(
+            [sys.executable, "-I", str(REPO / "tools/lend.py"), *args, LENT], text=True,
+            input=json.dumps({"ends": int(time.time()) + 86400,
+                              "login": lent(os.environ.get("AGENTKIT_ACCOUNT"))})).returncode
+    elif verb != "run":
         # the answer set for the most of the arguments this call ends in
         answers = fake._json("answers") or {}
         out, code = next((answers[key] for key in (" ".join([verb, *args[i:]])

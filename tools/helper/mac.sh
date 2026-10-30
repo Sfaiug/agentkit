@@ -174,10 +174,10 @@ known)     # REPO: the commit its history here reaches, if any. A suite asks jus
   # `prepare`, so this marks the history in use: no other suite's `prepare` deletes it for a week.
   touch -c "$MIRRORS/$2"
   git -C "$MIRRORS/$2" rev-parse -q --verify refs/known/base 2>/dev/null; exit 0 ;;
-prepare)   # KEY IMAGE REPO, the parcel on stdin
+prepare)   # KEY IMAGE REPO [CPUS a turn holds], the parcel on stdin
   # Suites are admitted one at a time, before anything of theirs is unpacked.
   mkdir -p "$ROOT" || exit 253
-  locked "$ROOT/suites.lock" admit "$2" || exit
+  locked "$ROOT/suites.lock" admit "$2" "$5" || exit
   # -p: the recipe's files keep HEAD's modes, whatever umask the machine's shell has.
   mkdir -p "$ROOT/$2" && tar -x -p -C "$ROOT/$2" && echo "$3" >"$ROOT/$2/image/name" || exit 253
   # A turn's harness program, which a later task installs, is $ROOT/harness/<harness>/<program>.
@@ -205,13 +205,24 @@ failed)    # KEY NAME [flaky]: the tests piece NAME named as failed (or flaky); 
            # link it left there
   f="$ROOT/$2/$3.out/${4:-failed}"
   [ ! -f "$f" ] || [ -L "$f" ] || cat "$f"; exit 0 ;;
-turn)      # KEY IMAGE MEMORY_MB REPO, volumes PART:PATH[:ro] of its parcel, `--`, turn.sh's
-  # arguments: the turn's container, its events on stdout and harness's stderr on stderr, ended
-  # with ak's ssh session. It exits as turn.sh did: 0 once the turn's exit is in `code`.
-  D="$ROOT/$2" image=$3 memory=$4 M="$MIRRORS/$5" name="ak-$2-turn" volumes=()
+turn)      # KEY IMAGE MEMORY_MB REPO, volumes PART:PATH[:ro] of its parcel, `home` first, `--`,
+  # turn.sh's arguments: the turn's container, its events on stdout and harness's stderr on stderr,
+  # ended with ak's ssh session. It exits as turn.sh did: 0 once the turn's exit is in `code`. By
+  # then, however it ended, the paths `lent` names, read before the turn could change them, are
+  # gone, so `collect` cannot send them.
+  D="$ROOT/$2" image=$3 memory=$4 M="$MIRRORS/$5" name="ak-$2-turn" volumes=() lent=()
   H="$ROOT/harness/$(dirname "$(cat "$D/harness")")"
   shift 5
-  while [ "${1:---}" != -- ]; do mkdir -p "$D/${1%%:*}" && volumes+=(--volume "$D/$1"); shift; done
+  while IFS= read -r -d '' path; do lent+=("$D/home/$path"); done <"$D/lent"
+  trap 'rm -rf -- "${lent[@]}"' EXIT
+  home=${1#home:}
+  while [ "${1:---}" != -- ]; do
+    mkdir -p "$D/${1%%:*}" && volumes+=(--volume "$D/$1") || exit 253
+    # docker makes a mount point missing from HOME as root, which `finish` could not remove.
+    place=${1#*:} place=${place%:ro}
+    case $place in "$home"/*) mkdir -p "$D/home/${place#"$home"/}" || exit 253 ;; esac
+    shift
+  done
   shift
   streamed() {
     start_turn "$@" >&2 & turn=$!
