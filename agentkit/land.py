@@ -6,7 +6,7 @@ that stack have left the line; later stacks are rebuilt without it.
 A red suite piece runs again on the target's tip alone before anyone is blamed: red there
 pauses the line on the retry ladder, and red through the ladder is the target's own and
 gets one repair, at once where the tests that failed it fail again there alone.  So does a
-test that failed, then passed, on two trees (`_flaked`).  The lander never owns a member's
+file whose tests failed, then passed, on two trees (`_flaked`).  The lander never owns a member's
 process or delivery.
 """
 
@@ -28,8 +28,8 @@ from . import config, gitcall, prompts, record, transitions, turns, update
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 CHECKED = 60        # a pass shorter than a minute checked nothing: it says nothing of the pace
-FLAKY = 7 * 24 * 3600   # a test failing, then passing, on two trees this close gets one repair,
-                        # which holds it as long unless a change editing it merges first
+FLAKY = 7 * 24 * 3600   # a file's tests failing, then passing, on two trees this close get one
+                        # repair, which holds the file as long unless a change editing it merges
 # A stack's scratch checkout says so in its own git directory: gc takes one a killed lander
 # left, whatever it holds, and no other checkout for it.
 SCRATCH_MARK = "ak-lander-scratch"
@@ -363,13 +363,20 @@ def _start_repair(state, directory, repair, log):
         return None
 
 
+def _file(test):
+    """The file `test` is in: its name up to its first `::` (a pytest node) or `#` (a smoke
+    block), all of it with neither."""
+    return test.split("::")[0].split("#")[0]
+
+
 def _flaked(turn, directory, state, scratch, tree, log_path, log, flaky, failed, passed):
     """Keep in the record of the line `turn` the tests that failed, then passed, on `tree`, as
     this member's check there found them: `flaky`, those `gate.run_done_when` names, and those
     a check confirmed red there (`failed`, by command) once a later one passes them (`passed`,
-    by command: the tests it ran, None for all).  A test seen so on two trees within FLAKY gets
-    one repair of the target, owned by this member, and holds it until a change editing it
-    merges or FLAKY has passed; what it saw before then is that repair's."""
+    by command: the tests it ran, None for all), each toward its file.  A file seen so on two
+    trees within FLAKY, whichever of its tests, gets one repair of the target, owned by this
+    member, and holds it until a change editing it merges or FLAKY has passed; what its tests
+    saw before then is that repair's."""
     from . import run
     now = time.time()
     with turn.with_suffix(".flakes.lock").open("a") as lock:
@@ -379,8 +386,14 @@ def _flaked(turn, directory, state, scratch, tree, log_path, log, flaky, failed,
             kept = json.loads(path.read_text())
         except (OSError, ValueError):
             kept = {}
-        tests = {test: entry for test, entry in kept.get("tests", {}).items()
-                 if now - (entry.get("repair") or entry["seen"][-1])["at"] < FLAKY}
+        files = {}      # a ledger keeping a test under its full name counts it toward its file
+        for name, entry in kept.get("tests", {}).items():
+            if now - (entry.get("repair") or entry["seen"][-1])["at"] < FLAKY:
+                into = files.setdefault(_file(name), {"seen": []})
+                if "repair" in entry:
+                    files[_file(name)] = entry      # its hold takes every sight of the file
+                elif "repair" not in into:
+                    into["seen"] += [{"test": name, **sight} for sight in entry["seen"]]
         logs, reds = {test: [] for test in flaky}, []     # each test seen, its red's log first
         for red in (red for red in kept.get("red", ()) if now - red["at"] < FLAKY):
             ran = passed.get(red["command"], ()) if red["tree"] == tree else ()
@@ -397,29 +410,30 @@ def _flaked(turn, directory, state, scratch, tree, log_path, log, flaky, failed,
         shutil.copyfile(log_path, shown)
         reds += [{"tree": tree, "command": cmd, "tests": named, "at": now, "log": shown}
                  for cmd, named in failed.items() if named]
-        for test, before in logs.items():
-            upstream, held = _upstream(state), tests.get(test, {}).get("repair")
+        for file in dict.fromkeys(map(_file, logs)):
+            upstream, held = _upstream(state), files.get(file, {}).get("repair")
             if held and not run.git_out(scratch, "diff", "--quiet", held["sha"], upstream, "--",
-                                        test)[0]:
+                                        file)[0]:
                 continue
-            seen = [sight for sight in tests.get(test, {}).get("seen", ())
+            seen = [sight for sight in files.get(file, {}).get("seen", ())
                     if now - sight["at"] < FLAKY] + [
-                        {"tree": tree, "at": now, "logs": [*before, shown]}]
-            tests[test] = {"seen": seen}
+                        {"tree": tree, "at": now, "test": test, "logs": [*before, shown]}
+                        for test, before in logs.items() if _file(test) == file]
+            files[file] = {"seen": seen}
             trees = {sight["tree"] for sight in seen}
             if len(trees) > 1:
                 tip = run.git(scratch, "rev-parse", f"{upstream}^{{commit}}")
                 suite = gitcall.declared_suite(scratch, ref=tip)
                 # its first sight keys the repair: no run of an earlier hold answers for it
                 name = _start_repair(state, directory, {
-                    "command": test, "check": f"{suite}  # once", "sha": tip,
+                    "command": file, "check": f"{suite}  # once", "sha": tip,
                     "flaky": seen[0]["at"],
-                    "text": prompts.flaky_test_text(test, state["repo"], upstream, seen)}, log)
+                    "text": prompts.flaky_test_text(file, state["repo"], upstream, seen)}, log)
                 if name:
-                    log(f"{test} failed, then passed, on {len(trees)} trees: repaired by {name}")
-                    tests[test] = {"repair": {"run": name, "at": now, "sha": tip}}
+                    log(f"{file} failed, then passed, on {len(trees)} trees: repaired by {name}")
+                    files[file] = {"repair": {"run": name, "at": now, "sha": tip}}
         fresh = path.with_name(path.name + ".new")
-        fresh.write_text(json.dumps({"red": reds, "tests": tests}))
+        fresh.write_text(json.dumps({"red": reds, "tests": files}))
         fresh.replace(path)
 
 
