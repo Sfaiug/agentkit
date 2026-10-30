@@ -1,10 +1,11 @@
 # This Mac's Linux machine, where ak's server runs: its worker box, landing gate and limits
 # exist only on Linux.  This file hides how: Lima (2.2 or newer, for `limactl autostart`) on
-# Apple's virtualization, the machine's settings, its size and its start at boot.  install.sh
-# sources it and uses only
+# Apple's virtualization, the machine's settings, its size, its start at boot and the Mac's power
+# settings that keep it up.  install.sh sources it and uses only
 #   LINUX_MACHINE           the ssh alias the Mac reaches the machine by, a local port that
 #                           needs no network
-#   linux_machine_up        make sure the machine exists and is up; nothing already right changes
+#   linux_machine_up        make sure the machine exists, is up and stays up with the Mac;
+#                           nothing already right changes
 #   linux_machine_run CMD   run CMD in the machine, in its home, with a terminal when there is one
 LINUX_INSTANCE=ak
 LINUX_MACHINE=lima-$LINUX_INSTANCE
@@ -25,7 +26,7 @@ linux_share() {   # linux_share <total> <floor>
 }
 
 linux_machine_up() {
-  local dir name cpus mem disk gib=$((1024 * 1024 * 1024))
+  local dir name cpus mem disk power gib=$((1024 * 1024 * 1024))
   dir=$(linux_dir) name=$(linux_user)
   if ! limactl autostart --help >/dev/null 2>&1; then
     if command -v limactl >/dev/null 2>&1; then brew upgrade lima || return 1
@@ -50,6 +51,20 @@ linux_machine_up() {
   if [ ! -e "${AK_LAUNCH_DAEMONS:-/Library/LaunchDaemons}/io.lima-vm.daemon.$LINUX_INSTANCE.plist" ]; then
     limactl autostart enable --condition=boot "$LINUX_INSTANCE" || return 1
     echo "linux: this Mac's Linux machine starts when the Mac does"
+  fi
+  # On power the Mac never sleeps, though its display may, and it starts again by itself when
+  # power comes back after a cut.  pmset keeps both across restarts; only what is not so yet is
+  # set, which asks for sudo as the start at boot does.
+  power=$(pmset -g custom | awk '/^[^ ]/ { ac = /^AC Power:/ }
+    ac && $1 == "sleep" && $2 != 0 { print "sleep 0" }
+    ac && $1 == "autorestart" && $2 != 1 { print "autorestart 1" }') || return 1
+  if [ -n "$power" ]; then
+    sudo pmset -c $power || return 1   # each setting and its value split into words of their own
+    echo "power: this Mac never sleeps on power, though its display may, and starts again after a power cut"
+  fi
+  # FileVault holds a Mac that starts again at its password before anything of it runs.
+  if fdesetup isactive >/dev/null 2>&1; then
+    echo "power: FileVault is on, so after a restart this Mac waits for its password, and ak's machine stays down until someone enters it"
   fi
   # Lima keeps the alias's port and key in its own ssh.config; ssh reads it through this line,
   # first in the file, where an Include holds for every host.

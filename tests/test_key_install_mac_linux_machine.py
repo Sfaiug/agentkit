@@ -9,9 +9,11 @@ has one; starts it with the Mac; and records it as the Mac's server, reached ove
 alias.  A second install finds it and changes nothing already right; a client stays a client.
 Black-box: install.sh of the checkout `AK_BIN` names runs in an answer-key Home that is the
 account's own (tests/fixtures/installer.py), on a Mac of fakes: `uname`, `sysctl`, `df`, `brew`,
-`launchctl` and a `limactl` whose machine is a directory, `<root>/guest`.
+`launchctl`, `fdesetup`, a `pmset` keeping its settings in `<root>/pmset.json`, a `sudo` that
+runs only `pmset` and a `limactl` whose machine is a directory, `<root>/guest`.
 """
 
+import json
 import os
 import shlex
 import subprocess
@@ -56,6 +58,33 @@ BREW = LOG + '[ "$*" != "install lima" ] || cp -- {limactl} {bin}/limactl\n'
 SYSCTL = '#!/bin/sh\ncase "$2" in hw.ncpu) echo {cpus} ;; hw.memsize) echo {memory} ;; *) exit 1 ;; esac\n'
 DF = ("#!/bin/sh\necho 'Filesystem 1024-blocks Used Available Capacity Mounted on'\n"
       "echo '/dev/disk3s5 976490576 1 {free} 1% /System/Volumes/Data'\n")
+# Each power source's settings, as `pmset -g custom` prints them; only root changes them, with
+# `-a` for every source, `-c` on power, `-b` on battery.
+PMSET = """#!{python}
+import json, os, sys
+from pathlib import Path
+args, path = sys.argv[1:], Path({root!r}, "pmset.json")
+with open(path.with_name("logs") / "pmset.log", "a") as log:
+    log.write(json.dumps(args) + "\\n")
+sources = json.loads(path.read_text())
+if args == ["-g", "custom"]:
+    for source, settings in sources.items():
+        print(source + ":")
+        for name, value in settings.items():
+            print(f" {{name:<20}} {{value}}")
+    sys.exit(0)
+if "SUDO_USER" not in os.environ:
+    sys.exit("pmset: this command requires root")
+for source in {{"-a": list(sources), "-c": ["AC Power"], "-b": ["Battery Power"]}}[args[0]]:
+    sources[source].update((name, int(value)) for name, value in zip(args[1::2], args[2::2]))
+path.write_text(json.dumps(sources))
+"""
+SUDO = LOG + '[ "$1" = pmset ] || {{ echo "sudo: not scripted in this test" >&2; exit 1; }}\n' \
+    'SUDO_USER=acme exec "$@"\n'
+FDESETUP = '#!/bin/sh\n[ "$1" = isactive ] && echo {on} && {on}\n'
+# A Mac mini as it ships: it sleeps once its display does and stays off after a power cut.
+MINI = {"AC Power": {"Sleep On Power Button": 1, "autorestart": 0, "disksleep": 10, "sleep": 1,
+                     "displaysleep": 10}}
 
 
 def git(*args):
@@ -65,7 +94,7 @@ def git(*args):
 class Mac:
     """A Mac of fakes in a Home that is the account's own, named acme."""
 
-    def __init__(self, cpus=10, memory_gib=16, free_gib=500):
+    def __init__(self, cpus=10, memory_gib=16, free_gib=500, power=MINI, filevault=False):
         self.home = home = Home()
         installer.prepare(home)
         installer.own_home(home)
@@ -80,6 +109,10 @@ class Mac:
         home.fake("launchctl", "#!/bin/sh\nexit 0\n")
         home.fake("sysctl", SYSCTL.format(cpus=cpus, memory=memory_gib * GIB))
         home.fake("df", DF.format(free=free_gib * 1024 * 1024))
+        home.fake("pmset", PMSET.format(python=sys.executable, root=str(home.root)))
+        (home.root / "pmset.json").write_text(json.dumps(power))
+        home.fake("sudo", SUDO.format(python=python, log=shlex.quote(str(home.log("sudo")))))
+        home.fake("fdesetup", FDESETUP.format(on="true" if filevault else "false"))
         self.daemons = home.root / "LaunchDaemons"
         self.daemons.mkdir()
         home.env.update(USER="acme", AK_LAUNCH_DAEMONS=str(self.daemons))
@@ -96,6 +129,9 @@ class Mac:
 
     def inside(self):
         return self.home.calls("inside")
+
+    def power(self):
+        return json.loads((self.home.root / "pmset.json").read_text())
 
     def server(self):
         path = self.home.path / ".agentkit/state/server"
