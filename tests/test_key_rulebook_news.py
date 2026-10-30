@@ -8,8 +8,9 @@ command to run, and the prompt after it carries nothing until the rules change a
 cannot record the hand-over it hands nothing over, and the next prompt carries the change.  A
 compaction leaves the conversation only its launch's rulebook, so its next prompt carries what
 changed since that one.  The shipped rules alone are too long for Claude's prompt, so a whole
-rulebook goes to a file the prompt names (tests/test_key_rulebook_news_too_long.py).  Black-box: Claude's hooks as ak's adapter registers them, fired as
-Claude fires them (tests/fixtures/hookdrive.py); this test fails against `/bin/false`.
+rulebook goes to a file the prompt names (tests/test_key_rulebook_news_too_long.py).
+Black-box: Claude's hooks as ak's adapter registers them, fired as Claude fires them
+(tests/fixtures/hookdrive.py); this test fails against `/bin/false`.
 """
 
 import hashlib

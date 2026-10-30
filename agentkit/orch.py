@@ -2908,10 +2908,10 @@ def rulebook_compacted(session, conversation):
 
 
 def rulebook_ack(name, code):
-    """The seat's conversation read the rulebook its prompt named (`ak orch rules CODE`): its
-    prompts stop naming it until the rules change again.  The code is the one that prompt
-    carried, for that conversation and those rules, so a client that inherited the seat's
-    name, and rules that changed since, say nothing read."""
+    """The seat's conversation read the rulebook file its prompt named (`ak orch rules CODE`):
+    its prompts stop naming it until the rules change again.  The code is the one that file
+    ended with, for that conversation and those rules (`rulebook_pointer`), so a client that
+    inherited the seat's name, and rules that changed since, say nothing read."""
     from . import notify
     with notify.session_lock(name) as current:
         record = config.session_records().get(current) or {}
