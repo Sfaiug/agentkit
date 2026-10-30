@@ -79,3 +79,23 @@ func TestEmbeddedAdapters(t *testing.T) {
 		t.Fatalf("seat variables %v %v", names, err)
 	}
 }
+
+// Int reads no more digits than PYTHONINTMAXSTRDIGITS lets Python's int() read: a sign and
+// underscores aside, leading zeros among them, and 4300 where the variable is unset or refused.
+func TestIntReadsAsManyDigitsAsPython(t *testing.T) {
+	nines := func(n int) string { return strings.Repeat("9", n) }
+	for _, c := range []struct {
+		limit, text string
+		read        bool
+	}{
+		{"", nines(4300), true}, {"", nines(4301), false}, {"639", nines(4301), false},
+		{"640", "-" + nines(640), true}, {"640", nines(641), false}, {"640", "0" + nines(640), false},
+		{"640", strings.Join(strings.Split(nines(640), ""), "_"), true},
+		{" +0700", nines(700), true}, {"0", nines(5000), true}, {"-0", nines(5000), true},
+	} {
+		t.Setenv("PYTHONINTMAXSTRDIGITS", c.limit)
+		if read := Int(c.text) != nil; read != c.read {
+			t.Errorf("PYTHONINTMAXSTRDIGITS=%q, %d characters: read %v", c.limit, len(c.text), read)
+		}
+	}
+}

@@ -4,9 +4,10 @@ The owner (24 Oct 2026) wants the defaults `c` sets for new seats applied to eve
 on request, and (20 Oct 2026) "when the user updates the effort or the model in an active
 session, the session should update with that from now on".  `a` asks on a card how many open
 seats it changes and which restart, each one not running [defaults]'s orchestrator at its
-entry's effort: Esc leaves every record as it was; `Apply` gives each seat [defaults]'s
-executors and reviewers and the entries' efforts for those models in its record, and restarts
-each one the card named on [defaults]'s orchestrator at that effort, config.toml as it was.
+entry's effort that its running harness cannot move to in place: Esc leaves every record as
+it was; `Apply` gives each seat [defaults]'s executors and reviewers and the entries' efforts
+for those models in its record, restarts each one the card named on [defaults]'s orchestrator
+at that effort and types that move into each other one it moves, config.toml as it was.
 A seat asleep takes them too, and each seat's bar names them at once (the owner, 29 Oct 2026:
 "it should reflect what runs from now on, and not what is still running").
 Black-box: the program `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py) over
@@ -45,6 +46,7 @@ SEATS = {"acme-other": {"model": "astra", "screen": "codex-prompt-pane.txt",
          "acme-asleep": {"model": "fable", "alive": False,
                          "record": {**CALM, "asleep": time.time()}}}
 MOVING = ("acme-other", "acme-same")
+RESTARTING = ("acme-other",)     # acme-same's Claude Code takes Fable at xhigh in place
 ROLES = ("orchestrator", "workers", "reviewers", "efforts")
 
 
@@ -82,7 +84,7 @@ class DefaultsApplyToAll(unittest.TestCase):
         self.term.keys("a")
         return self.term.wait(lambda screen: {
             "  Give new seats' models and efforts to 4 sessions?",
-            "  acme-other, acme-same restart on Fable 5.1 at xhigh.", "› ✓ Keep", "  ✗ Apply"}
+            "  acme-other restarts on Fable 5.1 at xhigh.", "› ✓ Keep", "  ✗ Apply"}
             <= set(lines(screen)))
 
     def test_esc_on_the_card_leaves_every_seat_as_it_was(self):
@@ -115,10 +117,10 @@ class DefaultsApplyToAll(unittest.TestCase):
                                  ("fable", ["fable"], ["astra"]))
                 self.assertEqual(record["efforts"]["astra"]["review_effort"], "medium")
         self.assertEqual(self.config.read_text(), self.given)
-        deadline = time.monotonic() + 10    # no look runs on `c`: only `a` redraws the bar
+        deadline = time.monotonic() + 30    # no look runs on `c`: only `a` redraws the bar
         while "GPT-6-Astra ◎" not in bar(self.home, self.seats["acme-calm"]):
             self.assertLess(time.monotonic(), deadline, "the bar kept the models it had")
-        for name in MOVING:     # its restart dresses a new bar, which names them too
+        for name in MOVING:     # its move dresses its bar anew, which names them too
             with self.subTest(seat=name):
                 while "GPT-6-Astra ◎" not in self.home.tmux(
                         "show-options", "-qv", "-t", f"={name}:", "@ak_why").out:
@@ -132,12 +134,14 @@ class DefaultsApplyToAll(unittest.TestCase):
                 self.assertEqual((record["efforts"]["fable"]["effort"],
                                   record["efforts"]["astra"]["review_effort"]), ("xhigh", "medium"))
         deadline = time.monotonic() + 30
-        while len(self.fakes["claude"].calls("interactive")) < len(launched) + len(MOVING):
+        while len(self.fakes["claude"].calls("interactive")) < len(launched) + len(RESTARTING):
             self.assertLess(time.monotonic(), deadline, "a seat's harness never launched again")
             time.sleep(0.1)
+        self.assertEqual(self.seats["acme-same"].wait_lines(2),
+                         ["/model claude-fable-5-1", "/effort xhigh"])
         again = self.fakes["claude"].calls("interactive")[len(launched):]
         self.assertEqual({(call["env"]["AGENTKIT_SESSION"], *call["argv"][:2]) for call in again},
-                         {(name, "claude-fable-5-1", "xhigh") for name in MOVING})
+                         {(name, "claude-fable-5-1", "xhigh") for name in RESTARTING})
 
     def test_a_seat_s_own_c_has_no_a_though_its_record_is_gone(self):
         Seat(self.home, "acme-bare", model="fable")

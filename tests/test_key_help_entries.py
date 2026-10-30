@@ -25,7 +25,7 @@ NESTED = {"hand-in": ("finding", "follow-up", "dispute", "done", "blocked", "not
           "notify": ("needs",),
           "browser": ("status", "login", "mcp-register", "install")}
 VERBS = ("models", "usage", "worker", "hand-in", "run", "orch", "notify", "wait", "plan",
-         "update", "watch", "browser", "doctor", "attach", "fetch", "macbridge")
+         "update", "watch", "browser", "doctor", "attach", "fetch", "macbridge", "move")
 ENTRIES = tuple(entry for verb in VERBS
                 for entry in (verb, *(f"{verb} {sub}" for sub in NESTED.get(verb, ()))))
 PUBLIC = ("run", "plan", "notify", "wait", "usage", "models", "browser", "fetch")
@@ -38,6 +38,7 @@ INTERNAL_PURPOSE = {
     "macbridge": "macOS only: forward requested files to the server over SSH",
     "attach": "the menu",
     "doctor": "show the slice, the tick, the machines, and any model set to an effort it does not take",
+    "move": "copy this home to the same path on another machine",
 }
 FLAGS = {
     "usage": ("[--json]",),
@@ -80,7 +81,7 @@ class Entries(unittest.TestCase):
         return self.helped[entry][0].out
 
     def test_every_entry_prints_the_same_help_for_both_flags_on_stdout_alone(self):
-        self.assertEqual(len(ENTRIES), 39)
+        self.assertEqual(len(ENTRIES), 40)
         for entry, (long, short) in self.helped.items():
             with self.subTest(entry):
                 self.assertEqual((long.code, long.err), (0, ""))

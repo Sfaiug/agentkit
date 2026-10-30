@@ -3584,8 +3584,8 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
     set to an effort it does not take lands on its first, and a worker's stepped onto the
     effort itself is unset again (_follows), while the effort's own step moves no other key;
     `hold`'s keys stay at the efforts they stand at, one that followed the effort keeping it.
-    A seat's orchestrator effort is the one its harness runs, so its step restarts the seat
-    instead, once asked on the card `around` draws (seat_restart).  A seat not made yet, named
+    A seat's orchestrator effort is the one its harness runs, so its step moves the seat
+    instead, asking first where that restarts it (seat_effort).  A seat not made yet, named
     None, holds its efforts in its record alone (the born row's, born_models).
     The efforts are read `now`, off the catalog already in hand (config.catalog_now): a listing
     never stands between the key and its frame.  What to say under the matrix, or ""."""
@@ -3605,7 +3605,7 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
         seat[1]["efforts"] = _stepped(cfg, seat[1], [(name, key, levels[at])], hold)
         return ""
     if seat and key == "effort":
-        return seat_restart(cfg, *seat, name, levels[at], around)
+        return seat_effort(cfg, *seat, name, levels[at], around)
     if seat:
         return efforts_saved(cfg, *seat, [(name, key, levels[at])])
     before = dict(entry)
@@ -3613,10 +3613,10 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
     return _saved(cfg, entry, before)
 
 
-def seat_restart(cfg, name, selected, model, effort, around):
-    """Seat `name` restarted on `model` with its orchestrator at `effort`, once `Restart` is
+def seat_effort(cfg, name, selected, model, effort, around):
+    """Seat `name` moved to `model` with its orchestrator at `effort`, a restart once `Restart` is
     picked on the card `around` draws (terminal.confirm), the owner's 24 Oct words about the
-    orchestrator: "it should ask me to confirm. As this restarts the session."  The restart
+    orchestrator: "it should ask me to confirm. As this restarts the session."  The move
     alone writes the record (orch.switch_orchestrator), and `selected` then holds it as it is.
     What to say under the rows, or ""."""
     note = orch.switch_orchestrator(cfg, name, model, effort=effort, asked=lambda kept: (
@@ -3818,8 +3818,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     marked one (config_columns).  Space on an effort steps that role's alone up,
     from its highest round to its lowest, as a click on its
     word does, and a click on one of its cells takes that level: each change is saved, to the
-    seat's record where it is a seat's (config_effort) -- its orchestrator's restarting it once
-    asked (seat_restart) -- and drawn at once, each cell it fills lighting and each it empties dimming in turn, and a step onto
+    seat's record where it is a seat's (config_effort) -- its orchestrator's moving it, asked
+    first where that restarts it (seat_effort) -- and drawn at once, each cell it fills lighting and each it empties dimming in turn, and a step onto
     the model's highest sends a light through its word (config_body, on the clock); nothing
     replays after another screen.
     A click on a model's label puts the highlight on its first mark.  `r`, or a click on
@@ -5060,10 +5060,10 @@ def apply_defaults(cfg, around):
     """`a` on a fresh window's `c`: every listed seat with a record but the weekly audit's takes
     [defaults]'s executors and reviewers and the entries' efforts for the models it then runs,
     once `Apply` is picked on the card `around` draws (terminal.confirm), which names each seat
-    that restarts, one not running [defaults]'s orchestrator at its entry's effort; that one
-    then restarts on it at that effort (orch.switch_orchestrator), the only way a seat's
-    orchestrator effort changes, so a restart refused or failed leaves its record on the one
-    its harness runs, its other changes kept.  Listed: it has a row on the main screen, asleep or
+    that restarts; one not running [defaults]'s orchestrator at its entry's effort then moves to
+    it at that effort (orch.switch_orchestrator), the only way a seat's orchestrator effort
+    changes, so a move refused or failed leaves its record on the one its harness runs, its
+    other changes kept.  Listed: it has a row on the main screen, asleep or
     gone from tmux too.  Each one's bar names what it took at once (handback.redress_seat).
     config.toml is not written.  What to say under the rows, one line a seat refused, or ""."""
     from . import audit     # here, not at the top: audit imports this module
@@ -5078,8 +5078,9 @@ def apply_defaults(cfg, around):
     moving = [name for name, record in seats.items() if record.get("orchestrator") != lead
               or config.at_efforts(cfg, record)["models"][lead]["effort"] != effort]
     count = f"{len(seats)} session{'s' * (len(seats) > 1)}"
-    means = (f"{', '.join(moving)} restart{'s' * (len(moving) == 1)} on "
-             f"{config.model_name(cfg, lead)} at {effort}." if moving
+    restarts = [name for name in moving if not orch.switch_lines(cfg, name, lead, effort)]
+    means = (f"{', '.join(restarts)} restart{'s' * (len(restarts) == 1)} on "
+             f"{config.model_name(cfg, lead)} at {effort}." if restarts
              else "No session restarts.")
     if not terminal.confirm(APPLY_ASK.format(count), means, APPLY_ANSWER, around):
         return ""
@@ -5091,7 +5092,7 @@ def apply_defaults(cfg, around):
         """`held`'s efforts at the entries', its orchestrator's own effort where it stands."""
         own = held.get("orchestrator")
         # its orchestrator's entry too, as before, but for the effort it runs at, which only a
-        # restart at another changes
+        # move at another changes
         efforts = {**(held.get("efforts") or {}), **{
             model: config.efforts_of(cfg["models"][model])
             for model in (own,) if model in cfg["models"]}, **taken}
@@ -5114,7 +5115,7 @@ def apply_defaults(cfg, around):
             note = orch.switch_orchestrator(cfg, name, lead, providers, effort=effort)
             if note:
                 said.append(f"{name}: {note}")
-        # after the restart, whose launch dresses a bar with no roles yet
+        # after the move, a restart's launch dressing a bar with no roles yet
         handback.redress_seat(name)
     return "\n".join(said)
 
@@ -5145,7 +5146,7 @@ def session_mark(cfg, name, selected, model, column, providers, around=None):
     rows, or "".
     """
     if column == 0:
-        note = orch.switch_orchestrator(cfg, name, model, providers, in_place=True,
+        note = orch.switch_orchestrator(cfg, name, model, providers,
                                         asked=around and (lambda kept: terminal.confirm(
                                             MOVE_ASK.format(name, config.model_name(cfg, model)),
                                             MOVE_MEANS[kept], "Move", around)))

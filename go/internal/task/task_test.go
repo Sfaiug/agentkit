@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -20,7 +21,7 @@ func TestReadReadsAnyLineEnding(t *testing.T) {
 
 // A round budget reads as Python's int() reads it, and only one over three is refused.
 func TestRoundsRefusalReadsAsPython(t *testing.T) {
-	for value, want := range map[string]string{"4": "4", "+4": "4", "0004": "4", "1_0": "10", "\uff14": "4", "\u0664": "4", "1_\uff10": "10", "+-4": "", "3": "", "-5": "", "4_": "", "_4": "", "1__0": "", "four": "", "": ""} {
+	for value, want := range map[string]string{"4": "4", "+4": "4", "0004": "4", "1_0": "10", "\uff14": "4", "\u0664": "4", "1_\uff10": "10", "+-4": "", "3": "", "-5": "", "4_": "", "_4": "", "1__0": "", "four": "", "": "", strings.Repeat("9", 4301): ""} {
 		got := RoundsRefusal(value, "task rounds")
 		if (want == "") != (got == "") || want != "" && got != "task rounds "+want+" is over the budget: 3 rounds, then a run goes back to its orchestrator to split or re-scope" {
 			t.Errorf("%q: got %q", value, got)
