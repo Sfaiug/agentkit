@@ -1160,8 +1160,8 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                         counted = count_wait(self_id, "suite" if run_dir else "lander", counted)
                     # Rank and a line's own check waiting decide this host's turns, never who
                     # asks the helper (owner, 30 Oct 2026: nothing waits for compute), as the
-                    # first may not ask for long: it waits here to rerun what the helper lost,
-                    # and a suite on a machine takes nothing from a wait here.
+                    # first may not ask for long: it waits here to rerun what a machine failed,
+                    # or sets up a new machine, and a suite on one takes nothing from a wait here.
                     if elsewhere and elsewhere():
                         turnless = True
                         break
