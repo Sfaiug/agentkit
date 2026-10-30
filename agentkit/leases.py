@@ -314,6 +314,42 @@ def collide(repo, older, younger, trees):
     return merged(repo, base, trees["older"], trees["younger"])[1]
 
 
+def diff_paths(repo, base, tree):
+    """(the files a run's diff changes, a rename as its two; the directories above them; the
+    directories it removed, as moving one does), for `may_clash`."""
+    from . import run
+    words = run.git(repo, "diff-tree", "-r", "-t", "-z", "--no-renames", base, tree).split("\0")
+    # each entry is ":<old mode> <new mode> <old id> <new id> <status>", then its path
+    entries = [(meta[1:].split()[:2], path) for meta, path in zip(words[::2], words[1::2])]
+    files = [Path(path) for modes, path in entries if "040000" not in modes]
+    return ({str(path) for path in files},
+            {str(parent) for path in files for parent in path.parents} - {"."},
+            {path for modes, path in entries if modes == ["040000", "000000"]})
+
+
+def may_clash(repo, older, younger, diffs):
+    """Whether `collide` has anything to decide for the pair (`diffs` holds each run's
+    `diff_paths`), as most pairs of 64 live runs have not: a file both change, a file where the
+    other has a directory, or a directory one removed, perhaps moved, the other changes in; on
+    bases that differ, also a rename on main between them, or a directory either removed, which
+    takes along what main added to it: either carries the diff `collide` brings onto the newer
+    base to paths that diff never changed."""
+    one, other = diffs[older["run"]], diffs[younger["run"]]
+    return bool(one[0] & (other[0] | other[1]) or other[0] & one[1] or one[2] & other[1]
+                or other[2] & one[1] or older["base"] != younger["base"]
+                and (one[2] or other[2] or renamed_between(repo, older["base"], younger["base"])))
+
+
+@functools.lru_cache(maxsize=1024)      # commits never change
+def renamed_between(repo, base, other):
+    """Whether main renamed a file between two bases: `collide` follows it, so diffs of
+    different paths may meet.  No rename limit (`-l0`): a merge's own (`merge.renameLimit`)
+    may find more than `diff.renameLimit` lets a diff, and either may change between scans."""
+    from . import run
+    return bool(run.git(repo, "diff-tree", "-r", "-M", "-l0", "--name-only", "--diff-filter=R",
+                        base, other))
+
+
 def scan(repo, log=lambda _: None, now=None):
     """One repository's pass: each younger run that collides with an older one is written
     down as waiting on the oldest such holder, with the paths and since when; the rest of
@@ -325,10 +361,11 @@ def scan(repo, log=lambda _: None, now=None):
     before = read(repo)
     runs = live(repo)
     trees = {each["run"]: tree(each["worktree"], each["artifacts"], log) for each in runs}   # each read once
+    diffs = {each["run"]: diff_paths(repo, each["base"], trees[each["run"]]) for each in runs}
     waits = {}
     for at, younger in enumerate(runs):
         for older in runs[:at]:
-            files = collide(repo, older, younger, trees)
+            files = collide(repo, older, younger, trees) if may_clash(repo, older, younger, diffs) else []
             # Markdown-only conflicts can be settled at landing without rebuilding.
             if not files or all(path.endswith(".md") for path in files):
                 continue
