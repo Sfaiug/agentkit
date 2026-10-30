@@ -37,20 +37,43 @@ func Home() string {
 var places = []string{"runs", "wt", "state", "secrets", "tmp", "env", "work", "jobs"}
 
 // EnsureDirs makes Home and its places as Python's config.ensure_dirs does: each owner-only,
-// one someone else made included, and a file where one goes refused, never changed.
-func EnsureDirs() error {
-	if err := os.MkdirAll(filepath.Dir(Home()), 0o777); err != nil {
-		return err
+// one someone else made included, and a file where one goes refused, never changed.  Failing,
+// it takes back what it made and changed, so its caller can leave all of the work to Python.
+func EnsureDirs() (err error) {
+	var undo []func()
+	defer func() {
+		for i := len(undo) - 1; err != nil && i >= 0; i-- {
+			undo[i]()
+		}
+	}()
+	// the folders missing above Home, outermost first, as Python's parents=True makes them
+	var above []string
+	for dir := filepath.Dir(Home()); dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
+		if _, err := os.Stat(dir); err == nil {
+			break
+		}
+		above = append([]string{dir}, above...)
+	}
+	for _, dir := range above {
+		if err := os.Mkdir(dir, 0o777); err != nil {
+			return err
+		}
+		undo = append(undo, func() { os.Remove(dir) })
 	}
 	for _, place := range append([]string{""}, places...) {
 		dir := filepath.Join(Home(), place)
-		if err := os.Mkdir(dir, 0o700); err != nil {
-			if info, statErr := os.Stat(dir); statErr != nil || !info.IsDir() {
-				return err
-			}
+		before, statErr := os.Stat(dir)
+		if err := os.Mkdir(dir, 0o700); err == nil {
+			undo = append(undo, func() { os.Remove(dir) })
+		} else if statErr != nil || !before.IsDir() {
+			return err
 		}
 		if err := os.Chmod(dir, 0o700); err != nil {
 			return err
+		}
+		if statErr == nil {
+			// its whole mode: Chmod sets the setuid, setgid and sticky bits too
+			undo = append(undo, func() { os.Chmod(dir, before.Mode()) })
 		}
 	}
 	return nil

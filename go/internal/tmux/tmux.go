@@ -34,8 +34,8 @@ func Own() string {
 // A Session is one tmux session's name and its Mark, empty where it has none.
 type Session struct{ Name, Mark string }
 
-// Sessions are the sessions one server holds, Control aside. A server not running, no tmux,
-// or one not answering holds none; asking starts no server.
+// Sessions are the sessions one server holds, Control aside on ak's own. A server not running,
+// no tmux, or one not answering holds none; asking starts no server.
 func Sessions(server string) []Session {
 	out, err := run(server, "list-sessions", "-F", "#{session_name}\t#{"+Mark+"}")
 	if err != nil {
@@ -43,7 +43,7 @@ func Sessions(server string) []Session {
 	}
 	var found []Session
 	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
-		if at := strings.LastIndexByte(line, '\t'); at >= 0 && line[:at] != Control {
+		if at := strings.LastIndexByte(line, '\t'); at >= 0 && (line[:at] != Control || server != Own()) {
 			found = append(found, Session{line[:at], line[at+1:]})
 		}
 	}
