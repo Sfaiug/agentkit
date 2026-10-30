@@ -104,8 +104,11 @@ class SeatMove(Sandbox):
             side_effect=lambda _name, model, *_a, every=False, **_kw: self.bar.append(
                 (model, "dress" if every else "redress"))))
 
-    def move(self, model):
-        return orch.switch_orchestrator(self.cfg, SEAT, model, providers={})
+    def move(self, model, effort=None):
+        return orch.switch_orchestrator(self.cfg, SEAT, model, providers={}, effort=effort)
+
+    def effort(self):
+        return config.at_efforts(self.cfg, self.record())["models"]["opus"]["effort"]
 
     def owed(self):
         return [owed["line"] for owed in watch.seat_read(SEAT).get("owed_lines") or ()]
@@ -152,9 +155,21 @@ class SeatMove(Sandbox):
         for refusing in ((config, "update_session"), (watch, "owe_line")):
             with patch.object(*refusing, side_effect=OSError("disk full")):
                 self.assertIn("disk full", self.move("fable"))
-            self.assertEqual((self.owed(), self.record()["orchestrator"]), ([], "opus"))
+                self.assertIn("disk full", self.move("opus", effort="max"))
+            self.assertEqual((self.owed(), self.record()["orchestrator"], self.effort()),
+                             ([], "opus", "xhigh"))
         self.assertEqual(self.move("fable"), "")
         self.assertEqual(self.owed(), ["/model claude-fable-5-1", "/effort xhigh"])
+
+    def test_an_effort_move_in_place_refused_keeps_a_build_effort_saved_meanwhile(self):
+        def saved_then_refused(*_a, **_kw):
+            config.change_efforts(SEAT, lambda data: {
+                **data["efforts"], "opus": {**data["efforts"]["opus"], "exec_effort": "low"}})
+            raise OSError("disk full")
+        with patch.object(watch, "owe_line", side_effect=saved_then_refused):
+            self.assertIn("disk full", self.move("opus", effort="max"))
+        self.assertEqual(self.record()["efforts"]["opus"],
+                         {"effort": "xhigh", "exec_effort": "low", "review_effort": "xhigh"})
 
     def test_a_turn_its_usage_cut_off_goes_on_after_a_move_in_place(self):
         watch.seat_write(SEAT, state="at_prompt", usage_wait={
