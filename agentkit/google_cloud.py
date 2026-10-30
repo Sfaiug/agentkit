@@ -79,7 +79,8 @@ def said(mb_per_core):
     if not (at := ledger["answered"]):
         return ["Google has not answered the tick yet"]
     since = f" as of {time.strftime('%-d %b %H:%M', time.localtime(at))}"
-    return [f"{len(ledger['machines'])} running · €{ledger['spent']:.2f} of €{cap:.2f} this "
+    running = sum("from" not in one for one in ledger["machines"].values())
+    return [f"{running} running · €{ledger['spent']:.2f} of €{cap:.2f} this "
             f"month{since * (time.time() - at > 2 * PASS)}", *late]
 
 
@@ -89,7 +90,7 @@ def watch():
     active, cap = _setting()
     if not active:
         return
-    listed, now = rented(), time.time()
+    now, listed = time.time(), rented()     # in that order: `_moved` weighs how old a listing is
     try:
         kept = json.loads((config.STATE / OFFERS).read_text())
         at, prices = kept["at"], {(name, region): hourly for name, region, *_, hourly
@@ -202,7 +203,8 @@ def _ledger():
     try:
         ledger = json.loads((config.STATE / LEDGER).read_text())
         numbers = [ledger["answered"], ledger["spent"], *(
-            one[key] for one in ledger["machines"].values() for key in ("price", "until"))]
+            value for one in ledger["machines"].values()
+            for value in (one["price"], one["until"], one.get("from", 0)))]
         return ledger if all(map(_amount, numbers)) else None
     except FileNotFoundError:
         return {"answered": 0, "spent": 0, "machines": {}}
@@ -211,20 +213,31 @@ def _ledger():
 
 
 def _moved(ledger, listed, now, prices):
-    """`ledger` moved on to `now`, Google listing `listed`: each machine charged since the last
-    answer, one new since its creation, one gone up to its allowed end, at the dearer of its kept
-    price and its type's there, else the dearest kept; only this month's time counts, in UTC."""
+    """`ledger` moved on to `now`, Google listing `listed` as asked then: each machine charged since
+    the last answer, one new since its creation, one gone up to its allowed end, at the dearer of
+    its kept price and its type's there, else the dearest kept; only this month's time counts, in
+    UTC.  A machine on the meter by name, with `from` when it was asked for, is one Google has not
+    listed yet: no listing can show it gone, so it stays until one names it, and past its end is
+    paid whole.  As it was, for a listing older than the last answer."""
+    if now < ledger["answered"]:
+        return ledger
     start = datetime(*time.gmtime(now)[:2], 1, tzinfo=timezone.utc).timestamp()
     since, kept, machines = ledger["answered"], ledger["machines"], {}
     spent = ledger["spent"] if since >= start else 0
     for one in listed:
-        old = kept.pop(one.id, None)
+        old = kept.pop(one.id, None) or kept.pop(one.name, None)
         price = max(old["price"] if old else 0, prices.get(
             (one.type, one.zone.rsplit("-", 1)[0]), max(prices.values(), default=0)))
         machines[one.id] = {"price": price, "until": one.until}
-        spent += price * max(0, now - max(since if old else one.created, start)) / 3600
-    for gone in kept.values():
-        spent += gone["price"] * max(0, min(now, gone["until"]) - max(since, start)) / 3600
+        paid_from = since if old and "from" not in old else one.created
+        spent += price * max(0, now - max(paid_from, start)) / 3600
+    for key, gone in kept.items():
+        if "from" not in gone:
+            spent += gone["price"] * max(0, min(now, gone["until"]) - max(since, start)) / 3600
+        elif now < gone["until"]:
+            machines[key] = gone
+        else:
+            spent += gone["price"] * max(0, gone["until"] - max(gone["from"], start)) / 3600
     return {"answered": now, "spent": spent, "machines": machines}
 
 
