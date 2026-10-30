@@ -54,8 +54,8 @@ PASSES = (
     (browser, "tidy", "browser tidy did not finish", False),
     (update, "go_live", "agentkit did not go live", False),
     (update, "keep_current", "the harness upgrade pass did not run", False),
+    (watch, "after_merge_checks", "merged runs were not followed", True),
     (watch, "incoming", None, True), (watch, "outgoing", None, True),
-    (watch, "after_merge_checks", None, True),
 )
 
 

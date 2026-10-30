@@ -7847,12 +7847,16 @@ def local_passes(state, dry_run, log):
         ("the rented machines were not watched", google_cloud.watch, False),
         # A merge to a project reaches its seats' rulebooks: their next prompts name it.
         ("the projects' rules were not fetched", orch.fetch_projects, False),
-        # Merged agentkit goes live after every local pass, so as little of this tick's old
-        # code as can be is left to run over new files; GitHub imports nothing new.
+        # Merged agentkit goes live after every local pass but the merged runs', so as little of
+        # this tick's old code as can be is left to run over new files; that pass and GitHub's
+        # import nothing new.
         ("agentkit did not go live", lambda: update.go_live(log), False),
         # ... and then every harness: a newer release is upgraded by a child started on that
         # new code, gated and put back where a gate fails, and no tick waits on it.
         ("the harness upgrade pass did not run", lambda: update.keep_current(log), False),
+        # A merged change's `health:` needs no GitHub, so a gh that is down never keeps it from
+        # going live: the pass's own gh calls fail on their own, and the next tick asks again.
+        ("merged runs were not followed", lambda: after_merge_checks(state, dry_run, log), True),
     )
 
 
@@ -7912,7 +7916,6 @@ def main(argv):
             state.pop("gh_out", None)
         incoming(state, me, dry_run, log)
         outgoing(state, me, dry_run, log)
-        after_merge_checks(state, dry_run, log)
         if not dry_run:
             save_state(state)
         return 0
