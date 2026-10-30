@@ -192,7 +192,7 @@ func TestNotifyCheck(t *testing.T) {
 	}))
 	defer server.Close()
 	t.Setenv("AGENTKIT_DISCORD_WEBHOOK", server.URL+"/200")
-	assertCall(t, check, 1, "", "notify: fail (no response: unexpected EOF)\n")
+	assertCall(t, check, 1, "", "notify: fail (no response)\n")
 	if agent := (<-asked).Get("User-Agent"); agent != "agentkit/1 (+https://github.com)" {
 		t.Fatalf("User-Agent %q", agent)
 	}
@@ -205,9 +205,9 @@ func TestNotifyCheck(t *testing.T) {
 	if <-asked; (<-asked).Get("Referer") != "" {
 		t.Fatal("a redirect carried the webhook as its Referer")
 	}
-	// a Location Go cannot follow, which would quote the token, is answered with its status
+	// past the connection a failure says no more: Go would quote the Location, the token in it
 	t.Setenv("AGENTKIT_DISCORD_WEBHOOK", server.URL+"/secret-token?thread_id=9")
-	assertCall(t, check, 1, "notify: fail (302)\n", "")
+	assertCall(t, check, 1, "", "notify: fail (no response)\n")
 }
 
 func TestPlanInputRefusals(t *testing.T) {
