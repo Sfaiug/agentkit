@@ -3445,14 +3445,10 @@ def _wait_sent(session, harness, text):
     return False
 
 
-@contextmanager
 def seat_held(name):
-    """The seat's lock for typing into it, the news its next prompt carries made ready first
-    (`orch.rulebook_prepare`): that prompt's own hook never waits on this lock, and nothing
-    runs between the last look at the screen and the Enter."""
-    with notify.session_lock(name) as held:
-        orch.rulebook_prepare(held)
-        yield held
+    """The seat's lock for typing into it: nothing runs between the last look at the screen and
+    the Enter, and the prompt's own hook never takes it (`orch.rulebook_news`)."""
+    return notify.session_lock(name)
 
 
 def pane_unread(session):
