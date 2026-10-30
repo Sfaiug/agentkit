@@ -34,6 +34,29 @@ def settled(screen):
     return all(part in screen for part in ("! needs you", "● working", "3 of 7", "esc leave"))
 
 
+def framed(width):
+    """A wait's test: the menu drawn whole and settled at `width`, its header and rule that wide
+    and no line wider.  What a test asserts of a screen is what it waits for: a frame on its way
+    when the terminal shrinks lands wrapped at the new width, its 100-column key line as the
+    40-column form's two, and the terminal may be read part way through the draw after it."""
+    def drawn(screen):
+        lines = shown(screen)
+        return (settled(screen) and CLOCK.match(lines[0]) and len(lines[0]) == width
+                and re.match(RULE % width, lines[1]) and all(len(line) <= width for line in lines))
+    return drawn
+
+
+def narrow(screen):
+    """The menu drawn whole at 40 columns in its narrow form: each subscription on a line of its
+    own, a seat's progress line under its row and the keys wrapped whole."""
+    lines = shown(screen)
+    return (framed(40)(screen) and "  Claude   ▰▰▱▱▱▱▱▱▱▱  21% left" in lines
+            and "  ChatGPT  ▰▰▰▰▰▰▰▱▱▱  69% left" in lines
+            and re.search(rf"^› 1  {re.escape(FIX)}\n    ━+╸?─* 3 of 7$", screen, re.M)
+            and [line for line in lines if line.strip()][-2:]
+            == ["  ↑↓←→ move   ⏎ open   n new   c config", "  esc leave"])
+
+
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class MenuWidth(unittest.TestCase):
     @classmethod
@@ -54,33 +77,18 @@ class MenuWidth(unittest.TestCase):
             "anthropic": {"meters": [{"name": "weekly_all", "used": 79}]},
             "openai": {"meters": [{"name": "weekly", "used": 31, "window_secs": WEEK}]}}})
 
-    def menu(self, width):
+    def menu(self, width, drawn=settled):
         term = Terminal(self.home, size=(width, 30))
         self.addCleanup(term.keys, "Escape")
-        return term, shown(term.wait(settled))
+        return term, shown(term.wait(drawn))
 
     def test_a_resize_to_40_columns_redraws_the_menu_in_its_narrow_form(self):
         term, _ = self.menu(100)
         term.resize(40, 30)
-        lines = shown(term.wait(lambda screen: settled(screen)
-                                and "  esc leave" in shown(screen)))
-        self.assertRegex(lines[0], CLOCK)
-        self.assertEqual(len(lines[0]), 40)
-        self.assertRegex(lines[1], RULE % 40)
-        self.assertIn("  Claude   ▰▰▱▱▱▱▱▱▱▱  21% left", lines)
-        self.assertIn("  ChatGPT  ▰▰▰▰▰▰▰▱▱▱  69% left", lines)
-        row = lines.index(f"› 1  {FIX}")
-        self.assertRegex(lines[row + 1], r"^    ━+╸?─* 3 of 7$")
-        self.assertEqual([line for line in lines if line.strip()][-2:],
-                         ["  ↑↓←→ move   ⏎ open   n new   c config", "  esc leave"])
-        self.assertEqual([line for line in lines if len(line) > 40], [])
+        term.wait(narrow)
 
     def test_past_120_columns_the_frame_stops_at_120_and_a_seat_row_at_100(self):
-        _, lines = self.menu(170)
-        self.assertRegex(lines[0], CLOCK)
-        self.assertEqual(len(lines[0]), 120)
-        self.assertRegex(lines[1], RULE % 120)
-        self.assertEqual([line for line in lines if len(line) > 120], [])
+        _, lines = self.menu(170, framed(120))
         wide = next(line for line in lines if FIX in line)
         self.assertTrue(wide.endswith(" 3 of 7"), wide)
         self.assertEqual(len(wide), 100)
