@@ -45,14 +45,13 @@ while say("wait") == b"n":
     time.sleep(0.1)
 say("end")
 """
-# The Mac: on battery at a suite's first look, then room for two pieces, which it takes and
+# The Mac: on battery until a piece runs here, then room for two pieces, which it takes and
 # passes without running them here, telling the kernel when it takes a suite's last.
 SSH = """import os, shlex, socket, sys
 words = shlex.split(" ".join(sys.argv[1:]))
 at = words.index("mac.sh")
 verb = words[at + 1]
 if verb == "probe" and os.path.exists({battery!r}):
-    os.remove({battery!r})
     sys.exit(251)
 elif verb == "probe":
     print("cpus 4\\nload 0\\nroom_mb 65536")
@@ -70,13 +69,13 @@ elif verb == "run":
 
 class Kernel:
     """One cgroup's memory as its pieces start and end; `passes` holds the pieces of each
-    pass that ran on this host. Beside a `helper`, a piece here ends once the helper took its
-    suite's last piece (`last`), so what waits goes there."""
+    pass that ran on this host. Beside a helper, on `battery` until a piece runs here, a piece
+    here ends once the helper took its suite's last piece (`last`), so what waits goes there."""
 
-    def __init__(self, unit, cap, swap_cap, helper=False):
+    def __init__(self, unit, cap, swap_cap, battery=None):
         self.unit, self.cap, self.swap_cap = unit, cap, swap_cap
         self.running, self.oom, self.passes = 0, 0, []
-        self.helper, self.taken = helper, 0    # the suites whose last piece the helper took
+        self.battery, self.taken = battery, 0    # the suites whose last piece the helper took
         self.listener = socket.socket(socket.AF_UNIX)
         self.address = f"\0ak-kernel-{os.getpid()}-{id(self)}"
         self.listener.bind(self.address)
@@ -103,12 +102,14 @@ class Kernel:
                         self.passes.append(0)
                     self.passes[-1] += 1
                     self.running += 1
+                    if self.battery:
+                        self.battery.unlink(missing_ok=True)
                 elif word == b"end":
                     self.running -= 1
                 elif word == b"last":
                     self.taken += 1
                 self.held()
-                piece.sendall(b"n" if word == b"wait" and self.helper and
+                piece.sendall(b"n" if word == b"wait" and self.battery and
                               self.taken < len(self.passes) else b".")
 
     def held(self):
@@ -128,7 +129,8 @@ def passes(case, cap=UNCAPPED, swap_cap=0, helper=False):
     case.addCleanup(home.close)
     unit = home.root / "cgroups" / "acme.slice" / "run.scope"
     unit.mkdir(parents=True)
-    kernel = Kernel(unit, cap, swap_cap, helper)
+    battery = home.root / "battery"
+    kernel = Kernel(unit, cap, swap_cap, battery if helper else None)
     case.addCleanup(kernel.close)
     (home.root / "cgroup").write_text("0::/acme.slice/run.scope\n")
     home.env.update(AK_CGROUP_ROOT=str(home.root / "cgroups"),
@@ -138,7 +140,6 @@ def passes(case, cap=UNCAPPED, swap_cap=0, helper=False):
         "suite.py": SUITE.format(address=kernel.address),
         "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
     GitHub(home).grant(rig.slug, "WRITE")
-    battery = home.root / "battery"
     if helper:
         home.fake("ssh", f"#!{sys.executable}\n"
                          f"{SSH.format(battery=str(battery), address=kernel.address)}")
