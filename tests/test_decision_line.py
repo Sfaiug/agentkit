@@ -1,6 +1,6 @@
-"""An ending that needs its seat's decision reaches it as one line under 400 characters, and its
-result opens with that line.  30 Oct 2026: the median FAIL line was 985 characters; Claude folded
-it into `[Pasted text #N]`, and a seat spent about 18K tokens before it knew what failed.
+"""An ending that needs its seat's decision reaches it as one line under 400 characters, its result
+holding the rest.  30 Oct 2026: the median FAIL line was 985 characters; Claude folded it into
+`[Pasted text #N]`, and a seat spent about 18K tokens before it knew what failed.
 
 Offline: a temporary HOME (`Sandbox`) and its adapters' folds.
 """
@@ -53,8 +53,6 @@ class DecisionLine(Sandbox):
             self.assertEqual(found[:3], (name, word, str(spent)), line)
             self.assertTrue(found[3].startswith(starts) and found[3].endswith(ends), line)
             self.assertEqual(found[4:], (move, config.tilde(directory / "result.md")))
-            self.assertTrue((directory / "result.md").read_text().startswith(
-                f"## Seat notice\n\n{line}\n\n# "))
             for harness, _ in config.manifests():
                 self.assertLessEqual(len(line), watch.screen(harness)["folds_over"] or len(line))
             with patch.object(watch, "longest", return_value=240):  # a harness folding sooner
@@ -68,9 +66,7 @@ class DecisionLine(Sandbox):
         line = handback.not_live_line(told, directory)
         self.assertEqual(line, "run acme-live NOT LIVE (3 of 3): health: probe failed on main after this merge. "
                                f"Next: {handback.RESULT_NAMES}. Result: {config.tilde(directory / 'result.md')}")
-        text = (directory / "result.md").read_text()
-        self.assertTrue(text.startswith(f"## Seat notice\n\n{line}\n\n# PASS"), text[:300])
-        self.assertIn(told, text)
+        self.assertIn(told, (directory / "result.md").read_text())
 
     def test_what_the_line_cannot_hold_is_whole_in_its_result(self):
         cause = "a process stopped during a remote write " * 30 + "and nothing ended it"
@@ -83,12 +79,11 @@ class DecisionLine(Sandbox):
         self.assertIn("Every one in full: /acme/final.md", (directory / "result.md").read_text())
         self.assertIn("acme-check " * 79, (directory / "result.md").read_text())
 
-    def test_an_ending_nothing_decides_about_opens_no_block(self):
-        for name, extra, heading in (("acme-merged", {"merged": True, "pr": "https://github.com/a/b/pull/1"}, "# PASS"),
-                                     ("acme-stopped", {"state": "stopped"}, "# FAIL")):
+    def test_an_ending_nothing_decides_about_has_no_decision_line(self):
+        for name, extra in (("acme-merged", {"merged": True, "pr": "https://github.com/a/b/pull/1"}),
+                            ("acme-stopped", {"state": "stopped"})):
             directory, state = self.ending(name, **extra)
             self.assertIsNone(handback.decision_line(state, directory, self.cfg))
-            self.assertTrue((directory / "result.md").read_text().startswith(heading))
 
 
 if __name__ == "__main__":

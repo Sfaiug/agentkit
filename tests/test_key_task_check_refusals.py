@@ -134,7 +134,7 @@ class MoreThanThreeChecks(unittest.TestCase):
                 state = json.loads((new[0] / "run.json").read_text())
                 self.assertEqual((state["state"], state["error"]), ("error", CEILING))
                 lines = (new[0] / "result.md").read_text().splitlines()
-                self.assertEqual(lines[4], f"# FAIL — {title}")
+                self.assertEqual(lines[0], f"# FAIL — {title}")
                 self.assertIn("VERDICT: none", lines)
                 self.assertIn(CEILING, lines)
 

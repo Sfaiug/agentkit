@@ -32,9 +32,9 @@ def alive(pid):
     return True
 
 
-def heading(path):
+def first_line(path):
     try:
-        return next((line for line in path.read_text().splitlines() if line.startswith("# ")), "")
+        return path.read_text().split("\n", 1)[0]
     except FileNotFoundError:
         return ""
 
@@ -103,7 +103,7 @@ class BackgroundRun(unittest.TestCase):
         self.assertEqual((self.fakes["claude"].n, self.fakes["codex"].n), (1, 1))
         result = self.run_dir / "result.md"
         # run.json may say pass a moment before result.md is written.
-        first = wait_for(lambda: heading(result))
+        first = wait_for(lambda: first_line(result).startswith("# PASS") and first_line(result))
         self.assertEqual(first, "# PASS, not merged: --no-merge — Add retry file")
         worktree = Path(self.settled["worktree"])
         tree = self.home.run("git", "-C", str(worktree), "ls-tree", "--name-only", "HEAD")

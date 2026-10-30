@@ -1,8 +1,8 @@
 """After GitHub refuses a passed run's merge, `ak run merge <id>` finishes the delivery.
 
 Work that passed review is never thrown away over one refused merge: the run ends PASS with
-its PR left open, its worktree kept and result.md naming the command that finishes it, and
-`ak run merge <id>` then merges that same PR at the very commit that was reviewed, with the
+its PR left open, its worktree kept and result.md and its seat told the command that finishes
+it, and `ak run merge <id>` then merges that same PR at the very commit that was reviewed, with the
 record saying so.  Asked again, a merged run says it is merged and merges nothing.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py,
 against the bare origin of gitrig.py and the GitHub of fakegh.py, whose `pr merge` is refused
@@ -17,7 +17,8 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import Home
+from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akseat import Seat
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
@@ -35,6 +36,7 @@ def merges(home):
     return [call for call in home.calls("gh") if call[:2] == ["pr", "merge"]]
 
 
+@unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class MergeRetry(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -51,8 +53,10 @@ class MergeRetry(unittest.TestCase):
                                         log=shlex.quote(str(home.log("gh")))) + delegate)
         akconfig.write(home, ["opus", "astra"])
         fakeadapter.install(home, claude="work", codex="pass")
+        seat = Seat(home, "acme", cwd=cls.rig.path, planned=True)
         task = taskfile.write(home, cls.rig.path, "Add retry file")
-        cls.first = home.ak("run", str(task), timeout=300)
+        cls.first = home.ak("run", str(task), env={"AGENTKIT_SESSION": "acme"}, timeout=300)
+        cls.told = seat.wait_lines(1)[0]
         cls.run_dir = taskfile.only_run(home)
         cls.failed = cls.record()
         cls.failed_result = cls.result()
@@ -90,9 +94,9 @@ class MergeRetry(unittest.TestCase):
         self.assertTrue(last.endswith(f" -> {self.run_dir / 'result.md'}"), last)
 
     def test_result_md_says_why_and_names_the_command_that_finishes_the_delivery(self):
-        notice, lines = self.failed_result[:4], self.failed_result[4:]
-        self.assertRegex(notice[2], rf" NOT MERGED \(1 of 3\): .+ Next: launch the fix the result names, "
-                                    rf"`ak run merge {self.run_dir.name}`\. Result: ")
+        self.assertRegex(self.told, rf"^run {self.run_dir.name} NOT MERGED \(1 of 3\): .+[.!?] Next: launch the fix "
+                                    rf"the result names, `ak run merge {self.run_dir.name}`\. Result: \S+/result\.md$")
+        lines = self.failed_result
         self.assertTrue(lines[0].startswith("# PASS, not merged: "), lines[0])
         self.assertIn("not mergeable", lines[0])
         self.assertTrue(lines[0].endswith(" — Add retry file"), lines[0])

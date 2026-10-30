@@ -1585,7 +1585,7 @@ class BlockedRuns(unittest.TestCase):
         self.assertEqual(state["round_summaries"], [])      # and no round was recorded
         self.assertIn("checks a file the task never asks for", state["error"])
         result = (directory / "result.md").read_text()
-        self.assertIn("\n\n# BLOCKED — Blocked fixture\n", result)
+        self.assertTrue(result.startswith("# BLOCKED — Blocked fixture"), result[:60])
         self.assertIn(BLOCKED_TURN.strip(), result)
 
     def test_a_blocked_fixer_turn_ends_the_run_the_same_way(self):

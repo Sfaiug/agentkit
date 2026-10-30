@@ -93,7 +93,7 @@ class BranchAddsAnUnreadLine(RunOn, unittest.TestCase):
     def test_result_md_says_fail_and_why(self):
         text = (self.run_dir / "result.md").read_text()
         lines = text.splitlines()
-        self.assertEqual(lines[4], "# FAIL — Add retry file")
+        self.assertEqual(lines[0], "# FAIL — Add retry file")
         for line in ("VERDICT: FAIL", "rounds: 1 of 1", "pr: (none)", "merged: no"):
             self.assertIn(line, lines)
         self.assertIn("`tset: x`", text)

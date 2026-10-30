@@ -80,7 +80,7 @@ class EveryRoundFails(unittest.TestCase):
                 self.assertIn("$ false", prompt)
 
     def test_result_md_says_fail_and_lists_the_blocking_finding_once_with_its_proof(self):
-        self.assertEqual(self.result[4], "# FAIL — Add retry file")
+        self.assertEqual(self.result[0], "# FAIL — Add retry file")
         for line in ("VERDICT: FAIL", "rounds: 3 of 3", "pr: (none)", "merged: no"):
             self.assertIn(line, self.result)
         section = self.result[self.result.index("## Reviewer findings"):]

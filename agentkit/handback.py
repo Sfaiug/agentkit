@@ -25,7 +25,6 @@ from . import config, gitcall, hand_in, host, notify, orch, plan, prompts, recor
 
 DECISION_MOST = 399     # under 400 characters: one read tells a seat what it decides
 RESULT_NAMES = "launch the fix the result names"
-NOTICE = "## Seat notice"   # opens result.md, and heads the whole notices it keeps
 
 
 QUEUED_GRACE = 30               # old launchers did not record the background child's identity
@@ -204,12 +203,11 @@ def result_done_when(cmds, state=None):
     return marked
 
 
-def save_result(run_dir, text=None, *, notices=(), opening=None):
+def save_result(run_dir, text=None, *, notices=()):
     """Publish a report or save its full notices without a rebuild losing them.
 
     Build the report before taking the delivery lock: while git reads its diff, the tick
     can deliver a notice. Read its saved section only at publication, under the same lock.
-    `opening` is the line the report, this one or the one saved, opens with.
     """
     with delivery_lock(run_dir):
         result = run_dir / "result.md"
@@ -217,16 +215,15 @@ def save_result(run_dir, text=None, *, notices=(), opening=None):
             saved = result.read_text()
         except FileNotFoundError:
             saved = ""
-        heading = f"\n{NOTICE}\n\n"     # behind a newline: never the block a report opens with
-        report, boundary, kept = saved.partition(heading)
-        if text is None and opening:
-            text = report.split("\n\n", 2)[2] if report.startswith(NOTICE) else report
-        if text is not None:
-            result.write_text((f"{NOTICE}\n\n{opening}\n\n" if opening else "") + text + boundary + kept)
-        missing = [part for part in notices if part and part not in kept]
-        if missing:
-            with result.open("a") as output:
-                output.write(heading + "\n\n".join(missing) + "\n")
+        heading = "\n## Seat notice\n\n"
+        _, boundary, kept = saved.partition(heading)
+        if text is None:
+            missing = [part for part in notices if part and part not in kept]
+            if missing:
+                with result.open("a") as output:
+                    output.write(heading + "\n\n".join(missing) + "\n")
+        else:
+            result.write_text(text + boundary + kept)
 
 
 def write_result(run_dir, state, cmds, log=None, cfg=None):
@@ -309,7 +306,7 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
     onward = transitions.continue_line(state, run_dir)
     if onward:
         parts += [onward, ""]
-    save_result(run_dir, "\n".join(parts), opening=decision_line(state, run_dir, cfg))
+    save_result(run_dir, "\n".join(parts))
 
 
 def run_project(state):
@@ -1429,8 +1426,7 @@ def decision(run_dir, state, word, why, move):
 
 
 def decision_line(state, run_dir, cfg=None):
-    """The one line a run's ending its seat decides about is told in, and result.md opens with;
-    None for any other.  What it delivered or was stopped on purpose leaves nothing to decide; a
+    """The one line a run's ending its seat decides about is told in; None for any other.  What it delivered or was stopped on purpose leaves nothing to decide; a
     run going, or parked on a merge upstream, has not ended, unless only its provider holds it."""
     word = handback_verdict(state, cfg)
     if (word.startswith(("PASS", "DONE")) or transitions.delivered(state) or state.get("state") in ("waiting", "stopped")
@@ -1457,12 +1453,11 @@ def next_move(state, run_dir):
 
 
 def not_live_line(told, run_dir):
-    """The decision line of a merge its target's checks or `health:` broke; its result opens with
-    it and keeps `told` whole.  A run cleaned up since has no result, and its target is still red."""
-    line = decision(run_dir, run_record.read_state(run_dir) or {}, "NOT LIVE", told, RESULT_NAMES)
+    """The decision line of a merge its target's checks or `health:` broke; its result keeps `told`
+    whole.  A run cleaned up since has no result, and its target is still red."""
     if run_dir.is_dir():
-        save_result(run_dir, opening=line, notices=(told,))
-    return line
+        save_result(run_dir, notices=(told,))
+    return decision(run_dir, run_record.read_state(run_dir) or {}, "NOT LIVE", told, RESULT_NAMES)
 
 
 def handback_line(state, run_dir, cfg=None, save=True, live=False):
@@ -2006,7 +2001,7 @@ def record_result(run_dir, state, log=None, cfg=None):
             f"# {transitions.delivery(state, transitions.report_config(cfg))} — {state.get('title') or run_dir.name}\n\n"
             f"VERDICT: {state.get('verdict') or 'none'}\n\n## Why this run stopped\n\n"
             f"{state.get('error') or state.get('interruption_reason') or 'no reason was recorded'}\n\n"
-            f"relaunch: {again}{suffix}\n\n{followup_report(state)}", opening=decision_line(state, run_dir, cfg))
+            f"relaunch: {again}{suffix}\n\n{followup_report(state)}")
     except OSError:
         pass
     else:

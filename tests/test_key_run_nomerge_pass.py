@@ -78,7 +78,7 @@ class NoMergePass(unittest.TestCase):
 
     def test_result_md_says_pass_not_merged_and_the_rounds_it_took(self):
         lines = (self.run_dir / "result.md").read_text().splitlines()
-        self.assertEqual(lines[4], "# PASS, not merged: --no-merge — Add retry file")
+        self.assertEqual(lines[0], "# PASS, not merged: --no-merge — Add retry file")
         for line in ("VERDICT: PASS", "rounds: 1 of 3", "pr: (none)", "merged: no"):
             self.assertIn(line, lines)
         branch = [line for line in lines if line.startswith("branch:")]

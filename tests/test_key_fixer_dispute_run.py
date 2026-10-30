@@ -95,7 +95,7 @@ class DisputeDropped(unittest.TestCase):
         self.assertEqual([summary["verdict"] for summary in self.state["round_summaries"]],
                          ["FAIL", "PASS"])
         lines = self.result.splitlines()
-        self.assertEqual(lines[4], "# PASS, not merged: --no-merge — Add retry file")
+        self.assertEqual(lines[0], "# PASS, not merged: --no-merge — Add retry file")
         self.assertIn("rounds: 2 of 3", lines)
         disputes = section(self.result, "## Disputes")
         self.assertEqual(disputes[:2], ["", f"- Dropped: {FINDING}"])
@@ -116,7 +116,7 @@ class DisputeUpheld(unittest.TestCase):
         self.assertEqual([summary["verdict"] for summary in self.state["round_summaries"]],
                          ["FAIL", "FAIL"])
         lines = self.result.splitlines()
-        self.assertEqual(lines[4], "# FAIL — Add retry file")
+        self.assertEqual(lines[0], "# FAIL — Add retry file")
         self.assertIn("rounds: 2 of 2", lines)
         self.assertIn(f"- {FINDING}", section(self.result, "## Findings"))
         self.assertNotIn("## Disputes", lines)

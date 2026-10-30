@@ -86,7 +86,7 @@ class SameFailureBlocks(unittest.TestCase):
 
     def test_result_md_names_only_the_check_that_failed_identically_and_its_output(self):
         lines = (self.run_dir / "result.md").read_text().splitlines()
-        self.assertEqual(lines[4], "# BLOCKED — Add retry file")
+        self.assertEqual(lines[0], "# BLOCKED — Add retry file")
         self.assertIn("VERDICT: BLOCKED", lines)
         start = lines.index("## Blocked")
         end = next(i for i in range(start + 1, len(lines)) if lines[i].startswith("## "))

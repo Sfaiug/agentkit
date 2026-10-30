@@ -2,9 +2,9 @@
 
 A main broken by a merge would otherwise be noticed only by the owner.  Each `ak watch` tick
 reads the latest check runs of every merge commit younger than three hours and types one line
-into the seat that launched the run, at its prompt, and its result opens with: `run <id> NOT LIVE
-(<round> of <budget>): <check> failed on <target> after this merge. <url>. Fix the target. Next:
-... Result: <path>`, the URL the pull request's where the check names no page of its own.  Only the newest failing merge of a
+into the seat that launched the run, at its prompt: `run <id> NOT LIVE (<round> of <budget>):
+<check> failed on <target> after this merge. <url>. Fix the target. Next: <move>. Result: <path>`,
+the URL the pull request's where the check names no page of its own.  Only the newest failing merge of a
 repository is told, and only once: a break already told holds back a later failing merge
 there, and a later merge that passed tells nothing.  An older merge tells nothing; a seat in a
 turn is told at its next prompt, however long the turn; a tick GitHub does not answer tells
@@ -96,8 +96,6 @@ class OncePerRepository(Merges):
 
     def test_a_failed_check_on_the_merge_is_typed_into_the_seat_that_merged_it(self):
         self.assertEqual(self.first["acme"], [told("ci", "app", 7)])
-        self.assertTrue((self.home.path / ".agentkit/runs/20261020-1200-app-7/result.md").read_text()
-                        .startswith(f"## Seat notice\n\n{told('ci', 'app', 7)}\n\n"))
 
     def test_a_told_break_holds_back_a_later_failing_merge_in_that_repository(self):
         self.assertEqual(self.lines("acme"), [told("ci", "app", 7)])

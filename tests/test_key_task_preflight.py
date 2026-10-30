@@ -112,7 +112,7 @@ class RefusedTasks(unittest.TestCase):
             with self.subTest(case):
                 run_dir = self.run_dir[case]
                 lines = (run_dir / "result.md").read_text().splitlines()
-                self.assertEqual(lines[4], f"# FAIL — {title}")
+                self.assertEqual(lines[0], f"# FAIL — {title}")
                 for line in ("VERDICT: none", "## Why this run stopped", self.state[case]["error"],
                              f"relaunch: ak run {run_dir / 'task.md'}"):
                     self.assertIn(line, lines)
