@@ -25,6 +25,7 @@ from . import config, gitcall, hand_in, host, notify, orch, plan, prompts, recor
 
 DECISION_MOST = 399     # under 400 characters: one read tells a seat what it decides
 RESULT_NAMES = "launch the fix the result names"
+UNSAID = "The result says why."     # a decision line's why where not even its first sentence fits
 
 
 QUEUED_GRACE = 30               # old launchers did not record the background child's identity
@@ -288,9 +289,8 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
             entry["done_when"], "done-when not run")
         parts += [f"## Round {entry['round']} ({entry['verdict']}, {dw})", "",
                   entry["summary"], ""]
-    why = state.get("error") or state.get("interruption_reason") or (state["verdict"] != "PASS" and failed_check(state))
-    if why:
-        parts += ["## Why this run stopped", "", why, ""]
+    if state.get("error"):
+        parts += ["## Why this run stopped", "", state["error"], ""]
     if state["verdict"] != "PASS" and prompts.overridden_section(state):
         parts += [prompts.overridden_section(state)]
     if state["verdict"] != "PASS" and state["findings"]:
@@ -641,7 +641,7 @@ def handback_reason(state, cfg=None, whole=False):
     if review_failed(state):
         rows = hand_in.Review(state["review_records"]).findings
         if whole and rows:
-            return hand_in.item_text(rows[0]).splitlines()[0]   # its claim; the result has its proof
+            return f"{rows[0]['path']}:{rows[0]['line']} - {rows[0]['what']}"   # its claim; the result has its proof
         said = " ".join("\n".join("- " + hand_in.item_text(row) for row in rows).split())
         if len(said) <= 600:
             return f"after {spent} rounds, open findings: {said}".rstrip(".")
@@ -1415,17 +1415,29 @@ def live_line(state, run_dir):
                        f"run {run_dir.name} is live.")
 
 
-def decision(run_dir, state, word, why, move):
-    """`run <id> <WORD> (<round> of <budget>): <why> Next: <move>. Result: <path>`, `why` in the
-    whole sentences that keep it within DECISION_MOST and every harness's fold (`watch.longest`)."""
+def decision(run_dir, state, word, why, move, save=True):
+    """`run <id> <WORD> (<round> of <budget>): <why> Next: <move>. Result: <path>`, within DECISION_MOST
+    and every harness's fold (`watch.longest`): `why` in whole sentences, else UNSAID, the move's detail
+    (`next_move`) dropped first.  A cut `why` is saved whole with its follow-ups, as an older result
+    may lack them; without `save` the caller leaves that to whoever holds the delivery lock (`look_line`)."""
     from . import watch  # here, not at the top: it reaches run
+    most = min(DECISION_MOST, watch.longest())
     head = f"run {run_dir.name} {word} ({len(state.get('round_summaries') or [])} of {state.get('rounds') or 0}):"
-    tail = f"Next: {move}. Result: {config.tilde(run_dir / 'result.md')}"
-    room = min(DECISION_MOST, watch.longest()) - len(head) - len(tail) - 2
-    return f"{head} {terminal.sentences(why, room) or 'The reason is longer than this line; the result has it.'} {tail}"
+    for step in dict.fromkeys(("".join(move), move[0])):
+        tail = f"Next: {step}. Result: {config.tilde(run_dir / 'result.md')}"
+        said = terminal.sentences(why, most - len(head) - len(tail) - 2)
+        said = said or terminal.sentences(UNSAID, most - len(head) - len(tail) - 2)
+        if said:
+            break
+    line = " ".join(filter(None, (head, said, tail)))
+    if len(line) > most:
+        raise config.Error(f"{len(line):,} characters is more than a decision line holds ({most:,})")
+    if save and said != terminal.sentences(why, len(why) + 1):
+        save_result(run_dir, notices=(why, followup_report(state)))
+    return line
 
 
-def decision_line(state, run_dir, cfg=None):
+def decision_line(state, run_dir, cfg=None, save=True):
     """The one line a run's ending its seat decides about is told in; None for any other.  What
     it delivered or was stopped on purpose leaves nothing to decide; a run going, or parked on a
     merge upstream, has not ended, unless only its provider holds it."""
@@ -1433,39 +1445,40 @@ def decision_line(state, run_dir, cfg=None):
     if (word.startswith(("PASS", "DONE")) or transitions.delivered(state) or state.get("state") in ("waiting", "stopped")
             or transitions.going(state) and not transitions.exhausted_wait(state)):
         return None
-    return decision(run_dir, state, word, handback_reason(state, cfg, whole=True), next_move(state, run_dir))
+    return decision(run_dir, state, word, handback_reason(state, cfg, whole=True), next_move(state, run_dir), save)
 
 
 def next_move(state, run_dir):
-    """The seat's next step, decided from the ending.  Spent reviews say split: the task was too
-    big, not the worker.  A block or a failing check says rewrite: more rounds would not pass."""
+    """The seat's next step, decided from the ending, and its detail the result names too.  Spent
+    reviews say split: the task was too big, not the worker.  A block or a failing check says
+    rewrite: more rounds would not pass."""
     if transitions.exhausted_wait(state):
-        return "wait for the provider"
+        return "wait for the provider", ""
     named = transitions.continue_line(state, run_dir).removeprefix("continue: ") or retry_command(state)
     if named:
-        return f"{RESULT_NAMES}, `{named}`"
+        return RESULT_NAMES, f", `{named}`"
     if (state.get("state") == "fail" and review_failed(state)
             and len(state.get("round_summaries") or []) >= (state.get("rounds") or 0) > 0):
-        return "split the task"
+        return "split the task", ""
     if state.get("state") == "blocked" or failed_check(state):
-        branch = state.get("branch")
-        return "rewrite the task and relaunch it" + (f" with `from: {branch}`" if branch else "")
-    return "read the result"
+        return "rewrite the task and relaunch it", f" with `from: {state['branch']}`" if state.get("branch") else ""
+    return "read the result", ""
 
 
 def not_live_line(told, run_dir):
-    """The decision line of a merge its target's checks or `health:` broke; its result keeps `told`
-    whole.  A run cleaned up since has no result, and its target is still red."""
-    if run_dir.is_dir():
-        save_result(run_dir, notices=(told,))
-    return decision(run_dir, run_record.read_state(run_dir) or {}, "NOT LIVE", told, RESULT_NAMES)
+    """The decision line of a merge its target's checks or `health:` broke, its result keeping `told`
+    whole; `told` itself once its run is cleaned up, with no result to lead to."""
+    if not run_dir.is_dir():
+        return told
+    save_result(run_dir, notices=(told,))
+    return decision(run_dir, run_record.read_state(run_dir) or {}, "NOT LIVE", told, (RESULT_NAMES, ""))
 
 
 def handback_line(state, run_dir, cfg=None, save=True, live=False):
     """The one line a finished run types into the seat that launched it: its decision line, or
     `run <id> finished <verdict>: <why>. Result: <path>. Decide the next step.`, a scratch run's
     naming the workspace holding what it delivered, `live` adding its change gone live (`carries_live`)."""
-    decided = decision_line(state, run_dir, cfg)
+    decided = decision_line(state, run_dir, cfg, save)
     if decided:
         return decided
     workspace = (f" Workspace: {state['worktree']}."
@@ -2001,7 +2014,7 @@ def record_result(run_dir, state, log=None, cfg=None):
         save_result(run_dir,
             f"# {transitions.delivery(state, transitions.report_config(cfg))} — {state.get('title') or run_dir.name}\n\n"
             f"VERDICT: {state.get('verdict') or 'none'}\n\n## Why this run stopped\n\n"
-            f"{state.get('error') or state.get('interruption_reason') or 'no reason was recorded'}\n\n"
+            f"{state.get('error') or 'no reason was recorded'}\n\n"
             f"relaunch: {again}{suffix}\n\n{followup_report(state)}")
     except OSError:
         pass

@@ -2,11 +2,10 @@
 
 `ak hand-in blocked "why"` is how a worker says the task cannot be done as written: the run
 stops there, BLOCKED with that reason, with no reviewer or fixer turn spent on it and nothing
-pushed or opened, even when the turn committed work; its seat is told to rewrite the task and
-relaunch it `from:` its branch.  `ak hand-in not-needed "why"` is for a fix run's first turn, a
-run ak starts for a review follow-up once its run merged: it ends that run `not_needed`, with no
-review or PR, leaving no branch or checkout behind.  In any other turn ak takes it as done, and
-the checks and the review go on.  Black-box: the program
+pushed or opened, even when the turn committed work.  `ak hand-in not-needed "why"` is for a
+fix run's first turn, a run ak starts for a review follow-up once its run merged: it ends that
+run `not_needed`, with no review or PR, leaving no branch or checkout behind.  In any other
+turn ak takes it as done, and the checks and the review go on.  Black-box: the program
 `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on a project from gitrig.py
 with the GitHub of fakegh.py, a seat from akseat.py and scripted harnesses from fakeadapter.py.
 """
@@ -37,7 +36,6 @@ def state(run_dir):
     return json.loads((run_dir / "run.json").read_text())
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class ExecutorBlocked(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -49,9 +47,9 @@ class ExecutorBlocked(unittest.TestCase):
         cls.gh.grant(cls.rig.slug, "WRITE")      # a pass would be pushed and merged
         akconfig.write(cls.home, ["opus", "astra"])
         cls.fakes = fakeadapter.install(cls.home, claude=BLOCKED, codex="pass")
-        cls.seat = Seat(cls.home, "acme", cwd=cls.rig.path, planned=True)
+        cls.seat = Seat(cls.home, "acme", cwd=cls.rig.path, planned=True) if REAL_TMUX else None
         task = taskfile.write(cls.home, cls.rig.path, "Add retry file")
-        cls.done = cls.home.ak("run", str(task), env={"AGENTKIT_SESSION": "acme"}, timeout=300)
+        cls.done = cls.home.ak("run", str(task), env=cls.seat and {"AGENTKIT_SESSION": "acme"}, timeout=300)
         cls.run_dir = taskfile.only_run(cls.home)
         cls.state = state(cls.run_dir)
 
@@ -86,6 +84,7 @@ class ExecutorBlocked(unittest.TestCase):
         after = lines[lines.index("## Blocked") + 1:]
         self.assertEqual(next(line for line in after if line.strip()), WHY)
 
+    @unittest.skipUnless(REAL_TMUX, "no tmux installed")
     def test_its_seat_is_told_in_one_line_to_rewrite_the_task(self):
         self.assertRegex(self.seat.wait_lines(1)[0], rf"^run {self.run_dir.name} BLOCKED \(0 of 3\): {WHY}\. Next: "
                          r"rewrite the task and relaunch it with `from: ak/add-retry-file`\. Result: \S+/result\.md$")

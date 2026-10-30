@@ -291,7 +291,7 @@ def sentences(text, room):
     text += "" if not text or text[-1] in ".!?" else "."
     if len(text) <= room:
         return text
-    ends = [found.end() for found in re.finditer(r"[.!?](?= )", text[:room + 1])]
+    ends = [found.end() for found in re.finditer(r"[.!?](?= )", text[:max(room, 0) + 1])]
     return text[:ends[-1]] if ends else ""
 
 

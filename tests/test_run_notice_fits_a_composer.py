@@ -158,8 +158,7 @@ class RunNotice(Sandbox):
     def test_a_saved_ending_keeps_its_followups_before_typing(self):
         reason = "the delivery stopped: " + "failure evidence " * 100 + "whole reason"
         items = ["api.py:1 - a defect\ncomplete reviewer evidence"]
-        directory, state = self.result(followups=items, handback_pending=True,
-                                       state="not_needed", not_needed=reason)
+        directory, state = self.result(followups=items, handback_pending=True, merge_note=reason)
         result = directory / "result.md"
         result.write_text("# PASS\n\nFixed API.\n")  # a report saved before follow-ups were rendered
         line = handback.handback_line(state, directory, self.cfg)
