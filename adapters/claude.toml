@@ -60,8 +60,10 @@ at_prompt = "hooks"
 name = "UserPromptSubmit"
 state = "working"
 # what its hook prints as `hookSpecificOutput.additionalContext` reaches the model with the
-# prompt (Claude Code): a changed rulebook is carried there (`orch.rulebook_news`)
+# prompt (Claude Code): a changed rulebook is carried there (`orch.rulebook_news`).  Past 10,000
+# UTF-16 code units 2.1.314 saves it to a file instead and shows the model its first 2,000
 context = true
+context_limit = 10000
 
 # hooks/orchestrator-stop.sh writes each Stop down once it has judged it.  A Stop is a turn that
 # ended, except two: one with background work the seat started still in flight (`background_tasks`

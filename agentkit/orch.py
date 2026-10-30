@@ -2803,7 +2803,7 @@ def replace_file(path, data):
     tmp.replace(path)
 
 
-def rulebook_news(session, conversation):
+def rulebook_news(session, conversation, whole=lambda news: news):
     """What a seat's next prompt carries when its conversation is to be told its rulebook: "".
 
     A harness reads its rulebook only when it opens, so a seat left open across a change to
@@ -2816,10 +2816,12 @@ def rulebook_news(session, conversation):
     name and is never it.  Handing it over records it as held, so later prompts carry nothing
     until the rules change again; a prompt the harness drops after this loses the change until
     a compaction or `/clear` tells it again from the launch's rulebook.  Where the record
-    cannot be written nothing is handed over, and the next prompt tries again.  No seat's
-    lock: a delivery holds it while it types this very prompt, and the record's own lock
-    refuses a write over a rename.  A harness whose prompt hook carries no context (`context`
-    on its `UserPromptSubmit` event) reads the new rulebook at its next launch.
+    cannot be written nothing is handed over, and the next prompt tries again.  News that would
+    make the prompt's whole context (`whole`) too long for its harness goes to a file the
+    prompt names instead (`rulebook_pointer`).  No seat's lock: a delivery holds it while it
+    types this very prompt, and the record's own lock refuses a write over a rename.  A harness
+    whose prompt hook carries no context (`context` on its `UserPromptSubmit` event) reads the
+    new rulebook at its next launch.
     """
     name = config.resolve_session(session)
     found = rulebook_due(name)
@@ -2827,8 +2829,18 @@ def rulebook_news(session, conversation):
         return ""
     record, _, text = found
     change = rulebook_change(name, record, conversation, text)
+    if change:
+        # what changed, not the whole rulebook again: most changes are a line or two
+        news = ("Your rulebook changed: the diff below takes the one you hold to your current "
+                "one, and where your current rulebook differs from the one you were opened "
+                f"with, it wins.\n\n{change}")
+    else:
+        news = ("Your current rulebook follows, whole: where it differs from the one you were "
+                f"opened with, it wins.\n\n{text}")
+    if not seat_plugin(record).context_fits(whole(news)):
+        return rulebook_pointer(name, record, conversation, text, news)
     try:
-        if config.update_session(name, rulebook_read={
+        if config.update_session(name, rulebook_told=None, rulebook_read={
                 "conversation": conversation, "sha": config.rulebook_digest(text)}) is None:
             return ""
     except OSError:
@@ -2837,13 +2849,30 @@ def rulebook_news(session, conversation):
         replace_file(config.seat_file("held", name), text.encode())   # what a later change is told against
     except OSError:
         pass        # a change is then told whole
-    if change:
-        # what changed, not the whole rulebook again: most changes are a line or two
-        return ("Your rulebook changed: the diff below takes the one you hold to your current "
-                "one, and where your current rulebook differs from the one you were opened "
-                f"with, it wins.\n\n{change}")
-    return ("Your current rulebook follows, whole: where it differs from the one you were "
-            f"opened with, it wins.\n\n{text}")
+    return news
+
+
+def rulebook_pointer(name, record, conversation, text, news):
+    """What a prompt carries in place of `news` too long for it: the seat's `change` file, which
+    holds `news` and ends with `ak orch rules CODE`.  Only that file gives the code, so running
+    it says the conversation read the file to its end (`rulebook_ack`), and until then nothing
+    is held: every prompt names the file again, with the same code while the rules stay the
+    same.  A record or file that cannot be written names nothing, and the next prompt tries
+    again."""
+    sha = config.rulebook_digest(text)
+    told = record.get("rulebook_told") or {}
+    try:
+        if told.get("conversation") != conversation or told.get("sha") != sha:
+            told = {"conversation": conversation, "sha": sha, "code": secrets.token_hex(6)}
+            if config.update_session(name, rulebook_told=told) is None:
+                return ""
+        path = config.seat_file("change", name)
+        replace_file(path, (f"{news.rstrip()}\n\nOnce you have read all of the above, run this "
+                            f"to say so:\n\nak orch rules {told['code']}\n").encode())
+    except OSError:
+        return ""
+    return (f"What changed in your rulebook is too long to carry here: read {path} now, before "
+            "anything else, to its very end, then run the command on its last line.")
 
 
 def prompt_news(session, conversation, said=None):
@@ -2859,8 +2888,12 @@ def prompt_news(session, conversation, said=None):
     record = config.session_records().get(name)
     besides = ((handback.riding(name), notify.answer_context(name, said))
                if said is not None and takes_prompt_context(record, conversation) else ())
+
+    def context(news):
+        return "\n\n".join(filter(None, (news, *besides)))
+
     # the rulebook last: held from its hand-over on, so nothing may fail after it
-    return "\n\n".join(filter(None, (rulebook_news(session, conversation), *besides)))
+    return context(rulebook_news(session, conversation, context))
 
 
 def rulebook_compacted(session, conversation):
