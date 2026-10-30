@@ -6,8 +6,9 @@
 failing, as failed (`AK_FAILED`), with the words after `suite.sh` given to every test, each
 run logged where a boxed check may write, in the project's Git storage (`Line.runs`).  Each
 member is a reviewed branch off main and a run directory (`run.json`, `task.md`) parked in the
-line, in join order.  Host readings are injected (`AK_HOST_READINGS`), and a woken member's
-resume refuses at once (a worker's worker's run), so a verdict stays on its record to be read.
+line, in join order, numbered with the members of every line in its Home.  Host readings are
+injected (`AK_HOST_READINGS`), and a woken member's resume refuses at once (a worker's worker's
+run), so a verdict stays on its record to be read.
 
     from fixtures.akline import Line
     line = Line({"t/ok.sh": "true\\n"})
@@ -21,7 +22,6 @@ import json
 from fixtures.akbin import Home
 from fixtures.gitrig import Rig
 
-LINE = ".merge-acme.lock"
 READINGS = json.dumps({"cpus": 4, "load": 0, "free_mb": 16000})
 SUITE = ': "$AK_SHARD"; sh suite.sh'
 RUNNER = """share=${AK_SHARD:-1/1}; k=${share%/*}; n=${share#*/}
@@ -45,11 +45,13 @@ def rules(suite):
 
 
 class Line:
-    def __init__(self, tests):
-        """`tests`, path -> text, are the target's tests (`t/<name>`) and any other files."""
-        self.home = Home()
-        self.rig = Rig(self.home, "acme", files={"AGENTS.md": rules(SUITE), "suite.sh": RUNNER,
-                                                 **tests})
+    def __init__(self, tests, home=None, name="acme"):
+        """`tests`, path -> text, are the target's tests (`t/<name>`) and any other files; a
+        `home` holding another line, which closes it, holds this one's project `name` too."""
+        self.home = home or Home()
+        self.rig = Rig(self.home, name, files={"AGENTS.md": rules(SUITE), "suite.sh": RUNNER,
+                                               **tests})
+        self.line = f".merge-{name}.lock"
         self.base = self.rig.head()
         self.members = []
 
@@ -58,7 +60,7 @@ class Line:
 
     def member(self, files):
         """Park the next member, its branch adding `files`, behind those before it."""
-        n = len(self.members) + 1
+        n = len(list((self.home.path / ".agentkit" / "runs").glob("fix-*"))) + 1
         name = f"fix-{n}"
         head = self.rig.branch(f"ak/{name}", files)
         directory = self.home.path / ".agentkit" / "runs" / name
@@ -72,12 +74,12 @@ class Line:
             "merge_method": "squash",
             "review": {"verdict": "PASS", "done_when": True, "passed_head_sha": head,
                        "head_sha": head, "tree_sha": tree},
-            "waiting_on": {"line": LINE, "joined": n}}))
+            "waiting_on": {"line": self.line, "joined": n}}))
         self.members.append(directory)
 
     def land(self, timeout=600):
         """One lander pass over the line."""
-        return self.home.ak("run", "--lander", LINE, timeout=timeout,
+        return self.home.ak("run", "--lander", self.line, timeout=timeout,
                             env={"AK_HOST_READINGS": READINGS})
 
     def verdict(self, n):
