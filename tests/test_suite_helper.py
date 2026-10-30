@@ -129,8 +129,6 @@ class SuiteHelper(unittest.TestCase):
                                  if thread.name == gate.ASKING])
 
     def turn(self, *args, **_kw):
-        if not _kw.get("wait", True):
-            return None
         # A turn here comes after longer than the suite's ceiling, which no wait is charged to.
         self.turns.append(args)
         self.waited += 60
