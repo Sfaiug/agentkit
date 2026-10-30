@@ -46,12 +46,12 @@ def _conversation(harness, session):
 def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     """(exit, killed, session) of the turn `cmd` of the model `entry` on a machine with room, or
     None: it runs here, as with the switch off, `places`, no program for it (`_program`), a
-    checkout where a rebase or merge stopped (`_stopped`), no login to lend, no recipe, no room, a
-    harness with no `sessions`, or a `session` to resume that this host does not hold, as here is
-    where a later resume would look for it too. `watch(argv,
-    **streams)` runs ssh as the worker's watchdog runs a turn, into the out dir's events.jsonl and
-    stderr.log. A lost machine's turn fails, this host's files as they were, and leaves `session`,
-    the conversation it was given: the id it streamed names one that is nowhere. One whose results
+    checkout where a rebase, merge or cherry-pick stopped (`_stopped`), no login to lend, no
+    recipe, no room, a harness with no `sessions`, or a `session` to resume that this host does
+    not hold, as here is where a later resume would look for it too. `watch(argv, **streams)` runs
+    ssh as the worker's watchdog runs a turn, into the out dir's events.jsonl and stderr.log. A
+    lost machine's turn fails, this host's files as they were, and leaves `session`, the
+    conversation it was given: the id it streamed names one that is nowhere. One whose results
     came home leaves the conversation it reported, whatever its exit."""
     harness = entry["harness"]
     try:
@@ -94,16 +94,13 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     return code, killed, session
 
 
-# What git keeps in a checkout's own git directory while a rebase, merge or cherry-pick waits on
-# its conflicts: no parcel carries it, so a machine's fresh clone has nothing to go on with.
-STOPPED = ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD")
-
-
 def _stopped(cwd):
-    """Is a rebase, merge or cherry-pick stopped in the checkout at `cwd`?"""
-    code, out = gitcall.git_out(cwd, "rev-parse", *(arg for name in STOPPED
-                                                     for arg in ("--git-path", name)))
-    return code == 0 and any(Path(cwd, path).exists() for path in out.splitlines())
+    """Is a rebase, merge or cherry-pick stopped in the checkout at `cwd`? git keeps one in the
+    checkout's own git directory, which no parcel carries: a machine's clone has none to go on."""
+    try:
+        return gitcall.in_progress(cwd, *gitcall.STOPS)
+    except config.Error:    # a directory git cannot answer for goes as any other
+        return False
 
 
 def _program(harness):

@@ -270,7 +270,7 @@ class V5aa(unittest.TestCase):
         self.assertFalse(state["merge_failed"])
         self.assertIn("did not finish", state["merge_note"])
         self.assertEqual([entry["round"] for entry in state["round_summaries"]], [1])
-        self.assertFalse(roundloop.in_progress(wt, "rebase"))
+        self.assertFalse(gitcall.in_progress(wt, "rebase"))
 
 
     def test_v5aa_integration_fail_below_budget_resumes_at_integration(self):

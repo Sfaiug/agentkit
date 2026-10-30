@@ -789,18 +789,6 @@ def park_waiting(lp, reason, ref, sha=None):
     return False
 
 
-def in_progress(wt, how):
-    """Is that `git rebase`/`git merge` still sitting in the worktree, unfinished?"""
-    names = ("MERGE_HEAD",) if how == "merge" else ("rebase-merge", "rebase-apply")
-    for name in names:
-        path = Path(gitcall.git(wt, "rev-parse", "--git-path", name))
-        if not path.is_absolute():
-            path = Path(wt) / path
-        if path.exists():
-            return True
-    return False
-
-
 def integrated(wt, rev):
     """Does the branch really carry `rev` now, whether by rebase or by merge?
 
@@ -878,7 +866,7 @@ def set_base(lp, tip):
 def pin_checkout(lp):
     """A review run reviews the commit its own rebase, merge or landing fixer left, until the
     PR head moves (`pinned_head`); a rebase or merge still stopped has made nothing yet."""
-    if lp.state.get("review_pr") and not (in_progress(lp.wt, "rebase") or in_progress(lp.wt, "merge")):
+    if lp.state.get("review_pr") and not gitcall.in_progress(lp.wt, "rebase", "merge"):
         lp.state["integrated"] = {"from": lp.state["head_sha"],
                                   "to": gitcall.git(lp.wt, "rev-parse", "HEAD")}
         lp.write()
@@ -927,7 +915,7 @@ def abort_stopped_integration(lp, how):
         lp.log(f"WARN could not abort the stopped {how} of {lp.state['branch']}: {exc}")
         return
     try:
-        dirty = rc != 0 and in_progress(lp.wt, how)
+        dirty = rc != 0 and gitcall.in_progress(lp.wt, how)
     except config.Error as exc:
         # the abort failed and the state cannot even be read: never claim the branch is back
         lp.log(f"WARN could not abort the stopped {how} of {lp.state['branch']}: {exc}; "
@@ -1942,7 +1930,7 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
             # left in progress behind it would be a conflict round nobody asked for
             abort_integration(lp, how)
             raise
-        if not in_progress(lp.wt, how):
+        if not gitcall.in_progress(lp.wt, how):
             landed = integrated(lp.wt, tip)
             break
         if attempt < CONFLICT_ROUNDS:
