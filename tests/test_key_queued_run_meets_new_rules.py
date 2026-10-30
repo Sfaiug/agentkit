@@ -4,16 +4,20 @@ On 22 Oct 2026 13 own-PR reviews were queued when the 50-line rule merged; each 
 hours for a slot and was refused only then.  A launch waiting for its slot moves to the agentkit
 installed when that moves, and the new code judges the launch's refusals again: a run it now
 refuses ends refused at once, before any slot, and leaves the line; a run it still accepts keeps
-its place and waits on.  Black-box: the program `AK_BIN` names runs from outside through
-tests/fixtures/akbin.py, on a project from gitrig.py with scripted harnesses from fakeadapter.py.
+its place and waits on, whatever GitHub answers then: a read that failed is no rule.  Black-box:
+the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on a project from
+gitrig.py and the GitHub of fakegh.py, with scripted harnesses from fakeadapter.py.
 The installed version is a fake git's answer for the program's own checkout, moved by the test;
 the queue is held by injected host readings (AK_HOST_READINGS) against a run's peak in a history
-database.  A task `from:` a branch deleted while it waits stands for the rule it now breaks.
+database.  A task `from:` a branch deleted while it waits stands for the rule it now breaks;
+one waits as its launch did, one as a recovered launch (`ak run resume`) does.
 """
 
 import json
+import os
 from pathlib import Path
 import shlex
+import signal
 import shutil
 import sqlite3
 import sys
@@ -23,6 +27,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akbin, akconfig, fakeadapter, taskfile
 from fixtures.akbin import Home
+from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
 OLD, NEW = "aaa1111", "bbb2222"
@@ -76,28 +81,49 @@ class QueuedRunMeetsNewRules(unittest.TestCase):
         database.commit()
         database.close()
         cls.rig = Rig(home, "widgets")
-        cls.rig.branch("fix-api", push=False)
+        gh = GitHub(home)
+        cls.rig.branch("contrib", {"contrib.txt": "c\n"})
+        url = gh.open_pr(cls.rig, "contrib", author="other-dev")
+        for branch in ("fix-api", "fix-gadget"):
+            cls.rig.branch(branch, push=False)
         akconfig.write(home, ["opus", "astra"])
         cls.fakes = fakeadapter.install(home, claude="work", codex="pass")
-        cls.refused, cls.kept = (cls.launch(title, front)
-                                 for title, front in (("Fix api", {"from": "fix-api"}),
-                                                      ("Add retry", {})))
-        cls.before = {run: cls.state(run) for run in (cls.refused, cls.kept)}
-        cls.rig.git("branch", "-q", "-D", "fix-api")
+        cls.refused = [cls.task("Fix api", {"from": "fix-api"}),
+                       cls.task("Fix gadget", {"from": "fix-gadget"})]
+        cls.kept = [cls.task("Add retry", {}), cls.launch("--review-pr", url)]
+        # the gadget's launcher dies; recovered, it waits as `ak run resume` from then on
+        pid = cls.state(cls.refused[1])["pid"]
+        os.kill(pid, signal.SIGKILL)
+        wait(lambda: not Path(f"/proc/{pid}").exists()
+             or Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z",
+             "the gadget's launcher gone")
+        done = home.ak("run", "resume", cls.refused[1].name, "--bg")
+        assert done.code == 0, done.out + done.err
+        wait(lambda: cls.queue()[-1:] == [cls.refused[1].name], "the gadget back in line")
+        cls.before = {run: cls.state(run) for run in cls.kept}
+        for branch in ("fix-api", "fix-gadget"):
+            cls.rig.git("branch", "-q", "-D", branch)
+        for call in ("pr view", "api"):
+            gh.reply(call, err="HTTP 502: Bad Gateway\n", code=1)
         time.sleep(2)       # four polls on the same code: nothing judges it again
-        cls.unjudged = cls.state(cls.refused)
+        cls.unjudged = [cls.state(run) for run in cls.refused]
         cls.version.write_text(NEW + "\n")
-        wait(lambda: cls.state(cls.refused).get("state") not in ("queued", None),
-             "the run from the deleted branch ended")
-        wait(lambda: cls.queue() == [cls.kept.name], "the other run first in line")
+        for run in cls.refused:
+            wait(lambda: cls.state(run).get("state") not in ("queued", None),
+                 f"{run.name}, from a deleted branch, ended")
+        wait(lambda: cls.queue() == [run.name for run in cls.kept], "the others alone in line")
 
     @classmethod
-    def launch(cls, title, front):
-        done = cls.home.ak("run", str(taskfile.write(cls.home, cls.rig.path, title, front=front)),
-                           "--no-merge", "--bg")
+    def task(cls, title, front):
+        return cls.launch(str(taskfile.write(cls.home, cls.rig.path, title, front=front)),
+                          "--no-merge")
+
+    @classmethod
+    def launch(cls, *argv):
+        before = set(taskfile.runs(cls.home))
+        done = cls.home.ak("run", *argv, "--bg")
         assert done.code == 0, done.out + done.err
-        run = next(run for run in taskfile.runs(cls.home)
-                   if run.name.endswith(taskfile.slug(title)))
+        (run,) = set(taskfile.runs(cls.home)) - before
         wait(lambda: cls.queue()[-1:] == [run.name], f"{run.name} in line")
         return run
 
@@ -117,24 +143,27 @@ class QueuedRunMeetsNewRules(unittest.TestCase):
             return []
 
     def test_a_run_the_new_code_refuses_ends_refused_before_any_slot(self):
-        self.assertEqual(self.unjudged.get("state"), "queued")
-        state = self.state(self.refused)
-        self.assertEqual(state["state"], "error")
-        self.assertTrue(state["error"].endswith(": from: 'fix-api' is not a local branch"),
-                        state["error"])
-        self.assertTrue((self.refused / "result.md").is_file())
-        self.assertNotIn("slot_started_at", state)
-        self.assertNotIn("worktree", state)
-        self.assertNotIn(self.refused.name, self.queue())
+        for run, unjudged, branch in zip(self.refused, self.unjudged, ("fix-api", "fix-gadget")):
+            with self.subTest(run.name):
+                self.assertEqual(unjudged.get("state"), "queued")
+                state = self.state(run)
+                self.assertEqual(state["state"], "error")
+                self.assertTrue(state["error"].endswith(f": from: {branch!r} is not a local branch"),
+                                state["error"])
+                self.assertTrue((run / "result.md").is_file())
+                self.assertNotIn("slot_started_at", state)
+                self.assertNotIn("worktree", state)
         self.assertEqual((self.fakes["claude"].n, self.fakes["codex"].n), (0, 0))
 
-    def test_a_run_the_new_code_accepts_keeps_its_place(self):
-        before = self.before[self.kept]
+    def test_a_run_the_new_code_accepts_keeps_its_place_whatever_github_answers(self):
         time.sleep(2)       # four polls on the new code: still waiting, as it was
-        state = self.state(self.kept)
-        self.assertEqual(state["state"], "queued")
-        self.assertEqual((state["queued_at"], state["pid"]), (before["queued_at"], before["pid"]))
-        self.assertEqual(self.queue(), [self.kept.name])
+        for run in self.kept:
+            with self.subTest(run.name):
+                before, state = self.before[run], self.state(run)
+                self.assertEqual(state["state"], "queued")
+                self.assertEqual((state["queued_at"], state["pid"]),
+                                 (before["queued_at"], before["pid"]))
+        self.assertEqual(self.queue(), [run.name for run in self.kept])
 
 
 if __name__ == "__main__":
