@@ -2970,9 +2970,7 @@ MODELS_KEYS = {"answer": ("↑↓ move   ←→ points   ⏎ why   p pick   r ta
                "pick": ("↑↓ move   ␣ mark   type to find   esc done",
                         "up/down move   space mark   type to find   esc done")}
 NEAR = 2                          # the line's rows shown either side of the pick
-LEGEND = (("as good", "{} within {} points of the best, then the cheapest"),
-          ("≈ tie", "the boards cannot tell it from ★ pick"),
-          ("missing", "scores no effort of it has, counted as its worst"))
+LEGEND = (("as good", "{} within {} points of the best, then the cheapest"),)
 KNOB = ("legend", "within")
 LINES = ("lines",)                # the rows' lines, which grow in as they first show
 NAMED = 13                        # the cells before a legend line's words: its name's column
@@ -3014,8 +3012,7 @@ def models_said(answer, lineup):
         lines = [] if pick or not front else ["no row with a cost is as good"]
         for row in front[max(0, at - NEAR):at + NEAR + 1]:
             missing = sum(one["how"] == "missing" for one in row["measures"].values())
-            notes = (terminal.styled("★ pick", "accent") if row is pick else
-                     "≈ tie" if pick and quality.tie(row, pick) else "",
+            notes = (terminal.styled("★ pick", "accent") if row is pick else "",
                      f"{missing} missing" if missing else "",
                      "" if row["yours"] else "no harness")
             taken = levels[row["release"]]
@@ -3170,14 +3167,11 @@ def scored(row, column, kind):
 
 def models_why(found, role, row):
     """The why of `row` of `role`'s answer `found` (matrix.answer): its quality and cost, how
-    far it is behind the role's best, each measure's points behind and how it was got, and
-    the rows `quality.tie` cannot tell from it, the best three named.  Where a measure's line is
-    too wide for the screen, its how takes a line under it; only a model's name is cut."""
+    far it is behind the role's best, and each measure's points behind and how it was got.  Where
+    a measure's line is too wide for the screen, its how takes a line under it; only a model's
+    name is cut."""
     room = terminal.layout_width() - 2
     top = max(found["rated"], key=lambda one: one["quality"])
-    ties = sorted((one for one in found["rated"]
-                   if one is not row and quality.tie(one, row)),
-                  key=lambda one: -one["quality"])
     hows = [(MEASURES[column], f"{one['points']:.1f}" if one else "", scored(row, column, kind))
             for column, kind, *_ in quality.ROLES[role] for one in [row["measures"].get(column)]]
     width = max(terminal.cells(name) for name, _, _ in hows)
@@ -3195,14 +3189,6 @@ def models_why(found, role, row):
                                       right=(1,))] if wide else
                   [terminal.table_row([name, points], [width, len(BEHIND)], right=(1,)),
                    "  " + how])
-    lines.append("")
-    if ties:
-        lines += [*terminal.wrap(f"≈ tie with {len(ties)} row{'s' * (len(ties) > 1)}, "
-                                 "among them:", room),
-                  *("  " + part for part in packed([named(one, room - 2) for one in ties[:3]],
-                                                   " · ", room - 2))]
-    else:
-        lines += terminal.wrap("no tie: the boards tell it from every other row", room)
     return ["  " + line if line else line for line in lines]
 
 

@@ -49,9 +49,9 @@ class ModelsCommand(unittest.TestCase):
         self.assertEqual([(row["name"], row["effort"], round(row["quality"], 1), row["cost"],
                            row["notes"]) for row in found["execute"]["front"]], [
             ("Acme Max 5", "max", 100.0, 20.0, ["no harness"]),
-            ("Acme Mid 5", "high", 97.8, 15.0, ["tie"]),
+            ("Acme Mid 5", "high", 97.8, 15.0, []),
             ("Acme Max 5", "high", 95.3, 10.0, ["pick", "no harness"]),
-            ("Bolt 3", "medium", 93.2, 3.0, ["tie"]),
+            ("Bolt 3", "medium", 93.2, 3.0, []),
             ("Crux 2", "low", 74.0, 1.0, ["1 missing"])])
         self.assertEqual(found["execute"]["front"][0]["release"], "acme-max-5")
         self.assertGreater(found["execute"]["front"][0]["se"], 0)

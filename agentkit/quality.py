@@ -5,9 +5,8 @@ Every row is rated, none left out for a missing score, and a missing score never
 measure another effort of its release has is carried from there, never credited upward, and
 one no effort has counts as far behind as the row's furthest-behind measure, with that one's
 error.  Every score carries its standard error, each error counted once however many scores
-take it, and two rows whose qualities the errors cannot tell apart are a tie (`tie`), which
-never picks: a model with noisier scores would tie more often, and so win more often.  Reads
-no board, config or clock: rows come in, ratings go out.
+take it, shown beside a quality and never picking: a model with noisier scores would win more
+often.  Reads no board, config or clock: rows come in, ratings go out.
 """
 
 import math
@@ -77,7 +76,6 @@ OMNISCIENCE = ("aa.omniscience", "aa.omniscienceAccuracy", "aa.omniscienceHalluc
 # and the kind of those that are not shares: what an effort's change in them says of its error
 EVALUATION = "aa.intelligenceIndexEvaluations."
 EVALUATION_KINDS = {"aa-briefcase": "rating", "omniscience": "percent"}
-Z = 1.645       # qualities closer than Z errors of their difference are inside its 90% interval
 
 
 def interval(column):
@@ -115,10 +113,10 @@ def rated(rows, role):
     """Each of `rows` ({"release", "effort", "values": {column: number}}) that has at least two
     of `role`'s measures measured or carried, as itself with its "quality" (100 less its
     weighted mean points behind the best over the role's measures a row of the index has), its
-    error's "parts" by the score each comes from ({(release, effort, column): points of
-    quality}) and "se", their root of squares, its "cost" (`COSTS` at its own effort, else
-    None) and per measure {"points", "how", "parts"}: measured, carried (with the effort it is
-    "from", its own part the shift's error) or missing (as its furthest-behind measure)."""
+    "se", the root of squares of its error's parts by the score each comes from, its "cost"
+    (`COSTS` at its own effort, else None) and per measure {"points", "how", "parts"}, those
+    parts by score ({(release, effort, column): points}): measured, carried (with the effort it
+    is "from", its own part the shift's error) or missing (as its furthest-behind measure)."""
     measures = ROLES[role]
     kinds = {column: kind for column, kind, _, _ in measures}
     weights = {column: weight for column, _, weight, _ in measures}
@@ -206,18 +204,8 @@ def rated(rows, role):
         out.append(dict(row, measures=points, cost=row["values"].get(COSTS[role]),
                         quality=100 - sum(weights[column] * one["points"]
                                           for column, one in points.items()) / total,
-                        parts=parts, se=math.hypot(*parts.values())))
+                        se=math.hypot(*parts.values())))
     return out
-
-
-def tie(a, b):
-    """Whether two rows `rated` gave for one role are ones the boards cannot tell apart: their
-    qualities differ by less than `Z` errors of their difference, a part of their errors both
-    hold (what one carried from the other, or both from a third) counting by how much more of
-    it one holds."""
-    apart = math.hypot(*(a["parts"].get(source, 0.0) - b["parts"].get(source, 0.0)
-                         for source in a["parts"].keys() | b["parts"].keys()))
-    return abs(a["quality"] - b["quality"]) < Z * apart
 
 
 def pick(rated, within):

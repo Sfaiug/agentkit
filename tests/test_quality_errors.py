@@ -2,9 +2,8 @@
 root of their squares, each by its weight, over the scores they come from: an interval's width
 / 3.92, a share of a known number of tasks, Omniscience's right and wrong answers, else the
 median error of the rows measured; a carried score adds the shift's error, from how unevenly
-the index's evaluations changed between the two efforts, else that median.  `quality.tie` is
-qualities closer than 1.645 errors of their difference, which counts what two efforts share
-only by how much more of it one holds; `quality.pick` never reads it."""
+the index's evaluations changed between the two efforts, else that median; `quality.pick` never
+reads any of it."""
 
 import math
 from pathlib import Path
@@ -60,25 +59,11 @@ def errors(rated, release, effort):
             for column, m in found(rated, release, effort)["measures"].items()}
 
 
-def elsewhere(rated):
-    """`rated` as a row of another release: its scores' errors shared with no row."""
-    return dict(rated, parts={("gulp-1", *score[1:]): part
-                              for score, part in rated["parts"].items()})
-
-
 def rounded(numbers):
     return {column: round(number, 6) for column, number in numbers.items()}
 
 
-def apart(a, b, error):
-    """Whether `tie` says a and b differ by `error` errors' worth exactly: a tie just under
-    `quality.Z` of them, none just over."""
-    def at(times):
-        return quality.tie(dict(a, quality=b["quality"] + quality.Z * error * times), b)
-    return at(0.999) and not at(1.001)
-
-
-class QualityTies(unittest.TestCase):
+class QualityErrors(unittest.TestCase):
     def setUp(self):
         self.rated = quality.rated(ROWS, "execute")
 
@@ -125,42 +110,15 @@ class QualityTies(unittest.TestCase):
                          rounded({F: share(0.9, 132), T: math.hypot(share(0.4, 66), share(0.4, 66)),
                                   A: math.hypot(SE_A, SE_A)}))
 
-    def test_two_releases_count_both_errors(self):
-        acme, bolt = found(self.rated, "acme-5", "high"), found(self.rated, "bolt-2", "high")
-        self.assertTrue(apart(acme, bolt, math.hypot(acme["se"], bolt["se"])))
-
-    def test_two_efforts_of_one_release_count_only_what_they_do_not_share(self):
-        high, medium, low = (found(self.rated, "acme-5", effort)
-                             for effort in ("high", "medium", "low"))
-        # carried from the other: the shift alone; carried from one source: both shifts
-        self.assertTrue(apart(low, high, math.hypot(0.4 * share(0.95, 132), 0.2 * 1, 0.4 * 1)))
-        self.assertTrue(apart(high, low, math.hypot(0.4 * share(0.95, 132), 0.2 * 1, 0.4 * 1)))
-        self.assertTrue(apart(low, medium, math.sqrt(0.4 ** 2 * (share(0.95, 132) ** 2
-                                                                 + share(0.96, 132) ** 2)
-                                                     + (0.2 ** 2 + 0.4 ** 2) * (1 + 4))))
-        # nothing shared: as two releases
-        dune_high, dune_low = found(self.rated, "dune-3", "high"), found(self.rated, "dune-3", "low")
-        self.assertTrue(apart(dune_high, dune_low, math.hypot(dune_high["se"], dune_low["se"])))
-
     def test_a_missing_score_adds_to_the_part_of_the_score_it_counts_as(self):
-        high, top = found(self.rated, "echo-1", "high"), found(self.rated, "echo-1", "max")
-        # Arena Agent as each one's FrontierCode: 0.4 + 0.4 of it; max's carried Terminal-Bench
-        # off by its shift alone
-        self.assertTrue(apart(high, top, math.sqrt(0.8 ** 2 * (share(0.5, 132) ** 2
-                                                               + share(0.35, 132) ** 2)
-                                                   + 0.2 ** 2 * 10 ** 2)))
+        # Arena Agent as echo-1 high's FrontierCode: 0.4 + 0.4 of that one error, counted once
+        self.assertAlmostEqual(found(self.rated, "echo-1", "high")["se"],
+                               math.hypot(0.8 * share(0.5, 132), 0.2 * share(0.5, 66)))
 
-    def test_what_they_share_never_ties_two_efforts(self):
+    def test_pick_never_reads_an_error(self):
         high, low = found(self.rated, "acme-5", "high"), found(self.rated, "acme-5", "low")
-        # 2 apart: 0.88 · 1.645 = 1.45 is no tie; counted twice, 3.34 would be
-        self.assertFalse(quality.tie(high, low))
-        self.assertTrue(quality.tie(high, elsewhere(low)))
-
-    def test_pick_never_reads_a_tie(self):
-        high, low = found(self.rated, "acme-5", "high"), found(self.rated, "acme-5", "low")
-        other = elsewhere(low)
-        self.assertTrue(quality.tie(high, other))
-        self.assertEqual(quality.pick([high, other], 1), high)
+        for error in (0.0, 9.0):
+            self.assertEqual(quality.pick([high, dict(low, se=error)], 10)["effort"], "low")
 
 
 if __name__ == "__main__":

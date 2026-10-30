@@ -56,13 +56,8 @@ class QualityMissingNeverHelps(unittest.TestCase):
         self.assertAlmostEqual(bolt["quality"], 100 - (0.4 * 10 + 0.2 * 20 + 0.4 * 20))
 
     def test_its_error_counts_once_in_that_measure_s_part(self):
-        bolt = found(self.rated, "bolt-2")
-        parts = {("bolt-2", "high", F): 0.4 * share(0.5, 132),
-                 ("bolt-2", "high", T): (0.2 + 0.4) * share(0.3, 66)}
-        self.assertEqual(bolt["parts"].keys(), parts.keys())
-        for score, part in parts.items():
-            self.assertAlmostEqual(bolt["parts"][score], part)
-        self.assertAlmostEqual(bolt["se"], math.hypot(*parts.values()))
+        self.assertAlmostEqual(found(self.rated, "bolt-2")["se"], math.hypot(
+            0.4 * share(0.5, 132), (0.2 + 0.4) * share(0.3, 66)))
 
     def test_a_row_never_rates_above_the_weighted_mean_of_what_it_has(self):
         for one in quality.rated([ACME, BOLT, CRUX_HIGH, CRUX_LOW, ECHO, DUNE], "execute"):
