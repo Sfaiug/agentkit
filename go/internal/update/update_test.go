@@ -73,10 +73,10 @@ func TestAProgramARelativePathEntryFindsIsInstalled(t *testing.T) {
 			}
 			t.Setenv("PATH", entry+string(os.PathListSeparator)+search)
 			var out, errOut bytes.Buffer
-			if _, err := run(repo, false, &out, &errOut); !errors.Is(err, ErrPython) || wrote(home) {
+			if _, err := Main(repo, false, &out, &errOut); !errors.Is(err, ErrPython) || wrote(home) {
 				t.Errorf("PATH entry %q, %s: the update left err=%v wrote=%t stdout=%q", entry, program, err, wrote(home), out.String())
 			}
-			code, err := run(repo, true, &out, &errOut)
+			code, err := Main(repo, true, &out, &errOut)
 			want := "gamma " + shown + " (cannot be reverted: it offers no versioned reinstall): acme-cli upgrade\n"
 			if code != 0 || err != nil || !strings.HasPrefix(out.String(), want) {
 				t.Errorf("PATH entry %q, %s: the dry run gave %d, %v, %q", entry, program, code, err, out.String())
@@ -101,11 +101,11 @@ func TestALogNotInUTF8IsLeftToPythonBeforeAnythingIsWritten(t *testing.T) {
 	git("-c", "user.name=acme", "-c", "user.email=acme@example.com", "commit", "-q", "--allow-empty", "-m", "first")
 	git("config", "i18n.logOutputEncoding", "ISO-8859-1")
 	var out, errOut bytes.Buffer
-	if _, err := run(repo, true, &out, &errOut); !errors.Is(err, ErrPython) || wrote(home) || out.Len() > 0 {
+	if _, err := Main(repo, true, &out, &errOut); !errors.Is(err, ErrPython) || wrote(home) || out.Len() > 0 {
 		t.Errorf("err=%v wrote=%t stdout=%q", err, wrote(home), out.String())
 	}
 	git("config", "--unset", "i18n.logOutputEncoding")
-	if code, err := run(repo, true, &out, &errOut); code != 0 || err != nil || !strings.Contains(out.String(), " · ") {
+	if code, err := Main(repo, true, &out, &errOut); code != 0 || err != nil || !strings.Contains(out.String(), " · ") {
 		t.Errorf("a log in UTF-8 gave %d, %v, %q", code, err, out.String())
 	}
 }

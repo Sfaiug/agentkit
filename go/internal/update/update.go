@@ -43,14 +43,9 @@ type plan struct {
 	cannot           string
 }
 
-// Main is `ak update` where Go carries it out, in Python's update.main order: what it prints,
-// and its exit code or a refusal in Python's words.
-func Main(dryRun bool, out, errOut io.Writer) (int, error) {
-	return run(config.Repo(), dryRun, out, errOut)
-}
-
-// run is Main for the checkout at repo.
-func run(repo string, dryRun bool, out, errOut io.Writer) (int, error) {
+// Main is `ak update` from the checkout at repo where Go carries it out, in Python's update.main
+// order: what it prints, and its exit code or a refusal in Python's words.
+func Main(repo string, dryRun bool, out, errOut io.Writer) (int, error) {
 	live := filepath.Join(repo, "tests", "live.sh")
 	if !regular(live) {
 		return refuse(fmt.Errorf("no acceptance gate at %s; an unverified upgrade is not one", live))
