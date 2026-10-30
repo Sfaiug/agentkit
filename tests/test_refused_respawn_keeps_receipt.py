@@ -37,7 +37,7 @@ class RefusedRespawn(Sandbox):
                            ("command", lambda *_a, fresh=False, **_kw:
                             None if fresh else ["acme-tui"]),
                            ("opened", lambda *_a, **_kw: True),
-                           ("seat_command", lambda *_a, **_kw: "true"),
+                           ("seat_command", lambda *_a, **_kw: ("true", self.root / "launch")),
                            ("tmux_out", tmux),
                            ("tmux_lists", lambda *_a, **_kw: (0, ""))):
             self.stack.enter_context(patch.object(orch, name, side_effect=fake))

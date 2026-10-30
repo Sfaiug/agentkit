@@ -89,6 +89,7 @@ REVIEWS = ["  reviews · best 100.0".ljust(64) + HEAD,
            f"    Acme Max 5  ▰▱ high    {bar(17)}     94.8  $10.00  no harness",
            f"    Bolt 3         medium  {bar(7)}     92.0   $3.00"]
 LEGEND = ["  as good    ‹ ▰▰▰▰▰▱▱▱▱▱ ›  within 5 points of the best, then the cheapest",
+          "  left out   a row no better than a cheaper one, yours compared with yours",
           f"  comparing all 4 models · boards read {time.strftime('%H:%M', time.gmtime(NOW))}"]
 SEATS = ("acme-fix", "acme-ask")
 
@@ -150,7 +151,7 @@ class ModelsAnswer(unittest.TestCase):
         term, shown = self.models()
         at = shown.index(ORCH[0])
         pointed = [*ORCH[:3], "›" + ORCH[3][1:], *ORCH[4:]]    # the pointer starts on the pick
-        self.assertEqual(shown[at:at + 20], [*pointed, *BUILDS, *REVIEWS, "", *LEGEND])
+        self.assertEqual(shown[at:at + 21], [*pointed, *BUILDS, *REVIEWS, "", *LEGEND])
         self.assertEqual(next(line for line in reversed(shown) if line), KEYS)
         term.keys("Left")
         shown = lines(term.wait("within 4 points"))

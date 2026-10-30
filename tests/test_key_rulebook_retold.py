@@ -15,7 +15,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import Home
-from fixtures.hookdrive import Hooks, adapter
+from fixtures.hookdrive import Hooks, adapter, read_rules
 
 CONVERSATION = "7d3c1e2a-5b4f-4a6e-8c9d-0e1f2a3b4c5d"
 SILENT = (0, "", "", [])
@@ -50,8 +50,10 @@ class RulebookRetold(unittest.TestCase):
         self.assertEqual(fired.said[0]["hookSpecificOutput"]["hookEventName"], "UserPromptSubmit")
 
     def handed(self, name):
-        """The seat's first prompt hands it its rulebook, and the next carries nothing."""
+        """The seat's first prompt names its whole rulebook, which it reads, and the next
+        carries nothing."""
         self.told(self.prompt(name))
+        read_rules(self.home, name)
         self.assertEqual(self.prompt(name), SILENT)
 
     def test_a_resume_or_another_conversations_compaction_leaves_what_it_was_handed(self):

@@ -1,6 +1,6 @@
 """A machine that runs a sharded suite's pieces beside this one: `suite_helper` in config.toml
 names it by ssh alias. A Mac runs each piece in a Linux VM of Apple's `container` while it is awake
-and on power; a Linux machine with docker (on Debian, its packages `docker.io` and `docker-cli`,
+and on power; a Linux machine with docker (on Debian, its packages `docker.io`, `docker-cli`, `curl`,
 the ssh user in group `docker`), which holds nothing but ak's work and gives it all its memory but
 a tenth, in a container. Its image is built from the recipe the repository's `suite_image:` names,
 else its tools/helper/Containerfile (ak's own), with only the tree under test and its repository's

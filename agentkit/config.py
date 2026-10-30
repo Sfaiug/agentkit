@@ -1025,11 +1025,11 @@ SEAT_FILES = {
     "rulebook": "md",    # the rulebook its orchestrator was started on
     "verify": "lock",    # held by one verification of its plan at a time (`plan.verifying`)
     # left by the prompts that named a rulebook to read, before they carried it: goes with its
-    # seat, and a change may still be told against its `rules` (`orch.rulebook_change`)
+    # seat, and a change may still be told against it (`orch.rulebook_change`)
     "rules": "md",
-    "change": "md",
+    "change": "md",      # rulebook news too long for its prompt, which names it (`orch.rulebook_pointer`)
     "held": "md",        # the rulebook its conversation was last handed
-    "launch": "sh",      # the command its pane runs, until that pane starts (`orch.seat_command`)
+    "launch": "sh",      # the command a pane runs, until it starts: one per launch, `.sh` a token (`orch.seat_command`)
     "refused": "txt",    # its screen when it read at its prompt yet took no line (`watch.untyped`)
     "handover": "md",    # what moves to another harness handed it of its conversation (`orch.handover`)
     # written by nothing since seats stopped messaging one another: named so a stop and the daily collector still

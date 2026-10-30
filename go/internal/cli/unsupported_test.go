@@ -21,7 +21,8 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 	}
 	task := filepath.Join(home, "task.md")
 	turn := filepath.Join(home, "hand-in.jsonl")
-	if err := os.MkdirAll(filepath.Join(home, ".agentkit"), 0700); err != nil {
+	// a run Python's maintenance would reap leaves even an open nobody typed to Python
+	if err := os.MkdirAll(filepath.Join(home, ".agentkit", "runs", "acme-1"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(home, ".agentkit", "config.toml"), []byte(testConfig), 0600); err != nil {
@@ -38,7 +39,7 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 		{}, {"attach", "--client"}, {"usage", "--json"}, {"models", "--refresh"},
 		{"worker", "acme", task}, {"run", task, "--no-merge"},
 		{"run", "gc", "--dry-run"}, {"run", "--review-pr", "https://github.com/acme/api/pull/12"},
-		{"orch", "acme", "--dry-run"}, {"plan", "check", "٣", "true"}, {"plan", "check", "²", "a\nb"}, {"plan", "check", "1", "true \xff"}, {"hand-in", "done"},
+		{"orch", "acme", "--dry-run"}, {"orch", "acme"}, {"orch", "ended", "acme", "1700000000"}, {"plan", "check", "٣", "true"}, {"plan", "check", "²", "a\nb"}, {"plan", "check", "1", "true \xff"}, {"hand-in", "done"},
 		{"notify", "--check"}, {"notify", "needs", "Which branch?"},
 		{"wait", "https://github.com/acme/api/pull/12"}, {"update", "--dry-run"},
 		{"watch", "--dry-run"}, {"doctor"}, {"browser", "status"},

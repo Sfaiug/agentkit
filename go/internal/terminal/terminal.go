@@ -30,6 +30,12 @@ func For(out io.Writer) Screen {
 	return Screen{depth(out), width(out), !utf8()}
 }
 
+// TypedHere is whether a person is at this command's keyboard: agents run ak with no
+// terminal on stdin.
+func TypedHere() bool {
+	return isTerminal(os.Stdin)
+}
+
 func Dim(out io.Writer, text string) string {
 	return For(out).Styled(text, "dim")
 }

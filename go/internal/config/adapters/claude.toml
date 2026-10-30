@@ -31,6 +31,11 @@ upgrade = ["claude", "install", "latest"]
 revert = ["claude", "install", "{version}"]
 latest = ["npm", "view", "@anthropic-ai/claude-code", "version"]
 
+# Where a rented Linux machine fetches the program a turn needs (`machine_turn._program`).
+[fetch]
+aarch64 = "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/{version}/linux-arm64/claude"
+x86_64 = "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/{version}/linux-x64/claude"
+
 # The usage endpoint answers every token with 429 and a Retry-After when asked too often,
 # so this harness is asked at most once every fifteen minutes, whoever asks, and never
 # before the Retry-After of its last refusal.
@@ -60,8 +65,10 @@ at_prompt = "hooks"
 name = "UserPromptSubmit"
 state = "working"
 # what its hook prints as `hookSpecificOutput.additionalContext` reaches the model with the
-# prompt (Claude Code): a changed rulebook is carried there (`orch.rulebook_news`)
+# prompt (Claude Code): a changed rulebook is carried there (`orch.rulebook_news`).  2.1.314
+# saves one longer than `context_limit` UTF-16 code units to a file, showing only its start
 context = true
+context_limit = 10000
 
 # hooks/orchestrator-stop.sh writes each Stop down once it has judged it.  A Stop is a turn that
 # ended, except two: one with background work the seat started still in flight (`background_tasks`

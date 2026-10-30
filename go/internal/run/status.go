@@ -263,7 +263,8 @@ func FinalCheck(dir string, record *Object) string {
 	landing := !record.Truthy("scratch") && !record.Truthy("no_merge")
 	any := false
 	for _, cmd := range cmds {
-		any = any || task.Once(cmd)
+		_, once := task.SplitOnce(cmd)
+		any = any || once
 	}
 	if landing && !any && !record.Truthy("review_pr") && worktree(record) != "" {
 		target := record.Str("target")
