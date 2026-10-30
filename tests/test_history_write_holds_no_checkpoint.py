@@ -10,7 +10,6 @@ moves the WAL into the database.
 """
 
 import contextlib
-import gc
 import json
 import os
 import sqlite3
@@ -43,6 +42,12 @@ print(json.dumps([open(database, "rb").read() == before, os.path.exists(database
 """
 
 
+def let_go():
+    """Close this process's kept connection to history.db, as its exit does."""
+    while waiter._KEPT:
+        waiter._KEPT.popitem()[1].close()
+
+
 class HistoryWriteHoldsNoCheckpoint(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix="agentkit-history-checkpoint-")
@@ -52,7 +57,7 @@ class HistoryWriteHoldsNoCheckpoint(unittest.TestCase):
             patcher = patch.object(config, name, home / name.lower())
             patcher.start()
             self.addCleanup(patcher.stop)
-        self.addCleanup(waiter._kept.cache_clear)      # this test's database closed before it goes
+        self.addCleanup(let_go)       # before its database goes
         history.start_run("first", repo="acme")       # the database, made by a first write
         self.made = history.path().read_bytes()
 
@@ -81,8 +86,7 @@ class HistoryWriteHoldsNoCheckpoint(unittest.TestCase):
 
     def test_the_waiter_process_writes_the_same_way(self):
         history.start_run("fix-api", repo="acme")
-        waiter._kept.cache_clear()      # this process's last connection, closed: the WAL moved
-        gc.collect()                    # ... once collected, a connection being in a cycle
+        let_go()        # this process's last connection, closed: the WAL moved
         self.assertFalse(os.path.exists(f"{history.path()}-wal"))
         out = subprocess.run([sys.executable, "-I", "-S", "-c", LONE_WAITER,
                               str(REPO / "agentkit" / "waiter.py"), str(history.path())],

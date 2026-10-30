@@ -14,7 +14,6 @@ is written (`writing`, `connect`) among it.
 
 import contextlib
 import fcntl
-import functools
 import json
 import os
 from pathlib import Path
@@ -28,6 +27,7 @@ SLOT_WAIT_ENV = "AK_SLOT_WAIT"
 # How far history.db's WAL grows before the tick moves it into the database (`checkpoint`), and
 # what a commit beginning it anew cuts its file back to: a file past it holds that much unmoved.
 WAL_MAX = 4 * 1024 * 1024
+_KEPT = {}      # the history.db this process writes -> its connection there (`_keep`)
 
 
 def stale_after(place, poll):
@@ -103,7 +103,7 @@ def connect(database):
     per WAL_MAX written -- the WAL's header, and on a handle that has not synced yet its folder.
     Its ticket ff5be73dee needs it against a power cut, and only `synchronous=OFF` drops it.  A
     power cut or host crash can lose the last commits, never the database; a process dying
-    loses nothing.  A process's exit can be the host's last close (`_kept`), which SQLite then
+    loses nothing.  A process's exit can be the host's last close (`_keep`), which SQLite then
     checkpoints holding no lock of ak's: a writer in those moments waits as far as its sqlite
     timeout allows, as any write can.
     """
@@ -112,19 +112,21 @@ def connect(database):
     connection.execute("PRAGMA synchronous=NORMAL")
     connection.execute("PRAGMA wal_autocheckpoint=0")
     connection.execute(f"PRAGMA journal_size_limit={WAL_MAX}")
-    _kept(os.fspath(database))
+    _keep(os.fspath(database))
     return connection
 
 
-@functools.lru_cache(maxsize=1)
-def _kept(database):
-    """This process's connection to the history.db it writes, open for its life and, having read,
-    never used again: in WAL mode a connection that has read holds the file's shared lock until it
-    closes, so no write's close is the host's last, which would checkpoint and remove the WAL.
-    One per process, as each lives under one HOME; another database's replaces it."""
-    connection = sqlite3.connect(database, timeout=2)
-    connection.execute("SELECT 1 FROM sqlite_master").fetchall()
-    return connection
+def _keep(database):
+    """Keep this process's connection to the history.db it writes open for its life, having read,
+    and never use it again: in WAL mode a connection that has read holds the file's shared lock
+    until it closes, so no write's close is the host's last, which would checkpoint and remove the
+    WAL.  One per process, as each lives under one HOME; another database's replaces it."""
+    if database not in _KEPT:
+        connection = sqlite3.connect(database, timeout=2)
+        connection.execute("SELECT 1 FROM sqlite_master").fetchall()
+        while _KEPT:
+            _KEPT.popitem()[1].close()
+        _KEPT[database] = connection
 
 
 def checkpoint(database):
