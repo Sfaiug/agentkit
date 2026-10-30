@@ -1,7 +1,8 @@
 """Every answer key Go's ak claims passes on Go, judged from a tree without Python ak.
 
-go/keys.txt lists the claims, one key file per line, followed, where Go passes only part of it,
-by the classes or tests it passes as unittest names them.  go/bin/ak is built in a copy of the
+go/keys.txt lists the claims, one key file per line in name order, so milestones landing side by
+side add theirs at lines apart, each followed, where Go passes only part of it, by the classes
+or tests it passes as unittest names them.  go/bin/ak is built in a copy of the
 checkout's files that leaves out agentkit/, and each claim runs there, so a key that imports
 agentkit, or hands Python code that does, fails.  Only what it lists runs: every key against Go
 would cost every landing the deadlines of each key whose verb Go lacks.
@@ -40,6 +41,8 @@ class Claims(unittest.TestCase):
         named = os.environ.get("AK_BIN")
         with tempfile.TemporaryDirectory(prefix="ak-go-keys-") as tree:
             shutil.copytree(REPO, tree, ignore=LEFT_OUT, symlinks=True, dirs_exist_ok=True)
+            # a checkout, as Go finds the one it runs from (config.Repo), without the history
+            subprocess.run(["git", "init", "-q", tree], check=True)
             program = REPO / named if named else Path(tree, "go/bin/ak")
             if not named:
                 # Never a skip: the landing suite counts a skipped case as passed.
