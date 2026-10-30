@@ -66,13 +66,14 @@ linux() {
         exit 253
     }
   }
-  # building KEY IMAGE, from `prepare` ahead of `images`: the build, under its image's own lock, so
-  # the minutes a new machine's first build of one image takes hold up no other's.
+  # building KEY IMAGE, from `prepare` after `images`: the build, under its image's own lock, so
+  # the minutes a new machine's first build of one image take hold up no other's. No `drop` takes
+  # the image after: each runs under the build lock, reading the name this suite wrote before its
+  # `images` took that lock.
   building() { locked "$ROOT/build-${2//[:\/]/-}.lock" build "$1" "$2"; }
-  # images KEY IMAGE, under the build lock: the suite's image, built here if another suite's `drop`
-  # took it since `building`; the repository's other images go once no suite here names them.
+  # images KEY IMAGE, under the build lock: the repository's other images go once no suite here
+  # names them.
   images() {
-    build "$1" "$2"
     tags "${2%:*}" | grep -vxF "$2" | drop
     expire
   }
