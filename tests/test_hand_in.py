@@ -1,6 +1,7 @@
 """Checked review records, exercised through the CLI and a real worker.call with a fake adapter."""
 
 from contextlib import ExitStack
+import itertools
 import json
 import os
 from pathlib import Path
@@ -149,11 +150,13 @@ class HandIn(unittest.TestCase):
                         self.assertEqual(self.file.read_bytes(), before)
 
     def test_a_builder_never_splits_a_change_ak_counts_itself(self):
-        for role in ("executor", "fixer"):
-            with self.subTest(role=role):
+        for role, why in itertools.product(("executor", "fixer"),
+                                           ("Split it: the change takes 580 added lines",
+                                            "The change takes 580 added lines; split it")):
+            with self.subTest(role=role, why=why):
                 hand_in.start(self.root, self.workspace, role=role)
                 before = self.file.read_bytes()
-                result = self.cli("blocked", "Split it: the change takes 580 added lines")
+                result = self.cli("blocked", why)
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertIn("close with done", result.stderr)
                 self.assertEqual(self.file.read_bytes(), before)

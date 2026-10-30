@@ -214,9 +214,10 @@ def checked(argv, workspace, role="reviewer", findings=()):
             raise config.Error("blocked and not-needed are only for executor or fixer turns")
         if len(argv) != 2 or not argv[1].strip():
             raise config.Error('use blocked or not-needed with one nonempty "why"')
-        if argv[0] == "blocked" and argv[1].strip().lower().startswith("split it"):
+        if argv[0] == "blocked" and "split it" in argv[1].lower():
             # 30 Oct 2026: a builder counted go/'s lines, which ak leaves out as generated, and
-            # stopped a milestone ak would have reviewed whole.
+            # stopped a milestone ak would have reviewed whole.  `split it` is the verdict of ak's
+            # own size ending (`transitions.first_review_refusal`), wherever a why puts it.
             raise config.Error("ak counts the change's size itself, at its first review, and ends the run "
                                "with `split it` when a review cannot take it: close with done")
         return {"kind": argv[0], "why": argv[1].strip()}
