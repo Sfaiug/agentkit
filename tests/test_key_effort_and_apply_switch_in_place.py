@@ -2,7 +2,7 @@
 
 The owner (30 Oct 2026): "if it is merely a model change or effort, or both, then the change
 should be able to happen inside the session, without any need to restart."  A step on a seat's
-`c` types `/effort <level>` into its harness's process, asks nothing, and its record holds the
+`c` types only `/effort <level>` into its harness's process, asks nothing, and its record holds the
 level.  `a`, over a seat that can switch in place and one that must restart, names only the
 second on its card and moves both.  Black-box: `AK_BIN`, in a person's terminal, over seats whose
 panes keep each line typed into them, their harnesses fakes; fails against `/bin/false`.
@@ -66,7 +66,7 @@ class SwitchInPlace(unittest.TestCase):
         term.keys("c")
         term.wait(lambda screen: "› Opus 5.5" in screen and "␣ mark" in key_line(screen))
         term.keys("Right", "Space")     # its effort, one step up from xhigh
-        self.assertIn("/effort max", seat.wait_lines(2))
+        self.assertEqual(seat.wait_lines(1), ["/effort max"])
         screen = term.wait(lambda screen: any(
             line.lstrip("› ").startswith("Opus 5.5") and line.split()[5] == "max"
             for line in rows(screen)))
