@@ -1837,9 +1837,10 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 return code, piece, killed, tests
 
             def attempts(which, only=None):
-                """The pieces at `which`, each with `only`'s tests for it, if any, alone."""
+                """The pieces at `which`, each with `only`'s tests for it, if any, alone; with no
+                turn to bound them, those tests go one piece at a time."""
                 only = only or {}
-                with ThreadPoolExecutor(max_workers=len(which) if hold else 1) as pool:
+                with ThreadPoolExecutor(max_workers=len(which) if hold or not only else 1) as pool:
                     try:
                         futures = [pool.submit(attempt, f"{index + 1}/{count}", only.get(index))
                                    for index in which]
@@ -1962,11 +1963,12 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 return joined[0]
 
             # What a machine failed or stopped runs again here, a stopped piece alone, below; what
-            # it lost or had no room for, on the first machine with room, this one included. Only
-            # what names no test takes this host's turns: a red piece's named tests cost what a
-            # model's own test does, which takes none, where a turn was over an hour away (30 Oct
-            # 2026). They go one piece at a time.
+            # it lost or had no room for, on the first machine with room, this one included. The
+            # tests a red piece named go first, at once, one piece at a time, taking no turn: they
+            # cost what a model's own test does, which takes none, where a turn was over an hour
+            # away (30 Oct 2026). Whatever then runs whole here waits for this host's turns.
             while not cancel.is_set():
+                fresh = []
                 for index, there in enumerate(where):
                     if index in again or not there or not results[index][0] or results[index][2]:
                         continue
@@ -1982,9 +1984,13 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             f"what it printed there: {kept}")
                     if tests := helper.failed(there, f"{index + 1}/{count}"):
                         named[index] = results[index][1], tests
+                        fresh.append(index)
+                if fresh:
+                    attempts(fresh, only={index: named[index][1] for index in fresh})
+                # a piece whose named tests passed alone runs whole, below
+                whole = [index for index in again if index not in named or not results[index][0]]
                 if hold is not None or not (
-                        set(again) - set(named) or pieces_left.waiting or any(where) and silenced
-                ) or over():
+                        whole or pieces_left.waiting or any(where) and silenced) or over():
                     break
                 joined[0] = None
                 began = time.monotonic()
@@ -2001,8 +2007,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             if not cancel.is_set():
                 if pieces_left.waiting:
                     pull(hold.pieces if hold else len(pieces_left.waiting))
-                if again:
-                    attempts(again, only={index: tests for index, (_, tests) in named.items()})
+                if unnamed := [index for index in again if index not in named]:
+                    attempts(unnamed)
             for index in pieces_left.waiting:    # stopped before it ran
                 results[index] = attempt(f"{index + 1}/{count}")
             hold = getattr(_GATE_HELD, "hold", None)
