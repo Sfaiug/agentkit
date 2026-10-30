@@ -35,6 +35,10 @@ linux() {
     awk -v cpus="$(nproc)" -v spare="$spare" 'BEGIN {exit spare < cpus / 4}' || exit 252
     mkdir -p "$ROOT/$1" && : >"$ROOT/$1/reserved" || exit 253
   }
+  # started, from `run` once its piece runs or has ended: the suite's reservation ends, under the
+  # lock `admit` reads by, so no suite comes in while neither it nor the container holds the
+  # machine.
+  started() { [ ! -e "$D/reserved" ] || locked "$ROOT/suites.lock" rm -f "$D/reserved"; }
   # left: the MiB ak's containers here may still be given: all the machine's memory but a tenth
   # its system keeps, less what the running ones were given.
   left() {

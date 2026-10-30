@@ -20,7 +20,9 @@ darwin() {
     echo "cpus $(sysctl -n hw.ncpu)"
     echo "load $(sysctl -n vm.loadavg | awk '{print $2}')"
   }
-  admit() { :; }    # a Mac takes every suite; its VMs share it by `left`
+  # admit and started: a Mac takes every suite; its VMs share it by `left`.
+  admit() { :; }
+  started() { :; }
   # left: the MiB ak's VMs here may still be given. Together they get at most half of what would
   # be free without them, so the Mac stays its owner's: half of what macOS calls free and what
   # they hold, less what they were given. The VMs running are the truth: one counts exactly while
@@ -183,9 +185,7 @@ run)       # KEY IMAGE NAME CPUS MEMORY_MB REPO, then piece.sh's arguments
     while ps -p "$vm"; do stop "$name"; sleep 1; done ) >/dev/null 2>&1 &
   # The next piece is weighed once this one runs, or has ended: stopped while starting, it ends.
   until running "$name" || ! kill -0 "$vm" 2>/dev/null; do sleep 0.2; done
-  # Its suite's reservation (linux's `admit`) ends here, under the lock `admit` reads by, so no
-  # suite comes in while neither the reservation nor the container holds the machine.
-  [ ! -e "$D/reserved" ] || locked "$ROOT/suites.lock" rm -f "$D/reserved"
+  started
   : >"$flag"
   wait "$vm"
   code=$?
