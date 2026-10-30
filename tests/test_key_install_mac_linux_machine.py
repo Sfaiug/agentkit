@@ -12,7 +12,6 @@ account's own (tests/fixtures/installer.py), on a Mac of fakes: `uname`, `sysctl
 `launchctl` and a `limactl` whose machine is a directory, `<root>/guest`.
 """
 
-import json
 import os
 import shlex
 import subprocess
@@ -96,11 +95,7 @@ class Mac:
         return self.home.calls("limactl")
 
     def inside(self):
-        try:
-            text = (self.home.root / "logs/inside.log").read_text()
-        except FileNotFoundError:
-            return []
-        return [json.loads(line) for line in text.splitlines()]
+        return self.home.calls("inside")
 
     def server(self):
         path = self.home.path / ".agentkit/state/server"
