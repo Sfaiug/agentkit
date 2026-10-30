@@ -4,8 +4,10 @@ Claude Code hands its model a prompt hook's context longer than 10,000 UTF-16 co
 as a file and that file's first 2,000 characters.  A change that would make the context longer
 is written to the seat's `change` file instead, ending with `ak orch rules CODE`, and the prompt
 carries a pointer to it.  Nothing is held until that command runs: every prompt points again,
-with the same code while the rules stay the same, and after it prompts carry nothing.  A change
-that fits is still carried inline and held at hand-over.  Black-box: Claude's hooks as ak's
+with the same code while the rules stay the same, however little else it carries, and after it
+prompts carry nothing.  An open question rides an owner's prompt and counts toward the limit;
+where it leaves no room even for the pointer it goes alone, and the next prompt points.  A
+change that fits is still carried inline and held at hand-over.  Black-box: Claude's hooks as ak's
 adapter registers them, fired as Claude fires them (tests/fixtures/hookdrive.py); this test
 fails against `/bin/false`.
 """
@@ -25,6 +27,8 @@ SHIPPED = Path(AK).resolve().parents[1] / "orchestrator.md"   # ak's own rules, 
 CHANGE = ".agentkit/state/change-acme.md"
 LIMIT = 10000
 SILENT = (0, "", "", [])
+QUESTION = "Which schema should the parser read?"
+NOT_OWNER = "<task-notification>done"      # a turn begun on finished work: no question rides
 # Each one character, two UTF-16 code units and four UTF-8 bytes: only a count in code units
 # takes 5,000 of them past the limit and leaves 4,000 within it.
 WIDE = "\N{GRINNING FACE}"
@@ -56,23 +60,28 @@ class TooLong(unittest.TestCase):
     def rules(self, own):
         self.home.write(".agentkit/rules.md", own)
 
-    def prompt(self):
-        fired = self.hooks.fire("UserPromptSubmit", {"prompt": "go", "session_id": CONVERSATION},
+    def ask(self, question):
+        done = self.home.ak("notify", "needs", question, "--session", "acme",
+                            env={"AK_NOTIFY_SINK": "off"})
+        self.assertEqual(done.code, 0, done.err)
+
+    def prompt(self, words="go"):
+        fired = self.hooks.fire("UserPromptSubmit", {"prompt": words, "session_id": CONVERSATION},
                                 seat="acme")
         self.assertEqual(fired.code, 0, fired.err)
         return fired
 
-    def told(self):
+    def told(self, words="go"):
         """What the next prompt carries, as Claude reads it."""
-        fired = self.prompt()
+        fired = self.prompt(words)
         self.assertEqual(len(fired.said), 1, fired.out)
         news = fired.said[0]["hookSpecificOutput"]["additionalContext"]
         self.assertLessEqual(units(news), LIMIT)
         return news
 
-    def pointed(self):
+    def pointed(self, words="go"):
         """The pointer the next prompt carries, and the code its file ends with."""
-        news = self.told()
+        news = self.told(words)
         self.assertIn(str(self.home.path / CHANGE), news)
         written = (self.home.path / CHANGE).read_text()
         code = re.fullmatch(r"ak orch rules (\S+)", written.rstrip("\n").rsplit("\n", 1)[-1])
@@ -95,6 +104,22 @@ class TooLong(unittest.TestCase):
         done = self.home.ak("orch", "rules", code, env={"AGENTKIT_SESSION": "acme"})
         self.assertEqual(done.code, 0, done.err)
         self.assertEqual(self.prompt(), SILENT)
+
+    def test_a_file_named_beside_a_question_is_named_again_on_a_prompt_with_room_to_spare(self):
+        self.rules(f"Rule two. {WIDE * 4000}\n")          # within the limit alone
+        self.ask(f"{QUESTION} {'Q' * 2000}")
+        news, _, code = self.pointed()
+        self.assertIn(QUESTION, news)
+        news, _, again = self.pointed(NOT_OWNER)
+        self.assertEqual((again, QUESTION in news), (code, False))
+
+    def test_a_question_that_leaves_no_room_for_the_pointer_goes_alone(self):
+        self.rules(f"Rule two. {WIDE * 5000}\n")
+        self.ask(f"{QUESTION} {'Q' * 9800}")
+        news = self.told()
+        self.assertIn(QUESTION, news)
+        self.assertNotIn(str(self.home.path / CHANGE), news)
+        self.pointed(NOT_OWNER)
 
     def test_a_change_within_the_limit_is_carried_inline_and_held_at_hand_over(self):
         rule = f"Rule two. {WIDE * 4000}\n"

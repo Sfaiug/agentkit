@@ -2818,16 +2818,19 @@ def rulebook_news(session, conversation, whole=lambda news: news):
     a compaction or `/clear` tells it again from the launch's rulebook.  Where the record
     cannot be written nothing is handed over, and the next prompt tries again.  News that would
     make the prompt's whole context (`whole`) too long for its harness goes to a file the
-    prompt names instead (`rulebook_pointer`).  No seat's lock: a delivery holds it while it
-    types this very prompt, and the record's own lock refuses a write over a rename.  A harness
-    whose prompt hook carries no context (`context` on its `UserPromptSubmit` event) reads the
-    new rulebook at its next launch.
+    prompt names instead, until the code there comes back (`rulebook_pointer`).  No seat's
+    lock: a delivery holds it while it types this very prompt, and the record's own lock
+    refuses a write over a rename.  A harness whose prompt hook carries no context (`context`
+    on its `UserPromptSubmit` event) reads the new rulebook at its next launch.
     """
     name = config.resolve_session(session)
     found = rulebook_due(name)
     if not found or found[1] != conversation:
         return ""
     record, _, text = found
+    sha = config.rulebook_digest(text)
+    told = record.get("rulebook_told") or {}
+    pending = told.get("conversation") == conversation and told.get("sha") == sha
     change = rulebook_change(name, record, conversation, text)
     if change:
         # what changed, not the whole rulebook again: most changes are a line or two
@@ -2837,11 +2840,15 @@ def rulebook_news(session, conversation, whole=lambda news: news):
     else:
         news = ("Your current rulebook follows, whole: where it differs from the one you were "
                 f"opened with, it wins.\n\n{text}")
-    if not seat_plugin(record).context_fits(whole(news)):
-        return rulebook_pointer(name, record, conversation, text, news)
+
+    def fits(part):
+        return seat_plugin(record).context_fits(whole(part))
+
+    if pending or not fits(news):
+        return rulebook_pointer(name, told if pending else None, conversation, sha, news, fits)
     try:
-        if config.update_session(name, rulebook_told=None, rulebook_read={
-                "conversation": conversation, "sha": config.rulebook_digest(text)}) is None:
+        if config.update_session(name, rulebook_read={
+                "conversation": conversation, "sha": sha}) is None:
             return ""
     except OSError:
         return ""
@@ -2852,27 +2859,29 @@ def rulebook_news(session, conversation, whole=lambda news: news):
     return news
 
 
-def rulebook_pointer(name, record, conversation, text, news):
-    """What a prompt carries in place of `news` too long for it: the seat's `change` file, which
-    holds `news` and ends with `ak orch rules CODE`.  Only that file gives the code, so running
-    it says the conversation read the file to its end (`rulebook_ack`), and until then nothing
-    is held: every prompt names the file again, with the same code while the rules stay the
-    same.  A record or file that cannot be written names nothing, and the next prompt tries
-    again."""
-    sha = config.rulebook_digest(text)
-    told = record.get("rulebook_told") or {}
+def rulebook_pointer(name, told, conversation, sha, news, fits):
+    """What a prompt carries in place of `news` too long for it, or for a prompt before it: the
+    seat's `change` file, which holds `news` and ends with `ak orch rules CODE`.  Only that file
+    gives the code, so running it says the conversation read the file to its end
+    (`rulebook_ack`), and until then nothing is held: every prompt names the file again, however
+    short its other context, with the code `told` recorded while the rules stay the same.  A
+    prompt whose other context leaves no room even for this (`fits`) names nothing, and neither
+    does one whose record or file cannot be written: the next prompt tries again."""
+    path = config.seat_file("change", name)
+    pointer = (f"What changed in your rulebook is in {path}: read it now, before anything else, "
+               "to its very end, then run the command on its last line.")
+    if not fits(pointer):
+        return ""
     try:
-        if told.get("conversation") != conversation or told.get("sha") != sha:
+        if not told:
             told = {"conversation": conversation, "sha": sha, "code": secrets.token_hex(6)}
             if config.update_session(name, rulebook_told=told) is None:
                 return ""
-        path = config.seat_file("change", name)
         replace_file(path, (f"{news.rstrip()}\n\nOnce you have read all of the above, run this "
                             f"to say so:\n\nak orch rules {told['code']}\n").encode())
     except OSError:
         return ""
-    return (f"What changed in your rulebook is too long to carry here: read {path} now, before "
-            "anything else, to its very end, then run the command on its last line.")
+    return pointer
 
 
 def prompt_news(session, conversation, said=None):
