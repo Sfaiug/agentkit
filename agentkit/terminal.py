@@ -1031,16 +1031,15 @@ def read_key(timeout=None, wake=None):
             break
     if key is None:                # the pointer's move
         (key, _), _HELD, _MOVED = _HELD, None, time.monotonic()
-        _POINTER, _AWAY = key, under(key, _SPOTS).what is None and any(
-            what is not None for what, *_ in _SPOTS.values())
+        _point(key)
         return key
     spot = under(key, _SPOTS) if key.name == "click" else Spot()
     _UNSEEN = _AWAY and spot.what is None     # a click on a row names its own
     if key.name == "click" and spot == Spot():
         # on nothing: one the keys hold stays theirs, so the next move takes it wherever it goes;
-        # the pointer's goes out, the pointer off every row as a move there would leave it
+        # the pointer's goes out, as a move there puts it out
         if _POINTER:
-            _POINTER, _AWAY = key, any(what is not None for what, *_ in _SPOTS.values())
+            _point(key)
         return key
     _AWAY, _POINTER = False, key if key.name == "click" and not _UNSEEN else None
     if _UNSEEN and (key.name in ("enter", "space") or spot.what is None
@@ -1048,6 +1047,14 @@ def read_key(timeout=None, wake=None):
         _ASKED = True
         return None                # the highlight back where the keys left it, and drawn
     return key
+
+
+def _point(key):
+    """The pointer at `key`, a move or a click: on no row of a screen that has rows, it puts out
+    the highlight (`away`)."""
+    global _POINTER, _AWAY
+    _POINTER, _AWAY = key, under(key, _SPOTS).what is None and any(
+        what is not None for what, *_ in _SPOTS.values())
 
 
 def _key(fd):
