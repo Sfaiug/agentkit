@@ -1,9 +1,9 @@
 """A page comes up as it opens: under its header and rule it fades in out of the background
-while the header keeps `agentkit` and writes the page's name out after it, in FADE seconds, and
-is then as drawn -- `c`, `p`, a project's features, the models, the new-session picker and the
-pages `c` opens, Subscriptions among them, as each opens.  A screen gone back to is drawn as it
-is, and a list one of `c`'s pages opens comes up under its row as the line under the menu's
-highlighted row does.
+while the header keeps `agentkit` and writes the page's name out after it, in FADE seconds from
+its first frame however long the draw before it took, and is then as drawn -- `c`, `p`, a
+project's features, the models, the new-session picker and the pages `c` opens, Subscriptions
+among them, as each opens.  A screen gone back to is drawn as it is, and a list one of `c`'s
+pages opens comes up under its row as the line under the menu's highlighted row does.
 
 The owner's pick of 18 Oct 2026 (motion 5, a page that slides in).  Offline: a temporary HOME,
 no terminal, the motion clock's time injected and each frame it writes read back.
@@ -66,8 +66,8 @@ class PageComesUp(Sandbox):
         self.stack.enter_context(patch.object(motion, "Clock", Kept))
 
     def assert_comes_up(self, clock, name):
-        lines, began = clock.rising
-        self.assertEqual(began, OPENED)
+        lines = clock.rising
+        self.assertEqual(clock.opened, OPENED)
         header = terminal.header_line(name, terminal.plain(lines[0]).split()[-1])
         self.assertEqual(lines[0], header)
         for at, x in ((0, 0), (0.5, None), (1, 1)):
@@ -96,6 +96,12 @@ class PageComesUp(Sandbox):
         menus = terminal.header_line("", "19:01")
         self.assertEqual(motion.titled(menus, 0), menus)          # the menu's has no name
 
+    def test_it_comes_up_from_the_background_however_long_its_draw_took(self):
+        clock = motion.Clock(page=True)
+        clock.rise(["agentkit", "", "fix-api"])
+        self.time.now += motion.FADE                    # the draw ran the fade's length
+        self.assertEqual(rows(clock.frame())[3], terminal.fade("fix-api", 1))
+
     def test_past_comes_up_under_its_header_as_it_opens(self):
         seat = {"name": "fix-api", "repo": None, "path": "/", "created": 9000, "closed": 9500}
         output = io.StringIO()
@@ -105,7 +111,7 @@ class PageComesUp(Sandbox):
             menu.show_past({"fixture": True}, [seat], keyboard=None)
         clock, = self.made
         self.assertNotIn("\033[Kagentkit", output.getvalue())     # never first drawn as it is
-        self.assertIn("fix-api", terminal.plain("".join(clock.rising[0])))
+        self.assertIn("fix-api", terminal.plain("".join(clock.rising)))
         self.assert_comes_up(clock, "past sessions")
 
     def pages(self):
