@@ -109,6 +109,7 @@ def count(database, run_id, began, since):
     try:
         with writing(database, wait=False), contextlib.closing(
                 sqlite3.connect(database, timeout=2)) as connection:
+            connection.execute("PRAGMA synchronous=NORMAL")     # history._writable says why
             add_wait(connection, run_id, "slot", max(0.0, now - since), began, time.time())
             connection.commit()
     except BlockingIOError:

@@ -13,6 +13,7 @@ from statistics import median
 from . import config, gitcall, host, record, waiter
 
 _LOCK = threading.Lock()
+_KEPT = {}     # database -> this process's connection left open (`_writable`), never used again
 SUMMARY_TASKS = 20    # the status line looks back over this many finished runs per repo
 SUMMARY_WORDS = 400   # ... and contrasts tasks over this many words outside the checks block
 SUMMARY_POINTS = 3    # ... and tasks over this many numbered goal points, by median rounds
@@ -155,6 +156,15 @@ def _writable():
     # past sqlite's wait made a write give up; in WAL a reader never blocks the writer.
     # Persistent in the file, so this is a no-op after the first write.
     connection.execute("PRAGMA journal_mode=WAL")
+    # Every write holds the one lock (`_writing`), and flushing to disk under it held 100 runs and
+    # the tick behind 1 to 4 s a write on a busy disk (30 Oct 2026). So a commit flushes nothing: a
+    # power cut can lose the last ones, never the database. And one connection stays open, having
+    # read, as the last to close flushes the WAL into the database and removes it.
+    connection.execute("PRAGMA synchronous=NORMAL")
+    if str(path()) not in _KEPT:
+        kept = sqlite3.connect(path(), timeout=2)
+        kept.execute("SELECT count(*) FROM sqlite_master").fetchall()
+        _KEPT[str(path())] = kept
     return connection
 
 
