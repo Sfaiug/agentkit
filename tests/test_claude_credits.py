@@ -150,7 +150,7 @@ class Shown(unittest.TestCase):
         said = {"meters": [self.meter("weekly_all")], "credits": 12.4, "currency": "USD",
                 "error": None}
         answer = subprocess.CompletedProcess([], 0, stdout=json.dumps(said), stderr="")
-        with patch.object(usage.subprocess, "run", return_value=answer), \
+        with patch.object(config, "run_adapter", return_value=answer), \
                 patch.object(usage, "_resets", return_value=0.0):
             read = usage._probe(self.cfg, "anthropic", self.now)
         self.assertEqual((read["credits"], read["currency"]), (12.4, "USD"))
@@ -180,7 +180,7 @@ class Shown(unittest.TestCase):
         said = {"meters": [self.meter("weekly_all")], "credits": "unlimited", "currency": "USD",
                 "error": None}
         answer = subprocess.CompletedProcess([], 0, stdout=json.dumps(said), stderr="")
-        with patch.object(usage.subprocess, "run", return_value=answer), \
+        with patch.object(config, "run_adapter", return_value=answer), \
                 patch.object(usage, "_resets", return_value=0.0):
             read = usage._probe(self.cfg, "anthropic", self.now)
         self.assertEqual(read["credits"], "unlimited")

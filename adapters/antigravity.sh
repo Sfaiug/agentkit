@@ -352,7 +352,7 @@ models)
   # outlasts ten seconds or says nothing leaves the [catalog] table, and so does a host with
   # no `timeout` to bound it (stock macOS): nothing waits on a listing it cannot stop.
   listed=$(command -v timeout >/dev/null && command -v agy >/dev/null \
-    && timeout 10 agy ${DATA:+"$DATA"} models 2>/dev/null | awk -F'\t' '
+    && timeout -k 1 10 agy ${DATA:+"$DATA"} models 2>/dev/null | awk -F'\t' '
     NF >= 2 {
       id = $1; label = $2; effort = ""
       if (match(id, /-(low|medium|high)$/)) {

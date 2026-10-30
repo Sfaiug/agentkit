@@ -155,8 +155,7 @@ def _probe(cfg, provider, now, account=None):
             # a usage call that runs a model shares the caller's deadline, descendants included
             proc = usage_probe.capture(argv)
         else:
-            proc = subprocess.run(argv, capture_output=True, timeout=30,
-                                  encoding="utf-8", errors="replace")
+            proc = config.run_adapter(argv, timeout=30)
         data = json.loads(proc.stdout)
         if not isinstance(data, dict):
             raise ValueError(f"expected a JSON object, got {type(data).__name__}")
@@ -439,9 +438,8 @@ def _adapter_json(harness, verb, timeout, account=None):
     """The one JSON object `<adapter> <verb>` printed about that account, the usual login for
     none whatever the caller's was, or None when it said nothing usable."""
     try:
-        proc = subprocess.run([str(config.adapter(harness)), verb], capture_output=True,
-                              env={**os.environ, **config.account_env(account)},
-                              timeout=timeout, encoding="utf-8", errors="replace")
+        proc = config.run_adapter([str(config.adapter(harness)), verb], timeout=timeout,
+                                  env={**os.environ, **config.account_env(account)})
         data = json.loads(proc.stdout)
     except (config.Error, subprocess.TimeoutExpired, OSError, ValueError):
         return None

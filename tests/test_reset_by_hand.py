@@ -62,7 +62,7 @@ class ResetByHand(unittest.TestCase):
                           "resets_at": until})
             return subprocess.CompletedProcess(argv, 0, json.dumps(data), "")
 
-        stack.enter_context(patch.object(usage.subprocess, "run", side_effect=adapter))
+        stack.enter_context(patch.object(config, "run_adapter", side_effect=adapter))
 
     def rows(self):
         """What the line under the usage grid says of each subscription, the pointer on it."""

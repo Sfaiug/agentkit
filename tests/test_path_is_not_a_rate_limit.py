@@ -192,7 +192,7 @@ class PathIsNotARateLimit(unittest.TestCase):
         for error in (f"Cannot read {RUN_DIR}/credentials.json",
                       f"HTTP 429; log: {RUN_DIR}/log.txt"):
             with self.subTest(error=error), \
-                    patch.object(usage.subprocess, "run") as probe, \
+                    patch.object(config, "run_adapter") as probe, \
                     patch.object(usage, "_resets", return_value=0.0), \
                     patch.object(worker, "auth_ok", return_value=(True, "logged in")) as auth:
                 probe.return_value.returncode = 0

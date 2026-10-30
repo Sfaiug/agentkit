@@ -119,7 +119,7 @@ store_key() {
 # among them, never leave jq.
 own_providers() {
   command -v jq >/dev/null && command -v timeout >/dev/null && command -v opencode >/dev/null || return 1
-  timeout 10 sh -c 'opencode api integration.list >/dev/null && opencode api provider.list &&
+  timeout -k 1 10 sh -c 'opencode api integration.list >/dev/null && opencode api provider.list &&
       opencode api config.get && opencode api --standalone config.get' 2>/dev/null | jq -cs '
       select(length == 3 and all(.[1:][]; type == "array"))
       | [.[1:][][].info? | (.provider, .providers) | objects | keys[]] as $named
@@ -376,7 +376,7 @@ usage)
   BRIDGE_DIR="$HOME/.local/share/browser-bridge"
   BRIDGE_PY="$BRIDGE_DIR/bridge.py"; BRIDGE_VENV="$BRIDGE_DIR/venv/bin/python"
   SESS="agentkit-mimo-usage"
-  bexec=""; command -v timeout >/dev/null && bexec="timeout"
+  bexec=""; command -v timeout >/dev/null && bexec="timeout -k 1"
   # bridge_eval <js> [by]: one eval, cut off after 6s or at second <by> of the
   # probe, whichever comes first, and never started once <by> is past.
   bridge_eval() {
@@ -470,7 +470,7 @@ usage)
   if [ "${SECONDS:-0}" -ge 20 ]; then
     note "mimo CLI untested (probe budget)"
   elif command -v mimo >/dev/null; then
-    mexec="mimo"; command -v timeout >/dev/null && mexec="timeout 5 mimo"
+    mexec="mimo"; command -v timeout >/dev/null && mexec="timeout -k 1 5 mimo"
     mmeters=""
     for sub in usage status; do
       mout=$($mexec $sub 2>/dev/null || true)
@@ -625,7 +625,7 @@ models)
   # it is, and so does a host with no `timeout` to bound it (stock macOS): nothing waits on a
   # listing it cannot stop.  Settings, keys among them, never leave jq.
   listed=$(command -v timeout >/dev/null && command -v opencode >/dev/null \
-    && timeout 10 opencode api model.list 2>/dev/null | jq -r '.data[]? | select(.enabled != false)
+    && timeout -k 1 10 opencode api model.list 2>/dev/null | jq -r '.data[]? | select(.enabled != false)
         | ["\(.providerID)/\(.id)", .name // .id,
            (if .providerID == "mimo" then ""
             else [.variants[]?.id] | if length == 0 then "none" else join(" ") end end)]
@@ -646,7 +646,7 @@ providers)
   # can fail, each cut to the fields read here: settings, keys among them, never leave jq.  A
   # list of providers that fails is a failed verb: nothing to offer.
   command -v jq >/dev/null || { echo "opencode: listing providers needs jq" >&2; exit 2; }
-  bound=""; command -v timeout >/dev/null && bound="timeout 20"
+  bound=""; command -v timeout >/dev/null && bound="timeout -k 1 20"
   ask() { $bound opencode api "$1" 2>/dev/null | jq -ce "[.data[] | $2]" 2>/dev/null; }
   if all=$(ask integration.list '{id, name}'); then
     saved=$($bound opencode auth list --standalone --format json 2>/dev/null | jq -c '[.[]?.id]')

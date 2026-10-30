@@ -87,7 +87,7 @@ class NothingSpendsAReset(unittest.TestCase):
                     else {"code": "reset", "available": 1, "weekly_used": 0, "resets_at": half})
             return subprocess.CompletedProcess(argv, 0, json.dumps(data), "")
 
-        stack.enter_context(patch.object(usage.subprocess, "run", side_effect=adapter))
+        stack.enter_context(patch.object(config, "run_adapter", side_effect=adapter))
         for level in (95, 100):
             used[0] = level
             with self.subTest(used=level):

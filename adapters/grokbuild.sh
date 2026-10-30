@@ -482,7 +482,7 @@ models)
   # does not know goes unsaid.  A listing that fails, outlasts ten seconds or names nothing
   # leaves the table as it is, and so does a host with no `timeout` to bound it (stock
   # macOS): nothing waits on a listing it cannot stop.
-  ids=$(command -v timeout >/dev/null && command -v grok >/dev/null && timeout 10 grok models \
+  ids=$(command -v timeout >/dev/null && command -v grok >/dev/null && timeout -k 1 10 grok models \
     2>/dev/null | awk '($1 == "*" || $1 == "-") && $2 ~ /^[A-Za-z0-9._\/-]+$/ { print $2 }') || ids=""
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" grokbuild $ids ;;

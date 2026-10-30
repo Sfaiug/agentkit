@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import time
 from pathlib import Path
 from typing import NamedTuple
@@ -54,6 +55,24 @@ def proc_stat(pid, proc_root=PROC):
         return ProcStat(fields[0], int(fields[1]), int(fields[19]))
     except (OSError, ValueError, IndexError):
         return None
+
+
+def parents():
+    """{pid: parent pid} of every process still running, from /proc, or from `ps` where there
+    is none (macOS); {} where neither answers."""
+    try:
+        return {int(entry): stat.ppid for entry in os.listdir(PROC) if entry.isdigit()
+                if (stat := proc_stat(entry, PROC)) is not None and not stat.exited}
+    except OSError:
+        pass
+    try:
+        rows = subprocess.run(["ps", "-A", "-o", "pid=", "-o", "ppid=", "-o", "stat="],
+                              capture_output=True, encoding="utf-8", errors="replace").stdout
+    except OSError:
+        return {}
+    return {int(words[0]): int(words[1]) for words in map(str.split, rows.splitlines())
+            if len(words) == 3 and words[0].isdigit() and words[1].isdigit()
+            and words[2][0] not in "ZX"}
 
 
 def process_identity(pid):
