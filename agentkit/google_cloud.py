@@ -65,11 +65,9 @@ def offers():
     core, ram = {}, {}
     for sku in _pages(token, _url("cloudbilling", f"/v1/services/{COMPUTE_SKUS}/skus"),
                       "skus", currencyCode=CURRENCY, pageSize=5000):
-        description, price = sku.get("description", ""), _hourly(sku)
-        if price is None:
-            continue
-        for region in sku.get("serviceRegions") or ():
-            if spot := SPOT.match(description):
+        spot, price = SPOT.match(sku.get("description", "")), _hourly(sku)
+        if spot and price is not None:
+            for region in sku.get("serviceRegions") or ():
                 (core if spot[2] == "Core" else ram)[spot[1].lower(), region] = price
     found = {}
     for zone, listed in _pages(token, _url("compute", f"/compute/v1/projects/{project}/"
