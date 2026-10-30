@@ -689,16 +689,20 @@ def _pr_moved(state, heads):
             "the line checks them")
 
 
-def _stack_member(repo, state, top, upstream, opened):
-    """Integrate a reviewed head in scratch; no scratch means setup failed."""
+def _stack_member(repo, state, top, upstream, opened, scratch=None):
+    """Integrate a reviewed head in scratch, the one given put back at the head; no scratch
+    means setup failed."""
     from . import roundloop, run
     head = state["review"]["head_sha"]
-    code, out = _member_commit(repo, state, head)
-    if code:
-        return None, f"[exit {code}]\nERROR: reviewed commit {head} is unavailable\n{out}"
-    scratch, text = _scratch(repo, head, opened)
-    if text:
-        return None, text
+    if scratch:
+        _put_back(scratch, head)
+    else:
+        code, out = _member_commit(repo, state, head)
+        if code:
+            return None, f"[exit {code}]\nERROR: reviewed commit {head} is unavailable\n{out}"
+        scratch, text = _scratch(repo, head, opened)
+        if text:
+            return None, text
     lp = SimpleNamespace(state=state, wt=scratch,
                          base_sha=state.get("base_sha") or
                          run.git(scratch, "merge-base", head, top))
@@ -811,7 +815,9 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     log_path.write_text(moved + "\n")
                     alone(member, {"fix": {"line": moved, "log": str(log_path), "moved": True}})
                     continue
-                # Earlier changes can hide a target conflict, so try the bare tip first.
+                # Earlier changes can hide a target conflict, so try the bare tip first, then the
+                # stack in the same checkout: a checkout of a large repository takes half a minute
+                # on a busy disk (two for each of 24 members held a pass 28 minutes, 30 Oct 2026).
                 scratch, text = _stack_member(repo, saved, tip, upstream, opened)
                 if text:
                     if member == directory or scratch is not None:
@@ -821,7 +827,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                                **({"conflict": True} if scratch is not None else {})}})
                     continue
                 if top != tip:
-                    scratch, text = _stack_member(repo, saved, top, upstream, opened)
+                    scratch, text = _stack_member(repo, saved, top, upstream, opened, scratch)
                     if text:
                         continue
                 # AGENTS.md is measured on the tree that lands, before any evidence answers it: a
