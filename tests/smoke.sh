@@ -122,22 +122,15 @@ for provider in config.load()["providers"]:
 PY
 }
 smoke_home() {
-  # Borrow credential files by link, never a copy and never a directory: hooks, settings,
-  # trust and caches are local.
-  local path source target caller_config caller_data caller_claude caller_codex caller_grok
-  local caller_opencode caller_gh caller_account caller_state
+  # Each harness's login is a copy nothing can renew (agentkit/lend.py).  The credentials that
+  # never renew are linked, never a directory: hooks, settings, trust and caches are local.
+  local path source target caller_config caller_gh caller_account caller_state
   SMOKE_CALLER_HOME=$HOME
   caller_config=${XDG_CONFIG_HOME:-$HOME/.config}
-  caller_data=${XDG_DATA_HOME:-$HOME/.local/share}
   caller_state=${XDG_STATE_HOME:-$HOME/.local/state}
-  caller_claude=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
-  caller_codex=${CODEX_HOME:-$HOME/.codex}
-  caller_grok=${GROK_HOME:-$HOME/.grok}
-  caller_opencode=${OPENCODE_CONFIG:-${OPENCODE_CONFIG_DIR:-$caller_config/opencode}/opencode.json}
   caller_gh=${GH_CONFIG_DIR:-$caller_config/gh}
   caller_account=${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json
-  SMOKE_CLAUDE_CREDS="$caller_claude/.credentials.json"
-  SMOKE_GROK_AUTH="$caller_grok/auth.json"
+  PYTHONPATH="$REPO" python3 -m agentkit.lend "$WORK/home" >/dev/null || exit 1
   export HOME="$WORK/home"
   # An inherited override must not send a harness back outside this HOME. Leaving these
   # unset also lets the checks with their own HOME keep their own configs and caches.
@@ -146,33 +139,20 @@ smoke_home() {
   mkdir -p -- "$HOME/.agentkit/secrets" "$HOME/.agentkit/state"
   cp "$REPO/config.default.toml" "$HOME/.agentkit/config.toml" || exit 1
   # gh's saved login is needed by check 4, just as the harness logins are by check 3.
-  for path in "$SMOKE_CLAUDE_CREDS:.claude/.credentials.json" \
-              "$caller_codex/auth.json:.codex/auth.json" \
-              "$caller_config/muse/auth.json:.config/muse/auth.json" \
-              "$SMOKE_GROK_AUTH:.grok/auth.json" \
-              "$caller_data/opencode/auth.json:.local/share/opencode/auth.json" \
-              "$caller_gh/hosts.yml:.config/gh/hosts.yml" \
+  for path in "$caller_gh/hosts.yml:.config/gh/hosts.yml" \
               "$SMOKE_CALLER_HOME/.agentkit/secrets/claude_oauth_token:.agentkit/secrets/claude_oauth_token" \
-              "$SMOKE_CALLER_HOME/.gemini/antigravity-cli/antigravity-oauth-token:.gemini/antigravity-cli/antigravity-oauth-token" \
               "$SMOKE_CALLER_HOME/.local/share/browser-bridge/Xauthority:.local/share/browser-bridge/Xauthority"; do
     source=${path%:*}; target="$HOME/${path##*:}"
     smoke_source "$source" || continue
     mkdir -p -- "${target%/*}" && ln -s -- "$source" "$target" || exit 1
   done
-  # Grok flocks this file when refreshing. The same inode must guard both homes, even
-  # when the first refresh has yet to create the lock file beside the caller's login.
-  if [ -f "$SMOKE_GROK_AUTH" ]; then
-    [ ! -d "$SMOKE_GROK_AUTH.lock" ] || { echo "Grok auth lock is a directory" >&2; exit 1; }
-    ln -s -- "$SMOKE_GROK_AUTH.lock" "$HOME/.grok/auth.json.lock" || exit 1
-  fi
   # Claude needs its account and MCP fields; Git needs its credential helper. Copies let
-  # both update their config locally. OpenCode can store its static API key in its config.
+  # both update their config locally, OpenCode its service receipt.
   # Its service receipt authenticates catalog probes without a second server fighting for
   # the host's port. A copy keeps a sandbox update from replacing the host's receipt.
   for path in "$caller_account:.claude.json" "$SMOKE_CALLER_HOME/.gitconfig:.gitconfig" \
               "$caller_gh/config.yml:.config/gh/config.yml" \
-              "$caller_state/opencode/service.json:.local/state/opencode/service.json" \
-              "$caller_opencode:.config/opencode/opencode.json"; do
+              "$caller_state/opencode/service.json:.local/state/opencode/service.json"; do
     source=${path%:*}; target="$HOME/${path##*:}"
     smoke_source "$source" || continue
     mkdir -p -- "${target%/*}" && cp -p -- "$source" "$target" || exit 1
@@ -241,27 +221,13 @@ smoke_source() {   # smoke_source <caller's file>: 0 to borrow it, 1 when nothin
   [ "$dir" != "$1" ] && [ -e "$dir" ] && { [ ! -d "$dir" ] || [ -x "$dir" ]; } && return 1
   echo "smoke: cannot read $1" >&2; exit 1
 }
-smoke_sync_logins() {
-  # A harness may rename over its credential link. Return only valid, newer token pairs,
-  # never a failed refresh's cleared login, before either exit path removes the sandbox.
-  python3 "$REPO/tests/merge_logins.py" "$WORK/home" "${SMOKE_CLAUDE_CREDS:-}" "${SMOKE_GROK_AUTH:-}" \
-    && return 0
-  # Past `finish` the live labels are written: a label of its own lets the gate compare this
-  # failure with the running install's like any other.
-  if [ -f "${AK_LIVE_FAILED_FINAL:-}" ]; then
-    printf 'FAIL  logins: a login renewed in the sandbox did not go back to the caller\n'
-    printf 'logins\n' >>"$AK_LIVE_FAILED_FINAL"
-  fi
-  return 1
-}
 # A bounded way to refresh the real Claude fixture without running the GitHub merge check.
 # The caller supplies an isolated HOME and output directory when outside writes are forbidden.
 if [ "${1:-}" = --claude-stream ]; then
   [ $# = 2 ] || { echo "usage: tests/smoke.sh --claude-stream <out-dir>" >&2; exit 2; }
   STREAM=$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$2")
   STREAM_HOME=$(mktemp -d "${TMPDIR:-/tmp}/ak-smoke-stream-XXXXXX") || exit 1
-  trap 'rc=$?; WORK="$STREAM_HOME" smoke_sync_logins || exit 1
-        rm -rf -- "$STREAM_HOME"; exit "$rc"' EXIT
+  trap 'rc=$?; rm -rf -- "$STREAM_HOME"; exit "$rc"' EXIT
   WORK="$STREAM_HOME" smoke_home
   mkdir -p -- "$STREAM/workspace"
   printf 'Say STREAM_READY, then use Bash to run pwd, then reply DONE. Do not edit files.\n' >"$STREAM/prompt.txt"
@@ -1140,7 +1106,6 @@ PYTHONPATH="$REPO" python3 -m agentkit.retention begin "$WORK" smoke "$$" || :
 # older ones, so the host holds at most one failed sandbox, the newest, and `ak run gc` takes
 # what is a day old.
 trap 'SMOKE_RC=$?
-      [ ! -d "$WORK/home" ] || smoke_sync_logins || SMOKE_RC=1
       HOME="$SMOKE_CALLER_HOME" PYTHONPATH="$REPO" python3 -m agentkit.retention settle "$WORK" "$SMOKE_RC" || :
       [ -z "${SMOKE_SHARD_HOME:-}" ] || rm -rf -- "$SMOKE_SHARD_HOME" "$SMOKE_SHARD_TMP"
       exit "$SMOKE_RC"' EXIT

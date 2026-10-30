@@ -149,7 +149,7 @@ class GateTolerance(unittest.TestCase):
         receipt.parent.mkdir(parents=True)
         data = json.dumps({"url": "http://127.0.0.1:12345", "password": "fixture-password"})
         receipt.write_text(data)
-        setup = SMOKE[SMOKE.index("smoke_share_probes() {"):SMOKE.index("smoke_sync_logins() {")]
+        setup = SMOKE[SMOKE.index("smoke_share_probes() {"):SMOKE.index("# A bounded way")]
         result = self.shell(setup + "\nsmoke_home\n", HOME=str(caller), XDG_STATE_HOME=str(state))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         borrowed = self.root / "home/.local/state/opencode/service.json"
@@ -173,7 +173,7 @@ class GateTolerance(unittest.TestCase):
                 'usage_model = "chosen"\nusage_effort = "low"\n')
         source.write_text(text)
         (self.adapters / "opencode.toml").write_text((REPO / "adapters/opencode.toml").read_text())
-        setup = SMOKE[SMOKE.index("smoke_share_probes() {"):SMOKE.index("smoke_sync_logins() {")]
+        setup = SMOKE[SMOKE.index("smoke_share_probes() {"):SMOKE.index("# A bounded way")]
         result = self.shell(setup + "\nsmoke_home\n", HOME=str(caller))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         target = self.home / ".agentkit/config.toml"
