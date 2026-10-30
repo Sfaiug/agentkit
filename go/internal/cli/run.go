@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/job"
+	"agentkit/internal/launch"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
 )
@@ -21,6 +23,29 @@ const runUsage = "usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review 
 
 var pullURL = regexp.MustCompile(`^https://github\.com/[^/\s]+/[^/\s]+/pull/[0-9]+/?$`)
 
+func init() { commands["run"] = launchRun }
+
+// launchRun is `ak run <task.md>` where Go makes the launch: one task preflight refuses,
+// recorded as a run in error.  Any other launch it leaves to Python before it writes anything.
+func launchRun(args []string, out, errOut io.Writer) int {
+	parsed, problem := parse(args, launch.Values, launch.Switches, runFlagsUsage)
+	if runSubcommand(args) || problem != "" || len(parsed.words) != 1 {
+		return notImplemented(errOut, "run")
+	}
+	reason, err := launch.Task(config.Absolute(parsed.words[0]), parsed.values, parsed.flags, out)
+	switch {
+	case errors.Is(err, launch.ErrPython):
+		return notImplemented(errOut, "run")
+	case errors.Is(err, launch.ErrStopped):
+		return 1
+	case err != nil:
+		fmt.Fprintf(errOut, "ak run: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(errOut, "ak run: %s\n", reason)
+	return 2
+}
+
 func runSubcommand(args []string) bool {
 	return len(args) > 0 && contains([]string{"--lander", "status", "show", "clean", "gc", "resume", "merge", "stop"}, args[0])
 }
@@ -29,8 +54,7 @@ func validateRun(args []string) string {
 	if runSubcommand(args) {
 		return validateRunSubcommand(args[0], args[1:])
 	}
-	parsed, problem := parse(args, []string{"--rounds", "--exec", "--review", "--review-pr", "--parallel"},
-		[]string{"--no-worktree", "--no-merge", "--bg", "--anyway", "--first"}, runFlagsUsage)
+	parsed, problem := parse(args, launch.Values, launch.Switches, runFlagsUsage)
 	if problem != "" {
 		return problem
 	}

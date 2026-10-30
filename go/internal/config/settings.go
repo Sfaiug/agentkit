@@ -56,6 +56,14 @@ func MaxRuns() (int, error) {
 	return value, err
 }
 
+// RunMemoryRefused is whether Python's run_memory_max_mb refuses the home config: a
+// run_memory_max_mb that is no positive integer.
+func RunMemoryRefused() bool {
+	value, _, err := topLevel("run_memory_max_mb")
+	number, ok := value.(*big.Int)
+	return err != nil || value != nil && !(ok && number.Sign() > 0)
+}
+
 // MaxGates is the pinned number of heavy-suite turns, or -1 where it is derived.
 func MaxGates() (int, error) {
 	return count("max_gates")
