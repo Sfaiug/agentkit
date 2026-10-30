@@ -236,6 +236,16 @@ class AfterMerge(unittest.TestCase):
             self.follow(state)
         self.assertEqual(len(self.typed), 1)
 
+    def test_a_kept_break_says_it_waits_for_a_seat_at_its_prompt_while_nothing_is_typed(self):
+        sha = "a" * 40
+        self.merged("run-old", sha)
+        self.set_checks({sha: [completed(CHECK, "failure")]})
+        self.rows = [self.live(SEAT)]
+        with patch.object(watch, "type_at_prompt", lambda *_a, **_kw: False):
+            self.follow(self.follow())
+        self.assertEqual([line for line in self.logs if "after-merge notice" in line], [
+            "run run-old's after-merge notice waits for a live seat at its prompt"] * 2)
+
     def test_notified_break_is_not_handed_back_again_when_it_ages_out(self):
         old, new = "a" * 40, "b" * 40
         old_age = 3 * 3600 + 600
