@@ -70,6 +70,7 @@ func Install(table config.HookTable, root string, out, errOut io.Writer) int {
 		fmt.Fprintf(out, "backed up %s -> %s\n", path, backup)
 	}
 	for _, event := range table.Events {
+		// each script's entries are found among the groups as read, never one added here
 		read := hooks.List(event.Name)
 		groups := slices.Clone(read)
 		for _, script := range event.Scripts {
