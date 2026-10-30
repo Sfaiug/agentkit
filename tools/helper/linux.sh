@@ -5,25 +5,25 @@ linux() {
   export LC_ALL=C    # `free` says what it reads in English
   on_power() { :; }    # a rented machine has no battery
   lock() { flock "$@"; }
-  # given FIELD: the sum of HostConfig's FIELD over ak's running containers.
-  given() {
-    ids=$(docker ps -q --filter name=ak-) || return
-    docker inspect --format "{{.HostConfig.$1}}" $ids 2>/dev/null |
-      awk '{sum += $1} END {printf "%.0f\n", sum}'
-  }
-  # spare: the CPUs nothing holds: the machine's, less those its running containers were given
-  # and half of it for each suite admitted in the last two minutes that has started no piece.
+  # cpus: what ak's containers may be given together: twice the machine's CPUs, as a piece holds
+  # half what it is given for its bursts (36 given two each kept 72 cores 48% busy, on a machine
+  # that keeps their files in memory, with nothing waiting on a disk).
+  cpus() { echo $(( $(nproc) * 2 )); }
+  # spare: the CPUs nothing holds: `cpus`, less those its running containers were given and half
+  # of it for each suite admitted in the last two minutes that has started no piece.
   spare() {
-    given=$(given NanoCpus) || return
+    ids=$(docker ps -q --filter name=ak-) || return
+    given=$(docker inspect --format '{{.HostConfig.NanoCpus}}' $ids 2>/dev/null |
+      awk '{sum += $1} END {printf "%.0f\n", sum}')
     find "$ROOT" -mindepth 2 -maxdepth 2 -name reserved -mmin -2 2>/dev/null |
-      awk -v cpus="$(nproc)" -v given="$given" 'END {
+      awk -v cpus="$(cpus)" -v given="$given" 'END {
         spare = cpus - given / 1e9 - NR * cpus / 2; print (spare > 0 ? spare : 0) }'
   }
-  # probe: docker answers; half the machine's CPUs, what one suite takes at most, and a load that
-  # leaves what is spare of them.
+  # probe: docker answers; half of `cpus`, what one suite takes at most, and a load that leaves
+  # what is spare of them.
   probe() {
     docker info >/dev/null 2>&1 && spare=$(spare) || return
-    awk -v half="$(nproc)" -v spare="$spare" 'BEGIN {
+    awk -v half="$(cpus)" -v spare="$spare" 'BEGIN {
       half /= 2; print "cpus " half; print "load " (spare < half ? half - spare : 0) }'
   }
   # admit KEY, from `prepare` under the suites lock: the suite comes in while a quarter of the
@@ -32,19 +32,17 @@ linux() {
   admit() {
     rm -f "$ROOT/$1/reserved"    # a suite preparing again (exit 3) is weighed without its own
     spare=$(spare) || exit 253
-    awk -v cpus="$(nproc)" -v spare="$spare" 'BEGIN {exit spare < cpus / 4}' || exit 252
+    awk -v cpus="$(cpus)" -v spare="$spare" 'BEGIN {exit spare < cpus / 4}' || exit 252
     mkdir -p "$ROOT/$1" && : >"$ROOT/$1/reserved" || exit 253
   }
   # started, from `run` once its piece runs or has ended: the suite's reservation ends, under the
   # lock `admit` reads by, so no suite comes in while neither it nor the container holds the
   # machine.
   started() { [ ! -e "$D/reserved" ] || locked "$ROOT/suites.lock" rm -f "$D/reserved"; }
-  # left: the MiB ak's containers here may still be given: all the machine's memory but a tenth
-  # its system keeps, less what the running ones were given.
-  left() {
-    given=$(given Memory) || return
-    free -m | awk -v given="$given" '$1 == "Mem:" {print int($2 - $2 / 10 - given / 1048576)}'
-  }
+  # left: the MiB a container here may still be given: what the machine has available, but a
+  # tenth of it its system keeps. What the running ones were given is only their limit: a piece
+  # given 2.6 GiB held 0.5, and what it does hold is no longer available.
+  left() { free -m | awk '$1 == "Mem:" {print int($7 - $2 / 10)}'; }
   running() { [ "$(docker inspect --format '{{.State.Running}}' "$1" 2>/dev/null)" = true ]; }
   tags() { docker image ls --format '{{.Repository}}:{{.Tag}}' "$1"; }
   # drop: deletes the images named on stdin, but those a suite here prepared and has not finished

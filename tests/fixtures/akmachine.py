@@ -1,6 +1,6 @@
 """A suite helper that is a Linux machine with docker, for black-box tests: ssh runs what it is
 given on it, a directory with a HOME and programs of its own: a fake docker, whose containers have
-`container=docker` in their environment, and the machine's readings, four CPUs.
+`container=docker` in their environment, and the machine's readings, two CPUs.
 
     from fixtures import akmachine
     machine = akmachine.install(home)    # every alias ssh is given reaches it
@@ -79,8 +79,8 @@ elif words[0] == "run":
 # The machine's own programs: docker; its size; and the piece's way offline, which changes
 # nothing here.
 TOOLS = {"docker": f"#!{sys.executable}\n{DOCKER}",
-         "nproc": "#!/bin/sh\necho 4\n",
-         "free": "#!/bin/sh\nprintf '%s\\n' '  total used' 'Mem: 65536 1024'\n",
+         "nproc": "#!/bin/sh\necho 2\n",
+         "free": "#!/bin/sh\nprintf '%s\\n' '  total used free shared cache available' 'Mem: 65536 1024 0 0 0 64512'\n",
          "unshare": '#!/bin/sh\nwhile [ "${1#-}" != "$1" ]; do shift; done\nexec "$@"\n',
          "setpriv": '#!/bin/sh\nwhile [ "${1#-}" != "$1" ]; do shift; done\nexec "$@"\n',
          "ip": '#!/bin/sh\n[ "$1" != -o ] || echo "1: lo: <LOOPBACK,UP>"\n'}
