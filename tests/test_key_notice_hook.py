@@ -56,10 +56,12 @@ class NoticeHook(unittest.TestCase):
         return fact and (fact["event"], fact["kind"], fact["text"])
 
     def test_a_notice_is_written_as_its_type_and_its_message_whole(self):
-        self.fire("Notification", {"notification_type": "permission_prompt", "message": "m" * 5000})
+        # longer than the 128 KiB one argument holds
+        self.fire("Notification",
+                  {"notification_type": "permission_prompt", "message": "m" * 140000})
         fact = self.fact()
         self.assertEqual(fact, {"session": "acme", "event": "Notification",
-                                "kind": "permission_prompt", "text": "m" * 5000,
+                                "kind": "permission_prompt", "text": "m" * 140000,
                                 "at": fact["at"]})
 
     def test_a_question_is_written_as_its_tool_and_its_own_words_before_the_notices(self):
