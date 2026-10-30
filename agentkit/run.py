@@ -39,7 +39,7 @@ from .handback import (announce, announce_safely, clear_delivery, join_session_p
     start_followups, task_project, write_result)
 from .staffing import (barred_refusal, best_pair, collect_usage, head_writers, next_executor,
     note_handover, pair_refusal, pick_models, ready_order, refuse_outside_group,
-    refuse_unready, reviewer_order, run_workers, same_model, started_round)
+    refuse_unready, replace_reviewer, reviewer_order, run_workers, same_model, started_round)
 from .transitions import (carried_lines, change_budget, change_on, replacement_refusal,
     change_reviewed, delivery, diff_lines, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
@@ -405,8 +405,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                                 "was to review its own work")
                         else:
                             executor, reviewer = better
-        if reviewer != state.get("reviewer"):
-            state["review_session"] = None
+        replace_reviewer(state, reviewer)
     elif (preset_exec and not opts["--exec"] and not opts["--review"]
           and not usage.unready(cfg, preset_exec, providers)):
         # the --bg parent already picked and printed this pair: adopt it through the

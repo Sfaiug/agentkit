@@ -6402,8 +6402,8 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                     state.setdefault("executor_history", []).append(
                         {"at": now, "from": saved, "to": chosen, "reason": "dry"})
                     state["executor"], state["exec_session"] = chosen, None
-                if reviewer and reviewer != state.get("reviewer"):
-                    state["reviewer"], state["review_session"] = reviewer, None
+                if reviewer:
+                    staffing.replace_reviewer(state, reviewer)
                 # Consume the one-shot refusal deadline before the child owns the run.  The
                 # stamp still travels into the queued receipt, so nothing is written after launch.
                 state.pop("refusal_retry", None)
