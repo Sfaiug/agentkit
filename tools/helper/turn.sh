@@ -19,6 +19,10 @@ while IFS= read -r -d '' path; do rm -rf -- "$path"; done </in/paths
 [ ! -d /in/dirty ] || cp -a /in/dirty/. . || fail "the uncommitted paths did not apply"
 while IFS= read -r -d '' pair; do export "$pair"; done </in/env
 export PATH="/harness:$ak/bin:$PATH"
+# A harness's login shell (the real codex's `bash -lc`) starts over from /etc/profile's PATH, and
+# reads this after it: it would find neither ak nor what the image adds (seen on a real machine, 30
+# Oct 2026).
+printf 'PATH=%q\n' "$PATH" >>"$HOME/.profile"
 "$@"
 code=$?
 export GIT_INDEX_FILE=/in/left.index
