@@ -8,7 +8,9 @@ rename(2) exchanges the two directories: a move cut off anywhere before that lea
 as it was, and nothing after it matters to what runs.  Every path stays what it was -- the cron
 line, hooks, links and the project all name ~/agentkit -- and the version swapped out waits
 under `VERSIONS` until no process uses it.  ~/agentkit is ak's own, never edited: what git
-finds changed or added in a version swapped out keeps it there all the same.
+finds changed or added in a version swapped out keeps it there all the same.  Each version's
+record in the repository is locked: a `git worktree prune` that could not see ~/agentkit would
+take it, and without it no git works there and nothing moves it again.
 
 A clone at ~/agentkit is adopted at its first move, once it is main as origin left it
 (`update.left_as_is`): its repository goes to `REPOSITORY`, a link left in its place, and each
@@ -32,6 +34,7 @@ CAP = 30 * 60                   # one git step, as update.STEP_CAP
 AT_FDCWD = -100                 # Linux's, for renameat2
 RENAME_EXCHANGE = 2             # renameat2's flag on Linux
 RENAME_SWAP = 2                 # renamex_np's flag on macOS
+LOCKED = "a version of ak's"   # why each version's record is locked, kept from any prune
 
 
 def repository():
@@ -52,19 +55,27 @@ def git(where, *args):
 
 
 def owned(live):
-    """Is `live` a version checked out here, rather than somebody's clone?"""
+    """git's record of `live`, the one its .git names, when it is a version checked out here;
+    None for somebody's clone."""
     try:
         named = (live / ".git").read_text().removeprefix("gitdir: ").strip()
     except OSError:         # a repository of its own, a link to one, or none
-        return False
-    return Path(live, named).resolve().parent.parent == repository().resolve()
+        return None
+    record = Path(live, named).resolve()
+    return record if record.parent.parent == repository().resolve() else None
 
 
 def finish(live):
     """The link an adoption cut off between its two renames left out, put in: until then git
-    finds no repository at `live`, and nothing could move it."""
+    finds no repository at `live`, and nothing could move it.  The version live locked: the code
+    before the lock put it live without one."""
     if repository().is_dir() and not os.path.lexists(live / ".git"):
         (live / ".git").symlink_to(repository())
+    record = owned(live)
+    if record and record.is_dir():      # a record gone, no lock brings back
+        # as `git worktree lock` writes it, which finds a record by the path held in it: a swap
+        # cut off before its repair leaves that path the version swapped out's
+        (record / "locked").write_text(f"{LOCKED}\n")
 
 
 def adopt(live):
@@ -116,6 +127,7 @@ def remove(path):
     if git(repository(), "worktree", "remove", "--force", "--force", str(path))[0]:
         if retention.safe(path):        # never through a link
             shutil.rmtree(path, ignore_errors=True)
+        git(repository(), "worktree", "unlock", str(path))
         git(repository(), "worktree", "prune")
 
 
@@ -162,7 +174,8 @@ def switch(live, commit):
     tidy(live)
     (config.HOME / VERSIONS).mkdir(parents=True, exist_ok=True)
     new = Path(tempfile.mkdtemp(prefix=f"{commit[:12]}.", dir=config.HOME / VERSIONS))
-    code, said = git(repository(), "worktree", "add", "--quiet", "--detach", str(new), commit)
+    code, said = git(repository(), "worktree", "add", "--quiet", "--detach", "--lock", "--reason",
+                     LOCKED, str(new), commit)
     if code:
         remove(new)
         return f"{commit[:12]} could not be checked out in {new}: {said}"
