@@ -1,6 +1,7 @@
-"""A turn in a checkout where a rebase or merge stopped on its conflicts runs on this host.
+"""A turn in a checkout where a rebase, merge or cherry-pick stopped on its conflicts runs on
+this host.
 
-git keeps a stopped rebase or merge in the checkout's own git directory, which no parcel carries:
+git keeps a stopped one in the checkout's own git directory, which no parcel carries:
 the turn a review sent to a machine to finish one found none in its fresh clone, and its
 `git rebase --continue` failed there round after round.  Offline: a temporary repository and the
 run's checkout of it, a linked worktree, and stand-ins for the machine, which is asked only where
@@ -66,6 +67,10 @@ class AStoppedRebaseTurnsHere(unittest.TestCase):
 
     def test_a_checkout_whose_merge_stopped_runs_its_turn_here(self):
         git(self.checkout, "merge", "main", check=False)
+        self.assertFalse(self.asks_a_machine())
+
+    def test_a_checkout_whose_cherry_pick_stopped_runs_its_turn_here(self):
+        git(self.checkout, "cherry-pick", "main", check=False)
         self.assertFalse(self.asks_a_machine())
 
     def test_a_checkout_with_nothing_stopped_still_asks_a_machine(self):
