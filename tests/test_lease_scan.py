@@ -155,9 +155,15 @@ class LeaseScan(LiveRuns):
                          ["moved/f.py"])
         self.git(older, "mv", "moved", "pkg")
         shutil.rmtree(added / "moved")
-        # and a run behind a rename on main, its edit followed to a line the other changes
+        # and a run behind renames on main, more than a diff's rename limit takes, its edit
+        # followed to a line the other changes
+        self.git(self.repo, "config", "diff.renameLimit", "1")
+        self.git(self.repo, "config", "merge.renameLimit", "100")
         self.git(self.repo, "mv", "api.py", "renamed.py")
-        self.git(self.repo, "commit", "-qm", "Renamed")
+        self.git(self.repo, "mv", "pkg/sub/b.py", "pkg/sub/c.py")
+        self.edit(self.repo, "renamed.py", 30, "main's line 30")
+        self.edit(self.repo, "pkg/sub/c.py", 9, "main's line 9")
+        self.git(self.repo, "commit", "-qam", "Renamed")
         moved = self.git(self.repo, "rev-parse", "HEAD")
         third = self.run_on("20260101-1100-third", 1100, base=moved)
         self.edit(older, "api.py", 5, "older's line 5")

@@ -334,9 +334,11 @@ def may_clash(repo, older, younger, diffs):
 @functools.lru_cache(maxsize=1024)      # commits never change
 def renamed_between(repo, base, other):
     """Whether main renamed a file between two bases: `collide` follows it, so diffs of
-    different paths may meet."""
+    different paths may meet.  No rename limit (`-l0`): a merge's own (`merge.renameLimit`)
+    may find more than `diff.renameLimit` lets a diff, and either may change between scans."""
     from . import run
-    return bool(run.git(repo, "diff-tree", "-r", "-M", "--name-only", "--diff-filter=R", base, other))
+    return bool(run.git(repo, "diff-tree", "-r", "-M", "-l0", "--name-only", "--diff-filter=R",
+                        base, other))
 
 
 def scan(repo, log=lambda _: None, now=None):
