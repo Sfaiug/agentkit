@@ -155,4 +155,9 @@ func TestResolveFollowsLinksBeforeTheirParents(t *testing.T) {
 			t.Errorf("Resolve(%q) = %q, want %q", path, got, want)
 		}
 	}
+	// Absolute puts the home in `~`'s place and leaves the rest to Resolve as spelled
+	t.Setenv("HOME", dir+"/")
+	if got := Absolute("~/link/../api.py"); got != dir+"/real/api.py" {
+		t.Errorf("Absolute(~/link/../api.py) = %q", got)
+	}
 }

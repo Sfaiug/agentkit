@@ -156,13 +156,14 @@ func Task(path string, values map[string]string, flags map[string]bool, out io.W
 // cannot read as it does: a pull request's review, a queued run's start, a seat's launch, one
 // that history records, one the gate does not admit outright, one Python's rival check may
 // refuse, a config Python refuses before its run, a test rig's adapters, a home HOME does not
-// name, or a string for the record Python would write with a lone surrogate.
+// name, a local time Go reads otherwise, or a string for the record Python would write with a
+// lone surrogate.
 func python(path string, values map[string]string, flags map[string]bool, bound config.Binding) bool {
 	depth, known := runDepth()
 	_, capped := config.MaxRuns()
 	_, review := values["--review-pr"]
 	if review || os.Getenv("AGENTKIT_RUN_DIR") != "" || os.Getenv("AGENTKIT_SESSION") != "" || sink() == "" ||
-		os.Getenv("AGENTKIT_ADAPTER_DIR") != "" || os.Getenv("HOME") == "" ||
+		os.Getenv("AGENTKIT_ADAPTER_DIR") != "" || os.Getenv("HOME") == "" || !localTime() ||
 		!known || os.Getenv("AK_MAX_RUNS") != "0" && depth == 0 || capped != nil || config.RunMemoryRefused() ||
 		len(bound.Workers) == 0 ||
 		!readable(path, run.Runs(), os.Getenv("AK_PARENT_RUN"), os.Getenv("AK_NOTIFY_SINK")) ||
@@ -178,6 +179,13 @@ func python(path string, values map[string]string, flags map[string]bool, bound 
 		}
 	}
 	return false
+}
+
+// localTime is whether Go's local time is the C library's, which Python's datetime.now reads:
+// for a TZ naming no zone file, a POSIX rule such as `UTC-3` among them, Go falls back to UTC.
+func localTime() bool {
+	tz := strings.TrimPrefix(os.Getenv("TZ"), ":")
+	return time.Local.String() != "UTC" || tz == "" || tz == "UTC"
 }
 
 // readable is whether every text is UTF-8, as Go reads back what it writes: Python writes a

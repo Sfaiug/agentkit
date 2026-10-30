@@ -57,15 +57,23 @@ func EnsureDirs() error {
 }
 
 func Expand(path string) string {
-	if path == "~" || strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~"+string(filepath.Separator)) {
-		home, _ := os.UserHomeDir()
-		path = filepath.Join(home, strings.TrimPrefix(path[1:], "/"))
-	}
-	return filepath.Clean(path)
+	return filepath.Clean(tilde(path))
 }
 
+// Absolute is path as Python's Path(path).expanduser().resolve() reads it: the rest as spelled,
+// so a `..` after a link leaves the link's target.
 func Absolute(path string) string {
-	return Resolve(Expand(path))
+	return Resolve(tilde(path))
+}
+
+// tilde is path with a leading `~` put in the home's place as Python's expanduser puts it, the
+// rest as spelled.
+func tilde(path string) string {
+	if path != "~" && !strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, "~"+string(filepath.Separator)) {
+		return path
+	}
+	home, _ := os.UserHomeDir()
+	return cmp.Or(strings.TrimRight(home, "/"+string(filepath.Separator))+path[1:], "/")
 }
 
 // Resolve is path made absolute with its links followed, as far as they exist, and a leading
