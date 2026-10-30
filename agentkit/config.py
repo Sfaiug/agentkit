@@ -1662,10 +1662,11 @@ def _end(pid):
     of those leads -- `timeout` makes one for itself, and a CLI under it may catch TERM --
     then wait up to a second for them to go.
 
-    Never ak's own group, which the menu shares with its terminal, nor a process in a session
-    of its own: that is a harness's own service, which an adapter call starts on purpose, and
-    everything below it is in that session too.  What has left the call's tree and its groups
-    by now is the leftover sweep's.
+    No process below the call leads ak's own group, which the menu shares with its terminal, so
+    no group kill reaches it; one below the call that joined it is killed on its own.  A process
+    in a session of its own is never killed: that is a harness's own service, which an adapter
+    call starts on purpose, and everything below it is in that session too.  What has left the
+    call's tree and its groups by now is the leftover sweep's.
     """
     parents, below = host.parents(), {}
     for child, parent in parents.items():
@@ -1675,8 +1676,7 @@ def _end(pid):
         if (current := stack.pop()) not in tree:
             tree.append(current)
             stack.extend(below.get(current, ()))
-    ours = [member for member in tree
-            if _session(member) == os.getsid(0) and _group(member) != os.getpgrp()]
+    ours = [member for member in tree if _session(member) == os.getsid(0)]
     groups = {member for member in ours if _group(member) == member}
     for kill, targets in ((os.killpg, groups), (os.kill, ours)):
         for target in targets:

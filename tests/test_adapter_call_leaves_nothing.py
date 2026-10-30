@@ -24,7 +24,7 @@ LIMIT = 2   # seconds: long enough for the fake to start them all, short enough 
 # Each process ak must kill writes its pid to $PIDS, each it must leave to $KEPT.  A slow call
 # starts children that ignore TERM, as a CLI that catches it does: one beside it and one under
 # timeout(1), which leads a group of its own and keeps in it one more that has left the call's
-# tree; and a service in a session of its own.
+# tree; one that joins the caller's own group; and a service in a session of its own.
 FAKE = """#!/usr/bin/env bash
 echo $$ >>"$PIDS"
 if [ -z "$SLOW" ]; then
@@ -33,6 +33,7 @@ if [ -z "$SLOW" ]; then
 fi
 setsid sh -c 'echo $$ >>"$KEPT"; exec sleep 600' >/dev/null 2>&1 &
 "$IGNORE" &
+python3 -c 'import os; os.setpgid(0, int(os.environ["GROUP"])); os.execv(os.environ["IGNORE"], ["ignore"])' &
 timeout 600 sh -c 'echo $PPID >>"$PIDS"; ("$IGNORE" &); exec "$IGNORE"'
 """
 IGNORE = """#!/bin/sh
@@ -56,7 +57,8 @@ class AdapterCall(unittest.TestCase):
         env = patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(self.root),
                                       "HOME": str(self.root), "PIDS": str(self.pids),
                                       "KEPT": str(self.kept), "SLOW": "",
-                                      "IGNORE": str(self.root / "ignore")})
+                                      "IGNORE": str(self.root / "ignore"),
+                                      "GROUP": str(os.getpgrp())})
         env.start()
         self.addCleanup(env.stop)
         self.addCleanup(self.kill_all)
@@ -86,7 +88,7 @@ class AdapterCall(unittest.TestCase):
                 with patch.object(host, "PROC", proc) if proc else nullcontext():
                     give_up()
                 started = self.started(self.pids)
-                self.assertEqual(len(started), 5, "the adapter, its child, timeout, its two")
+                self.assertEqual(len(started), 6, "the adapter, its two, timeout, its two")
                 self.assertEqual([pid for pid in started if running(pid)], [])
                 self.assertIsNone(sibling.poll(), "the caller's own group is never killed")
                 [service] = self.started(self.kept)
