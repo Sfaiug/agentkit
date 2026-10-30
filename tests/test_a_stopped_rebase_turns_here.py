@@ -73,6 +73,11 @@ class AStoppedRebaseTurnsHere(unittest.TestCase):
         git(self.checkout, "cherry-pick", "main", check=False)
         self.assertFalse(self.asks_a_machine())
 
+    def test_a_checkout_whose_cherry_picks_stopped_with_no_commit_runs_its_turn_here(self):
+        # git keeps a range's picks in its sequencer; `--no-commit` leaves no CHERRY_PICK_HEAD
+        git(self.checkout, "cherry-pick", "--no-commit", "HEAD..main", check=False)
+        self.assertFalse(self.asks_a_machine())
+
     def test_a_checkout_with_nothing_stopped_still_asks_a_machine(self):
         self.assertTrue(self.asks_a_machine())
 

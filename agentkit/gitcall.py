@@ -290,9 +290,11 @@ def merge(wt, tip):
     return git_out(wt, "merge", "--no-edit", "-s", "target-first", tip, env={"PATH": path})
 
 
-# What git keeps in a checkout's own git directory while each of these waits on its conflicts.
+# What git keeps in a checkout's own git directory while each of these waits on its conflicts:
+# a cherry-pick of several commits keeps the rest in `sequencer`, with no CHERRY_PICK_HEAD where
+# `--no-commit` or local edits stopped it.
 STOPS = {"rebase": ("rebase-merge", "rebase-apply"), "merge": ("MERGE_HEAD",),
-         "cherry-pick": ("CHERRY_PICK_HEAD",)}
+         "cherry-pick": ("CHERRY_PICK_HEAD", "sequencer")}
 
 
 def in_progress(wt, *hows):
