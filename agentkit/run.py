@@ -696,11 +696,10 @@ def seat_refusal(opts, flags):
 
 def from_seat():
     """Whether this launch is a seat's own: a recorded session's (`config.session_records`),
-    carrying on no queued run (`RUN_DIR_ENV`).  A variable naming none is one `main` ignores,
-    launching afresh, so the launch is the seat's all the same."""
-    seat, child = config.current_session(), os.environ.get(config.RUN_DIR_ENV)
+    outside any run (`RUN_DIR_ENV`)."""
+    seat = config.current_session()
     return bool(seat and seat in config.session_records()
-                and not (child and queued(Path(child))))
+                and not os.environ.get(config.RUN_DIR_ENV))
 
 
 def rival_advice():
@@ -711,11 +710,14 @@ def rival_advice():
 
 
 def check_seat_queue(tasks):
-    """Refuse a seat's launch of that many tasks beyond what its seat may queue
-    (`gate.seat_full`).  Asked last before the launch creates anything, so a launch refused for
-    good hears that first; once, since a run that exists comes back, resumed, restarted or in a
-    later round, as no seat's launch (`from_seat`).  A PR review is never asked."""
-    refusal = from_seat() and gate.seat_full(config.current_session(), tasks)
+    """Refuse a seat's fresh launch of that many tasks beyond what its seat may queue
+    (`gate.seat_full`), asked last before it creates anything, so a launch refused for good hears
+    that first.  Only a fresh launch asks: a new job, or a run `main` resumes nothing for, whatever
+    run directory it carries; a run that exists is never asked again, nor a PR review.  A seat is
+    a recorded session (`config.session_records`); nothing below a run is told one
+    (`config.seatless_env`)."""
+    seat = config.current_session()
+    refusal = seat in config.session_records() and gate.seat_full(seat, tasks)
     if refusal:
         raise config.Error(refusal)
 

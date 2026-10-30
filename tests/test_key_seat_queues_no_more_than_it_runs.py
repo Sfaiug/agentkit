@@ -94,9 +94,11 @@ class SeatQueue(unittest.TestCase):
                                 cls.gh.open_pr(cls.rig, "readme", title="Say what widgets is"))
         cls.nobody = cls.launch(None)
         cls.job = cls.launch("delta", cls.task(), cls.task())
-        stale = {"AGENTKIT_RUN_DIR": str(finished.parent)}
-        cls.stale = (cls.launch("acme", **stale),
-                     cls.launch("delta", cls.task(), cls.task(), **stale))
+        # a finished run's directory, and a queued one's for several task files, which always
+        # make a new job: a launch carrying either carries neither on
+        waits = home.path / ".agentkit/runs/20261029-0901-acme-waits"
+        cls.stale = (cls.launch("acme", AGENTKIT_RUN_DIR=str(finished.parent)),
+                     cls.launch("acme", cls.task(), cls.task(), AGENTKIT_RUN_DIR=str(waits)))
 
     @classmethod
     def task(cls):
@@ -143,9 +145,8 @@ class SeatQueue(unittest.TestCase):
         self.refused(self.job, "20261029-0905-delta-holds")
 
     def test_a_launch_carrying_a_run_it_does_not_carry_on_is_refused_alike(self):
-        single, job = self.stale
-        self.refused(single, "20261029-0900-acme-holds")
-        self.refused(job, "20261029-0905-delta-holds")
+        for launched in self.stale:
+            self.refused(launched, "20261029-0900-acme-holds")
 
 
 if __name__ == "__main__":
