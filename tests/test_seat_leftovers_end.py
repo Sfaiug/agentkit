@@ -97,7 +97,7 @@ class SeatScopeEndsWithHarness(Sandbox):
                 if self.stops.exists() else [])
 
     def test_the_scope_is_stopped_once_the_harness_has_ended_and_not_before(self):
-        proc = self.pane(orch.seat_command("acme", [*HARNESS, str(self.root)]))
+        proc = self.pane(orch.seat_command("acme", [*HARNESS, str(self.root)])[0])
         pids = self.root / "pids"
         wait_for(self, pids.exists, "the harness never started")
         harness, self.server, hangup = map(int, pids.read_text().split())
@@ -119,7 +119,7 @@ class SeatScopeEndsWithHarness(Sandbox):
     def test_a_harness_ending_at_once_still_has_its_scope_stopped(self):
         # its end hangs up the pane's group, which held a third of the endings still unforked
         for _ in range(20):
-            self.assertEqual(self.pane(orch.seat_command("acme", ["true"])).wait(timeout=60), 0)
+            self.assertEqual(self.pane(orch.seat_command("acme", ["true"])[0]).wait(timeout=60), 0)
         wait_for(self, lambda: len(self.stopped()) == 20, "a hangup ended a scope's ending")
 
     def test_a_pane_closed_as_the_scope_ending_forks_never_starts_its_harness(self):
@@ -135,7 +135,7 @@ class SeatScopeEndsWithHarness(Sandbox):
                 raise OSError(ctypes.get_errno(), "ptrace")
 
         try:
-            proc = subprocess.Popen(shlex.split(orch.seat_command("acme", ["true"])),
+            proc = subprocess.Popen(shlex.split(orch.seat_command("acme", ["true"])[0]),
                                     stdin=side, stdout=side, stderr=side,
                                     start_new_session=True, preexec_fn=traced_terminal)
             os.close(side)

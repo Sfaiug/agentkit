@@ -5,10 +5,15 @@ a test of that copies the program there.  `Install(home)` makes a bare origin,
 `<root>/remotes/acme/agentkit.git`, whose main holds the program as its checkout holds it --
 every file it tracks but its tests, which no tick runs, and the program itself however it was
 built -- with an install.sh that only adds a line to HOME/installed, and a `notes` file;
-HOME/agentkit is a clone of it on main, and `install.ak` its `bin/ak`.  `advance()` adds a line
-to `notes` in one more commit on origin's main.  The tick asks the public model boards over HTTP
-itself, so every proxy an HTTP client honours names a loopback port nobody listens on, and npm,
-which a harness's latest release is read from, is refused like every other host tool.
+HOME/agentkit is a clone of it on main, and `install.ak` its `bin/ak`.  Its origin reads as
+GitHub's acme/agentkit, `ORIGIN`, so a pull request merged there is on its repository: an `ssh`
+serves git's fetch of it from the bare origin, and refuses all else.
+`advance()` adds a line to `notes` in one more commit on origin's main.  `seat(name)` opens a
+seat of tests/fixtures/akseat.py in HOME/agentkit, at its prompt, holding a run that merged into
+acme/agentkit: the seat a tick hands agentkit's own faults back to.  The tick asks the public
+model boards over HTTP itself, so every proxy an HTTP client honours names a loopback port nobody
+listens on, and npm, which a harness's latest release is read from, is refused like every other
+host tool.
 
     from fixtures.akbin import Home
     from fixtures.akinstall import Install
@@ -23,12 +28,23 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from .akbin import AK, REFUSE
+from .akseat import Seat
 
 PROGRAM = Path(AK).parents[1]
 INSTALL = '#!/bin/sh\necho installed >>"$HOME/installed"\n'
+ORIGIN = "git@github.com:acme/agentkit.git"
+# git fetches over ssh by running its last word on the far end; only ORIGIN's is served.
+SSH = """#!/bin/sh
+case "$*" in
+  *"git@github.com git-upload-pack 'acme/agentkit.git'") exec git-upload-pack {bare} ;;
+esac
+echo "ssh: not scripted in this test" >&2
+exit 1
+"""
 PROXIES = ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
 
 
@@ -54,12 +70,24 @@ class Install:
         (self.seed / "notes").write_text("notes\n")
         self._push("the program")
         self._git(home.root, "clone", "-q", str(self.bare), str(self.path))
+        self.git("remote", "set-url", "origin", ORIGIN)
+        home.fake("ssh", SSH.format(bare=shlex.quote(str(self.bare))))
 
     def advance(self):
         """One more commit on origin's main; its sha."""
         with (self.seed / "notes").open("a") as notes:
             notes.write("one more line on origin\n")
         return self._push("one more line")
+
+    def seat(self, name="atoll"):
+        """A seat in HOME/agentkit that merged a pull request into acme/agentkit."""
+        seat = Seat(self.home, name, cwd=self.path)
+        now, run = time.time(), f"20261020-1200-agentkit-{name}"
+        self.home.write(f".agentkit/runs/{run}/run.json", {
+            "run_id": run, "state": "pass", "verdict": "PASS", "merged": True,
+            "finished_at": now - 600, "started_at": now - 1200, "repo": str(self.path),
+            "pr": "https://github.com/acme/agentkit/pull/1", "launched_session": name})
+        return seat
 
     def git(self, *args):
         """Run git in HOME/agentkit; its output, stripped."""

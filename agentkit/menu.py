@@ -1120,8 +1120,9 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     now, so a pass over every seat reads every run once (`transitions.runs_by_seat`).
     """
     name = session["name"]
-    found = seat_row_state(cfg, session, look=look, records=records, now=now, number=number,
-                           run_numbers=run_numbers, index=index, silent=silent_map)
+    own = (transitions.runs_by_seat(records) if mine is None else mine).get(name, [])
+    found = seat_row_state(cfg, session, look=look, records=records, mine=own, now=now,
+                           number=number, run_numbers=run_numbers, index=index, silent=silent_map)
     selection = selection_of(cfg, name)
     orchestrator = selection["orchestrator"] if selection else "-"
     shown = config.model_name(cfg, orchestrator)
@@ -1135,7 +1136,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     return {"number": str(number), "name": name, "session": session, "back": back,
             "go_on": go_on, "go_on_name": go_on and config.model_name(cfg, go_on),
             "crew": seat_crew(cfg, selection),
-            "tasks": seat_tasks(name, records if mine is None else mine.get(name, []), now),
+            "tasks": seat_tasks(name, own, now),
             "count": word, "orchestrator": shown, "worker": shown,
             "runs_on": ((cfg["models"].get(orchestrator) or {}).get("provider"),
                         selection.get("account") or config.DEFAULT_ACCOUNT) if selection else None,
@@ -2785,8 +2786,15 @@ CONFIG_ROWS = ("Models", "Subscriptions", "Discord", "Weekly audit")
 AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (config.audit)
 # What a subscription offers, each where it applies (subscription_acts), and without UTF-8:
 # its meter, on the ak screen and on `c` alike, the first two; its row on `Subscriptions` all.
+# Its list or line opens lit on the first, where offered, and on nothing else: `spend a reset`
+# spends at once (config_spend_reset), so Enter lands on it only after a move or a click there.
 SUBSCRIPTION_ACTS = (("↻ log in again", "log in again"), ("↻ spend a reset", "spend a reset"),
                      ("− remove", "- remove"))
+
+
+def act_text(act):
+    """`act`, one of SUBSCRIPTION_ACTS, as this terminal draws it."""
+    return act[0 if terminal.utf8() else 1]
 
 
 def act_word(text):
@@ -2969,8 +2977,9 @@ MODELS_KEYS = {"answer": ("↑↓ move   ←→ points   ⏎ why   p pick   r ta
                           "esc back"),
                "pick": ("↑↓ move   ␣ mark   type to find   esc done",
                         "up/down move   space mark   type to find   esc done")}
-NEAR = 2                          # the line's rows shown either side of the pick
-LEGEND = (("as good", "{} within {} points of the best, then the cheapest"),)
+NEAR = 2                          # the line's rows shown past those within `within` of the best
+LEGEND = (("as good", "{} within {} points of the best, then the cheapest"),
+          ("left out", "a row no better than a cheaper one, yours compared with yours"))
 KNOB = ("legend", "within")
 LINES = ("lines",)                # the rows' lines, which grow in as they first show
 NAMED = 13                        # the cells before a legend line's words: its name's column
@@ -2991,10 +3000,10 @@ def pointed(role, row):
     return ("row", role, row["release"], row["effort"])
 
 
-def models_said(answer, lineup):
+def models_said(answer, lineup, within):
     """What the models screen says of `answer` (matrix.answer) per role: (its head and best,
-    `none` with no front, its lines): the front best first, the pick and up to NEAR rows either
-    side, each (where the pointer is on it, name, its effort's cells out of the efforts its
+    `none` with no front, its lines): each row of the front within `within` of the best, so the
+    pick and what `r` takes among them, and up to NEAR rows more, each (where the pointer is on it, name, its effort's cells out of the efforts its
     release has in `lineup`, a row naming none one of them (terminal.effort_cells), its effort
     or "" for none, how near the role's best it is from 0, config.POINTS behind or more, to 1,
     quality, cost, notes), and under a pick not yours what `r` takes.  With no pick, no priced
@@ -3007,10 +3016,10 @@ def models_said(answer, lineup):
     said = []
     for role, head in zip(quality.ROLES, orch.ROLE_HEADS):
         found = answer[role]
-        front, pick, take = found["front"][::-1], found["pick"], found["take"]
-        at = front.index(pick) if pick else 0
+        front, pick, take = found["front"], found["pick"], found["take"]
+        near = sum(row["quality"] >= found["best"] - within for row in front)
         lines = [] if pick or not front else ["no row with a cost is as good"]
-        for row in front[max(0, at - NEAR):at + NEAR + 1]:
+        for row in front[:near + NEAR]:
             missing = sum(one["how"] == "missing" for one in row["measures"].values())
             notes = (terminal.styled("★ pick", "accent") if row is pick else "",
                      f"{missing} missing" if missing else "",
@@ -3238,7 +3247,7 @@ def models_screen(cfg, session, selected, providers):
             current = {row["release"] for row in lineup}
             compared = matrix.compared(cfg, current)
             answer = matrix.answer(lineup, matrix.within(cfg), compared)
-            said = models_said(answer, lineup)
+            said = models_said(answer, lineup, matrix.within(cfg))
             rows = [line[0] for _, lines in said for line in lines if isinstance(line, tuple)]
             if here not in rows:
                 role = here[1] if here else next(iter(quality.ROLES))
@@ -4454,7 +4463,7 @@ def subscription_acts(cfg, keyboard, number, remove=False):
     # its label as usage_cells has it, which config_spend_reset reads its week back by
     picked = (name, account, label)
     harness = logins.harness(cfg, name)
-    return [(text[0 if terminal.utf8() else 1], act) for text, act, offers in (
+    return [(act_text(text), act) for text, act, offers in (
         (SUBSCRIPTION_ACTS[0], lambda: sign_in(cfg, keyboard, picked),
          harness and config.signs_in_again(harness, account)),
         (SUBSCRIPTION_ACTS[1], lambda: config_spend_reset(cfg, picked), in_hand(prov)),
@@ -4465,17 +4474,18 @@ def subscription_acts(cfg, keyboard, number, remove=False):
 def meter_acts(cfg, keyboard, number, screen):
     """Enter or a click on subscription `number`'s meter, on the ak screen or `c` alike: what it
     offers (subscription_acts, nothing removed from here), picked from a list under its name,
-    `screen` the title it is drawn under, the highlight on the first: `log in again` where it is
-    offered, so a reset is spent only by a move or a click there.  What to say under the screen,
-    or ""."""
+    `screen` the title it is drawn under, the highlight on `log in again` where it is offered
+    and otherwise on nothing, so a reset is spent only by a move or a click there.  What to say
+    under the screen, or ""."""
     acts = dict(subscription_acts(cfg, keyboard, number))
     if not acts:
         return ""
 
     def listed(lit):  # the screen the list is drawn on, drawn again after a key or a resize
-        terminal.frame(screen, [""] * len(acts), terminal.keys("esc back", enter=act_word(lit)))
+        terminal.frame(screen, [""] * len(acts),
+                       terminal.keys("esc back", enter=lit and act_word(lit)))
         return 3
-    chosen = terminal.choose(list(acts), around=listed)
+    chosen = terminal.choose(list(acts), default=act_text(SUBSCRIPTION_ACTS[0]), around=listed)
     return "" if chosen is None else acts[chosen]()
 
 
@@ -4491,20 +4501,25 @@ def config_subscriptions(cfg, keyboard):
     asked whose it is (logins.renewed), then pointed at.  It comes up as `c` does as it opens,
     the pointed row's label and meter wash into its company's colour and drain as `c`'s meters
     do (motion.washing), and its line comes up under it as the line under the menu's highlighted
-    row does; back from what an act or an add drew, it is drawn as it is."""
+    row does; back from what an act or an add drew, it is drawn as it is.  The act lit (`on`) is
+    kept by what it is, so one going from under it lights nothing in its place."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
-    here, column, top, said = ("sub", 1), None, 0, ""     # column None: as the line opens
+    here, opened, on, top, said = ("sub", 1), None, None, 0, ""
     clock = motion.Clock(page=True)
     while True:
         subs, width = usage_rows(cfg), terminal.layout_width()
         ids = [*(("sub", number) for number in range(1, len(subs) + 1)), ("row", "add")]
         here = here if here in ids else ids[-1]      # its row removed: onto the last
+        # a subscription's line, whichever row it is on now, opens lit as SUBSCRIPTION_ACTS says
+        whose = subs[here[1] - 1][::3] if here[0] == "sub" else None     # (name, account)
+        if whose != opened:
+            opened, on = whose, act_text(SUBSCRIPTION_ACTS[0])
         at = None if terminal.away() else here
         lit = at[1] if at and at[0] == "sub" else None
         ending, spans = login_notes(subs), {}
         drawn = usage_lines(cfg, width, lit=lit, rows=subs, spans=spans, ending=ending,
                             columns=1) or ["  " + label for _, label, _, _ in subs]
-        body, places, acts, moves = [], {}, [], []
+        body, places, acts, moves = [], {}, {}, []
         for number, ((name, _, prov, account), line) in enumerate(zip(subs, drawn), 1):
             if number == 1 or subs[number - 2][0] != name:
                 body.append(terminal.styled(COMPANIES[name].split(" / ")[0] if name in COMPANIES
@@ -4518,15 +4533,13 @@ def config_subscriptions(cfg, keyboard):
                 [cell[1:] for cell in spans.get(number, [])], colour(cfg, name), number == lit)))
             body.append(terminal.highlight(line) if number == lit else line)
             if number == lit:
-                acts = subscription_acts(cfg, keyboard, number, remove=True)
-                # lit on the first act, never `remove`, last, so a lone one waits for a move
-                column = ((0 if len(acts) > 1 else None) if column is None
-                          else min(column, len(acts) - 1))
+                acts = dict(subscription_acts(cfg, keyboard, number, remove=True))
+                on = on if on in acts else None
                 email, plan = logins.whose(name, account)
                 told = " · ".join(filter(None, (ending[number - 1] or email, plan,
                                                 not beside and held)))
                 for shown, cells in opened_line(told, "amber" if ending[number - 1] else "dim",
-                                                [text for text, _ in acts], column, width - 4):
+                                                list(acts), on, width - 4):
                     places[len(body)] = (("sub", number), cells)
                     moves.append((len(body), ("opened",), lit, motion.fading(shown, motion.OPEN)))
                     body.append(shown)
@@ -4536,16 +4549,14 @@ def config_subscriptions(cfg, keyboard):
         places[len(body)] = (("row", "add"), [])
         add = "  + add a subscription"
         body.append(terminal.highlight(add) if at == ("row", "add") else add)
-        keys = terminal.keys("esc back", enter="open" if here[0] == "row" else act_word(
-            acts[column][0]) if acts and column is not None else None)
+        keys = terminal.keys("esc back", enter="open" if here[0] == "row" else act_word(on)
+                             if on in acts else None)
         # every TICK as the main screen, so a reading that lands -- one just added -- shows
         act, moved, clicked, top = matrix_key("config · subscriptions", body, places, ids, here,
                                               top, said, keys, timeout=TICK, marks=0,
                                               clock=clock, moves=moves)
         if clicked is not None:
-            column = clicked
-        elif moved != here:
-            column = None             # another row's line opens as a line does
+            on = list(acts)[clicked]
         here = moved
         if act is None:
             continue                  # a resize or the pointer: drawn again
@@ -4553,33 +4564,30 @@ def config_subscriptions(cfg, keyboard):
         if act == "back":
             return
         if act in ("left", "right") and acts:
-            column = 0 if column is None else min(max(column + (1 if act == "right" else -1), 0),
-                                                  len(acts) - 1)
-        elif (act == "enter" or clicked is not None) and (acts and column is not None
-                                                          or here[0] == "row"):
+            texts, step = list(acts), 1 if act == "right" else -1
+            on = texts[min(max(texts.index(on) + step, 0), len(texts) - 1) if on in acts else 0]
+        elif (act == "enter" or clicked is not None) and (on in acts or here[0] == "row"):
             def signed(rows):     # a provider's only login is its usual one, listed or not
                 return [(name, account or config.DEFAULT_ACCOUNT) for name, _, _, account in rows]
             before = signed(subs)
             clock.forget()            # a card or a sign-in: the page back is drawn as it is
-            said = (acts[column][1]() if here[0] == "sub"
+            said = (acts[on]() if here[0] == "sub"
                     else config_add_provider(cfg, keyboard)) or ""
             after = signed(usage_rows(cfg))
             added = [number for number, login in enumerate(after, 1) if login not in before]
             for number in added:      # whose login it is, for its line
                 logins.renewed(cfg, *after[number - 1])
             if added:
-                here, column = ("sub", added[0]), None
-            elif after != before:     # a row removed: the one lit now opens as a line does,
-                column = None         # never on the act at remove's place: a reset spent at a key
+                here = ("sub", added[0])
 
 
-def opened_line(told, kind, texts, column, room):
+def opened_line(told, kind, texts, on, room):
     """The line a pointed row of `Subscriptions` opens: `told` in `kind`, then `texts` three
-    spaces apart, the one at `column` reversed (bracketed with no colour), wrapped in `room`
+    spaces apart, the one that is `on` reversed (bracketed with no colour), wrapped in `room`
     cells, never cut; each line with its texts' places, (first, last, index), from 1."""
     pieces = [(terminal.styled(part, kind), None) for part in terminal.wrap(told, room) if part]
     for index, text in enumerate(texts):
-        pieces.append((text if index != column else terminal.styled(text, "reverse")
+        pieces.append((text if text != on else terminal.styled(text, "reverse")
                        if terminal.colour_depth() else f"[{text}]", index))
     lines, used = [("    ", [])], 0
     for shown, index in pieces:

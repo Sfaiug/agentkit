@@ -88,7 +88,7 @@ RULES = [
     {"name": "run admission",
      "flags": (),
      "pattern": r"\.slots\.lock|slot_healthy_polls|AK_SLOT_POLL",
-     "home": ("agentkit/gate.py",),
+     "home": ("agentkit/gate.py", "go/internal/launch/launch.go"),
      "max": 0},
     # A harness is its adapter pair and its plugin, and a model is bound to its harness and
     # provider by one config.default.toml entry: every other copy of a name is harness

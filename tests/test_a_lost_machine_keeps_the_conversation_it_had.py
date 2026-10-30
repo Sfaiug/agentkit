@@ -38,6 +38,9 @@ class ALostMachineKeepsTheConversationItHad(unittest.TestCase):
                                          return_value={"machine_turns": True}))
         stack.enter_context(patch.object(config, "manifest", return_value={
             "worker": {"sessions": ["~/.acme/{id}*"]}}))
+        stack.enter_context(patch.object(machine_turn, "_program",
+                                         return_value=("acme/1.2.3/acme", {})))
+        stack.enter_context(patch.object(machine_turn, "_lend", return_value=["login"]))
         stack.enter_context(patch.object(helper, "start", return_value=(AWAY, "")))
         stack.enter_context(patch.object(helper, "finish"))
         stack.enter_context(patch.object(gitcall, "git", return_value="left"))
@@ -62,8 +65,9 @@ class ALostMachineKeepsTheConversationItHad(unittest.TestCase):
             return watched[0], "", watched[1]
 
         with patch.object(helper, "_remote", remote):
-            return machine_turn.call("acme", ["run"], self.root, tempfile.mkdtemp(dir=self.root),
-                                     {"HOME": str(self.home)}, (), "had", watch)
+            return machine_turn.call({"harness": "acme", "provider": "acme"}, ["run"], self.root,
+                                     tempfile.mkdtemp(dir=self.root), {"HOME": str(self.home)},
+                                     (), "had", watch)
 
     def test_a_lost_or_killed_turn_leaves_the_one_it_was_given(self):
         self.assertEqual(self.leaves((0, False)), (helper.LOST, False, "had"))

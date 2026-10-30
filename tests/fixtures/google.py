@@ -51,6 +51,9 @@ class Google(http.server.ThreadingHTTPServer):
     def __init__(self, home, skus, zones):
         super().__init__(("127.0.0.1", 0), _Answers)
         self.home, self.skus, self.zones, self.asked, self.missed = home, skus, zones, [], {}
+        # europe-west4-a's machines; by name, those read again as others and refused deletions
+        self.machines, self.again, self.refused, self.silent = [], {}, set(), False
+        self.env = {**ECHO, "AK_GOOGLE_URL": f"http://127.0.0.1:{self.server_address[1]}"}
         # ak doctor checks the models a config names: one that asks nobody
         akconfig.write(home, {"echo": {"harness": "echo", "model": "echo-1"}})
         threading.Thread(target=self.serve_forever, daemon=True).start()
@@ -68,8 +71,7 @@ class Google(http.server.ThreadingHTTPServer):
                 "private_key": Path(pem.name).read_text()})
 
     def rented(self):
-        done = self.home.ak("doctor", env={**ECHO, "AK_GOOGLE_URL":
-                                           f"http://127.0.0.1:{self.server_address[1]}"})
+        done = self.home.ak("doctor", env=self.env)
         if done.code:
             raise AssertionError(done.out + done.err)
         return [line for line in done.out.splitlines() if line.startswith("rented machines: ")]
@@ -87,15 +89,28 @@ class _Answers(http.server.BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_POST(self):
+        self.server.asked.append(self.path)
+        if self.server.silent:
+            return
         self.rfile.read(int(self.headers["Content-Length"]))
         self.answer({"access_token": "ya29.acme"})
+
+    def do_DELETE(self):
+        self.server.asked.append(f"DELETE {(name := self.path.rsplit('/', 1)[1])}")
+        return self.send_error(403) if name in self.server.refused else self.answer({})
 
     def do_GET(self):
         self.server.asked.append(self.path)
         url = urlsplit(self.path)
+        if "/instances/" in url.path:
+            found = ({one["name"]: one for one in self.server.machines} | self.server.again).get(
+                url.path.rsplit("/", 1)[1])
+            return self.answer(found) if found else self.send_error(404)
         pages = {"/v1/services/6F81-5844-456A/skus": [{"skus": skus} for skus in self.server.skus],
                  "/compute/v1/projects/acme-build/aggregated/machineTypes":
-                     [{"items": zones, **self.server.missed} for zones in self.server.zones]}
+                     [{"items": zones, **self.server.missed} for zones in self.server.zones],
+                 "/compute/v1/projects/acme-build/aggregated/instances":
+                     [{"items": {"zones/europe-west4-a": {"instances": self.server.machines}}}]}
         listing, at = pages[url.path], int(parse_qs(url.query).get("pageToken", ["0"])[0])
         self.answer({**listing[at], **({"nextPageToken": str(at + 1)}
                                        if at + 1 < len(listing) else {})})

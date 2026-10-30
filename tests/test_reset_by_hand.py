@@ -24,6 +24,7 @@ from agentkit import config, menu, terminal, usage  # noqa: E402
 from test_reset_never_automatic import calls  # noqa: E402
 
 WEEK = 604800
+AGAIN = "↻ log in again"     # what a meter's list opens lit, where offered
 
 
 class ResetByHand(unittest.TestCase):
@@ -83,21 +84,21 @@ class ResetByHand(unittest.TestCase):
         first, second = self.rows()
         self.assertRegex(first, r"^ChatGPT I resets .* · 2 resets in hand$")
         self.assertRegex(second, r"^ChatGPT II resets .* · 1 reset in hand$")
-        self.assertEqual(self.offered(1), [(["↻ log in again", "↻ spend a reset"], None)])
+        self.assertEqual(self.offered(1), [([AGAIN, "↻ spend a reset"], AGAIN)])
         self.held.update({"": 0, "second": 0})
         (config.STATE / "usage.json").unlink()
         usage.collect(self.cfg, refresh=True)
         self.assertFalse(any("in hand" in row for row in self.rows()), self.rows())
-        self.assertEqual(self.offered(1), [(["↻ log in again"], None)])
+        self.assertEqual(self.offered(1), [([AGAIN], AGAIN)])
         self.assertEqual(menu.in_hand({"resets": None}), "")
 
     def test_a_meter_spends_one_of_its_own_and_shows_the_week_back(self):
         usage.collect(self.cfg, refresh=True)
         self.assertEqual(self.offered(2, "↻ spend a reset"),
-                         [(["↻ log in again", "↻ spend a reset"], None)])
+                         [([AGAIN, "↻ spend a reset"], AGAIN)])
         self.assertEqual(self.spent, ["second"])          # exactly one, of the meter picked
         self.assertEqual(self.note, "ChatGPT II · 100% left")
-        self.assertEqual(self.offered(2), [(["↻ log in again"], None)])   # none left to spend
+        self.assertEqual(self.offered(2), [([AGAIN], AGAIN)])   # none left to spend
         self.offered(1)                                   # Esc on the list spends nothing
         self.assertEqual(self.spent, ["second"])
 
@@ -111,7 +112,7 @@ class ResetByHand(unittest.TestCase):
         rows = [("openai", "ChatGPT", {}, None), ("acme", "ChatGPT", {"resets": 1}, None)]
         with patch.object(menu, "usage_rows", return_value=rows), \
                 patch.object(usage, "replenish", return_value=(False, 1)) as replenish:
-            self.assertEqual(self.offered(1), [(["↻ log in again"], None)])   # not its own
+            self.assertEqual(self.offered(1), [([AGAIN], AGAIN)])   # not its own
             self.offered(2, "↻ spend a reset")
         replenish.assert_called_once_with(self.cfg, "acme", account=None)
 

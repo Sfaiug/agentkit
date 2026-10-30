@@ -1,16 +1,17 @@
 """A newly opened PR's missing pull ref is waited out at launch and at review.
 
-Offline: injected git results and sleep, with both callers stopped after the fetch.
+Offline: injected git results and run.py's own sleeps, with both callers stopped after the fetch.
 """
 
 import os
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import call, patch
+from unittest.mock import Mock, call, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.clock import Clock
 from fixtures.sandbox import Sandbox
 from agentkit import config, deliver, gc, gitcall, run, turns
 from agentkit import record
@@ -46,9 +47,9 @@ class ReviewWaitsForPullRef(Sandbox):
 
     def attempt(self, site, outcomes, error=None):
         record.save_state(self.directory, {})
-        logs = []
+        logs, sleep = [], Mock()
         with patch.object(gitcall, "git_out", side_effect=outcomes) as git, \
-                patch.object(run.time, "sleep") as sleep, \
+                patch.object(run, "time", Clock(sleep)), \
                 patch.object(turns, "transient_delay", wraps=turns.transient_delay) as delay:
             with self.assertRaises(type(error) if error else Fetched) as caught:
                 if site == "launch":

@@ -57,8 +57,10 @@ class ATurnCarriesItsConversation(unittest.TestCase):
                        settings={"suite_helper": "acme-linux", "machine_turns": True})
         fakes = fakeadapter.install(home, claude=claude, codex=codex)
         machine = akmachine.install(home)
-        for harness in fakes:    # each fake adapter's program, which it never runs
-            place = machine / "home/.agentkit-helper/harness" / harness
+        for harness, version in (("claude", "1.2.3"), ("codex", "4.5.6")):
+            home.fake(harness, f"#!/bin/sh\necho {version}\n")
+            # each fake adapter's program, which it never runs
+            place = machine / "home/.agentkit-helper/harness" / harness / version
             place.mkdir(parents=True)
             (place / harness).touch(0o755)
         return home, fakes, machine, rig

@@ -6,7 +6,8 @@ answers `plan` beside `email` and `ends`, in the provider's own words, read wher
 keeps it: Claude's credentials, Codex's id token, and for Antigravity the tier `loadCodeAssist`
 named when `usage` last asked it.  A login whose plan cannot be told answers null and the same
 email and end as ever, never a failed read, and no token is printed.  The tick keeps the answer
-in state/logins.json, and `logins.whose` gives the ak screen a subscription's (email, plan).
+in state/logins.json, where the ak screen reads a subscription's email and plan
+(tests/test_key_subscriptions_page.py pins the page).
 Black-box: each adapter on fake login files in a temporary HOME, the endpoint and `agy` faked;
 the tick through `AK_BIN`, asking tests/fixtures/loginend.py's harness.
 """
@@ -126,7 +127,7 @@ class Adapters(unittest.TestCase):
 
 @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class Tick(unittest.TestCase):
-    def test_the_menu_s_function_answers_email_and_plan_after_the_tick_s_read(self):
+    def test_the_tick_keeps_each_login_s_email_and_plan_for_the_screen(self):
         home = Home()
         self.addCleanup(home.close)
         akconfig.write(home, {"beta": {"harness": "claude", "provider": "test"}},
@@ -135,13 +136,11 @@ class Tick(unittest.TestCase):
         logins.answer("default", "owner@acme.test", ENDS, "Google AI Pro")
         logins.answer("two", "two@acme.test", None)
         tick(home)
-        self.assertEqual(kept(home)["test"]["default"]["plan"], "Google AI Pro")
-        done = home.run(sys.executable, "-c", "import json; from agentkit import logins; "
-                        "print(json.dumps([logins.whose('test'), logins.whose('test', 'two'), "
-                        "logins.whose('acme')]))", cwd=REPO, env={"PYTHONPATH": str(REPO)})
-        self.assertEqual(done.code, 0, done.err)
-        self.assertEqual(json.loads(done.out), [["owner@acme.test", "Google AI Pro"],
-                                                ["two@acme.test", None], [None, None]])
+        saved = kept(home)
+        self.assertEqual([(saved["test"][account]["email"], saved["test"][account]["plan"])
+                          for account in ("default", "two")],
+                         [("owner@acme.test", "Google AI Pro"), ("two@acme.test", None)])
+        self.assertNotIn("acme", saved)
 
 
 if __name__ == "__main__":

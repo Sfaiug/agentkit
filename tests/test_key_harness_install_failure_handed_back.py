@@ -6,26 +6,24 @@ tick retries that release daily, for ever, telling nobody: a harness whose insta
 of ours breaks stays behind for good.  Now a failed install counts a red in that harness's
 record, as a red gate does: its second red in a row, gate or install, is handed back once,
 naming what could not be installed and the log; a gate pass clears it; a harness that installed
-fine in the same update counts none.  `ak update` runs black-box through tests/fixtures/akbin.py,
-with a fake `claude`, a fake `codex` whose `npm` install fails while `broken` exists, and the
-gates stood in for by tests/fixtures/akgates.py; the tick's delivery runs in-process on that
-Home's state, to a fake seat.
+fine in the same update counts none.  Black-box: `ak update` runs the program `AK_BIN` names
+through tests/fixtures/akbin.py, with a fake `claude`, a fake `codex` whose `npm` install fails
+while `broken` exists, and the gates stood in for by tests/fixtures/akgates.py; each tick runs
+the live install tests/fixtures/akinstall.py copies to HOME/agentkit, which types the line into
+the seat that merged into agentkit; this test fails against `/bin/false`.
 """
 
-from contextlib import ExitStack
 import re
 import shlex
 import sys
 from pathlib import Path
 import unittest
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fixtures import akconfig
-from fixtures.akbin import Home
+from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akgates import Gates
-from agentkit import config, update, watch
+from fixtures.akinstall import Install
 
 CLAUDE = """#!/bin/sh
 case "$1 $2" in
@@ -46,35 +44,20 @@ esac
 """
 
 
+@unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class InstallFailureHandedBack(unittest.TestCase):
     def setUp(self):
         self.home = Home()
         self.addCleanup(self.home.close)
         akconfig.write(self.home, ["opus", "astra"])
+        self.install = Install(self.home)
         root = self.home.root
         (root / "claude").write_text("2.1.0 (Claude Code)\n")
         (root / "codex").write_text("codex-cli 0.1.0\n")
         for name, script in (("claude", CLAUDE), ("codex", CODEX), ("npm", NPM)):
             self.home.fake(name, script.format(root=shlex.quote(str(root))))
         self.gates = Gates(self.home)
-        self.seen = []
-        stack = ExitStack()
-        self.addCleanup(stack.close)
-        stack.enter_context(patch.object(config, "HOME", self.home.path / ".agentkit"))
-        for name, place in config.PLACES.items():
-            stack.enter_context(patch.object(config, name, config.HOME / place))
-        stack.enter_context(patch.object(update, "agentkit_dir", return_value=config.REPO))
-        stack.enter_context(patch.object(update, "harnesses", return_value=()))
-        stack.enter_context(patch.object(update, "_git", return_value=(
-            0, "https://github.com/acme/agentkit.git")))
-        stack.enter_context(patch.object(watch, "after_merge_fallback",
-                                         return_value={"name": "atoll"}))
-        stack.enter_context(patch.object(watch, "type_at_prompt", side_effect=self.type_line))
-
-    def type_line(self, seat, line, log, typed=None, receipt=lambda mark: None, **_kw):
-        self.seen.append(line)
-        receipt({"seat": seat["name"], "line": line})
-        return True
+        self.seat = self.install.seat()
 
     def update(self, broken, code=None):
         """`ak update` with codex's install failing or not; the log it names."""
@@ -86,10 +69,11 @@ class InstallFailureHandedBack(unittest.TestCase):
         return Path(re.search(r"-- see (\S+)", said)[1]) if broken else None
 
     def tick(self):
-        """One tick's delivery: the lines it typed."""
-        before = len(self.seen)
-        update.keep_current(lambda line: None, now=1_000_000)
-        return self.seen[before:]
+        """One tick of the live install: the lines it typed into the seat."""
+        before = len(self.seat.lines())
+        done = self.home.run(self.install.ak, "watch")
+        self.assertEqual(done.code, 0, done.out + done.err)
+        return self.seat.lines()[before:]
 
     def test_a_second_failed_install_in_a_row_is_handed_back_once(self):
         self.update(broken=True)

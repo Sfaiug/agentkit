@@ -124,7 +124,7 @@ verdict() { [ "$NFAIL" = 0 ] && ok "$1"; }
             (caller / ".agentkit/secrets").mkdir(parents=True)
             (caller / ".agentkit/secrets/discord_webhook").write_text("https://example.invalid/file\n")
             binaries.mkdir()
-            for name in ("claude", "codex", "muse", "grok", "opencode", "agy"):   # no login is asked
+            for name in ("claude", "codex", "muse", "grok", "opencode", "agy"):   # none lends a login
                 (binaries / name).write_text("#!/bin/sh\nexit 97\n")
                 (binaries / name).chmod(0o755)
             for inherited in ("", "https://example.invalid/env"):

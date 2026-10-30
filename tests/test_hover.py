@@ -449,6 +449,9 @@ class Screens(Sandbox):
         # a click on the header first leaves the keys their highlight, for that move to take
         screens = run(choose, move(5, 5), b"k", b"\x1b[<0;1;1M\x1b[<0;1;1m", move(1, 2), ESC)[1]
         self.assertEqual(highlighted(screens[-1]), [])
+        # and one the pointer holds goes out with it, the move after it within that blank space
+        screens = run(choose, move(5, 5), b"\x1b[<0;1;1M\x1b[<0;1;1m", move(2, 1), ESC)[1]
+        self.assertEqual(highlighted(screens[-1]), [])
 
     def test_the_models_screens_draw_no_highlight_off_every_row(self):
         role = next(iter(menu.quality.ROLES))

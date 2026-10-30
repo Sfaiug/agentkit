@@ -1,6 +1,7 @@
 """config.toml loading, model resolution, and every agentkit path."""
 
 from contextlib import contextmanager
+import copy
 import datetime
 import fcntl
 import hashlib
@@ -18,7 +19,7 @@ import tomllib
 from pathlib import Path
 from string import Template
 
-from . import host
+from . import host, parsed
 
 REPO = Path(__file__).resolve().parent.parent
 STARTED = time.time()   # when this process read its code: every entry imports this module first
@@ -1025,11 +1026,11 @@ SEAT_FILES = {
     "rulebook": "md",    # the rulebook its orchestrator was started on
     "verify": "lock",    # held by one verification of its plan at a time (`plan.verifying`)
     # left by the prompts that named a rulebook to read, before they carried it: goes with its
-    # seat, and a change may still be told against its `rules` (`orch.rulebook_change`)
+    # seat, and a change may still be told against it (`orch.rulebook_change`)
     "rules": "md",
-    "change": "md",
+    "change": "md",      # rulebook news too long for its prompt, which names it (`orch.rulebook_pointer`)
     "held": "md",        # the rulebook its conversation was last handed
-    "launch": "sh",      # the command its pane runs, until that pane starts (`orch.seat_command`)
+    "launch": "sh",      # the command a pane runs, until it starts: one per launch, `.sh` a token (`orch.seat_command`)
     "refused": "txt",    # its screen when it read at its prompt yet took no line (`watch.untyped`)
     "handover": "md",    # what moves to another harness handed it of its conversation (`orch.handover`)
     # written by nothing since seats stopped messaging one another: named so a stop and the daily collector still
@@ -1053,9 +1054,13 @@ def seat_file(kind, name):
 
 def seat_files(kind):
     """(seat, path) for every file of one SEAT_FILES kind, in name order."""
-    ext = SEAT_FILES[kind]
-    return [(path.name[len(kind) + 1:-len(ext) - 1], path)
-            for path in sorted(_self.STATE.glob(f"{kind}-*.{ext}"))]
+    head, tail = f"{kind}-", f".{SEAT_FILES[kind]}"
+    try:
+        names = parsed.read(_self.STATE, os.listdir)
+    except OSError:
+        return []       # no state yet, or none to list
+    return [(name[len(head):-len(tail)], _self.STATE / name) for name in sorted(names)
+            if name.startswith(head) and name.endswith(tail)]
 
 
 def seat_file_owner(path):
@@ -1075,9 +1080,15 @@ def card_path(name):
     return seat_file("card", name)
 
 
-def _read_json(path):
+def _json(path):
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _read_json(path, shared=False):
+    """The file's JSON, None for no file; `shared` is what it held when last parsed while it
+    has not changed since (`parsed`), every reader's, so its caller only reads it."""
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return parsed.read(path, _json) if shared else _json(path)
     except FileNotFoundError:
         return None
     except OSError as exc:
@@ -1102,7 +1113,7 @@ def resolve_session(name):
         name = orch.session_name(name)
     seen = [name]
     for _ in range(RENAME_HOPS + 1):    # RENAME_HOPS renames, then the name after the last
-        data = _read_json(session_path(name))
+        data = _read_json(session_path(name), shared=True)
         if not isinstance(data, dict) or not isinstance(data.get("renamed"), str):
             return name
         name = normalize_session(data["renamed"])
@@ -1369,22 +1380,36 @@ def keep_efforts(cfg, name):
     return change_efforts(name, kept)
 
 
-def _session_files():
-    """(name, contents) for every session file, records and rename pointers alike."""
-    if not _self.STATE.exists():
-        return
+def _session_file(path, record):
+    """What a session file holds where it is a record (`record`) or else a rename pointer, None
+    for no file, the other kind or neither; shared (`_read_json`): only read."""
+    try:
+        data = _read_json(path, shared=True)
+    except Error:
+        return None
+    return data if isinstance(data, dict) and ("renamed" not in data) == record else None
+
+
+def _session_files(record):
+    """(name, contents) for every session file that is a record (`record`) or a rename pointer."""
     for name, path in seat_files("session"):
-        try:
-            data = _read_json(path)
-        except Error:
-            continue
-        if isinstance(data, dict):
+        data = _session_file(path, record)
+        if data is not None:
             yield name, data
 
 
 def session_records():
     """{name: record} for every session file that is a record rather than a rename pointer."""
-    return {name: data for name, data in _session_files() if "renamed" not in data}
+    return dict(_session_files(record=True))
+
+
+def session_record(name):
+    """`session_records().get(name)`, read from that seat's file alone."""
+    try:
+        path = session_path(name)
+    except Error:
+        return None             # a name no session file has
+    return _session_file(path, record=True)
 
 
 def session_aliases():
@@ -1396,9 +1421,7 @@ def session_aliases():
     to itself here, which is the caller's cue that it is no name to hand out either.
     """
     found = {}
-    for name, data in _session_files():
-        if "renamed" not in data:
-            continue
+    for name, _ in _session_files(record=False):
         try:
             found[name] = resolve_session(name)
         except Error:
@@ -1416,7 +1439,7 @@ def load_session(cfg, name, required=True):
     """
     name = resolve_session(name)
     path = session_path(name)
-    data = _read_json(path)
+    data = copy.deepcopy(_read_json(path, shared=True))     # its caller's own to change
     if data is None:
         if not required:
             return None
@@ -1447,7 +1470,8 @@ def rename_session(old, new):
     # Every older name of this seat leads to `old`, straight or through its other old names: it
     # points at `new` now, so no chain passes one rename however often a seat is renamed (its
     # title follows the conversation), and a chain left deeper than a walk follows recovers.
-    pointers = {name: normalize_session(data["renamed"]) for name, data in _session_files()
+    pointers = {name: normalize_session(data["renamed"])
+                for name, data in _session_files(record=False)
                 if isinstance(data.get("renamed"), str)}
     for name, leads in pointers.items():
         seen, step = {name}, leads

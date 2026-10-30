@@ -18,10 +18,11 @@ def shard(value=None):
     raise ValueError("AK_SHARD must be k/N with 1 <= k <= N")
 
 
-def listed():
+def listed(variable="AK_ONLY"):
     """The test IDs, checkout-relative paths, in the file AK_ONLY names, one per line: the only
-    tests to run, whatever the share. None when AK_ONLY is unset: every test runs."""
-    path = os.environ.get("AK_ONLY", "")
+    tests to run, whatever the share. None when AK_ONLY is unset: every test runs.  With
+    `variable` "AK_CHANGED", the paths a change edits."""
+    path = os.environ.get(variable, "")
     return {line.strip() for line in Path(path).read_text().splitlines()} - {""} if path else None
 
 
@@ -45,6 +46,7 @@ def shares(costs, total):
     return owners
 
 
+SMOKE = "tests/smoke.sh"
 SETUP = "# --- shared setup ----------------------------------------------------------\n"
 HEADERS = re.compile(r"^# --- (?:(\w+):)?[^\n]*\n", re.MULTILINE)
 # These blocks read fixtures, shell variables or functions made by an earlier block.
@@ -103,6 +105,15 @@ def smoke_source(source, root, piece, live=False, offline=False):
     blocks = smoke_blocks(source)
     number, total = piece
     owners = smoke_owners(blocks, root, total, live, offline)
+    only = listed()
+    if only is not None and SMOKE not in only:
+        # AK_ONLY's blocks run whatever the share, each with its group (DEPENDENCIES).
+        chosen = {test.removeprefix(f"{SMOKE}#") for test in only}
+        chosen.update(*(group for group in DEPENDENCIES if chosen & set(group)))
+        owners = {name: number for name in owners if name in chosen}
+        # Each is named as run as it starts; landing.py names those as failed if smoke.sh exits red.
+        blocks = [(name, f"""echo '{SMOKE}#{name}' >>"${{AK_RAN:-/dev/null}}"\n{body}""" if name
+                   else body) for name, body in blocks]
     # A colon leaves an enclosing offline guard valid when this piece owns none of it.
     return "".join(body if name is None or owners.get(name) == number else ":\n"
                    for name, body in blocks)

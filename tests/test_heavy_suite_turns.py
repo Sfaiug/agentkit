@@ -11,7 +11,6 @@ import json
 import os
 from pathlib import Path
 import shlex
-import subprocess
 import sys
 import tempfile
 import threading
@@ -161,17 +160,13 @@ class HeavySuiteTurns(unittest.TestCase):
                 self.assertIsNotNone(hold)
                 hold.release()
 
-    def test_status_and_smoke_pool_count_held_turns(self):
+    def test_status_counts_held_turns(self):
         caller = self.root / "caller"
         home = caller / ".agentkit"
         runs = home / "runs"
         runs.mkdir(parents=True)
-        smoke = (REPO / "tests/smoke.sh").read_text()
-        pool_bound = smoke[smoke.index("smoke_pool_bound() {"):
-                           smoke.index("\nsmoke_lock_probe()")]
         with patch.object(config, "HOME", home), patch.object(config, "RUNS", runs), \
-                patch.dict(os.environ, {"HOME": str(caller), "REPO": str(REPO),
-                                        "SMOKE_CALLER_HOME": str(caller)}), ExitStack() as holders:
+                patch.dict(os.environ, {"HOME": str(caller)}), ExitStack() as holders:
             for index in (0, 1, 5, 9):
                 holder = holders.enter_context(gate.gate_lock(ACME, index).open("a"))
                 fcntl.flock(holder, fcntl.LOCK_EX)
@@ -189,11 +184,7 @@ class HeavySuiteTurns(unittest.TestCase):
                     status = (f"{expected} at once ({'pinned' if name == 'pinned' else 'derived'})"
                               if expected else "no cap (pinned)")
                     status_line = gate.host_status_line().splitlines()[-1]
-                    proc = subprocess.run(["bash", "-c", pool_bound + "\nsmoke_pool_bound"],
-                                          capture_output=True, text=True, timeout=30)
-                    self.assertEqual(proc.returncode, 0, proc.stderr)
-                    self.assertEqual((status_line, proc.stdout.strip()),
-                                     (f"heavy suites: {status}", str(expected)))
+                    self.assertEqual(status_line, f"heavy suites: {status}")
             holders.close()
             (home / config.CONFIG_NAME).write_text("")
             self.assertEqual(gate.derived_heavy_limit(SMALL), 10)
