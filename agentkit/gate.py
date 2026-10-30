@@ -2253,7 +2253,7 @@ def run_round(cmds, cwd, log_path, artifacts, limit, log, silence, run_dir):
         away, why = helper.start(*cost, cwd, lambda line: None)
         if away:
             say(f"done-when on the suite helper {away.alias}, as one piece")
-            # a header of its own: a record (`$ ...`) is what ran here
+            # Each command's header is no record (`$ cmd`, then its exit): those are counted.
             script = "\n".join(f"printf '%s\\n' {shlex.quote(f'--- $ {cmd} ---')} && "
                                f"bash -c {shlex.quote(cmd)} || exit" for cmd in cmds)
             try:
@@ -2266,6 +2266,7 @@ def run_round(cmds, cwd, log_path, artifacts, limit, log, silence, run_dir):
                         stdin=subprocess.DEVNULL)
             finally:
                 helper.finish(away)
+            run_record.stop_check(run_dir)
             suite_times.keep(cwd, log_path)
             with log_path.open("rb") as progress:
                 out = turns.cut_file(progress, 0, run_dir or log_path.parent, log_path.stem)
