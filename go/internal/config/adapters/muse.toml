@@ -18,6 +18,12 @@ effort = "minimal"
 unswitched = ["${XDG_CONFIG_HOME:-~/.config}/muse/AGENTS.md", "~/.muse-$AGENTKIT_ACCOUNT/muse/AGENTS.md",
               "~/.claude/CLAUDE.md", "~/.codex/AGENTS.md"]
 
+# The lines its prompt takes to move its conversation to another model or effort, `{model}` the
+# id `interactive` passes as --model (`orch.switch_lines`); Muse 1.4.14 takes both.
+[switch]
+model = "/model {model}"
+effort = "/effort {effort}"
+
 [worker]
 state = ["~/.config/muse", "$XDG_CONFIG_HOME/muse", "~/.muse-$AGENTKIT_ACCOUNT",
          "~/.local/share/muse", "$XDG_DATA_HOME/muse"]
