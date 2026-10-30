@@ -22,6 +22,7 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/run"
+	"agentkit/internal/task"
 )
 
 // A handler is one entry of ours and the group it sits in.
@@ -43,7 +44,8 @@ func Install(table config.HookTable, root string, out, errOut io.Writer) int {
 	}
 	data := run.NewObject()
 	if !missing {
-		read, err := run.Decode(raw)
+		// as Python's text files read it, so a refusal's line and place are the heredoc's
+		read, err := run.Decode([]byte(task.Text(raw)))
 		if err != nil {
 			// a malformed file is not a missing one: replacing it would drop the owner's settings
 			fmt.Fprintf(errOut, "%s is not valid JSON (%v); left alone\n", path, err)
