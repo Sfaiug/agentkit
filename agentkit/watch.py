@@ -2689,8 +2689,9 @@ def news_owed(name, mine, read=True):
     """What ak still has to type into that seat, as its reason, or None: a line `revive` owes it
     (`tell_owed`), the end of its `ak wait` not yet told (`wait_over`), or an ending of its own
     runs nobody has heard that is the seat's to decide (`handback.owes_ending`, less a routine
-    one, which is never typed).  Only the first while no rule or hook `read` its screen: the
-    harness of a seat just reopened is still drawing its prompt."""
+    one, which is never typed, and one riding on its next prompt, `handback.ending_rides`).
+    Only the first while no rule or hook `read` its screen: the harness of a seat just reopened
+    is still drawing its prompt."""
     marks = seat_read(name)
     if marks.get("owed_lines"):
         return "telling it what it missed while it was gone"
@@ -2700,7 +2701,8 @@ def news_owed(name, mine, read=True):
     if isinstance(wait, dict) and wait.get("over") and not wait.get("told"):
         return f"telling it its wait on {wait.get('on')} is over"
     for run_dir, state in mine:
-        if handback.owes_ending(state) and not handback.routine_ending(state):
+        if (handback.owes_ending(state) and not handback.routine_ending(state)
+                and not handback.ending_rides(state)):
             return f"telling it how run {run_dir.name} ended"
     return None
 
@@ -7198,6 +7200,10 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
             if handback.finish_typed(session, st.get("live_typed"), log):
                 handback.mark_delivery(run_dir, st, live_notified=now, live_typed=None)
                 log(f"{handback.live_sentence(st, run_dir)} Recorded, not typed")
+            return "passed", None, None
+        if handback.carries_live(st) or not st.get("live_typed") and handback.rides(st):
+            # its ending, still to be said, carries it, or it rides on the seat's next prompt
+            # (`handback.riding`)
             return "passed", None, None
         seat = orch.find(session)
         if after_merge_live(seat):
