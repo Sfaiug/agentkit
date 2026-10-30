@@ -4,7 +4,8 @@ toml that says nothing of where to fetch and a version that cannot be read each 
 
 Black-box, as tests/test_key_a_turn_runs_on_a_machine.py is, on its machine, with a fake `curl` that
 logs each URL and serves a stand-in program as the real ones come: claude a plain file, codex a
-`.tar.gz` holding it under another name. Each stand-in, run, says its name.
+`.tar.gz` package, the program with what it needs elsewhere in it. Each stand-in, run, says its
+name.
 """
 
 import io
@@ -28,7 +29,7 @@ from fixtures.gitrig import Rig
 CLAUDE = ("https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/"
           "claude-code-releases/1.2.3/linux-{}/claude")
 CODEX = ("https://github.com/openai/codex/releases/download/rust-v4.5.6/"
-         "codex-{}-unknown-linux-musl.tar.gz")
+         "codex-package-{}-unknown-linux-musl.tar.gz")
 VERSIONS = {"claude": "1.2.3 (Claude Code)", "codex": "codex-cli 4.5.6"}
 # What curl does once it has logged `$url`: `{tarball}` is codex's download, `{gate}` a file to
 # wait for.
@@ -51,10 +52,15 @@ class AMachineFetchesTheHarness(unittest.TestCase):
         for harness, version in versions.items():
             home.fake(harness, f"#!/bin/sh\necho {shlex.quote(version)}\n")
         with tarfile.open(machine / "codex.tar.gz", "w:gz") as tar:
-            data = b"#!/bin/sh\necho codex\n"
-            info = tarfile.TarInfo(f"codex-{arch}-unknown-linux-musl")
-            info.size = len(data)
-            tar.addfile(info, io.BytesIO(data))
+            # As the real one: what codex runs beside it, what it finds on PATH, a file not a program.
+            for name, data, mode in (
+                    ("bin/codex", b'#!/bin/sh\n"${0%/*}/codex-host" && rg && echo codex\n', 0o755),
+                    ("bin/codex-host", b"#!/bin/sh\n", 0o755),
+                    ("codex-path/rg", b"#!/bin/sh\n", 0o755),
+                    ("codex-package.json", b"{}\n", 0o644)):
+                info = tarfile.TarInfo(name)
+                info.size, info.mode = len(data), mode
+                tar.addfile(info, io.BytesIO(data))
         urls = machine / "urls"
         (machine / "bin/curl").write_text(
             f'#!/bin/bash\nurl=${{@: -1}}\necho "$url" >>{urls}\n'
@@ -104,7 +110,9 @@ class AMachineFetchesTheHarness(unittest.TestCase):
                 self.assertEqual(self.fetched(urls),
                                  sorted([CLAUDE.format(claude), CODEX.format(codex)]))
                 self.assertEqual(self.programs(machine),
-                                 ["claude/1.2.3/claude", "codex/4.5.6/codex"])
+                                 ["claude/1.2.3/claude", "codex/4.5.6/codex",
+                                  "codex/4.5.6/codex-host", "codex/4.5.6/codex-package.json",
+                                  "codex/4.5.6/rg"])
 
     def test_the_second_turn_fetches_nothing(self):
         home, machine, urls = self.machine("x86_64", SERVES)

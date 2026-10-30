@@ -165,15 +165,20 @@ history() {
 }
 # fetch PROGRAM URLFILE, under its version's lock: a turn's harness program, unless a turn before
 # this one fetched it, whole or not at all: it stays outside the directory `turn` mounts until it
-# is all here. A `.tar.gz` holds only the program, under another name. Bounded, as a hung download
-# would hold the lock against every later turn.
+# is all here. A `.tar.gz` is a package: the program with what it runs beside it or finds on PATH
+# (the real codex: `codex-code-mode-host` and `rg`, seen on a real machine, 30 Oct 2026), its
+# programs going flat in one directory wherever it keeps them. Bounded, as a hung download would
+# hold the lock against every later turn.
 fetch() {
   [ ! -x "$1" ] || return 0
   url=$(cat "$2") || return
   part=${1%/*}.part
-  case $url in *.tar.gz) unpack="tar -xzO" ;; *) unpack=cat ;; esac
-  (set -o pipefail; curl -fsSL --max-time 600 "$url" | $unpack >"$part") && chmod +x "$part" &&
-    mv "$part" "$1" || { rm -f "$part"; return 1; }
+  rm -rf "$part" && mkdir "$part" || return
+  case $url in
+    *.tar.gz) (set -o pipefail; curl -fsSL --max-time 600 "$url" | tar -xz -C "$part") &&
+      find "$part" -mindepth 2 -type f -perm -u+x -exec mv -t "$part" {} + ;;
+    *) curl -fsSL --max-time 600 "$url" >"$part/${1##*/}" && chmod +x "$part/${1##*/}" ;;
+  esac && [ -x "$part/${1##*/}" ] && mv -T "$part" "${1%/*}" || { rm -rf "$part"; return 1; }
 }
 case $(uname) in Darwin) darwin ;; Linux) linux ;; *) false ;; esac || exit 253
 case "$1" in
