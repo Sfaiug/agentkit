@@ -8,7 +8,9 @@ a key pressed mid-animation has its frame out within 100 ms; the dots breathe on
 wait for a second digit and under the stop question, and a resize as a frame falls due draws
 the whole screen instead.  From a pipe, under NO_COLOR and at eight colours the wait is the
 plain TICK and no frame is drawn.  Offline, in a throwaway HOME: the probe is never started,
-opening a seat is a line saying so, and the keyboard is a stand-in.
+opening a seat is a line saying so, the keyboard is a stand-in, and the menu's clock moves only
+as the stand-in's waits run, so a loaded host draws no slower on it and the stop card's run
+count lands within its frame.
 """
 
 from contextlib import ExitStack, redirect_stdout
@@ -16,10 +18,11 @@ import io
 import os
 import re
 import sys
-import time
+import threading
 from unittest.mock import patch
 import unittest
 
+from fixtures.clock import Clock
 from fixtures.sandbox import Sandbox, menu_input
 from agentkit import config, menu, motion, orch, terminal
 
@@ -57,6 +60,9 @@ class Breathing(Sandbox):
         repo = config.CODE / "acme"
         (repo / ".git").mkdir(parents=True)
         self.words = dict(WORDS)
+        self.now = 1000.0                   # the menu's clock: still but for the waits it runs
+        clock = Clock(self.sleep)
+        clock.monotonic = lambda: self.now
 
         def row_state(cfg, session, look=True, **facts):
             return {"word": self.words[session["name"]], "reason": "", "since": None}
@@ -72,10 +78,16 @@ class Breathing(Sandbox):
                 (terminal, "Keyboard", Keyboard),
                 (terminal, "sense", lambda: None),     # a taken keyboard's, no real terminal's
                 (terminal, "width", lambda *args: 100),
+                (menu, "time", clock), (motion, "time", clock),
+                # what is asked off the draw takes no time on that clock either
+                (menu.Fetch, "join", lambda fetch, timeout=None: threading.Thread.join(fetch)),
                 (menu, "open_session", lambda cfg, session, dry_run:
                  print(f"<opened {session['name']}>"))):
             self.stack.enter_context(patch.object(target, name, fake))
         self.addCleanup(setattr, terminal, "_ASKED", False)
+
+    def sleep(self, seconds):
+        self.now += seconds
 
     def run_menu(self, answer, own=None):
         """`menu.loop` with every wait answered by `answer(timeout)`, in the popup over `own` if
@@ -84,7 +96,7 @@ class Breathing(Sandbox):
         out.isatty = lambda: True           # a terminal, as far as colour is concerned
 
         def wait_key(prompt, timeout=None, wake=None):
-            waits.append((timeout, time.monotonic(), out.getvalue()))
+            waits.append((timeout, self.now, out.getvalue()))
             out.seek(0)
             out.truncate()
             return answer(timeout)
@@ -124,7 +136,7 @@ class Breathing(Sandbox):
         def answer(timeout):
             if next(calls) == 39:
                 return ""
-            time.sleep(timeout)             # nothing typed: the wait runs to its frame
+            self.sleep(timeout)             # nothing typed: the wait runs to its frame
             return None
         waits = self.run_menu(answer)
         screen, drawn = waits[0][2], [written for _, _, written in waits[1:]]
@@ -159,12 +171,12 @@ class Breathing(Sandbox):
 
         def answer(timeout):
             key = next(script)
-            time.sleep(timeout if key is None else timeout / 2)   # typed half way to a frame
+            self.sleep(timeout if key is None else timeout / 2)   # typed half way to a frame
             if key is not None and key.name == "down":
-                pressed["at"] = time.monotonic()
+                pressed["at"] = self.now
             return key
         waits = self.run_menu(answer)
-        answered = next(at for _, at, _ in waits if at > pressed["at"])
+        answered = next(at for _, at, _ in waits if at >= pressed["at"])
         self.assertLess(answered - pressed["at"], 0.1)
         self.assertTrue(all(timeout <= motion.FRAME for timeout, _, _ in waits[1:]))
         # and the frame it answers with is the highlight moved: `›` a row down, on the second seat
@@ -179,7 +191,7 @@ class Breathing(Sandbox):
         def answer(timeout):
             key = next(script)
             if key is None or key == "resize":
-                time.sleep(timeout)          # nothing typed: the wait runs to its frame
+                self.sleep(timeout)          # nothing typed: the wait runs to its frame
             if key == "resize":
                 terminal._ASKED = True       # what `read_key` leaves when a resize ended it
                 return None
@@ -207,7 +219,7 @@ class Breathing(Sandbox):
 
         def answer(timeout):
             step = next(script)
-            time.sleep(timeout)
+            self.sleep(timeout)
             if step == "resize":
                 terminal._ASKED = True       # what `read_key` leaves when a resize ended it
                 return None
