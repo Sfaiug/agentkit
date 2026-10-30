@@ -31,7 +31,9 @@ socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM).sendto(os.environ["AK_SHARD"].e
 ONE, TWO = "cpus 2\nload 0\nroom_mb 65536", "cpus 4\nload 0\nroom_mb 65536"   # room for VMs
 SSH = """import os, shlex, sys, time
 words = shlex.split(" ".join(sys.argv[1:]))
-verb = words[words.index("mac.sh") + 1]
+verb, *args = words[words.index("mac.sh") + 1:]
+if verb == "run" and args[6] == "1/1":    # a round's own checks, where they go there: not the suite
+    sys.exit()
 with open({calls!r}, "a") as calls:
     calls.write(verb + "\\n")
 if verb == "probe":
@@ -107,7 +109,7 @@ class WaitingSuiteGoesToTheMac(unittest.TestCase):
         # It joins with one VM, whose piece runs until the one left waiting runs on the next.
         shares, verbs = land(self, ONE, ("run", 1), TWO)
         self.assertEqual(shares, [])
-        self.assertEqual(verbs.count("prepare"), 2)
+        self.assertEqual(verbs.count("run"), 2)
 
 
 if __name__ == "__main__":
