@@ -270,31 +270,25 @@ def same_model(cfg, first, second):
 
 
 def reviewer_order(cfg, writers, order):
-    """Every other model in the order given, then the writers' own.  `writers` is the model
-    that wrote the work, or every model that wrote part of it: a PR's orchestrator and the
-    fixer its fix was handed to.  A model tends to miss the mistakes it makes, so its own
-    review is the last choice -- but only a choice, never a refusal: one worker reviews
-    itself.  A reviewer from the writer's company counts as any other: a stronger reviewer
-    catches more than a different company does, and its separate turn is the fresh context
-    (AGENTS.md, Owner rules, 14 Oct).  Own is `same_model`'s: one model id under two
-    providers, as two `model = "default"` entries, is two models."""
+    """The order given, by each reviewer's worst `pair_tier` beside the writers.  `writers`
+    is the model that wrote the work, or every model that wrote part of it: a PR's
+    orchestrator and the fixer its fix was handed to.  A model tends to miss the mistakes it
+    makes, so its own review is the last choice -- but only a choice, never a refusal: one
+    worker reviews itself."""
     names = [writers] if isinstance(writers, str) else [name for name in (writers or []) if name]
     try:
         for name in names:
             config.model(cfg, name)
     except config.Error:
         return []
-    others, own = [], []
+    tiered = []
     for name in order:
         try:
             config.model(cfg, name)
         except config.Error:
             continue
-        if any(same_model(cfg, each, name) for each in names):
-            own.append(name)
-        else:
-            others.append(name)
-    return others + own
+        tiered.append((max((pair_tier(cfg, each, name) for each in names), default=0), name))
+    return [name for _, name in sorted(tiered, key=lambda each: each[0])]
 
 
 def head_writers(state):
@@ -307,28 +301,29 @@ def head_writers(state):
 
 
 def pair_tier(cfg, executor, reviewer):
-    """This pair's tier: 0 another model, whatever its company, 2 the executor's own model.
+    """This pair's tier, in the owner's order of 21 Oct (AGENTS.md, Owner rules): 0 a model
+    on another provider, 1 another model on the executor's provider, 2 the executor's own
+    model.  Own is `same_model`'s: one model id under two providers is two models.
 
     None when either name is unknown: no pick weighs a pair it cannot name.
     """
     if same_model(cfg, executor, reviewer):
         return 2
     try:
-        config.model(cfg, executor)
-        config.model(cfg, reviewer)
+        same = config.model(cfg, executor)["provider"] == config.model(cfg, reviewer)["provider"]
     except config.Error:
         return None
-    return 0
+    return 1 if same else 0
 
 
 def best_pair(cfg, executors, reviewers, allow_self=True):
     """The pair every automatic pick takes: tier first, then executor order, then reviewer.
 
     Both lists are already in pick order (`usage.pick_order`), so the first pair in tier
-    order wins: a review by another model, whatever its company, beats the executor
-    reviewing itself.  A pick that stopped at the first executor would keep a self-review
-    while a pair with another reviewer is ready.  None when no pair forms -- or only a
-    self-review when `allow_self` is off, which a flake waits out.
+    order wins: a review by another provider's model beats one by the executor's provider,
+    which beats the executor reviewing itself.  A pick that stopped at the first executor
+    would keep a worse tier while a better pair is ready.  None when no pair forms -- or
+    only a self-review when `allow_self` is off, which a flake waits out.
     """
     best, key = None, None
     for ei, executor in enumerate(executors or []):
