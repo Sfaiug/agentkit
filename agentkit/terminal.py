@@ -1037,9 +1037,10 @@ def read_key(timeout=None, wake=None):
     spot = under(key, _SPOTS) if key.name == "click" else Spot()
     _UNSEEN = _AWAY and spot.what is None     # a click on a row names its own
     if key.name == "click" and spot == Spot():
-        # on nothing: the highlight stays drawn or hidden, as it was, and one the keys hold stays
-        # theirs, so the next move takes it wherever it goes
-        _POINTER = _POINTER and key
+        # on nothing: one the keys hold stays theirs, so the next move takes it wherever it goes;
+        # the pointer's goes out, the pointer off every row as a move there would leave it
+        if _POINTER:
+            _POINTER, _AWAY = key, any(what is not None for what, *_ in _SPOTS.values())
         return key
     _AWAY, _POINTER = False, key if key.name == "click" and not _UNSEEN else None
     if _UNSEEN and (key.name in ("enter", "space") or spot.what is None
