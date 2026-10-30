@@ -1426,8 +1426,9 @@ def decision(run_dir, state, word, why, move):
 
 
 def decision_line(state, run_dir, cfg=None):
-    """The one line a run's ending its seat decides about is told in; None for any other.  What it delivered or was stopped on purpose leaves nothing to decide; a
-    run going, or parked on a merge upstream, has not ended, unless only its provider holds it."""
+    """The one line a run's ending its seat decides about is told in; None for any other.  What
+    it delivered or was stopped on purpose leaves nothing to decide; a run going, or parked on a
+    merge upstream, has not ended, unless only its provider holds it."""
     word = handback_verdict(state, cfg)
     if (word.startswith(("PASS", "DONE")) or transitions.delivered(state) or state.get("state") in ("waiting", "stopped")
             or transitions.going(state) and not transitions.exhausted_wait(state)):
