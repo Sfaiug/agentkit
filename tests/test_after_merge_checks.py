@@ -136,7 +136,9 @@ class AfterMerge(unittest.TestCase):
         self.rows = [self.live(SEAT)]
         self.follow()
         self.assertEqual(self.typed, [(SEAT, (
-            f"{CHECK} failed on main after this merge: {URL}. Fix the target."))])
+            f"run run-old NOT LIVE (0 of 0): {CHECK} failed on main after this merge. {URL}. "
+            "Fix the target. Next: launch the fix the result names. "
+            f"Result: {config.tilde(config.RUNS / 'run-old/result.md')}"))])
         # what got past review and landing is on the change's row once it is told
         self.assertEqual(history.get("run-old")["broke_after_merge"], "checks")
 

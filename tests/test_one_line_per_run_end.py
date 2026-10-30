@@ -55,7 +55,7 @@ class OneLinePerRunEnd(Seats):
         self.end()
         self.tick()
         self.assertEqual(len(self.typed), 1)
-        self.assertTrue(self.typed[0].startswith(f"run {RUN} finished FAIL"))
+        self.assertTrue(self.typed[0].startswith(f"run {RUN} FAIL ("))
         self.assertTrue(self.told())
         self.assertEqual(watch.seat_read(SEAT)["wait"]["over"], f"run {RUN} ended FAIL")
 
@@ -74,7 +74,7 @@ class OneLinePerRunEnd(Seats):
             self.end(state="pass", finished_at=NOW - 60)
             self.tick()
         self.assertEqual(len(self.typed), 1)
-        self.assertTrue(self.typed[0].startswith(f"run {RUN} finished "))   # the hand-back
+        self.assertTrue(self.typed[0].startswith(f"run {RUN} "))   # the hand-back
         self.assertTrue(self.told())
         self.assertEqual(watch.seat_read(SEAT)["wait"]["over"], "PR #7 merged as abc123")
 
@@ -118,7 +118,7 @@ class OneLinePerRunEnd(Seats):
         with (patch.dict(os.environ, {config.SESSION_ENV: SEAT}),
               redirect_stderr(io.StringIO()) as err):
             self.assertEqual(watch.wait_main([RUN]), 1)
-        self.assertIn(f"run {RUN} finished FAIL", err.getvalue())
+        self.assertIn(f"run {RUN} FAIL (", err.getvalue())
         self.tick()
         self.assertEqual(self.typed, [])
         self.assertTrue(self.told())

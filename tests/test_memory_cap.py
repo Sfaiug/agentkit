@@ -194,8 +194,8 @@ class MemoryCap(unittest.TestCase):
         self.assertIn("killed: memory cap 4 GB", result)
         self.assertIn("## Why this run stopped", result)
         line = handback.handback_line(state, directory)
-        self.assertIn("finished FAIL: killed: memory cap 4 GB.", line)
-        self.assertIn(str(directory / "result.md"), line)
+        self.assertIn("FAIL (0 of 0): killed: memory cap 4 GB. Next: read the result.", line)
+        self.assertIn(config.tilde(directory / "result.md"), line)
         self.assertNotIn("rounds", handback.handback_reason(state))
 
     def test_the_config_key_changes_the_cap(self):

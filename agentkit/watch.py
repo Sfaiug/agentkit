@@ -7215,8 +7215,8 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
 
 
 def after_merge_line(check, target, url):
-    """The one line a target break is handed back with: what failed, where, and to fix it."""
-    return f"{check} failed on {target} after this merge: {url}. Fix the target."
+    """A target break's whole notice; its first sentence stands alone for `handback.not_live_line`."""
+    return f"{check} failed on {target} after this merge. {url}. Fix the target."
 
 
 def after_merge_repo(pr_url):
@@ -7375,9 +7375,7 @@ def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None, typed
     The seat's name when the line was told, else None.
     """
     if run_dir is not None:
-        line = handback.seat_notice(line, {}, run_dir,
-                                  f"run {run_dir.name}: a check failed after its merge.",
-                                  "Fix the target.")
+        line = handback.not_live_line(line, run_dir)
     seat = after_merge_seat(run_state, repo_key, typed, log)
     if seat is None:
         return None

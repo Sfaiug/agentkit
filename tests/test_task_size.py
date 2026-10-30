@@ -183,10 +183,10 @@ class Sandbox(unittest.TestCase):
         directory = self.root / "run-1"
         directory.mkdir()
         line = handback.handback_line(self.failed_at_budget(), directory, CFG)
-        self.assertTrue(line.endswith("three rounds spent: split or re-scope"), line)
+        self.assertIn("Next: split the task.", line)
         # ... while a FAIL with rounds left says nothing about splitting
         below = {**self.failed_at_budget(), "round_summaries": [{}, {}]}
-        self.assertNotIn("split or re-scope", handback.handback_line(below, directory, CFG))
+        self.assertNotIn("split the task", handback.handback_line(below, directory, CFG))
 
     def test_history_status_reports_rounds_per_task_size(self):
         self.finished("r1", "atoll", 2, 100, 1, 100)

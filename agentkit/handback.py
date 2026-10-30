@@ -20,11 +20,12 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from . import config, gitcall, hand_in, host, notify, orch, plan, prompts, record as run_record, task as taskfile, transitions, turns
+from . import config, gitcall, hand_in, host, notify, orch, plan, prompts, record as run_record, task as taskfile, terminal, transitions, turns
 
 
-NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven",
-                "eight", "nine", "ten")   # the hand-back spells the spent budget out
+DECISION_MOST = 399     # under 400 characters: one read tells a seat what it decides
+RESULT_NAMES = "launch the fix the result names"
+NOTICE = "## Seat notice"   # opens result.md, and heads the whole notices it keeps
 
 
 QUEUED_GRACE = 30               # old launchers did not record the background child's identity
@@ -203,11 +204,12 @@ def result_done_when(cmds, state=None):
     return marked
 
 
-def save_result(run_dir, text=None, *, notices=()):
+def save_result(run_dir, text=None, *, notices=(), opening=None):
     """Publish a report or save its full notices without a rebuild losing them.
 
     Build the report before taking the delivery lock: while git reads its diff, the tick
     can deliver a notice. Read its saved section only at publication, under the same lock.
+    `opening` is the line the report, this one or the one saved, opens with.
     """
     with delivery_lock(run_dir):
         result = run_dir / "result.md"
@@ -215,15 +217,16 @@ def save_result(run_dir, text=None, *, notices=()):
             saved = result.read_text()
         except FileNotFoundError:
             saved = ""
-        heading = "\n## Seat notice\n\n"
-        _, boundary, kept = saved.partition(heading)
-        if text is None:
-            missing = [part for part in notices if part and part not in kept]
-            if missing:
-                with result.open("a") as output:
-                    output.write(heading + "\n\n".join(missing) + "\n")
-        else:
-            result.write_text(text + boundary + kept)
+        heading = f"\n{NOTICE}\n\n"     # behind a newline: never the block a report opens with
+        report, boundary, kept = saved.partition(heading)
+        if text is None and opening:
+            text = report.split("\n\n", 2)[2] if report.startswith(NOTICE) else report
+        if text is not None:
+            result.write_text((f"{NOTICE}\n\n{opening}\n\n" if opening else "") + text + boundary + kept)
+        missing = [part for part in notices if part and part not in kept]
+        if missing:
+            with result.open("a") as output:
+                output.write(heading + "\n\n".join(missing) + "\n")
 
 
 def write_result(run_dir, state, cmds, log=None, cfg=None):
@@ -288,12 +291,15 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
             entry["done_when"], "done-when not run")
         parts += [f"## Round {entry['round']} ({entry['verdict']}, {dw})", "",
                   entry["summary"], ""]
-    if state.get("error"):
-        parts += ["## Why this run stopped", "", state["error"], ""]
+    why = state.get("error") or state.get("interruption_reason") or (state["verdict"] != "PASS" and failed_check(state))
+    if why:
+        parts += ["## Why this run stopped", "", why, ""]
     if state["verdict"] != "PASS" and prompts.overridden_section(state):
         parts += [prompts.overridden_section(state)]
     if state["verdict"] != "PASS" and state["findings"]:
         parts += ["## Reviewer findings", "", prompts.without_followups(state["findings"]), ""]
+        if state.get("findings_file"):
+            parts += [f"Every one in full: {state['findings_file']}", ""]
     if followup_report(state):
         parts += [followup_report(state), ""]
     if state.get("notes"):
@@ -303,7 +309,7 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
     onward = transitions.continue_line(state, run_dir)
     if onward:
         parts += [onward, ""]
-    save_result(run_dir, "\n".join(parts))
+    save_result(run_dir, "\n".join(parts), opening=decision_line(state, run_dir, cfg))
 
 
 def run_project(state):
@@ -589,7 +595,7 @@ def launcher_watched(session):
 def handback_verdict(state, cfg=None):
     """The words a hand-back line may carry about how a run ended.
 
-    `PASS merged`, `PASS not merged`, `DONE`, `FAIL`, `BLOCKED`, `ERROR` -- the delivery outcome, not
+    `PASS merged`, `PASS delivered`, `NOT MERGED`, `DONE`, `FAIL`, `BLOCKED`, `ERROR` -- the delivery outcome, not
     the review verdict, because what the orchestrator decides next turns on where the work
     went and not on what the reviewer thought of it.
     """
@@ -601,39 +607,44 @@ def handback_verdict(state, cfg=None):
         return "ERROR"
     if not transitions.delivery(state, transitions.report_config(cfg)).startswith("PASS"):
         return "FAIL"
-    return "PASS merged" if state.get("merged") else "PASS not merged"
+    return "PASS merged" if state.get("merged") else "PASS delivered" if state.get("scratch") else "NOT MERGED"
 
 
-def handback_reason(state, cfg=None):
-    """The one line after the verdict: why it ended that way, in the run's own words."""
+def handback_reason(state, cfg=None, whole=False):
+    """The one line after the verdict: why it ended that way, in the run's own words.  `whole`
+    is `decision_line`'s: uncut, a FAIL's first finding alone, and none of what it says itself."""
+    most = None if whole else 300
     if state.get("state") == "not_needed":
         return " ".join(transitions.delivery(state, cfg).split())
     if state.get("state") in ("blocked", "error", "waiting"):
-        return " ".join((state.get("error") or "no reason was recorded").split())[:300]
+        return " ".join((state.get("error") or "no reason was recorded").split())[:most]
     # A memory-cap death is the whole news: rounds and findings say nothing about a
     # run the kernel stopped before it could finish a turn.
     cap_line = " ".join((state.get("error") or "").split())
     if cap_line.startswith("killed: memory cap"):
-        return cap_line[:300]
+        return cap_line[:most]
     if state.get("state") not in run_record.ENDED and transitions.needs_recovery(state):
         # an interruption, or a stop no window will lift: what stopped it is the whole news,
         # and rounds and findings say nothing about a run that never reached its verdict.  A
         # resumed attempt that did reach one is an ending, `recovery_pending` or not, and says
         # what every other ending says.  Its own full stop goes: the line puts one after it.
-        return " ".join(transitions.recovery_reason(state).split()).rstrip(".")[:300]
+        return " ".join(transitions.recovery_reason(state).split()).rstrip(".")[:most]
     word = transitions.delivery(state, transitions.report_config(cfg))
     if word.startswith("PASS, not merged: "):
         reason = word[len("PASS, not merged: "):]
         retry = retry_command(state)
-        return f"{reason}; retry delivery: {retry}" if retry else reason
+        return f"{reason}; retry delivery: {retry}" if retry and not whole else reason
     if word.startswith("PASS"):
         return state.get("pr") or word[len("PASS, "):]
     # a FAIL hands back what the next step turns on: the rounds it spent and why they did
     # not pass -- the findings themselves, or the check still failing
     spent = len(state.get("round_summaries") or [])
+    after = "" if whole else f"after {spent} rounds, "
     review = state.get("review") if isinstance(state.get("review"), dict) else {}
     if review_failed(state):
         rows = hand_in.Review(state["review_records"]).findings
+        if whole and rows:
+            return hand_in.item_text(rows[0]).splitlines()[0]   # its claim; the result has its proof
         said = " ".join("\n".join("- " + hand_in.item_text(row) for row in rows).split())
         if len(said) <= 600:
             return f"after {spent} rounds, open findings: {said}".rstrip(".")
@@ -646,9 +657,9 @@ def handback_reason(state, cfg=None):
     # else a PASS the loop overrode says why it did, and a check still failing names its line
     why = "; ".join(filter(None, (review.get("overridden"), failed_check(state))))
     if why:
-        return f"after {spent} rounds, {why}".rstrip(".")
+        return f"{after}{why}".rstrip(".")
     return " ".join((state.get("merge_note") or state.get("error")
-                     or "no reason was recorded").split())[:300].rstrip(".")
+                     or "no reason was recorded").split())[:most].rstrip(".")
 
 
 def review_failed(state):
@@ -1405,18 +1416,60 @@ def live_line(state, run_dir):
                        f"run {run_dir.name} is live.")
 
 
-def handback_line(state, run_dir, cfg=None, save=True, live=False):
-    """The one line a finished run types into the seat that launched it.
+def decision(run_dir, state, word, why, move):
+    """`run <id> <WORD> (<round> of <budget>): <why> Next: <move>. Result: <path>`, `why` in the
+    whole sentences that keep it within DECISION_MOST and every harness's fold (`watch.longest`)."""
+    from . import watch  # here, not at the top: it reaches run
+    head = f"run {run_dir.name} {word} ({len(state.get('round_summaries') or [])} of {state.get('rounds') or 0}):"
+    tail = f"Next: {move}. Result: {config.tilde(run_dir / 'result.md')}"
+    room = min(DECISION_MOST, watch.longest()) - len(head) - len(tail) - 2
+    return f"{head} {terminal.sentences(why, room) or 'The reason is longer than this line; the result has it.'} {tail}"
 
-    `run <id> finished <verdict>: <why>. Result: <path>. Decide the next step.` -- an ending
-    is the orchestrator's to act on, so it gets the three things a decision needs and nothing
-    else: what happened, where the whole of it is written down, and that the next move is its
-    own.  The owner is never the fallback for a run that did not work out.  A FAIL whose
-    reviews spent the whole round budget says so and says to split: the task was too big, not
-    the worker.  A FAIL a check left behind says no such thing: more rounds of the same task
-    would not have passed it either.  A scratch run names its workspace too: the files
-    there are what it delivered.  `live` adds its change gone live after it (`carries_live`).
-    """
+
+def decision_line(state, run_dir, cfg=None):
+    """The one line a run's ending its seat decides about is told in, and result.md opens with;
+    None for any other.  What it delivered or was stopped on purpose leaves nothing to decide; a
+    run going, or parked on a merge upstream, has not ended, unless only its provider holds it."""
+    word = handback_verdict(state, cfg)
+    if (word.startswith(("PASS", "DONE")) or transitions.delivered(state) or state.get("state") in ("waiting", "stopped")
+            or transitions.going(state) and not transitions.exhausted_wait(state)):
+        return None
+    return decision(run_dir, state, word, handback_reason(state, cfg, whole=True), next_move(state, run_dir))
+
+
+def next_move(state, run_dir):
+    """The seat's next step, decided from the ending.  Spent reviews say split: the task was too
+    big, not the worker.  A block or a failing check says rewrite: more rounds would not pass."""
+    if transitions.exhausted_wait(state):
+        return "wait for the provider"
+    named = transitions.continue_line(state, run_dir).removeprefix("continue: ") or retry_command(state)
+    if named:
+        return f"{RESULT_NAMES}, `{named}`"
+    if (state.get("state") == "fail" and review_failed(state)
+            and len(state.get("round_summaries") or []) >= (state.get("rounds") or 0) > 0):
+        return "split the task"
+    if state.get("state") == "blocked" or failed_check(state):
+        branch = state.get("branch")
+        return "rewrite the task and relaunch it" + (f" with `from: {branch}`" if branch else "")
+    return "read the result"
+
+
+def not_live_line(told, run_dir):
+    """The decision line of a merge its target's checks or `health:` broke; its result opens with
+    it and keeps `told` whole.  A run cleaned up since has no result, and its target is still red."""
+    line = decision(run_dir, run_record.read_state(run_dir) or {}, "NOT LIVE", told, RESULT_NAMES)
+    if run_dir.is_dir():
+        save_result(run_dir, opening=line, notices=(told,))
+    return line
+
+
+def handback_line(state, run_dir, cfg=None, save=True, live=False):
+    """The one line a finished run types into the seat that launched it: its decision line, or
+    `run <id> finished <verdict>: <why>. Result: <path>. Decide the next step.`, a scratch run's
+    naming the workspace holding what it delivered, `live` adding its change gone live (`carries_live`)."""
+    decided = decision_line(state, run_dir, cfg)
+    if decided:
+        return decided
     workspace = (f" Workspace: {state['worktree']}."
                  if state.get("scratch") and state.get("worktree") else "")
     ending = f"finished {handback_verdict(state, cfg)}"
@@ -1424,13 +1477,6 @@ def handback_line(state, run_dir, cfg=None, save=True, live=False):
     line = (f"run {run_dir.name} {ending}: "
             f"{handback_reason(state, cfg)}. Result: {run_dir / 'result.md'}.{workspace} "
             + action)
-    spent = len(state.get("round_summaries") or [])
-    if (state.get("state") == "fail" and (state.get("rounds") or 0) > 0
-            and spent >= (state.get("rounds") or 0) and review_failed(state)):
-        word = NUMBER_WORDS[spent] if 0 <= spent < len(NUMBER_WORDS) else str(spent)
-        split = f" {word} rounds spent: split or re-scope"
-        line += split
-        action += split
     if live:
         line += f" {live_sentence(state, run_dir)}"
         action += f" {live_sentence(state, run_dir)}"
@@ -1957,8 +2003,8 @@ def record_result(run_dir, state, log=None, cfg=None):
         save_result(run_dir,
             f"# {transitions.delivery(state, transitions.report_config(cfg))} — {state.get('title') or run_dir.name}\n\n"
             f"VERDICT: {state.get('verdict') or 'none'}\n\n## Why this run stopped\n\n"
-            f"{state.get('error') or 'no reason was recorded'}\n\n"
-            f"relaunch: {again}{suffix}\n\n{followup_report(state)}")
+            f"{state.get('error') or state.get('interruption_reason') or 'no reason was recorded'}\n\n"
+            f"relaunch: {again}{suffix}\n\n{followup_report(state)}", opening=decision_line(state, run_dir, cfg))
     except OSError:
         pass
     else:

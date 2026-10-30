@@ -90,7 +90,9 @@ class MergeRetry(unittest.TestCase):
         self.assertTrue(last.endswith(f" -> {self.run_dir / 'result.md'}"), last)
 
     def test_result_md_says_why_and_names_the_command_that_finishes_the_delivery(self):
-        lines = self.failed_result
+        notice, lines = self.failed_result[:4], self.failed_result[4:]
+        self.assertRegex(notice[2], rf" NOT MERGED \(1 of 3\): .+ Next: launch the fix the result names, "
+                                    rf"`ak run merge {self.run_dir.name}`\. Result: ")
         self.assertTrue(lines[0].startswith("# PASS, not merged: "), lines[0])
         self.assertIn("not mergeable", lines[0])
         self.assertTrue(lines[0].endswith(" — Add retry file"), lines[0])

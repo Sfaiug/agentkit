@@ -264,7 +264,7 @@ if role == "reviewer" and (root / "fail-review").exists():
             states = list(pool.map(lambda _: run.reap(directory, {}), range(8)))
         self.typed.assert_called_once()
         self.notified.assert_not_called()
-        self.assertIn("Decide the next step.", self.typed.call_args.args[1])
+        self.assertIn("Next: read the result.", self.typed.call_args.args[1])
         self.assertEqual(len({state["interrupted_at"] for state in states}), 1)
         self.assertIsNone(states[0]["finished_at"])
         self.assertEqual(states[0]["recovery_notified"], "orchestrator")

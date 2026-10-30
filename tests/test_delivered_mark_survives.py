@@ -66,7 +66,7 @@ class DeliveredMarkSurvives(EndingsRidePrompt):
 
         with patch.object(turns, "stop_run_tree", sweep):
             handback.reap(ended, record.read_state(ended))
-        self.assertIn("run fix-schema finished FAIL", carried[0])
+        self.assertIn("run fix-schema FAIL (", carried[0])
         state = record.read_state(ended)
         self.assertEqual(state["tree_stopped"], [None, None])
         self.assertTrue(handback.already_handed_back(state))

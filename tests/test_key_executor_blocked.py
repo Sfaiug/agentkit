@@ -76,7 +76,10 @@ class ExecutorBlocked(unittest.TestCase):
         self.assertEqual(self.rig.git("rev-parse", "ak/add-retry-file^"), self.base)
 
     def test_result_md_says_blocked_and_why(self):
-        lines = (self.run_dir / "result.md").read_text().splitlines()
+        whole = (self.run_dir / "result.md").read_text().splitlines()
+        self.assertRegex(whole[2], rf"^run {self.run_dir.name} BLOCKED \(0 of 3\): .+ Next: rewrite the "
+                                   r"task and relaunch it with `from: ak/add-retry-file`\. Result: \S+$")
+        lines = whole[4:]
         self.assertEqual(lines[0], "# BLOCKED — Add retry file")
         for line in ("VERDICT: BLOCKED", "rounds: 0 of 3", "pr: (none)", "merged: no"):
             self.assertIn(line, lines)

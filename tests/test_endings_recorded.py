@@ -73,8 +73,8 @@ class RoutineEndings(HandBack):
         self.screen = "at_prompt"
         self.tick()
         self.assertEqual([text.split()[1] for _, text in self.typed], ["run-f", "run-u"])
-        self.assertIn("finished FAIL", self.typed[0][1])
-        self.assertIn("finished PASS not merged", self.typed[1][1])
+        self.assertIn(" FAIL (3 of 3): ", self.typed[0][1])
+        self.assertIn(" NOT MERGED (0 of 0): ", self.typed[1][1])
         self.tick()
         self.assertEqual(len(self.typed), 2)                # once
 
@@ -155,7 +155,7 @@ class InTheComposer(RunNotice):
         self.assertNotIn("decision_typed", record.read_state(directory))
         failed, _ = self.result("run-f", state="fail", verdict="FAIL", merged=False)
         run.announce(record.read_state(failed), failed, self.logs.append, self.cfg)
-        self.assertIn("run-f finished FAIL", self.sent[-1])
+        self.assertIn("run-f FAIL (0 of 3): ", self.sent[-1])
 
     def test_a_decision_left_in_the_composer_is_sent_before_the_maintainer_moves_on(self):
         for text, merged in (("PR #7 Fix api: closed by the maintainer without a merge", False),
@@ -224,7 +224,7 @@ class InTheComposer(RunNotice):
         self.assertEqual(self.sent, [line])                 # its Enter, nothing typed anew
         failed, _ = self.result("run-f", state="fail", verdict="FAIL", merged=False)
         run.announce(record.read_state(failed), failed, self.logs.append, self.cfg)
-        self.assertIn("run-f finished FAIL", self.sent[-1])
+        self.assertIn("run-f FAIL (0 of 3): ", self.sent[-1])
         run.announce(record.read_state(directory), directory, self.logs.append, self.cfg)
         state = record.read_state(directory)
         self.assertEqual(state["handback_note"], handback.ROUTINE_NOTE)

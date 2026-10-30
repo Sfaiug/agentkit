@@ -66,6 +66,10 @@ BLOCKED_TURN = ("## Blocked\n\nThe done-when command checks a file the task neve
                 "so no change can make it pass.\n")
 
 
+def decided(directory, said):
+    return f"run {directory.name} {said} Result: {config.tilde(directory / 'result.md')}"
+
+
 class Claude:
     """A Claude Code seat as far as a typed line goes, under the real confirmed send.
 
@@ -215,9 +219,7 @@ class HandBack(Sandbox):
         directory = self.ended("run-1", owner=SEAT, no_merge=True)
         self.rows = [self.live()]
         run.announce(record.read_state(directory), directory, self.logs.append)
-        self.assertEqual(self.typed, [(SEAT, (
-            "run run-1 finished PASS not merged: --no-merge. "
-            f"Result: {directory / 'result.md'}. Decide the next step."))])
+        self.assertEqual(self.typed, [(SEAT, decided(directory, "NOT MERGED (0 of 0): --no-merge. Next: read the result."))])
         self.assertEqual(self.cards, [])        # the owner is never the fallback
         self.assertEqual(self.reopened, [])     # nothing to reopen: somebody is in it
         state = record.read_state(directory)
@@ -234,9 +236,7 @@ class HandBack(Sandbox):
         # back at its prompt, the next tick types the line and clears the flag
         self.screen = "at_prompt"
         self.tick()
-        self.assertEqual(self.typed, [(SEAT, (
-            "run run-2 finished PASS not merged: --no-merge. "
-            f"Result: {directory / 'result.md'}. Decide the next step."))])
+        self.assertEqual(self.typed, [(SEAT, decided(directory, "NOT MERGED (0 of 0): --no-merge. Next: read the result."))])
         self.assertNotIn("handback_pending", record.read_state(directory))
         # once: the tick that follows has nothing left to deliver
         self.tick()
@@ -341,9 +341,7 @@ class HandBack(Sandbox):
         run.announce(record.read_state(directory), directory, self.logs.append)
         self.tick()
         self.tick()
-        self.assertEqual(seat.read, [
-            "run run-once finished PASS not merged: --no-merge. "
-            f"Result: {directory / 'result.md'}. Decide the next step."])
+        self.assertEqual(seat.read, [decided(directory, "NOT MERGED (0 of 0): --no-merge. Next: read the result.")])
         state = record.read_state(directory)
         self.assertTrue(state["handed_back"])
         self.assertNotIn("handback_pending", state)
@@ -391,10 +389,7 @@ class HandBack(Sandbox):
         run.announce(record.read_state(other), other, self.logs.append)
         self.tick()                 # gone from the composer: the seat has it
         self.tick()
-        self.assertEqual(seat.read, [
-            f"run {name} finished PASS not merged: --no-merge. "
-            f"Result: {path / 'result.md'}. Decide the next step."
-            for name, path in (("run-held", directory), ("run-other", other))])
+        self.assertEqual(seat.read, [decided(path, "NOT MERGED (0 of 0): --no-merge. Next: read the result.") for path in (directory, other)])
         self.assertEqual((seat.typed, seat.chosen), (2, 0))
         for path in (directory, other):
             state = record.read_state(path)
@@ -635,12 +630,8 @@ class HandBack(Sandbox):
         directory = self.failed()
         self.rows = [self.live()]
         run.announce(record.read_state(directory), directory, self.logs.append)
-        self.assertEqual(self.typed, [(SEAT, (
-            "run run-fail finished FAIL: after 3 rounds, open findings: "
-            "- a.py:1 - one - why $ echo 'fixture evidence'; exit 1 [exit 1] fixture evidence "
-            "- b.py:2 - two - why $ echo 'fixture evidence'; exit 1 [exit 1] fixture evidence. "
-            f"Result: {directory / 'result.md'}. Decide the next step. "
-            "three rounds spent: split or re-scope"))])
+        self.assertEqual(self.typed, [(SEAT, decided(directory, "FAIL (3 of 3): "
+            "a.py:1 - one - why. Next: split the task."))])
         self.assertEqual(self.cards, [])
         # and no row sends him to it either, while the seat that was told is still there
         found = watch.session_state(SEAT, session=self.live(), cfg=self.cfg)
@@ -655,9 +646,7 @@ class HandBack(Sandbox):
                              findings="VERDICT: PASS\n\n## Findings\n- none\n",
                              final_check={"outcome": "failed", "sha": "a" * 40, "line": scope})
         line = handback.handback_line(record.read_state(checked), checked)
-        self.assertIn(f"finished FAIL: after 3 rounds, the final check failed: {scope}. Result:",
-                      line)
-        self.assertNotIn("split or re-scope", line)
+        self.assertIn(f"FAIL (3 of 3): the final check failed: {' '.join(scope.split())}. Next: rewrite", line)
         # a record from before the line was kept still names the check its gate recorded
         older = self.ended("run-41", owner=SEAT, state="fail", verdict="FAIL", rounds=3,
                            round_summaries=[{}, {}, {}], findings="VERDICT: PASS\n",
@@ -676,8 +665,7 @@ class HandBack(Sandbox):
         state = record.read_state(failed)
         self.assertEqual(handback.handback_reason(state),
                          f"after 3 rounds, 1 open finding, cut short here: {finding[:600]}")
-        self.assertTrue(handback.handback_line(state, failed).endswith(
-            "three rounds spent: split or re-scope"))
+        self.assertIn("Next: split the task.", handback.handback_line(state, failed))
 
     def test_a_long_review_and_an_overridden_pass_still_say_why(self):
         # The text tail drops the first findings; the receipt keeps the weighed records.
@@ -699,8 +687,7 @@ class HandBack(Sandbox):
         # where it points holds every one of them
         named = answer.read_text()
         self.assertTrue(all(f"- n{i}.py:1 - " in named for i in range(150)) and first in named)
-        self.assertTrue(handback.handback_line(state, long).endswith(
-            "three rounds spent: split or re-scope"))
+        self.assertIn("Next: split the task.", handback.handback_line(state, long))
         # a PASS the loop failed -- the reviewer exited 1, the checkout moved -- says so
         review = {**self.ended_review(), "verdict": "FAIL", "returncode": 1,
                   "overridden": "the reviewer said PASS but exited 1"}
@@ -708,9 +695,8 @@ class HandBack(Sandbox):
                             round_summaries=[{}, {}, {}], review=review,
                             findings="VERDICT: PASS\n\n## Findings\n- none\n")
         line = handback.handback_line(record.read_state(exited), exited)
-        self.assertIn("finished FAIL: after 3 rounds, the reviewer said PASS but exited 1. "
-                      "Result:", line)
-        self.assertNotIn("split or re-scope", line)
+        self.assertIn("FAIL (3 of 3): the reviewer said PASS but exited 1. "
+                      "Next: read the result.", line)
 
     def test_a_gone_seat_keeps_the_orphan_path_it_always_had(self):
         directory = self.ended("run-3", owner=SEAT, handback_pending=True)
@@ -778,11 +764,8 @@ class HandBack(Sandbox):
                                findings="VERDICT: FAIL\n\n## Findings\n- a.py:1 - one - why\n")
         self.rows = [self.live()]
         run.announce(record.read_state(directory), directory, self.logs.append)
-        self.assertEqual(self.typed, [(SEAT, (
-            "run run-10 finished FAIL: after 2 rounds, open findings: "
-            "- a.py:1 - one - why $ echo 'fixture evidence'; exit 1 [exit 1] fixture evidence. "
-            f"Result: {directory / 'result.md'}. Decide the next step. "
-            "two rounds spent: split or re-scope"))])
+        self.assertEqual(self.typed, [(SEAT, decided(directory, "FAIL (2 of 2): "
+            "a.py:1 - one - why. Next: split the task."))])
         self.assertEqual(self.cards, [])
         # reaping it afterwards is not a second chance to say the same thing
         run.reap(directory, record.read_state(directory))
@@ -827,9 +810,8 @@ class HandBack(Sandbox):
         (directory / "result.md").unlink(missing_ok=True)
         self.rows = [self.live()]
         handback.notify_recovery(directory, record.read_state(directory))
-        self.assertEqual(self.typed, [(SEAT, (
-            "run run-19 finished FAIL: Run process exited or its identity changed. "
-            f"Result: {directory / 'result.md'}. Decide the next step."))])
+        self.assertEqual(self.typed, [(SEAT, decided(directory, (
+            "FAIL (0 of 2): Run process exited or its identity changed. Next: read the result.")))])
         self.assertTrue((directory / "result.md").is_file())
 
     def test_a_gone_seat_is_revived_before_the_owner_is_asked_about_an_interruption(self):
@@ -896,7 +878,7 @@ class HandBack(Sandbox):
         self.screen = "at_prompt"
         self.tick()
         self.assertEqual(len(self.typed), 1)
-        self.assertIn("finished FAIL:", self.typed[0][1])
+        self.assertIn("FAIL (3 of 3):", self.typed[0][1])
 
     def test_a_line_member_counts_as_work_and_has_no_ending_to_hand_back(self):
         directory = self.ended("run-line", owner=SEAT, state="waiting", finished_at=1,
@@ -1086,8 +1068,7 @@ class HandBack(Sandbox):
         self.rows = [self.live()]
         self.tick()
         self.assertEqual(len(self.typed), 1)
-        self.assertIn("finished FAIL: after 2 rounds, open findings: - a.py:1 - one - why",
-                      self.typed[0][1])
+        self.assertIn("FAIL (2 of 2): a.py:1 - one - why", self.typed[0][1])
         # said once: the next tick finds it heard
         self.assertFalse(handback.owes_ending(record.read_state(directory)))
         self.tick()
@@ -1175,9 +1156,8 @@ class HandBack(Sandbox):
         with jobs.job_muted():
             run.announce(state, directory, self.logs.append)
         self.assertEqual(len(self.typed), 1)
-        self.assertIn("finished FAIL: after 3 rounds, open findings: - a.py:1 - one - why",
-                      self.typed[0][1])
-        self.assertTrue(self.typed[0][1].endswith("three rounds spent: split or re-scope"))
+        self.assertIn("FAIL (3 of 3): a.py:1 - one - why", self.typed[0][1])
+        self.assertIn("Next: split the task.", self.typed[0][1])
         task = {"name": "a.md", "state": "running", "run_id": directory.name}
         job = {"job_id": "j", "seat": SEAT, "tasks": [task], "opts": {}}
         job_dir = config.JOBS / "j"
@@ -1325,9 +1305,8 @@ class HandBack(Sandbox):
         stuck = self.ended("run-12", owner=SEAT, state="exhausted", finished_at=None,
                            error="the reviewer gave no verdict twice")
         handback.notify_recovery(stuck, record.read_state(stuck))
-        self.assertEqual(self.typed, [(SEAT, (
-            "run run-12 finished FAIL: the reviewer gave no verdict twice. "
-            f"Result: {stuck / 'result.md'}. Decide the next step."))])
+        self.assertEqual(self.typed, [(SEAT, decided(stuck, (
+            "FAIL (0 of 0): the reviewer gave no verdict twice. Next: read the result.")))])
         self.assertEqual(self.cards, [])
         self.assertEqual(record.read_state(stuck)["recovery_notified"], "orchestrator")
 
@@ -1436,7 +1415,7 @@ class HandBack(Sandbox):
         state = record.read_state(directory)
         self.assertEqual((state["state"], state["verdict"]), ("blocked", "BLOCKED"))
         self.assertIn("# BLOCKED \u2014", (directory / "result.md").read_text())
-        self.assertIn("finished BLOCKED:", self.typed[-1][1])
+        self.assertIn("BLOCKED (1 of 1):", self.typed[-1][1])
 
     # --- a blocked run on the screens and on `ak run resume` ----------------
 
@@ -1606,7 +1585,7 @@ class BlockedRuns(unittest.TestCase):
         self.assertEqual(state["round_summaries"], [])      # and no round was recorded
         self.assertIn("checks a file the task never asks for", state["error"])
         result = (directory / "result.md").read_text()
-        self.assertTrue(result.startswith("# BLOCKED — Blocked fixture"), result[:60])
+        self.assertIn("\n\n# BLOCKED — Blocked fixture\n", result)
         self.assertIn(BLOCKED_TURN.strip(), result)
 
     def test_a_blocked_fixer_turn_ends_the_run_the_same_way(self):

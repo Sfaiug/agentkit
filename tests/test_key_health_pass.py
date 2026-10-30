@@ -172,7 +172,7 @@ class Expired(Merged):
         watch = json.loads((self.home.path / ".agentkit/state/watch.json").read_text())
         pending = watch["after_merge"]["github.com/acme/app"]["pending"]
         line = pending["line"]
-        self.assertTrue(line.startswith(f"health: {HEALTH} failed on main after this merge: "
+        self.assertTrue(line.startswith(f"health: {HEALTH} failed on main after this merge. "
                                         f"{PR}"), line)
         self.assertTrue(line.endswith("Fix the target."), line)
         self.assertEqual({key: pending.get(key) for key in (

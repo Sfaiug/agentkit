@@ -31,7 +31,7 @@ gutters, never by ` · `.
 Nothing is ever cut in the middle of a word, a glyph or a sentence. A column gives way first,
 a long line wraps at words, and below 60 columns a row folds onto an indented second line. No
 line keeps trailing space. Helpers: `terminal.cut`, `terminal.wrap`, `terminal.pad`,
-`terminal.cells`, `terminal.plain`, `terminal.styled`.
+`terminal.cells`, `terminal.plain`, `terminal.styled`, `terminal.sentences`.
 
 Example: `  1  atoll-fix  fable  ● working  ━━━━━╸─────── 2 of 5`.
 

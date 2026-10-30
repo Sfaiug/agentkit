@@ -87,7 +87,7 @@ class ReviewerCannotBlock(unittest.TestCase):
         self.assertEqual((self.state["state"], self.state["verdict"]), ("pass", "PASS"))
         self.assertFalse(self.state.get("blocked"))
         self.assertIn("VERDICT: PASS", self.result)
-        self.assertTrue(self.result[0].startswith("# PASS"), self.result[0])
+        self.assertTrue(self.result[4].startswith("# PASS"), self.result[:5])
         self.assertEqual((self.fakes["claude"].n, self.fakes["codex"].n), (1, 1))
 
 
