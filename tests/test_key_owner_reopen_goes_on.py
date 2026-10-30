@@ -4,7 +4,8 @@ On 30 Oct 2026 a seat's harness died an hour into a background workflow, and not
 it: tmux could not fork its pane-died hook.  The owner opened it with its number, and it came
 back on its conversation told nothing, its workflow lost, silent at its prompt.  The owner's own
 reopen -- the menu's number and `ak orch NAME` alike -- now tells it what the end cut off, as
-ak's own reopens do; a seat the owner stopped ended on purpose and comes back told nothing.
+ak's own reopens do; a seat the owner stopped ended on purpose and comes back told nothing, not
+even a line an earlier reopen still owed it.
 Black-box: the program `AK_BIN` names runs `ak orch` from outside through tests/fixtures/akbin.py,
 beside seats of tests/fixtures/akseat.py whose hooks are fired as Claude fires them
 (tests/fixtures/hookdrive.py), each reopened by a scripted harness of fakeadapter.py.
@@ -19,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import PANE, Seat
 from fixtures.hookdrive import Hooks
 
@@ -89,6 +90,30 @@ class OwnerReopensAnEndedSeat(unittest.TestCase):
 
     def test_a_seat_the_owner_stopped_comes_back_told_nothing(self):
         self.assertFalse(self.first.get(conversation(2), "never reopened"))
+
+
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
+class OwnerStopsAReopenedSeat(unittest.TestCase):
+    def test_the_line_its_reopen_still_owed_goes_with_the_stop(self):
+        with Home() as home:
+            akconfig.write(home, ["opus"])
+            fake = fakeadapter.install(home, claude="pass")["claude"]
+            # a conversation its harness never opened: each reopen is fresh, its line owed to
+            # the tick, and stopped before any tick typed it
+            seat = Seat(home, "acme")
+            fake.answer("interactive", shlex.join([sys.executable, str(PANE),
+                                                   str(seat.screen_file), str(seat.typed_file)]))
+            fired = Hooks(home).fire("UserPromptSubmit", {"prompt": "go"}, seat="acme", pane=seat)
+            self.assertEqual(fired.code, 0, fired)
+            self.assertEqual(home.tmux("kill-session", "-t", "=acme").code, 0)
+            for argv in (("orch", "acme"), ("orch", "stop", "acme"), ("orch", "acme")):
+                done = home.ak(*argv, tty=True)
+                self.assertEqual(done.code, 0, done.out + done.err)
+            seat.pane = home.tmux("display-message", "-p", "-t", "=acme:", "#{pane_id}").out.strip()
+            seat._settle()      # at its prompt: a line still owed would go in at this tick
+            ticked = home.tick()
+            self.assertEqual(ticked.code, 0, ticked.out + ticked.err)
+            self.assertEqual(seat.lines(), [])
 
 
 if __name__ == "__main__":

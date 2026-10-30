@@ -3590,14 +3590,16 @@ def cmd_list(argv):
 
 
 def mark_owner_closed(name):
-    """The mark a pause script leaves when it ends a seat the way `ak orch stop` does.
+    """The mark `ak orch stop` and a pause script leave on a seat the owner ended on purpose.
 
     The seat stays closed: no hand-back reopens it, and the endings wait for the owner's own
-    reopening instead.  A launch under the name clears it again.
+    reopening instead.  A launch under the name clears it again.  A line still owed to the
+    harness ended, to go on with what an earlier end cut off (`reopen`, `watch.revive`), goes
+    with it: the reopen after this one goes on with nothing.
     """
     from . import watch
     watch.seat_write(name, stopped_at=time.time(), closed_by_owner=True,
-                     usage_wait=None, usage_refusal=None)
+                     usage_wait=None, usage_refusal=None, midturn=None, owed_lines=None)
 
 
 def session_owned_files(name):
@@ -3676,11 +3678,10 @@ def cmd_stop(argv):
                     # the owner ended this seat: a run of its that finishes later, or is still
                     # going, brings it back through neither handback.announce nor the tick, until
                     # a seat is launched under the name again.  The hand-back reads
-                    # `closed_by_owner` for the same decision, and a pause script that ends a
-                    # seat writes the same mark through `mark_owner_closed`; it goes in ahead of
-                    # the kill, so a hand-back meeting the session gone finds the seat closed.
-                    watch.seat_write(name, stopped_at=time.time(), closed_by_owner=True,
-                                     usage_wait=None, usage_refusal=None)
+                    # `closed_by_owner` for the same decision, a pause script's mark as well;
+                    # it goes in ahead of the kill, so a hand-back meeting the session gone
+                    # finds the seat closed.
+                    mark_owner_closed(name)
                     if session:
                         rc, out = tmux_out("kill-session", "-t", f"={name}",
                                            socket=seat_socket(session))
