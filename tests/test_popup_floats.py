@@ -14,12 +14,15 @@ tmux is a fake answering as tmux 3.5a: its version, the one pane's options, kept
 does however the popup went (as seen on a real one).  The binding is run the way tmux runs it:
 the job its `run-shell -b` starts, with the pane and the client expanded into it.  The popup is
 a stand-in saying what it saw, and the menu's fade and padding are `menu.loop` on a pty of its
-own with the seats faked.  Nothing here starts a tmux server, a seat or a probe; the only
-processes signalled are the test's own children.
+own with the seats and the time faked: its clock moves only as one of the loop's waits runs out,
+by just that wait, so each frame shows what it would however the host runs it.  Nothing here
+starts a tmux server, a seat or a probe; the only processes signalled are the test's own children.
 """
 
 import fcntl
+import itertools
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -132,12 +135,36 @@ if end == "kill":
     time.sleep(60)
 """
 
-# The overlay: the real loop, draw, clock and key reader; the seats and what opening does faked.
+# The overlay: the real loop, draw, clock and key reader; the seats, what opening does and the
+# time the menu and its clock read faked.
 CHILD = r"""
-import os, sys
+import os, sys, time
 sys.path.insert(0, os.environ["FLOATS_REPO"])
-from agentkit import config, menu, orch, terminal
+from agentkit import config, menu, motion, orch, terminal
 
+
+class Waited:
+    now = time.monotonic()
+
+    def monotonic(self):
+        return self.now
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+
+menu.time = motion.time = waited = Waited()
+
+
+def wait_key(prompt, timeout=None, wake=None, wait=menu.wait_key):
+    began = time.monotonic()
+    key = wait(prompt, timeout, wake)
+    if key is None and timeout is not None and time.monotonic() >= began + timeout:
+        waited.now += timeout       # it ran out: no key, no news
+    return key
+
+
+menu.wait_key = wait_key
 orch.listing = lambda reconcile=True: [
     {"name": name, "repo": None, "path": "/", "created": 0} for name in ("seat-a", "seat-b")]
 orch.job_notices = lambda: []
@@ -161,6 +188,11 @@ print(f"<answered {terminal.readline('Name: ')!r}>", flush=True)
 TAKEN, DOWN = "\x1b[?1049h", b"\x1b[B"
 PANE, CLIENT = "%1", "/dev/pts/7"   # what the binding's formats come to in this test's tmux
 FEATURES = "256,RGB,bpaste,clipboard,title"   # ... and the client's terminal features
+
+
+def header_tones(text):
+    """The grey each frame in `text` fading the header writes it in."""
+    return [int(m[1]) for m in re.finditer(r"\x1b\[1;1H\x1b\[38;2;(\d+);\1;\1m", text)]
 
 
 def tmux_words(text):
@@ -354,13 +386,15 @@ class ThePaneBehind(unittest.TestCase):
 
 
 class Popup:
-    """One overlay menu on a pty of its own, and when each byte of what it wrote arrived."""
+    """One overlay menu on a pty of its own, and what it wrote."""
 
-    def __init__(self, case, padding=0, rows=30, cols=90, child=CHILD):
+    def __init__(self, case, padding=0, rows=30, cols=90, child=CHILD, typed=b""):
+        """`typed`: keys typed before it opens."""
         self.case = case
         fake = FakeTmux(case)
         self.master, self.slave = os.openpty()
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+        os.write(self.master, typed)
         env = {key: value for key, value in fake.env.items()
                if key not in ("NO_COLOR", "COLUMNS", "LINES", "TMUX", "FAKE_TMUX_PANE",
                               terminal.PAD_ENV)}
@@ -372,7 +406,7 @@ class Popup:
         self.proc = subprocess.Popen([sys.executable, "-c", child], stdin=self.slave,
                                      stdout=self.slave, stderr=self.slave, env=env,
                                      start_new_session=True)
-        self.output, self.arrived, self.lock = b"", [], threading.Lock()
+        self.output, self.lock = b"", threading.Lock()
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
         case.addCleanup(self.close)
@@ -387,7 +421,6 @@ class Popup:
                 return
             with self.lock:
                 self.output += chunk
-                self.arrived.append((len(self.output.decode("utf-8", "replace")), time.monotonic()))
 
     def close(self):
         if self.proc.poll() is None:
@@ -403,11 +436,6 @@ class Popup:
     def text(self):
         with self.lock:
             return self.output.decode("utf-8", "replace")
-
-    def when(self, offset):
-        """When the text up to `offset` had arrived."""
-        with self.lock:
-            return next(at for end, at in self.arrived if end >= offset)
 
     def until(self, pattern, what, after=0, timeout=15):
         deadline = time.monotonic() + timeout
@@ -425,26 +453,20 @@ class TheContent(unittest.TestCase):
         popup = Popup(self)
         up = popup.until(r"\x1b\[1;1Hagentkit", "the header as drawn")
         text = popup.text()[:up.start()]
-        tones = [(int(m[1]), m.start()) for m in
-                 re.finditer(r"\x1b\[1;1H\x1b\[38;2;(\d+);\1;\1m", text)]
-        self.assertGreaterEqual(len(tones), 2, repr(text[-2000:]))
-        self.assertLess(tones[0][0], 40)                     # out of the dark background
-        self.assertEqual([tone for tone, _ in tones], sorted(tone for tone, _ in tones))
-        self.assertLess(tones[0][0], tones[-1][0])
+        # a frame each FRAME of the clock, its white eased up out of the dark background, until
+        # FADE has passed and it is as drawn; a draw between two frames shows the one before
+        self.assertEqual([tone for tone, _ in itertools.groupby(header_tones(text))],
+                         [round(255 * motion.eased(n * motion.FRAME / motion.FADE))
+                          for n in range(math.ceil(motion.FADE / motion.FRAME))])
         self.assertNotIn("\x1b[Kagentkit", text)             # never first drawn as it is
-        took = popup.when(up.end()) - popup.when(tones[0][1] + 1)
-        self.assertGreaterEqual(took, motion.FADE - 0.03)
-        self.assertLess(took, motion.FADE + 1)
 
-    def test_a_key_pressed_while_it_fades_in_is_answered_within_100_ms(self):
-        popup = Popup(self)
-        popup.until(r"\x1b\[1;1H\x1b\[38;2;", "the first frame coming up")
-        mark, sent = len(popup.text()), time.monotonic()
-        os.write(popup.master, DOWN)
+    def test_a_key_typed_as_it_opens_is_answered_at_once_while_it_fades_in(self):
+        popup = Popup(self, typed=DOWN)
         highlighted = r"›(?:\s|\x1b\[[0-9;]*m)*2(?:\s|\x1b\[[0-9;]*m)+seat-b"
-        found = popup.until(highlighted, "seat-b highlighted", after=mark)
-        self.assertLess(popup.when(found.end()) - sent, 0.1)
-        # still coming up after it: the key was pressed during the fade, and did not end it
+        found = popup.until(highlighted, "seat-b highlighted")
+        # at once: in the first frame's time, the clock not moved on from the background
+        self.assertEqual(set(header_tones(popup.text()[:found.start()])), {0})
+        # still coming up after it: the key was answered during the fade, and did not end it
         self.assertRegex(popup.text()[found.start():], r"\x1b\[\d+;1H\x1b\[38;2;")
         os.write(popup.master, b"\x1b")
         self.assertEqual(popup.proc.wait(15), 0, popup.text()[-2000:])
