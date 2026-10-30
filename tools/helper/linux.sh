@@ -1,23 +1,45 @@
 #!/bin/bash
 # The suite helper on a Linux machine with docker that holds nothing but ak's work (mac.sh):
-# each piece in a container.
+# each piece in a container, and at most half the machine to one suite.
 linux() {
-  export LC_ALL=C    # `free` and `uptime` say what they read in English
+  export LC_ALL=C    # `free` says what it reads in English
   on_power() { :; }    # a rented machine has no battery
   lock() { flock "$@"; }
-  # probe: docker answers; the machine's CPUs and load.
+  # given FIELD: the sum of HostConfig's FIELD over ak's running containers.
+  given() {
+    ids=$(docker ps -q --filter name=ak-) || return
+    docker inspect --format "{{.HostConfig.$1}}" $ids 2>/dev/null |
+      awk '{sum += $1} END {printf "%.0f\n", sum}'
+  }
+  # spare: the CPUs nothing holds: the machine's, less those its running containers were given
+  # and half of it for each suite admitted in the last two minutes that has started no piece.
+  spare() {
+    given=$(given NanoCpus) || return
+    find "$ROOT" -mindepth 2 -maxdepth 2 -name reserved -mmin -2 2>/dev/null |
+      awk -v cpus="$(nproc)" -v given="$given" 'END {
+        spare = cpus - given / 1e9 - NR * cpus / 2; print (spare > 0 ? spare : 0) }'
+  }
+  # probe: docker answers; half the machine's CPUs, what one suite takes at most, and a load that
+  # leaves what is spare of them.
   probe() {
-    docker info >/dev/null 2>&1 || return
-    echo "cpus $(nproc)"
-    echo "load $(uptime | awk -F'load average: ' '{print $2 + 0}')"
+    docker info >/dev/null 2>&1 && spare=$(spare) || return
+    awk -v half="$(nproc)" -v spare="$spare" 'BEGIN {
+      half /= 2; print "cpus " half; print "load " (spare < half ? half - spare : 0) }'
+  }
+  # admit KEY, from `prepare` under the suites lock: the suite comes in while a quarter of the
+  # machine is spare and holds half of it until its first piece starts or two minutes pass, so
+  # suites whose `probe`s all saw the machine empty do not all start.
+  admit() {
+    rm -f "$ROOT/$1/reserved"    # a suite preparing again (exit 3) is weighed without its own
+    spare=$(spare) || exit 253
+    awk -v cpus="$(nproc)" -v spare="$spare" 'BEGIN {exit spare < cpus / 4}' || exit 252
+    mkdir -p "$ROOT/$1" && : >"$ROOT/$1/reserved" || exit 253
   }
   # left: the MiB ak's containers here may still be given: all the machine's memory but a tenth
   # its system keeps, less what the running ones were given.
   left() {
-    ids=$(docker ps -q --filter name=ak-) || return
-    total=$(free -m | awk '$1 == "Mem:" {print $2}')
-    docker inspect --format '{{.HostConfig.Memory}}' $ids 2>/dev/null |
-      awk -v total="$total" '{given += $1} END {print int(total - total / 10 - given / 1048576)}'
+    given=$(given Memory) || return
+    free -m | awk -v given="$given" '$1 == "Mem:" {print int($2 - $2 / 10 - given / 1048576)}'
   }
   running() { [ "$(docker inspect --format '{{.State.Running}}' "$1" 2>/dev/null)" = true ]; }
   tags() { docker image ls --format '{{.Repository}}:{{.Tag}}' "$1"; }
@@ -39,8 +61,10 @@ linux() {
     expire
   }
   # start, from `run`, with piece.sh's arguments: the piece's container, with no network beyond
-  # loopback and no swap. Its sandboxes need user namespaces and an unmasked /proc.
+  # loopback and no swap, which ends its suite's reservation. Its sandboxes need user namespaces
+  # and an unmasked /proc.
   start() {
+    rm -f "$D/reserved"
     docker run --rm --init --name "$name" --network none --cpus "$cpus" --memory "${memory}m" \
       --memory-swap "${memory}m" --security-opt seccomp=unconfined \
       --security-opt apparmor=unconfined --security-opt systempaths=unconfined \
