@@ -12,6 +12,7 @@ process or delivery.
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack, contextmanager, nullcontext
+import copy
 import fcntl
 import functools
 import json
@@ -165,10 +166,11 @@ def member(state):
 
 def line(turn):
     """Green deliveries in tested stack order, then the rest in join order, a held install's
-    fix (`update.first_place`) ahead of those."""
+    fix (`update.first_place`) ahead of those; their records every reader's (`record.read_state`),
+    so only read."""
     members = []
     for directory in record.run_dirs():
-        state = record.read_state(directory) or {}
+        state = record.read_state(directory, shared=True) or {}
         if member(state) and state["waiting_on"]["line"] == turn.name:
             members.append((directory, state))
     deliveries = {directory.name: state["waiting_on"]["land"] for directory, state in members
@@ -453,7 +455,7 @@ def check_line(turn, log=lambda _: None):
         if not held:
             return
         target, prefix, tip_green = None, [], set()    # the pieces the tip passed on this pass
-        members = line(turn)
+        members = copy.deepcopy(line(turn))     # its own: it writes its answers into them
         names = {directory.name for directory, _ in members}
         for index, (directory, state) in enumerate(members):
             with record.recovery_lock(directory):
