@@ -2257,6 +2257,7 @@ def run_round(cmds, cwd, log_path, artifacts, limit, log, silence, run_dir):
             script = "\n".join(f"printf '%s\\n' {shlex.quote(f'--- $ {cmd} ---')} && "
                                f"bash -c {shlex.quote(cmd)} || exit" for cmd in cmds)
             try:
+                run_record.stop_check(run_dir)    # a stop marked while it prepared starts none
                 with log_path.open("wb") as progress:
                     code, _, killed = worker.limited(
                         helper.piece(away, "1/1", PINNED_PIECE.format(
@@ -2264,6 +2265,10 @@ def run_round(cmds, cwd, log_path, artifacts, limit, log, silence, run_dir):
                         limit, cwd=str(cwd), activity=log_path, output=progress,
                         env=suite_env(), silence=silence, stderr=subprocess.STDOUT,
                         stdin=subprocess.DEVNULL)
+            except OSError as exc:
+                # It never started (a list longer than one ssh argument may be): the shell's 126.
+                log_path.write_text(f"{exc}\n")
+                code, killed = 126, False
             finally:
                 helper.finish(away)
             run_record.stop_check(run_dir)
