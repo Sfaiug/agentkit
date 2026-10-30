@@ -3,6 +3,7 @@ package run
 import (
 	"errors"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -75,6 +76,29 @@ func TestUnreadableJSONIsRefused(t *testing.T) {
 	for _, text := range []string{`"\ud800"`, `"\udcff"`, `{"\ud83d x": 1}`, `"\ude00\ud83d"`} {
 		if _, err := Decode([]byte(text)); !errors.Is(err, ErrLoneSurrogate) {
 			t.Errorf("%q: %v", text, err)
+		}
+	}
+}
+
+// A limited read leaves to Python what the limits it runs under decide.
+func TestLimitedReadsLeavePythonsLimitsToIt(t *testing.T) {
+	deep := func(n int) string { return strings.Repeat("[", n) + "0" + strings.Repeat("]", n) }
+	digits := func(n int) string { return strings.Repeat("1", n) }
+	for _, text := range []string{digits(minDigits), "-" + digits(minDigits), digits(maxDigits) + ".0",
+		"1e" + digits(maxDigits), deep(maxDepth), `{"a": ` + deep(maxDepth-1) + "}"} {
+		if _, err := DecodeLimited([]byte(text)); err != nil {
+			t.Errorf("%.40q: %v", text, err)
+		}
+	}
+	for _, text := range []string{digits(minDigits + 1), "-" + digits(minDigits+1), digits(maxDigits + 1),
+		deep(maxDepth + 1), `{"a": ` + deep(maxDepth) + "}"} {
+		if _, err := DecodeLimited([]byte(text)); !errors.Is(err, ErrLimit) {
+			t.Errorf("%.40q: %v", text, err)
+		}
+	}
+	for _, text := range []string{digits(maxDigits), deep(20000)} {
+		if _, err := Decode([]byte(text)); err != nil {
+			t.Errorf("%.40q: %v", text, err)
 		}
 	}
 }

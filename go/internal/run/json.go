@@ -237,32 +237,56 @@ func numeric(value any) (float64, bool) {
 // a Go string cannot keep it.
 var ErrLoneSurrogate = errors.New("a lone surrogate")
 
+// ErrLimit is JSON that Python reads or refuses as the limits it runs under say: an int longer
+// than the 640 digits every PYTHONINTMAXSTRDIGITS lets it convert, or nesting deeper than
+// maxDepth.
+var ErrLimit = errors.New("past a limit Python runs under")
+
 // Decode reads one JSON value as Python's json.loads does, NaN and Infinity numbers among
 // what it reads.  Text that is not UTF-8 is unreadable, as it is to Python.
 func Decode(data []byte) (any, error) {
-	if !utf8.Valid(data) {
+	return decode(&parser{data: data})
+}
+
+// DecodeLimited reads one JSON value as Decode does, and answers ErrLimit where Python's limits
+// decide whether it reads the value.
+func DecodeLimited(data []byte) (any, error) {
+	return decode(&parser{data: data, limited: true})
+}
+
+func decode(p *parser) (any, error) {
+	if !utf8.Valid(p.data) {
 		return nil, fmt.Errorf("not UTF-8")
 	}
-	p := &parser{data: data}
-	value, err := p.value()
+	value, err := p.value(0)
 	if err != nil {
 		return nil, err
 	}
-	if p.space(); p.at < len(data) {
+	if p.space(); p.at < len(p.data) {
 		return nil, fmt.Errorf("extra data at byte %d", p.at)
 	}
 	return value, nil
 }
 
 type parser struct {
-	data []byte
-	at   int
+	data    []byte
+	at      int
+	limited bool // ErrLimit where Python's limits decide
 }
 
 var numberRe = regexp.MustCompile(`^(-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][-+]?[0-9]+)?|NaN|-?Infinity)`)
 
-// maxDigits is the longest int Python converts from text (sys.int_info.default_max_str_digits).
-const maxDigits = 4300
+// maxDigits is the longest int Python converts from text (sys.int_info.default_max_str_digits),
+// and minDigits the longest every PYTHONINTMAXSTRDIGITS lets it convert
+// (sys.int_info.str_digits_check_threshold).
+const (
+	maxDigits = 4300
+	minDigits = 640
+)
+
+// maxDepth is the deepest nesting a limited read takes: Python's json recurses once a level, and
+// before 3.12 the 1000 frames of its recursion limit, ak's own among them, end it short of 1000.
+const maxDepth = 500
 
 func (p *parser) space() {
 	for p.at < len(p.data) && strings.IndexByte(" \t\n\r", p.data[p.at]) >= 0 {
@@ -283,7 +307,10 @@ func (p *parser) take(word string) bool {
 	return false
 }
 
-func (p *parser) value() (any, error) {
+func (p *parser) value(depth int) (any, error) {
+	if p.limited && depth > maxDepth {
+		return nil, ErrLimit
+	}
 	p.space()
 	switch {
 	case p.take("{"):
@@ -300,7 +327,7 @@ func (p *parser) value() (any, error) {
 			if p.space(); !p.take(":") {
 				return nil, p.fail()
 			}
-			value, err := p.value()
+			value, err := p.value(depth + 1)
 			if err != nil {
 				return nil, err
 			}
@@ -313,7 +340,7 @@ func (p *parser) value() (any, error) {
 			if len(list) > 0 && !p.take(",") {
 				return nil, p.fail()
 			}
-			value, err := p.value()
+			value, err := p.value(depth + 1)
 			if err != nil {
 				return nil, err
 			}
@@ -330,7 +357,13 @@ func (p *parser) value() (any, error) {
 		return nil, nil
 	}
 	found := numberRe.Find(p.data[p.at:])
-	if found == nil || integral(Number(found)) && len(strings.TrimPrefix(string(found), "-")) > maxDigits {
+	digits := len(strings.TrimPrefix(string(found), "-"))
+	switch {
+	case found == nil:
+		return nil, p.fail()
+	case p.limited && integral(Number(found)) && digits > minDigits:
+		return nil, ErrLimit
+	case integral(Number(found)) && digits > maxDigits:
 		return nil, p.fail()
 	}
 	p.at += len(found)

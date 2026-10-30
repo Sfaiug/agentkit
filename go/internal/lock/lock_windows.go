@@ -17,8 +17,9 @@ func acquire(path string, wait bool) (*os.File, error) {
 	return open(path, syscall.GENERIC_WRITE, syscall.OPEN_ALWAYS, wait)
 }
 
-// edit opens path's file to read and write shared with nobody, waiting its turn.
-func edit(path string) (*os.File, error) {
+// Edit opens path's file, which it never makes, to read and write shared with nobody, waiting its
+// turn; the lock lasts until the file closes.
+func Edit(path string) (*os.File, error) {
 	return open(path, syscall.GENERIC_READ|syscall.GENERIC_WRITE, syscall.OPEN_EXISTING, true)
 }
 

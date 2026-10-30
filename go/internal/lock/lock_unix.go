@@ -21,8 +21,9 @@ func acquire(path string, wait bool) (*os.File, error) {
 	return take(file, wait)
 }
 
-// edit opens path's file to read and write and waits for its flock.
-func edit(path string) (*os.File, error) {
+// Edit opens path's file, which it never makes, to read and write once its flock is free; the
+// lock lasts until the file closes.
+func Edit(path string) (*os.File, error) {
 	file, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
 		return nil, err

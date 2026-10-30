@@ -85,8 +85,8 @@ func read(data []byte) (*turn, error) {
 		if line == "" {
 			continue // past the last line break
 		}
-		row, err := run.Decode([]byte(line))
-		if errors.Is(err, run.ErrLoneSurrogate) {
+		row, err := run.DecodeLimited([]byte(line))
+		if errors.Is(err, run.ErrLoneSurrogate) || errors.Is(err, run.ErrLimit) {
 			return nil, ErrPython
 		} else if err != nil {
 			return nil, fmt.Errorf("cannot hand in this record: %w", err)
@@ -354,7 +354,7 @@ func checkedSite(site, root, quote string, hasQuote bool) (string, int, error) {
 	}
 	name := site[:colon]
 	if !filepath.IsAbs(name) {
-		name = filepath.Join(root, name)
+		name = root + string(filepath.Separator) + name // its `..` left for Resolve to take after links
 	}
 	path := config.Resolve(name)
 	relative, err := filepath.Rel(root, path)
@@ -362,8 +362,10 @@ func checkedSite(site, root, quote string, hasQuote bool) (string, int, error) {
 		return "", 0, fmt.Errorf("name a file that exists inside this checkout")
 	}
 	content, err := readText(path)
-	if err != nil || len(digits) > 4300 {
-		return "", 0, ErrPython // what Python refuses in its runtime's own words: past 4300, int() does
+	if err != nil || len(digits) > 640 {
+		// what Python may refuse in its runtime's own words: past 640 digits, int() does as
+		// PYTHONINTMAXSTRDIGITS says
+		return "", 0, ErrPython
 	}
 	lines := len(config.SplitLines(content))
 	line, err := strconv.Atoi(digits)

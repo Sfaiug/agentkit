@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -85,9 +86,51 @@ func TestWhatGoCannotReadAsPythonIsLeftToIt(t *testing.T) {
 		{`{"kind": "turn", "workspace": "\ud800"}` + "\n", []string{"blocked", "why"}},
 		{handed, []string{"blocked", "why \xff"}},
 		{opened(ws, ""), []string{"finding", "api.py:\u0662", "x", "y", "--quote", "return None"}},
+		{opened(ws, ", \"n\": "+strings.Repeat("1", 641)), []string{"blocked", "why"}}, // as PYTHONINTMAXSTRDIGITS says
+		{opened(ws, ", \"n\": "+strings.Repeat("[", 501)+strings.Repeat("]", 501)), []string{"blocked", "why"}},
+		{opened(ws, ""), []string{"finding", "api.py:" + strings.Repeat("0", 640) + "1", "x", "y", "--quote", "return None"}},
 	} {
 		if row, err := handIn(t, record, example.lines, example.args...); !errors.Is(err, ErrPython) || row != "" {
 			t.Errorf("%q appended %q (%v), want it left to Python", example.args, row, err)
+		}
+	}
+}
+
+func TestSitesFollowLinksBeforeTheirParents(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Python takes each .. away first on Windows")
+	}
+	ws, record := checkout(t)
+	outside := t.TempDir()
+	for _, dir := range []string{filepath.Join(ws, "real", "inner"), filepath.Join(outside, "inner")} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(ws, "real", "api.py"), []byte("right = True\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "api.py"), []byte("right = True\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real/inner", filepath.Join(ws, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "inner"), filepath.Join(ws, "out")); err != nil {
+		t.Fatal(err)
+	}
+	for _, example := range []struct{ workspace, site, path string }{
+		{ws, "link/../api.py:1", "real/api.py"},
+		{ws, ws + "/link/../api.py:1", "real/api.py"},
+		{ws + "/link/..", "api.py:1", "api.py"},
+		{ws, "out/../api.py:1", ""},
+	} {
+		row, err := handIn(t, record, opened(example.workspace, ""), "finding", example.site, "x", "y", "--quote", "right")
+		want := `{"kind": "finding", "path": "` + example.path + `", "line": 1, "what": "x", "why": "y", "evidence": {"quote": "right"}}` + "\n"
+		if example.path == "" && (row != "" || err == nil || err.Error() != "name a file that exists inside this checkout") {
+			t.Errorf("%s in %s appended %q (%v), want it refused", example.site, example.workspace, row, err)
+		} else if example.path != "" && (err != nil || row != want) {
+			t.Errorf("%s in %s appended %q (%v), want %q", example.site, example.workspace, row, err, want)
 		}
 	}
 }
