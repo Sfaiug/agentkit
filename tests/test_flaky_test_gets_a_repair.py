@@ -152,6 +152,7 @@ class FlakyTestGetsARepair(test_lander.LanderFixture, unittest.TestCase):
 
     def test_a_ledger_s_newest_hold_holds_the_file(self):
         self.kept(a=self.held(self.now), b=self.held(self.now - land.FLAKY + 1))
+        self.seen("other", flaky=["tests/test_other.py"])
         self.now += 1
         self.seen("one", flaky=[f"{TEST}::test_c"])
         self.seen("two", flaky=[f"{TEST}::test_c"])
