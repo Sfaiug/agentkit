@@ -75,8 +75,10 @@ def found(index, model):
     """A board's rows for one model: under its exact name, else under a board's name naming no
     version of its own that `model` extends with one (`Acme Pro` for `acme-pro-1.0`, never
     `Acme 5` for `acme-5-5`), else under the one board name that is `model` with a qualifier in
-    brackets (`Acme 5 (Default Fallback)`; two such names stand for nothing), else the same
-    matches without a trailing `-free` pricing tier; none where the board has nothing for it."""
+    brackets (`Acme 5 (Default Fallback)`; two such names stand for nothing), else under each
+    board name that adds a version or date to a `model` naming none (`Acme Flash 1017` for
+    `acme-flash`, `lineup` taking only one release), else the same matches without a trailing
+    `-free` pricing tier; none where the board has nothing for it."""
     wanted = normal(model)
     if wanted in index:
         return index[wanted]
@@ -88,6 +90,11 @@ def found(index, model):
                  if normal(re.sub(r"\([^()]*\)", "", hits[0]["model"])) == wanted]
     if len(qualified) == 1:
         return index[qualified[0]]
+    extended = [hit for stem, hits in index.items() for hit in hits
+                if not wanted[-1:].isdigit() and stem.startswith(wanted)
+                and stem[len(wanted):].isdigit()]
+    if extended:
+        return extended
     if model.endswith("-free"):
         # Free is a pricing tier, so use the underlying model's board rows.
         return found(index, model.removesuffix("-free"))
@@ -98,7 +105,8 @@ def lineup(boards, offers):
     """A row per current release (`catalog.current`) and effort, with its `values` as the
     catalog joins them and `yours`: each model of `offers` ({harness: config.catalog(harness)})
     that `found` matches to this release alone, as {"harness", "model"}, at each effort it
-    lists, or at the release's default where it lists none but `none`."""
+    lists and at a row naming no effort, which is the model however it is run, or at the
+    release's default where it lists none but `none`."""
     releases = catalog.current(boards)
     index = {}
     for release in releases:
@@ -112,7 +120,7 @@ def lineup(boards, offers):
             if len(hits) != 1:
                 continue
             [release] = hits.values()
-            words = model["efforts"] if set(model["efforts"]) - {"none"} else None
+            words = (None, *model["efforts"]) if set(model["efforts"]) - {"none"} else None
             for effort in release["efforts"]:
                 if effort["effort"] in words if words else effort["default"]:
                     yours.setdefault((release["slug"], effort["effort"]), []).append(
