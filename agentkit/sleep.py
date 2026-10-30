@@ -25,7 +25,7 @@ ALONE = "#{&&:#{==:#{session_attached},0},#{&&:#{==:#{session_windows},1},#{==:#
 def asleep(name):
     """Whether that seat was put to sleep since its harness launched, and not closed since."""
     name = config.resolve_session(name)
-    record = config.session_records().get(name) or {}
+    record = config.session_record(name) or {}
     return ((record.get("asleep") or 0) > (record.get("launched") or 0)
             and not watch.seat_stopped_at(name))
 

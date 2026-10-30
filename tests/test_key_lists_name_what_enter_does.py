@@ -31,6 +31,15 @@ esac
 """
 
 
+def downs_to_opencode(term):
+    """How many rows below the first, where the highlight starts, `+ add a subscription`'s first
+    list has OpenCode.  Its frame is drawn before its rows, top to bottom: read once OpenCode's
+    row is drawn."""
+    shown = lines(term.wait(lambda screen: "  OpenCode" in lines(screen)
+                            and key_line(screen) == KEYS.format("add")))
+    return shown.index("  OpenCode") - 2
+
+
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class ListsNameWhatEnterDoes(unittest.TestCase):
     def setUp(self):
@@ -81,9 +90,7 @@ class ListsNameWhatEnterDoes(unittest.TestCase):
         self.term.keys("Down", "Down")                # past ChatGPT
         self.term.wait(KEYS.format("open"))
         self.term.keys("Enter")
-        shown = lines(self.on("", "add"))             # on a provider, the first row
-        rows = [line[2:] for line in shown[2:shown.index(KEYS.format("add"))] if line[2:]]
-        self.term.keys(*["Down"] * rows.index("OpenCode"))
+        self.term.keys(*["Down"] * downs_to_opencode(self.term))
         self.on("OpenCode", "open")
         self.term.keys("Down")
         self.on("Claude II", "add")                   # another subscription

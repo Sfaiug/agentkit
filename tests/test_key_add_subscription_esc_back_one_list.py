@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import SERVER, Terminal
-from test_key_lists_name_what_enter_does import KEYS, OPENCODE
+from test_key_lists_name_what_enter_does import KEYS, OPENCODE, downs_to_opencode
 from test_key_lists_space_marks_enter_picks import MAIN_KEYS, key_line, lines
 from test_key_subscriptions_page import ADD, PAGE, title
 
@@ -47,9 +47,7 @@ class AddSubscriptionEscBackOneList(unittest.TestCase):
         self.term.keys("Down", "Down")                # past ChatGPT
         self.term.wait(KEYS.format("open"))
         self.term.keys("Enter")
-        shown = lines(self.on("", "add"))             # on a provider, the first row
-        rows = [line[2:] for line in shown[2:shown.index(KEYS.format("add"))] if line[2:]]
-        self.term.keys(*["Down"] * rows.index("OpenCode"), "Enter")
+        self.term.keys(*["Down"] * downs_to_opencode(self.term), "Enter")
         self.on("  MiMo V2.6 Pro", "open")
 
     def on(self, row, enter):

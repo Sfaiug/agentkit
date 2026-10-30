@@ -242,6 +242,7 @@ def job_create(cfg, task_paths, opts, parallel):
                     f"{info['path']}: this looks already under way: {first['id']} ({seat}, "
                     f"started {started}, \"{first['title']}\") shares {detail}; "
                     f"{run.rival_advice()}")
+    run.check_seat_queue(len(infos))
     seat = config.current_session()
     seat = config.resolve_session(seat) if seat else seat
     job_dir = job_make_id(infos[0]["title"])
