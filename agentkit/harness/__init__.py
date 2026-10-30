@@ -498,6 +498,13 @@ class Harness:
         reach the model with that prompt (`context` on that event in its manifest)?"""
         return (self.prompt_hook or {}).get("context") is True
 
+    def context_fits(self, text):
+        """Does `text` reach the model whole from its prompt hook: no longer than `context_limit`
+        on that event, counted in UTF-16 code units as Claude Code counts it?  Where none is
+        declared, any length does."""
+        limit = (self.prompt_hook or {}).get("context_limit")
+        return limit is None or len(text.encode("utf-16-le")) // 2 <= limit
+
     @property
     def title_facts(self):
         """The original title-hook contract; adapters can require a stored receipt instead."""

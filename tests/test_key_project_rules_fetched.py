@@ -21,7 +21,7 @@ from fixtures import akconfig
 from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.gitrig import Rig
-from fixtures.hookdrive import Hooks
+from fixtures.hookdrive import Hooks, read_rules
 
 RULES = "# widgets\n\nKeep the API stable.\n"
 ADDED = "Never break the CLI."
@@ -47,6 +47,7 @@ class ProjectRulesFetched(unittest.TestCase):
         Seat(home, "beta", record={"conversation": CONVERSATIONS["beta"]})
         for seat in CONVERSATIONS:
             assert cls.prompt(seat), f"{seat} is handed its rulebook"
+            read_rules(home, seat)
             assert cls.prompt(seat) == "", f"{seat} is told the rules it was handed"
         # the merge, made in another clone: the owner's knows nothing of it until a fetch
         elsewhere = home.root / "elsewhere"

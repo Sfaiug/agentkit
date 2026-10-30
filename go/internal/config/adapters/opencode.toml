@@ -184,13 +184,15 @@ none = ["esc interrupt"]
 # them: it was never observed, and no entry here depends on a guessed string.  The transient
 # words below arrive the same passed-through way, after 2.0.13's `Error: `, and the worker
 # answers them by typing `continue`, resuming the same session -- only `quotas` names the
-# account and hands the round over.
+# account and hands the round over.  2.2.3's `provider.free-limit` is the day's free messages
+# spent, its 429 no bare rate limit: the error records when they reset.
 [stall]
 signatures = ["Error: ", "provider.rate-limit", "provider.quota", "rate limit", "429", "quota"]
 refusals = ["provider.rate-limit", "provider.quota", "rate limit", "429", "quota",
             "500", "502", "503", "504", "Internal server error", "overloaded", "529",
             "at capacity"]
-quotas = ["provider.rate-limit", "provider.quota", "rate limit", "429", "quota"]
+quotas = ["provider.rate-limit", "provider.quota", "provider.free-limit", "rate limit", "429",
+          "quota"]
 # No `terminal`: a trivial turn ends on `text`, a tool turn on `step_finish`, a refused one on
 # `error` -- there is no single terminal kind, and the error record declares itself a failure.
 

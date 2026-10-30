@@ -22,6 +22,7 @@ there nothing installs, and every test fails.
         seat = Seat(home, "beta")                 # with `pane`, a hook can look at the seat
         hooks.fire("Stop", {"background_tasks": []}, seat="beta", pane=seat)
         hooks.prompt("8080", seat)                # the owner's own words, as Claude keeps them
+        read_rules(home, "acme")                  # the rulebook file its prompt named is read
 
 `seat=None` fires outside any seat; `env` adds to the environment, and a None value removes a
 variable (`{"AK_RUN_ROLE": "worker"}` is a worker's).  `transcript` writes a conversation for a
@@ -127,6 +128,17 @@ def adapter(home, harness, *args, payload=None, seat="acme", pane=None, env=None
     run = home.run("bash", str(ROOT / "adapters" / f"{harness}.sh"), *args,
                    input=json.dumps(payload or {}), env=_env(home, seat, pane, env))
     return _fired([run])
+
+
+def read_rules(home, seat):
+    """What a seat's model does with a prompt naming its rulebook's file, too long for the
+    prompt to carry (tests/test_key_rulebook_news_too_long.py): runs the `ak orch rules CODE`
+    on that file's last line, in the seat."""
+    last = (home.path / f".agentkit/state/change-{seat}.md").read_text().rstrip("\n")
+    words = last.rsplit("\n", 1)[-1].split()
+    assert words[:3] == ["ak", "orch", "rules"], last[-200:]
+    done = home.ak(*words[1:], env={"AGENTKIT_SESSION": seat})
+    assert done.code == 0, done.err
 
 
 def transcript(home, name, *entries):
