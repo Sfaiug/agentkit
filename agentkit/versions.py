@@ -34,6 +34,7 @@ CAP = 30 * 60                   # one git step, as update.STEP_CAP
 AT_FDCWD = -100                 # Linux's, for renameat2
 RENAME_EXCHANGE = 2             # renameat2's flag on Linux
 RENAME_SWAP = 2                 # renamex_np's flag on macOS
+LOCKED = ("--reason", "a version of ak's")     # each version's record, kept from any prune
 
 
 def repository():
@@ -64,9 +65,12 @@ def owned(live):
 
 def finish(live):
     """The link an adoption cut off between its two renames left out, put in: until then git
-    finds no repository at `live`, and nothing could move it."""
+    finds no repository at `live`, and nothing could move it.  The version live locked: the code
+    before the lock put it live without one."""
     if repository().is_dir() and not os.path.lexists(live / ".git"):
         (live / ".git").symlink_to(repository())
+    if owned(live):
+        git(repository(), "worktree", "lock", *LOCKED, str(live))     # once locked, a refusal
 
 
 def adopt(live):
@@ -165,8 +169,8 @@ def switch(live, commit):
     tidy(live)
     (config.HOME / VERSIONS).mkdir(parents=True, exist_ok=True)
     new = Path(tempfile.mkdtemp(prefix=f"{commit[:12]}.", dir=config.HOME / VERSIONS))
-    code, said = git(repository(), "worktree", "add", "--quiet", "--detach", "--lock",
-                     "--reason", "a version of ak's", str(new), commit)
+    code, said = git(repository(), "worktree", "add", "--quiet", "--detach", "--lock", *LOCKED,
+                     str(new), commit)
     if code:
         remove(new)
         return f"{commit[:12]} could not be checked out in {new}: {said}"

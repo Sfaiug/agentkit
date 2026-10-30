@@ -156,13 +156,22 @@ class InstallSwitchesInOneStep(unittest.TestCase):
         self.live(sixth)
         self.assertEqual(self.swapped_out(), sorted([self.new, third, fourth, fifth]))
 
-    def test_no_prune_takes_the_record_of_the_version_live(self):
-        self.go_live()
-        # a prune by whatever cannot see ~/agentkit, from a run's worktree of the same repository
+    def pruned_unseen(self):
+        """A prune by whatever cannot see ~/agentkit, from a run's worktree of the same repository."""
         away = self.root / "away"
         self.clone.rename(away)
         git(self.wt, "worktree", "prune")
         away.rename(self.clone)
+
+    def test_no_prune_takes_the_record_of_the_version_live(self):
+        self.go_live()
+        self.pruned_unseen()
+        self.live(self.new)
+        # the version bringing the lock went live by the code before it: its next tick, moving
+        # nothing, locks it
+        git(versions.repository(), "worktree", "unlock", str(self.clone))
+        self.go_live()
+        self.pruned_unseen()
         self.live(self.new)
 
     def test_a_version_git_will_not_remove_leaves_no_record(self):
