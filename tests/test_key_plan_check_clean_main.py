@@ -92,7 +92,7 @@ exit 1
     def test_what_status_cannot_see_is_gone_too(self):
         rig = self.project("fix-ui", "beta")
         rig.commit({"a": "a\n", "d/b": "b\n", "check.sh": """
-{ cat a; git status --porcelain --ignored; git ls-files -v; git log -1 --format=%s; git reflog --format=%s
+{ cat a; git status --porcelain --ignored; git ls-files -v; git log -1 --format=%s; git reflog --format=%s; git config --worktree --list
   stat -c '%a %n' . a d d/b; ls -A .. sub "$(git rev-parse --git-dir)"; } > "$1"
 eval "$2"
 exit 1
@@ -100,8 +100,12 @@ exit 1
         rig.git("-c", "protocol.file.allow=always", "submodule", "add", "-q", str(rig.bare), "sub")
         rig.git("config", "-f", ".gitmodules", "submodule.sub.ignore", "untracked")
         rig.commit({}, "with a submodule")
+        # a worktree's own config, which every new tree of the project starts with a copy of
+        rig.git("config", "extensions.worktreeConfig", "true")
+        rig.git("config", "--worktree", "beta.flag", "off")
         messes = ("git update-index --skip-worktree a; echo x > a",
                   "git update-index --assume-unchanged a; echo x > a",
+                  "git config --worktree beta.flag on",
                   "chmod 555 d",
                   "chmod 444 d/b",
                   "chmod 555 .",

@@ -19,6 +19,7 @@ import os
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import tempfile
 import threading
@@ -289,25 +290,30 @@ def default_branch(repo, at=None):
                         shutil.rmtree(tree, ignore_errors=True)
                         git("worktree", "prune")
 
-    def home(tree):
-        return git("rev-parse", "--absolute-git-dir", "--show-toplevel", cwd=tree)
+    def metadata(tree, gitdir):
+        # what git reads to find and run the tree: `.git` and its git directory, each path's mode
+        # and each file's bytes but the index's (a worktree's config, HEAD, its reflog)
+        found = {}
+        for path in (tree / ".git", gitdir, *gitdir.rglob("*")):
+            mode = path.lstat().st_mode
+            found[path] = mode, stat.S_ISREG(mode) and path != gitdir / "index" and path.read_bytes()
+        return found
 
     def unseen(tree):
-        # what status does not report: index entries told to skip their files, its reflog, and
-        # every path and permission beside the tree, in it (an initialized submodule's files)
-        # and in its git directory (a worktree's config, a rebase left open)
-        tops = tree.parent, Path(home(tree).splitlines()[0])
-        return (git("ls-files", "-v", cwd=tree), git("reflog", cwd=tree),
-                {path: path.lstat().st_mode for top in tops for path in (top, *top.rglob("*"))})
+        # what status does not report: index entries told to skip their files, and every path
+        # and permission beside the tree and in it (an initialized submodule's files)
+        return (git("ls-files", "-v", cwd=tree),
+                {path: path.lstat().st_mode for path in (tree.parent, *tree.parent.rglob("*"))})
 
-    def cleaned(tree, where, was):
+    def cleaned(tree, gitdir, was):
         try:
-            # a check can repoint `.git` or core.worktree: git would clean whatever they name
-            if home(tree) != where:
+            # what git reads first: a check can repoint `.git` or core.worktree, and git would
+            # clean whatever they name
+            if metadata(tree, gitdir) != was[0]:
                 return False
             git("checkout", "-q", "--force", "--detach", sha, cwd=tree)
             git("clean", "-q", "-ffdx", cwd=tree)
-            return not git("status", "--porcelain", "--ignored", cwd=tree) and unseen(tree) == was
+            return not git("status", "--porcelain", "--ignored", cwd=tree) and unseen(tree) == was[1]
         except (config.Error, OSError):
             return False
 
@@ -319,7 +325,8 @@ def default_branch(repo, at=None):
             made.clear()
         if not made:
             tree = kept.enter_context(fresh())
-            made[:] = tree, home(tree), unseen(tree)
+            gitdir = Path(git("rev-parse", "--absolute-git-dir", cwd=tree))
+            made[:] = tree, gitdir, (metadata(tree, gitdir), unseen(tree))
         return nullcontext(made[0])
 
     def stop(signum, _frame):
