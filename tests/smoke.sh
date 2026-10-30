@@ -5103,15 +5103,34 @@ else
   no "49a repository suites and merge trailer"; tail -30 "$WORK/merge-trailer.log"
 fi
 # --- fix_runs: regression proofs ------------------------------------------
-if { python3 "$REPO/tests/test_hand_in.py" && python3 "$REPO/tests/test_regression_fails_before.py" &&
-     python3 "$REPO/tests/test_probe_resume.py" &&
-     python3 "$REPO/tests/test_followup_runs.py" && python3 "$REPO/tests/test_red_target.py" &&
-     python3 "$REPO/tests/test_review_gate.py" && python3 "$REPO/tests/test_changed_checks.py" &&
+# Four blocks, not one: as one, its nine files ran 27 minutes on a loaded host without a line,
+# past the landing's 20-minute silence stop, and always in the same piece.
+if { python3 "$REPO/tests/test_hand_in.py" && python3 "$REPO/tests/test_probe_resume.py" &&
+     python3 "$REPO/tests/test_changed_checks.py" &&
      python3 "$REPO/tests/test_landing_review_spends_no_round.py" &&
-     python3 "$REPO/tests/test_from_run_takes_the_target.py"; } >"$WORK/regression-base.log" 2>&1; then
-  ok "50 fix runs: regression fails on base and passes on HEAD, changed checks reach review, probes restore the branch"
+     python3 "$REPO/tests/test_from_run_takes_the_target.py"; } >"$WORK/fix-runs.log" 2>&1; then
+  ok "50 fix runs: changed checks reach review, probes restore the branch"
 else
-  no "50 fix runs and regression on base"; tail -30 "$WORK/regression-base.log"
+  no "50 fix runs"; tail -30 "$WORK/fix-runs.log"
+fi
+# --- fix_runs_base: regression on base ------------------------------------
+if python3 "$REPO/tests/test_regression_fails_before.py" >"$WORK/regression-base.log" 2>&1; then
+  ok "50b fix runs: regression fails on base and passes on HEAD"
+else
+  no "50b fix runs and regression on base"; tail -30 "$WORK/regression-base.log"
+fi
+# --- fix_runs_followups: follow-up runs and red targets -------------------
+if { python3 "$REPO/tests/test_followup_runs.py" &&
+     python3 "$REPO/tests/test_red_target.py"; } >"$WORK/followup-runs.log" 2>&1; then
+  ok "50c fix runs: follow-up runs and red targets"
+else
+  no "50c fix runs: follow-up runs and red targets"; tail -30 "$WORK/followup-runs.log"
+fi
+# --- fix_runs_review: the review gate -------------------------------------
+if python3 "$REPO/tests/test_review_gate.py" >"$WORK/review-gate.log" 2>&1; then
+  ok "50d fix runs: the review gate"
+else
+  no "50d fix runs: the review gate"; tail -30 "$WORK/review-gate.log"
 fi
 # --- 42: seat states ------------------------------------------------------
 if seat_state_check >"$WORK/seat-state.log" 2>&1; then
