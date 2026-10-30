@@ -1,7 +1,6 @@
 package host
 
 import (
-	"bytes"
 	"errors"
 	"io/fs"
 	"os"
@@ -19,13 +18,13 @@ func Held() (paths []string, ok bool) {
 		return nil, false
 	}
 	for _, entry := range entries {
-		if _, err := strconv.Atoi(entry.Name()); err != nil {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil {
 			continue
 		}
-		proc := "/proc/" + entry.Name()
-		named, err := held(proc)
+		named, err := held(pid)
 		if err != nil {
-			if _, err := os.Stat(proc); errors.Is(err, fs.ErrNotExist) {
+			if _, err := os.Stat("/proc/" + entry.Name()); errors.Is(err, fs.ErrNotExist) {
 				continue // it exited
 			}
 			return nil, false
@@ -37,18 +36,15 @@ func Held() (paths []string, ok bool) {
 
 // held is what one process names, nothing for a zombie or a kernel thread; an error where any of
 // it could not be read, or the pid named another process by the end.
-func held(proc string) ([]string, error) {
-	fields, err := stat(proc)
-	if err != nil {
-		return nil, err
+func held(pid int) ([]string, error) {
+	first, ok := ReadStat(pid)
+	if !ok {
+		return nil, errors.New("no stat to read")
 	}
-	flags, err := strconv.Atoi(fields[6])
-	if err != nil {
-		return nil, err
-	}
-	if fields[0] == "Z" || fields[0] == "X" || flags&0x200000 != 0 { // PF_KTHREAD
+	if first.Exited() || first.Flags&0x200000 != 0 { // PF_KTHREAD
 		return nil, nil
 	}
+	proc := "/proc/" + strconv.Itoa(pid)
 	cmdline, err := os.ReadFile(proc + "/cmdline")
 	if err != nil {
 		return nil, err
@@ -83,21 +79,8 @@ func held(proc string) ([]string, error) {
 			paths = append(paths, target, strings.TrimSuffix(target, " (deleted)"))
 		}
 	}
-	if again, err := stat(proc); err != nil || again[19] != fields[19] {
+	if again, ok := ReadStat(pid); !ok || again.Start != first.Start {
 		return nil, errors.New("pid was reused during the scan")
 	}
 	return paths, nil
-}
-
-// stat is the fields of a process's stat after its command's name, which may hold `)`.
-func stat(proc string) ([]string, error) {
-	data, err := os.ReadFile(proc + "/stat")
-	if err != nil {
-		return nil, err
-	}
-	fields := strings.Fields(string(data[bytes.LastIndexByte(data, ')')+1:]))
-	if !bytes.Contains(data, []byte(")")) || len(fields) < 20 {
-		return nil, errors.New(proc + "/stat is cut short")
-	}
-	return fields, nil
 }
