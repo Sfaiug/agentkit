@@ -3,12 +3,12 @@
 static checks (STATIC_CHECKS) run.
 
 AGENTS.md runs this beside smoke.sh, so a file no task happened to list cannot go red on main
-unseen.  It is no part of smoke.sh and never touches its lock: it holds no smoke target and
-waits for none.  Each file runs once, in a process of its own from the checkout's root with
-no stdin, and without the caller's AGENTKIT_*/AK_* variables: a file started from inside a run
-must not pass for part of it (AGENTKIT_RUN, AK_RUN_DEPTH, AK_PARENT_RUN ...).  As many run at
-once as live memory fits; waiting files can outnumber cores. Before each start it samples
-CPU pressure, running one file at a time while it is high, and rereads host and cgroup headroom.
+unseen.  It is no part of smoke.sh.  Each file runs once, in a process of its own from the
+checkout's root with no stdin, and without the caller's AGENTKIT_*/AK_* variables: a file
+started from inside a run must not pass for part of it (AGENTKIT_RUN, AK_RUN_DEPTH,
+AK_PARENT_RUN ...).  As many run at once as live memory fits; waiting files can outnumber
+cores. Before each start it samples CPU pressure, running one file at a time while it is high,
+and rereads host and cgroup headroom.
 The share is cut, and its files start longest first, by each file's last measured seconds,
 the record AK_TIMES holds (agentkit/suite_times.py), or one never measured by its size at the
 measured files' seconds per byte.

@@ -49,7 +49,7 @@ caller_grok=${GROK_HOME:-$INVHOME/.grok}
 caller_opencode=${OPENCODE_CONFIG:-${OPENCODE_CONFIG_DIR:-$caller_config/opencode}/opencode.json}
 
 TS=$(date +%Y%m%d-%H%M%S)
-MARKER="e2e-$TS.txt"                 # the file the real task adds to the private target
+MARKER="e2e-$TS.txt"                 # the file the real task adds to its sandbox branch
 # Not under /tmp: every worker box gets an empty /tmp of its own, and step f's executor and
 # reviewer run the adapters of the agentkit copy in this HOME.  A gate killed outright (update's
 # time cap does) cannot remove it on the way out; registered, ak's retention takes it a day later.
@@ -57,7 +57,6 @@ mkdir -p -- "$INVHOME/.agentkit/tmp" && WORK=$(mktemp -d "$INVHOME/.agentkit/tmp
 PYTHONPATH="$REPO" python3 -m agentkit.retention begin "$WORK" smoke "$$" || :
 UH="$WORK/home"
 mkdir -p -- "$UH"
-SMOKE_REPO=""
 BORROWED=""   # every login and secret step c puts in the new HOME, for cleanup_logs to leave out
 # Step f's run is nobody's worker and nobody's seat either: a session that executes tasks
 # exports AK_RUN_ROLE=worker, and it may export AGENTKIT_SESSION, which would record this
@@ -79,123 +78,6 @@ done
 # Keep the private socket path short: a valid HOME can exceed Unix socket path limits.
 E2E_TMUX_SOCKET=agentkit-test
 E2E_TMUX_DIR=$(mktemp -d /tmp/ak-e2e-tmux-XXXXXX) || exit 2
-
-# --- one gate at a time on its remote, the way tests/smoke.sh guards its own --------
-# Step f's clone, run and delivery check are one turn on a host-wide lock: two gates running
-# at once would collide on seat names and on the account's persistent target.  That target is
-# `<login>/agentkit-e2e`, not the smoke suite's, so the file is this gate's own; the same
-# hour-long wait and wording, and the file is created world-readable and locked
-# through a read-only descriptor so suites running as
-# different accounts all reach it.  $AK_SMOKE_LOCK_WAIT overrides the wait, for tests.
-SMOKE_LOCK=/tmp/agentkit-e2e-remote.lock
-SMOKE_LOCK_WAIT=${AK_SMOKE_LOCK_WAIT:-3600}
-SMOKE_LOCK_WAITING="check 4: waiting for another suite's turn"
-SMOKE_LOCK_PID=""
-SMOKE_LOCK_HELD=0
-SMOKE_LOCK_PY='
-import fcntl, os, signal, sys, threading, time
-path, wait, parent = sys.argv[1], float(sys.argv[2]), int(sys.argv[3])
-def open_lock():
-    # Opening it and creating it are two different asks.  /tmp is sticky and world-writable, and
-    # with fs.protected_regular=2 the kernel refuses any O_CREAT open of a file a third account
-    # already owns there -- read-only or not.  Suites running as different accounts meet on
-    # this file -- that is the ordinary case, not a corner -- so ask for the file that is
-    # already there without O_CREAT, and create it exclusively only when genuinely missing.
-    try:
-        return os.open(path, os.O_RDONLY)
-    except FileNotFoundError:
-        pass
-    try:
-        made = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-    except FileExistsError:
-        return os.open(path, os.O_RDONLY)      # somebody created it between the two calls
-    try:
-        os.fchmod(made, 0o644)                 # world-readable whatever the umask was
-    finally:
-        os.close(made)
-    return os.open(path, os.O_RDONLY)
-
-try:
-    fd = open_lock()
-except OSError as exc:
-    sys.stderr.write("smoke lock %s: %s\n" % (path, exc))
-    print("busy", flush=True)
-    sys.exit(75)
-def expired(signum, frame):
-    raise TimeoutError()
-
-# Waiting for the shared turn is bounded work, not a hung suite. Report that wait
-# without leaving the kernel queue, so the silence watchdog need not guess.
-def report_wait(done):
-    while not done.wait(60):
-        print("waiting", flush=True)
-
-try:
-    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-except OSError:
-    # Queue in the kernel rather than poll.  A waiter that sleeps between tries can miss a lock
-    # that is only briefly free -- two suites handing the turn over do exactly that -- and then
-    # reports busy while nobody holds it.  The alarm is what keeps the wait bounded.
-    print("waiting", flush=True)
-    if wait <= 0:
-        print("busy", flush=True)
-        sys.exit(75)
-    done = threading.Event()
-    reporter = threading.Thread(target=report_wait, args=(done,))
-    signal.signal(signal.SIGALRM, expired)
-    busy = False
-    try:
-        signal.setitimer(signal.ITIMER_REAL, wait)
-        reporter.start()
-        fcntl.flock(fd, fcntl.LOCK_EX)
-    except (TimeoutError, OSError):
-        busy = True
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        done.set()
-        if reporter.is_alive():
-            reporter.join()
-    if busy:
-        print("busy", flush=True)
-        sys.exit(75)
-print("held", flush=True)
-sys.stdout.close()
-while os.getppid() == parent:
-    time.sleep(2)
-'
-smoke_lock_hold() {   # smoke_lock_hold <wait seconds>: 0 and the remote is this gate's, or 75
-  local dir line status=busy
-  dir=$(mktemp -d "${TMPDIR:-/tmp}/ak-e2e-lock-XXXXXX") || return 75
-  if ! mkfifo "$dir/status"; then rm -rf -- "$dir"; return 75; fi
-  python3 -c "$SMOKE_LOCK_PY" "$SMOKE_LOCK" "$1" $$ >"$dir/status" &
-  SMOKE_LOCK_PID=$!
-  while IFS= read -r line; do
-    case "$line" in
-      waiting) printf '%s\n' "$SMOKE_LOCK_WAITING" ;;
-      held|busy) status=$line; break ;;
-    esac
-  done <"$dir/status"
-  rm -rf -- "$dir"
-  if [ "$status" = held ]; then
-    # The holder must not stay a job this shell can wait on.  A bare `wait` waits for *every*
-    # child -- check 9 collects its two background runs that way, and so does the name-pair
-    # block below -- and this child only exits when the suite does: the suite would sit there
-    # for as long as anyone let it.  Disowned it is still the EXIT trap's to kill by pid, and
-    # it still watches its parent, so a crashed suite gives the remote back too.  (The pid form
-    # of `disown` is newer than bash 3.2, hence the jobspec fallback: right here the holder is
-    # the current job.)
-    disown "$SMOKE_LOCK_PID" 2>/dev/null || disown %% 2>/dev/null || :
-    SMOKE_LOCK_HELD=1
-    return 0
-  fi
-  wait "$SMOKE_LOCK_PID" 2>/dev/null   # it printed busy and exited; this only reaps it
-  SMOKE_LOCK_PID=""
-  return 75
-}
-smoke_lock_drop() {
-  [ -z "$SMOKE_LOCK_PID" ] || kill "$SMOKE_LOCK_PID" 2>/dev/null
-  SMOKE_LOCK_PID=""; SMOKE_LOCK_HELD=0
-}
 
 . "$REPO/tests/acceptance.sh"
 bad="" ASSERTION=0
@@ -260,10 +142,9 @@ cleanup() {
   sync_back || { KEEP=1 rc=1; }
   [ ! -f "$UH/.config/opencode/service.json" ] || env -i HOME="$UH" PATH="$EPATH" timeout 30 opencode service stop >/dev/null 2>&1 ||
     { say "WARN could not stop the OpenCode service of $UH; its HOME is kept"; KEEP=1 rc=1; }
-  [ "$KEEP" = 1 ] && { echo "kept: HOME $UH, workdir $WORK${SMOKE_REPO:+ (repo $SMOKE_REPO)}"; exit "$rc"; }
+  [ "$KEEP" = 1 ] && { echo "kept: HOME $UH, workdir $WORK"; exit "$rc"; }
   TMUX_TMPDIR="$E2E_TMUX_DIR" tmux -L agentkit-test kill-server >/dev/null 2>&1 || true
   rm -rf -- "$E2E_TMUX_DIR"
-  smoke_lock_drop
   cleanup_logs "$rc"
 }
 trap cleanup EXIT
@@ -708,48 +589,26 @@ EXP
 fi
 
 # ==== f) a real task, start to merged ======================================
-# Creating or resetting the private target, the run and the delivery check share the
-# host-wide lock. The remote stays; its seed and leftover ak/* branches are reset each run.
+# On a branch of its own in the caller's sandbox repository, beside any suite's, which the
+# clone's origin/HEAD names (tests/sandbox_branch.py); its branches go once the delivery is read.
 if ! doing f; then
   :
 elif GONE=$(for h in claude codex; do here "$h" || printf ' %s' "$h"; done) && [ -n "$GONE" ]; then
   skip "f: the run's workers are opus and astra;$GONE not on this host"
-elif ! smoke_lock_hold "$SMOKE_LOCK_WAIT"; then
-  no "f  a real task, orchestrated headlessly: another suite still holds the turn after\
- ${SMOKE_LOCK_WAIT}s; its seats and turn were never this gate's to take"
 else
-  E2E_LOGIN=$(gh api user --jq .login 2>"$WORK/e2e-login.err" || true)
-  SMOKE_REPO="$E2E_LOGIN/agentkit-e2e"
-  [ -n "$E2E_LOGIN" ] &&
-    { gh repo view "$SMOKE_REPO" >/dev/null 2>&1 ||
-      gh repo create "$SMOKE_REPO" --private >"$WORK/e2e-create.log" 2>&1; } &&
-    as "gh repo clone $SMOKE_REPO ~/agentkit-smoke -- -q" >"$WORK/clone-smoke.log" 2>&1
-  CRC=$?
-  # No clone, no seed: one cause, one failure, and the seed's `cd` never runs somewhere else.
-  SRC=1
-  if [ "$CRC" = 0 ]; then
-    as 'set -e
-        cd ~/agentkit-smoke
-        git config user.email e2e@localhost; git config user.name e2e
-        if ! git rev-parse --verify -q HEAD >/dev/null 2>&1; then
-          echo "# agentkit e2e target: reset on every run" >README.md
-          git add -A && git commit -qm init
-        fi
-        git reset --hard "$(git rev-list --max-parents=0 HEAD)"
-        git branch -M main
-        git push -q --force -u origin main
-        for branch in $(git for-each-ref --format="%(refname:strip=3)" refs/remotes/origin/ak/); do
-          git push -q origin --delete "$branch"
-        done' >"$WORK/seed.log" 2>&1
-    SRC=$?
-  fi
+  mkdir -p "$WORK/seed"
+  echo "# agentkit e2e target: a marker file on a branch of each gate" >"$WORK/seed/README.md"
+  as "python3 ~/agentkit/tests/sandbox_branch.py open ~/agentkit-smoke '$WORK/seed'" \
+    >"$WORK/seed.log" 2>&1
+  SRC=$?
+  # `$$` ends the title, as in tests/smoke.sh: a run id is the minute and the title, and two
+  # gates side by side must not share one.
   cat >"$WORK/task.md" <<TASK
 ---
 repo: $UH/agentkit-smoke
-base: main
 rounds: 2
 ---
-# Add the e2e marker file
+# Add the e2e marker file $$
 
 ## Goal
 The repository root holds a file named $MARKER whose only line is: agentkit e2e $TS
@@ -764,11 +623,10 @@ grep -qxF 'agentkit e2e $TS' $MARKER
 \`\`\`
 TASK
   install -m 0644 "$WORK/task.md" "$UH/e2e/task.md"
-  must "cloning $SMOKE_REPO failed" test "$CRC" = 0
-  must "seeding $SMOKE_REPO failed" test "$SRC" = 0
+  must "opening a branch of the sandbox repository failed" test "$SRC" = 0
   # Its log lines reach this gate's output as they come: a gate silent for as long as a run
   # can take is killed for it.
-  [ "$CRC" = 0 ] && [ "$SRC" = 0 ] &&
+  [ "$SRC" = 0 ] &&
     as 'timeout 3600 ak run ~/e2e/task.md --rounds 2' 2>&1 | tee "$WORK/run.log"
   RRC=$?
   RUNID=$(sed -n 's/^\[[0-9:]*\] run \([^:]*\): .*$/\1/p' "$WORK/run.log" | head -1)
@@ -779,8 +637,9 @@ TASK
   must "it was not merged" grep -q '^merged: yes$' "$RESULT"
   must "no PR URL" grep -q '^pr: https://' "$RESULT"
   must "remote done-when failed" as 'python3 ~/agentkit/tests/verify_delivery.py ~/agentkit-smoke ~/e2e/task.md ~/e2e/delivered'
+  as 'python3 ~/agentkit/tests/sandbox_branch.py close ~/agentkit-smoke' >>"$WORK/seed.log" 2>&1
   verdict "f  a real task, orchestrated headlessly" \
-    "$(grep -h '^pr: ' "$RESULT" 2>/dev/null) merged, done-when passed on fetched $SMOKE_REPO origin/main"
+    "$(grep -h '^pr: ' "$RESULT" 2>/dev/null) merged, done-when passed on the fetched branch it merged into"
 fi
 
 # ==== g) the needs-you notification, never posted ==========================
