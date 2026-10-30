@@ -159,13 +159,16 @@ class TargetsOwnRed(Round, unittest.TestCase):
 
 
 class ConflictingSibling(Round, unittest.TestCase):
-    """A sibling merges a change to the file the executor edits while it works: the conflict is
-    landing's to resolve, so the round judges the change on the target it started from."""
+    """A sibling merges a change to the file the executor edits while it works, and moves the
+    suite to a script only it holds: the conflict is landing's to resolve, so the round judges
+    the change on the target it started from, by that target's own suite."""
 
     @classmethod
     def during(cls):
+        conflicting = {"widget.txt": "v3\n", "suite-next.sh": SUITE_SH,
+                       "AGENTS.md": '---\ntests: sh suite-next.sh "$AK_CHANGED"\n---\n# widgets\n'}
         cls.fakes["claude"].behave(
-            edit({"widget.txt": "v2\n"}, sibling(cls, {"widget.txt": "v3\n"})),
+            edit({"widget.txt": "v2\n"}, sibling(cls, conflicting)),
             {"sh": "echo v3 v2 > widget.txt && git add widget.txt && "
                    "GIT_EDITOR=true git rebase --continue",
              "final": "Resolved.", "hand_in": [["done"]]})
