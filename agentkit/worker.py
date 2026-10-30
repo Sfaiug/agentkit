@@ -45,8 +45,9 @@ BLOCKED = ('[worker judgement] Close every turn with `ak hand-in done`, or `ak h
            "[worker judgement] `blocked` is only for a task that cannot be completed as written; never for a "
            "transient provider failure, a capacity refusal, or a check the loop runs later such "
            "as the `# once` suite.\n"
-           "[checked by ak: tests/test_hand_in.py] ak refuses malformed or wrong-role closings "
-           "and records after a closing.\n"
+           "[checked by ak: tests/test_hand_in.py] ak refuses malformed or wrong-role closings, "
+           "a `blocked` saying `split it` (ak counts a change's size itself), and records after a "
+           "closing.\n"
            "[checked by ak: tests/test_executor_text_ignored.py] ak asks once for a missing closing, "
            "then sends the work to checks and review.")
 # The reviewer supplies evidence; the loop weighs it outside the reviewer's editable copy.
@@ -140,7 +141,7 @@ SUITE = ("[worker judgement] Never run the repository's `tests:` suite or a larg
          "say so in your summary.")
 SIZE = (f"[checked by ak: tests/test_size_gate.py] ak ends the run blocked with `split it` when "
         f"its first review would read more than {taskfile.MAX_PR_LINES} added lines, the tests among "
-        "them (generated files and blocks moved unchanged aside).")
+        "them (files `.gitattributes` marks generated and blocks moved unchanged aside).")
 REVIEW_COPY = ("[checked by ak: tests/test_reviewer_edits_never_land.py] ak reviews in an isolated copy, "
                "archives and undoes edits; they never reach the branch.")
 TIMEOUT = 124       # what a turn killed for running past its limit exits with, as `timeout(1)` does

@@ -148,6 +148,17 @@ class HandIn(unittest.TestCase):
                         self.assertIn("closed", result.stderr)
                         self.assertEqual(self.file.read_bytes(), before)
 
+    def test_a_builder_never_splits_a_change_ak_counts_itself(self):
+        for role in ("executor", "fixer"):
+            with self.subTest(role=role):
+                hand_in.start(self.root, self.workspace, role=role)
+                before = self.file.read_bytes()
+                result = self.cli("blocked", "Split it: the change takes 580 added lines")
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("close with done", result.stderr)
+                self.assertEqual(self.file.read_bytes(), before)
+                self.assertEqual(self.cli("done").returncode, 0)
+
     def test_records_are_refused_in_the_wrong_role_before_running_evidence(self):
         for role in worker.PREAMBLES:
             hand_in.start(self.root, self.workspace, role=role)
