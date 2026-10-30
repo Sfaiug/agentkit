@@ -1,7 +1,6 @@
 package seat
 
 import (
-	"path/filepath"
 	"slices"
 
 	"agentkit/internal/config"
@@ -14,16 +13,18 @@ const audit = "audit"
 
 // A move is what a seat's last answer moves in its record (watch.follow_model): the
 // configured model the answer ran on, the seat's own first, and that model's orchestrator effort
-// where the answer ran at another it takes; "" for none.
-type move struct{ chosen, effort string }
+// where the answer ran at another it takes; "" for none. It is the answer of the conversation in
+// the directory it was read from: Python decides under the seat's announce lock, so a record
+// naming another by then is not this move's.
+type move struct{ chosen, effort, conversation, cwd string }
 
 // follows is the move of a record's last answer: `/model` or `/effort` typed in the seat moves
 // it as a move on `c` would. False where Python's answer hangs on a configured model or a
 // manifest this reading cannot read.
 func follows(record *run.Object, models map[string]config.Model, offered []string) (move, bool) {
-	kept := record.Str("orchestrator")
+	kept, conversation, cwd := record.Str("orchestrator"), record.Str("conversation"), record.Str("cwd")
 	own := models[kept]
-	model, effort, answered := harness.LastAnswer(own.Harness, record.Str("conversation"), record.Str("cwd"))
+	model, effort, answered := harness.LastAnswer(own.Harness, conversation, cwd)
 	if own.ID == "" || own.ID == "default" || !answered {
 		return move{}, true
 	}
@@ -45,28 +46,31 @@ func follows(record *run.Object, models map[string]config.Model, offered []strin
 		chosen = runs[at]
 	}
 	if effort == any(models[chosen].Efforts["effort"]) {
-		return move{chosen, ""}, true
+		return move{chosen, "", conversation, cwd}, true
 	}
 	takes, err := config.Efforts(own.Harness, model.(string))
 	if err != nil {
 		return move{}, false
 	}
 	if word, named := effort.(string); named && slices.Contains(takes, word) {
-		return move{chosen, word}, true
+		return move{chosen, word, conversation, cwd}, true
 	}
-	return move{chosen, ""}, true
+	return move{chosen, "", conversation, cwd}, true
 }
 
 // moved writes into the record what its last answer moved: its orchestrator, through
 // config.update_session, which gives each model the seat then runs its entry's efforts, then
 // that model's orchestrator effort, through config.change_efforts.
 func (seat Seat) moved(state string, models map[string]config.Model) error {
-	path, held := filepath.Join(state, "session-"+seat.Name+".json"), filepath.Join(state, ".session-"+seat.Name+".lock")
 	to := seat.follow
+	// the record the answer was read from, run by that orchestrator by then
+	read := func(data *run.Object, orchestrator string) bool {
+		return data.Str("orchestrator") == orchestrator && data.Str("conversation") == to.conversation && data.Str("cwd") == to.cwd
+	}
 	if to.chosen != "" && to.chosen != seat.Orchestrator {
 		orchestrate := set([]field{{"orchestrator", to.chosen}})
-		if err := put(path, held, run.Encode, func(data *run.Object) bool {
-			if !orchestrate(data) {
+		if err := update(state, seat.Name, func(data *run.Object) bool {
+			if !read(data, seat.Orchestrator) || !orchestrate(data) {
 				return false
 			}
 			ownEfforts(data, seat.Name, models)
@@ -78,9 +82,9 @@ func (seat Seat) moved(state string, models map[string]config.Model) error {
 	if to.effort == "" {
 		return nil
 	}
-	return put(path, held, run.Encode, func(data *run.Object) bool {
+	return update(state, seat.Name, func(data *run.Object) bool {
 		efforts := orchestratingAt(data, to.chosen, to.effort, models)
-		if run.Equal(efforts, data.Get("efforts")) {
+		if !read(data, to.chosen) || run.Equal(efforts, data.Get("efforts")) {
 			return false
 		}
 		data.Set("efforts", efforts)

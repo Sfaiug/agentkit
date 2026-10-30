@@ -275,11 +275,10 @@ func (home Home) Announce(now time.Time) error {
 		if seat.infer {
 			fields = append(fields, field{"repo", seat.repo})
 		}
-		path := filepath.Join(state, "session-"+seat.Name+".json")
 		if len(fields) == 0 {
 			continue
 		}
-		if err := put(path, filepath.Join(state, ".session-"+seat.Name+".lock"), run.Encode, set(fields)); err != nil {
+		if err := update(state, seat.Name, set(fields)); err != nil {
 			return err
 		}
 	}
@@ -328,7 +327,7 @@ func (seat Seat) announce(state string, now time.Time, models map[string]config.
 	}) {
 		return nil
 	}
-	return put(path, filepath.Join(state, "seat-"+seat.Name+".lock"), run.Line, set(fields, field{"session", seat.Name}))
+	return put(path, filepath.Join(state, "seat-"+seat.Name+".lock"), run.Line, true, set(fields, field{"session", seat.Name}))
 }
 
 type field struct {
@@ -337,19 +336,19 @@ type field struct {
 }
 
 // put changes the JSON object a file holds under its lock, through a temporary file beside it,
-// only where `change` says it changed it: Python's config.update_session and change_efforts,
-// and watch.seat_write.
-func put(path, held string, encode func(any) string, change func(data *run.Object) bool) error {
+// only where `change` says it changed it; a file holding none starts from an empty one where
+// `start` says so, as watch.seat_write starts a seat file, and is left as it is otherwise.
+func put(path, held string, encode func(any) string, start bool, change func(data *run.Object) bool) error {
 	file, err := lock.Wait(context.Background(), held)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 	data, _ := run.ReadJSON(path)
-	if data == nil {
+	if data == nil && start {
 		data = run.NewObject()
 	}
-	if !change(data) {
+	if data == nil || !change(data) {
 		return nil
 	}
 	tmp := strings.TrimSuffix(path, ".json") + ".tmp"
@@ -357,6 +356,13 @@ func put(path, held string, encode func(any) string, change func(data *run.Objec
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// update changes a seat's record as config.update_session and change_efforts do: only one still
+// there under its lock, never one removed or left a rename pointer while the listing waited.
+func update(state, name string, change func(data *run.Object) bool) error {
+	return put(filepath.Join(state, "session-"+name+".json"), filepath.Join(state, ".session-"+name+".lock"), run.Encode, false,
+		func(data *run.Object) bool { return !data.Has(config.Renamed) && change(data) })
 }
 
 // set is the change that sets fields, and the stamps beside them, only where a field changes

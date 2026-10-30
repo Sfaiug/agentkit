@@ -350,6 +350,44 @@ func TestAnnounceFollowsTheSeatsLastAnswer(t *testing.T) {
 	}
 }
 
+// What Read decided from may change before Announce takes the seat's locks, as while a Python
+// screen announces the seat: a record removed stays removed, and one replaced is not moved by
+// the answer of the conversation it replaced.
+func TestAnnounceChangesOnlyTheRecordItReadFrom(t *testing.T) {
+	for name, change := range map[string]func(t *testing.T, home, path string){
+		"removed": func(t *testing.T, home, path string) {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"replaced": func(t *testing.T, home, path string) {
+			record(t, home, "acme", map[string]any{"repo": filepath.Join(home, "code", "acme"), "conversation": "conv-new"})
+		},
+		"left a rename pointer": func(t *testing.T, home, path string) {
+			write(t, path, `{"renamed": "beta"}`)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := sandbox(t)
+			record(t, home, "acme", map[string]any{"repo": filepath.Join(home, "code", "acme")})
+			transcript(t, home, "acme", `{"type":"assistant","effort":"max","message":{"model":"claude-fable"}}`+"\n")
+			found, known := Read(moment)
+			if !known {
+				t.Fatal("Read does not know this home")
+			}
+			path := filepath.Join(home, ".agentkit", "state", "session-acme.json")
+			change(t, home, path)
+			before, _ := os.ReadFile(path)
+			if err := found.Announce(moment); err != nil {
+				t.Fatal(err)
+			}
+			if after, _ := os.ReadFile(path); string(after) != string(before) {
+				t.Fatalf("record %q became %q", before, after)
+			}
+		})
+	}
+}
+
 // A Claude record with no conversation has no row, but its listing still files it.
 func TestAnnounceInfersARepoForASeatWithNoRow(t *testing.T) {
 	home := sandbox(t)
