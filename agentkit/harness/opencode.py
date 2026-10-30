@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import urllib.parse
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import config
@@ -275,15 +276,18 @@ def error(record, cwd, conversation):
 
     OpenCode ends every turn in an `idle` row whose `outcome` says how; a failed one holds its own
     error -- the `provider.*` type, the status and the message the seat shows behind `Error: `
-    -- which no model's answer is and no terminal width wraps."""
+    -- which no model's answer is and no terminal width wraps.  One that names its wait
+    (`retryAfterMs`, from the row's own stamp: 2.2.3's free limit) says when, as
+    `turns.try_again_at` reads it."""
     from . import rows
     if not isinstance(conversation, str) or not SESSION.fullmatch(conversation):
         return None
-    found = rows(database(), "SELECT type, data FROM session_message WHERE session_id = ?"
-                 " AND type IN ('user', 'idle') ORDER BY seq DESC LIMIT 1", conversation)
+    found = rows(database(), "SELECT type, time_created, data FROM session_message"
+                 " WHERE session_id = ? AND type IN ('user', 'idle') ORDER BY seq DESC LIMIT 1",
+                 conversation)
     if not found:
         return None
-    kind, data = found[0]
+    kind, created, data = found[0]
     try:
         ended = json.loads(data)
     except (TypeError, ValueError):
@@ -291,5 +295,10 @@ def error(record, cwd, conversation):
     failed = ended.get("error") if kind == "idle" and isinstance(ended, dict) else None
     if not isinstance(failed, dict):
         return ""
-    return "Error: " + " ".join(str(failed[key]) for key in ("type", "status", "message")
+    said = "Error: " + " ".join(str(failed[key]) for key in ("type", "status", "message")
                                 if failed.get(key) is not None)
+    wait = failed.get("retryAfterMs")
+    if isinstance(wait, (int, float)) and isinstance(created, (int, float)):
+        reset = datetime.fromtimestamp((created + wait) / 1000, timezone.utc)
+        said += f" try again at {reset.isoformat(timespec='seconds')}"
+    return said
