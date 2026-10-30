@@ -2,10 +2,12 @@ package config
 
 import (
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -60,6 +62,57 @@ func Digits(text string) bool {
 		}
 	}
 	return text != ""
+}
+
+// MaxDigits is the longest int Python converts from text (sys.int_info.default_max_str_digits),
+// and MinDigits the longest every PYTHONINTMAXSTRDIGITS lets it convert
+// (sys.int_info.str_digits_check_threshold).
+const (
+	MaxDigits = 4300
+	MinDigits = 640
+)
+
+// Int is the number Python's int() reads in stripped text, or nil: a sign, then decimal
+// digits of any script, with single underscores between them, so `1_0` is ten, and no more
+// digits than PYTHONINTMAXSTRDIGITS lets it read, leading zeros among them.
+func Int(text string) *big.Int {
+	digits := strings.TrimLeft(text, "+-")
+	sign := text[:len(text)-len(digits)]
+	if len(sign) > 1 {
+		return nil
+	}
+	var number strings.Builder
+	for _, part := range strings.Split(digits, "_") {
+		if part == "" {
+			return nil
+		}
+		for _, r := range part {
+			if !unicode.IsDigit(r) {
+				return nil
+			}
+			// Unicode keeps each script's digits in a run from 0 to 9
+			zero := r
+			for unicode.IsDigit(zero - 1) {
+				zero--
+			}
+			number.WriteRune('0' + (r-zero)%10)
+		}
+	}
+	if limit := intDigits(); limit > 0 && number.Len() > limit {
+		return nil
+	}
+	value, _ := new(big.Int).SetString(sign+number.String(), 10)
+	return value
+}
+
+// intDigits is the most digits Python's int() reads, 0 for any number: PYTHONINTMAXSTRDIGITS
+// as Python reads it, else MaxDigits. A value Python refuses stops Python before it starts.
+func intDigits() int {
+	raw := strings.TrimLeft(os.Getenv("PYTHONINTMAXSTRDIGITS"), " \t\n\v\f\r")
+	if limit, err := strconv.ParseInt(raw, 10, 32); err == nil && (limit == 0 || limit >= MinDigits) {
+		return int(limit)
+	}
+	return MaxDigits
 }
 
 // RepoEnv is the KEY=value pairs of ~/.agentkit/env/<checkout name>.env, none without that
