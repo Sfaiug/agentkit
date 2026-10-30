@@ -63,6 +63,7 @@ class FreshStandingFaults(unittest.TestCase):
             self.gates.exit("e2e-fresh", int(bool(old)), old, run=2)
         done = self.home.ak("update", timeout=120)
         self.assertEqual(done.code, code, done.out + done.err)
+        self.assertIn("e2e-fresh", self.gates.ran(), done.out)  # no seat's turn held it back
 
     def tick(self):
         """One tick of the live install: the lines it typed into the seat."""
@@ -101,6 +102,8 @@ class FreshStandingFaults(unittest.TestCase):
         self.seat.show("claude-working-pane.txt")
         self.assertEqual(self.tick(), [])
         self.seat.show("claude-prompt-pane.txt")
+        listed = self.home.ak("orch", "list")   # which reads the turn ended
+        self.assertEqual(listed.code, 0, listed.err)
         self.update(["q"], ["q"])
         self.update([], [])
         self.update(["c"], ["c"])
