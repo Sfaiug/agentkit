@@ -11,7 +11,6 @@ from outside through tests/fixtures/akbin.py, with a scripted harness from fakea
 cannot give the file a /run of its own.
 """
 
-import functools
 import json
 import os
 from pathlib import Path
@@ -28,9 +27,6 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REPO, Home, boxable
 
 TEMPORARY = ("/tmp", "/var/tmp", "/dev/shm")
-# The host's /run, where its services listen, is not the test's to write: the file runs again in
-# a box whose /run is a throwaway overlay of it, so a service's socket can be put there.
-OWN_RUN = ("bwrap", "--dev-bind", "/", "/", "--overlay-src", "/run", "--tmp-overlay", "/run")
 INSIDE = "AK_KEY_OWN_RUN" in os.environ
 
 # Run inside the turn, from its workspace, with the plan the test wrote; writes what it found.
@@ -88,13 +84,18 @@ def resolved():
              for path in ("/etc/hosts", "/etc/resolv.conf")])
 
 
-@functools.cache
 def own_run():
-    return boxable() and subprocess.run([*OWN_RUN, "--", "true"], capture_output=True,
-                                        timeout=60).returncode == 0
+    """The host's /run, where its services listen, is not the test's to write: a box whose /run
+    is a throwaway tmpfs holding each of the host's entries, child mounts and all, so a
+    service's socket can be put beside them."""
+    args = ["bwrap", "--dev-bind", "/", "/", "--tmpfs", "/run"]
+    for entry in sorted(os.scandir("/run"), key=lambda entry: entry.name):
+        args += (["--symlink", os.readlink(entry.path), entry.path] if entry.is_symlink() else
+                 ["--dev-bind-try", entry.path, entry.path])
+    return args
 
 
-@unittest.skipUnless(INSIDE or own_run(), "no bwrap able to box a turn, or give a /run, here")
+@unittest.skipUnless(boxable(), "no bwrap able to box a turn here")
 class WorkerBoxWrites(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -206,7 +207,7 @@ class WorkerBoxWrites(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    if not INSIDE and own_run():
-        sys.exit(subprocess.call([*OWN_RUN, "--setenv", "AK_KEY_OWN_RUN", "1", "--",
+    if not INSIDE and boxable():
+        sys.exit(subprocess.call([*own_run(), "--setenv", "AK_KEY_OWN_RUN", "1", "--",
                                   sys.executable, os.path.abspath(sys.argv[0]), *sys.argv[1:]]))
     unittest.main()
