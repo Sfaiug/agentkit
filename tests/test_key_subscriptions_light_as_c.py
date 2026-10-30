@@ -64,6 +64,9 @@ class SubscriptionsLightAsC(unittest.TestCase):
             return {"meters": [{"name": "weekly", "used": percent, "window_secs": 604800}]}
         self.home.write(".agentkit/state/usage.json", {"fetched_at": time.time(), "providers": {
             "anthropic": {"accounts": {"default": used(16), "two": used(71)}}}})
+        # Claude II's login ending in two days: FADING's `− remove` follows its `↻ log in again`
+        self.home.write(".agentkit/state/logins.json", {"anthropic": {"two": {
+            "ends": time.time() + 2 * 86400, "checked_at": time.time()}}})
         self.term = Terminal(self.home, size=(100, 30), env={"COLORTERM": "truecolor"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
                         "sleep 86400", server=SERVER)
