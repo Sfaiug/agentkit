@@ -1,11 +1,14 @@
-"""A Mac that runs a sharded suite's pieces while it is awake and on power: `suite_helper` in
-config.toml names it by ssh alias. Each piece runs in a Linux VM of Apple's `container`, built
-from the recipe the repository's `suite_image:` names, else its tools/helper/Containerfile (ak's
-own), with only the tree under test and its repository's history mounted, read-only, and nothing
-beyond loopback: the Mac's own files, keys and logins never reach it. A repository with neither
-runs its suite here. The Mac keeps each repository's history between suites, so a suite sends
-only the commits it lacks. A piece the Mac lost -- it left its charger or slept, the connection
-or the VM broke -- returns a helper failure code.
+"""A machine that runs a sharded suite's pieces beside this one: `suite_helper` in config.toml
+names it by ssh alias. A Mac runs each piece in a Linux VM of Apple's `container` while it is awake
+and on power; a Linux machine with docker (on Debian, its packages `docker.io` and `docker-cli`,
+the ssh user in group `docker`), which holds nothing but ak's work and gives it all its memory but
+a tenth, in a container. Its image is built from the recipe the repository's `suite_image:` names,
+else its tools/helper/Containerfile (ak's own), with only the tree under test and its repository's
+history mounted, read-only, and nothing beyond loopback: the machine's own files, keys and logins
+never reach it. A repository with neither runs its suite here. The machine keeps each repository's
+history between suites, so a suite sends only the commits it lacks. A piece the machine lost -- a
+Mac left its charger or slept, the connection, the VM or the container broke -- returns a helper
+failure code.
 """
 
 from collections import namedtuple
@@ -23,10 +26,10 @@ import tempfile
 from . import config, gitcall, machines, orch
 
 LOST = 255            # ssh's own failure
-LACKS = 3             # mac.sh's `prepare`: the Mac's copy lacks history the parcel left out
-SHORT = 254           # piece.sh: the kernel of the piece's VM killed a process for memory
-BATTERY, FULL, BROKEN = 251, 252, 253   # mac.sh: off power, no room for the VM, could not run
-GONE = (LOST, SHORT, BATTERY, BROKEN)   # a piece's exit when the Mac lost it
+LACKS = 3             # mac.sh's `prepare`: the copy there lacks history the parcel left out
+SHORT = 254           # piece.sh: the kernel killed a process of the piece for memory
+BATTERY, FULL, BROKEN = 251, 252, 253   # mac.sh: off power, no room for the piece, could not run
+GONE = (LOST, SHORT, BATTERY, BROKEN)   # a piece's exit when the helper lost it
 TOOLS = config.REPO / "tools" / "helper"
 RECIPE = "tools/helper/Containerfile"     # a repository's recipe when `suite_image:` names none
 SSH = ("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15")
@@ -39,9 +42,9 @@ Away = namedtuple("Away", "alias key repo image count cpus memory_mb branch defa
 
 
 def _remote(alias, verb, *args, **kwargs):
-    name = "linux.sh" if alias.startswith("ak-g") else "mac.sh"
-    script = (TOOLS / name).read_text()
-    argv = [*SSH, alias, shlex.join(["bash", "-c", script, name, verb, *map(str, args)])]
+    # Every kind of machine is sent every kind's functions, and picks its own by `uname`.
+    script = (TOOLS / "linux.sh").read_text() + (TOOLS / "mac.sh").read_text()
+    argv = [*SSH, alias, shlex.join(["bash", "-c", script, "mac.sh", verb, *map(str, args)])]
     return subprocess.run(argv, capture_output=True, **kwargs) if kwargs else argv
 
 
@@ -90,7 +93,7 @@ def _tracked(cwd, path):
 def room(alias, piece_cpus, piece_mem_mb, least_mb=0):
     """((pieces, CPUs each, MiB each), reason): a fit, or (None, why it cannot run there).
     Its CPUs less its load, split equally, as VMs time-share them; the memory ak's VMs may still
-    be given there (mac.sh's `left`), beside other suites' VMs. A VM gets two CPUs or more, as a
+    be given there (`left`), beside other suites' VMs. A VM gets two CPUs or more, as a
     one-CPU VM's kernel hands a terminal's bytes over late and the suite's terminal tests read
     them at once, and twice the piece's measured memory, as it also holds its own kernel, page
     cache and clone, or `least_mb` where that is more."""
@@ -246,7 +249,7 @@ def failed(away, shard, named="failed"):
 
 
 def finish(away):
-    """The suite's tree leaves the Mac; one that does not answer clears it a day later."""
+    """The suite's tree leaves the helper; one that does not answer clears it a day later."""
     try:
         _remote(away.alias, "finish", away.key, timeout=30)
     except (OSError, subprocess.TimeoutExpired):
