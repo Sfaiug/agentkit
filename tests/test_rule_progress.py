@@ -13,7 +13,8 @@ The update's progress callback runs against a temporary HOME, every command answ
 fake `subprocess.run`, so no checkout moves.  The glide runs a project's feature switches screen
 in a child process on a pty of its own, the project's `list` and `set` a fake that takes as
 long as the test says, and so do the wait and a catalog, over a config built in the child.  The
-child's clock moves only as a wait of its own runs out, and it says so, so what a test measures
+child's clock moves only by what it waits -- a sleep, or a wait for a key that runs out -- and
+it says so, so what a test measures
 is what the screen did however the host runs it; nothing reaches a real project, seat or the
 owner's ~/.agentkit, and the only process signalled is the test's own child.
 """
@@ -40,11 +41,12 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, menu, motion, terminal, update  # noqa: E402
 
 # Both children's time: the real screens, clock and key reader over a clock that moves only by
-# the waits that run out, each saying where it stands now, and a clock's every frame said too;
-# with RULE_HOLD no wait runs out from the first lit cell until a key is read.  A list due by
-# then has landed before the clock goes on, one that takes no time as the first draw is out.
+# what they wait -- a sleep, or a wait of the key reader's that runs out -- each saying where it
+# stands now, and a clock's every frame said too; with RULE_HOLD no wait runs out from the first
+# lit cell until a key comes.  A list due by then has landed before the clock goes on, one that
+# takes no time as the first draw is out.
 CLOCK = r"""
-import os, sys, threading, time
+import os, select, sys, threading, time, types
 sys.path.insert(0, os.environ["RULE_REPO"])
 from agentkit import menu, motion, terminal
 
@@ -55,6 +57,10 @@ class Waited:
     def monotonic(self):
         return self.now
 
+    def sleep(self, seconds):
+        time.sleep(seconds)
+        passed(seconds)
+
     def __getattr__(self, name):
         return getattr(time, name)
 
@@ -63,6 +69,12 @@ menu.time = motion.time = terminal.time = waited = Waited()
 print(f"<now {waited.now}>", flush=True)
 LIST, hold, held = float(os.environ["RULE_LIST"]), bool(os.environ["RULE_HOLD"]), False
 drawn = threading.Event()
+
+
+def passed(seconds):
+    waited.now += seconds
+    print(f"<now {waited.now}>", flush=True)
+    landed()
 
 
 def until(due):
@@ -76,16 +88,13 @@ def landed():
         time.sleep(0.001)
 
 
-def read_key(timeout=None, wake=None, read=terminal.read_key):
+def waiting(reads, writes, errors, timeout=None):
     global held
-    timeout, began = None if held else timeout, time.monotonic()
-    key = read(timeout, wake)
-    held = held and key is None
-    if key is None and timeout and time.monotonic() >= began + timeout:
-        waited.now += timeout       # it ran out: no key, no news
-        print(f"<now {waited.now}>", flush=True)
-        landed()
-    return key
+    ready = select.select(reads, writes, errors, None if held else timeout)
+    held = held and not ready[0]
+    if not ready[0] and timeout:
+        passed(timeout)             # it ran out: no key, no news
+    return ready
 
 
 def frame(*args, draw=terminal.frame, **more):
@@ -102,18 +111,20 @@ def clock_frame(clock, write=motion.Clock.frame):
     return "<frame>" + out
 
 
-terminal.read_key, terminal.frame, motion.Clock.frame = read_key, frame, clock_frame
+terminal.select = types.SimpleNamespace(select=waiting)
+terminal.frame, motion.Clock.frame = frame, clock_frame
 """
 # The child: the real feature switches screen and key reader, opened RULE_OPENS times, over a
 # `list` that takes RULE_LIST seconds, asked again every RULE_TICK, and `set`s that take each of
-# RULE_SET in turn, none answered before the last is asked, answering the row as each left it;
-# it says when each has landed and when the screen has gone back.  With RULE_WAIT it is a screen
+# RULE_SET in turn and land last asked first, answering the row as each left it; it says when
+# each has landed and when the screen has gone back.  With RULE_WAIT it is a screen
 # waiting on a fetch that never lands instead.
 CHILD = CLOCK + r"""
 from pathlib import Path
 
 server = {"id": "dark", "name": "Dark mode", "you": False, "everyone": False}
 sets = [float(seconds) for seconds in os.environ["RULE_SET"].split(",")]
+flipping, landings = threading.local(), []      # each `set` asked: set once it has landed
 
 def features_run(checkout, *words):
     if words[0] == "list":
@@ -121,15 +132,18 @@ def features_run(checkout, *words):
         until(menu._SWITCHES[str(checkout)]["asked"] + LIST)
         return [dict(server)], ""
     server[words[2]] = words[3] == "on"
-    row = dict(server)
+    row, flipping.landed = dict(server), threading.Event()
+    landings.append(flipping.landed)      # before its seconds go: once `sets` is empty, all are in
     until(waited.now + (sets.pop(0) if sets else 0))
-    while sets:
+    while sets or not all(landed.is_set() for landed in
+                          landings[landings.index(flipping.landed) + 1:]):
         time.sleep(0.001)
     return row, ""
 
 def features_flip(checkout, feature, column, flip=menu.features_flip):
     note = flip(checkout, feature, column)
     print(f"<{menu.FEATURES_HEADS[column]} landed>", flush=True)
+    flipping.landed.set()
     return note
 
 menu.features_run, menu.features_flip = features_run, features_flip
@@ -355,13 +369,12 @@ class RuleProgress(unittest.TestCase):
     def test_a_set_left_behind_by_esc_never_draws_over_a_later_one(self):
         screen = Screen(self, 0, flip="2,0", opens=2)
         screen.when("Dark mode")
-        os.write(screen.master, b" ")                  # `you on`, answered in two seconds
+        os.write(screen.master, b" ")                  # `you on`: two seconds, and after `everyone`
         screen.when(GLIDE.pattern)
         os.write(screen.master, b"\x1b")
         screen.when("<back>")
         screen.when("Dark mode", after=screen.text().index("<back>"))    # open again
         os.write(screen.master, b"\x1b[C ")            # `everyone on`, answered at once
-        screen.when("<everyone landed>")
         screen.when("<you landed>")                     # with `everyone` still off in its row
         # the draw under way as it landed may have read the rows before it, the next did not
         under_way, _ = screen.draw(screen.text().index("<you landed>"))
