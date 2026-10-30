@@ -29,8 +29,9 @@ REVIEW = {"sh": WHERE, "final": "Handed in.", "hand_in": [["done"]]}
 
 
 class ATurnRunsOnAMachine(unittest.TestCase):
-    def run_task(self, switch, cpus):
-        """Where the task's turns and its commit ran, and the turn containers the machine ran."""
+    def run_task(self, switch, cpus, held=None):
+        """Where the task's turns and its commit ran, and the turn containers the machine ran.
+        `held`: the CPUs a suite just admitted there holds."""
         home = Home()
         self.addCleanup(home.close)
         rig = Rig(home, "widgets", files={
@@ -48,6 +49,9 @@ class ATurnRunsOnAMachine(unittest.TestCase):
             place.mkdir(parents=True)
             (place / harness).touch(0o755)
         (machine / "bin/nproc").write_text(f"#!/bin/sh\necho {cpus}\n")
+        if held:
+            (machine / "home/.agentkit-helper/suite").mkdir()
+            (machine / "home/.agentkit-helper/suite/reserved").write_text(str(held))
         task = taskfile.write(home, rig.path, done_when=("test -f left.txt && test ! -e gone.txt",))
         done = home.ak("run", str(task), timeout=300)
         self.assertEqual(done.code, 0, done.out + done.err)
@@ -65,6 +69,9 @@ class ATurnRunsOnAMachine(unittest.TestCase):
     def test_both_turns_run_on_the_machine(self):
         self.assertEqual(self.run_task(True, 2), (["docker"] * 2, "docker", 2))
         self.assertTrue(self.login.endswith("/bin/ak"), self.login)
+
+    def test_a_machine_with_only_a_turn_s_room_left_takes_the_turns(self):
+        self.assertEqual(self.run_task(True, 5, held=8), (["docker"] * 2, "docker", 2))
 
     def test_with_the_switch_off_or_no_room_the_turns_run_here(self):
         for switch, cpus in ((False, 2), (True, 1)):

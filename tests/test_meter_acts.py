@@ -3,11 +3,12 @@
 The owner (20 Oct 2026): "Pressing on the usage meters inside the config and on the menu has a
 different effect, should always be the same one. I dont want removing to be able this way, just
 actions such as spendign a reset, or claude relogin".  Enter on a meter over `c` lists what a
-click on one on the ak screen lists (tests/test_login_click.py), `↻ log in again` and `↻ spend a
-reset` while one is in hand, never `− remove`, which is under each subscription's row on
-`Subscriptions`.  `log in again` only where its harness signs in afresh: Antigravity's usual
-login cannot (`[auth] again = false`).  In-process, in a temporary HOME: `c`'s key reader faked and every list let go,
-so nothing is signed in, spent or removed.
+click on one on the ak screen lists (tests/test_login_click.py), `↻ log in again` while its login
+ends soon (here every one's does) and `↻ spend a reset` while one is in hand, never `− remove`,
+which is under each subscription's row on `Subscriptions`.  `log in again` only where its harness
+signs in afresh: Antigravity's usual login cannot (`[auth] again = false`).  In-process, in a
+temporary HOME: `c`'s key reader faked and every list let go, so nothing is signed in, spent or
+removed.
 """
 
 from contextlib import redirect_stdout
@@ -28,6 +29,9 @@ class MeterActs(Sandbox):
         super().setUp()
         (config.STATE / "usage.json").write_text(json.dumps({"fetched_at": 10000, "providers": {
             "anthropic": {"meters": [WEEK], "resets": 1}, "openai": {"meters": [WEEK]}}}))
+        soon = {"default": {"ends": 10000 + 2 * 86400}}
+        (config.STATE / "logins.json").write_text(json.dumps(
+            {provider: soon for provider in self.cfg["providers"]}))
         self.rows = [label for _, label, _, _ in menu.usage_rows(self.cfg)]
         self.offered = []
         self.stack.enter_context(patch.object(terminal, "choose", side_effect=lambda choices, *_a,
@@ -64,9 +68,9 @@ class MeterActs(Sandbox):
                           if line[:1] in " ›" and line[2:3].strip()],
                          [*self.rows, "+ add a subscription"])
 
-        def under(lines, label):      # the line the row of `label` opens, as it reads
+        def under(lines, label):      # the acts on the line the row of `label` opens, as it reads
             return lines[next(at for at, line in enumerate(lines)
-                              if line[2:].startswith(label + " ")) + 1].strip().split("   ")
+                              if line[2:].startswith(label + " ")) + 1].strip().split("   ")[1:]
         self.assertEqual(under(drawn[0], "Claude"),
                          ["[↻ log in again]", "↻ spend a reset", "− remove"])
         self.assertEqual(under(drawn[1], "ChatGPT"), ["[↻ log in again]", "− remove"])
@@ -118,6 +122,7 @@ class MeterActs(Sandbox):
         self.assertEqual(self.drive("enter"), (["anthropic"], []))
 
     def test_resets_with_no_room_beside_the_meter_are_on_its_line(self):
+        (config.STATE / "logins.json").unlink()       # its line says no login ending first
         self.stack.enter_context(patch.object(terminal, "layout_width", return_value=30))
         drawn = self.keyed(lambda: menu.config_subscriptions(self.cfg, None), [("back", None)])
         self.assertEqual(drawn[0][1:3], ["› Claude   ▰▰▰▰▱▱▱▱  50% left",
