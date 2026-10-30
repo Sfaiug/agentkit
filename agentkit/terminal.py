@@ -1424,13 +1424,16 @@ def choose(choices, default=None, around=None, wait=None, warn=None):
 
     The list is drawn where the cursor is and drawn over in place as the highlight moves.
     ↑/↓, k/j and the wheel move it; Enter picks the highlighted choice, and Space does nothing.
-    `default`, a choice, starts highlighted.  The keys are `read_key`'s, so the terminal
-    is a `Keyboard`'s already; the main menu is what takes one, and so far nothing else does.
+    `default`, a choice, starts highlighted, the first where it is None; one not among them
+    leaves nothing highlighted, Enter doing nothing, until a key moves onto the first or the
+    pointer onto one.  The keys are `read_key`'s, so the terminal is a `Keyboard`'s already;
+    the main menu is what takes one, and so far nothing else does.
 
     `around(choice)` draws the screen a list is asked inside, its key line naming what Enter
-    does on `choice`, the highlighted one, and returns the row its first choice goes on; it is
-    called again after every key and whenever the screen wants drawing again -- a resize -- so
-    the list and the rows a click is read against are always where that screen now puts them.
+    does on `choice`, the highlighted one, None with none, and returns the row its first choice
+    goes on; it is called again after every key and whenever the screen wants drawing again --
+    a resize -- so the list and the rows a click is read against are always where that screen
+    now puts them.
     There a click on a choice picks it; the key line's Enter and Esc answer as their keys do,
     and a click on nothing is let go; a button that went down before the list moved is no click.
     The pointer on a choice moves the highlight to it, and its screen is drawn again for what
@@ -1440,11 +1443,12 @@ def choose(choices, default=None, around=None, wait=None, warn=None):
     in the warn colour: the one of `confirm`'s that ends something.
     """
     global _PRESSED, _SHOWN, _PAINTED
-    at = choices.index(default) if default in choices else 0
+    at = (choices.index(default) if default in choices
+          else 0 if default is None and choices else None)
     drawn, top, again = 0, None, around is not None
     while True:
         if again:
-            moved, again = around(choices[at] if choices else None), False
+            moved, again = around(None if at is None else choices[at]), False
             if moved != top:
                 _PRESSED = False  # a press where a choice was is no click on what is there now
             top = moved
@@ -1479,9 +1483,9 @@ def choose(choices, default=None, around=None, wait=None, warn=None):
         elif key.name == "click":
             if spot.what is not None:
                 return choices[spot.what]
-        elif step(key):
-            at = min(max(at + step(key), 0), len(choices) - 1)
-        elif key.name == "enter" and choices:
+        elif step(key) and choices:
+            at = 0 if at is None else min(max(at + step(key), 0), len(choices) - 1)
+        elif key.name == "enter" and at is not None:
             return choices[at]
         elif key.name in ("esc", "eof"):
             return None
