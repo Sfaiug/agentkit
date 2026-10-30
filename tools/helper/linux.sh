@@ -58,14 +58,22 @@ linux() {
     grep -vxF -f <(cat "$ROOT"/*/image/name 2>/dev/null) | xargs -r docker image rm >/dev/null 2>&1
     return 0
   }
-  # images KEY IMAGE, under the build lock: the suite's image, built unless the machine has it;
-  # the repository's other images go once no suite here names them.
-  images() {
+  # build KEY IMAGE: the suite's image, built unless the machine has it.
+  build() {
     docker image inspect "$2" >/dev/null 2>&1 || {
       cd "$ROOT/$1" && mkdir -p context &&
         docker build -q -t "$2" -f "$PWD/image/Containerfile" context </dev/null >build.log 2>&1 ||
         exit 253
     }
+  }
+  # building KEY IMAGE, from `prepare` after `images`: the build, under its image's own lock, so
+  # the minutes a new machine's first build of one image take hold up no other's. No `drop` takes
+  # the image after: each runs under the build lock, reading the name this suite wrote before its
+  # `images` took that lock.
+  building() { locked "$ROOT/build-${2//[:\/]/-}.lock" build "$1" "$2"; }
+  # images KEY IMAGE, under the build lock: the repository's other images go once no suite here
+  # names them.
+  images() {
     tags "${2%:*}" | grep -vxF "$2" | drop
     expire
   }
