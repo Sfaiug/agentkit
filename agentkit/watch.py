@@ -7631,7 +7631,7 @@ def after_merge_checks(state, dry_run, log, now=None):
 def doctor(argv):
     """`ak doctor`: where the agents run, whether the tick that watches them is alive, what each
     machine ak may use is, and any model set to an effort its model does not take, its `effort`
-    or the one a role runs it at, then the best machine to rent now, or why there is none.
+    or the one a role runs it at, then what ak rents while it may, else the best machine to rent.
 
     The first lines are read and never asked, so they cost nothing on a host already in
     trouble -- which is the host this is typed on -- and come out before the efforts, which
@@ -7660,10 +7660,10 @@ def doctor(argv):
     print("\n".join(wrong) or "effort  every model takes the effort it is set to", flush=True)
     from . import gate, google_cloud   # here, not at the top: the gate imports this module
     try:
-        best = google_cloud.best(gate.HEAVY_MEM_MB)
-        print(f"rented machines: best now {best}" if best else "rented machines: nothing offered")
-    except google_cloud.Unavailable as exc:
-        print(f"rented machines: {exc}")
+        lines = google_cloud.said(gate.HEAVY_MEM_MB)
+    except config.Error as exc:
+        lines = [str(exc)]
+    print("\n".join(f"rented machines: {line}" for line in lines))
     return 0
 
 
@@ -7728,7 +7728,7 @@ def local_passes(state, dry_run, log):
     Each pass re-derives placement or state from what it finds: a finding remembered from one
     tick to the next loses its race.
     """
-    from . import job as jobs, leases, logins, machines, retire, run
+    from . import google_cloud, job as jobs, leases, logins, machines, retire, run
     providers = {}
 
     def read_usage():
@@ -7836,6 +7836,8 @@ def local_passes(state, dry_run, log):
         # Each machine ak may use is asked what it is; one that does not answer holds the tick
         # no longer than its ssh timeout.
         ("the machines were not checked", machines.check, False),
+        # ... and Google for what ak rents, given back past its time or the month's cap
+        ("the rented machines were not watched", google_cloud.watch, False),
         # A merge to a project reaches its seats' rulebooks: their next prompts name it.
         ("the projects' rules were not fetched", orch.fetch_projects, False),
         # Merged agentkit goes live after every local pass, so as little of this tick's old
