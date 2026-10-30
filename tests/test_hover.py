@@ -441,10 +441,13 @@ class Screens(Sandbox):
                            terminal.keys("esc back", enter="add"))
             return 3
 
-        screens = run(lambda: terminal.choose(["Claude", "ChatGPT", "Grok"], around=around),
-                      move(5, 5), b"k", move(1, 2), ESC)[1]
+        choose = lambda: terminal.choose(["Claude", "ChatGPT", "Grok"], around=around)
+        screens = run(choose, move(5, 5), b"k", move(1, 2), ESC)[1]
         self.assertOneHighlight(screens[1], "Grok")
         self.assertOneHighlight(screens[2], "ChatGPT")
+        self.assertEqual(highlighted(screens[-1]), [])
+        # a click on the header first leaves the keys their highlight, for that move to take
+        screens = run(choose, move(5, 5), b"k", b"\x1b[<0;1;1M\x1b[<0;1;1m", move(1, 2), ESC)[1]
         self.assertEqual(highlighted(screens[-1]), [])
 
     def test_the_models_screens_draw_no_highlight_off_every_row(self):
