@@ -1,8 +1,9 @@
 """`Subscriptions` on `c` comes up and lights as `c` does: the pointer moving onto `Claude II`
 is written a frame with its label part of the way to its company's colour before the frame
 with all of it; the page opening is written a frame whose header has `agentkit` and only part
-of `config · subscriptions` before the frame with all of it; and `+ add a subscription` is
-bright only while it is highlighted.
+of `config · subscriptions` before the frame with all of it; `+ add a subscription` is bright
+only while it is highlighted; a company is named in its colour; and the line a row opens comes
+up under it.
 
 The owner's ask of 27 Oct 2026, coherence everywhere.  Black-box: the program `AK_BIN` names,
 in a person's terminal (tests/fixtures/akterm.py) with its colours, its harness the fake of
@@ -27,6 +28,7 @@ ADD = "+ add a subscription"          # the page's last line
 HEADER = re.compile(r"agentkit([^\x1b\n]*?) +\d\d:\d\d")    # each header written, its name
 SGR = re.compile(r"\x1b\[([\d;]*)m")
 POINT = "\x1b[<35;8;{row}M"           # the pointer moved, no button down, at column 8 of a row
+FADING = re.compile(r"\x1b\[38;2;[\d;]+m +− remove")     # the opened line part of the way up
 
 
 def labels(out, label):
@@ -121,6 +123,21 @@ class SubscriptionsLightAsC(unittest.TestCase):
         self.term.keys("Down", "Down")
         self.term.wait(f"› {ADD}")
         self.assertIn("\x1b[1m", add(self.term.screen(colours=True)))
+
+    def test_a_company_is_named_in_its_colour_as_c_names_a_harness(self):
+        def named(_):                 # its line as the terminal holds it, attributes and all
+            return next(line for line in self.term.screen(colours=True).split("\n")
+                        if "Anthropic" in line)
+        self.term.wait(lambda shown: "38;2;217;119;87" in named(shown))     # Claude's #D97757
+        self.assertNotIn("\x1b[1m", named(None))
+
+    def test_the_line_a_row_opens_comes_up_under_it(self):
+        for _ in range(2):            # a move onto its row, then one back from off every row
+            since = self.raw.stat().st_size
+            self.term.type(POINT.format(row=self.row("Claude II")))
+            self.written(FADING.search, since)
+            self.term.type(POINT.format(row=1))     # the header
+            self.term.wait(lambda screen: "− remove" not in screen)
 
 
 if __name__ == "__main__":
