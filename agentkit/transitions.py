@@ -381,10 +381,25 @@ def _windows(lines):
             for at, end in enumerate(ends)]
 
 
+def history_ending(state):
+    """The ending a run's record holds, in `history.finish_run`'s terms: rounds unknown where
+    it keeps none, never zero."""
+    rounds = state.get("round_summaries")
+    return {"repo": state.get("repo"), "executor": state.get("executor"),
+            "reviewer": state.get("reviewer"),
+            "rounds_used": len(rounds) if isinstance(rounds, list) else None,
+            "final_state": state.get("state"), "verdict": state.get("verdict"),
+            "started_at": state.get("started_at"),
+            "finished_at": state.get("finished_at") or time.time(),
+            "session": launched_session(state), "peak_rss_mb": state.get("peak_rss_mb"),
+            "own_orchestrator": state.get("own_orchestrator"),
+            "own_orchestrator_effort": state.get("own_orchestrator_effort")}
+
+
 def history_finish(state, log=None):
     """Publish a terminal receipt and close the step this process was running, if any."""
-    now = state.get("finished_at") or time.time()
-    history.close_step(state.get("run_id"), now, log=log)
+    ending = history_ending(state)
+    history.close_step(state.get("run_id"), ending["finished_at"], log=log)
     files = changed_files(state)
     # git is read from the run's worktree while it exists, else from its repository
     wt = state.get("worktree")
@@ -410,16 +425,25 @@ def history_finish(state, log=None):
             rules = len(gitcall.rules_bytes(repo, state["base_sha"]) or b"")
         except (config.Error, OSError, ValueError, TypeError):
             pass
-    history.finish_run(state.get("run_id"), repo=state.get("repo"),
-                       executor=state.get("executor"), reviewer=state.get("reviewer"),
-                       rounds_used=len(state.get("round_summaries") or []),
-                       final_state=state.get("state"), verdict=state.get("verdict"),
-                       started_at=state.get("started_at"), finished_at=now,
-                       session=launched_session(state), peak_rss_mb=state.get("peak_rss_mb"),
+    history.finish_run(state.get("run_id"), **ending,
                        task_files=json.dumps(files) if files is not None else None,
-                       changed_lines=size, rules_bytes=rules,
-                       own_orchestrator=state.get("own_orchestrator"),
-                       own_orchestrator_effort=state.get("own_orchestrator_effort"), log=log)
+                       changed_lines=size, rules_bytes=rules, log=log)
+
+
+def history_agree(log=None):
+    """Bring each row history still holds running to the end its run reached: the ending its
+    record saved, as `history_finish` publishes it (what git says aside), or `history.UNKNOWN`
+    once its run directory is gone.  A row's own ending can be lost (a write that failed, a
+    process killed before it), and nothing else would ever end it.  A run still going, or
+    started again before the write, is left to end its row itself (`saved`)."""
+    for run_id in history.running():
+        run_dir = config.RUNS / run_id
+        state = run_record.read_state(run_dir)
+        saved = (state.get("state"), state.get("finished_at")) if state else (None, None)
+        if state and state.get("state") in run_record.ENDED:
+            history.finish_run(run_id, **history_ending(state), saved=saved, log=log)
+        elif not run_dir.exists():
+            history.finish_run(run_id, final_state=history.UNKNOWN, saved=saved, log=log)
 
 
 def history_role_tokens(run_id, role, out, log=None, cfg=None, model=None):
