@@ -2779,13 +2779,8 @@ def work_live(name):
 
 
 def owed_login(run_dir, state):
-    """The login a run waits on its owner for, else None.
-
-    One it parked on that the tick has not found back yet, and, while it has not ended, one
-    that refused it twice or more since that login last answered (`login_refusals`): a key
-    `auth` passes can still be refused at every turn, and the tick resumes the run straight
-    back into that refusal.
-    """
+    """The login a run waits on its owner for, else None: one it parked on that the tick has
+    not found back yet, and, while it goes, one that keeps refusing it (`login_refusals`)."""
     if state.get("state") == "waiting_login" and not state.get("login_back_at"):
         return state.get("waiting_for")
     return login_refusals.owed(run_dir) if state.get("state") in run_record.GOING else None
@@ -7768,9 +7763,8 @@ def local_passes(state, dry_run, log):
         ("the set-aside text pass did not run", lambda: drafts_back(config.load()), False),
         ("the mid-turn continue pass did not run",
          lambda: continue_turns(config.load(), log), False),
-        # A run parked on an expired login is resumed the moment that harness's `auth` verb
-        # passes again, silently, never waiting on the run; before the seats, so a login that is
-        # back reaches no seat as one to fix.
+        # A run parked on an expired login is resumed, silently, the moment that harness's
+        # `auth` verb passes again: before the seats, so no seat reads a login back as one to fix.
         ("the login-resume pass did not run",
          lambda: resume_waiting_login(dry_run=dry_run, log=log), True),
         # the seats first, and never behind GitHub: a stalled seat is the one thing on this tick

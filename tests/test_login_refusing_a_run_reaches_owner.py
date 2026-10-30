@@ -1,16 +1,12 @@
-"""A login that keeps refusing runs reaches the owner once; its card stays up until it answers.
+"""A login that refused runs twice since it last answered keeps their seat's card up until it does.
 
-A key with no end date can pass the harness's `auth` verb and still be refused at every turn:
-the tick resumes the parked run at once, and it goes straight back into the refusal.  Once a
-login has refused twice or more since it last answered, each seat with a run it refused in that
-time that has not ended shows its login card, naming the login, and pages the owner once; the
-card stays up, and is not sent again, while the run is resumed and refused again, a killed turn
-between, and comes down once the login answers a turn or none of those runs is still going.  The
-count is the login's, so a later run it refuses before it answers raises the card at once.  A
-run refused once whose next turn the login answers raises no card.  Black-box: the program
-`AK_BIN` names runs from outside through tests/fixtures/akbin.py, its turns on a fake harness
-from fakeadapter.py whose `auth` says yes while its turns say the harness's logout words, from a
-seat of akseat.py, paging tests/fixtures/sink.py; each tick runs in the box `home.tick()` builds.
+A key `auth` passes can still be refused at every turn, and the tick resumes the parked run
+straight back into the refusal.  The card names the login, is sent once, and stays up through
+resumes, refusals and a killed turn; it comes down once the login answers, or once no run it
+refused is going, and a later run it refuses before it answers raises it at once.  One refusal
+whose next turn is answered raises none.  Black-box against `AK_BIN` (tests/fixtures/akbin.py),
+on fakeadapter.py's harness, whose `auth` says yes while its turns say its logout words, from a
+seat of akseat.py paging tests/fixtures/sink.py, each tick in the box `home.tick()` builds.
 """
 
 import json
@@ -33,6 +29,8 @@ REFUSED = {"stderr": "Invalid API key · Please run /login\n", "exit": 1}
 KILLED = {"sh": "kill -TERM $PPID"}
 
 
+@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class Refusals(unittest.TestCase):
     steps = ()
 
@@ -66,7 +64,6 @@ class Refusals(unittest.TestCase):
     def tick(cls):
         done = cls.home.tick()
         assert done.code == 0, done.err
-        return done
 
     @classmethod
     def parked(cls, turns, bound=60):
@@ -114,8 +111,6 @@ class Refusals(unittest.TestCase):
         self.assertIn("Claude Code", card["text"])
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
-@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class KeepsRefusing(Refusals):
     # the executor refused twice, killed, refused, then answered; the reviewer refused, answered
     steps = (REFUSED, REFUSED, KILLED, REFUSED, "work", REFUSED, "work")
@@ -144,14 +139,11 @@ class KeepsRefusing(Refusals):
         self.assertEqual(self.after_one, (None, 0))
 
     def test_a_second_refusal_in_a_row_puts_the_card_up_once_naming_the_login(self):
-        card, pages = self.after_two
-        self.assertNamesTheLogin(card)
-        self.assertEqual(pages, 1)
+        self.assertNamesTheLogin(self.after_two[0])
+        self.assertEqual(self.after_two[1], 1)
 
     def test_the_card_stays_up_and_is_not_sent_again_while_the_refusals_go_on(self):
-        card, pages = self.after_three
-        self.assertEqual(card, self.after_two[0])
-        self.assertEqual(pages, 1)
+        self.assertEqual(self.after_three, (self.after_two[0], 1))
 
     def test_the_card_comes_down_once_the_login_answers(self):
         self.assertEqual(self.after_answer, (None, 1))
@@ -160,8 +152,6 @@ class KeepsRefusing(Refusals):
         self.assertEqual(self.after_end, (None, 1))
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
-@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class RefusedOnce(Refusals):
     steps = (REFUSED, "work")
 
@@ -176,8 +166,6 @@ class RefusedOnce(Refusals):
         self.assertEqual((cards, self.needs_pages()), ([None, None], 0))
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
-@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class EndsRefused(Refusals):
     steps = (REFUSED,)              # every turn, of either run
 
@@ -204,9 +192,8 @@ class EndsRefused(Refusals):
 
     def test_a_later_run_the_login_refuses_before_it_answers_raises_the_card_at_once(self):
         self.assertEqual(self.later, 1)
-        card, pages = self.after_later
-        self.assertNamesTheLogin(card)
-        self.assertEqual(pages, 2)
+        self.assertNamesTheLogin(self.after_later[0])
+        self.assertEqual(self.after_later[1], 2)
 
 
 if __name__ == "__main__":
