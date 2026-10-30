@@ -228,9 +228,11 @@ sys.exit(row.get("code", 0))
                 stack.enter_context(patch.object(module, name, return_value=value))
             for override in overrides:
                 stack.enter_context(override)
+            # never the reviewer's own work: a writer gives way to spark, which has room here
             state = {"run_id": directory.name, "title": "Hand-in fixture", "state": "running",
                      "base": "origin/main", "base_sha": "abc123", "branch": "ak/fix-api",
-                     "rounds": 3, "round_summaries": [], "executor": "opus", "reviewer": reviewer,
+                     "rounds": 3, "round_summaries": [],
+                     "executor": "astra" if reviewer == "opus" else "opus", "reviewer": reviewer,
                      "scratch": True, "repo": str(self.workspace), "worktree": str(self.workspace)}
             lp = run.Loop(cfg, directory, state, {}, logs.append, self.workspace,
                           "# Fixture", ["true"], "")
