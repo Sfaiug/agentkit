@@ -24,6 +24,8 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, job as jobs, orch, record, run, watch
 from fixtures.tick import only_passes
 
+LOGGED_OUT = "GitHub is logged out: run `gh auth login -p https -w`"     # every seat's reason
+
 
 class TickHealth(unittest.TestCase):
     def setUp(self):
@@ -327,51 +329,17 @@ class TickHealth(unittest.TestCase):
         # everything else on the tick still ran
         self.assertEqual(self.reached,
                          [what for what, _, _ in watch.local_passes({}, False, print)])
-        # and the seat whose run is waiting to push is told why, once gh is asked for
-        self.assertEqual(watch.load_state()["gh_out"]["seats"], ["atoll"])
-        blocked = self.seat_state("atoll")
-        self.assertEqual(blocked["word"], "needs you")
-        self.assertEqual(blocked["reason"], "gh login expired: run `gh auth login -p https -w`")
-        # its run is merged, so it pushes nothing more and hears nothing about gh
-        self.assertNotIn("beta", watch.load_state()["gh_out"]["seats"])
-        self.assertNotIn("gh login", self.seat_state("beta")["reason"])
-
-    def test_only_the_runs_that_still_owe_github_a_push_put_the_word_on_their_seat(self):
-        repo = str(self.root / "code")
-        # A queued receipt carries what its preflight settled; one written before preflight
-        # ran -- or by an install whose preflight did not settle it -- has only its options.
-        held = {"going": dict(state="running", repo=repo, no_merge=False),
-                "review": dict(state="running", repo=repo, no_merge=True,
-                               review_pr="https://x/pull/1"),
-                "retry": dict(state="pass", verdict="PASS", repo=repo, merge_failed=True),
-                "queued": dict(state="queued", no_merge=False,
-                               launch_opts={"--no-merge": False, "--bg": True}),
-                "queued-bare": dict(state="queued",
-                                    launch_opts={"--no-merge": False, "--bg": True})}
-        clear = {"scratch": dict(state="running", repo=None, scratch=True, no_merge=True),
-                 "local": dict(state="running", repo=repo, no_merge=True),
-                 "merged": dict(state="pass", verdict="PASS", repo=repo, merged=True),
-                 "maintainer": dict(state="pass", verdict="PASS", repo=repo, merge_failed=False,
-                                    pr="https://x/pull/9"),
-                 "failed": dict(state="fail", verdict="FAIL", repo=repo),
-                 "queued-local": dict(state="queued", no_merge=True,
-                                      launch_opts={"--no-merge": True, "--bg": True}),
-                 # `repo: none` without --no-merge: the task decides, and preflight wrote it
-                 "queued-scratch": dict(state="queued", no_merge=True,
-                                        launch_opts={"--no-merge": False, "--bg": True}),
-                 "queued-old": dict(state="queued", launch_opts={}),
-                 "starting": dict(state="running", launch_opts={"--no-merge": True})}
-        for number, (seat, receipt) in enumerate({**held, **clear}.items()):
-            name = f"{number:02d}-{seat}"
-            self.raw_run(name, {"run_id": name, "launched_session": seat, **receipt})
-        self.assertEqual(watch.pushing_seats(), sorted(held))
+        # and every seat is told why, a merged run's that pushes nothing more as well
+        for name in ("atoll", "beta"):
+            blocked = self.seat_state(name)
+            self.assertEqual((blocked["word"], blocked["reason"]), ("needs you", LOGGED_OUT))
 
     def test_a_launch_settles_what_it_will_deliver_before_it_waits_for_a_slot(self):
         """`repo: none` and `--no-merge` both push nothing, and the receipt has to say so.
 
         Only the process that launched the run can resolve the repository a task inherits
         when it names none, so the answer is written in its preflight, not by the loop that
-        runs rounds later -- and `ak watch` reads the receipt all through the queue wait.
+        runs rounds later -- and the receipt is read all through the queue wait.
         """
         opts = {"--review-pr": None, "--no-merge": False, "--no-worktree": False,
                 "--rounds": None, "--bg": False}
@@ -386,22 +354,6 @@ class TickHealth(unittest.TestCase):
                 record.save_state(directory, record.read_state(directory))   # silence and ceiling
                 run.preflight(directory, {**opts, "--no-merge": flag}, lambda _: None)
                 self.assertIs(record.read_state(directory)["no_merge"], True)
-        # so the queue wait puts the word on nobody: neither of them will ever push
-        self.assertEqual(watch.pushing_seats(), [])
-
-    def test_a_malformed_receipt_cannot_take_the_logged_out_tick_down_with_it(self):
-        self.stub_tick()
-        self.gh.return_value = (None, "HTTP 401: Bad credentials (https://api.github.com/user)")
-        self.a_run("00-going", "atoll")
-        # everything retry_command reads, except the run id it then indexes the receipt by
-        self.raw_run("01-no-id", {"state": "pass", "merge_failed": True, "repo": "/x",
-                                  "launched_session": "beta"})
-        self.raw_run("02-not-json", "{ half a receipt")
-        self.raw_run("03-not-a-dict", "[]")
-        code, said = self.tick()
-        self.assertEqual(code, 0)
-        self.assertIn("gh is not logged in", said)
-        self.assertEqual(watch.load_state()["gh_out"]["seats"], ["atoll"])
 
     def test_a_github_that_is_merely_unavailable_is_not_a_login_to_fix(self):
         self.stub_tick()
@@ -420,22 +372,21 @@ class TickHealth(unittest.TestCase):
                 self.assertNotIn("gh is not logged in", said)
                 self.incoming.assert_not_called()
                 self.assertNotIn("gh_out", watch.load_state())
-                self.assertNotIn("gh login", self.seat_state("atoll")["reason"])
+                self.assertNotEqual(self.seat_state("atoll")["reason"], LOGGED_OUT)
 
-    def test_a_gh_that_is_logged_in_again_clears_the_expiry_from_every_seat(self):
+    def test_a_gh_that_is_logged_in_again_clears_the_word_from_every_seat(self):
         self.stub_tick()
         self.gh.return_value = (None, "HTTP 401: Bad credentials (https://api.github.com/user)")
-        self.a_run("00-going", "atoll")
         self.tick()
-        self.assertIn("gh login expired", self.seat_state("atoll")["reason"])
-        # an outage while it is expired can neither confirm the expiry nor clear it
+        self.assertEqual(self.seat_state("atoll")["reason"], LOGGED_OUT)
+        # an outage while it is logged out can neither confirm the logout nor clear it
         self.gh.return_value = (None, "gh timed out")
         self.tick()
-        self.assertIn("gh login expired", self.seat_state("atoll")["reason"])
+        self.assertEqual(self.seat_state("atoll")["reason"], LOGGED_OUT)
         self.gh.return_value = ({"login": "owner"}, "")
         self.tick()
         self.assertNotIn("gh_out", watch.load_state())
-        self.assertNotIn("gh login", self.seat_state("atoll")["reason"])
+        self.assertNotEqual(self.seat_state("atoll")["reason"], LOGGED_OUT)
         self.incoming.assert_called_once()
 
     # --- what --dry-run says about both ---------------------------------------

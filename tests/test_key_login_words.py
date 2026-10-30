@@ -3,12 +3,12 @@
 A seat that cannot authenticate cannot move, and only the owner can log it back in, so its word
 says so over whatever its screen shows, a turn or a question.  The tick asks each harness's
 `auth` verb and asks `gh` about GitHub, and leaves what it found in ~/.agentkit/state/watch.json:
-`auth_out` per harness, `gh_out` naming the seats whose runs cannot push without it.  Every
-screen reads that record, so these tests write it as the tick leaves it.  A worker token nearing
-its day, or a subscription's login ending within the hour, is a line on the ak screen and never
-a word; one already expired is every seat's `needs you`, on any harness.  Black-box: the program
-`AK_BIN` names runs from outside through tests/fixtures/akbin.py, and this test fails against
-`/bin/false`.
+`auth_out` per harness, `gh_out` when it found gh logged out.  Every screen reads that record,
+so these tests write it as the tick leaves it.  A worker token nearing its day, or a
+subscription's login ending within the hour, is a line on the ak screen and never a word; one
+already expired, like a logged-out gh, is every seat's `needs you`, on any harness.
+Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, and
+this test fails against `/bin/false`.
 """
 
 import sys
@@ -88,14 +88,15 @@ class LoginWords(unittest.TestCase):
         self.assertIn("codex login expired", reason)
         self.assertIn("run codex login", reason)
 
-    def test_a_seat_the_gh_record_names_needs_you_with_the_gh_remedy(self):
-        self.tick_found(gh_out={"at": time.time() - 300, "seats": ["acme", "beta"]})
-        # a turn in flight does not move a run that cannot push
-        for name in ("acme", "beta"):
+    def test_a_logged_out_github_needs_you_on_every_seat(self):
+        self.tick_found(gh_out={"at": time.time() - 300})
+        # the record names no seat: a turn, a question and a seat with no run all read it
+        rows = self.listed()
+        for name in ("acme", "beta", "delta", "kappa"):
             with self.subTest(name):
-                self.assertEqual(self.why(name), (f"{name}  needs you",
-                                                  "gh login expired: run `gh auth login -p https -w`"))
-        self.assertEqual(self.why("kappa")[0], "kappa  idle")    # no run of its owes a push
+                self.assertIn("! needs you", rows[name])
+                self.assertEqual(self.why(name), (f"{name}  needs you", "GitHub is logged out: "
+                                                  "run `gh auth login -p https -w`"))
 
     def test_a_worker_token_nearing_its_end_changes_no_word(self):
         self.worker_token(360)

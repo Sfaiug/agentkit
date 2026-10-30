@@ -58,7 +58,7 @@ class OwnerRow(Sandbox):
         self.said("needs", "Which schema?", 100.0)
         self.said("needs", "And the port?", 160.0)        # asked beside the standing one
         self.said("needs", "Which schema?", 170.0)        # asked again: not a new question
-        self.said("needs", "gh login expired", 180.0, event_id="auth:gh")    # ak's own alert
+        self.said("needs", "GitHub is logged out", 180.0, event_id="auth:gh")    # ak's own alert
         self.attempt("delivered", 190.0)
         self.attempt("pending", 195.0)                    # a card not delivered sent nothing
         asked = [(100.0, "asked", None), (160.0, "asked", None), (190.0, "paged", None)]
