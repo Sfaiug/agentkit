@@ -189,39 +189,13 @@ func TestPlanInputRefusals(t *testing.T) {
 	}
 }
 
-func TestHandInDecodedQuotes(t *testing.T) {
-	home := sandbox(t)
-	turn := filepath.Join(home, "turn.jsonl")
-	data, err := json.Marshal(map[string]string{"kind": "turn", "role": "reviewer", "workspace": home})
-	if err != nil {
-		t.Fatal(err)
-	}
-	write(t, turn, string(data)+"\n")
-	t.Setenv("AK_HAND_IN", turn)
-	for _, example := range []struct{ data, quote string }{
-		{"first\r\nsecond\r\n", "first\nsecond"},
-		{"first\rsecond\r", "first\nsecond"},
-		{"first\r\nsecond\rthird\n", "second\nthird"},
-		{"bad \xff\xff\n", "bad \ufffd\ufffd"},
-		{"bad \xe2\x82", "bad \ufffd"},
-		{"bad \xe2\x82!\n", "bad \ufffd!"},
-		{"bad \xe0\x80\x80\n", "bad \ufffd\ufffd\ufffd"},
-		{"bad \xed\xa0\x80\n", "bad \ufffd\ufffd\ufffd"},
-		{"bad \xf0\x9f\x92", "bad \ufffd"},
-		{"valid \ufffd\U0001f600\r\n", "valid \ufffd\U0001f600"},
-	} {
-		write(t, filepath.Join(home, "task.md"), example.data)
-		assertCall(t, []string{"hand-in", "finding", "task.md:1", "Wrong result", "Breaks callers", "--quote", example.quote}, 3, "", "ak hand-in finding: not implemented in Go yet\n")
-	}
-}
-
 func TestHandInEvidenceRefusals(t *testing.T) {
 	home := sandbox(t)
 	turn := filepath.Join(home, "turn.jsonl")
 	t.Setenv("AK_HAND_IN", turn)
-	setTurn := func(role string, findings []finding) {
+	setTurn := func(role string, findings []map[string]any) {
 		if findings == nil {
-			findings = []finding{}
+			findings = []map[string]any{}
 		}
 		data, err := json.Marshal(map[string]any{"kind": "turn", "role": role, "workspace": home, "findings": findings})
 		if err != nil {
@@ -243,16 +217,15 @@ func TestHandInEvidenceRefusals(t *testing.T) {
 	} {
 		assertCall(t, append([]string{"hand-in"}, example.args...), 2, "", "ak hand-in: "+example.reason+"\n")
 	}
-	assertCall(t, []string{"hand-in", "finding", "task.md:1", "Wrong result", "Breaks callers", "--quote", "example"}, 3, "", "ak hand-in finding: not implemented in Go yet\n")
 	setTurn("fixer", nil)
 	assertCall(t, []string{"hand-in", "dispute", "task.md:1", "Correct"}, 2, "", "ak hand-in: dispute must name a blocking finding handed to this turn; you may dispute: none\n")
-	setTurn("fixer", []finding{{Path: "task.md", Line: 1, What: "Wrong result"}})
+	setTurn("fixer", []map[string]any{{"path": "task.md", "line": 1, "what": "Wrong result"}})
 	assertCall(t, []string{"hand-in", "dispute", "task.md:1", "Correct"}, 2, "", "ak hand-in: supply evidence with exactly one of --run COMMAND or --quote LINES\n")
 	assertCall(t, []string{"hand-in", "dispute", "task.md:1", "Correct", "--quote", "absent"}, 2, "", "ak hand-in: use a quote found verbatim in the named file\n")
 	if err := os.Remove(filepath.Join(home, "task.md")); err != nil {
 		t.Fatal(err)
 	}
-	assertCall(t, []string{"hand-in", "dispute", "task.md:1", "Correct", "--run", "false"}, 3, "", "ak hand-in dispute: not implemented in Go yet\n")
+	assertCall(t, []string{"hand-in", "dispute", "task.md:1", "Correct", "--run", "false"}, 2, "", "ak hand-in: a dispute's command must exit 0 to show the behaviour is right\n")
 }
 
 func TestRunRecognizesJobs(t *testing.T) {

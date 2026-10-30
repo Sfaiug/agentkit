@@ -2,6 +2,7 @@
 package config
 
 import (
+	"cmp"
 	_ "embed"
 	"fmt"
 	"math"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -65,13 +67,76 @@ func Absolute(path string) string {
 }
 
 // Resolve is path made absolute with its links followed, as far as they exist, and a leading
-// `~` kept literal, as Python's Path.resolve() reads it.
+// `~` kept literal, as Python's Path.resolve() reads it: name by name, so a `..` after a link
+// leaves the link's target, and a link that loops is kept as it is.  On Windows, Python takes
+// each `..` away first.  A relative path stays as given while the current directory cannot be
+// read, where Python's getcwd fails.
 func Resolve(path string) string {
-	path, _ = filepath.Abs(path)
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		return resolved
+	if runtime.GOOS == "windows" {
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			return path
+		}
+		if resolved, err := filepath.EvalSymlinks(absolute); err == nil {
+			return resolved
+		}
+		return absolute
 	}
-	return path
+	if !filepath.IsAbs(path) {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return path
+		}
+		path = cwd + "/" + path
+	}
+	// rest is the names still to follow, the next last; a step with a link marks where that
+	// link's target is resolved.
+	type step struct{ name, link string }
+	var rest []step
+	push := func(path string) {
+		names := strings.Split(path, "/")
+		for i := len(names) - 1; i >= 0; i-- {
+			rest = append(rest, step{name: names[i]})
+		}
+	}
+	push(path)
+	resolved, seen := "/", map[string]string{} // a link's resolved target, "" while it resolves
+	for len(rest) > 0 {
+		next := rest[len(rest)-1]
+		rest = rest[:len(rest)-1]
+		switch {
+		case next.link != "":
+			seen[next.link] = resolved
+			continue
+		case next.name == "" || next.name == ".":
+			continue
+		case next.name == "..":
+			resolved = cmp.Or(resolved[:strings.LastIndexByte(resolved, '/')], "/")
+			continue
+		}
+		joined := strings.TrimSuffix(resolved, "/") + "/" + next.name
+		info, err := os.Lstat(joined)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			resolved = joined
+			continue
+		}
+		if target, ok := seen[joined]; ok {
+			resolved = cmp.Or(target, joined)
+			continue
+		}
+		target, err := os.Readlink(joined)
+		if err != nil {
+			resolved = joined
+			continue
+		}
+		if strings.HasPrefix(target, "/") {
+			resolved = "/"
+		}
+		seen[joined] = ""
+		rest = append(rest, step{link: joined})
+		push(target)
+	}
+	return resolved
 }
 
 // Glob lists the entries of dir whose names match pattern. Dir is a path, never a pattern, as

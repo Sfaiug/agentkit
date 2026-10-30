@@ -114,3 +114,45 @@ func TestSchemaRefusals(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Resolve follows links name by name as Python's Path.resolve() does: a `..` leaves the link's
+// target, and a link that loops is kept.
+func TestResolveFollowsLinksBeforeTheirParents(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Python takes each .. away first on Windows")
+	}
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range [][2]string{{"real/inner", ""}, {"real/inner", "link"}, {"/", "root"}, {"loop", "loop"}} {
+		if step[1] == "" {
+			err = os.MkdirAll(filepath.Join(dir, step[0]), 0o700)
+		} else {
+			err = os.Symlink(step[0], filepath.Join(dir, step[1]))
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir + "/link"); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(cwd)
+	for path, want := range map[string]string{
+		dir + "/link/../api.py":     dir + "/real/api.py",
+		dir + "//./link/missing/..": dir + "/real/inner",
+		dir + "/root/..":            "/",
+		dir + "/loop/x":             dir + "/loop/x",
+		"../../~/x":                 dir + "/~/x",
+		"":                          dir + "/real/inner",
+	} {
+		if got := Resolve(path); got != want {
+			t.Errorf("Resolve(%q) = %q, want %q", path, got, want)
+		}
+	}
+}

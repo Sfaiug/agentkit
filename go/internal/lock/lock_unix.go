@@ -18,10 +18,26 @@ func acquire(path string, wait bool) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
+	return take(file, wait)
+}
+
+// Edit opens path's file, which it never makes, to read and write once its flock is free; the
+// lock lasts until the file closes.
+func Edit(path string) (*os.File, error) {
+	file, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		return nil, err
+	}
+	return take(file, true)
+}
+
+// take takes the open file's flock, waiting for it or not; the file is closed without it.
+func take(file *os.File, wait bool) (*os.File, error) {
 	how := syscall.LOCK_EX
 	if !wait {
 		how |= syscall.LOCK_NB
 	}
+	var err error
 	for err = syscall.EINTR; errors.Is(err, syscall.EINTR); {
 		err = syscall.Flock(int(file.Fd()), how)
 	}
@@ -30,7 +46,7 @@ func acquire(path string, wait bool) (*os.File, error) {
 		if errors.Is(err, syscall.EWOULDBLOCK) {
 			return nil, ErrHeld
 		}
-		return nil, &os.PathError{Op: "flock", Path: path, Err: err}
+		return nil, &os.PathError{Op: "flock", Path: file.Name(), Err: err}
 	}
 	return file, nil
 }

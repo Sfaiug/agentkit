@@ -1,8 +1,8 @@
 // Package lock takes the file locks Go ak shares with Python ak, which takes each one with
-// fcntl.flock: on a file opened to append to, or on a directory opened to read. It hides how
-// each platform does it. Unix takes flock itself. Windows, where no Python ak runs beside Go,
-// opens a file shared with nobody, which keeps Go's own processes apart, and locks no
-// directory.
+// fcntl.flock: on a file opened to append to, or to read and write, or on a directory opened to
+// read. It hides how each platform does it. Unix takes flock itself. Windows, where no Python ak
+// runs beside Go, opens a file shared with nobody, which keeps Go's own processes apart, and
+// locks no directory.
 package lock
 
 import (

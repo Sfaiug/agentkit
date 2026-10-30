@@ -14,12 +14,23 @@ func acquire(path string, wait bool) (*os.File, error) {
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
 		return os.Open(path)
 	}
+	return open(path, syscall.GENERIC_WRITE, syscall.OPEN_ALWAYS, wait)
+}
+
+// Edit opens path's file, which it never makes, to read and write shared with nobody, waiting its
+// turn; the lock lasts until the file closes.
+func Edit(path string) (*os.File, error) {
+	return open(path, syscall.GENERIC_READ|syscall.GENERIC_WRITE, syscall.OPEN_EXISTING, true)
+}
+
+// open opens path shared with nobody, as access and disposition say, waiting its turn or not.
+func open(path string, access, disposition uint32, wait bool) (*os.File, error) {
 	name, err := syscall.UTF16PtrFromString(path)
 	if err != nil {
 		return nil, err
 	}
 	for {
-		handle, err := syscall.CreateFile(name, syscall.GENERIC_WRITE, 0, nil, syscall.OPEN_ALWAYS, syscall.FILE_ATTRIBUTE_NORMAL, 0)
+		handle, err := syscall.CreateFile(name, access, 0, nil, disposition, syscall.FILE_ATTRIBUTE_NORMAL, 0)
 		if err == nil {
 			return os.NewFile(uintptr(handle), path), nil
 		}

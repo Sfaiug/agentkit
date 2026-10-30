@@ -64,8 +64,6 @@ func validate(command string, args []string) string {
 		return validateNotify(args)
 	case "plan":
 		return validatePlan(args)
-	case "hand-in":
-		return validateHandIn(args)
 	}
 	return ""
 }

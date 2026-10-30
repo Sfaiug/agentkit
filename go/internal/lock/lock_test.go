@@ -3,6 +3,8 @@ package lock
 import (
 	"context"
 	"errors"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -97,5 +99,32 @@ func TestADirectoryIsLockedOpenedToRead(t *testing.T) {
 	}
 	if !errors.Is(err, ErrHeld) {
 		t.Fatalf("a second Try on a locked directory answered %v, want ErrHeld", err)
+	}
+}
+
+func TestEditReadsAndWritesAFileItNeverMakes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hand-in.jsonl")
+	if _, err := Edit(path); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("Edit on a missing file answered %v, want it left missing", err)
+	}
+	if err := os.WriteFile(path, []byte("first\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	holder, err := Edit(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Try(path); !errors.Is(err, ErrHeld) {
+		t.Fatalf("Try while Edit holds the lock answered %v, want ErrHeld", err)
+	}
+	if data, err := io.ReadAll(holder); err != nil || string(data) != "first\n" {
+		t.Fatalf("Edit read %q (%v)", data, err)
+	}
+	if _, err := holder.WriteString("second\n"); err != nil {
+		t.Fatal(err)
+	}
+	holder.Close()
+	if data, _ := os.ReadFile(path); string(data) != "first\nsecond\n" {
+		t.Fatalf("the file holds %q, want the line appended", data)
 	}
 }

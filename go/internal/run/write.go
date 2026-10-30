@@ -153,7 +153,7 @@ func members(data []byte) map[string][2]string {
 		p.take(":")
 		p.space()
 		start = p.at
-		p.value()
+		p.value(1)
 		text[1] = string(data[start:p.at])
 		found[key] = text
 	}
