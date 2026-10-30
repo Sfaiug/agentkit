@@ -267,7 +267,7 @@ class Catalog(unittest.TestCase):
                 patch.object(watch, "tick_health", return_value="lock free"), \
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(watch.doctor([]), 0)
-        self.assertEqual(out.getvalue().splitlines(), [
+        self.assertEqual(out.getvalue().splitlines()[:-1], [    # the last is the rented machine
             "slice test", "tick  lock free", "machine  this one: new · never answered",
             "effort  haiku: claude-haiku-4-5 takes none, not low",
             "effort  grok: grok-4.5 takes low medium high, not xhigh"])
@@ -280,7 +280,7 @@ class Catalog(unittest.TestCase):
                 patch.object(watch, "tick_health", return_value="lock free"), \
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(watch.doctor([]), 0)
-        self.assertEqual(out.getvalue().splitlines()[-1],
+        self.assertEqual(out.getvalue().splitlines()[-2],
                          "effort  every model takes the effort it is set to")
 
 
