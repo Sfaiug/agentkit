@@ -1,6 +1,7 @@
-"""A history write flushes nothing under the one lock every run and the tick take: on 30 Oct 2026
-each held it 1 to 4 s on a busy disk, a commit flushing the WAL, and every 1000 pages or the last
-close checkpointing it into the database. The WAL goes in once the lock is released.
+"""A history write flushes nothing under the one lock every run and the tick take but the header of
+a WAL begun anew: on 30 Oct 2026 each held it 1 to 4 s on a busy disk, a commit flushing the WAL,
+and every 1000 pages or the last close checkpointing it into the database. The WAL goes in once
+the lock is released.
 """
 
 import contextlib

@@ -91,17 +91,19 @@ def writing(database, wait=True):
 
 
 def connect(database):
-    """A connection to write history.db with, under `writing`, flushing nothing to disk: every
-    run and the tick wait on that lock, and flushes under it held 100 runs and the tick behind 1
-    to 4 s a write on a busy disk (30 Oct 2026)."""
+    """A connection to write history.db with, under `writing`, flushing nothing to disk but the
+    header of a WAL begun anew: every run and the tick wait on that lock, and flushes under it
+    held 100 runs and the tick behind 1 to 4 s a write on a busy disk (30 Oct 2026)."""
     connection = sqlite3.connect(database, timeout=2)
     # Readers take no lock of ours, and in the default journal mode a read held past sqlite's
     # wait made a write give up; in WAL a reader never blocks the writer.  Persistent in the
     # file, so this is a no-op after the first write.
     connection.execute("PRAGMA journal_mode=WAL")
     # A commit syncs nothing but the header of a WAL begun anew, once per CHECKPOINT_AT: a power
-    # cut can lose the last commits, never the database.  Nor does it checkpoint: `writing` does,
-    # by the WAL's size, which each WAL begun anew cuts back to what it holds.
+    # cut can lose the last commits, never the database, which that header unsynced could corrupt
+    # (sqlite's ticket ff5be73dee; only `synchronous=OFF` skips it).  Nor does a commit
+    # checkpoint: `writing` does, by the WAL's size, which each WAL begun anew cuts back to what
+    # it holds.
     connection.execute("PRAGMA synchronous=NORMAL")
     connection.execute("PRAGMA wal_autocheckpoint=0")
     connection.execute("PRAGMA journal_size_limit=0")
