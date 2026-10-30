@@ -979,10 +979,10 @@ def routine_ending(state):
     return bool(state.get("repair")) or seat_owes_nothing(state)
 
 
-def ends_wait(state):
+def ends_wait(state, records=None):
     """Whether this run's ending, or its change going live, ends the wait its seat's turn may
     have ended on (`stop.recorded_ending`): its `ak wait` names this run or its pull request,
-    or nothing else of the seat's holds the turn any more."""
+    or nothing else of the seat's holds the turn any more.  `records`: a pass's census, if any."""
     from . import stop, watch  # here, not at the top: they reach run
     session = transitions.launched_session(state)
     wait = watch.seat_read(session).get("wait")
@@ -990,10 +990,10 @@ def ends_wait(state):
             state.get("run_id") in (wait.get("on"), wait.get("run"))
             or state.get("pr") and state.get("pr") == wait.get("on")):
         return True
-    return not stop.recorded_ending(session)[0]
+    return not stop.recorded_ending(session, records)[0]
 
 
-def rides(state):
+def rides(state, records=None):
     """Whether a routine line of this run -- its ending that is typed (`ending_rides`), or its
     change going live, whatever run it is (`watch.after_merge_health`) -- rides on its seat's
     next prompt (`riding`): nothing in it is the seat's to decide, and it does not end the
@@ -1001,7 +1001,8 @@ def rides(state):
     harness hands a prompt context at all: elsewhere typing is its one way in.  Read only: it
     runs nothing."""
     record = config.session_records().get(transitions.launched_session(state))
-    return bool(record) and orch.seat_plugin(record).prompt_context and not ends_wait(state)
+    return (bool(record) and orch.seat_plugin(record).prompt_context
+            and not ends_wait(state, records))
 
 
 def ending_rides(state):
