@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import test_suite_helper as fixture
-from test_suite_on_both import Turn
+from test_suite_on_a_helper import Turn
 from agentkit import gate, helper, worker
 
 
