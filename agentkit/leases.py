@@ -169,14 +169,23 @@ def tree(worktree, artifacts, log=lambda _: None):
     (`gitcall.committable_paths`: never test sandboxes, dependency trees, run locks, what
     `.gitignore` names or what the run's checks generated, its `artifacts`), read and written
     through an index of its own in the repository's object store: the checkout's own index is
-    neither read, locked nor rewritten (`git diff` refreshes and rewrites the index it reads,
+    copied, neither locked nor rewritten (`git diff` refreshes and rewrites the index it reads,
     optional locks or not), and its files are never touched.  A file that vanished since it
     was listed, or one git cannot read, is left out, the latter said once: neither costs a
     pair its record."""
     from . import run
-    with tempfile.NamedTemporaryFile(dir=config.TMP, prefix="lease-index-") as index:
-        env = {**os.environ, "GIT_INDEX_FILE": index.name}
-        run.git(worktree, "read-tree", "HEAD", env=env)
+    with tempfile.TemporaryDirectory(dir=config.TMP, prefix="lease-index-") as scratch:
+        index = Path(scratch) / "index"     # none yet is git's empty index
+        env = {**gitcall.tool_env(), "GIT_INDEX_FILE": str(index)}
+        own = Path(worktree) / run.git(worktree, "rev-parse", "--git-path", "index")
+        # a copy of its own: its stat data spares hashing every file, and its moment, which
+        # git's racy check reads, is that same file's while git renames a newer one in
+        if own.is_file():
+            with open(own, "rb") as source, open(index, "wb") as copy:
+                shutil.copyfileobj(source, copy)
+                moment = os.fstat(source.fileno())
+            os.utime(index, ns=(moment.st_atime_ns, moment.st_mtime_ns))
+        run.git(worktree, "read-tree", "--reset", "HEAD", env=env)    # unmerged entries dropped
         real, _ = gitcall.committable_paths(worktree, artifacts, env=env)
         if real:
             staged(worktree, real, env, log)
@@ -225,7 +234,7 @@ def merged(repo, base, ours, theirs, ours_wins=False):
     (bare trees only from 2.45) and finds their base itself.  With `ours_wins` a hunk the two
     sides clash on is `ours` (`favour_ours`), and nothing is left unmerged."""
     from . import run
-    env = {**os.environ, **STAMP}
+    env = {**gitcall.tool_env(), **STAMP}
     sides = [run.git(repo, "commit-tree", each, "-p", base, "-m", "lease", env=env)
              for each in (ours, theirs)]
     code, out = run.git_out(repo, "merge-tree", "--write-tree", "--name-only", "-z", *sides)
