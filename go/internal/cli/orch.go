@@ -106,19 +106,18 @@ func orchOpen(args []string, _, errOut io.Writer) int {
 			name = config.SessionName(args[i])
 		}
 	}
-	how := "a new seat opens only from a terminal (the menu's n, or `ak orch NAME` typed there)"
-	if terminal.TypedHere() {
-		// a terminal a seat made is not a person's; a person's open is Python's, as is a seat
-		// name CurrentSession refuses
-		if seat, _, _ := config.CurrentSession(); seat == "" {
-			return notImplemented(errOut, "orch")
-		}
-		how = "a seat opens no seat: only the owner does, with the menu's n"
-	}
-	if dryRun || len(args) > 0 && args[0] == "ended" || !tidy() || config.EnsureDirs() != nil {
+	// a terminal a seat made is not a person's; a person's open is Python's, as is a seat name
+	// CurrentSession refuses
+	seat, _, err := config.CurrentSession()
+	typed := terminal.TypedHere()
+	if err != nil || typed && seat == "" || dryRun || len(args) > 0 && args[0] == "ended" || !tidy() || config.EnsureDirs() != nil {
 		return notImplemented(errOut, "orch")
 	}
-	seat := "no seat name given"
+	how := "a new seat opens only from a terminal (the menu's n, or `ak orch NAME` typed there)"
+	if typed {
+		how = "a seat opens no seat: only the owner does, with the menu's n"
+	}
+	seat = "no seat name given"
 	if name != "" {
 		seat = "no seat named " + name
 	}
