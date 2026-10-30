@@ -2149,7 +2149,7 @@ def _running_commands(pid):
 
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
                   run_dir=None, heavy=False, marks=None, shard=None, pieces=None, only=None,
-                  confirmed=None, changed=None, flaky=None):
+                  confirmed=None, changed=None, flaky=None, checked=None):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -2192,7 +2192,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     `run_suite` confirms: the tests a red piece named that failed again alone, and `flaky`, a
     list, the tests it found failing, then passing, those a command run whole named failed
     before its re-run passed among them.  `changed`, a file of paths, is what
-    `AK_CHANGED` names to every command.
+    `AK_CHANGED` names to every command.  `checked`, a round's `(round, kind, tree)`, has each
+    run of a command leave its row in history (`history.check`), a re-run one of its own.
     The test files' times the commands printed are kept (`suite_times`) before the log, whole
     until then, takes `text`, its capped form.
     """
@@ -2211,6 +2212,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     # a command run as one piece is the one command it is: its output read and re-run as any
     split = names_shard if shard is None else lambda _: False
     suite = next((cmd for cmd in cmds if split(cmd)), None)
+    asked = time.time()     # the first command's wait holds the heavy-suite turn's; a later
+                            # one is asked for as the one before it ends
     with (gate_turn(run_dir, log_path, log, suite, cwd, changed=changed)
           if heavy or suite else nullcontext()):
         deadline = time.monotonic() + limit
@@ -2236,6 +2239,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     progress.write(f"$ {cmd}\n".encode())
                     progress.flush()
                     offset = progress.tell()
+                    started = time.time()
                     code, piece_text, killed = run_suite(
                         cmd, left, activity=log_path, later=window and rest,
                         silence=rest if first_span is not None else window or silence,
@@ -2256,6 +2260,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     busy = True
                     deadline += busy_turn(run_dir, log_path, log)
                     continue
+                history.check(run_dir, checked, cmd, None if killed else code, asked, started)
+                asked = time.time()
                 if code == 0 or first_span is not None or split(cmd):
                     break
                 if killed:
@@ -2327,14 +2333,15 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     return ok, text
 
 
-def run_round(cmds, cwd, log_path, artifacts, limit, log, silence, run_dir):
+def run_round(cmds, cwd, log_path, artifacts, limit, log, silence, run_dir, checked=None):
     """A round's done-when list, on the suite helper first: one piece of the tree at HEAD, so a
     command reads what an earlier one left untracked, at the size of a piece of the repository's
     `tests:` suite, taking no heavy turn here.  Green there is the whole answer.  Anything else
     -- no helper, no recipe, no room, a red, the helper failing -- runs the list here at once
     (`run_done_when`), and that decides, below what the piece printed there.  A list naming
-    AK_SHARD runs here, as a suite has its own way there (`run_suite`)."""
-    say, there = log or (lambda line: None), ""
+    AK_SHARD runs here, as a suite has its own way there (`run_suite`).  `checked` is as
+    `run_done_when` takes it: the list on the helper leaves one row."""
+    say, there, asked = log or (lambda line: None), "", time.time()
     if cmds and not any(map(names_shard, cmds)):
         cost = suite_cost(gitcall.declared(cwd, "tests") or "", cwd, run_dir)[1:]
         # Each command's header is no record (`$ cmd`, then its exit): those are counted.
@@ -2346,6 +2353,7 @@ def run_round(cmds, cwd, log_path, artifacts, limit, log, silence, run_dir):
             say(f"done-when on the suite helper {away.alias}, as one piece")
             try:
                 run_record.stop_check(run_dir)    # a stop marked while it prepared starts none
+                started = time.time()
                 with log_path.open("wb") as progress:
                     code, _, killed = worker.limited(
                         helper.piece(away, "1/1", there_command),
@@ -2358,6 +2366,8 @@ def run_round(cmds, cwd, log_path, artifacts, limit, log, silence, run_dir):
                 code, killed = 126, False
             finally:
                 helper.finish(away)
+            history.check(run_dir, checked, "\n".join(cmds), None if killed else code, asked,
+                          started, away.alias)
             run_record.stop_check(run_dir)
             suite_times.keep(cwd, log_path)
             with log_path.open("rb") as progress:
@@ -2374,7 +2384,7 @@ def run_round(cmds, cwd, log_path, artifacts, limit, log, silence, run_dir):
                                               helper.failure(code))
         say(f"done-when runs here: {why}")
     ok, text = run_done_when(cmds, cwd, log_path, artifacts, limit, log, silence=silence,
-                             run_dir=run_dir)
+                             run_dir=run_dir, checked=checked)
     if there:
         text = f"{there}\n\n{text}"
         log_path.write_text(text)
