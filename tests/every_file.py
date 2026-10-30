@@ -21,8 +21,9 @@ checks. Python under agentkit/, tools/, bin/ and tests/ must parse with the gram
 reads by the running interpreter's rules), and import only from the standard library or this
 repository, including files smoke.sh already ran. A file failing again is also named in the
 file AK_FAILED names, and one passing it in AK_FLAKY's; with AK_ONLY set only the files its
-file lists run, whatever the share, smoke.sh's among them, each named in the file AK_RAN names,
-and the imports go unchecked: they are no listed test.
+file lists run, whatever the share, smoke.sh's among them, each named in the file AK_RAN names.
+The imports are a test of their own, IMPORTS, named as run and as failed like a file, in a
+whole run too; AK_ONLY set, they are checked only where it lists them.
 
     python3 tests/every_file.py [checkout [descriptor]]
 """
@@ -51,6 +52,7 @@ CPU_PRESSURE_MAX = 20  # stall ceiling: background scheduling makes PSI positive
 POLL = 0.1          # ceiling on polling waits: contention stops growth at the next sample,
                     # while an idle host keeps admitting files even beyond its core count
 TAIL = 30           # a failing file's last lines: unittest ends on the traceback and tally
+IMPORTS = "tests/every_file.py"   # the import check's test ID
 
 
 def source_files(root):
@@ -178,9 +180,10 @@ def pool_limit(readings):
     return max(1, int(min(room) / FILE_MEM_MB)) if room and pressure is not None else 1
 
 
-def costs(root, paths, times):
-    """Each file's seconds by `times`, keyed by checkout-relative path, else its size at the
-    measured files' seconds per byte."""
+def costs(root, paths):
+    """Each file's seconds by the record AK_TIMES holds, keyed by checkout-relative path, else
+    its size at the measured files' seconds per byte."""
+    times = suite_times.read(os.environ.get("AK_TIMES", ""))
     sizes = {path: path.stat().st_size for path in paths}
     measured = [path for path in paths if str(path.relative_to(root)) in times]
     rate = (sum(times[str(path.relative_to(root))] for path in measured)
@@ -195,10 +198,13 @@ def main(root, others=None):
         print(exc, file=sys.stderr)
         return 2
     only = listed()
-    errors = import_errors(root) if only is None else []
+    imports = [IMPORTS] if only is None or IMPORTS in only else []
+    name_failed(imports, "AK_RAN")
+    errors = import_errors(root) if imports else []
     if errors:
         for error in errors:
             print(f"FAIL  {error}", flush=True)
+        name_failed(imports)
         return 1
     tests = root / "tests"
     # smoke.sh runs in the mode this caller's environment gives it; a file AK_ONLY lists runs
@@ -208,7 +214,7 @@ def main(root, others=None):
                                  if only is None else set())
     todo = sorted(path for path in tests.glob("test_*.py") if path.stem not in skip
                   and (only is None or str(path.relative_to(root)) in only))
-    cost = costs(root, todo, suite_times.read(os.environ.get("AK_TIMES", "")))
+    cost = costs(root, todo)
     if only is None:
         # Exclude everything smoke runs before dividing the rest, regardless of its piece.
         owners = shares(cost, total)
