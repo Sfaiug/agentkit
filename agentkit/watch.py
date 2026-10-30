@@ -7749,6 +7749,10 @@ def local_passes(state, dry_run, log):
                      else usage.collect(config.load(), refresh=True))
 
     return (
+        # First, and outside the `gh api user` gate: a merged change's `health:` needs no GitHub,
+        # and the seats' passes below read its `live_at` this tick (`awaiting_live`).  The pass's
+        # own gh calls fail on their own, and the next tick asks again.
+        ("merged runs were not followed", lambda: after_merge_checks(state, dry_run, log), True),
         ("the boot resume pass did not run",
          lambda: resume_after_boot(config.load(), dry_run=dry_run, log=log), True),
         ("the held-line Enter pass did not run",
@@ -7756,8 +7760,9 @@ def local_passes(state, dry_run, log):
         ("the set-aside text pass did not run", lambda: drafts_back(config.load()), False),
         ("the mid-turn continue pass did not run",
          lambda: continue_turns(config.load(), log), False),
-        # the seats first, and never behind GitHub: a stalled seat is the one thing on this tick
-        # that nothing else will ever get to, and a gh that is down is no reason to leave it stuck
+        # the seats early, and never behind the `gh api user` gate: a stalled seat is the one
+        # thing on this tick that nothing else will ever get to, and a gh that is down is no
+        # reason to leave it stuck
         ("the session health pass did not run",
          lambda: health(config.load(), state, dry_run, log), True),
         ("the mid-turn continue pass did not run",
@@ -7847,16 +7852,12 @@ def local_passes(state, dry_run, log):
         ("the rented machines were not watched", google_cloud.watch, False),
         # A merge to a project reaches its seats' rulebooks: their next prompts name it.
         ("the projects' rules were not fetched", orch.fetch_projects, False),
-        # Merged agentkit goes live after every local pass but the merged runs', so as little of
-        # this tick's old code as can be is left to run over new files; that pass and GitHub's
-        # import nothing new.
+        # Merged agentkit goes live after every local pass, so as little of this tick's old
+        # code as can be is left to run over new files; GitHub imports nothing new.
         ("agentkit did not go live", lambda: update.go_live(log), False),
         # ... and then every harness: a newer release is upgraded by a child started on that
         # new code, gated and put back where a gate fails, and no tick waits on it.
         ("the harness upgrade pass did not run", lambda: update.keep_current(log), False),
-        # A merged change's `health:` needs no GitHub, so a gh that is down never keeps it from
-        # going live: the pass's own gh calls fail on their own, and the next tick asks again.
-        ("merged runs were not followed", lambda: after_merge_checks(state, dry_run, log), True),
     )
 
 

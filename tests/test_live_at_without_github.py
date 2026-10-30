@@ -64,12 +64,18 @@ class LiveAtWithoutGitHub(unittest.TestCase):
         self.assertNotIn("incoming", self.reached)
 
     def test_with_gh_api_user_passing_only_this_pass_moved_first(self):
-        self.github.return_value = ({"login": "me"}, "")
+        def github(*_args, **_kw):
+            self.reached.append("gh api user")
+            return {"login": "me"}, ""
+
+        self.github.side_effect = github
         with patch.object(watch, "after_merge_checks") as follow:
             self.tick()
         follow.assert_called_once()
-        self.assertEqual(self.reached[-4:], ["the harness upgrade pass did not run", AFTER_MERGE,
-                                             "incoming", "outgoing"])
+        table = [what for what, _, _ in watch.local_passes({}, False, print)]
+        self.assertEqual(table[:2], [AFTER_MERGE, "the boot resume pass did not run"])
+        self.assertEqual(table[-1], "the harness upgrade pass did not run")
+        self.assertEqual(self.reached, [*table, "gh api user", "incoming", "outgoing"])
 
 
 if __name__ == "__main__":

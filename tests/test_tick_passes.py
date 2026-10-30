@@ -21,6 +21,7 @@ from fixtures.tick import only_passes  # noqa: E402
 # The passes of the tick this test runs, in its order: the WARN line a raise of each is told in
 # (GitHub's follow the table, under none), and whether a dry run runs it too.
 PASSES = (
+    (watch, "after_merge_checks", "merged runs were not followed", True),
     (notify, "retry_pending", "the notification retry did not run", True),
     (watch, "resume_after_boot", "the boot resume pass did not run", True),
     (watch, "finish_own_lines", "the held-line Enter pass did not run", False),
@@ -54,7 +55,6 @@ PASSES = (
     (browser, "tidy", "browser tidy did not finish", False),
     (update, "go_live", "agentkit did not go live", False),
     (update, "keep_current", "the harness upgrade pass did not run", False),
-    (watch, "after_merge_checks", "merged runs were not followed", True),
     (watch, "incoming", None, True), (watch, "outgoing", None, True),
 )
 
