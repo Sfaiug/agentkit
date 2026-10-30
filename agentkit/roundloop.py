@@ -309,7 +309,8 @@ def rules_check(lp):
         return ""
     failure = prose_grown(lp) or keyless_python(lp)
     if failure:
-        return failure
+        # a name `git_bytes` keeps whole can hold bytes no log or prompt written as UTF-8 takes
+        return failure.encode("utf-8", "surrogateescape").decode("utf-8", "backslashreplace")
     if not gitcall.git(lp.wt, "diff", "--name-only", "--no-renames", f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
         return ""
     entry = gitcall.git(lp.wt, "ls-tree", "HEAD", "--", "AGENTS.md")
@@ -377,11 +378,13 @@ def keyless_python(lp):
     """The refusal for a branch that changes Python outside tests/ with no answer key (`KEY`), or "".
 
     In force where the base holds a key: the base's keys count, so a branch deleting its own frees
-    nothing.  Decided from git's change records alone: every record but a deletion or a pure move
-    (R100) writes its file, and a pure move from another kind of name makes a new key or .py file.
+    nothing.  Decided from git's change records alone: a deletion brings nothing, any other record
+    brings its new path, and only a pure move (R100) of a file already named .py leaves Python as
+    it was.
     """
-    # `git` replaces only bytes that are not UTF-8, never "/" or ASCII: a key's name keeps its shape
-    held = gitcall.git(lp.wt, "ls-tree", "-z", "--name-only", lp.base_sha, "--", "tests/")
+    # `-r` lists files, never a directory named like a key.  `git` replaces only bytes that are not
+    # UTF-8, never "/" or ASCII: a key's name keeps its shape.
+    held = gitcall.git(lp.wt, "ls-tree", "-r", "-z", "--name-only", lp.base_sha, "--", "tests/")
     if not any(KEY.fullmatch(name) for name in held.split("\0")):
         return ""
     fields = iter(gitcall.git_bytes(lp.wt, "diff", "--name-status", "--find-renames", "-z",
@@ -391,12 +394,14 @@ def keyless_python(lp):
         if not status:
             break       # the NUL ending the last record
         old = new = next(fields)
+        if status == "D":
+            continue
         if status[0] == "R":
             new = next(fields)
-        writes = status not in ("D", "R100")
         if KEY.fullmatch(new):
-            keyed |= writes or not KEY.fullmatch(old)
-        elif (writes or not old.endswith(".py")) and new.endswith(".py") and not new.startswith("tests/"):
+            keyed = True
+        elif (new.endswith(".py") and not new.startswith("tests/")
+              and (status != "R100" or not old.endswith(".py"))):
             python.append(new)
     if keyed or not python:
         return ""

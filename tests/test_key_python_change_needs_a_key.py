@@ -2,9 +2,9 @@
 file outside tests/ brings a key with it, else its round fails naming those files, though the
 task's checks and the reviewer passed.
 
-A key counts when the change adds or edits one, or renames a test into one.  A Python file deleted
-or moved unchanged needs none, nor does a change to tests/ alone, and a base holding no key is out
-of the rule.  Black-box: the program `AK_BIN` names runs from outside through
+A key counts when the change adds or edits one, or renames a file to a key's name.  A Python file
+deleted or moved unchanged needs none, nor does a change to tests/ alone, and a base holding no key
+is out of the rule.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, on a project from gitrig.py, with scripted harnesses from fakeadapter.py.
 """
 
@@ -25,9 +25,10 @@ KEYED = {**PLAIN, "tests/test_key_widget_starts.py": "# starts the widget from o
 # The widget edited, and its plain test with it.
 EDIT = {"src/widget.py": "def turns():\n    return 2\n",
         "tests/test_widget.py": "from widget import turns\nassert turns() == 2\n"}
-REFUSAL = ("Python changed with no answer key: src/notes.py, src/widget.py. A change to a .py file "
-           "outside tests/ adds, edits or moves in a tests/test_key_*.py in the same change: a "
-           "black-box test of what it does.")
+ODD = "\"$(printf 'src/odd\\377.py')\""      # a name that is not UTF-8
+REFUSAL = ("Python changed with no answer key: src/notes.py, src/odd\\xff.py, src/widget.py. A "
+           "change to a .py file outside tests/ adds, edits or moves in a tests/test_key_*.py in "
+           "the same change: a black-box test of what it does.")
 
 
 def step(write, sh=None):
@@ -67,15 +68,18 @@ class RunOn:
 
 class PythonEditedBesideAPlainTest(RunOn, unittest.TestCase):
     """The executor edits the widget and its plain test, renames a text file to Python, which adds
-    a Python file, and deletes the base's key, which frees nothing; the fixer the refusal gets adds
-    a key."""
+    a Python file, adds one whose name is not UTF-8, which the refusal shows escaped, and deletes
+    the base's key, which frees nothing; the fixer the refusal gets adds a key and drops the odd
+    file."""
 
     @classmethod
     def setUpClass(cls):
         cls.start(KEYED, "grep -q 2 src/widget.py",
                   step(EDIT, "git rm -q tests/test_key_widget_starts.py && "
-                             "git mv src/notes.txt src/notes.py"),
-                  step({"tests/test_key_widget_turns.py": "# turns the widget from outside\n"}))
+                             "git mv src/notes.txt src/notes.py && "
+                             f"echo 'ODD = 1' >{ODD}"),
+                  step({"tests/test_key_widget_turns.py": "# turns the widget from outside\n"},
+                       f"git rm -q {ODD}"))
 
     def test_the_round_fails_naming_the_python_files_and_not_the_test(self):
         prompt = (self.run_dir / "round-1/fixer/prompt.md").read_text()
@@ -99,6 +103,17 @@ class PlainTestRenamedToAKey(RunOn, unittest.TestCase):
         self.assert_passed("executor")
 
 
+class KeyRenamedToAnotherKey(RunOn, unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.start(KEYED, "test -f tests/test_key_widget_turns.py",
+                  step({"src/widget.py": EDIT["src/widget.py"]},
+                       "git mv tests/test_key_widget_starts.py tests/test_key_widget_turns.py"))
+
+    def test_the_round_passes(self):
+        self.assert_passed("executor")
+
+
 class PythonMovedOrDeletedBesideTests(RunOn, unittest.TestCase):
     """One Python file moved unchanged, another deleted, and a plain test edited, which the first
     class shows gives no key: none of them needs one."""
@@ -114,11 +129,13 @@ class PythonMovedOrDeletedBesideTests(RunOn, unittest.TestCase):
 
 
 class BaseWithoutKeys(RunOn, unittest.TestCase):
-    """The first class's change, on a base that holds no key."""
+    """The widget and its plain test edited, on a base whose one thing named like a key is a
+    directory."""
 
     @classmethod
     def setUpClass(cls):
-        cls.start(PLAIN, "grep -q 2 src/widget.py", step(EDIT))
+        cls.start({**PLAIN, "tests/test_key_package.py/data.txt": "data\n"},
+                  "grep -q 2 src/widget.py", step(EDIT))
 
     def test_the_round_passes(self):
         self.assert_passed("executor")
