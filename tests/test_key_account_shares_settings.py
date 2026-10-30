@@ -10,9 +10,9 @@ usual login leaves every login's files alone.
 
 Claude Code: a named login's own settings file gives way to the link, no launch writes the
 usual file, and settings already reaching the usual file through other links stay as they are.
-Grok Build: a first launch carries into the usual files only the values they lack, leaves one
+Grok Build: a first launch carries into each usual file only the values it lacks, leaves one
 lacking nothing byte for byte, and moves the named login's file in as written where the usual
-login has none; settings it cannot read fail the launch, both files kept.
+login has none; a settings file it cannot read fails the launch, both of its copies kept.
 
 Black-box: the adapters beside the program `AK_BIN` names, as tests/fixtures/hookdrive.py finds
 them, open seats (`interactive`) and run worker turns (`run`) in a Home of tests/fixtures/akbin.py
@@ -34,18 +34,19 @@ from fixtures.hookdrive import ROOT
 NAMED, OTHER = "harbor", "quay"
 DAY = 86400
 # A turn's harness: it writes down the home it started on and the settings files and
-# conversations it found there, saves $SAVE as each settings file through the path it read, as
-# its settings screen does, and begins a conversation named after that home.
+# conversations it found there, saves each file $SAVE names through the path it read, as its
+# settings screen does, and begins a conversation named after that home.
 FAKE = """#!{python}
 import json, os
 from pathlib import Path
 home = Path(os.environ.get({variable!r}) or Path.home() / {usual!r})
+saves = json.loads(os.environ.get("SAVE") or "{{}}")
 found = {{}}
 for name in {files!r}:
     path = home / name
     found[name] = path.read_text() if path.exists() else None
-    if os.environ.get("SAVE"):
-        path.write_text(os.environ["SAVE"])
+    if name in saves:
+        path.write_text(saves[name])
 kept = home / {conversations!r} / "acme"
 seen = sorted(path.name for path in kept.glob("*"))
 kept.mkdir(parents=True, exist_ok=True)
@@ -55,11 +56,16 @@ Path({saw!r}).write_text(json.dumps({{"home": str(home), "settings": found,
 """
 
 
+def kept(path):
+    """Whether a file is a link, its bytes and its last write: all a launch leaving it keeps."""
+    return path.is_symlink(), path.read_bytes(), path.stat().st_mtime_ns
+
+
 class Logins:
     """What every harness's launches answer.  A subclass names the harness's adapter and
     program, the variable naming the home it runs on and its usual home, the settings files
-    and the conversations directory kept there, its login's file, and `text`, settings holding
-    a value."""
+    and the conversations directory kept there, its login's file, and `text`, each settings
+    file's own text holding a value."""
     checked = {}    # what the harness's plugin tells its adapter it checked
 
     def setUp(self):
@@ -81,12 +87,12 @@ class Logins:
     def paths(self, login):
         return [self.home.path / self.name(login) / name for name in self.files]
 
-    def write(self, login, text):
-        """Give a login settings files of its own holding `text`, a day old; None, none."""
+    def write(self, login, texts):
+        """Give a login settings files of its own holding `texts`, a day old; None, none."""
         for name in self.files:
             (self.home.path / self.name(login) / name).unlink(missing_ok=True)
-            if text is not None:
-                self.home.write(f"{self.name(login)}/{name}", text, ago=DAY)
+            if texts is not None:
+                self.home.write(f"{self.name(login)}/{name}", texts[name], ago=DAY)
 
     def launch(self, verb, login, **env):
         args = ["acme-7", "high"]
@@ -104,19 +110,14 @@ class Logins:
     def turn(self, login, save=None):
         """A worker turn on a login, its harness saving `save` as its settings: what it found."""
         self.saw.unlink(missing_ok=True)
-        done = self.launch("run", login, SAVE=save)
+        done = self.launch("run", login, SAVE=save and json.dumps(save))
         self.assertEqual(done.code, 0, done.err)
         saw = json.loads(self.saw.read_text())
         self.assertEqual(saw.pop("home"), str(self.home.path / self.name(login)))
         return saw
 
-    def found(self, text):
-        return {name: text for name in self.files}
-
     def state(self, *logins):
-        """Each settings file of these logins: whether it is a link, its bytes, its last write."""
-        return [(path.is_symlink(), path.read_bytes(), path.stat().st_mtime_ns)
-                for login in logins for path in self.paths(login)]
+        return [kept(path) for login in logins for path in self.paths(login)]
 
     def assertLinked(self, login):
         for path, usual in zip(self.paths(login), self.paths("")):
@@ -125,11 +126,14 @@ class Logins:
 
     def test_the_first_seat_or_turn_on_a_named_login_links_settings_not_there_yet(self):
         self.seat(NAMED)
-        self.turn(OTHER, save=self.text("dark"))     # its settings screen, the first time
+        self.assertEqual(self.turn(OTHER)["settings"], dict.fromkeys(self.files))
         for login in (NAMED, OTHER):
             self.assertLinked(login)
-        self.assertEqual([path.read_text() for path in self.paths("")],
-                         [self.text("dark")] * len(self.files))
+        self.assertEqual([os.path.lexists(path) for path in self.paths("")],
+                         [False] * len(self.files))
+        self.turn(OTHER, save=self.text("dark"))     # its settings screen, the first time
+        self.assertEqual({path.name: path.read_text() for path in self.paths("")},
+                         self.text("dark"))
         for login in ("", NAMED, OTHER):
             own = self.home.path / self.name(login) / self.login
             self.assertFalse(own.is_symlink(), own)
@@ -143,7 +147,7 @@ class Logins:
             for login in (NAMED, OTHER, ""):
                 with self.subTest(saver=saver, login=login):
                     self.seat(login)
-                    self.assertEqual(self.turn(login)["settings"], self.found(self.text(value)))
+                    self.assertEqual(self.turn(login)["settings"], self.text(value))
         for login in (NAMED, OTHER):
             self.assertLinked(login)
 
@@ -152,7 +156,7 @@ class Logins:
             self.write(login, self.text(login or "usual"))
         before = self.state("", NAMED)
         self.seat("")
-        self.assertEqual(self.turn("")["settings"], self.found(self.text("usual")))
+        self.assertEqual(self.turn("")["settings"], self.text("usual"))
         self.assertEqual(self.state("", NAMED), before)
 
     def test_a_named_login_s_conversations_are_the_usual_login_s(self):
@@ -170,21 +174,24 @@ class ClaudeCode(Logins, unittest.TestCase):
     checked = {"AGENTKIT_CLAUDE_CHECKED": "1"}
 
     def text(self, value):
-        return json.dumps({"theme": value}) + "\n"
+        return dict.fromkeys(self.files, json.dumps({"theme": value}) + "\n")
 
     def test_no_launch_writes_the_usual_file_and_a_login_s_own_file_gives_way(self):
         self.write("", self.text("dark"))
-        self.write(NAMED, self.text("light"))
-        before = self.state("")
         for login in (NAMED, OTHER):
-            self.seat(login)
-            self.assertEqual(self.turn(login)["settings"], self.found(self.text("dark")))
-            self.assertLinked(login)
+            self.write(login, self.text("light"))
+        before = self.state("")
+        self.seat(NAMED)        # the first launch on each login: a seat, or a turn
+        self.assertLinked(NAMED)
+        self.assertEqual(self.turn(OTHER)["settings"], self.text("dark"))
+        self.assertLinked(OTHER)
+        self.seat(OTHER)
+        self.assertEqual(self.turn(NAMED)["settings"], self.text("dark"))
         self.assertEqual(self.state(""), before)
 
     def test_settings_already_reaching_the_usual_file_through_other_links_stay(self):
         (usual,), (own,) = self.paths(""), self.paths(NAMED)
-        dotfiles = self.home.write("dotfiles/claude.json", self.text("dark"))
+        dotfiles = self.home.write("dotfiles/claude.json", self.text("dark")[usual.name])
         # both linked to one dotfiles file, or the usual one through the named one, there or not
         for case, targets in enumerate(((dotfiles, dotfiles), (own, dotfiles), (own, None))):
             with self.subTest(case=case):
@@ -196,7 +203,7 @@ class ClaudeCode(Logins, unittest.TestCase):
                          for path in (usual, own)]
                 self.seat(NAMED)
                 self.assertEqual(self.turn(NAMED)["settings"],
-                                 self.found(usual.read_text() if usual.exists() else None))
+                                 {usual.name: usual.read_text() if usual.exists() else None})
                 self.assertEqual([(path.readlink() if path.is_symlink() else path.exists())
                                   for path in (usual, own)], links)
 
@@ -205,16 +212,22 @@ class GrokBuild(Logins, unittest.TestCase):
     harness, program, variable, usual = "grokbuild", "grok", "GROK_HOME", ".grok"
     files, conversations, login = ("config.toml", "pager.toml"), "sessions", "auth.json"
 
+    def each(self, form):
+        """Each settings file's `form` of a table of that file's own name."""
+        return {name: form(Path(name).stem) for name in self.files}
+
     def text(self, value):
-        return f'[ui]\ntheme = "{value}"\n'
+        return self.each(lambda table: f'[{table}]\ntheme = "{value}"\n')
 
     def test_a_first_launch_carries_over_only_what_the_usual_files_lack_as_written(self):
-        own = "# harbor's own\n[ui]\nvim_mode = true\nshow_timestamps = true\n"
-        lacks_nothing = "# the usual\n[ui]\nvim_mode = false\nshow_timestamps = false\n"
+        own = self.each(lambda table: f"# harbor's {table}\n[{table}]\nvim_mode = true\n"
+                                      "show_timestamps = true\n")
+        lacks_nothing = self.each(lambda table: f"# the usual {table}\n[{table}]\n"
+                                                "vim_mode = false\nshow_timestamps = false\n")
         for launch, login, usual, after in (
                 # lacking a value: that one is added, and the usual file's own values kept
-                (self.turn, NAMED, "[ui]\nvim_mode = false\n",
-                 {"ui": {"vim_mode": False, "show_timestamps": True}}),
+                (self.turn, NAMED, self.each(lambda table: f"[{table}]\nvim_mode = false\n"),
+                 self.each(lambda table: {table: {"vim_mode": False, "show_timestamps": True}})),
                 # lacking nothing: byte for byte
                 (self.seat, OTHER, lacks_nothing, lacks_nothing),
                 # none there: the named login's own, as written
@@ -225,18 +238,19 @@ class GrokBuild(Logins, unittest.TestCase):
                 launch(login)
                 self.assertLinked(login)
                 for path in self.paths(""):
-                    text = path.read_text()
-                    self.assertEqual(text if isinstance(after, str) else tomllib.loads(text),
-                                     after)
+                    text, want = path.read_text(), after[path.name]
+                    self.assertEqual(text if isinstance(want, str) else tomllib.loads(text), want)
 
-    def test_settings_it_cannot_read_fail_the_launch_and_both_files_are_kept(self):
-        self.write("", self.text("dark"))
-        self.write(NAMED, "[invalid")
-        before = self.state("", NAMED)
-        for verb in ("interactive", "run"):
-            with self.subTest(verb=verb):
-                self.assertNotEqual(self.launch(verb, NAMED).code, 0)
-                self.assertEqual(self.state("", NAMED), before)
+    def test_a_settings_file_it_cannot_read_fails_the_launch_and_both_copies_are_kept(self):
+        for bad in self.files:
+            for verb in ("interactive", "run"):
+                with self.subTest(bad=bad, verb=verb):
+                    self.write("", self.text("dark"))
+                    self.write(NAMED, {**self.text("dark"), bad: "[invalid"})
+                    copies = [self.home.path / self.name(login) / bad for login in ("", NAMED)]
+                    before = [kept(path) for path in copies]
+                    self.assertNotEqual(self.launch(verb, NAMED).code, 0)
+                    self.assertEqual([kept(path) for path in copies], before)
 
 
 if __name__ == "__main__":
