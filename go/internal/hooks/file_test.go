@@ -136,3 +136,15 @@ func TestAHooksDirectoryThatCannotBeMadeExits1(t *testing.T) {
 		t.Fatalf("exit %d, stdout %q, stderr %q", code, out, errOut)
 	}
 }
+
+// The hooks directory is made as the home is spelled, never cleaned, as Python's makedirs makes
+// it: a `..` after a name is that name's parent, made where it is missing.
+func TestTheHooksDirectoryIsMadeAsTheHomeIsSpelled(t *testing.T) {
+	table := ownTable(t)
+	home := os.Getenv("HOME")
+	table.Settings = filepath.Join(home, "missing") + string(filepath.Separator) + filepath.Join("..", "chosen", "hooks", "agentkit.json")
+	code, _, errOut := install(table)
+	if code != 0 || errOut != "" || sha(t, filepath.Join(home, "chosen", "hooks", "agentkit.json")) != ownSha {
+		t.Fatalf("exit %d, stderr %q", code, errOut)
+	}
+}

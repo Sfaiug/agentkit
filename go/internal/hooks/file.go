@@ -18,7 +18,9 @@ import (
 // written or already there, 1 where the heredoc ends in a traceback.
 func write(table config.HookTable, root string, out, errOut io.Writer) int {
 	path, whole := table.Settings, document(table, root)
-	if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
+	// as spelled, never cleaned, as makedirs makes it: a `..` after a link is its target's parent
+	dir, _ := filepath.Split(path)
+	if err := os.MkdirAll(dir, 0o777); err != nil {
 		fmt.Fprintln(errOut, err)
 		return 1
 	}
