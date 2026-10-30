@@ -958,10 +958,12 @@ CPUWeight=40
 EOF
   if [ -n "$mem_high" ]; then printf 'MemoryHigh=%s\n' "$mem_high" >>"$LIMITS"; fi
   if pin=$(slice_pin slice_cpu_quota); then printf 'CPUQuota=%s\n' "$pin" >>"$LIMITS"; fi
-  systemctl --user daemon-reload 2>/dev/null ||
-    note "run \`systemctl --user daemon-reload\` to pick up $LIMITS"
   echo "slice: $LIMITS caps agentkit at $slice_tasks tasks and $mem_max of memory; CPU yields to other work"
   fi
+  # Ours or the owner's, the slice's ceiling is the one systemd has loaded, and the runs' cap
+  # below is taken from it.
+  systemctl --user daemon-reload 2>/dev/null ||
+    note "run \`systemctl --user daemon-reload\` to pick up $LIMITS"
   # Finished work and runs get the CPU and I/O before seats testing their own work.
   # Seats keep one share of the machine's memory and of the slice's tasks: under memory
   # pressure the runs give memory back first, and a burst of runs never takes the last fork a

@@ -2,7 +2,7 @@
 of agentkit.slice's ceiling, in its drop-in and at once at runtime.
 
 Offline: install.sh's slice section runs in a temporary HOME against a fake systemctl that
-reads the slice's drop-ins as systemd would and records what is set at runtime.
+loads the slice's drop-ins at a reload, as systemd does, and records what is set at runtime.
 """
 
 import json
@@ -18,25 +18,27 @@ REPO = Path(__file__).resolve().parents[1]
 SYSTEMCTL = '''#!{python}
 import json, os, pathlib, sys
 args = sys.argv[1:]
+path = pathlib.Path(os.environ["FAKE_UNITS"])
+units = json.loads(path.read_text()) if path.exists() else {{}}
 if args == ["--user", "is-system-running"]:
     print("running")
 elif args[:1] == ["show"]:
     print(os.environ["FAKE_USER_TASKS"])
-elif args[:3] == ["--user", "show", "agentkit.slice"]:
-    # systemd reads the slice's drop-ins in name order; the last TasksMax wins
+elif args == ["--user", "daemon-reload"]:
+    # systemd reads the slice's drop-ins in name order, and the last TasksMax wins
     ceiling = "infinity"
     dropins = pathlib.Path(os.environ["HOME"], ".config/systemd/user/agentkit.slice.d")
-    for path in sorted(dropins.glob("*.conf")):
-        for line in path.read_text().splitlines():
+    for conf in sorted(dropins.glob("*.conf")):
+        for line in conf.read_text().splitlines():
             if line.startswith("TasksMax="):
                 ceiling = line.split("=", 1)[1]
-    print(ceiling)
+    units.setdefault("agentkit.slice", {{}})["TasksMax"] = ceiling
+elif args[:3] == ["--user", "show", "agentkit.slice"]:
+    print(units.get("agentkit.slice", {{}}).get("TasksMax", "infinity"))   # as last loaded
 elif "set-property" in args:
-    path = pathlib.Path(os.environ["FAKE_UNITS"])
-    units = json.loads(path.read_text()) if path.exists() else {{}}
     unit = next(arg for arg in args if arg.endswith(".slice"))
     units.setdefault(unit, {{}}).update(arg.split("=", 1) for arg in args if "=" in arg)
-    path.write_text(json.dumps(units))
+path.write_text(json.dumps(units))
 '''
 
 
@@ -97,6 +99,7 @@ class RunsLeaveSeatsTasks(unittest.TestCase):
         limits = self.user / "agentkit.slice.d/limits.conf"
         limits.parent.mkdir(parents=True)
         limits.write_text("[Slice]\nTasksMax=1200\n")
+        self.units.write_text(json.dumps({"agentkit.slice": {"TasksMax": "3825"}}))  # not reloaded yet
         self.install()
         self.assertEqual(limits.read_text(), "[Slice]\nTasksMax=1200\n")
         self.assert_runs_leave_seats("1200")
