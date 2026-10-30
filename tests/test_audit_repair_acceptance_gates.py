@@ -464,9 +464,8 @@ exec "$dir/muse-bin-$(cat "$dir/.muse-version")" "$@"
         cleanup = between(FRESH, 'cleanup() {', '\ntrap cleanup EXIT')
         self.script("gh", 'echo "$*" >>"$WORK/gh-calls"\nexit 97\n')
         self.shell('''sync_back() { :; }
-smoke_lock_drop() { :; }
 cleanup_logs() { :; }
-KEEP=0 SMOKE_REPO=fixture/repo UH="$WORK/home"
+KEEP=0 UH="$WORK/home"
 E2E_TMUX_DIR="$TMUX_TMPDIR"
 ''' + cleanup + '\ncleanup', check=True)
         self.assertFalse((self.root / 'gh-calls').exists())

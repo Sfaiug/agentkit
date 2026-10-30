@@ -48,7 +48,7 @@ class LandingSuiteNamesItsFailedTests(unittest.TestCase):
         root = Path(tmp.name)
         tests = root / "tests"
         tests.mkdir()
-        for name in ("landing.py", "suite_shares.py"):
+        for name in ("landing.py", "affected.py", "suite_shares.py"):
             (tests / name).write_text((REPO / "tests" / name).read_text())
         # The real runner, on this checkout: left to its default it would sweep the repository.
         (tests / "every_file.py").write_text(

@@ -15,8 +15,10 @@ from unittest.mock import patch
 from fixtures.sandbox import Sandbox
 from agentkit import config, notify, orch, statusbar
 
-SAYS = ("import os, pathlib, sys, time; pathlib.Path(sys.argv[1]).write_text("
-        "os.environ[sys.argv[2]]); time.sleep(600)")
+# written whole or not at all: a file read as it is created holds nothing yet
+SAYS = ("import os, pathlib, sys, time; said = pathlib.Path(sys.argv[1]); "
+        "said.with_suffix('.part').write_text(os.environ[sys.argv[2]]); "
+        "said.with_suffix('.part').replace(said); time.sleep(600)")
 ROOT = "XDG_STATE_HOME"
 
 
@@ -87,7 +89,11 @@ class OneCall(Sandbox):
         self.assertEqual(self.heard(said), self.log)
 
     def test_a_reopened_seat_s_environment_is_one_call_after_its_respawn(self):
-        orch.start("acme", self.root, ["sleep", "600"], "opus")
+        first = self.root / "first"
+        orch.start("acme", self.root, [sys.executable, "-c", SAYS, str(first), notify.SINK_LOG_ENV],
+                   "opus")
+        # running, so its launch file is gone: removed later, it would take the respawn's
+        self.heard(first)
         self.calls.clear()
         said = self.root / "said"
         orch._start_harness("acme", "opus", self.root,

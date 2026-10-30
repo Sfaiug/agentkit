@@ -426,8 +426,8 @@ class Clock:
         self.asked = {}     # each question shown -> when it began writing itself out, or None
         self.fade = fade    # what is drawn fades in over the first FADE seconds (`rise`): a popup
         self.page = page    # ... or, a page opening, all under its header and rule (`titled`)
-        self.opened = None  # ... from its first draw
-        self.rising = None  # ... the lines drawn, top down, and that time, while they come up
+        self.opened = None  # ... from its first frame
+        self.rising = None  # ... the lines drawn, top down, while they come up
         self.grows = None   # each line the screen's first draw has -> when it grows in from
 
     def look(self, values):
@@ -497,13 +497,12 @@ class Clock:
         """Whether `lines`, a draw's screen top down, come up out of the background, the frames
         writing them and what moves in them until they are up: on a clock made to `fade`, or a
         `page`'s, where colour can move, whatever is drawn in the FADE seconds from its first
-        draw -- a key's draw at once, and news -- each from where the fade has got to.
+        frame -- a key's draw at once, and news -- each from where the fade has got to.
         """
         now = time.monotonic()
-        if (self.fade or self.page) and terminal.colour_depth() > 8:
-            self.opened = now if self.opened is None else self.opened
-            if now < self.opened + FADE:
-                self.rising = (lines, self.opened)
+        opened = now if self.opened is None else self.opened    # not yet: by this draw's frame
+        if (self.fade or self.page) and terminal.colour_depth() > 8 and now < opened + FADE:
+            self.rising = lines
         return self.rising is not None
 
     def clear(self):
@@ -529,11 +528,13 @@ class Clock:
         now = self.last = time.monotonic()
         out, amount, first = "", 0, 3 if self.page else 1     # where what comes up starts
         if self.rising:
-            lines, began = self.rising
-            amount = 1 - eased((now - began) / FADE)
+            # from its first frame, not from the draw making it: however long that draw took,
+            # what comes up starts at the background
+            self.opened = now if self.opened is None else self.opened
+            amount = 1 - eased((now - self.opened) / FADE)
             out = "".join(f"\033[{row};1H" + (terminal.fade(line, amount) if row >= first else
                                                titled(line, 1 - amount) if row == 1 else line)
-                          for row, line in enumerate(lines, 1))
+                          for row, line in enumerate(self.rising, 1))
             # every cell that moves written over them again, and once they are up, as drawn
             self.shown, self.rising = {}, self.rising if amount > 0 else None
         # what spans more than its cell -- a whole row's glow -- first, and what moves inside

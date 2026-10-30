@@ -7,11 +7,9 @@ import json
 import os
 from pathlib import Path
 import shlex
-import subprocess
 import sys
 import tempfile
 import threading
-import time
 import unittest
 from unittest.mock import patch
 
@@ -21,7 +19,6 @@ from fixtures.sandbox import account_home
 from agentkit import config, gate, gitcall, host, run, staffing, status, turns, watch, worker
 from agentkit import record
 from agentkit import task as taskfile
-from test_suites_never_collide import E2E, SMOKE, lock_argv, lock_program
 
 
 class Clock:
@@ -280,85 +277,6 @@ class Silence(unittest.TestCase):
             self.assertAlmostEqual(watch.stall_allowance(saved, "done-when", 17),
                                    17 + (worker.KILL_GRACE + 2 * worker.ACTIVITY_POLL) / 60)
         self.assertEqual((saved["silence_minutes"], saved["ceiling_hours"]), (17, 5))
-
-    def fast_lock(self, script, path, seconds):
-        # Speed up only the reporter in the child. The actual flock, signal timeout,
-        # pipe relay and parent watchdog run normally on this private lock.
-        body = ("import threading\n"
-                "event_wait = threading.Event.wait\n"
-                "threading.Event.wait = lambda self, timeout=None: "
-                "event_wait(self, timeout / 600 if timeout is not None else None)\n"
-                + lock_program(script))
-        return [sys.executable, "-u", "-c", body, *lock_argv(script, path, seconds)]
-
-    def release_after_a_window(self, holder, log_path, silence, done, span):
-        """Unlock once the child has been seen waiting for a whole silence window.
-
-        The wait is measured from the child's first waiting line in the live log, so a
-        child slow to start only delays the release instead of dying silent -- and living
-        past the window then proves the lines counted as activity.  Neither lock source
-        carries a bare `waiting` line, so a full line is the child's own output rather
-        than the `$` echo of the command above it.  `done` ends the watch when the gate
-        is already over; the deadline is only ever a backstop.
-        """
-        first, deadline = None, time.monotonic() + 300
-        while not done.is_set() and time.monotonic() < deadline:
-            seen = log_path.read_text(errors="replace") if log_path.exists() else ""
-            if any(line == "waiting" for line in seen.splitlines()):
-                first = first or time.monotonic()
-                if time.monotonic() - first > silence + 1:
-                    break
-            time.sleep(0.05)
-        span["first"], span["released"] = first or 0, time.monotonic()
-        fcntl.flock(holder, fcntl.LOCK_UN)
-
-    def test_shared_lock_wait_reports_activity_until_acquired(self):
-        # A generous window: a python start under load lands inside it, and the hold
-        # below then keeps the child waiting a whole window past its first line.
-        silence = 10
-        for script in (SMOKE, E2E):
-            with self.subTest(script=script.name):
-                path = self.root / "private.lock"
-                # Each script its own log: the releaser reads the live one, and a stale
-                # waiting line from the other script would end the hold before it began.
-                log_path = self.root / f"lock-{script.name}.log"
-                with path.open("a") as holder:
-                    fcntl.flock(holder, fcntl.LOCK_EX)
-                    done, span = threading.Event(), {}
-                    release = threading.Thread(
-                        target=self.release_after_a_window,
-                        args=(holder, log_path, silence, done, span), daemon=True)
-                    release.start()
-                    try:
-                        # The child outwaits a slow start plus the window-plus-one hold.
-                        cmd = shlex.join(self.fast_lock(script, path, 60))
-                        with patch.object(worker, "ACTIVITY_POLL", 0.05):
-                            ok, text = gate.run_done_when(
-                                [cmd], self.root, log_path, set(), silence=silence)
-                    finally:
-                        done.set()
-                        release.join()
-                self.assertTrue(ok, text)
-                self.assertGreater(span["released"] - span["first"], silence)
-                output = text.split("[exit 0]\n", 1)[1].splitlines()
-                self.assertGreaterEqual(output.count("waiting"), 3)
-                self.assertEqual(output[-1], "held")
-
-    def test_shared_lock_wait_stays_bounded_and_stops_reporting(self):
-        for script in (SMOKE, E2E):
-            with self.subTest(script=script.name):
-                path = self.root / "private.lock"
-                with path.open("a") as holder:
-                    fcntl.flock(holder, fcntl.LOCK_EX)
-                    # The wait bounds the child, not its start: the timeout only has to
-                    # outlast a python start under load.
-                    result = subprocess.run(self.fast_lock(script, path, 0.5),
-                                            capture_output=True, text=True, timeout=120)
-                self.assertEqual(result.returncode, 75, result.stderr)
-                output = result.stdout.splitlines()
-                self.assertGreaterEqual(output.count("waiting"), 3)
-                self.assertEqual(output[-1], "busy")
-                self.assertFalse(result.stderr)
 
     def recovering(self, stack, kind, stalls):
         directory = self.root / "runs" / "recovering"

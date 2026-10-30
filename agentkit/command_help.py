@@ -108,8 +108,8 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
              "--dry-run prints the launch plan.",
              "ak orch parser-fix"),
     "orch rules": ("usage: ak orch rules CODE",
-                   "Say this seat's conversation read the changed rulebook its prompt named,\n"
-                   "with the code that prompt gave: its prompts stop naming it until it changes.",
+                   "Say this seat's conversation read the rulebook file its prompt named,\n"
+                   "with the code on that file's last line: its prompts stop naming it until it changes.",
                    "ak orch rules 3f2a9c81d0e4"),
     "orch list": ("usage: ak orch list [--why]",
                   "List orchestrator sessions and their selections;\n"

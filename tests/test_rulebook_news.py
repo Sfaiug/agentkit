@@ -19,10 +19,12 @@ from agentkit.guard import commands
 from agentkit.harness import codex
 
 SEAT = "acme-fix"
-BEFORE = "the rules from before\n"
+# one rule from the seat's rules now (`setUp`): a change short enough to carry inline, which
+# tests/test_key_rulebook_news_too_long.py says the shipped rules alone are not
+BEFORE = f"{(REPO / 'orchestrator.md').read_text().rstrip()}\n\nAn older rule.\n"
 OWN = "0f5d6e2a-6a43-4c3e-9b0e-3a1f6c2d9e10"      # the conversation the seat's launch handed out
 OWNED = {"conversation": OWN, "id_source": "launcher", "resumable": True}
-TOLD = "it wins"                                    # what a notice says
+TOLD = '"additionalContext"'                        # what a notice rides in, inline or naming a file
 
 
 class RulebookNews(Sandbox):
@@ -34,6 +36,7 @@ class RulebookNews(Sandbox):
             self.stack.enter_context(patch.object(config, name, config.HOME / name.lower()))
         config.ensure_dirs()
         config.save_session(self.cfg, SEAT, "opus", ["astra"], {"cwd": str(self.root), **OWNED})
+        (config.HOME / "rules.md").write_text("The rule now.\n")
 
     def handed(self, text, name=SEAT, recorded=True):
         """The rulebook a launch under `name` handed the seat."""
@@ -82,11 +85,10 @@ class RulebookNews(Sandbox):
         self.handed(config.seat_rulebook(SEAT))
         self.assertEqual(self.prompt(), "")
 
-    def test_a_seat_launched_before_the_record_kept_it_is_told_once(self):
+    def test_a_seat_launched_before_the_record_kept_it_is_told(self):
         # what it was handed is unknown: it is told, never guessed at from a file
         self.handed(config.seat_rulebook(SEAT), recorded=False)
         self.assertIn(TOLD, self.prompt())
-        self.assertEqual(self.prompt(), "")
 
     def test_a_record_write_that_fails_hands_nothing_and_the_next_prompt_does(self):
         self.handed(BEFORE, recorded=False)      # its file is its only word on its launch
@@ -341,7 +343,7 @@ class RulebookNews(Sandbox):
                 patch.object(config, "accounts", return_value=["default"]), \
                 patch.object(orch, "opened", return_value=True), \
                 patch.object(orch, "command", side_effect=command), \
-                patch.object(orch, "seat_command", return_value="true"), \
+                patch.object(orch, "seat_command", return_value=("true", self.root / "launch")), \
                 patch.object(orch, "tmux_out", side_effect=tmux), \
                 self.assertRaises(config.Error):
             orch.resume(self.cfg, SEAT, log=lambda _: None, hand_over=False, account="default")
@@ -374,7 +376,7 @@ class RulebookNews(Sandbox):
         with patch.object(orch, "_switch_plan", return_value=("", None)), \
                 patch.object(orch, "find", return_value=live), \
                 patch.object(orch, "command", side_effect=command), \
-                patch.object(orch, "seat_command", return_value="true"), \
+                patch.object(orch, "seat_command", return_value=("true", self.root / "launch")), \
                 patch.object(orch, "tmux_out", side_effect=tmux):
             self.assertIn("tmux refused", orch.switch_orchestrator(self.cfg, SEAT, "fable",
                                                                     providers={}))

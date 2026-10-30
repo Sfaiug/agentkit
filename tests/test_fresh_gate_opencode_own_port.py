@@ -28,7 +28,7 @@ class FreshGateOpenCodeOwnPort(unittest.TestCase):
             (Path(tmp) / 'opencode').chmod(0o755)
             out = subprocess.run(
                 ['/bin/bash', '-c', '. "$REPO/tests/acceptance.sh"\nbad=""\n' + step_c + 'echo "bad=$bad"\n'
-                 'sync_back() { :; }; smoke_lock_drop() { :; }; cleanup_logs() { :; }; tmux() { :; }\n'
+                 'sync_back() { :; }; cleanup_logs() { :; }; tmux() { :; }\n'
                  + cleanup + 'cleanup\n'],
                 env={'PATH': os.environ['PATH'],   # none of the caller's own logins or their homes
                      'HOME': f'{tmp}/caller', 'WORK': tmp, 'REPO': str(REPO), 'INVHOME': f'{tmp}/caller', 'UH': tmp,

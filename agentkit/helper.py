@@ -95,9 +95,10 @@ def _tracked(cwd, path):
                                             capture_output=True, check=True).stdout
 
 
-def room(alias, piece_cpus, piece_mem_mb, least_mb=0):
+def room(alias, piece_cpus, piece_mem_mb, least_mb=0, turns=False):
     """((pieces, CPUs each, MiB each, most pieces), reason): a fit, or (None, why it cannot run
-    there). Its CPUs less its load, split equally, as VMs time-share them; the memory ak's VMs
+    there). With `turns`, only a machine whose probe says `turns 1` fits: a Mac runs test suites
+    alone. Its CPUs less its load, split equally, as VMs time-share them; the memory ak's VMs
     may still be given there (`left`), beside other suites' VMs. A VM gets two CPUs or more, as a
     one-CPU VM's kernel hands a terminal's bytes over late and the suite's terminal tests read
     them at once, and twice the piece's measured memory, as it also holds its own kernel, page
@@ -109,6 +110,8 @@ def room(alias, piece_cpus, piece_mem_mb, least_mb=0):
             return None, failure(probe.returncode)
         readings = {key: float(value) for key, value in
                     (line.split(None, 1) for line in probe.stdout.splitlines() if " " in line)}
+        if turns and readings.get("turns") != 1:
+            return None, "takes no model turns"
         cpus, room_mb = readings["cpus"], readings["room_mb"]
         spare, each_cpus = cpus - readings["load"], max(piece_cpus, 2)
         each_mb = int(max(2 * piece_mem_mb, least_mb))
@@ -136,10 +139,10 @@ def _known(alias, repo):
     return None if reply.returncode else reply.stdout.split()
 
 
-def _parcel(cwd, default, known, recipe, parcel):
+def _parcel(cwd, default, known, recipe, parcel, turn=None):
     """Writes to the file `parcel` the recipe's files, the piece's script, `heads` (HEAD, then the
     origin branch the suite compares against) and a bundle of their history the helper lacks:
-    the whole history the first time, which can outgrow memory."""
+    the whole history the first time, which can outgrow memory; `turn(tar)` adds a turn's own."""
     revs = ["HEAD", *([f"refs/remotes/origin/{default}"] if default else [])]
     heads = subprocess.run(["git", "-C", str(cwd), "rev-parse", *revs], capture_output=True,
                            text=True, check=True).stdout.split()
@@ -152,6 +155,8 @@ def _parcel(cwd, default, known, recipe, parcel):
             info = tarfile.TarInfo(name)
             info.size, info.mode = len(data), mode
             tar.addfile(info, io.BytesIO(data))
+        if turn:
+            turn(tar)
         # `git bundle` refuses one with nothing in it: the helper has every commit already.
         if not subprocess.run(["git", "-C", str(cwd), "bundle", "create", "-", *revs, "--not",
                                *have], stdout=bundle, stderr=subprocess.DEVNULL).returncode:
@@ -159,10 +164,11 @@ def _parcel(cwd, default, known, recipe, parcel):
             tar.addfile(tar.gettarinfo(arcname="repo.bundle", fileobj=bundle), bundle)
 
 
-def start(piece_cpus, piece_mem_mb, cwd, log, command):
+def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None):
     """(the suite sent to the roomiest helper, reason): an Away, or (None, why it runs here).
     `command` is what each of its pieces runs there (`piece`): one whose line is longer than one
-    argument holds keeps the suite here."""
+    argument holds keeps the suite here. With `turn`, a model turn's (agentkit/machine_turn.py),
+    it goes to a machine that takes turns, `turn(tar)` adding its own files to the parcel."""
     try:
         aliases = machines.helpers()
     except config.Error:  # a config.toml mid-edit fails no run's suite: it runs here
@@ -190,7 +196,8 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command):
     if size >= MAX_ARG_STRLEN:
         return None, (f"a piece's line to the suite helper would take {size} bytes, more than "
                       f"one argument holds ({MAX_ARG_STRLEN}, Linux's MAX_ARG_STRLEN)")
-    rooms = {alias: room(alias, piece_cpus, piece_mem_mb, _least(repo)) for alias in aliases}
+    rooms = {alias: room(alias, piece_cpus, piece_mem_mb, _least(repo), bool(turn))
+             for alias in aliases}
     alias = max(aliases, key=lambda alias: (rooms[alias][0] or (0,))[0])
     fit = rooms[alias][0]
     if fit is None:
@@ -200,7 +207,7 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command):
     try:
         while known is not None:
             with tempfile.TemporaryFile() as parcel:
-                _parcel(cwd, away.default, known, recipe, parcel)
+                _parcel(cwd, away.default, known, recipe, parcel, turn)
                 parcel.seek(0)
                 # a new recipe's build fetches packages, a first suite sends the whole history
                 sent = _remote(alias, "prepare", away.key, image, repo, stdin=parcel,

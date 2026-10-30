@@ -12,7 +12,8 @@ import time
 import uuid
 from pathlib import Path
 
-from . import box, command_help, config, gitcall, hand_in, host, record, task as taskfile
+from . import (box, command_help, config, gitcall, hand_in, host, machine_turn, record,
+               task as taskfile)
 from .harness import load as harness_plugin
 
 # A worker session is not a seat: `ak notify` is suppressed there.
@@ -140,7 +141,7 @@ SUITE = ("[worker judgement] Never run the repository's `tests:` suite or a larg
          "say so in your summary.")
 SIZE = (f"[checked by ak: tests/test_size_gate.py] ak ends the run blocked with `split it` when "
         f"its first review would read more than {taskfile.MAX_PR_LINES} added lines, the tests among "
-        "them (generated files and blocks moved unchanged aside).")
+        "them (files `.gitattributes` marks generated and blocks moved unchanged aside).")
 REVIEW_COPY = ("[checked by ak: tests/test_reviewer_edits_never_land.py] ak reviews in an isolated copy, "
                "archives and undoes edits; they never reach the branch.")
 TIMEOUT = 124       # what a turn killed for running past its limit exits with, as `timeout(1)` does
@@ -860,17 +861,21 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     # harness writes that file, and added to the end of it once the turn is over.
     own = out_dir / "adapter-stderr.log"
     paths = config.manifest(entry["harness"]).get("worker", {})
-    with box.command(cmd, turn_env, out_dir, cwd=workspace,
-                     state=paths.get("state", ()), places=places,
-                     logins=paths.get("logins", ()),
-                     hidden=config.unswitched_files(entry["harness"], turn_env)) as (cmd, turn_env, spawn), \
-            own.open("wb") as err:
-        code, _, killed = limited(cmd, None, silence=limit, activity=out_dir / "events.jsonl",
-                                  heartbeats=paths.get("heartbeats", ()),
-                                  abort=lambda: watching(out_dir),
-                                  env=turn_env, stderr=err, **spawn)
-    if not killed:
-        code = box.returncode(out_dir, code)
+    watch = {"silence": limit, "activity": out_dir / "events.jsonl",
+             "heartbeats": paths.get("heartbeats", ()), "abort": lambda: watching(out_dir)}
+    away = machine_turn.call(entry["harness"], cmd, workspace, out_dir, turn_env, places,
+                             lambda argv, **streams: limited(argv, None, **watch, **streams))
+    if away:
+        code, killed = away
+    else:
+        with box.command(cmd, turn_env, out_dir, cwd=workspace,
+                         state=paths.get("state", ()), places=places,
+                         logins=paths.get("logins", ()),
+                         hidden=config.unswitched_files(entry["harness"], turn_env)) as (cmd, turn_env, spawn), \
+                own.open("wb") as err:
+            code, _, killed = limited(cmd, None, **watch, env=turn_env, stderr=err, **spawn)
+        if not killed:
+            code = box.returncode(out_dir, code)
     harness_plugin(entry["harness"]).record_turn(out_dir, config.STATE,
                                                 turn_env.get(config.ACCOUNT_ENV, ""))
     try:
