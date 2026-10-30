@@ -241,6 +241,19 @@ def record_disputes(lp, out):
                 lp.save()
 
 
+def blocked_stands(lp):
+    """Whether a builder's `blocked` ends the run: not over a change awaiting its first review
+    whose checks pass.  That change's size is ak's to count (`first_review_ceiling`) and whether
+    it does the task is the reviewer's to judge, so a builder that miscounts it stops nothing
+    (30 Oct 2026: 586 lines under go/, which the count leaves out).  Read off the diff and the
+    checks, never the why: its words cannot tell a size from a task nobody can do."""
+    if not first_review_ahead(lp):
+        return True
+    gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
+    return (gitcall.git_out(lp.wt, "diff", "--quiet", f"{lp.base_sha}...HEAD")[0] == 0
+            or not verify_work(lp)[0])
+
+
 def worker_result(lp, summary, out):
     """Read the same closing after a call or a host interruption."""
     record_disputes(lp, out)
@@ -249,7 +262,9 @@ def worker_result(lp, summary, out):
     closing = submitted.closing if submitted is not None else None
     if closing:
         if closing["kind"] == "blocked":
-            raise turns.Blocked(closing["why"], f"## Blocked\n\n{closing['why']}")
+            if blocked_stands(lp):
+                raise turns.Blocked(closing["why"], f"## Blocked\n\n{closing['why']}")
+            lp.log(f"handed in blocked over a change its checks pass, so it goes to review: {closing['why']}")
         if (closing["kind"] == "not-needed" and lp.state.get("followup")
                 and not lp.state.get("round_summaries")):
             raise turns.NotNeeded(closing["why"])
@@ -1146,9 +1161,9 @@ def execute(lp, role, text, name):
     this turn left behind.  A turn killed by signal twice within a minute is neither either:
     the run parks as an interruption, reading `needs you` with the signal for a reason.
 
-    A turn that hands in blocked says the task cannot
-    be done as written: that ends the run here, with no done-when gate, no reviewer and no
-    further round, because there is nothing to judge and nothing another round would change.
+    A turn that hands in blocked says the task cannot be done as written: where that stands
+    (`blocked_stands`) it ends the run here, with no reviewer and no further round, because
+    there is nothing to judge and nothing another round would change.
     """
     lp.state.update(verdict=None, review=None)
     if hasattr(lp, "step"):
@@ -1812,17 +1827,23 @@ def rounds(lp, execv=None):
             return
 
 
+def first_review_ahead(lp):
+    """Whether the change has yet to get its first review: not once a review of it, in this run
+    or in one launched `from:` its branch, handed in a verdict.  A scratch run has no diff to
+    count, and a pull request's review has its own refusal."""
+    return not (lp.scratch or lp.state.get("review_pr")
+                or transitions.change_reviewed(change=transitions.change_of(lp.state)))
+
+
 def first_review_ceiling(lp, record=True):
     """A task's change gets its first review only up to `task.MAX_PR_LINES` added lines:
     past it the run ends blocked with `split it`
     before the reviewer reads a line, and the branch it keeps holds the work for the pieces.
-    Only the change's first review, a resumed one too: once a review of it, in this run or in
-    one launched `from:` its branch, handed in a verdict, a later one reviews whatever the fix
-    left.  A scratch run has no diff to count.  A first review that goes ahead records the lines
-    it reads in the run's history row, whatever the run's ending, so the ceiling can be weighed
-    against how often changes of each size end merged."""
-    if (lp.scratch or lp.state.get("review_pr")
-            or transitions.change_reviewed(change=transitions.change_of(lp.state))):
+    Only the change's first review, a resumed one too (`first_review_ahead`): a later one
+    reviews whatever the fix left.  A first review that goes ahead records the lines it reads in
+    the run's history row, whatever the run's ending, so the ceiling can be weighed against how
+    often changes of each size end merged."""
+    if not first_review_ahead(lp):
         return
     gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
     follow_target(lp)

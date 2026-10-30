@@ -36,18 +36,19 @@ ONE_PASS = ("[worker judgement] Report every finding you can establish in this o
             "commit a later round reviews and lists the quoted and disputed ones for you: one still "
             "failing blocks whatever is handed in, and a new finding blocks only inside the fix delta, "
             "or with a proof that passes on the commit the last review judged.")
-# A task that cannot be done as written is the task's defect, not the worker's: handing it in ends
-# the run there, and the orchestrator that wrote the task gets the sentence back instead of a
-# reviewer's verdict on work nobody could do.
+# A task that cannot be done as written is the task's defect, not the worker's: where handing it in
+# stands (`roundloop.blocked_stands`) it ends the run there, and the orchestrator that wrote the
+# task gets the sentence back instead of a reviewer's verdict on work nobody could do.
 BLOCKED = ('[worker judgement] Close every turn with `ak hand-in done`, or `ak hand-in blocked "<why>"` if the task '
            'cannot be completed as written, or `ak hand-in not-needed "<why>"` if a fix run\'s '
            "first turn finds the defect gone or already being fixed.\n"
            "[worker judgement] `blocked` is only for a task that cannot be completed as written; never for a "
            "transient provider failure, a capacity refusal, or a check the loop runs later such "
            "as the `# once` suite.\n"
-           "[checked by ak: tests/test_hand_in.py] ak refuses malformed or wrong-role closings, "
-           "a `blocked` saying `split it` (ak counts a change's size itself), and records after a "
-           "closing.\n"
+           "[checked by ak: tests/test_hand_in.py] ak refuses malformed or wrong-role closings "
+           "and records after a closing.\n"
+           "[checked by ak: tests/test_blocked_over_a_change.py] ak takes a change awaiting its first "
+           "review, its checks passing, on to that review when you hand in `blocked`, whatever the why says.\n"
            "[checked by ak: tests/test_executor_text_ignored.py] ak asks once for a missing closing, "
            "then sends the work to checks and review.")
 # The reviewer supplies evidence; the loop weighs it outside the reviewer's editable copy.

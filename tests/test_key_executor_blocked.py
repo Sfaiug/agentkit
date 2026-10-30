@@ -2,7 +2,9 @@
 
 `ak hand-in blocked "why"` is how a worker says the task cannot be done as written: the run
 stops there, BLOCKED with that reason, with no reviewer or fixer turn spent on it and nothing
-pushed or opened, even when the turn committed work.  `ak hand-in not-needed "why"` is for a
+pushed or opened, even when the turn committed work its checks fail.  Over a change its checks
+pass, ak reviews the change instead, whatever the reason says: a change's size is ak's to count
+and whether it does the task the reviewer's.  `ak hand-in not-needed "why"` is for a
 fix run's first turn, a run ak starts for a review follow-up once its run merged: it ends that
 run `not_needed`, with no review or PR, leaving no branch or checkout behind.  In any other
 turn ak takes it as done, and the checks and the review go on.  Black-box: the program
@@ -24,7 +26,7 @@ from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
 WHY = "cannot be done as written"
-# Work committed before the hand-in: blocked must still deliver none of it.
+# Work committed before the hand-in: over failing checks, blocked must still deliver none of it.
 BLOCKED = {**fakeadapter.WORK, "final": "Blocked.", "hand_in": [["blocked", WHY]]}
 NOT_NEEDED = {"final": "Not needed.", "hand_in": [["not-needed", "already done"]]}
 FOLLOW_UP = {"final": "One for later.", "hand_in": [
@@ -47,7 +49,8 @@ class ExecutorBlocked(unittest.TestCase):
         cls.gh.grant(cls.rig.slug, "WRITE")      # a pass would be pushed and merged
         akconfig.write(cls.home, ["opus", "astra"])
         cls.fakes = fakeadapter.install(cls.home, claude=BLOCKED, codex="pass")
-        task = taskfile.write(cls.home, cls.rig.path, "Add retry file")
+        task = taskfile.write(cls.home, cls.rig.path, "Add retry file",
+                              done_when=("test -f another.txt",))
         cls.done = cls.home.ak("run", str(task), timeout=300)
         cls.run_dir = taskfile.only_run(cls.home)
         cls.state = state(cls.run_dir)
@@ -82,6 +85,21 @@ class ExecutorBlocked(unittest.TestCase):
             self.assertIn(line, lines)
         after = lines[lines.index("## Blocked") + 1:]
         self.assertEqual(next(line for line in after if line.strip()), WHY)
+
+
+class BlockedOverAChangeItsChecksPass(unittest.TestCase):
+    def test_the_reviewer_judges_the_change_and_it_lands(self):
+        home = Home()
+        self.addCleanup(home.close)
+        rig = Rig(home, "widgets")
+        GitHub(home).grant(rig.slug, "WRITE")
+        akconfig.write(home, ["opus", "astra"])
+        fakes = fakeadapter.install(home, claude=BLOCKED, codex="pass")
+        done = home.ak("run", str(taskfile.write(home, rig.path, "Add retry file")), timeout=300)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        ended = state(taskfile.only_run(home))
+        self.assertEqual((ended["state"], ended["verdict"], ended["merged"]), ("pass", "PASS", True))
+        self.assertEqual((fakes["claude"].n, fakes["codex"].n), (1, 1))
 
 
 class NotNeededOutsideAFixRun(unittest.TestCase):
