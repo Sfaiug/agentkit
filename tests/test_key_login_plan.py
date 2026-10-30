@@ -20,11 +20,9 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import AK, boxable, Home
+from fixtures.akbin import REPO, boxable, Home
 from fixtures.loginend import Logins, kept, tick
 
-# The adapters beside the program AK_BIN names, so a build of its own is judged by its own.
-ROOT = Path(AK).resolve().parents[1]
 ENDS = 1792470143
 # The endpoint `usage` asks, offline: each method answers $HOME/fake/<method> and its status.
 CURL = """#!/bin/sh
@@ -48,7 +46,7 @@ class Adapters(unittest.TestCase):
         self.home.fake("security", "#!/bin/sh\nexit 1\n")
 
     def adapter(self, harness, verb="login-end"):
-        done = self.home.run("bash", str(ROOT / f"adapters/{harness}.sh"), verb)
+        done = self.home.run("bash", str(REPO / f"adapters/{harness}.sh"), verb)
         self.assertEqual(done.code, 0, done.err)
         self.assertNotIn("dummy", done.out + done.err)     # never a word of a token
         return json.loads(done.out)
