@@ -672,15 +672,13 @@ def pickup_while_queued(run_dir, behind=None, execv=None, current=None):
     return True
 
 
-def seat_refusal(opts, flags, tasks=1):
+def seat_refusal(opts, flags):
     """Why a seat's launch is refused: a seat names no model, no place in the queue and no
     second run of a change under way, since ak picks the models, decides what goes first and
-    refuses the rival itself; it launches only while its plan has an open line, since the
+    refuses the rival itself; and it launches only while its plan has an open line, since the
     plan is what its bar counts and what a review of its pull request checks against
-    (`prompts.plan_context`); and unless it reviews a PR, its `tasks` need room in its queue,
-    all of them (`gate.seat_full`), asked before anything is created, so no resume, restart or
-    later round has a way around it.  A seat is a recorded session (`config.session_records`);
-    a shell naming none is no seat, and outside a seat none of this holds.  Nor in a queued child,
+    (`prompts.plan_context`).  A seat is a recorded session (`config.session_records`);
+    a shell naming none is no seat, and outside a seat neither holds.  Nor in a queued child,
     which `spawn_bg` starts under the seat's name: it is ak's own pick (a job's rerun on the
     next executor) or the seat's launch, judged at its parsing."""
     if not from_seat():
@@ -693,7 +691,7 @@ def seat_refusal(opts, flags, tasks=1):
     if not plan.open_lines(config.current_session()):
         return ("your plan has no open line, and the plan is what your bar counts: first run "
                 "ak plan add \"<outcome>\" --check '<command>'")
-    return None if opts.get("--review-pr") else gate.seat_full(config.current_session(), tasks)
+    return None
 
 
 def from_seat():
@@ -709,6 +707,16 @@ def rival_advice():
     seat, start a second run regardless with `--anyway`, which a seat may not give
     (`seat_refusal`)."""
     return "wait for it" + ("" if from_seat() else ", or add --anyway to start a second run")
+
+
+def check_seat_queue(tasks):
+    """Refuse a seat's launch of that many tasks beyond what its seat may queue
+    (`gate.seat_full`).  Asked last before the launch creates anything, so a launch refused for
+    good hears that first; once, since a run that exists comes back, resumed, restarted or in a
+    later round, as no seat's launch (`from_seat`).  A PR review is never asked."""
+    refusal = from_seat() and gate.seat_full(config.current_session(), tasks)
+    if refusal:
+        raise config.Error(refusal)
 
 
 def depth_refused():
@@ -3036,7 +3044,7 @@ def main(argv):
         else:
             positional.append(arg)
             i += 1
-    refused = seat_refusal(opts, flags, len(positional))
+    refused = seat_refusal(opts, flags)
     if refused:
         raise config.Error(refused)
     if opts["--review-pr"]:
@@ -3154,6 +3162,7 @@ def main(argv):
                       f"started {started}, \"{first['title']}\") shares {detail}; "
                       f"{rival_advice()}", file=sys.stderr)
                 return 2
+        check_seat_queue(1)
         run_id = f"{datetime.now():%Y%m%d-%H%M}-{slugify(title)}"
         run_dir = config.RUNS / run_id
         n = 1
