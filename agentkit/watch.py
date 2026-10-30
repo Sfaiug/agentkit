@@ -1197,9 +1197,13 @@ def forget(session, *, resolve=True, acknowledge=True, opening=False, notice=Non
             previous = state["seen_at"].get(name, 0)
             state["seen_at"][name] = max(time.time(), math.nextafter(previous, math.inf))
             last = notify.last(name)
-            if opening and last and last.get("watcher") is True:
-                notice = last["text"]    # the user is taking over the watcher's recovery
-            if not opening or not last or last.get("watcher") is True:
+            # the user is taking over the watcher's recovery, which they cannot do for a login
+            # that keeps refusing: its answer or its runs' ending takes that card down
+            theirs = (opening and last and last.get("watcher") is True
+                      and not login_refusing(name))
+            if theirs:
+                notice = last["text"]
+            if not opening or not last or theirs:
                 state["stalls"].pop(name, None)
                 # ... and seat_account's give-up on a bare 429, kept in the seat's record
                 if (seat_read(name).get("usage_refusal") or {}).get("told"):
@@ -1209,7 +1213,7 @@ def forget(session, *, resolve=True, acknowledge=True, opening=False, notice=Non
             elif acknowledge:
                 notify.clear(name)
             _write_state(state)
-    except (config.Error, OSError) as exc:
+    except (config.Error, OSError, ValueError) as exc:
         print(f"WARN could not clear the stall record of {session}: {exc}", file=sys.stderr)
 
 
@@ -2778,12 +2782,24 @@ def work_live(name):
     return "your plan is done and its changes are live"
 
 
+def refusing_login(run_dir, state):
+    """The login that keeps refusing a run that has not ended (`login_refusals`), else None."""
+    return login_refusals.owed(run_dir) if state.get("state") in run_record.GOING else None
+
+
+def login_refusing(name):
+    """Whether a login keeps refusing a run of that seat's."""
+    from . import menu as menu_mod    # the menu imports this module
+    return any(refusing_login(run_dir, state)
+               for run_dir, state in own_runs(name, menu_mod.run_records()))
+
+
 def owed_login(run_dir, state):
     """The login a run waits on its owner for, else None: one it parked on that the tick has
-    not found back yet, and, while it goes, one that keeps refusing it (`login_refusals`)."""
+    not found back yet, and one that keeps refusing it."""
     if state.get("state") == "waiting_login" and not state.get("login_back_at"):
         return state.get("waiting_for")
-    return login_refusals.owed(run_dir) if state.get("state") in run_record.GOING else None
+    return refusing_login(run_dir, state)
 
 
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,

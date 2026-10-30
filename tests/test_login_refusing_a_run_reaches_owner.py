@@ -2,8 +2,9 @@
 
 A key `auth` passes can still be refused at every turn, and the tick resumes the parked run
 straight back into the refusal.  The card names the login, is sent once, and stays up through
-resumes, refusals and a killed turn; it comes down once the login answers, or once no run it
-refused is going, and a later run it refuses before it answers raises it at once.  One refusal
+resumes, refusals, a killed turn and the owner opening the seat; it comes down once the login
+answers, or once no run it refused is going, and a later run it refuses before it answers raises
+it at once.  One refusal
 whose next turn is answered raises none.  Black-box against `AK_BIN` (tests/fixtures/akbin.py),
 on fakeadapter.py's harness, whose `auth` says yes while its turns say its logout words, from a
 seat of akseat.py paging tests/fixtures/sink.py, each tick in the box `home.tick()` builds.
@@ -19,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
 from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
+from fixtures.akterm import Terminal
 from fixtures.gitrig import Rig
 from fixtures.sink import Sink
 
@@ -42,7 +44,7 @@ class Refusals(unittest.TestCase):
                             no_proxy="127.0.0.1,localhost")
         cls.sink = Sink(cls.home)
         cls.addClassCleanup(cls.sink.close)
-        Seat(cls.home, "acme", planned=True)
+        cls.seat = Seat(cls.home, "acme", planned=True)
         cls.rig = Rig(cls.home, "widgets")
         akconfig.write(cls.home, ["opus"])
         cls.claude = fakeadapter.install(cls.home, claude=list(cls.steps))["claude"]
@@ -105,6 +107,18 @@ class Refusals(unittest.TestCase):
         return sum(json.loads(path.read_text()).get("kind") == "needs" for path in
                    (cls.home.path / ".agentkit/state/notification-outbox").glob("*.json"))
 
+    @classmethod
+    def open_seat(cls, bound=30):
+        """The owner opens the seat at a terminal, and leaves it."""
+        term = Terminal(cls.home, "orch", "acme")
+        deadline = time.monotonic() + bound
+        while "acme" not in cls.home.tmux("list-clients", "-F", "#{client_session}").out.split():
+            if time.monotonic() > deadline:
+                raise AssertionError(f"never opened: {term.screen()}")
+            time.sleep(0.05)
+        cls.home.tmux("detach-client", "-s", "=acme")
+        assert term.exit_code() == 0
+
     def assertNamesTheLogin(self, card):
         self.assertIsNotNone(card)
         self.assertTrue(card["source"].startswith("auth:acme:claude:"), card)
@@ -124,7 +138,10 @@ class KeepsRefusing(Refusals):
         cls.parked(2)
         cls.tick()                  # refused twice in a row: the card goes up
         cls.after_two = (cls.card(), cls.needs_pages())
+        cls.open_seat()             # the owner looks, which answers nothing
+        cls.after_open = (cls.card(), cls.needs_pages())
         cls.parked(4)
+        cls.seat.show("claude-working-pane.txt")    # and output after that look answers nothing
         cls.tick()                  # and stays up while the refusals go on, its turn next
         cls.after_three = (cls.card(), cls.needs_pages())
         cls.parked(6)
@@ -144,6 +161,9 @@ class KeepsRefusing(Refusals):
 
     def test_the_card_stays_up_and_is_not_sent_again_while_the_refusals_go_on(self):
         self.assertEqual(self.after_three, (self.after_two[0], 1))
+
+    def test_opening_the_seat_leaves_the_card_up_and_sends_it_no_second_time(self):
+        self.assertEqual(self.after_open, (self.after_two[0], 1))
 
     def test_the_card_comes_down_once_the_login_answers(self):
         self.assertEqual(self.after_answer, (None, 1))
