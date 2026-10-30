@@ -2585,7 +2585,7 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None):
         # as such a line names the last harness's pane, which a new server may give another seat.
         for owed in watch.seat_read(current).get("owed_lines") or ():
             if owed.get("switch"):
-                watch.owe_line(current, owed["line"], None)
+                watch.owe_line(current, owed, None)
     plugin.retire(before)   # its harness is gone now, replaced by this one
     if plugin.title_command(name):
         # A held rename survives a relaunch on the same conversation: our own last
@@ -4253,23 +4253,28 @@ def switch_lines(cfg, name, model, effort=None):
             if key in block and (key, at) != ("effort", "none")]
 
 
-def switch_in_place(cfg, name, model, effort, lines):
-    """Move that seat to `model`, at `effort` where given, by owing its harness `lines`
-    (`watch.owe_line`), a turn its usage cut off told to go on after them: nothing restarts, so
-    nothing is cut or asked.  The record takes the move at once; the harness's next answer puts
-    it back where it refused a line (`watch.follow_model`).  What to say under the rows, or ""."""
+def switch_in_place(cfg, name, model, effort):
+    """Move that seat to `model`, at `effort` where given, by owing its harness the lines
+    `switch_lines` gives (`watch.owe_line`), a turn its usage cut off told to go on after them:
+    nothing restarts, so nothing is cut or asked.  The record takes the move first, so a move it
+    refuses owes nothing; the harness's next answer puts it back where a line was refused or
+    never owed (`watch.follow_model`).  What to say under the rows, or ""; None where the seat,
+    as it stands once no other move or look can change it, must restart for the move."""
     from . import notify, watch   # here, not at the top: both import this module
     try:    # in one hold, so no look follows the old model's last answer back meanwhile
         with notify.session_lock(name), watch.announcing(name):
+            lines = switch_lines(cfg, name, model, effort)
+            if not lines:
+                return None
+            if effort is not None:
+                config.change_efforts(name, lambda data: config.orchestrating_at(
+                    cfg["models"], data, model, effort))
+            config.update_session(name, orchestrator=model)
             for owed in lines:
                 watch.owe_line(name, None, owed)
             if (watch.seat_read(name).get("usage_wait") or {}).get("continue"):
                 watch.owe_line(name, None, {"line": watch.ACCOUNT_LINE})
             watch.seat_write(name, usage_wait=None)
-            if effort is not None:
-                config.change_efforts(name, lambda data: config.orchestrating_at(
-                    cfg["models"], data, model, effort))
-            config.update_session(name, orchestrator=model)
     except (config.Error, OSError) as exc:
         return f"session: {_one_line(exc)}"
     watch.tell_owed(name, lambda _: None, cfg)
@@ -4341,9 +4346,9 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     old_model = record["orchestrator"]
     if old_model == model and effort is None:
         return ""
-    lines = in_place and switch_lines(cfg, name, model, effort)
-    if lines:
-        return switch_in_place(cfg, name, model, effort, lines)
+    note = switch_in_place(cfg, name, model, effort) if in_place else None
+    if note is not None:
+        return note
     new_harness = config.model(cfg, model)["harness"]
     try:
         old_harness = config.model(cfg, old_model)["harness"]

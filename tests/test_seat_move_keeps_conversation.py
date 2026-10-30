@@ -136,7 +136,11 @@ class SeatMove(Sandbox):
 
     def test_a_running_claude_seat_moved_in_place_is_typed_the_move(self):
         watch.owe_line(SEAT, None, {"line": "a run of yours ended"})
-        self.assertEqual(self.move("fable", in_place=True), "")
+        judged, lines = [], orch.switch_lines
+        with patch.object(orch, "switch_lines",
+                          side_effect=lambda *a, **kw: judged.append(locked()) or lines(*a, **kw)):
+            self.assertEqual(self.move("fable", in_place=True), "")
+        self.assertEqual(judged, [True])      # where no other move can change the seat meanwhile
         self.assertEqual(self.respawned, [])          # nothing cut: its lines wait for its prompt
         # ahead of the line it was owed, which the model it moved to answers
         self.assertEqual(self.owed(), ["/model claude-fable-5-1", "/effort xhigh",
@@ -144,9 +148,18 @@ class SeatMove(Sandbox):
         self.assertEqual((self.record()["orchestrator"], self.record()["conversation"]),
                          ("fable", OWN))
         self.assertEqual(self.move("opus", in_place=True), "")    # a later move comes after
-        self.assertEqual(self.owed(), ["/model claude-fable-5-1", "/effort xhigh",
-                                       "/model claude-opus-5-5", "/effort xhigh",
+        self.assertEqual(self.move("fable", in_place=True), "")
+        first = watch.seat_read(SEAT)["owed_lines"][0]
+        for _ in range(2):        # retired by the teller that told it, then by one late to
+            watch.owe_line(SEAT, first, None)
+        self.assertEqual(self.owed(), ["/effort xhigh", "/model claude-opus-5-5", "/effort xhigh",
+                                       "/model claude-fable-5-1", "/effort xhigh",
                                        "a run of yours ended"])
+
+    def test_a_move_in_place_its_record_refuses_owes_nothing(self):
+        with patch.object(config, "update_session", side_effect=OSError("disk full")):
+            self.assertIn("disk full", self.move("fable", in_place=True))
+        self.assertEqual((self.owed(), self.record()["orchestrator"]), ([], "opus"))
 
     def test_a_turn_its_usage_cut_off_goes_on_after_a_move_in_place(self):
         watch.seat_write(SEAT, state="at_prompt", usage_wait={
