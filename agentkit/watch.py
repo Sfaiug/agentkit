@@ -7127,7 +7127,7 @@ def merge_record(repo, sha, pr_url=None):
     return {"health": {"command": command} if command else {}}
 
 
-def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes):
+def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes, records=None):
     """Keep the merge commit `sha` on the run and its history row, for the next tick and the
     scoreboard; then follow the merge's declaration in its original checkout, stopping at its
     first pass."""
@@ -7198,7 +7198,7 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
                 handback.mark_delivery(run_dir, st, live_notified=now, live_typed=None)
                 log(f"{handback.live_sentence(st, run_dir)} Recorded, not typed")
             return "passed", None, None
-        if handback.carries_live(st) or not st.get("live_typed") and handback.rides(st):
+        if handback.carries_live(st) or not st.get("live_typed") and handback.rides(st, records):
             # its ending, still to be said, carries it, or it rides on the seat's next prompt
             # (`handback.riding`)
             return "passed", None, None
@@ -7458,8 +7458,12 @@ def after_merge_checks(state, dry_run, log, now=None):
         return
     grouped = {}
     probes = {}
+    # Every run's, one read for every merged run's question about its seat (`handback.rides`):
+    # one read each was 5167 files read 200 times a tick (30 Oct 2026).
+    records = []
     for run_dir in directories:
         st = run_record.read_state(run_dir)
+        records.append((run_dir, st or {}))
         if not st or not st.get("merged"):
             continue
         finished = st.get("finished_at")
@@ -7504,7 +7508,7 @@ def after_merge_checks(state, dry_run, log, now=None):
                 verdict, check, url = "ignored", None, None
             try:
                 health = after_merge_health(run_dir, st, key, sha, pr_url, now,
-                                            dry_run, log, probes)
+                                            dry_run, log, probes, records)
             except (config.Error, OSError, ValueError, AttributeError, KeyError, TypeError) as exc:
                 # Until a command is known, discovery cannot change the target's check verdict.
                 health = ("unknown", None, None) if st.get("health") or st.get("live_at") else None
