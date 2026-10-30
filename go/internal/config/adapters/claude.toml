@@ -136,6 +136,30 @@ name = "PostCompact"
 state = "at_prompt"
 kinds = ["manual"]
 
+# What `hooks` merges into the settings file (`~` is HOME), the Go build's own adapter: which of
+# ak's hooks/ scripts each event runs, in this order.  A `heard` event runs its script in the
+# background (`async`, 2.1.292), where seat-state.sh would hold what it fires on for half a
+# second; a matched one only for those tools, a tool ending heard only where it is an answer.
+# An entry naming a script's former name is that script's, repointed, so nothing an older
+# checkout wrote is left calling a file that is no longer there.
+[hooks.install]
+settings = "~/.claude/settings.json"
+heard = ["PermissionRequest", "PostToolUse", "PreCompact", "PostCompact"]
+matchers = { PostToolUse = "AskUserQuestion|ExitPlanMode", PreToolUse = "AskUserQuestion" }
+formerly = { "seat-state.sh" = ["idle-compact-stop.sh"] }
+
+[hooks.install.events]
+SessionStart = ["seat-state.sh"]
+UserPromptSubmit = ["seat-state.sh"]
+Stop = ["seat-state.sh", "orchestrator-stop.sh"]
+StopFailure = ["seat-state.sh"]
+Notification = ["seat-state.sh"]
+PermissionRequest = ["seat-state.sh"]
+PostToolUse = ["seat-state.sh"]
+PreCompact = ["seat-state.sh"]
+PostCompact = ["seat-state.sh"]
+PreToolUse = ["orchestrator-stop.sh"]
+
 [screen]
 # fullmatch against a bottom line: the input box, which is chrome and not anything Claude said;
 # a renamed session's name sits in the box's top rule

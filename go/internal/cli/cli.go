@@ -19,6 +19,9 @@ func Main(args []string, out, errOut io.Writer) int {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		command, rest, help = args[0], args[1:], args[0]
 	}
+	if command == "adapter" { // unlisted, as commandhelp says
+		return adapter(rest, out, errOut)
+	}
 	if !contains(commandhelp.Verbs, command) {
 		fmt.Fprintf(errOut, "ak: unknown subcommand %s; expected one of %s\n", commandhelp.Quote(command), strings.Join(commandhelp.Verbs, ", "))
 		return 2

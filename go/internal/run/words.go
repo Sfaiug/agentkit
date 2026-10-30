@@ -202,7 +202,7 @@ func (index Index) superseded(record *Object) bool {
 		mine = 0
 	}
 	for _, entry := range append(index[title], index[indexKey("from", record.Get("repo"), branch)]...) {
-		if !equal(entry.id, record.Get("run_id")) && entry.when > mine {
+		if !Equal(entry.id, record.Get("run_id")) && entry.when > mine {
 			return true
 		}
 	}

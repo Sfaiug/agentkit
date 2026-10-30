@@ -40,6 +40,11 @@ func (o *Object) Has(key string) bool {
 	return ok
 }
 
+// Keys is the object's keys in the order they came.
+func (o *Object) Keys() []string {
+	return slices.Clone(o.keys)
+}
+
 // Set puts a value under the key, an int or float64 as the JSON number it is.
 func (o *Object) Set(key string, value any) {
 	switch given := value.(type) {
@@ -183,9 +188,9 @@ func truthy(value any) bool {
 	return true
 }
 
-// equal is Python's == between two JSON values: numbers by value, true as 1, objects
+// Equal is Python's == between two JSON values: numbers by value, true as 1, objects
 // whatever the order of their keys.
-func equal(a, b any) bool {
+func Equal(a, b any) bool {
 	if x, ok := numeric(a); ok {
 		y, ok := numeric(b)
 		return ok && x == y
@@ -202,7 +207,7 @@ func equal(a, b any) bool {
 			return false
 		}
 		for i := range a {
-			if !equal(a[i], list[i]) {
+			if !Equal(a[i], list[i]) {
 				return false
 			}
 		}
@@ -213,7 +218,7 @@ func equal(a, b any) bool {
 			return false
 		}
 		for key, value := range a.values {
-			if other, ok := object.values[key]; !ok || !equal(value, other) {
+			if other, ok := object.values[key]; !ok || !Equal(value, other) {
 				return false
 			}
 		}

@@ -54,8 +54,8 @@ func SelfReviewed(record *Object, models map[string]config.Model) bool {
 			executor = record.Get("own_orchestrator")
 		}
 	}
-	if !truthy(reviewer) || !truthy(executor) || equal(reviewer, executor) {
-		return truthy(reviewer) && equal(reviewer, executor)
+	if !truthy(reviewer) || !truthy(executor) || Equal(reviewer, executor) {
+		return truthy(reviewer) && Equal(reviewer, executor)
 	}
 	first, _ := executor.(string)
 	second, _ := reviewer.(string)
@@ -67,7 +67,7 @@ func ExecutorLine(record *Object) string {
 	name := Field(record, "executor", "?")
 	var held []*Object
 	for _, entry := range record.List("executor_history") {
-		if link, ok := entry.(*Object); ok && (link.Get("from") == nil || link.Get("to") == nil || !equal(link.Get("from"), link.Get("to"))) {
+		if link, ok := entry.(*Object); ok && (link.Get("from") == nil || link.Get("to") == nil || !Equal(link.Get("from"), link.Get("to"))) {
 			held = append(held, link)
 		}
 	}
@@ -115,8 +115,8 @@ func ReviewPass(record *Object, models map[string]config.Model) bool {
 	}
 	checked := evidence.Get("done_when") == true || record.Truthy("review_pr") && evidence.Has("done_when") && evidence.Get("done_when") == nil
 	if !zero(evidence.Get("returncode")) || evidence.Str("verdict") != "PASS" || !checked ||
-		!equal(evidence.Get("executor"), record.Get("executor")) || !evidence.Truthy("reviewer") ||
-		!equal(evidence.Get("reviewer"), record.Get("reviewer")) || !evidence.Truthy("reviewer_provider") {
+		!Equal(evidence.Get("executor"), record.Get("executor")) || !evidence.Truthy("reviewer") ||
+		!Equal(evidence.Get("reviewer"), record.Get("reviewer")) || !evidence.Truthy("reviewer_provider") {
 		return false
 	}
 	if !record.Truthy("executor") {
@@ -127,7 +127,7 @@ func ReviewPass(record *Object, models map[string]config.Model) bool {
 		return false
 	}
 	executed, reviewed, ok := providers(models, record.Get("executor"), record.Str("reviewer"))
-	if !ok || !equal(executed, evidence.Get("executor_provider")) || !equal(reviewed, evidence.Get("reviewer_provider")) {
+	if !ok || !Equal(executed, evidence.Get("executor_provider")) || !Equal(reviewed, evidence.Get("reviewer_provider")) {
 		return false
 	}
 	if record.Truthy("own_pr") {
@@ -252,7 +252,7 @@ func FinalCheck(dir string, record *Object) string {
 				return "final check: " + outcome + " in round " + Text(check.Get("round")) + sha
 			case where == "round":
 				return "final check: " + outcome + " in round" + sha
-			case where == "landing" && check.Truthy("tested") && !equal(check.Get("tested"), check.Get("tree_sha")):
+			case where == "landing" && check.Truthy("tested") && !Equal(check.Get("tested"), check.Get("tree_sha")):
 				return "final check: " + outcome + " at landing on tree " + Text(check.Get("tested"))
 			case where == "landing":
 				return "final check: " + outcome + " at landing" + sha
