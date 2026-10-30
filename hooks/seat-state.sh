@@ -69,11 +69,9 @@ seat_state() {
   # both camelCase, so the twins are read beside them -- and a compaction its trigger
   kind=$("$jq" -r '.notification_type // .notificationType // .tool_name // .toolName // .trigger
                    // empty' <<<"$payload" 2>/dev/null) || kind=''
-  # a question's own words, where the event carries one, before a notice's: whole, as the seat's
-  # row shows them (tests/test_highlighted_question_whole.py), up to 4000 characters -- more than
-  # half a 70-row screen holds -- past which they end in `…`, far inside one argument's limit
-  text=$("$jq" -r '((.tool_input.questions[0].question)? // .message // .title // "")
-                   | if length > 4000 then .[0:3999] + "…" else . end' \
+  # a question's own words, where the event carries one, before a notice's: whole, for each
+  # reader fits them to its own room (tests/test_highlighted_question_whole.py)
+  text=$("$jq" -r '(.tool_input.questions[0].question)? // .message // .title // ""' \
     <<<"$payload" 2>/dev/null) || text=''
 
   dir="$HOME/.agentkit/state"
