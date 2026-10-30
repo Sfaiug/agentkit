@@ -14,7 +14,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akline import LINE, Line
+from fixtures.akline import Line
 
 # The words after the alias are one `bash -c <mac.sh> mac.sh <verb> ...` line.
 SSH = f"""#!{sys.executable}
@@ -65,7 +65,7 @@ class SuiteOnAHelper(unittest.TestCase):
 
         with (home.path / ".agentkit" / "runs" / ".heavy-0.lock").open("a") as turn:
             fcntl.flock(turn, fcntl.LOCK_EX)
-            lander = home.spawn("run", "--lander", LINE)
+            lander = home.spawn("run", "--lander", line.line)
             until(lambda: "heavy suite turn" in home.log("spawn-1.out").read_text(),
                   "the line's check never waited here")
             task = taskfile.write(home, line.rig.path, "Add retry", name="retry")
