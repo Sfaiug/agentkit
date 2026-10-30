@@ -1667,32 +1667,41 @@ def _end(pid):
     (OpenCode's), and everything below it is in that session too.  What has left the call's
     tree and its groups by now is the leftover sweep's.
     """
-    below = {}
-    for child, parent in host.parents().items():
+    parents, below = host.parents(), {}
+    for child, parent in parents.items():
         below.setdefault(parent, []).append(child)
     tree, stack = [], [pid]
     while stack:
         if (current := stack.pop()) not in tree:
             tree.append(current)
             stack.extend(below.get(current, ()))
-    ours = {}
-    for member in tree:
-        try:
-            group = os.getpgid(member)
-            if os.getsid(member) == os.getsid(0) and group != os.getpgrp():
-                ours[member] = group
-        except OSError:
-            pass
-    for member, group in ours.items():
-        try:
-            if group == member:
-                os.killpg(group, signal.SIGKILL)
-            os.kill(member, signal.SIGKILL)
-        except OSError:
-            pass
+    ours = [member for member in tree
+            if _session(member) == os.getsid(0) and _group(member) != os.getpgrp()]
+    groups = {member for member in ours if _group(member) == member}
+    for kill, targets in ((os.killpg, groups), (os.kill, ours)):
+        for target in targets:
+            try:
+                kill(target, signal.SIGKILL)
+            except OSError:
+                pass
+    killed = {*ours, *(other for other in parents if _group(other) in groups)}
     deadline = time.monotonic() + 1
-    while ours.keys() & host.parents().keys() and time.monotonic() < deadline:
+    while killed & host.parents().keys() and time.monotonic() < deadline:
         time.sleep(.01)
+
+
+def _session(pid):
+    try:
+        return os.getsid(pid)
+    except OSError:
+        return None   # gone
+
+
+def _group(pid):
+    try:
+        return os.getpgid(pid)
+    except OSError:
+        return None   # gone
 
 
 _MANIFESTS = {}

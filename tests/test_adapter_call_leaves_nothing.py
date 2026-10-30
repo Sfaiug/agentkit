@@ -79,9 +79,10 @@ class AdapterCall(unittest.TestCase):
         self.addCleanup(sibling.kill)
         os.environ["SLOW"] = "1"
         for proc in (None, self.root / "no-proc"):
+            self.kill_all()
+            self.pids.write_text("")
+            self.kept.write_text("")
             with self.subTest(proc=proc):
-                self.pids.write_text("")
-                self.kept.write_text("")
                 with patch.object(host, "PROC", proc) if proc else nullcontext():
                     give_up()
                 started = self.started(self.pids)
@@ -90,7 +91,6 @@ class AdapterCall(unittest.TestCase):
                 self.assertIsNone(sibling.poll(), "the caller's own group is never killed")
                 [service] = self.started(self.kept)
                 self.assertTrue(running(service), "a session of its own is never killed")
-                self.kill_all()
 
     def test_a_listing_past_its_limit_is_killed_with_what_it_runs(self):
         call = config.run_adapter
