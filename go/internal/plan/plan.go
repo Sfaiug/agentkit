@@ -4,8 +4,10 @@
 package plan
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,11 +22,12 @@ import (
 	"agentkit/internal/lock"
 )
 
-// a line as `ak plan add` writes it, eye lines (`your eye`, the owner's to judge live) among them:
+// a line as `ak plan add` writes it, eye lines (`your eye`, the owner's to judge live) among them,
+// its stamp in any decimal digits, as Python's `\d` reads them:
 //
 //   - [ ] each session sees its project · check: `python3 tests/test_x.py` · ~/code/acme#0123456789ab · written 2026-10-02 12:40 on 0123456789ab
 var format = regexp.MustCompile(`^- \[(?P<mark>[ x])\] (?P<what>.+?) · (?:check: ` + "`(?P<check>[^`]+)`" +
-	`|your eye) · (?P<project>.+?)(?P<deferred> · deferred)? · written (?P<when>\d{4}-\d\d-\d\d \d\d:\d\d)` +
+	`|your eye) · (?P<project>.+?)(?P<deferred> · deferred)? · written (?P<when>\p{Nd}{4}-\p{Nd}{2}-\p{Nd}{2} \p{Nd}{2}:\p{Nd}{2})` +
 	`(?: on (?P<base>[0-9a-f]{7,40}))?(?: · done (?P<done>.+))?$`)
 
 // the done a check's proof stamps: the commit it passed on
@@ -245,17 +248,25 @@ func List(ctx context.Context, name string) ([]string, error) {
 	if err := verifying(ctx, name, func() error { return verify(ctx, name) }); err != nil {
 		return nil, err
 	}
-	var listed []string
+	var box []string
 	err := held(ctx, name, func(current string) error {
 		lines, err := read(current)
-		for _, line := range lines {
-			if line = strings.TrimFunc(line, config.Space); strings.HasPrefix(line, "- [") {
-				listed = append(listed, line)
-			}
+		for _, at := range listed(lines) {
+			box = append(box, strings.TrimFunc(lines[at], config.Space))
 		}
 		return err
 	})
-	return listed, err
+	return box, err
+}
+
+// listed is where the plan's box lines are, in the order a listing numbers them from 1.
+func listed(lines []string) (at []int) {
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimLeftFunc(line, config.Space), "- [") {
+			at = append(at, i)
+		}
+	}
+	return at
 }
 
 // verify runs each open check line's check on its project's default branch as fetched now and
@@ -283,7 +294,7 @@ func verify(ctx context.Context, name string) error {
 		on, seen := branches[line.Project]
 		if !seen {
 			if repo, root := place(line.Project, env); repo != "" {
-				if on, err = defaultBranch(ctx, repo, root, env); err != nil {
+				if on, err = defaultBranch(ctx, repo, root, "", env); err != nil {
 					return err
 				}
 			}
@@ -336,7 +347,7 @@ func Add(ctx context.Context, name, repo, what, check string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	on, err := defaultBranch(ctx, repo, "", env)
+	on, err := defaultBranch(ctx, repo, "", "", env)
 	if err != nil {
 		return "", err
 	}
@@ -383,4 +394,83 @@ func Add(ctx context.Context, name, repo, what, check string) (string, error) {
 		return write(current, append(lines, line))
 	})
 	return line, err
+}
+
+// ErrUnread is a line Go cannot read as Python does, which leaves the command to Python.
+var ErrUnread = errors.New("a line Go cannot read as Python does")
+
+// Check puts check in place of plan line number's check, the line open again and the seat's
+// own, since no run has the new check, and is that line.  The number is ASCII digits, read as
+// Python's int reads them.  The check must fail where the line's check did: on the commit the
+// line names, the code before the work, however long ago the work landed.  A line naming none
+// takes it unproven: nothing recorded where its check failed, and a missing proof never blocks.
+// The check runs outside the plan's lock; the line is replaced only while it reads as it did.
+func Check(ctx context.Context, name, number, check string) (string, error) {
+	number, check = cmp.Or(strings.TrimLeft(number, "0"), "0"), strings.TrimFunc(check, config.Space)
+	var line string
+	if err := held(ctx, name, func(current string) error {
+		lines, err := read(current)
+		if err != nil {
+			return err
+		}
+		box := listed(lines)
+		if n, err := strconv.Atoi(number); err == nil && n >= 1 && n <= len(box) {
+			line = strings.TrimFunc(lines[box[n-1]], config.Space)
+			return nil
+		}
+		return fmt.Errorf("no plan line %s; `ak plan` lists them", number)
+	}); err != nil {
+		return "", err
+	}
+	old, ok := parse(line)
+	if !ok || old.Check == "" {
+		return "", errors.New("only a check line takes another check")
+	}
+	if !pythonPath(old.Project) {
+		return "", ErrUnread
+	}
+	env, err := environ()
+	if err != nil {
+		return "", err
+	}
+	repo, _ := place(old.Project, env)
+	if repo != "" {
+		if err := holdsCheckout(check, repo); err != nil {
+			return "", err
+		}
+	}
+	if old.Base != "" {
+		if repo == "" {
+			return "", fmt.Errorf("this host has no checkout of %s", old.Project)
+		}
+		on, err := defaultBranch(ctx, repo, "", old.Base, env)
+		if err != nil {
+			return "", err
+		}
+		passed := false
+		if err := on.checkout(ctx, func(tree string) (err error) {
+			passed, err = on.passes(ctx, tree, check)
+			return err
+		}); err != nil {
+			return "", err
+		}
+		if passed {
+			return "", fmt.Errorf("this check already passes on %s, the commit line %s names, so it proves nothing; "+
+				"write one that fails until the work is done", old.Base, number)
+		}
+	}
+	fresh := added(old.What, check, old.Project, old.When, old.Base).ticked("")
+	return fresh, held(ctx, name, func(current string) error {
+		lines, err := read(current)
+		if err != nil {
+			return err
+		}
+		for i, text := range lines {
+			if strings.TrimFunc(text, config.Space) == line {
+				lines[i] = text[:len(text)-len(strings.TrimLeftFunc(text, config.Space))] + fresh
+				return write(current, lines)
+			}
+		}
+		return fmt.Errorf("plan line %s changed while its new check ran; run `ak plan check` again", number)
+	})
 }
