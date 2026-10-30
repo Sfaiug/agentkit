@@ -84,13 +84,14 @@ if 'kill-session' in sys.argv:
             log.close()
 
     def wait_for(self, predicate):
-        deadline = time.monotonic() + 10
-        while time.monotonic() < deadline:
-            if predicate():
-                return
+        # A seat comes up through a chain of interpreters and its first turn's hooks, as slowly
+        # as the host's load makes them, so no clock ends this wait: the state does, or nothing
+        # started here being left to reach it (read once more after, for what it did last).
+        while not predicate():
+            if not any(running(p) for p, _ in self.procs) and not predicate():
+                logs = '\n'.join(p.read_text() for p in self.root.glob('launch-*.log'))
+                self.fail('fake seat did not reach expected state\n' + logs)
             time.sleep(.05)
-        logs = '\n'.join(p.read_text() for p in self.root.glob('launch-*.log'))
-        self.fail('fake seat did not reach expected state\n' + logs)
 
     def start(self, owned=None, name="acme-seat", receipt=None, ready=True, direct=False):
         receipt = receipt or codex.prepare(name, self.cwd, owned)
@@ -462,6 +463,17 @@ Path.write_text = paused_write
         self.assertEqual(child['CODEX_HOME'], str(self.root / '.codex'))
         self.assertEqual(child['CODEX_SQLITE_HOME'], 'acme-private')
         self.assertNotIn(codex.CAPTURE_ENV, child)
+
+
+def running(proc):
+    """Whether anything of that launch runs: its wrapper, or the guard a killed one leaves
+    cleaning up in the wrapper's process group."""
+    proc.poll()     # reaped, an ended wrapper no longer counts
+    try:
+        os.killpg(proc.pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
 
 
 def notify_events():
