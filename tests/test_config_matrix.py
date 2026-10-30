@@ -343,8 +343,11 @@ class Matrix(unittest.TestCase):
         screen = Screen(self)
         screen.frame()
         before = screen.session.read_bytes()
-        # → through opus's marks and the efforts beside them reaches its last, and past it nothing
-        lines = screen.press(DOWN + RIGHT * 5, lambda lines: on_effort(lines, "opus"))
+        # → through opus's marks and the efforts beside them reaches its last, and past it nothing;
+        # a key at a time, as each key draws a frame and every other cell is an `xhigh`
+        screen.press(DOWN, lambda lines: lit(lines, "opus") == "●")
+        for cell in ("xhigh", "■", "xhigh", "■", "xhigh"):
+            lines = screen.press(RIGHT, lambda lines: lit(lines, "opus") == cell)
         self.assertIn("Opus 5.5", highlighted(lines))
         lines = screen.press(RIGHT)
         self.assertTrue(on_effort(lines, "opus"), lines.lit)
