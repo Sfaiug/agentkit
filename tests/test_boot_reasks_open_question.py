@@ -6,6 +6,7 @@ text is recorded where it would go in; the real boot pass, `continue_turns`,
 `finish_own_lines` and the real locked send decide what is typed.
 """
 
+from contextlib import contextmanager
 import json
 import os
 import time
@@ -32,9 +33,16 @@ class BootReasks(Sandbox):
         self.stack.enter_context(patch.object(orch, "sessions", lambda: list(self.live)))
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         # what changes once the send has its lock, after every look before it
-        self.stack.enter_context(patch.object(
-            orch, "rulebook_prepare",
-            side_effect=lambda _name: [self.meanwhile.pop(0)() for _ in list(self.meanwhile)]))
+        held = notify.session_lock
+
+        @contextmanager
+        def locking(name, *args, **kwargs):
+            with held(name, *args, **kwargs) as current:
+                for _ in list(self.meanwhile):
+                    self.meanwhile.pop(0)()
+                yield current
+
+        self.stack.enter_context(patch.object(notify, "session_lock", locking))
         self.stack.enter_context(patch.object(watch, "seat_model",
                                               return_value=("claude", "anthropic")))
         self.stack.enter_context(patch.object(watch, "pane_text",

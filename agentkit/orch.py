@@ -2507,9 +2507,6 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None):
             (gitcall.repository_lock(cwd) if repository else nullcontext()):
         if repository:
             gitcall.no_auto_gc(cwd)
-        # read under the lock the prompts rewrite it under, and held until the harness is up:
-        # till its pane is replaced the one it replaces can still prompt, and that prompt's
-        # rewrite waits here, so the file read is the one recorded
         before = config.session_records().get(current) or {}
         env = plugin.launched(current, cwd, conversation)
         if env:
@@ -2668,42 +2665,40 @@ def rulebook_due(name):
     """(record, conversation, rulebook) when the seat's conversation is to be told its rulebook,
     else None; `name` is the name it goes by now.
 
-    What a conversation holds: the rules it said it read (`rulebook_read`), else its launch's
-    (`rulebook_sha`), which are in every conversation's system prompt -- so a conversation
-    `/clear` started is told again.  A seat launched before its launch's was recorded holds
-    rules nobody knows, and is told rather than guessed at.  Told and not yet said read is
-    told again, whatever the rules are now."""
+    What a conversation holds: the rules it was last handed (`rulebook_read`), else its
+    launch's (`rulebook_sha`), which are in every conversation's system prompt -- so a
+    conversation `/clear` started is told again.  A seat launched before its launch's was
+    recorded holds rules nobody knows, and is told rather than guessed at."""
     record = config.session_records().get(name)
     conversation = seat_conversation(record) if record else None
     if not takes_prompt_context(record, conversation):
         return None
     holds = held_sha(record, conversation)
     text = config.seat_rulebook(name)
-    pending = (record.get("rulebook_told") or {}).get("conversation") == conversation
-    return ((record, conversation, text)
-            if pending or holds is None or config.rulebook_digest(text) != holds else None)
+    return (record, conversation, text) if config.rulebook_digest(text) != holds else None
 
 
 def held_sha(record, conversation):
-    """The digest of the rulebook `conversation` holds: the one it said it read, else its launch's."""
+    """The digest of the rulebook `conversation` holds: the one it was last handed, else its launch's."""
     read = record.get("rulebook_read") or {}
     return read.get("sha") if read.get("conversation") == conversation else record.get("rulebook_sha")
 
 
 def rulebook_change(name, record, conversation, text):
     """What changed from the rulebook `conversation` holds to `text`, as a unified diff, or ""
-    where ak no longer has the one it holds: the rules it last said it read, which its `held`
-    file keeps from that `ak orch rules` on, however often a change is told and not read since
-    (its `rules` file keeps them too until the next change is written there), or its launch's,
-    which a rename leaves under the name it was launched with."""
+    where ak no longer has the one it holds.  Any copy of it will do, under any name the seat
+    had, since a rename leaves some behind: its `held` file, of the rules it was last handed;
+    its `rules` file, of those a conversation said it read before prompts carried them; or its
+    launch's."""
     holds = held_sha(record, conversation)
-    for held in (config.seat_file("held", name), config.seat_file("rules", name),
-                 *map(config.rulebook_path, plan.names(name))):
-        data = on_disk(held)
-        if data and config.rulebook_digest(data) == holds:
-            return "".join(difflib.unified_diff(
-                data.decode(errors="replace").splitlines(True), text.splitlines(True),
-                "the rulebook you hold", "your current rulebook", n=1))
+    for each in plan.names(name):
+        for held in (config.seat_file("held", each), config.seat_file("rules", each),
+                     config.rulebook_path(each)):
+            data = on_disk(held)
+            if data and config.rulebook_digest(data) == holds:
+                return "".join(difflib.unified_diff(
+                    data.decode(errors="replace").splitlines(True), text.splitlines(True),
+                    "the rulebook you hold", "your current rulebook", n=1))
     return ""
 
 
@@ -2735,7 +2730,7 @@ def write_rulebook(session):
     instead for a dry run.
 
     A launch fetches no project that has been fetched: it reads the rules as last fetched,
-    which is what every open seat has, and the tick's fetch brings a later merge to both, named
+    which is what every open seat has, and the tick's fetch brings a later merge to both, carried
     by the seat's next prompt.  Only a project nothing has fetched yet is fetched first, so its
     first seat opens with its rules.  A dry run fetches nothing.  A file that cannot be written
     refuses the launch: a session is opened with its rules or not at all.
@@ -2763,7 +2758,7 @@ def fetch_projects():
     """The tick's pass: `fetch_project` for each project a seat is filed under.
 
     Only a fetch shows a merge there, ak's own or one made anywhere else; the seat's next prompt
-    then names the new rules (`rulebook_news`).  A project that fails is named and waits for the
+    then carries the new rules (`rulebook_news`).  A project that fails is named and waits for the
     next tick, after every other project is fetched.
     """
     failed = []
@@ -2775,40 +2770,6 @@ def fetch_projects():
             failed.append(str(exc))
     if failed:
         raise config.Error("; ".join(failed))
-
-
-def rulebook_prepare(name):
-    """Under the seat's lock, `name` the name it goes by now: when its conversation is to be
-    told its rulebook, write that rulebook to the seat's `rules` file and give the
-    conversation a code for it, which its next prompt carries.  The file is the seat's own,
-    never the one its harness was launched from, and follows it through a rename.  A prompt's
-    hook does this itself when it gets the lock; it never waits for it, so every Enter typed
-    under it does it first (`watch._send_enter`).  A failed write only means the next prompt
-    tries again."""
-    try:
-        found = rulebook_due(name)
-        if not found:
-            return
-        record, conversation, text = found
-        sha = config.rulebook_digest(text)
-        told = record.get("rulebook_told") or {}
-        if told.get("conversation") != conversation or told.get("sha") != sha:
-            # what changed since the rulebook it holds, read before the `rules` file below
-            # takes the new one; the news names it where it was written whole
-            change = rulebook_change(name, record, conversation, text)
-            if change:
-                replace_file(config.seat_file("change", name), change.encode())
-            # a code for this conversation and these rules, which only a prompt that carried
-            # the news holds: `ak orch rules` takes nothing else
-            if config.update_session(name, rulebook_told={
-                    "conversation": conversation, "sha": sha, "code": secrets.token_hex(6),
-                    "change": config.rulebook_digest(change) if change else None}) is None:
-                return
-        path = config.seat_file("rules", name)
-        if on_disk(path) != text.encode():
-            replace_file(path, text.encode())
-    except OSError:
-        pass
 
 
 def replace_file(path, data):
@@ -2825,47 +2786,40 @@ def rulebook_news(session, conversation):
     `orchestrator.md`, this host's `rules.md` or its project's `AGENTS.md` -- a
     merge, or the seat filed elsewhere -- would keep working to the old rules.  Reopening it
     replaces its pane, and nothing on a screen proves the owner has no draft there, so the
-    seat is told instead, with the prompt that starts its next turn:
-    the rulebook is written to its `rules` file (`rulebook_prepare`), and this names what changed
-    since the one it holds (its `change` file), or the whole file where ak no longer has that one.
+    seat is told instead, with the prompt that starts its next turn: what changed since the
+    rulebook it holds (`rulebook_change`), or the whole rulebook where ak no longer has that one.
     Only its own conversation is told (`owns`): a client started inside the seat inherits its
-    name and is never it.  Every prompt carries the news until the conversation says it read
-    that rulebook (`ak orch rules`, `rulebook_ack`): a prompt something refused, or one whose
-    write failed, only means the next one tells it again.  A harness whose prompt hook
-    carries no context (`context` on its `UserPromptSubmit` event) reads the new rulebook at
-    its next launch.
+    name and is never it.  Handing it over records it as held, so later prompts carry nothing
+    until the rules change again; a prompt the harness drops after this loses the change until
+    a compaction or `/clear` tells it again from the launch's rulebook.  Where the record
+    cannot be written nothing is handed over, and the next prompt tries again.  No seat's
+    lock: a delivery holds it while it types this very prompt, and the record's own lock
+    refuses a write over a rename.  A harness whose prompt hook carries no context (`context`
+    on its `UserPromptSubmit` event) reads the new rulebook at its next launch.
     """
-    from . import notify
-    current = config.resolve_session(session)
-    if (not takes_prompt_context(config.session_records().get(current), conversation)
-            or not rulebook_due(current)):
+    name = config.resolve_session(session)
+    found = rulebook_due(name)
+    if not found or found[1] != conversation:
         return ""
-    # the prompt never waits: a delivery holds the seat's lock while it types this prompt,
-    # and readied its news before its Enter
-    with notify.session_lock(session, wait=False) as name:
-        if name:
-            rulebook_prepare(name)
-    current = config.resolve_session(session)
-    record = config.session_records().get(current) or {}
-    told = record.get("rulebook_told") or {}
-    text = config.seat_rulebook(current)
-    path = config.seat_file("rules", current)
-    # read again: a /clear or a relaunch while the lock was held makes another conversation
-    # the seat's, whatever this one was told
-    if (not takes_prompt_context(record, conversation)
-            or on_disk(path) != text.encode() or told.get("conversation") != conversation
-            or told.get("sha") != config.rulebook_digest(text)):
-        return ""                       # nothing it could read and say so yet: the next prompt
-    change = config.seat_file("change", current)
-    if told.get("change") and config.rulebook_digest(on_disk(change) or b"") == told["change"]:
+    record, _, text = found
+    change = rulebook_change(name, record, conversation, text)
+    try:
+        if config.update_session(name, rulebook_read={
+                "conversation": conversation, "sha": config.rulebook_digest(text)}) is None:
+            return ""
+    except OSError:
+        return ""
+    try:
+        replace_file(config.seat_file("held", name), text.encode())   # what a later change is told against
+    except OSError:
+        pass        # a change is then told whole
+    if change:
         # what changed, not the whole rulebook again: most changes are a line or two
-        return (f"Your rulebook changed: read {change} now, before anything else; it shows what "
-                f"changed since the one you hold, as a unified diff. {path} holds the new one "
-                "whole: it is your current rulebook, and where it differs from the one you were "
-                f"opened with, it wins. Then run `ak orch rules {told['code']}` to say you have.")
-    return (f"Read {path} in full now, before anything else: it is your current rulebook, and "
-            "where it differs from the one you were opened with, it wins. Then run "
-            f"`ak orch rules {told['code']}` to say you have.")
+        return ("Your rulebook changed: the diff below takes the one you hold to your current "
+                "one, and where your current rulebook differs from the one you were opened "
+                f"with, it wins.\n\n{change}")
+    return ("Your current rulebook follows, whole: where it differs from the one you were "
+            f"opened with, it wins.\n\n{text}")
 
 
 def prompt_news(session, conversation, said=None):
@@ -2877,21 +2831,20 @@ def prompt_news(session, conversation, said=None):
     turn to read it in.
     """
     from . import handback, notify
-    news = rulebook_news(session, conversation)
     name = config.resolve_session(session)
     record = config.session_records().get(name)
-    if said is not None and takes_prompt_context(record, conversation):
-        news = "\n\n".join(filter(None, (news, handback.riding(name),
-                                           notify.answer_context(name, said))))
-    return news
+    besides = ((handback.riding(name), notify.answer_context(name, said))
+               if said is not None and takes_prompt_context(record, conversation) else ())
+    # the rulebook last: held from its hand-over on, so nothing may fail after it
+    return "\n\n".join(filter(None, (rulebook_news(session, conversation), *besides)))
 
 
 def rulebook_compacted(session, conversation):
     """A compaction keeps the launch's rulebook, which is in the system prompt, and drops what
     the conversation read since, so it holds its launch's again: its next prompt tells it what
-    changed since then (`rulebook_news`), never a change it was told from rules it read since.
-    Without the seat's lock: an `ak orch rules` landing between the read and the write only
-    means it is told once more."""
+    changed since then (`rulebook_news`), never a change from rules it was handed since.
+    Without the seat's lock: a hand-over landing between the read and the write only means it
+    is told once more."""
     current = config.resolve_session(session)
     if owns(config.session_records().get(current) or {}, conversation):
         config.update_session(current, rulebook_read=None, rulebook_told=None)

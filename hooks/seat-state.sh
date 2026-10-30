@@ -18,8 +18,8 @@
 # the same hooks, and a seat's row must never be moved by one.  No $AGENTKIT_SESSION, or
 # AK_RUN_ROLE=worker, and this writes nothing and exits 0.
 #
-# On a prompt it passes on where its current rulebook is, when the one it was handed is out
-# of date or unknown (`orch.rulebook_news`), and the open questions an owner's prompt may
+# On a prompt it passes on what changed in its rulebook, or the whole of it where the one it
+# holds is unknown (`orch.rulebook_news`), and the open questions an owner's prompt may
 # answer (`notify.answer_context`), as the harness's prompt context.
 #
 # Every failure is exit 0 with nothing written: a hook that fails loudly is a harness that stops.

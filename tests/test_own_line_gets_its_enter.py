@@ -37,24 +37,25 @@ class OwnLineGetsItsEnter(Sandbox):
         self.seat = {"name": SEAT, "created": 1, "legacy": False, "exited": False}
         self.stack.enter_context(patch.object(orch, "sessions", return_value=[self.seat]))
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
-        self.stack.enter_context(patch.object(orch, "rulebook_prepare"))
         self.stack.enter_context(patch.object(watch, "time", Clock(lambda _seconds: None)))
         self.stack.enter_context(patch.object(watch, "pane_text", side_effect=lambda *_a, **_kw: self.pane))
         self.stack.enter_context(patch.object(watch, "pane_unread", side_effect=AssertionError(
             "a pending Enter completes its line without gating new text")))
         self.keys, self.locked, self.fail_enter = [], False, False
-        held = watch.seat_held
+        self.meanwhile = lambda: None   # what changes once the send has its lock
+        held = watch.notify.session_lock
 
         @contextmanager
-        def locking(name):
-            with held(name) as current:
+        def locking(name, *args, **kwargs):
+            with held(name, *args, **kwargs) as current:
                 self.locked = True
+                self.meanwhile()
                 try:
                     yield current
                 finally:
                     self.locked = False
 
-        self.stack.enter_context(patch.object(watch, "seat_held", locking))
+        self.stack.enter_context(patch.object(watch.notify, "session_lock", locking))
         self.compose(watch.ACCOUNT_LINE)
 
     def compose(self, line, harness="claude"):
@@ -163,9 +164,8 @@ class OwnLineGetsItsEnter(Sandbox):
                 with self.subTest(harness=harness, draft=draft):
                     self.keys.clear()
                     self.compose(line, harness)
-                    with patch.object(orch, "rulebook_prepare", side_effect=lambda _name:
-                                      self.compose(draft, harness)):
-                        self.tick()
+                    self.meanwhile = lambda: self.compose(draft, harness)
+                    self.tick()
                     self.assertEqual(self.keys, [])
 
     def test_a_multiline_suffix_typed_before_the_retry_gets_no_second_enter(self):
@@ -181,12 +181,12 @@ class OwnLineGetsItsEnter(Sandbox):
                         self.pane = pending
                         return result
 
-                    def prepare(_name):
+                    def meanwhile():
                         if self.keys:
                             self.compose(draft, harness)
 
-                    with patch.object(orch, "tmux_out", side_effect=held_enter), \
-                            patch.object(orch, "rulebook_prepare", side_effect=prepare):
+                    self.meanwhile = meanwhile
+                    with patch.object(orch, "tmux_out", side_effect=held_enter):
                         self.tick()
                     self.assertEqual(self.keys, ["Enter"])
 
@@ -248,14 +248,14 @@ class OwnLineGetsItsEnter(Sandbox):
                         self.pane = pending
                         return result
 
-                    def prepare(_name):
+                    def meanwhile():
                         if when == "locked read" or when == "retry" and self.keys:
                             self.pane = capture
 
+                    self.meanwhile = meanwhile
                     if when == "initial read":
                         self.pane = capture
-                    with patch.object(orch, "tmux_out", side_effect=held_enter), \
-                            patch.object(orch, "rulebook_prepare", side_effect=prepare):
+                    with patch.object(orch, "tmux_out", side_effect=held_enter):
                         self.tick()
                     self.assertEqual(self.keys, ["Enter"] if when == "retry" else [])
                     self.assertEqual(self.pane, capture)
@@ -294,15 +294,9 @@ class OwnLineGetsItsEnter(Sandbox):
                 self.assertEqual(self.keys, [])
 
     def test_owner_edits_after_the_first_read_win_under_the_lock(self):
-        prepare = orch.rulebook_prepare
-
-        def edit(_name):
-            self.compose(watch.ACCOUNT_LINE + " Wait.")
-
-        with patch.object(orch, "rulebook_prepare", side_effect=edit):
-            self.tick()
+        self.meanwhile = lambda: self.compose(watch.ACCOUNT_LINE + " Wait.")
+        self.tick()
         self.assertEqual(self.keys, [])
-        prepare.assert_not_called()
 
     def test_a_dialog_or_an_unanswered_owner_question_holds_the_enter(self):
         pending = self.pane
