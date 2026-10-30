@@ -4167,7 +4167,7 @@ def handover(record, old_model, old_harness, owned):
 
 def _switch_plan(cfg, name, model, providers, credits=True, effort=None):
     """(note, account): why the seat cannot move to `model`, or "" and the login to use; given
-    `effort`, its own model is judged as another would be, for the restart at it.
+    `effort`, its own model is judged as another would be, for the move at it.
 
     One computation for the refusal and the launch, so the menu's key path asks each
     login once: installed is read off the filesystem, the seat login off the kept or
@@ -4289,10 +4289,10 @@ def switch_in_place(cfg, name, model, effort):
 
 
 def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=None,
-                        effort=None, in_place=False):
-    """Move the open seat to another orchestrator at once, under the same name: given
-    `in_place`, inside its running harness where that takes lines for it (`switch_lines`),
-    asking nothing; else by a restart.
+                        effort=None):
+    """Move the open seat to another orchestrator at once, under the same name: inside its
+    running harness where that takes lines for it (`switch_lines`), asking nothing; else by a
+    restart.
 
     The old harness process ends and the new one starts in the seat's directory: a live or
     exited pane is respawned, a seat tmux has lost is started again. The runs it launched
@@ -4350,7 +4350,7 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     old_model = record["orchestrator"]
     if old_model == model and effort is None:
         return ""
-    note = switch_in_place(cfg, name, model, effort) if in_place else None
+    note = switch_in_place(cfg, name, model, effort)
     if note is not None:
         return note
     new_harness = config.model(cfg, model)["harness"]
