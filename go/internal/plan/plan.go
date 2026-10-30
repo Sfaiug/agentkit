@@ -39,7 +39,7 @@ type entry struct {
 
 // parse reads a plan line, its surrounding space aside; false for any other line.
 func parse(text string) (entry, bool) {
-	text = strings.TrimSpace(text)
+	text = strings.TrimFunc(text, config.Space)
 	at := format.FindStringSubmatchIndex(text)
 	if at == nil {
 		return entry{}, false
@@ -249,7 +249,7 @@ func List(ctx context.Context, name string) ([]string, error) {
 	err := held(ctx, name, func(current string) error {
 		lines, err := read(current)
 		for _, line := range lines {
-			if line = strings.TrimSpace(line); strings.HasPrefix(line, "- [") {
+			if line = strings.TrimFunc(line, config.Space); strings.HasPrefix(line, "- [") {
 				listed = append(listed, line)
 			}
 		}
@@ -373,7 +373,7 @@ func Add(ctx context.Context, name, repo, what, check string) (string, error) {
 			if old, ok := parse(text); ok && old.Check == check && old.Project == where && !old.proven() {
 				// the open line already holding this check here is kept, the seat's own
 				line = added(old.What, check, where, old.When, old.Base).ticked(done)
-				if line == strings.TrimSpace(text) {
+				if line == strings.TrimFunc(text, config.Space) {
 					return nil
 				}
 				return write(current, slices.Replace(lines, i, i+1, line))
