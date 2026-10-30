@@ -69,17 +69,24 @@ func Absolute(path string) string {
 // Resolve is path made absolute with its links followed, as far as they exist, and a leading
 // `~` kept literal, as Python's Path.resolve() reads it: name by name, so a `..` after a link
 // leaves the link's target, and a link that loops is kept as it is.  On Windows, Python takes
-// each `..` away first.
+// each `..` away first.  A relative path stays as given while the current directory cannot be
+// read, where Python's getcwd fails.
 func Resolve(path string) string {
 	if runtime.GOOS == "windows" {
-		path, _ = filepath.Abs(path)
-		if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			return path
+		}
+		if resolved, err := filepath.EvalSymlinks(absolute); err == nil {
 			return resolved
 		}
-		return path
+		return absolute
 	}
 	if !filepath.IsAbs(path) {
-		cwd, _ := os.Getwd()
+		cwd, err := os.Getwd()
+		if err != nil {
+			return path
+		}
 		path = cwd + "/" + path
 	}
 	// rest is the names still to follow, the next last; a step with a link marks where that

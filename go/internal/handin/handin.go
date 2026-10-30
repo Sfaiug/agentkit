@@ -216,7 +216,9 @@ func (t *turn) checked(args []string) (*run.Object, error) {
 	if !ok || strings.ContainsRune(root, 0) {
 		return nil, ErrPython // what Python's Path refuses in its own words
 	}
-	root = config.Resolve(root)
+	if root = config.Resolve(root); !filepath.IsAbs(root) {
+		return nil, ErrPython // no current directory, which Python's getcwd reports in its own words
+	}
 	path, line, err := checkedSite(args[1], root, quote, hasQuote)
 	if err != nil && !errors.Is(err, ErrPython) {
 		// A handed finding can name a file or line that a fix deleted. Only a

@@ -135,6 +135,29 @@ func TestSitesFollowLinksBeforeTheirParents(t *testing.T) {
 	}
 }
 
+func TestAMissingCurrentDirectoryIsLeftToPython(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows removes no current directory")
+	}
+	ws, record := checkout(t)
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gone := t.TempDir()
+	if err := os.Chdir(gone); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(cwd)
+	if err := os.Remove(gone); err != nil {
+		t.Fatal(err)
+	}
+	site := filepath.Join(ws, "api.py") + ":1"
+	if row, err := handIn(t, record, `{"kind": "turn", "workspace": "."}`+"\n", "finding", site, "x", "y", "--quote", "return None"); !errors.Is(err, ErrPython) || row != "" {
+		t.Errorf("a workspace of . without a current directory appended %q (%v), want it left to Python", row, err)
+	}
+}
+
 func TestQuotesAreFoundInPythonsTextView(t *testing.T) {
 	ws, record := checkout(t)
 	for _, example := range []struct{ data, quote string }{
