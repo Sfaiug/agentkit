@@ -3,6 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, redirect_stdout
 import copy
+import fcntl
 import io
 import json
 import os
@@ -85,7 +86,7 @@ sys.exit(1)
                              config.model(self.cfg, self.executor)["provider"])
         # The repository's catalogue supplies all models and efforts, including in the child.
         for harness in {entry["harness"] for entry in self.cfg["models"].values()}:
-            self.script(adapters / f"{harness}.sh", '''import json, os, pathlib, sys, time
+            self.script(adapters / f"{harness}.sh", '''import fcntl, json, os, pathlib, sys
 root = pathlib.Path(os.environ["RECOVERY_FIXTURE"])
 if sys.argv[1] == "usage":
     print(json.dumps({"meters": [{"name": "weekly", "used": 0}]}))
@@ -100,10 +101,8 @@ role = "reviewer" if prompt.startswith("You are the reviewer") else "executor"
 with (root / "calls").open("a") as calls:
     calls.write(role + "\\n")
 if role == "executor":
-    deadline = time.monotonic() + 15
-    while (root / "hold").exists():
-        assert time.monotonic() < deadline, "fixture was not released"
-        time.sleep(.02)
+    with (root / "hold").open() as hold:
+        fcntl.flock(hold, fcntl.LOCK_SH)
     pathlib.Path(sys.argv[4], "deliverable").write_text("fixture work\\n")
 text = "VERDICT: PASS\\n## Findings\\n- none" if role == "reviewer" else "## Summary\\nFixture work."
 (out / "final.md").write_text(text)
@@ -113,6 +112,8 @@ if role == "reviewer" and (root / "fail-review").exists():
 ''')
         self.now = time.time()
         self.task = "---\nrepo: none\nrounds: 1\n---\n# Recovery fixture\n\n## Done when\n```bash\ntest -f deliverable\n```\n"
+        # A test locks this to hold its executor: no clock ends the hold, and its death lets go.
+        self.hold = (self.root / "hold").open("w")
         self.children = []
         self.addCleanup(self.finish_children)
 
@@ -122,13 +123,11 @@ if role == "reviewer" and (root / "fail-review").exists():
         stateful(path, self.root)
 
     def finish_children(self):
-        (self.root / "hold").unlink(missing_ok=True)
+        self.hold.close()
+        # A run takes as long as the host's load makes it, so no clock ends it halfway: one that
+        # never ends is a hang, which the suite's silence limit names.
         for child in self.children:
-            try:
-                child.wait(timeout=20)
-            except subprocess.TimeoutExpired:
-                child.terminate()
-                child.wait(timeout=5)
+            child.wait()
 
     def receipt(self, name, status="running", **extra):
         directory = config.RUNS / name
@@ -156,10 +155,14 @@ if role == "reviewer" and (root / "fail-review").exists():
                             base=None, base_sha=None, branch=None, repo=None,
                             executor=self.executor, reviewer=self.reviewer, no_merge=True)
 
-    def wait_for(self, predicate, seconds=15):
-        deadline = time.monotonic() + seconds
-        while not predicate():
-            self.assertLess(time.monotonic(), deadline, "fixture child did not reach expected state")
+    def wait_for_executor(self, directory):
+        # A background run comes up through interpreters and a slot wait, as slowly as the host's
+        # load makes them, so no clock ends this wait: its executor's call does, or no child being
+        # left to make it (read once more after, for what it did last).
+        calls = self.root / "calls"
+        while not calls.exists():
+            if all(child.poll() is not None for child in self.children) and not calls.exists():
+                self.fail((directory / "log.txt").read_text())
             time.sleep(.02)
 
     def track_background(self):
@@ -211,12 +214,12 @@ if role == "reviewer" and (root / "fail-review").exists():
     def test_legacy_live_run_identity_and_stale_menu_snapshot_do_not_interrupt_work(self):
         source = self.root / "task.md"
         source.write_text(self.task)
-        (self.root / "hold").touch()
+        fcntl.flock(self.hold, fcntl.LOCK_EX)
         with self.track_background(), redirect_stdout(io.StringIO()):
             self.assertEqual(run.main([str(source), "--exec", self.executor,
                                        "--review", self.reviewer, "--bg"]), 0)
         directory = run_record.run_dirs()[0]
-        self.wait_for(lambda: (self.root / "calls").exists())
+        self.wait_for_executor(directory)
         active = run_record.read_state(directory)
         self.assertTrue(run_record.process_active(active))
         active.pop("process_identity")
@@ -224,7 +227,6 @@ if role == "reviewer" and (root / "fail-review").exists():
         self.assertTrue(run_record.process_active(active), active)
         stale = {**active, "pid": 99999999}
         self.assertEqual(run.reap(directory, stale)["state"], "running")
-        (self.root / "hold").unlink()
         self.finish_children()
         self.assertEqual(run_record.read_state(directory)["state"], "pass")
         self.notified.assert_not_called()
@@ -241,7 +243,7 @@ if role == "reviewer" and (root / "fail-review").exists():
     def test_zombie_and_parent_death_during_handoff(self):
         child = subprocess.Popen([sys.executable, "-c", "pass"])
         self.children.append(child)
-        self.wait_for(lambda: Path(f"/proc/{child.pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z")
+        os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOWAIT)  # ended, and not reaped: a zombie
         directory = self.receipt("zombie", pid=child.pid)
         self.assertTrue(host.alive(child.pid))
         self.assertEqual(run.reap(directory, {})["state"], "interrupted")
@@ -343,11 +345,11 @@ if role == "reviewer" and (root / "fail-review").exists():
 
     def test_numeric_resume_reuses_scratch_workspace_and_active_resume_cannot_be_started_twice(self):
         directory = self.scratch_receipt("scratch-resume")
-        (self.root / "hold").touch()
+        fcntl.flock(self.hold, fcntl.LOCK_EX)
         with self.track_background():
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(run.cmd_resume([directory.name, "--bg"]), 0)
-        self.wait_for(lambda: (self.root / "calls").exists())
+        self.wait_for_executor(directory)
         state = run_record.read_state(directory)
         self.assertEqual(state["state"], "running")
         self.assertTrue(run_record.process_active(state))

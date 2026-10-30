@@ -14,6 +14,12 @@ effort = "none"
 # `interactive` hands $AGENTKIT_FIRST_PROMPT to the TUI as its first prompt, fresh or resumed
 first_prompt = true
 
+# The lines its prompt takes to move its conversation to another model or effort, `{model}` the
+# id `interactive` passes as --model (`orch.switch_lines`); Claude Code 2.1.314 takes both.
+[switch]
+model = "/model {model}"
+effort = "/effort {effort}"
+
 [worker]
 state = ["~/.claude", "$CLAUDE_CONFIG_DIR", "~/.claude-$AGENTKIT_ACCOUNT"]
 logins = ["~/.claude/.credentials.json", "$CLAUDE_CONFIG_DIR/.credentials.json", "~/.claude-$AGENTKIT_ACCOUNT/.credentials.json"]

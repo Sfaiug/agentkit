@@ -94,13 +94,14 @@ RULES = [
     # provider by one config.default.toml entry: every other copy of a name is harness
     # knowledge that adding, renaming or dropping a harness has to find and change.
     # Go embeds generated copies; TestEmbeddedDefault and TestEmbeddedAdapters refuse any
-    # difference from the sources.
+    # difference from the sources.  Go's plugins are go/internal/harness/.
     {"name": "harness and provider names",
      "flags": ("-i", "-w"),
      "pattern": "claude|codex|muse|opencode|grok|grokbuild|antigravity|gemini|anthropic|openai"
                 "|xai|mimo|[\"']meta[\"']|[\"']google[\"']",
      "home": ("adapters/", "agentkit/harness/", "config.default.toml",
-              "go/internal/config/default.toml", "go/internal/config/adapters/"),
+              "go/internal/config/default.toml", "go/internal/config/adapters/",
+              "go/internal/harness/"),
      "max": 186},
     # What a refusal from a provider looks like is the harness's to say (adapters/*.toml,
     # its plugin): a copy in the loop or the watcher is a second classifier to keep in step.

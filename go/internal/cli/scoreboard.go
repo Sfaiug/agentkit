@@ -5,9 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -19,7 +17,7 @@ import (
 // measure but ak's size reads from history.db, which `refused` leaves to Python while
 // it exists.
 func scoreboard(screen terminal.Screen, now time.Time) []string {
-	repo := akCheckout()
+	repo := config.Repo()
 	size := func(ref string) string {
 		if ref == "" {
 			return "size unavailable"
@@ -86,22 +84,6 @@ func at(lines []string, i int) string {
 
 func wordCount(text []byte) int {
 	return len(strings.FieldsFunc(strings.ToValidUTF8(string(text), "�"), config.Space))
-}
-
-// akCheckout is the top of the checkout this ak was built in, whose size the board reports.
-func akCheckout() string {
-	executable, err := os.Executable()
-	if err != nil {
-		return ""
-	}
-	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
-		executable = resolved
-	}
-	dir := filepath.Dir(executable)
-	if top := gitOutput(dir, "rev-parse", "--show-toplevel"); top != nil {
-		return strings.TrimSpace(string(top))
-	}
-	return dir
 }
 
 // gitOutput is git's stdout in that repository, or nil where it cannot answer in ten

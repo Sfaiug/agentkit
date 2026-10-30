@@ -165,7 +165,8 @@ def _parcel(cwd, default, known, recipe, parcel, turn=None):
 
 
 def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None):
-    """(the suite sent to the roomiest helper, reason): an Away, or (None, why it runs here).
+    """(the suite sent to the roomiest helper that takes it, reason): an Away, or (None, why it
+    runs here).
     `command` is what each of its pieces runs there (`piece`): one whose line is longer than one
     argument holds keeps the suite here. With `turn`, a model turn's (agentkit/machine_turn.py),
     it goes to a machine that takes turns, holding `piece_cpus` of it until it starts, not half,
@@ -199,30 +200,33 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None):
                       f"one argument holds ({MAX_ARG_STRLEN}, Linux's MAX_ARG_STRLEN)")
     rooms = {alias: room(alias, piece_cpus, piece_mem_mb, _least(repo), bool(turn))
              for alias in aliases}
-    alias = max(aliases, key=lambda alias: (rooms[alias][0] or (0,))[0])
-    fit = rooms[alias][0]
-    if fit is None:
-        return None, " · ".join(f"helper {alias} {why}" for alias, (_, why) in rooms.items())
-    away = away._replace(alias=alias, count=fit[0], cpus=fit[1], memory_mb=fit[2], most=fit[3])
-    sent, known = LOST, _known(alias, repo)
-    try:
-        while known is not None:
-            with tempfile.TemporaryFile() as parcel:
-                _parcel(cwd, away.default, known, recipe, parcel, turn)
-                parcel.seek(0)
-                # a new recipe's build fetches packages, a first suite sends the whole history
-                sent = _remote(alias, "prepare", away.key, image, repo,
-                               *([piece_cpus] if turn else []), stdin=parcel,
-                               timeout=1800).returncode
-            # The copy went since `known` answered: the whole history, once.
-            known = [] if known and sent == LACKS else None
-    except (OSError, subprocess.SubprocessError):
-        sent = LOST
-    if sent:
+    why = {alias: reason for alias, (_, reason) in rooms.items()}
+    # Most room first, and on to the next where that refuses: its room can go between the probe
+    # and `prepare`, and 40 checks in two hours then ran here on a host out of CPU (30 Oct 2026).
+    for alias in sorted(filter(lambda alias: rooms[alias][0], aliases),
+                        key=lambda alias: -rooms[alias][0][0]):
+        fit = rooms[alias][0]
+        away = away._replace(alias=alias, count=fit[0], cpus=fit[1], memory_mb=fit[2], most=fit[3])
+        sent, known = LOST, _known(alias, repo)
+        try:
+            while known is not None:
+                with tempfile.TemporaryFile() as parcel:
+                    _parcel(cwd, away.default, known, recipe, parcel, turn)
+                    parcel.seek(0)
+                    # a new recipe's build fetches packages, a first suite sends the whole history
+                    sent = _remote(alias, "prepare", away.key, image, repo,
+                                   *([piece_cpus] if turn else []), stdin=parcel,
+                                   timeout=1800).returncode
+                # The copy went since `known` answered: the whole history, once.
+                known = [] if known and sent == LACKS else None
+        except (OSError, subprocess.SubprocessError):
+            sent = LOST
+        if not sent:
+            log(f"suite on {alias}: {fit[0]} pieces, {fit[1]} CPUs and {fit[2]} MiB each")
+            return away, ""
         finish(away)
-        return None, f"helper {alias} {failure(sent)}"
-    log(f"suite on {alias}: {fit[0]} pieces, {fit[1]} CPUs and {fit[2]} MiB each")
-    return away, ""
+        why[alias] = failure(sent)
+    return None, " · ".join(f"helper {alias} {reason}" for alias, reason in why.items())
 
 
 def _least(repo):

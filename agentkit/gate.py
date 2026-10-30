@@ -1837,9 +1837,10 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 return code, piece, killed, tests
 
             def attempts(which, only=None):
-                """The pieces at `which`, each with `only`'s tests for it, if any, alone."""
+                """The pieces at `which`, each with `only`'s tests for it, if any, alone; with no
+                turn to bound them, those tests go one piece at a time."""
                 only = only or {}
-                with ThreadPoolExecutor(max_workers=len(which)) as pool:
+                with ThreadPoolExecutor(max_workers=len(which) if hold or not only else 1) as pool:
                     try:
                         futures = [pool.submit(attempt, f"{index + 1}/{count}", only.get(index))
                                    for index in which]
@@ -1961,10 +1962,33 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         log(line)
                 return joined[0]
 
-            # What a machine failed or stopped runs again here, on this host's own turns, a
-            # stopped piece alone, below; what it lost or had no room for, on the first machine
-            # with room, this one included.
+            def turn_here():    # as busy_turn's: no ceiling is charged with the wait
+                nonlocal hold, deadline, env
+                joined[0] = None
+                began = time.monotonic()
+                hold = _GATE_HELD.hold = _GATE_HELD.home(elsewhere)
+                queued = time.monotonic() - began
+                deadline += queued
+                if on_wait is not None:
+                    on_wait(queued)
+                env = suite_env(changed, times)
+
+            def rerun(shard, only=None):
+                """`attempt` once the others ended: a whole piece takes a turn here first, whichever
+                way it came to run whole, as only named tests go without one."""
+                if only is None and hold is None and not over():
+                    turn_here()
+                    if hold is not None:
+                        hold.alone()
+                return attempt(shard, only)
+
+            # What a machine failed or stopped runs again here, a stopped piece alone, below; what
+            # it lost or had no room for, on the first machine with room, this one included. The
+            # tests a red piece named go first, at once, one piece at a time, taking no turn: they
+            # cost what a model's own test does, which takes none, where a turn was over an hour
+            # away (30 Oct 2026). Whatever then runs whole here waits for this host's turns.
             while not cancel.is_set():
+                fresh = []
                 for index, there in enumerate(where):
                     if index in again or not there or not results[index][0] or results[index][2]:
                         continue
@@ -1980,17 +2004,13 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             f"what it printed there: {kept}")
                     if tests := helper.failed(there, f"{index + 1}/{count}"):
                         named[index] = results[index][1], tests
+                        fresh.append(index)
+                if fresh:
+                    attempts(fresh, only={index: named[index][1] for index in fresh})
                 if hold is not None or not (
-                        again or pieces_left.waiting or any(where) and silenced) or over():
+                        set(again) - set(named) or pieces_left.waiting) or over():
                     break
-                joined[0] = None
-                began = time.monotonic()
-                hold = _GATE_HELD.hold = _GATE_HELD.home(elsewhere)
-                queued = time.monotonic() - began    # as busy_turn's: no ceiling is charged
-                deadline += queued
-                if on_wait is not None:
-                    on_wait(queued)
-                env = suite_env(changed, times)
+                turn_here()
                 if not joined[0]:
                     break
                 away = joined[0]
@@ -1998,8 +2018,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             if not cancel.is_set():
                 if pieces_left.waiting:
                     pull(hold.pieces if hold else len(pieces_left.waiting))
-                if again:
-                    attempts(again, only={index: tests for index, (_, tests) in named.items()})
+                if whole := [index for index in again if index not in named]:
+                    attempts(whole)
             for index in pieces_left.waiting:    # stopped before it ran
                 results[index] = attempt(f"{index + 1}/{count}")
             hold = getattr(_GATE_HELD, "hold", None)
@@ -2014,10 +2034,10 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     # stopped at its suite's pace: once more alone, with the rest of the limit
                     piece.seek(0)
                     failed, how = piece.read(), f"was stopped after {silence / 60:g} min of silence"
-                    code, piece, killed, tests = attempt(shard)
+                    code, piece, killed, tests = rerun(shard)
                 elif shard in starved and not cancel.is_set():
                     # out of memory beside its siblings: once more alone, after them
-                    code, piece, killed, tests = attempt(shard)
+                    code, piece, killed, tests = rerun(shard)
                 if index - 1 in named:    # its tests the helper named, run alone here
                     there, only = named[index - 1]
                     there.seek(0)
@@ -2062,7 +2082,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         only = tests or None
                     else:
                         break
-                    code, piece, killed, tests = attempt(shard, only)
+                    code, piece, killed, tests = rerun(shard, only)
                 if failed is not None and code == 0 and alone is None:
                     piece.seek(0)
                     flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,

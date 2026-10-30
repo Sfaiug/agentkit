@@ -990,10 +990,10 @@ def routine_ending(state):
     return bool(state.get("repair")) or seat_owes_nothing(state)
 
 
-def ends_wait(state):
+def ends_wait(state, records=None):
     """Whether this run's ending, or its change going live, ends the wait its seat's turn may
     have ended on (`stop.recorded_ending`): its `ak wait` names this run or its pull request,
-    or nothing else of the seat's holds the turn any more."""
+    or nothing else of the seat's holds the turn any more.  `records`: a pass's census, if any."""
     from . import stop, watch  # here, not at the top: they reach run
     session = transitions.launched_session(state)
     wait = watch.seat_read(session).get("wait")
@@ -1001,10 +1001,10 @@ def ends_wait(state):
             state.get("run_id") in (wait.get("on"), wait.get("run"))
             or state.get("pr") and state.get("pr") == wait.get("on")):
         return True
-    return not stop.recorded_ending(session)[0]
+    return not stop.recorded_ending(session, records)[0]
 
 
-def rides(state):
+def rides(state, records=None):
     """Whether a routine line of this run -- its ending that is typed (`ending_rides`), or its
     change going live, whatever run it is (`watch.after_merge_health`) -- rides on its seat's
     next prompt (`riding`): nothing in it is the seat's to decide, and it does not end the
@@ -1012,15 +1012,16 @@ def rides(state):
     harness hands a prompt context at all: elsewhere typing is its one way in.  Read only: it
     runs nothing."""
     record = config.session_records().get(transitions.launched_session(state))
-    return bool(record) and orch.seat_plugin(record).prompt_context and not ends_wait(state)
+    return (bool(record) and orch.seat_plugin(record).prompt_context
+            and not ends_wait(state, records))
 
 
-def ending_rides(state):
+def ending_rides(state, records=None):
     """Whether this run's ending rides (`rides`): a merge, or a `not needed`, typed today --
     not a routine ending (`routine_ending`), recorded and never typed -- and not a line already
     in the composer for its Enter (`handback_typed`), which is the typed path's."""
     return (transitions.delivered(state) and not routine_ending(state)
-            and not state.get("handback_typed") and rides(state))
+            and not state.get("handback_typed") and rides(state, records))
 
 
 def live_owed(state):
@@ -1044,8 +1045,9 @@ def settle_delivered_line(state, log):
     """A run that delivered -- merged, or found its fix not needed -- runs its seat's plan
     checks once, as it ends.  A fix run runs its own line's check alone (`plan.delivery`): the
     line ticks where its fix is on the default branch, and is the seat's own where its check
-    still fails or could not run.  Any other run runs every open line's (`plan.verify`), so a
-    line its merge proved ticks before the seat hears of it, and a plan it finished reads done
+    still fails or could not run.  Any other run runs every open line's, unless verifications
+    begun after it delivered checked each meanwhile (`plan.verify_delivered`), so a line its merge
+    proved ticks before the seat hears of it, and a plan it finished reads done
     (`plan.finished`) with nobody declaring it."""
     check, session = (state.get("followup") or {}).get("check"), transitions.launched_session(state)
     if not (session and transitions.delivered(state)):
@@ -1054,7 +1056,7 @@ def settle_delivered_line(state, log):
         if check:
             plan.delivery(session, check)
         else:
-            plan.verify(session)
+            plan.verify_delivered(session)
     except (config.Error, OSError) as exc:
         log(f"WARN could not check {session}'s plan: {exc}")
 
@@ -1616,7 +1618,7 @@ def announce_safely(state, run_dir, log, cfg=None):
         log(f"WARN the ending was not handed back: {exc}")
 
 
-def announce(state, run_dir, log, cfg=None, busy=None):
+def announce(state, run_dir, log, cfg=None, busy=None, records=None):
     """The one message a run sends when it ends: to its orchestrator, or about a gone one.
 
     A routine ending (`routine_ending`) -- merged, or not needed, while its seat owes no work
@@ -1685,7 +1687,7 @@ def announce(state, run_dir, log, cfg=None, busy=None):
         # The seat reads result.md and its plan, never the checkout: the ending is history.
         worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
         return
-    if ending_rides(state):
+    if ending_rides(state, records):
         if not state.get("handback_pending"):
             mark_delivery(run_dir, state, handback_pending=True)
             log(f"run {run_dir.name} ended {'merged' if state.get('merged') else 'not needed'}: "

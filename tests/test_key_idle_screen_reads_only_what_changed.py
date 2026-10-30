@@ -4,7 +4,10 @@ refresh.
 
 Each refresh used to parse every seat's record again for every seat and for every run, and
 read every plan once for each of the four places that look at it, some forty megabytes a minute
-over thirty seats and 2,000 runs, a quarter of a core for as long as a screen stayed open.
+over thirty seats and 2,000 runs, a quarter of a core for as long as a screen stayed open.  A
+seat's row parsed every run's record again for each of its runs waiting in a landing line, which
+it places there, and for each of its merges whose ending it was still owed, which asks whether
+its turn may end: a host's screen read up to 74 megabytes a second.
 What the screen reads is its own `rchar` (/proc/<pid>/io), its tmux calls' included, so tmux
 runs unlogged.  Black-box: the program `AK_BIN` names runs in a person's terminal
 (tests/fixtures/akterm.py) beside tests/fixtures/akseat.py's seats.
@@ -27,7 +30,9 @@ from fixtures.akterm import SERVER, Terminal
 SEATS = [f"acme-{n:02}" for n in range(30)]
 RUNS = 2000
 MINUTE = 60
-QUIET = 10        # seconds read at the pace of less than the budget a minute: its opening is done
+QUIET = 10        # seconds read at the pace of less than the budget a minute, each for a minute:
+                  # its opening is done, whose upkeep a loaded host keeps going in bursts half a
+                  # minute apart
 BOUND = 600       # its opening upkeep reaps every run, which a loaded host makes slow
 SAID = " ".join(["The review found nothing left to fix in this round."] * 25)
 # a plan as one lies about after a week: what its seat got done, then the line still open
@@ -72,11 +77,19 @@ class IdleScreenReadsOnlyWhatChanged(unittest.TestCase):
         cls.menu = Terminal(home, "--client", size=(100, 60))
         cls.menu.wait(row(SEATS[-1]), bound=BOUND)
         cls.pid, cls.budget = cls.screen_pid(), cls.held()
-        paces, deadline = [cls.read()], time.monotonic() + BOUND
-        while len(paces) <= QUIET or paces[-1] - paces[-1 - QUIET] >= cls.budget * QUIET / MINUTE:
+        cls.quiet(cls.budget)
+
+    @classmethod
+    def quiet(cls, budget):
+        """Once the screen has read at a pace of less than `budget` a minute for a minute: done
+        with what it found changed."""
+        paces, calm, deadline = [cls.read()], 0, time.monotonic() + BOUND
+        while calm < MINUTE:
             assert time.monotonic() < deadline, "the screen never went quiet"
             time.sleep(1)
             paces.append(cls.read())
+            fast = len(paces) <= QUIET or paces[-1] - paces[-1 - QUIET] >= budget * QUIET / MINUTE
+            calm = 0 if fast else calm + 1
 
     @classmethod
     def screen_pid(cls):
@@ -131,6 +144,29 @@ class IdleScreenReadsOnlyWhatChanged(unittest.TestCase):
             screen = self.menu.wait(row(witness, "● working"))
         self.assertIsNone(row("acme-09")(screen))
         self.assertTrue(row("acme-03", "● working")(screen))
+
+    def test_3_runs_waiting_to_land_and_endings_owed_read_less_than_they_hold(self):
+        # Every seat's run waits in one landing line, and a seat owing work has a merge of
+        # today's whose ending nobody has told it; acme-29's run goes last, so its row working
+        # is a refresh that read them all.
+        now, runs = time.time(), self.home.path / ".agentkit/runs"
+        for n, seat in enumerate(SEATS):
+            waiting = ended(RUNS + 2 + n, seat, now)
+            self.home.write(runs / waiting["run_id"] / "run.json", {
+                **waiting, "state": "waiting", "merged": False,
+                "waiting_on": {"line": ".merge-acme.lock", "joined": now}})
+            if n % 2 == 0:
+                merged = ended(RUNS + 2 + len(SEATS) + n, seat, now)
+                self.home.write(runs / merged["run_id"] / "run.json", {
+                    **merged, "started_at": now - 3600, "finished_at": now - 2700,
+                    "handed_back": None, "reported": False})
+        (self.home.path / ".agentkit/state/runs-moved").touch()
+        self.menu.wait(row(SEATS[-1], "● working"), bound=BOUND)
+        budget = self.held()
+        self.quiet(budget)
+        start = self.read()
+        time.sleep(MINUTE)
+        self.assertLess(self.read() - start, budget)
 
 
 if __name__ == "__main__":

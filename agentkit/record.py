@@ -13,7 +13,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import config, host
+from . import config, host, parsed
 
 SILENCE_MINUTES = 20            # no command output or harness event for this long is a death
 CEILING_HOURS = 6               # the whole done-when list, even if it keeps printing
@@ -55,10 +55,17 @@ def record_limits(state):
     state.setdefault("ceiling_hours", CEILING_HOURS)
 
 
-def read_state(run_dir):
+def _state(path):
+    state = json.loads(path.read_text())
+    return state if isinstance(state, dict) else None
+
+
+def read_state(run_dir, shared=False):
+    """The run's record, None for none or an unreadable one; `shared` is what it held when last
+    parsed while it has not changed since (`parsed`), every reader's, so its caller only reads it."""
+    path = run_dir / "run.json"
     try:
-        state = json.loads((run_dir / "run.json").read_text())
-        return state if isinstance(state, dict) else None
+        return parsed.read(path, _state) if shared else _state(path)
     except (OSError, ValueError, RecursionError):
         return None
 

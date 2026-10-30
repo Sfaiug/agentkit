@@ -44,9 +44,9 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, host, notify,
-               orch, parsed, questions, seat_tokens, staffing, statusbar, transitions, turns,
-               update, usage, worker)
+from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, host,
+               login_refusals, notify, orch, parsed, questions, seat_tokens, staffing, statusbar,
+               transitions, turns, update, usage, worker)
 from . import record as run_record
 from . import sleep
 from . import terminal as terminal_mod
@@ -1197,9 +1197,13 @@ def forget(session, *, resolve=True, acknowledge=True, opening=False, notice=Non
             previous = state["seen_at"].get(name, 0)
             state["seen_at"][name] = max(time.time(), math.nextafter(previous, math.inf))
             last = notify.last(name)
-            if opening and last and last.get("watcher") is True:
-                notice = last["text"]    # the user is taking over the watcher's recovery
-            if not opening or not last or last.get("watcher") is True:
+            # the user is taking over the watcher's recovery, which they cannot do for a login
+            # that keeps refusing: its answer or its runs' ending takes that card down
+            theirs = (opening and last and last.get("watcher") is True
+                      and not login_refusing(name))
+            if theirs:
+                notice = last["text"]
+            if not opening or not last or theirs:
                 state["stalls"].pop(name, None)
                 # ... and seat_account's give-up on a bare 429, kept in the seat's record
                 if (seat_read(name).get("usage_refusal") or {}).get("told"):
@@ -1209,7 +1213,7 @@ def forget(session, *, resolve=True, acknowledge=True, opening=False, notice=Non
             elif acknowledge:
                 notify.clear(name)
             _write_state(state)
-    except (config.Error, OSError) as exc:
+    except (config.Error, OSError, ValueError) as exc:
         print(f"WARN could not clear the stall record of {session}: {exc}", file=sys.stderr)
 
 
@@ -1234,9 +1238,9 @@ def _pane(session):
 
 
 def pinned(session):
-    """That seat held to the pane it shows now, by id: what is read and typed for one line goes
+    """That seat held to its pane (`_pane`), by id: what is read and typed for one line goes
     to that pane, whichever pane the owner selects meanwhile; as it was where tmux cannot say."""
-    rc, pane = orch.tmux_out("display-message", "-p", "-t", f"={session['name']}:", "#{pane_id}",
+    rc, pane = orch.tmux_out("display-message", "-p", "-t", _pane(session), "#{pane_id}",
                              socket=orch.seat_socket(session))
     return dict(session, pane=pane) if rc == 0 and re.fullmatch(r"%[0-9]+", pane) else session
 
@@ -1600,8 +1604,9 @@ def follow_model(cfg, name):
     """Make the model that seat's harness says its latest answer ran on its orchestrator:
     `/model` typed inside a seat moves its row, its bar and `c`'s mark as a move on `c` would,
     nothing restarted (the owner's word of 20 Oct 2026).  Only an answer made since the harness
-    in the seat was launched counts (`launched` in its record, written once it is up), so a
-    move on `c` is not undone by the old model's last answer; a seat launched before launches
+    in the seat was launched counts (`launched` in its record, written once it is up), or since
+    the last line of a move in place went in (`switched`), and none while one is still owed, so
+    a move on `c` is not undone by the old model's last answer; a seat launched before launches
     were written down counts every answer.  The model is the configured entry running it on
     that harness, the seat's own first, at the effort the answer recorded where one does, and
     `/effort` typed inside moves that entry's orchestrator effort in the seat's record, its
@@ -1613,15 +1618,18 @@ def follow_model(cfg, name):
         entry = record and config.model(cfg, record["orchestrator"])
     except config.Error:
         return
-    if not entry or entry["model"] in ("", config.DEFAULT_MODEL):
+    live = seat_read(name)
+    if (not entry or entry["model"] in ("", config.DEFAULT_MODEL)
+            or any(owed.get("switch") for owed in live.get("owed_lines") or ())):
         return
     plugin, cwd = orch.harness_plugin(entry["harness"]), record.get("cwd")
     try:
         ran = plugin.running(record, cwd, plugin.conversation(record, cwd))
     except OSError:
         return
-    launched = _stamp(record.get("launched"))
-    if not ran or launched is not None and not (ran[2] or 0) > launched:
+    since = [at for at in (_stamp(record.get("launched")), _stamp(live.get("switched")))
+             if at is not None]
+    if not ran or since and not (ran[2] or 0) > max(since):
         return
     kept, models = record["orchestrator"], config.at_efforts(cfg, record)["models"]
     runs = [each for each in (kept, *config.offered(cfg))
@@ -2697,9 +2705,10 @@ def news_owed(name, mine, read=True):
     runs nobody has heard that is the seat's to decide (`handback.owes_ending`, less a routine
     one, which is never typed, and one riding on its next prompt, `handback.ending_rides`).
     Only the first while no rule or hook `read` its screen: the harness of a seat just reopened
-    is still drawing its prompt."""
+    is still drawing its prompt.  A move's line (`switch`) is none of them: it tells the seat
+    nothing, and waits only for its next quiet prompt."""
     marks = seat_read(name)
-    if marks.get("owed_lines"):
+    if any(not owed.get("switch") for owed in marks.get("owed_lines") or ()):
         return "telling it what it missed while it was gone"
     if not read:
         return None
@@ -2778,6 +2787,26 @@ def work_live(name):
     return "your plan is done and its changes are live"
 
 
+def refusing_login(run_dir, state):
+    """The login that keeps refusing a run that has not ended (`login_refusals`), else None."""
+    return login_refusals.owed(run_dir) if state.get("state") in run_record.GOING else None
+
+
+def login_refusing(name):
+    """Whether a login keeps refusing a run of that seat's."""
+    from . import menu as menu_mod    # the menu imports this module
+    return any(refusing_login(run_dir, state)
+               for run_dir, state in own_runs(name, menu_mod.run_records()))
+
+
+def owed_login(run_dir, state):
+    """The login a run waits on its owner for, else None: one it parked on that the tick has
+    not found back yet, and one that keeps refusing it."""
+    if state.get("state") == "waiting_login" and not state.get("login_back_at"):
+        return state.get("waiting_for")
+    return refusing_login(run_dir, state)
+
+
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,
                    found, harness, auth_out, gh_out, token_out, menu_mod, run_mod,
                    terminal_mod, stalls, mine):
@@ -2808,12 +2837,11 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # because the tick that can answer is the one that unparks it, and until it does the work
     # is stopped whatever any record says.  A run the tick has already found the login back
     # for is not that news -- it is being resumed, and saying `login expired` at it would
-    # send him to `/login` for something he has.
-    parked = [(run_dir, state) for run_dir, state in mine
-              if state.get("state") == "waiting_login" and not state.get("login_back_at")]
+    # send him to `/login` for something he has -- unless that login keeps refusing it.
+    parked = [(run_dir, state) for run_dir, state in mine if owed_login(run_dir, state)]
     if parked:
         run_dir, first = min(parked, key=lambda pair: pair[1].get("finished_at") or 0)
-        return {"word": "needs you", "reason": login_reason(first.get("waiting_for") or "a"),
+        return {"word": "needs you", "reason": login_reason(owed_login(run_dir, first)),
                 "since": first.get("finished_at")}
     # 1b. ... and the one login no harness owns, on every seat, as a dead worker token (1c):
     # while gh is logged out the tick reads no pull request and the next run to deliver
@@ -4585,42 +4613,58 @@ def revive(name, line, log, cfg=None, *, prepare):
     return None
 
 
-def owe_line(name, line, owed):
-    """The line owed to that seat with the text `line` becomes `owed`: added where `line` is
-    None, gone where `owed` is.  Under the seat's send lock, which a rename takes too, so the
-    lines are written where the seat's record is."""
+def owe_line(name, was, *owed):
+    """The line owed to that seat as read, `was`, becomes the lines `owed`, in one write: added
+    where `was` is None, a move's (`switch`) ahead of all but those begun or of an earlier move,
+    and gone where none is given; nothing where `was` is owed no more.  Each added takes an id,
+    so a teller late to retire the line it told never retires a later one with the same text.
+    Under the seat's send lock, which a rename takes too: written where the seat's record is."""
     with notify.session_lock(name) as held, seat_lock(held):
         data = seat_read(held)
-        lines = data.get("owed_lines") or []
-        lines = ([owed if old["line"] == line else old for old in lines] if line
-                 else [*lines, owed])
-        _seat_put(held, data, {"owed_lines": [old for old in lines if old] or None})
+        lines = list(data.get("owed_lines") or [])
+        if was is None:
+            for line in owed:
+                line = {**line, "id": os.urandom(8).hex()}
+                lines.insert(next((at for at, old in enumerate(lines)
+                                   if not (old.get("switch") or old.get("typed"))), len(lines))
+                             if line.get("switch") else len(lines), line)
+        elif was in lines:
+            at = lines.index(was)
+            lines[at:at + 1] = owed
+        _seat_put(held, data, {"owed_lines": lines or None})
 
 
 def tell_owed(name, log, cfg=None):
-    """The oldest line `revive` owes that seat goes in at its quiet prompt (`type_at_prompt`),
+    """The oldest line owed to that seat goes in at its quiet prompt (`type_at_prompt`),
     never onto text the owner typed there; the tick asks this of every seat, so the line waits
     for a harness however slow to draw its prompt.  Its mark is kept from try to try until the
     composer reads empty, so it goes in once.  `revive` in a run's process and the tick may both
     get here: each key goes only while the line it read still heads the seat's lines, read under
-    the send lock, so a teller another one overtook types nothing more."""
+    the send lock, so a teller another one overtook types nothing more.  A line goes to the pane
+    it names, a move's to its harness's, and a move's begins no turn: the next goes in at the
+    same prompt, its harness's answers counted from the moment it went in (`switched`)."""
     owed = (seat_read(name).get("owed_lines") or [None])[0]
     seat = orch.find(name) if owed else None
     if not seat:
         return
+    seat = dict(seat, pane=owed.get("pane"))
     line, read = owed["line"], [owed]
 
     def kept(mark):
-        read[0] = {**owed, "typed": mark}
-        owe_line(name, line, read[0])
+        was, read[0] = read[0], {**owed, "typed": mark}
+        owe_line(name, was, read[0])
 
     def overtaken(held):
         return (seat_read(held).get("owed_lines") or [None])[0] != read[0]
 
     if type_at_prompt(seat, line, log, cfg=cfg, typed=owed.get("typed"), receipt=kept,
                       stale=overtaken):
-        owe_line(name, line, None)
+        if owed.get("switch"):
+            seat_write(name, switched=time.time())     # written before its line is no longer owed
+        owe_line(name, read[0])
         log(f"told {name}: {line}")
+        if owed.get("switch"):
+            tell_owed(name, log, cfg)
 
 
 def seat_subscription(cfg, provider, name):
@@ -5036,22 +5080,22 @@ def health(cfg, state, dry_run, log):
         records = menu_mod.run_records(cache=not dry_run)
     except (config.Error, OSError, ValueError):
         records = None
-    # What each seat's runs are parked on, oldest first: the harness, when it parked and what
-    # it said.  The seat that launched one has to read the login it waits for even when it
-    # runs another harness itself, and the run being parked is the whole of the evidence --
-    # `resume_waiting_login` is what asks the verb again, and what unparks it.
+    # The login each seat's runs wait on their owner for (`owed_login`), oldest first: the
+    # harness, when it parked and what it said.  The seat that launched one has to read the
+    # login it waits for even when it runs another harness itself, and the run is the whole of
+    # the evidence -- `resume_waiting_login` is what asks the verb again, and what unparks it.
     parked_for = {}
-    for _, record in records or ():
-        if (record.get("state") != "waiting_login" or not record.get("waiting_for")
-                or record.get("login_back_at")):
-            continue        # back already: being resumed, and no login for anybody to fix
+    for run_dir, record in records or ():
+        login = owed_login(run_dir, record)
+        if not login:
+            continue
         try:
             owner = transitions.launched_session(record)
         except config.Error:
             owner = None
         if owner:
             parked_for.setdefault(owner, []).append(
-                (record["waiting_for"], record.get("finished_at"), record.get("error") or ""))
+                (login, record.get("finished_at"), record.get("error") or ""))
     for held in parked_for.values():
         held.sort(key=lambda parked: parked[1] or 0)
     # Every harness an earlier pass recorded a `no` for, asked again every pass whether or not
@@ -5176,9 +5220,9 @@ def health(cfg, state, dry_run, log):
                 latched = entry.get("harness") or harness
                 # A non-answer is not a yes: a latch a verb raised stands until that verb
                 # says otherwise, so an adapter that is briefly unrunnable retracts nothing.
-                # A latch a parked run raised has already had its answer -- nothing of this
-                # seat's is parked on that login any more, which is the only thing that was
-                # ever claimed.
+                # A latch a run raised has already had its answer -- nothing of this seat's
+                # waits on that login any more (`owed_login`), which is the only thing that
+                # was ever claimed.
                 if (entry.get("evidence") != "run"
                         and not logged_in(latched, state.get("auth_out"))):
                     continue
@@ -7127,7 +7171,7 @@ def merge_record(repo, sha, pr_url=None):
     return {"health": {"command": command} if command else {}}
 
 
-def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes):
+def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes, records=None):
     """Keep the merge commit `sha` on the run and its history row, for the next tick and the
     scoreboard; then follow the merge's declaration in its original checkout, stopping at its
     first pass."""
@@ -7198,7 +7242,7 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
                 handback.mark_delivery(run_dir, st, live_notified=now, live_typed=None)
                 log(f"{handback.live_sentence(st, run_dir)} Recorded, not typed")
             return "passed", None, None
-        if handback.carries_live(st) or not st.get("live_typed") and handback.rides(st):
+        if handback.carries_live(st) or not st.get("live_typed") and handback.rides(st, records):
             # its ending, still to be said, carries it, or it rides on the seat's next prompt
             # (`handback.riding`)
             return "passed", None, None
@@ -7456,8 +7500,12 @@ def after_merge_checks(state, dry_run, log, now=None):
         return
     grouped = {}
     probes = {}
+    # Every run's, one read for every merged run's question about its seat (`handback.rides`):
+    # one read each was 5167 files read 200 times a tick (30 Oct 2026).
+    records = []
     for run_dir in directories:
         st = run_record.read_state(run_dir)
+        records.append((run_dir, st or {}))
         if not st or not st.get("merged"):
             continue
         finished = st.get("finished_at")
@@ -7502,7 +7550,7 @@ def after_merge_checks(state, dry_run, log, now=None):
                 verdict, check, url = "ignored", None, None
             try:
                 health = after_merge_health(run_dir, st, key, sha, pr_url, now,
-                                            dry_run, log, probes)
+                                            dry_run, log, probes, records)
             except (config.Error, OSError, ValueError, AttributeError, KeyError, TypeError) as exc:
                 # Until a command is known, discovery cannot change the target's check verdict.
                 health = ("unknown", None, None) if st.get("health") or st.get("live_at") else None
@@ -7686,12 +7734,13 @@ def offer_endings(log):
     other endings are marked waiting for the next pass instead of reading the same screen
     again each.
     """
-    ended = []
+    ended, records = [], []     # `records`: this pass's census, each seat's question answered from it
     for run_dir in run_record.run_dirs():
         try:
             receipt = run_record.read_state(run_dir)
             if receipt:
                 receipt = handback.reap(run_dir, receipt)
+                records.append((run_dir, receipt))
                 if receipt.get("state") in run_record.ENDED:
                     ended.append((run_dir, receipt))
         except PASS_ERRORS as exc:
@@ -7704,7 +7753,7 @@ def offer_endings(log):
             # does the ending of an attempt that was reaped without one.  `announce` decides
             # again which path it is, so a seat that died since gets the orphan one.
             if handback.owes_ending(receipt):
-                handback.announce(receipt, run_dir, log, busy=busy)
+                handback.announce(receipt, run_dir, log, busy=busy, records=records)
             # A question the seat never took is typed again before the user hears it; one it
             # took whose ping failed is only pinged, and so is one kept before `asked` was,
             # whose typing nobody knows the end of.
@@ -7758,6 +7807,10 @@ def local_passes(state, dry_run, log):
         ("the set-aside text pass did not run", lambda: drafts_back(config.load()), False),
         ("the mid-turn continue pass did not run",
          lambda: continue_turns(config.load(), log), False),
+        # A run parked on an expired login is resumed, silently, the moment that harness's
+        # `auth` verb passes again: before the seats, so no seat reads a login back as one to fix.
+        ("the login-resume pass did not run",
+         lambda: resume_waiting_login(dry_run=dry_run, log=log), True),
         # the seats early, and never behind the `gh api user` gate: a stalled seat is the one
         # thing on this tick that nothing else will ever get to, and a gh that is down is no
         # reason to leave it stuck
@@ -7788,14 +7841,11 @@ def local_passes(state, dry_run, log):
         ("the worker-token reminder did not run",
          lambda: remind_worker_tokens(state.get("worker_tokens")), False),
         # An exhausted run waits for a provider window and resumes itself when one refills, on
-        # the usage just read; a run parked on an expired login, the moment that harness's
-        # `auth` verb passes again; a run in error, on the loop's transient ladder, hourly at
-        # most; one waiting on a rebase conflict, after the next merge to main. All silently,
-        # never waiting on the run.
+        # the usage just read; a run in error, on the loop's transient ladder, hourly at most;
+        # one waiting on a rebase conflict, after the next merge to main. All silently, never
+        # waiting on the run.
         ("the exhausted-resume pass did not run",
          lambda: resume_exhausted(config.load(), providers, dry_run=dry_run, log=log), True),
-        ("the login-resume pass did not run",
-         lambda: resume_waiting_login(dry_run=dry_run, log=log), True),
         ("the error-retry pass did not run", lambda: resume_errored(dry_run=dry_run, log=log), True),
         ("the waiting-resume pass did not run",
          lambda: resume_waiting(dry_run=dry_run, log=log), True),

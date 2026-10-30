@@ -35,14 +35,30 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 	}
 	t.Setenv("AK_HAND_IN", turn)
 	before := tree(t, home)
+	// One call a line: milestones in flight each take theirs out, and lines apart merge.
 	calls := [][]string{
-		{}, {"attach", "--client"}, {"usage", "--json"}, {"models", "--refresh"},
-		{"worker", "acme", task}, {"run", task, "--no-merge"},
-		{"run", "gc", "--dry-run"}, {"run", "--review-pr", "https://github.com/acme/api/pull/12"},
-		{"orch", "acme", "--dry-run"}, {"orch", "acme"}, {"orch", "ended", "acme", "1700000000"}, {"plan", "check", "٣", "true"}, {"plan", "check", "²", "a\nb"}, {"plan", "check", "1", "true \xff"}, {"hand-in", "done"},
-		{"notify", "--check"}, {"notify", "needs", "Which branch?"},
-		{"wait", "https://github.com/acme/api/pull/12"}, {"update", "--dry-run"},
-		{"watch", "--dry-run"}, {"doctor"}, {"browser", "status"},
+		{},
+		{"attach", "--client"},
+		{"usage", "--json"},
+		{"models", "--refresh"},
+		{"worker", "acme", task},
+		{"run", task, "--no-merge"},
+		{"run", "gc", "--dry-run"},
+		{"run", "--review-pr", "https://github.com/acme/api/pull/12"},
+		{"orch", "acme", "--dry-run"},
+		{"orch", "acme"},
+		{"orch", "ended", "acme", "1700000000"},
+		{"plan", "check", "٣", "true"},
+		{"plan", "check", "²", "a\nb"},
+		{"plan", "check", "1", "true \xff"},
+		{"hand-in", "done"},
+		{"notify", "--check"},
+		{"notify", "needs", "Which branch?"},
+		{"wait", "https://github.com/acme/api/pull/12"},
+		{"watch"},
+		{"watch", "--dry-run"},
+		{"doctor"},
+		{"browser", "status"},
 	}
 	if runtime.GOOS == "darwin" {
 		calls = append(calls, []string{"macbridge", "--reader"})

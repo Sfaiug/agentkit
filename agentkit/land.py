@@ -11,7 +11,8 @@ process or delivery.
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, nullcontext
+import copy
 import fcntl
 import functools
 import json
@@ -165,10 +166,11 @@ def member(state):
 
 def line(turn):
     """Green deliveries in tested stack order, then the rest in join order, a held install's
-    fix (`update.first_place`) ahead of those."""
+    fix (`update.first_place`) ahead of those; their records every reader's (`record.read_state`),
+    so only read."""
     members = []
     for directory in record.run_dirs():
-        state = record.read_state(directory) or {}
+        state = record.read_state(directory, shared=True) or {}
         if member(state) and state["waiting_on"]["line"] == turn.name:
             members.append((directory, state))
     deliveries = {directory.name: state["waiting_on"]["land"] for directory, state in members
@@ -453,7 +455,7 @@ def check_line(turn, log=lambda _: None):
         if not held:
             return
         target, prefix, tip_green = None, [], set()    # the pieces the tip passed on this pass
-        members = line(turn)
+        members = copy.deepcopy(line(turn))     # its own: it writes its answers into them
         names = {directory.name for directory, _ in members}
         for index, (directory, state) in enumerate(members):
             with record.recovery_lock(directory):
@@ -621,9 +623,9 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
            only=None, artifacts=None, line=None):
     """(whether the checks passed, their output, what they found red as `red_part` reads it,
     `suite` standing for a red no command showed); with `shard` every command runs as that
-    one piece alone, on one turn, and with `only` just those tests.  A run checking before it
-    joins names the `line` it joins: a flake it sees counts there as one the line's check
-    sees."""
+    one piece alone, on one turn, and with `only` just those tests, on none.  A run checking
+    before it joins names the `line` it joins: a flake it sees counts there as one the line's
+    check sees."""
     from . import gate, run
     identity = gitcall.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
@@ -634,7 +636,10 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
     run_dir = None if context else directory
     sharded = None if shard else next((cmd for cmd in cmds if gate.names_shard(cmd)), None)
     marks, pieces, confirmed, flaky = [], {}, {}, []
-    with gate.gate_turn(run_dir, log_path, log, sharded, scratch, context=context):
+    # Tests named alone cost what a model's own test does, which takes no turn: on a host out of
+    # CPU none comes until it is idle, and the wait held whole lines up to an hour (30 Oct 2026).
+    with nullcontext() if only else gate.gate_turn(run_dir, log_path, log, sharded, scratch,
+                                                   context=context):
         ok, text = gate.run_done_when(
             cmds, scratch, log_path, set() if artifacts is None else artifacts,
             3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
