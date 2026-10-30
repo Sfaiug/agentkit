@@ -24,17 +24,16 @@ GH = r'''#!/bin/bash
 echo "$*" >>"$FAKE/gh.log"
 case "$*" in
   "api user --jq .login") echo acme ;;
-  "repo create acme/agentkit-smoke --private --add-readme")
-    [ ! -e "$FAKE/origin.git" ] && git init -q -b main "$FAKE/readme" &&
-      echo "# agentkit-smoke" >"$FAKE/readme/README.md" && git -C "$FAKE/readme" add -A &&
-      git -C "$FAKE/readme" commit -qm init && git clone -q --bare "$FAKE/readme" "$FAKE/origin.git" ;;
+  # empty, its HEAD naming the default of an account that calls it `trunk`
+  "repo create acme/agentkit-smoke --private")
+    [ ! -e "$FAKE/origin.git" ] && git init -q --bare -b trunk "$FAKE/origin.git" ;;
   "repo clone acme/agentkit-smoke "*" -- -q") git clone -q "$FAKE/origin.git" "$4" ;;
   *) exit 97 ;;
 esac
 '''
 # Origin's update hook names every ref written, and refuses `main`.
 HOOK = '#!/bin/sh\necho "$1" >>"$FAKE/updates"\n[ "$1" != refs/heads/main ]\n'
-CREATE = "repo create acme/agentkit-smoke --private --add-readme"
+CREATE = "repo create acme/agentkit-smoke --private"
 
 
 def ago(age):
@@ -81,9 +80,10 @@ class SandboxBranch(unittest.TestCase):
     def written(self):
         return (self.root / "updates").read_text().splitlines()
 
-    def leftover(self, name, age):
-        """A branch a killed suite left on origin, its one commit `age` seconds old."""
-        sha = self.git("-C", "origin.git", "commit-tree", "main^{tree}", "-m", name, **ago(age))
+    def branch(self, name, age):
+        """Branch `name` on origin, its one commit `age` seconds old."""
+        tree = self.git("-C", "origin.git", "hash-object", "-w", "-t", "tree", "/dev/null")
+        sha = self.git("-C", "origin.git", "commit-tree", tree, "-m", name, **ago(age))
         self.git("-C", "origin.git", "update-ref", f"refs/heads/{name}", sha)
 
     def run_from(self, clone):
@@ -100,15 +100,14 @@ class SandboxBranch(unittest.TestCase):
         return {f"refs/heads/{suite}", f"refs/heads/ak/fix-{clone}"}
 
     def test_two_suites_at_once_each_remove_only_their_own(self):
-        # made long ago: its `main` is as old as a dead suite's branch, and stays
-        subprocess.run(["gh", *CREATE.split()], check=True,
-                       env={**self.env, **ago(2 * sandbox_branch.CEILING)})
-        self.leftover("suite-dead-old", sandbox_branch.CEILING + 3600)
-        self.leftover("suite-dead-young", sandbox_branch.CEILING - 3600)
+        # made long ago, and its `main` with it: as old as a dead suite's branch, and not the
+        # default either, so nothing but its name keeps it
+        subprocess.run(["gh", *CREATE.split()], env=self.env, check=True)
+        self.branch("main", 2 * sandbox_branch.CEILING)
+        self.branch("suite-dead-old", sandbox_branch.CEILING + 3600)
+        self.branch("suite-dead-young", sandbox_branch.CEILING - 3600)
         (self.root / "origin.git/hooks/update").write_text(HOOK)
         (self.root / "origin.git/hooks/update").chmod(0o755)
-        # a delete of `main` reaches the hook, not git's own refusal of the default branch's
-        self.git("-C", "origin.git", "config", "receive.denyDeleteCurrent", "ignore")
         main = self.heads()["refs/heads/main"]
         (self.root / "gh.log").unlink()
         self.done(self.sandbox("open", "a", "seed"), self.sandbox("open", "b", "seed"))
@@ -132,8 +131,7 @@ class SandboxBranch(unittest.TestCase):
         self.done(self.sandbox("open", "a", "seed"))
         self.done(self.sandbox("open", "b", "seed"))
         self.assertEqual((self.root / "gh.log").read_text().splitlines().count(CREATE), 1)
-        self.assertEqual(self.git("-C", "origin.git", "symbolic-ref", "HEAD"), "refs/heads/main")
-        self.assertEqual(self.git("-C", "origin.git", "ls-tree", "--name-only", "main"), "README.md")
+        self.assertIn("refs/heads/main", self.heads())
         self.assertEqual(len(self.heads()), 3)
 
     def test_the_ceiling_outlasts_every_suite_ak_runs(self):

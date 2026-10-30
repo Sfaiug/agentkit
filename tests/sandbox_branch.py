@@ -55,21 +55,26 @@ def open_branch(clone, seed):
     repo = f"{login}/{NAME}"
     clone_it = ["gh", "repo", "clone", repo, str(clone), "--", "-q"]
     if subprocess.run(clone_it).returncode:
-        # `main` is written here alone, as the repository is made: a suite's push to an empty one
-        # would make its branch the default.  Another suite may make it first; the clone tells.
-        subprocess.run(["gh", "repo", "create", repo, "--private", "--add-readme"])
+        # Another suite may make it first; the clone tells.
+        subprocess.run(["gh", "repo", "create", repo, "--private"])
         subprocess.run(clone_it, check=True)
-    default = git(clone, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")   # origin/main
-    old = time.time() - CEILING
-    # Another suite may delete one first: its lease then fails that one alone, and nothing is lost.
-    delete(clone, [b for b in branches(clone) if f"origin/{b[0]}" != default and b[2] < old])
-    # random, not a pid: a container's suite has a pid space of its own
-    branch = f"suite-{secrets.token_hex(6)}"
-    git(clone, "checkout", "-q", "--orphan", branch)
-    git(clone, "rm", "-rqf", ".")
-    shutil.copytree(seed, clone, dirs_exist_ok=True)
     git(clone, "config", "user.email", "sandbox@localhost")
     git(clone, "config", "user.name", "sandbox")
+    if not branches(clone):
+        # Just made, and `main` written here alone: pushed before any suite's branch, it is the
+        # default GitHub makes, whatever the account names its own.  Another suite making it at
+        # once may push its `main` first, and either serves.
+        tree = git(clone, "hash-object", "-w", "-t", "tree", "/dev/null")
+        git(clone, "push", "-q", "origin", git(clone, "commit-tree", tree, "-m", NAME) +
+            ":refs/heads/main", check=False)
+        git(clone, "ls-remote", "--exit-code", "origin", "refs/heads/main")
+    old = time.time() - CEILING
+    # Another suite may delete one first: its lease then fails that one alone, and nothing is lost.
+    delete(clone, [b for b in branches(clone) if b[0] != "main" and b[2] < old])
+    # random, not a pid: a container's suite has a pid space of its own
+    branch = f"suite-{secrets.token_hex(6)}"
+    git(clone, "switch", "-q", "--orphan", branch)
+    shutil.copytree(seed, clone, dirs_exist_ok=True)
     git(clone, "add", "-A")
     # its branch's name in it: two suites' seeds of the same files in the same second are
     # otherwise one commit, and each suite's `close` would take the other's branches too
