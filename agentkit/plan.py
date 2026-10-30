@@ -244,9 +244,9 @@ def default_branch(repo, at=None):
     project's current default branch, fetched first -- or, with `at`, that commit, the one a
     line's check was proven failing on.  `checkout()` is a clean checkout of that commit for one
     check, so nothing one check writes or moves -- files, HEAD, a submodule -- is there for the
-    next: one tree, cleaned between checks and made again where that leaves anything, as one per
-    check wrote 2.4 GB of ATLAS for 29 lines at this disk's 40 MB/s (30 Oct 2026).  It sits beside
-    runs' checkouts in `config.WT`, as
+    next: one tree, cleaned between checks and made again where `cleaned` cannot put it back, as
+    one per check wrote 2.4 GB of ATLAS for 29 lines at this disk's 40 MB/s (30 Oct 2026).  It
+    sits beside runs' checkouts in `config.WT`, as
     the landing line's do: ak's history counts a repository under `.agentkit/tmp` as a test
     suite's throwaway, so a test keeping its fixtures in its own checkout read differently
     there than in a run.  A check gets the project's env file
@@ -289,22 +289,37 @@ def default_branch(repo, at=None):
                         shutil.rmtree(tree, ignore_errors=True)
                         git("worktree", "prune")
 
-    def cleaned(tree):
+    def home(tree):
+        return git("rev-parse", "--absolute-git-dir", "--show-toplevel", cwd=tree)
+
+    def unseen(tree):
+        # what status does not report: index entries told to skip their files, its reflog, and
+        # every path and permission beside the tree, in it (an initialized submodule's files)
+        # and in its git directory (a worktree's config, a rebase left open)
+        tops = tree.parent, Path(home(tree).splitlines()[0])
+        return (git("ls-files", "-v", cwd=tree), git("reflog", cwd=tree),
+                {path: path.lstat().st_mode for top in tops for path in (top, *top.rglob("*"))})
+
+    def cleaned(tree, where, was):
         try:
+            # a check can repoint `.git` or core.worktree: git would clean whatever they name
+            if home(tree) != where:
+                return False
             git("checkout", "-q", "--force", "--detach", sha, cwd=tree)
             git("clean", "-q", "-ffdx", cwd=tree)
-            return not git("status", "--porcelain", "--ignored", cwd=tree)
-        except config.Error:
+            return not git("status", "--porcelain", "--ignored", cwd=tree) and unseen(tree) == was
+        except (config.Error, OSError):
             return False
 
     kept, made = ExitStack(), []
 
     def checkout():
-        if made and not cleaned(made[0]):
+        if made and not cleaned(*made):
             kept.close()
             made.clear()
         if not made:
-            made.append(kept.enter_context(fresh()))
+            tree = kept.enter_context(fresh())
+            made[:] = tree, home(tree), unseen(tree)
         return nullcontext(made[0])
 
     def stop(signum, _frame):

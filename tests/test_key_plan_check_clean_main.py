@@ -10,6 +10,7 @@ tests/fixtures/akbin.py, a seat's record from akseat.py filed under a project of
 """
 
 import re
+import shlex
 import sys
 from pathlib import Path
 import unittest
@@ -77,18 +78,53 @@ class AVerificationsChecksShareATree(PlanHome):
     def test_each_finds_the_last_ones_mess_gone_and_the_rest_not_written_again(self):
         rig = self.project("fix-api", "acme")
         rig.commit({".gitignore": "ignored\n", "a": "a\n", "b": "b\n", "check.sh": """
-{ git status --porcelain --ignored; git log -1 --format=%s; cat a; stat -c %y b; } > "$1"
-echo x > a; echo x > new; echo x > ignored; git -c user.name=a -c user.email=a@b.c commit -qam moved
-[ -z "$2" ] || { mkdir stuck; touch stuck/file; chmod 555 stuck; }
+{ git status --porcelain --ignored; cat a; stat -c %y b; } > "$1"
+echo x > a; echo x > new; echo x > ignored
 exit 1
 """}, "the project")
-        checks = [(self.home.root / f"seen-{index}", extra) for index, extra in enumerate(("", "stuck", ""))]
-        for seen, extra in checks:
-            self.add(rig, "fix-api", seen.name, f"bash check.sh {seen} {extra}".strip())
+        checks = [self.home.root / f"seen-{index}" for index in range(3)]
+        for seen in checks:
+            self.add(rig, "fix-api", seen.name, f"bash check.sh {seen}")
         self.assertEqual(self.ak(rig, "fix-api", "plan").code, 0)
-        first, second, third = (seen.read_text().splitlines() for seen, _ in checks)
-        self.assertEqual((first[:-1], second), (["the project", "a"], first))
-        self.assertEqual(third[:-1], first[:-1])
+        first, second, third = (seen.read_text().splitlines() for seen in checks)
+        self.assertEqual((first[:-1], second, third), (["a"], first, first))
+
+    def test_what_status_cannot_see_is_gone_too(self):
+        rig = self.project("fix-ui", "beta")
+        rig.commit({"a": "a\n", "d/b": "b\n", "check.sh": """
+{ cat a; git status --porcelain --ignored; git ls-files -v; git log -1 --format=%s; git reflog --format=%s
+  stat -c '%a %n' . a d d/b; ls -A .. sub "$(git rev-parse --git-dir)"; } > "$1"
+eval "$2"
+exit 1
+"""}, "the project", push=False)
+        rig.git("-c", "protocol.file.allow=always", "submodule", "add", "-q", str(rig.bare), "sub")
+        rig.git("config", "-f", ".gitmodules", "submodule.sub.ignore", "untracked")
+        rig.commit({}, "with a submodule")
+        messes = ("git update-index --skip-worktree a; echo x > a",
+                  "git update-index --assume-unchanged a; echo x > a",
+                  "chmod 555 d",
+                  "chmod 444 d/b",
+                  "chmod 555 .",
+                  "git -c protocol.file.allow=always submodule update --init -q; echo x > sub/new",
+                  "echo x > ../beside",
+                  'echo x > "$(git rev-parse --git-dir)/left"',
+                  "git checkout -q --detach HEAD~1",
+                  "git -c user.name=a -c user.email=a@b.c commit -q --allow-empty -m moved",
+                  "mkdir stuck; touch stuck/file; chmod 555 stuck",
+                  'echo "gitdir: $PROJECT/.git" > .git',
+                  "true")
+        self.home.write(f".agentkit/env/{rig.name}.env", f"PROJECT={rig.path}\n")
+        checks = [self.home.root / f"left-{index}" for index in range(len(messes))]
+        for seen, mess in zip(checks, messes):
+            self.add(rig, "fix-ui", seen.name, f"bash check.sh {seen} {shlex.quote(mess)}")
+        # staged in the seat's checkout, its file as committed: only a reset of that index loses it
+        (rig.path / "a").write_text("staged\n")
+        rig.git("add", "a")
+        (rig.path / "a").write_text("a\n")
+        self.assertEqual(self.ak(rig, "fix-ui", "plan").code, 0)
+        first, *rest = (seen.read_text() for seen in checks)
+        self.assertEqual(rest, [first] * len(rest))
+        self.assertEqual(rig.git("show", ":a"), "staged")
 
 
 class TheCheckRunsOnOriginsDefaultBranch(PlanHome):
