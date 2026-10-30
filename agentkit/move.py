@@ -69,7 +69,8 @@ fi""")
         print(f"ak move: refused: {reason}", file=sys.stderr)
     if refused:
         return 1
-    # -H: what is one file here, a local clone's objects, stays one there; the first pass takes hours
+    # -H keeps a file with several names, as a local clone's objects, one file there; the first
+    # pass takes hours, so it shows how far it is
     code = subprocess.run(["rsync", "-aH", "--no-D", "--delete", "--info=progress2",
                            *(f"--exclude=/{path.relative_to(home)}" for path in KEPT),
                            f"{home}/", f"{alias}:{home}/"]).returncode
