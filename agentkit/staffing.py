@@ -275,19 +275,19 @@ def reviewer_order(cfg, writers, order):
     orchestrator and the fixer its fix was handed to.  A model tends to miss the mistakes it
     makes, so its own review is the last choice -- but only a choice, never a refusal: one
     worker reviews itself."""
-    names = [writers] if isinstance(writers, str) else [name for name in (writers or []) if name]
-    try:
-        for name in names:
-            config.model(cfg, name)
-    except config.Error:
-        return []
-    tiered = []
-    for name in order:
+    def known(name):
         try:
             config.model(cfg, name)
         except config.Error:
-            continue
-        tiered.append((max((pair_tier(cfg, each, name) for each in names), default=0), name))
+            return False
+        return True
+
+    # a writer since removed from the config, as a handover's earlier executor, holds no
+    # reviewer back: it is no model a reviewer could be
+    names = [name for name in ([writers] if isinstance(writers, str) else writers or [])
+             if name and known(name)]
+    tiered = [(max((pair_tier(cfg, each, name) for each in names), default=0), name)
+              for name in order if known(name)]
     return [name for _, name in sorted(tiered, key=lambda each: each[0])]
 
 

@@ -90,6 +90,9 @@ class SelfReviewLast(unittest.TestCase):
         self.assertEqual(run.reviewer_order(self.cfg, "acme-one", ["acme-one"]), ["acme-one"])
         # a review with no executor keeps budget order: nothing is anyone's own
         self.assertEqual(run.reviewer_order(self.cfg, None, order), order)
+        # a writer since removed from the config holds no reviewer back
+        self.assertEqual(run.reviewer_order(self.cfg, ["retired", "acme-one"], order),
+                         ["beta-one", "acme-two", "acme-one"])
 
     def test_first_pick_reviews_itself_only_when_nothing_else_is_left(self):
         # beta-one is on another provider: it reviews though acme-two has more budget
