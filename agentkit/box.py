@@ -496,6 +496,8 @@ def check():
         # A host that cannot nest a box says so at once; a slow probe is load, and every
         # turn keeps its own silence and ceiling limits.
         return
+    except BlockingIOError:
+        raise   # no room to start a process is the host's for a moment, not a box it cannot build
     except (OSError, subprocess.SubprocessError) as exc:
         why = str(exc)
     for path, setting in (("/proc/sys/kernel/unprivileged_userns_clone",
