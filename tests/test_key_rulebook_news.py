@@ -1,94 +1,115 @@
-"""A seat's prompt tells it to read its current rulebook, with a code, until it says it has.
+"""A seat's prompt carries what changed in its rulebook, and handing it over records it as held.
 
 A harness reads its rulebook only when it opens, so a seat left open across a change would keep
-working to rules nobody holds any more.  ak tells the seat's own conversation instead, on the
-prompt that starts its next turn: the rulebook is written to the seat's `rules` file, and the
-news names that file and a code.  Every prompt says it again until `ak orch rules CODE`, run in
-the seat with the code that prompt gave, says the rulebook was read; then prompts say nothing.
-Black-box: Claude's hooks as ak's adapter registers them, fired as Claude fires them
-(tests/fixtures/hookdrive.py), and `ak orch rules` run as the seat runs it; this test fails
-against `/bin/false`.
+working to rules nobody holds any more.  ak tells the seat's own conversation instead, inside
+the prompt that starts its next turn: what changed since the rulebook it holds, as a unified
+diff, or the whole rulebook where ak has no record of that one.  It names no file to read and no
+command to run, and the prompt after it carries nothing until the rules change again.  Where ak
+cannot record the hand-over it hands nothing over, and the next prompt carries the change.  A
+compaction leaves the conversation only its launch's rulebook, so its next prompt carries what
+changed since that one.  Black-box: Claude's hooks as ak's adapter registers them, fired as
+Claude fires them (tests/fixtures/hookdrive.py); this test fails against `/bin/false`.
 """
 
-import re
+import hashlib
+import os
 import sys
 from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import Home
+from fixtures.akbin import AK, Home
 from fixtures.hookdrive import Hooks
 
 CONVERSATION = "7d3c1e2a-5b4f-4a6e-8c9d-0e1f2a3b4c5d"
-CODE = re.compile(r"`ak orch rules ([0-9a-f]{12})`")
+SHIPPED = Path(AK).resolve().parents[1] / "orchestrator.md"   # ak's own rules, beside it
+SILENT = (0, "", "", [])
+
+
+def rulebook(own):
+    """What a seat filed under no project holds: ak's rules, then the host's own."""
+    return f"{SHIPPED.read_text().rstrip()}\n\n{own}"
 
 
 class RulebookNews(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.home = Home()
-        cls.addClassCleanup(cls.home.close)
-        cls.hooks = Hooks(cls.home)
+    def setUp(self):
+        self.home = Home()
+        self.addCleanup(self.home.close)
+        self.hooks = Hooks(self.home)
+        self.rules("Rule one.\n")
 
-    def seat(self, name):
-        """A Claude seat on its own conversation, launcher-issued, that was told nothing yet;
-        returns its rules file."""
-        self.home.write(f".agentkit/state/session-{name}.json",
+    def rules(self, own):
+        self.home.write(".agentkit/rules.md", own)
+
+    def seat(self, **record):
+        """A Claude seat on its own conversation, launcher-issued."""
+        self.home.write(".agentkit/state/session-acme.json",
                         {"orchestrator": "opus", "workers": ["opus"], "reviewers": ["opus"],
                          "cwd": str(self.home.path), "conversation": CONVERSATION,
-                         "id_source": "launcher", "resumable": True})
-        return self.home.path / ".agentkit" / "state" / f"rules-{name}.md"
+                         "id_source": "launcher", "resumable": True, **record})
 
-    def prompt(self, name):
+    def prompt(self):
         fired = self.hooks.fire("UserPromptSubmit", {"prompt": "go", "session_id": CONVERSATION},
-                                seat=name)
+                                seat="acme")
         self.assertEqual(fired.code, 0, fired.err)
         return fired
 
-    def told(self, fired):
-        """The news a prompt carried as Claude reads it, and the code in it."""
+    def told(self):
+        """What the next prompt carries as Claude reads it, which sends it nowhere else."""
+        fired = self.prompt()
         self.assertEqual(len(fired.said), 1, fired.out)
         output = fired.said[0]["hookSpecificOutput"]
         self.assertEqual(output["hookEventName"], "UserPromptSubmit")
         news = output["additionalContext"]
-        found = CODE.search(news)
-        self.assertIsNotNone(found, news)
-        return news, found.group(1)
+        self.assertNotIn(str(self.home.path), news)
+        self.assertNotIn("ak orch rules", news)
+        return news
 
-    def read(self, code, name):
-        return self.home.ak("orch", "rules", code,
-                            env={"AGENTKIT_SESSION": name} if name else None)
+    def test_a_changed_rulebook_s_diff_arrives_in_the_next_prompt_and_only_there(self):
+        self.seat()
+        self.told()
+        self.rules("Rule two.\n")
+        news = self.told()
+        self.assertIn("\n-Rule one.\n+Rule two.\n", news)
+        self.assertLess(len(news), len(SHIPPED.read_text()) // 4)
+        self.assertEqual(self.prompt(), SILENT)
 
-    def test_the_first_prompt_is_told_to_read_its_rulebook_and_given_a_code(self):
-        rules = self.seat("acme")
-        news, _ = self.told(self.prompt("acme"))
-        self.assertTrue(news.startswith(f"Read {rules} in full now"), news)
-        self.assertTrue(rules.read_text().strip())
+    def test_with_no_record_of_the_rulebook_held_the_whole_one_arrives(self):
+        gone = hashlib.sha256(b"a launch's rules ak no longer has\n").hexdigest()
+        for record in ({}, {"rulebook_sha": gone}):
+            with self.subTest(record=record):
+                self.seat(**record)
+                self.assertIn(rulebook("Rule one.\n"), self.told())
+                self.assertEqual(self.prompt(), SILENT)
 
-    def test_every_prompt_is_told_again_with_the_same_code_until_it_is_read(self):
-        self.seat("beta")
-        first = self.told(self.prompt("beta"))
-        for _ in range(2):
-            self.assertEqual(self.told(self.prompt("beta")), first)
+    @unittest.skipIf(os.geteuid() == 0, "root writes whatever a directory's mode")
+    def test_a_hand_over_that_cannot_be_recorded_hands_nothing_and_the_next_prompt_does(self):
+        self.seat()
+        self.told()
+        self.rules("Rule two.\n")
+        state = self.home.path / ".agentkit" / "state"
+        mode = state.stat().st_mode
+        state.chmod(0o555)                  # nothing in ak's state can be written for now
+        try:
+            self.assertEqual(self.prompt(), SILENT)
+        finally:
+            state.chmod(mode)
+        self.assertIn("\n-Rule one.\n+Rule two.\n", self.told())
 
-    def test_a_wrong_code_or_no_seat_reads_nothing_and_the_news_stands(self):
-        self.seat("gamma")
-        news, code = self.told(self.prompt("gamma"))
-        for wrong, name in (("0123456789ab", "gamma"), (code, None), ("", "gamma")):
-            with self.subTest(code=wrong, seat=name):
-                done = self.read(wrong, name)
-                self.assertEqual((done.code, done.out), (2, ""), done.err)
-        self.assertEqual(self.told(self.prompt("gamma")), (news, code))
-
-    def test_the_code_says_it_was_read_and_the_next_prompt_is_told_nothing(self):
-        self.seat("delta")
-        _, code = self.told(self.prompt("delta"))
-        self.assertEqual(self.read(code, "delta"), (0, "rulebook read\n", ""))
-        self.assertEqual(self.prompt("delta"), (0, "", "", []))
-        # a code is spent once read: the rules it named are the seat's now
-        done = self.read(code, "delta")
-        self.assertEqual((done.code, done.out), (2, ""), done.err)
-        self.assertEqual(self.prompt("delta"), (0, "", "", []))
+    def test_after_a_compaction_the_next_prompt_carries_what_changed_since_the_launch(self):
+        launched = rulebook("Rule one.\n")
+        self.home.write(".agentkit/state/rulebook-acme.md", launched)
+        self.seat(rulebook_sha=hashlib.sha256(launched.encode()).hexdigest())
+        self.assertEqual(self.prompt(), SILENT)
+        self.rules("Rule two.\n")
+        self.told()
+        self.rules("Rule three.\n")
+        self.assertIn("\n-Rule two.\n+Rule three.\n", self.told())
+        compacted = self.hooks.fire("SessionStart",
+                                    {"source": "compact", "session_id": CONVERSATION}, seat="acme")
+        self.assertEqual(compacted, SILENT)
+        self.assertIn("\n-Rule one.\n+Rule three.\n", self.told())
+        self.assertEqual(self.prompt(), SILENT)
 
 
 if __name__ == "__main__":

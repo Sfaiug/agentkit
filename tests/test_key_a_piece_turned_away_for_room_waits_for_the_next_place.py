@@ -32,12 +32,14 @@ verb, *args = words[words.index("mac.sh") + 1:]
 with open({calls!r}, "a+") as calls:
     fcntl.flock(calls, fcntl.LOCK_EX)
     calls.seek(0)
-    started = sum(line.startswith("run ") for line in calls)
+    started = sum(line.startswith("run ") and line != "run 1/1\\n" for line in calls)
     calls.write(verb + (" " + args[6] if verb == "run" else "") + "\\n")
 if verb == "probe":
     print("cpus 4\\nload 0\\nroom_mb 65536")
 elif verb == "prepare":
     sys.stdin.buffer.read()
+elif verb == "run" and args[6] == "1/1":    # a round's own checks, where they go there: not the suite
+    pass
 elif verb == "run" and started == 0:    # runs until the next VM is turned away
     deadline = time.monotonic() + 120
     while not os.path.exists({turned!r}) and time.monotonic() < deadline:
@@ -88,7 +90,7 @@ class TurnedAwayForRoom(unittest.TestCase):
                 break
         self.assertEqual(shares, [])
         ran = [line.split()[1] for line in calls.read_text().splitlines()
-               if line.startswith("run ")]
+               if line.startswith("run ") and line != "run 1/1"]
         count = int(ran[0].split("/")[1])
         # every piece once on the Mac, and the one turned away a second time there
         self.assertEqual(sorted(ran), sorted([*(f"{k}/{count}" for k in range(1, count + 1)),

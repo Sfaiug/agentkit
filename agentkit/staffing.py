@@ -75,9 +75,17 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
         {"at": time.time(), "from": current, "to": new, "reason": reason})
     state["executor"] = new
     state["exec_session"] = None
+    replace_reviewer(state, reviewer)
+    return new
+
+
+def replace_reviewer(state, reviewer):
+    """`reviewer` reviews the run from here, fresh: the conversation of the one it replaces,
+    and a review attempt that one left open, are not its own (`handed`, read by `review`)."""
     if reviewer != state.get("reviewer"):
         state["reviewer"], state["review_session"] = reviewer, None
-    return new
+        if state.get("review_pending"):
+            state["review_pending"]["handed"] = True
 
 
 def ready_order(cfg, providers, workers=None, log=None, **kwargs):

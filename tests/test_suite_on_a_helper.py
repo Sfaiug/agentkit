@@ -123,7 +123,7 @@ class SuiteOnAHelper(unittest.TestCase):
         # One VM's place ends; the other's pieces take a moment, time enough for an ask the piece
         # it turned away wakes.
         self.pace = 0.2
-        with patch.object(helper, "room", return_value=((2, 2, 820), "")), \
+        with patch.object(helper, "room", return_value=((2, 2, 820, 2), "")), \
                 patch.object(helper, "start", wraps=helper.start) as asked:
             code, text, killed, _ = self.check({"helper": (helper.FULL,)}, places=2)
         self.assertEqual((code, killed, asked.call_count), (0, False, 1), text)

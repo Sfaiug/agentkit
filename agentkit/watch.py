@@ -146,7 +146,7 @@ def ask_inbox(cfg, question, url, sha, log, asked=False, typed=lambda: None):
         return state in ("draft", "asking") or bool(draft)
 
     if not type_checked(session, line, log, harness, pending=stuck,
-                        guard=lambda: seat_held(name), veto=veto):
+                        guard=lambda: notify.session_lock(name), veto=veto):
         log(f"WARN could not type the question into the {name} seat")
         return 1
     log(f"asked the {name} seat: {question}")
@@ -712,7 +712,7 @@ def finish_own_lines(cfg, log):
             if not line or not alone(name):
                 continue
             if (type_checked(session, line, log, harness, pending=True,
-                             guard=lambda: seat_held(name),
+                             guard=lambda: notify.session_lock(name),
                              veto=lambda held: line != marked
                              and owner_question(notify.last(held)),
                              ready=alone) and line == marked):
@@ -2689,8 +2689,9 @@ def news_owed(name, mine, read=True):
     """What ak still has to type into that seat, as its reason, or None: a line `revive` owes it
     (`tell_owed`), the end of its `ak wait` not yet told (`wait_over`), or an ending of its own
     runs nobody has heard that is the seat's to decide (`handback.owes_ending`, less a routine
-    one, which is never typed).  Only the first while no rule or hook `read` its screen: the
-    harness of a seat just reopened is still drawing its prompt."""
+    one, which is never typed, and one riding on its next prompt, `handback.ending_rides`).
+    Only the first while no rule or hook `read` its screen: the harness of a seat just reopened
+    is still drawing its prompt."""
     marks = seat_read(name)
     if marks.get("owed_lines"):
         return "telling it what it missed while it was gone"
@@ -2700,7 +2701,8 @@ def news_owed(name, mine, read=True):
     if isinstance(wait, dict) and wait.get("over") and not wait.get("told"):
         return f"telling it its wait on {wait.get('on')} is over"
     for run_dir, state in mine:
-        if handback.owes_ending(state) and not handback.routine_ending(state):
+        if (handback.owes_ending(state) and not handback.routine_ending(state)
+                and not handback.ending_rides(state)):
             return f"telling it how run {run_dir.name} ended"
     return None
 
@@ -3443,16 +3445,6 @@ def _wait_sent(session, harness, text):
     return False
 
 
-@contextmanager
-def seat_held(name):
-    """The seat's lock for typing into it, the news its next prompt carries made ready first
-    (`orch.rulebook_prepare`): that prompt's own hook never waits on this lock, and nothing
-    runs between the last look at the screen and the Enter."""
-    with notify.session_lock(name) as held:
-        orch.rulebook_prepare(held)
-        yield held
-
-
 def pane_unread(session):
     """Unread input on either tty; a terminal that cannot be asked keeps the old behavior.
 
@@ -3662,7 +3654,7 @@ def type_into(session, text, log, stale=lambda held: False, *, source="ak", aske
     `asked` types it past an open question too: the line goes on with a turn it never stopped.
     """
     return type_checked(session, text, log, None,
-                        guard=lambda: seat_held(session["name"]),
+                        guard=lambda: notify.session_lock(session["name"]),
                         veto=lambda held: (not asked and owner_question(notify.last(held)))
                         or stale(held),
                         source=source)
@@ -3943,7 +3935,7 @@ def sync_title(session, log=lambda _: None, *, force=False):
                               title_conversation=record.get("conversation"))
 
     sent = type_checked(session, line, log, plugin.name,
-                        guard=lambda: seat_held(name), veto=veto,
+                        guard=lambda: notify.session_lock(name), veto=veto,
                         typed=typed, pending=bool(composed))
     with notify.session_lock(name) as held:
         current = config.session_records().get(held, {})
@@ -4187,7 +4179,7 @@ def drafts_back(cfg):
     for session in seats:
         if not _editor_kept(session):   # most ticks keep nothing: no seat's send lock waited on
             continue
-        with seat_held(session["name"]):
+        with notify.session_lock(session["name"]):
             if seat_read(session["name"]).get("midturn"):
                 continue    # its line goes first: text back in the composer would go with it
             for pane, (state, _) in sorted((_editor_kept(session) or {}).items()):
@@ -4246,7 +4238,7 @@ def _line_left(session, text, log, cfg, stale):
     the line is that editor's to read, as the screen draws what it puts there late -- its Enter
     where it is still alone in the composer, and delivered once it has left, the text kept given
     back into the composer it left empty."""
-    with seat_held(session["name"]) as held:
+    with notify.session_lock(session["name"]) as held:
         where = not stale(held) and seat_editor(session, cfg)
         word = where and _editor_read(session, where, cfg) and _edit(session, where, "back", text)
         if word == "unsent":
@@ -4324,7 +4316,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     if isinstance(typed, dict) and typed.get("pane") and typed == dict(mark, pane=typed["pane"]):
         return _line_left(dict(session, pane=typed["pane"]), text, log, cfg, stale)
     if typed == mark:
-        with seat_held(session["name"]) as held:
+        with notify.session_lock(session["name"]) as held:
             if stale(held):
                 return False    # the screen is somebody else's: next pass
             holds = composer_holds(held, session, text, cfg)
@@ -4340,7 +4332,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
         return False
     where = _past_text(session, cfg)
     if where:
-        with seat_held(session["name"]) as held:
+        with notify.session_lock(session["name"]) as held:
             if stale(held) or _past_text(session, cfg) != where:
                 return False
             kept_asked_first(dict(session, name=held))
@@ -4360,7 +4352,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
         return not quiet_prompt(session, held, cfg) or _editor_kept(session) != {}
 
     return (type_checked(session, text, log, None,
-                         guard=lambda: seat_held(session["name"]), veto=veto,
+                         guard=lambda: notify.session_lock(session["name"]), veto=veto,
                          typed=lambda: receipt(mark), source=source,
                          ready=lambda held: composer_holds(held, session, text, cfg) == "line")
             and composer_holds(session["name"], session, text, cfg) == "empty"
@@ -6402,8 +6394,8 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                     state.setdefault("executor_history", []).append(
                         {"at": now, "from": saved, "to": chosen, "reason": "dry"})
                     state["executor"], state["exec_session"] = chosen, None
-                if reviewer and reviewer != state.get("reviewer"):
-                    state["reviewer"], state["review_session"] = reviewer, None
+                if reviewer:
+                    staffing.replace_reviewer(state, reviewer)
                 # Consume the one-shot refusal deadline before the child owns the run.  The
                 # stamp still travels into the queued receipt, so nothing is written after launch.
                 state.pop("refusal_retry", None)
@@ -7199,6 +7191,10 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
                 handback.mark_delivery(run_dir, st, live_notified=now, live_typed=None)
                 log(f"{handback.live_sentence(st, run_dir)} Recorded, not typed")
             return "passed", None, None
+        if handback.carries_live(st) or not st.get("live_typed") and handback.rides(st):
+            # its ending, still to be said, carries it, or it rides on the seat's next prompt
+            # (`handback.riding`)
+            return "passed", None, None
         seat = orch.find(session)
         if after_merge_live(seat):
             def kept(mark):
@@ -7635,7 +7631,7 @@ def after_merge_checks(state, dry_run, log, now=None):
 def doctor(argv):
     """`ak doctor`: where the agents run, whether the tick that watches them is alive, what each
     machine ak may use is, and any model set to an effort its model does not take, its `effort`
-    or the one a role runs it at.
+    or the one a role runs it at, then the best machine to rent now, or why there is none.
 
     The first lines are read and never asked, so they cost nothing on a host already in
     trouble -- which is the host this is typed on -- and come out before the efforts, which
@@ -7661,7 +7657,13 @@ def doctor(argv):
             if (key == "effort" or key in entry) and entry.get(key) not in takes:
                 wrong.append(f"{key}  {name}: {entry.get('model')} takes {' '.join(takes)}, "
                              f"not {entry.get(key)}")
-    print("\n".join(wrong) or "effort  every model takes the effort it is set to")
+    print("\n".join(wrong) or "effort  every model takes the effort it is set to", flush=True)
+    from . import gate, google_cloud   # here, not at the top: the gate imports this module
+    try:
+        best = google_cloud.best(gate.HEAVY_MEM_MB)
+        print(f"rented machines: best now {best}" if best else "rented machines: nothing offered")
+    except google_cloud.Unavailable as exc:
+        print(f"rented machines: {exc}")
     return 0
 
 

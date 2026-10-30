@@ -9,7 +9,8 @@ from unittest.mock import patch
 
 import test_worker_list as fixtures
 from fixtures.hand_in import smoke, submitting
-from agentkit import config, gate, gc, gitcall, run, staffing, status, turns, usage, watch
+from agentkit import (config, gate, gc, gitcall, run, staffing, status, transitions, turns,
+                      usage, watch)
 from agentkit import record as run_record
 
 @contextmanager
@@ -368,6 +369,48 @@ class RoleGroups(unittest.TestCase):
                              prior=dict(lp.state))
         self.assertEqual((state["executor"], state["reviewer"]), ("alpha", "beta"))
         self.assertNotIn("executor_history", state)
+
+    def test_a_reviewer_repicked_on_resume_does_not_continue_its_predecessors_review(self):
+        lp = self.loop("alpha", "alpha", ["alpha", "beta"])
+        lp.state.update(title="Resume", no_merge=True, branch=None, base_sha=None,
+                        review_session="alpha-session",
+                        review_pending={"round": 1, "summary": "work"})
+        # alpha's review of its own work, cut off mid-turn
+        (lp.round_dir / "reviewer").mkdir()
+        (lp.round_dir / "reviewer" / "session_id").write_text("alpha-session")
+        task = lp.run_dir / "task.md"
+        task.write_text("---\nrepo: none\nrounds: 1\n---\n# Resume\n\n"
+                        "## Done when\n```bash\ntrue\n```\n")
+        opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
+                "--no-merge": True, "--no-worktree": True, "--bg": False}
+        calls = []
+
+        class Called(Exception):
+            pass
+
+        def call(cfg, model, body, workspace, out, role, session, *args, **_kw):
+            calls.append((model, out.name, session))
+            raise Called
+
+        def review(resumed):
+            resumed.rnd = 1
+            return run.review(resumed, "work", True, "")
+        with patch.object(run, "rounds", side_effect=review), \
+                patch.object(gc, "disk_pressure", return_value=False), \
+                patched_on_both(run, staffing, "collect_usage",
+                             return_value=self.providers(a=30, b=10, c=0)), \
+                patch.object(turns, "call_retrying", side_effect=call), \
+                patch.object(transitions, "history_role_tokens"), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            run_record.save_state(lp.run_dir, lp.state)
+            with self.assertRaises(Called):
+                run.loop(self.cfg, lp.run_dir, task, opts, self.logs.append,
+                         prior=dict(lp.state))
+            # parked before beta's turn began, the next resume still leaves alpha's alone
+            with self.assertRaises(Called):
+                run.loop(self.cfg, lp.run_dir, task, opts, self.logs.append,
+                         prior=run_record.read_state(lp.run_dir))
+        self.assertEqual(calls, [("beta", "reviewer-beta", None)] * 2)
 
     def test_resume_with_pending_review_keeps_self_when_same_executor_has_none_better(self):
         lp = self.loop("beta", "beta", ["beta", "alpha"])

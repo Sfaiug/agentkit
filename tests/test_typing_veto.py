@@ -45,15 +45,15 @@ class Veto(Seats):
     def changed_after_the_first_read(self, later):
         """The pane changes to `later` between the first read and the capture under the typing
         lock: the lock is taken, and the screen is already something else."""
-        real = watch.seat_held
+        real = watch.notify.session_lock
 
         @contextmanager
-        def taken_then_changed(name):
-            with real(name) as held:
+        def taken_then_changed(name, *args, **kwargs):
+            with real(name, *args, **kwargs) as held:
                 self.pane = later
                 yield held
 
-        return patch.object(watch, "seat_held", side_effect=taken_then_changed)
+        return patch.object(watch.notify, "session_lock", side_effect=taken_then_changed)
 
 
 class TypingVeto(Veto):

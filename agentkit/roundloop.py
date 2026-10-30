@@ -536,6 +536,7 @@ def verify_work(lp, cmds=None):
     if cmds is None:
         cmds = lp.every
     lp.step("done-when")
+    check = gate.run_done_when
     if not lp.scratch and not lp.state.get("review_pr"):
         if lp.state.get("repo"):
             # ak's commit step runs the lease scan itself: a diff that cannot merge with an
@@ -545,13 +546,13 @@ def verify_work(lp, cmds=None):
             leases.scan_safely(Path(lp.state["repo"]), lp.log)
             lp.save()
         gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
+        check = gate.run_round      # the tree at HEAD is the checkout's: the helper may run it
     follow_target(lp)
     checks = (files_scope(lp), rules_check(lp))
     lp.validation = {} if lp.scratch else gitcall.commit_identity(lp.wt)
     clean = lp.scratch or lp.state.get("review_pr") or gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
-    ok, text = gate.run_done_when(cmds, lp.wt, lp.round_dir / "donewhen.log", lp.artifacts,
-                                  lp.done_when_limit, lp.log, silence=lp.turn_limit,
-                                  run_dir=lp.run_dir)
+    ok, text = check(cmds, lp.wt, lp.round_dir / "donewhen.log", lp.artifacts,
+                     lp.done_when_limit, lp.log, silence=lp.turn_limit, run_dir=lp.run_dir)
     suite_ok, suite_text = affected_suite(lp)
     if suite_text:
         ok &= suite_ok
@@ -1299,12 +1300,16 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     # what a later round replays, kept on the pending record so no dying attempt overwrites them
     delta_from = lp.state.get("delta_from")
     earlier = prompts.earlier_findings(lp)
-    # who could not finish this round's review, kept across parks as `since` is: none is
-    # asked again in this round, and a new round starts with nobody failed
-    failed = pending.get("failed", []) if pending.get("round") == lp.rnd else []
+    # who could not finish this round's review, and whether a reviewer took it over from
+    # outside it (`staffing.replace_reviewer`), kept across parks as `since` is: none is
+    # asked again in this round, and a new round starts with nobody failed or handed
+    this_round = pending.get("round") == lp.rnd
+    failed = pending.get("failed", []) if this_round else []
+    handed = this_round and pending.get("handed", False)
     lp.state.update(verdict=None, review=None,
                     review_pending={"round": lp.rnd, "summary": summary, "since": since,
                                     "earlier": earlier, "failed": failed,
+                                    **({"handed": True} if handed else {}),
                                     **({"passed_head_sha": passed_head} if passed_head else {})})
     if not record:
         lp.state["review_pending"]["record"] = False
@@ -1404,9 +1409,11 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     # A review cut off mid-turn is continued where it was, fallback model and all: the
     # attempt after a fallback wrote under `reviewer-<model>`, and asking `reviewer` for
     # it would start the review over in a directory beside the one holding its session.
+    # A reviewer that took the review over writes in its own, so the attempt it continues
+    # is only ever one it ran itself, never its predecessor's conversation.
     # The round is read off `dir`, which is what free_dir writes through.
     rd = lp.dir("reviewer").parent
-    name = turns.open_review(rd)[0] or "reviewer"
+    name = f"reviewer-{lp.reviewer}" if handed else turns.open_review(rd)[0] or "reviewer"
 
     def ready_reviewers():
         """The run's marked reviewers with room, as the meters read now, in pick order; only

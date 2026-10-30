@@ -5,7 +5,7 @@ when the seat no longer has the question in view: the prompt hook hands the harn
 still open, whole and dated, as that prompt's context, so the seat reads the owner's words as the
 answer they are.  A slash command, a turn the harness begins on finished work, another
 conversation inside the seat and a worker's prompt are no owner's answer and are told nothing.
-The seat has said it read its rulebook, so a prompt carries no rulebook news beside it.
+The seat was handed its rulebook, so a prompt carries no rulebook news beside it.
 Black-box: Claude's hooks as ak's adapter registers them (tests/fixtures/hookdrive.py), fired
 outside the seat's pane, so no look answers the question between prompts; this test fails
 against `/bin/false`.
@@ -39,13 +39,9 @@ class AnswerContext(unittest.TestCase):
         cls.hooks = Hooks(cls.home)
 
     def acknowledged(self, name):
-        """A seat whose conversation said it read the rulebook its first prompt named."""
+        """A seat whose conversation its first prompt handed its rulebook."""
         Seat(self.home, name)
-        fired = self.prompt(name, "hello")
-        code = re.search(r"`ak orch rules (\S+)`", fired.said[0]["hookSpecificOutput"]
-                         ["additionalContext"]).group(1)
-        done = self.home.ak("orch", "rules", code, env={"AGENTKIT_SESSION": name})
-        self.assertEqual(done.code, 0, done.err)
+        self.assertEqual(len(self.prompt(name, "hello").said), 1)
 
     def ask(self, name, question):
         """The seat's question, and the moments just before and after it was asked."""

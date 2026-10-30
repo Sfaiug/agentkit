@@ -249,6 +249,26 @@ def user_messages(record, cwd, conversation):
             yield kept
 
 
+def running(record, cwd, conversation):
+    """The model and effort of that session's latest answer: OpenCode records them on each
+    (`model`, its `variant` the effort, `default` where none was set), so `/model` typed in the
+    seat shows at its next answer -- one that failed too, sent to the model just picked."""
+    from . import rows
+    if not isinstance(conversation, str) or not SESSION.fullmatch(conversation):
+        return None
+    found = rows(database(), "SELECT time_created, data FROM session_message"
+                 " WHERE session_id = ? AND type = 'assistant' ORDER BY seq DESC LIMIT 1",
+                 conversation)
+    try:
+        created, data = found[0]
+        model = json.loads(data)["model"]
+        effort = model.get("variant")
+        return (f"{model['providerID']}/{model['id']}",
+                None if effort == "default" else effort, created / 1000)
+    except (TypeError, IndexError, ValueError, KeyError, AttributeError):
+        return None
+
+
 def error(record, cwd, conversation):
     """The error OpenCode recorded as the end of that session's last turn, "" where the turn
     ended otherwise or a prompt came after it, None where opencode.db holds none of the session.
