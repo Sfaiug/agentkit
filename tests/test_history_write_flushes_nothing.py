@@ -31,7 +31,8 @@ class WriteFlushesNothing(unittest.TestCase):
         stack = contextlib.ExitStack()
         self.addCleanup(stack.close)
         stack.enter_context(patch.object(config, "HOME", Path(home.name)))
-        subprocess.run([sys.executable, "-c", WRITER, str(REPO), home.name], check=True, timeout=120)
+        subprocess.run([sys.executable, "-c", WRITER, str(REPO), home.name], check=True,
+                       timeout=120)
         writing = waiter.writing
 
         @contextlib.contextmanager
