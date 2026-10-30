@@ -6,20 +6,20 @@ the real ssh and is written down; a turn that did so and ends with no open line 
 back once, told to `ak plan add` what it changed there, and in that turn `ak plan add` takes a
 check that already passes, written done on the commit it passed on.  Black-box: the shims a
 seat's launch installs (tests/fixtures/shims.py), hooks/seat-state.sh starting each turn,
-hooks/orchestrator-stop.sh ending it, and `ak plan add`, all run as the harness and the seat run
-them, in an answer-key Home with `prod` as its live host.
+hooks/orchestrator-stop.sh ending it, both beside the program `AK_BIN` names, and `ak plan add`,
+all run as the harness and the seat run them, in an answer-key Home with `prod` as its live host.
 """
 
 import json
-import subprocess
 import sys
 from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import REAL_TMUX, REPO, Home
+from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
 from fixtures.gitrig import Rig
+from fixtures.hookdrive import ROOT
 from fixtures.shims import Shims
 
 PASSES = ("ak plan: this check already passes on acme's default branch, so it proves nothing; "
@@ -52,7 +52,7 @@ class LiveWork(unittest.TestCase):
         self.prompt()
 
     def hook(self, script, payload, seat):
-        done = self.home.run("bash", str(REPO / "hooks" / script), input=json.dumps(payload),
+        done = self.home.run("bash", str(ROOT / "hooks" / script), input=json.dumps(payload),
                              env={"AGENTKIT_SESSION": seat})
         self.assertEqual(done.code, 0, done.err)
         return done.out
@@ -155,11 +155,12 @@ class LiveWork(unittest.TestCase):
         self.assertTrue(done.out.startswith(DONE), done.out)
         self.assertTrue(done.out.endswith(f" · done {head}\n"), done.out)
         self.assertEqual(self.plan.read_text(), done.out)
-        finished = subprocess.run(
-            [sys.executable, "-c", "from agentkit import plan; print(plan.finished('acme'))"],
-            capture_output=True, text=True, cwd=REPO, timeout=60,
-            env={**self.home.env, "PYTHONPATH": str(REPO)})
-        self.assertEqual(finished.stdout, "the monitor account is enrolled\n", finished.stderr)
+        listed = self.home.ak("plan", env={"AGENTKIT_SESSION": "acme"}, cwd=self.rig.path)
+        self.assertEqual(listed.code, 0, listed.err)
+        # the seat's work is done: its plan's one line, written done, owes nothing
+        self.assertTrue(listed.out.startswith(" 1  - [x] the monitor account is enrolled · "),
+                        listed.out)
+        self.assertNotIn("- [ ]", listed.out)
 
 
 if __name__ == "__main__":
