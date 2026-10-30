@@ -21,9 +21,9 @@ class LostPiecesAnswerAsAnyOther(unittest.TestCase):
     def setUp(self):
         fixture.SuiteHelper.setUp(self)
 
-    def turn(self, *_args, wait=True, elsewhere=None, **_kw):
-        # no turn is free as the suite starts; waiting, the next machine answers first
-        if wait and (not elsewhere or not elsewhere() or self.with_turn):
+    def turn(self, *_args, elsewhere=None, **_kw):
+        # waiting, the next machine answers first
+        if not elsewhere or not elsewhere() or self.with_turn:
             return Turn(1)
 
     def suite(self, code, with_turn):
@@ -43,7 +43,7 @@ class LostPiecesAnswerAsAnyOther(unittest.TestCase):
             here_ran.set()
             return 0, "", False
 
-        with patch.object(helper, "piece", lambda away, *_args: [away]), \
+        with patch.object(helper, "piece", lambda away, *_args: [away, ""]), \
                 patch.object(worker, "limited", side_effect=there), \
                 patch.object(worker, "boxed", side_effect=here):
             result = gate.run_suite(fixture.SUITE, 30, cwd=self.repo,
