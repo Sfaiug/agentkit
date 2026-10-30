@@ -1,6 +1,6 @@
 """A Linux suite helper admits a suite at its `prepare` while a quarter of the machine is spare,
 counting half of it for each suite admitted whose first piece does not run yet, and gives one
-suite at most half of it.
+suite at most half of it; one image's build holds up no other's.
 
 Black-box, as tests/test_key_helper_on_linux.py: tools/helper's script runs here as ak sends it,
 in a HOME of its own, with the machine's programs first on PATH: four CPUs, each counting twice
@@ -19,14 +19,19 @@ import unittest
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools" / "helper"
 IMAGE = "ak-helper-acme:0123456789ab"
+OTHER = "ak-helper-widgets:ba9876543210"
 
 # docker, as tools/helper/linux.sh asks it: images and containers are files under the machine's
 # `docker`, a container's holding the CPUs and bytes it was given; one `run` leaves `asked`,
-# starts once `starting` is gone and ends as it starts.
+# starts once `starting` is gone and ends as it starts; with `together`, a build ends once another
+# has started.
 DOCKER = r"""#!/bin/bash
 cd "$(dirname "$0")/../docker" || exit 1
 case $1 in
-build) touch "images/$4" ;;    # build -q -t IMAGE -f RECIPE CONTEXT
+build)    # build -q -t IMAGE -f RECIPE CONTEXT
+  : >"started-$4"
+  while [ -e together ] && [ "$(ls started-* | wc -l)" -lt 2 ]; do sleep 0.1; done
+  touch "images/$4" ;;
 image) [ "$2" != inspect ] || [ -e "images/$3" ] ;;
 run) : >asked; while [ -e starting ]; do sleep 0.1; done ;;
 ps) ls containers ;;
@@ -110,6 +115,15 @@ class LinuxHelperTurnsASuiteAway(unittest.TestCase):
             self.assertEqual(run.result().returncode, 0, run.result().stderr)
         self.assertEqual(self.prepare("c"), 0)
         self.assertEqual(self.prepare("d"), 252)
+
+    def test_one_image_s_build_holds_up_no_other_image_s(self):
+        (self.machine / "docker/together").touch()
+        with ThreadPoolExecutor() as pool:
+            suites = [pool.submit(self.helper, "prepare", key, image, name)
+                      for key, image, name in (("a", IMAGE, "acme"), ("b", OTHER, "widgets"))]
+            self.assertEqual([suite.result().returncode for suite in suites], [0, 0])
+        self.assertEqual(sorted(path.name for path in (self.machine / "docker/images").iterdir()),
+                         [IMAGE, OTHER])
 
     def test_a_running_piece_counts_the_whole_memory_it_was_given(self):
         self.running("ak-other-1-2", 1, 40)    # the machine holds 1 GiB: the piece may grow to 40
