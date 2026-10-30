@@ -26,7 +26,8 @@ or a dict of what to do, in this order: `write` {path: text} (a relative path is
 workspace), `sh` (a command run there), `commit` (a message for all of it), `hand_in` (a list
 of argument lists for `ak hand-in`), `final` (final.md's text, where `{in N}` is the moment N
 seconds after the turn, as a refusal names when to come back), `session` (the id handed back:
-the one resumed, else `sid-<harness>-<n>`), `exit` (0).  A hand-in goes through the ak build
+the one resumed, else `sid-<harness>-<n>`), `stderr` (what the harness says on its
+diagnostics, such as its logout words), `exit` (0).  A hand-in goes through the ak build
 under test, the one AK_BIN names.  Every other verb answers as `answer` set it, or as a harness
 that is logged in with no meter to read.
 
@@ -198,7 +199,8 @@ def turn(fake, ak, call, model, effort, workspace, prompt, out, session=None):
     todo = WORDS[step][role] if isinstance(step, str) else step
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    (out / "stderr.log").write_text(f"fake {fake.harness} adapter, call {n}\n")
+    (out / "stderr.log").write_text(f"fake {fake.harness} adapter, call {n}\n"
+                                    + todo.get("stderr", ""))
     (out / "session_id").write_text(todo.get("session", session or f"sid-{fake.harness}-{n}"))
     for relative, text in todo.get("write", {}).items():
         path = Path(workspace, relative)
