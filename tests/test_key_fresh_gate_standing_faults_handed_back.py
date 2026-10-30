@@ -5,24 +5,23 @@ On 27 Oct the fresh-install gate failed `c`, `d` and `d2` on every run, old rele
 line.  Now such an upgrade leaves one line naming those checks, which the tick hands back once:
 the same checks again hand back nothing new until the fresh gate passes with no check failed, a
 different set is handed back, and a line not yet told stands as written whatever later upgrades
-find.  `ak update` runs black-box through tests/fixtures/akbin.py, with a fake `claude` keeping
-its installed release in a file and the gates stood in for by tests/fixtures/akgates.py; the
-tick's delivery runs in-process on that Home's state, to a fake seat.
+find.  Black-box: `ak update` runs the program `AK_BIN` names through tests/fixtures/akbin.py,
+with a fake `claude` keeping its installed release in a file and the gates stood in for by
+tests/fixtures/akgates.py; each tick runs the live install tests/fixtures/akinstall.py copies to
+HOME/agentkit, which types the line into the seat that merged into agentkit; this test fails
+against `/bin/false`.
 """
 
-from contextlib import ExitStack
 import shlex
 import sys
 from pathlib import Path
 import unittest
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fixtures import akconfig
-from fixtures.akbin import Home
+from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akgates import Gates
-from agentkit import config, update, watch
+from fixtures.akinstall import Install
 
 OLD, NEW, NEWER = "2.1.0", "2.2.0", "2.3.0"
 # `claude install latest` installs what the channel file names, and with `moves` there the
@@ -39,31 +38,16 @@ esac
 
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "the fresh-install gate runs only on Linux")
+@unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class FreshStandingFaults(unittest.TestCase):
     def setUp(self):
         self.home = Home()
         self.addCleanup(self.home.close)
         akconfig.write(self.home, ["opus"])
+        self.install = Install(self.home)
         self.home.fake("claude", CLAUDE.format(root=shlex.quote(str(self.home.root)), newer=NEWER))
         self.gates = Gates(self.home)
-        self.ready, self.seen = True, []
-        stack = ExitStack()
-        self.addCleanup(stack.close)
-        stack.enter_context(patch.object(config, "HOME", self.home.path / ".agentkit"))
-        for name, place in config.PLACES.items():
-            stack.enter_context(patch.object(config, name, config.HOME / place))
-        stack.enter_context(patch.object(update, "agentkit_dir", return_value=config.REPO))
-        stack.enter_context(patch.object(update, "harnesses", return_value=()))
-        stack.enter_context(patch.object(update, "_git", return_value=(
-            0, "https://github.com/acme/agentkit.git")))
-        stack.enter_context(patch.object(watch, "after_merge_fallback",
-                                         return_value={"name": "atoll"}))
-        stack.enter_context(patch.object(watch, "type_at_prompt", side_effect=self.type_line))
-
-    def type_line(self, seat, line, log, typed=None, receipt=lambda mark: None, **_kw):
-        self.seen.append((line, typed))
-        receipt({"seat": seat["name"], "line": line})
-        return self.ready
+        self.seat = self.install.seat()
 
     def update(self, new, old, code=0):
         """An upgrade whose fresh gate fails `new` on the new release and `old` on the one before;
@@ -81,13 +65,14 @@ class FreshStandingFaults(unittest.TestCase):
         self.assertEqual(done.code, code, done.out + done.err)
 
     def tick(self):
-        """One tick's delivery: the lines it typed."""
-        before = len(self.seen)
-        update.keep_current(lambda line: None, now=1_000_000)
-        return [line for line, _ in self.seen[before:]]
+        """One tick of the live install: the lines it typed into the seat."""
+        before = len(self.seat.lines())
+        done = self.home.run(self.install.ak, "watch")
+        self.assertEqual(done.code, 0, done.out + done.err)
+        return self.seat.lines()[before:]
 
-    def record(self):
-        return (config.STATE / "fresh-gate-faults" / "handed").read_bytes()
+    def log(self, line):
+        return self.home.path / line.split("Log: ~/", 1)[1].split(". Fix", 1)[0]
 
     def test_kept_past_standing_checks_hands_them_back_once(self):
         self.update(["c", "d"], ["c", "d", "d2"])
@@ -95,9 +80,7 @@ class FreshStandingFaults(unittest.TestCase):
         self.assertRegex(line, r"^The fresh-install gate failed checks that fail on the release "
                                r"before too: FAIL  c / FAIL  d\. Log: ~/\S+\. "
                                r"Fix the standing faults\.$")
-        log = self.home.path / line.split("Log: ~/", 1)[1].split(". Fix", 1)[0]
-        self.assertIn("FAIL  c", log.read_text())
-        self.assertEqual(self.tick(), [])
+        self.assertIn("FAIL  c", self.log(line).read_text())
         self.update(["c", "d"], ["c", "d"])
         self.assertEqual(self.tick(), [])
         self.update(["q"], ["q"])
@@ -113,18 +96,17 @@ class FreshStandingFaults(unittest.TestCase):
         self.assertIn("too: FAIL  c. Log:", line)
 
     def test_a_line_not_yet_told_stands_as_written(self):
-        self.ready = False
         self.update(["c"], ["c"])
-        [line] = self.tick()
-        held = self.record()
+        first = set(self.home.path.rglob("*"))      # what that upgrade left, its log among it
+        self.seat.show("claude-working-pane.txt")
+        self.assertEqual(self.tick(), [])
+        self.seat.show("claude-prompt-pane.txt")
         self.update(["q"], ["q"])
         self.update([], [])
         self.update(["c"], ["c"])
-        self.assertEqual(self.record(), held)
-        self.ready = True
-        self.assertEqual(self.tick(), [line])
-        self.assertEqual(self.seen[-1][1], {"seat": "atoll", "line": line})
-        self.assertEqual(self.tick(), [])
+        [line] = self.tick()
+        self.assertIn("too: FAIL  c. Log:", line)
+        self.assertIn(self.log(line), first)
         self.update(["q"], ["q"])   # a different set, at the first upgrade after it was told
         [line] = self.tick()
         self.assertIn("too: FAIL  q. Log:", line)
