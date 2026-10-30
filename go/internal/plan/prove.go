@@ -87,6 +87,16 @@ func place(project string, env []string) (repo, root string) {
 	return repo, root
 }
 
+// pythonPath is whether place reads a project's path as Python's Path does: Go takes each `..`
+// away by its name, where the system follows a link before it, and expands no other user's `~`.
+func pythonPath(project string) bool {
+	if at := strings.LastIndex(project, "#"); at >= 0 {
+		project = project[:at]
+	}
+	names := strings.Split(project, "/")
+	return !slices.Contains(names, "..") && (names[0] == "~" || !strings.HasPrefix(names[0], "~"))
+}
+
 // A branch is a project's default branch as just fetched, or the commit a line names: what checks run on.
 type branch struct {
 	repo, root, sha, commit string   // commit is `<sha12> <subject>`, as a tick names it

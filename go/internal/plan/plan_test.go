@@ -2,9 +2,11 @@ package plan
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -78,10 +80,21 @@ func TestCheckFindsItsLineAsPythonsIntReadsTheNumber(t *testing.T) {
 	}
 	// a line naming no commit takes its check unproven, open, its leading space kept
 	want := "- [ ] " + fmt.Sprintf(line, "true")
-	if got, err := Check(context.Background(), "acme", "001", " true "); err != nil || got != want {
+	if got, err := Check(context.Background(), "acme", strings.Repeat("0", 700)+"1", " true "); err != nil || got != want {
 		t.Fatalf("%q, %v", got, err)
 	}
 	if data, _ := os.ReadFile(filepath.Join(state, "plan-acme.md")); string(data) != "# acme\n\x1f "+want+"\n" {
 		t.Fatalf("%q", data)
+	}
+	// a path Go cannot read as Python's Path does is Python's, the plan as it was
+	for _, project := range []string{"~bob/code/acme", "/code/link/../acme"} {
+		plan := "- [ ] " + strings.Replace(fmt.Sprintf(line, "false"), "~/code/gone", project, 1) + "\n"
+		if os.WriteFile(filepath.Join(state, "plan-acme.md"), []byte(plan), 0o600) != nil {
+			t.Fatal("no plan")
+		}
+		_, err := Check(context.Background(), "acme", "1", "true")
+		if data, _ := os.ReadFile(filepath.Join(state, "plan-acme.md")); !errors.Is(err, ErrUnread) || string(data) != plan {
+			t.Fatalf("%s: %v %q", project, err, data)
+		}
 	}
 }

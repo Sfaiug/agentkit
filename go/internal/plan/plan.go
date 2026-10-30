@@ -396,6 +396,9 @@ func Add(ctx context.Context, name, repo, what, check string) (string, error) {
 	return line, err
 }
 
+// ErrUnread is a line Go cannot read as Python does, which leaves the command to Python.
+var ErrUnread = errors.New("a line Go cannot read as Python does")
+
 // Check puts check in place of plan line number's check, the line open again and the seat's
 // own, since no run has the new check, and is that line.  The number is ASCII digits, read as
 // Python's int reads them.  The check must fail where the line's check did: on the commit the
@@ -422,6 +425,9 @@ func Check(ctx context.Context, name, number, check string) (string, error) {
 	old, ok := parse(line)
 	if !ok || old.Check == "" {
 		return "", errors.New("only a check line takes another check")
+	}
+	if !pythonPath(old.Project) {
+		return "", ErrUnread
 	}
 	env, err := environ()
 	if err != nil {
