@@ -7,8 +7,10 @@ diff, or the whole rulebook where ak has no record of that one.  It names no fil
 command to run, and the prompt after it carries nothing until the rules change again.  Where ak
 cannot record the hand-over it hands nothing over, and the next prompt carries the change.  A
 compaction leaves the conversation only its launch's rulebook, so its next prompt carries what
-changed since that one.  Black-box: Claude's hooks as ak's adapter registers them, fired as
-Claude fires them (tests/fixtures/hookdrive.py); this test fails against `/bin/false`.
+changed since that one.  The shipped rules alone are too long for Claude's prompt, so a whole
+rulebook goes to a file the prompt names (tests/test_key_rulebook_news_too_long.py).
+Black-box: Claude's hooks as ak's adapter registers them, fired as Claude fires them
+(tests/fixtures/hookdrive.py); this test fails against `/bin/false`.
 """
 
 import hashlib
@@ -19,7 +21,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import AK, Home
-from fixtures.hookdrive import Hooks
+from fixtures.hookdrive import Hooks, read_rules
 
 CONVERSATION = "7d3c1e2a-5b4f-4a6e-8c9d-0e1f2a3b4c5d"
 SHIPPED = Path(AK).resolve().parents[1] / "orchestrator.md"   # ak's own rules, beside it
@@ -40,6 +42,12 @@ class RulebookNews(unittest.TestCase):
 
     def rules(self, own):
         self.home.write(".agentkit/rules.md", own)
+
+    def launched(self):
+        """A seat launched on the rules as they are now."""
+        launched = rulebook("Rule one.\n")
+        self.home.write(".agentkit/state/rulebook-acme.md", launched)
+        self.seat(rulebook_sha=hashlib.sha256(launched.encode()).hexdigest())
 
     def seat(self, **record):
         """A Claude seat on its own conversation, launcher-issued."""
@@ -66,26 +74,28 @@ class RulebookNews(unittest.TestCase):
         return news
 
     def test_a_changed_rulebook_s_diff_arrives_in_the_next_prompt_and_only_there(self):
-        self.seat()
-        self.told()
+        self.launched()
         self.rules("Rule two.\n")
         news = self.told()
         self.assertIn("\n-Rule one.\n+Rule two.\n", news)
         self.assertLess(len(news), len(SHIPPED.read_text()) // 4)
         self.assertEqual(self.prompt(), SILENT)
 
-    def test_with_no_record_of_the_rulebook_held_the_whole_one_arrives(self):
+    def test_with_no_record_of_the_rulebook_held_the_whole_one_is_pointed_to(self):
         gone = hashlib.sha256(b"a launch's rules ak no longer has\n").hexdigest()
         for record in ({}, {"rulebook_sha": gone}):
             with self.subTest(record=record):
                 self.seat(**record)
-                self.assertIn(rulebook("Rule one.\n"), self.told())
+                news = self.prompt().said[0]["hookSpecificOutput"]["additionalContext"]
+                change = self.home.path / ".agentkit/state/change-acme.md"
+                self.assertIn(str(change), news)
+                self.assertIn(rulebook("Rule one.\n"), change.read_text())
+                read_rules(self.home, "acme")
                 self.assertEqual(self.prompt(), SILENT)
 
     @unittest.skipIf(os.geteuid() == 0, "root writes whatever a directory's mode")
     def test_a_hand_over_that_cannot_be_recorded_hands_nothing_and_the_next_prompt_does(self):
-        self.seat()
-        self.told()
+        self.launched()
         self.rules("Rule two.\n")
         state = self.home.path / ".agentkit" / "state"
         mode = state.stat().st_mode
@@ -97,9 +107,7 @@ class RulebookNews(unittest.TestCase):
         self.assertIn("\n-Rule one.\n+Rule two.\n", self.told())
 
     def test_after_a_compaction_the_next_prompt_carries_what_changed_since_the_launch(self):
-        launched = rulebook("Rule one.\n")
-        self.home.write(".agentkit/state/rulebook-acme.md", launched)
-        self.seat(rulebook_sha=hashlib.sha256(launched.encode()).hexdigest())
+        self.launched()
         self.assertEqual(self.prompt(), SILENT)
         self.rules("Rule two.\n")
         self.told()

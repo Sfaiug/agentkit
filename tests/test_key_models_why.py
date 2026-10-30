@@ -127,12 +127,9 @@ class ModelsWhy(unittest.TestCase):
         shown = self.rows(term.wait("within 6 points"))
         self.assertIn(ORCH_PICK, shown)
         self.assertIn("    Crux 2         low     ~     80.0   $1.00  1 missing", shown)
-        term.keys("Up", "Up")
-        term.wait(lambda screen: "›   Acme Mid 5     high    ~     99.2  $15.00  1 missing"
-                  in self.rows(screen))
-        term.keys("Right")              # within 7: Acme Mid 5 high leaves the orchestrator's line
-        shown = self.rows(term.wait("within 7 points"))
-        self.assertIn("›   Crux 2         low     ~     93.2   $1.00  ★ pick · 2 missing", shown)
+        term.keys("Down", "Left", "Left", "Left", "Left")   # within 2: Crux 2 low leaves
+        shown = self.rows(term.wait("within 2 points"))
+        self.assertIn("›   Acme Mid 5     high    ~     99.2  $15.00  ★ pick · 1 missing", shown)
         self.assertEqual(sum(line.startswith("›") for line in shown), 1)
 
     def test_enter_says_where_a_rows_quality_comes_from_and_esc_returns(self):

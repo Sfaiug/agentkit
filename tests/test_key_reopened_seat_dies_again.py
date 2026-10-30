@@ -7,8 +7,9 @@ only by a tick seeing the seat live, and none did.  Seats are now bounded as run
 again ten minutes after its reopen is a new death, reopened again, and the third inside an hour
 is not reopened but asked of the owner, once, so the seat reads `needs you`.  A seat the owner
 closed stays closed.  Each death here is inside its harness's warm-up, the kind ak leaves
-to the tick (tests/test_key_exited_seat_comes_back.py).  The ten minutes are passed on the
-tick's clock, the test clock of tests/fixtures/clock.py put ahead, not waited out.  Black-box:
+to the tick (tests/test_key_exited_seat_comes_back.py).  The ten minutes are passed by
+putting the seat's recorded reopens that much earlier, the times the bound reads, not waited out.
+Black-box:
 the program `AK_BIN` names runs `ak watch` from outside through tests/fixtures/akbin.py, beside
 seats of tests/fixtures/akseat.py whose hooks are fired as Claude fires them
 (tests/fixtures/hookdrive.py), each reopened by a scripted harness of fakeadapter.py.
@@ -25,26 +26,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
-from fixtures.akbin import AK, REAL_TMUX, REPO, Home, boxable
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import PANE, Seat
 from fixtures.hookdrive import Hooks
 
 PROXIES = ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
 SEATS = ("dying", "closed")
 PAUSE = 660     # past the ten minutes after a reopen, well inside the hour
-# Every `bin/ak` a tick starts gives `watch` the test clock, as far ahead as the file it names
-# says, its sleeps real: the line a reopen owes its seat is typed after a real warm-up.
-CLOCK = """
-import sys, time
-if sys.argv[:1] == [{ak!r}]:
-    found = sys.path[:]
-    sys.path[:0] = [{repo!r}, {tests!r}]
-    from fixtures.clock import Clock
-    from agentkit import watch
-    sys.path[:] = found
-    clock = watch.time = Clock(time.sleep)
-    clock.time = lambda: time.time() + float(open({ahead!r}).read())
-"""
 
 
 def conversation(n):
@@ -62,6 +50,14 @@ def end(home, name, bound=30):
     while dead(home, name) != "1":
         assert time.monotonic() < deadline, f"{name}'s pane never died"
         time.sleep(0.05)
+
+
+def earlier(home, name, seconds):
+    """Put the seat's recorded reopens `seconds` earlier, as if that long had passed since."""
+    path = home.path / ".agentkit" / "state" / f"seat-{name}.json"
+    marks = json.loads(path.read_text())
+    path.write_text(json.dumps({**marks, "reopened_at": [at - seconds
+                                                         for at in marks["reopened_at"]]}))
 
 
 def dead(home, name):
@@ -112,13 +108,6 @@ class ReopenedSeatDiesAgain(unittest.TestCase):
             assert fired.code == 0, fired
         closed = home.ak("orch", "stop", "closed")
         assert closed.code == 0, closed.err
-        site, cls.ahead = home.root / "clock", home.root / "ahead"
-        site.mkdir()
-        (site / "sitecustomize.py").write_text(CLOCK.format(
-            ak=AK, repo=str(Path(AK).resolve().parents[1]), tests=str(REPO / "tests"),
-            ahead=str(cls.ahead)))
-        cls.ahead.write_text("0")
-        cls.env = {"PYTHONPATH": str(site)}
         cls.ticks, cls.reopens = [], []
         # first death: reopened, and told to go on
         end(home, "dying")
@@ -128,13 +117,13 @@ class ReopenedSeatDiesAgain(unittest.TestCase):
         end(home, "dying")
         cls.tick()
         # still dead ten minutes after its reopen: a second death, reopened again
-        cls.ahead.write_text(str(PAUSE))
+        earlier(home, "dying", PAUSE)
         cls.tick()
         cls.alive_again = dead(home, "dying")
         cls.took(2)
         # dead again, ten minutes on: the third inside the hour is the owner's
         end(home, "dying")
-        cls.ahead.write_text(str(2 * PAUSE))
+        earlier(home, "dying", PAUSE)
         cls.tick()
         cls.notice = state(home, "notify-dying.json")
         cls.row = row(home, "dying")
@@ -143,7 +132,7 @@ class ReopenedSeatDiesAgain(unittest.TestCase):
 
     @classmethod
     def tick(cls):
-        cls.ticks.append(cls.home.ak("watch", boxed=True, env=cls.env))
+        cls.ticks.append(cls.home.ak("watch", boxed=True))
         cls.reopens.append(cls.opened(conversation(0)))
 
     @classmethod

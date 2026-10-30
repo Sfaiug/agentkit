@@ -439,17 +439,19 @@ def claim_slot(state, limit, readings=None):
         state.pop("resume_from", None)
         return True
     is_first = not slot_order(state)[0]
-    if ahead or (limit and running >= limit and not is_first):
+    # A green delivery only merges a tree its line already checked: it spends no headroom a
+    # gate guards, every member behind it in the line waits on it, and the queue's one admission
+    # a poll has nothing to pace for it: 47 taking turns there held every other run back for half
+    # an hour (30 Oct 2026). Who merges next is the line's order (`deliver.merge_lock`).
+    green = landing.green_delivery(state.get("waiting_on") or {})
+    if (ahead and not green) or (limit and running >= limit and not is_first):
         state["slot_waited"] = True
         state["slot_wait_reason"] = slot_line(running, ahead, limit, is_first)
         state["slot_wait_kind"] = "count"
         state["slot_healthy_polls"] = 0
         return False
-    # A green delivery only merges a tree its line already checked: it spends no headroom a
-    # gate guards, and every member behind it in the line waits on it.
     state.pop("slot_stall", None)
-    if not landing.green_delivery(state.get("waiting_on") or {}) and not _host_admits(
-            state, readings, is_first):
+    if not green and not _host_admits(state, readings, is_first):
         return False
     _save_queue(running + 1, others, let_in=state)
     state.update(state="running", slot_waiting=False, slot_started_at=time.time(),

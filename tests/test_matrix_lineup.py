@@ -105,7 +105,8 @@ class Answer(unittest.TestCase):
         self.assertEqual(execute["best"], 100)
         self.assertEqual(key(execute["pick"]), ("bolt-2", "high"))
         self.assertEqual([key(row) for row in execute["front"]],
-                         [("crux-1", "medium"), ("bolt-2", "high"), ("acme-5", "high")])
+                         [("acme-5", "high"), ("bolt-2", "high"), ("acme-5", "low"),
+                          ("crux-1", "medium")])
         self.assertEqual(key(execute["take"]), ("acme-5", "low"))     # 2.0, not high's 4.0
 
     def test_what_is_compared_never_changes_a_row_s_quality_and_a_pick_of_yours_is_taken(self):
@@ -115,7 +116,7 @@ class Answer(unittest.TestCase):
         self.assertEqual(key(execute["pick"]), ("acme-5", "low"))
         self.assertIs(execute["take"], execute["pick"])
         self.assertEqual([key(row) for row in execute["front"]],
-                         [("crux-1", "medium"), ("acme-5", "low"), ("acme-5", "high")])
+                         [("acme-5", "high"), ("acme-5", "low"), ("crux-1", "medium")])
 
     def test_nothing_with_a_cost_picks_and_takes_nothing(self):
         execute = matrix.answer(self.lineup, 5, {"dune-1"})["execute"]

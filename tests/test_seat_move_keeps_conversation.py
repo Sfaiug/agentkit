@@ -92,7 +92,7 @@ class SeatMove(Sandbox):
                            ("command", adapter),
                            ("opened", lambda *_a, **_kw: True),
                            ("seat_command", lambda _name, cmd, *_a: self.respawned.append(cmd)
-                            or "true"),
+                            or ("true", self.root / "launch")),
                            ("tmux_out", tmux),
                            ("tmux_lists", lambda *_a, **_kw: (0, ""))):
             self.stack.enter_context(patch.object(orch, name, side_effect=fake))

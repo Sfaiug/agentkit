@@ -65,7 +65,7 @@ class TheScreen(unittest.TestCase):
         home, menu, cls.screen = opened(cls)
         record = home.path / ".agentkit/state/session-fix-web.json"
         menu.keys("Down", "x")
-        cls.card = menu.wait("Remove fix-web from past sessions?")
+        cls.card = menu.wait("✗ Remove")      # the choices are drawn after the question
         menu.keys("Enter")
         cls.kept = menu.wait(lambda screen: KEYS in screen and "Remove fix-web" not in screen)
         cls.records = [record.exists()]

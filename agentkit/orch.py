@@ -2114,8 +2114,10 @@ def seat_command(name, cmd, socket=None):
 
     tmux refuses a command longer than its 16 KiB message ("command too long"), and a harness
     that takes its rulebook as an argument (Grok's `--rules`, OpenCode's config) carries tens
-    of KiB.  So the pane runs the seat's launch file, which removes itself and execs the
-    command: any length, and nothing left behind once the harness is up.
+    of KiB.  So the pane runs a launch file, which removes itself and execs the command: any
+    length, and nothing left behind once the harness is up.  Each launch has a file of its own,
+    so a pane that starts late removes its own, never the next launch's.  Its path comes back
+    with the command: a caller whose pane tmux refuses removes it.
     """
     if user_manager():
         unit = f"agentkit-seat-{name}-{uuid.uuid4().hex[:8]}"
@@ -2127,14 +2129,14 @@ def seat_command(name, cmd, socket=None):
                "[ -t 0 ]; tty=$?; "
                f"trap '' HUP; {ends} "
                'trap - HUP; [ $tty = 1 ] || [ -t 0 ] || kill -HUP $$; exec "$@"', "sh", *cmd]
-    path = config.seat_file("launch", name)
+    path = config.seat_file("launch", name).with_suffix(f".{uuid.uuid4().hex[:8]}")
     # new-session -e can set a variable, but cannot remove one inherited from its server.
     # Clear absent overrides before the harness starts; the session is refreshed below too.
     absent = [key for key, value in seat_env(name, socket_name() if socket is None else socket).items()
               if value is None]
     unset = "unset " + " ".join(absent) + "\n" if absent else ""
     path.write_text('rm -f -- "$0"\n' + unset + 'exec ' + shlex.join(cmd) + "\n")
-    return shlex.join(["sh", str(path)])
+    return shlex.join(["sh", str(path)]), path
 
 
 def seat_env(name, server):
@@ -2183,11 +2185,12 @@ def start(name, cwd, cmd, orchestrator, started=lambda: None):
     # Its answer is also what says whether this command is the one starting the server: only
     # that one can put the server in agentkit's slice.  The harness goes in either way.
     running = tmux_out("source-file", str(conf))[0] == 0
+    command, launch = seat_command(name, cmd)
     rc, out = tmux_out("-f", str(conf), "new-session", "-d", "-s", name, "-c", str(cwd),
-                       *pane_env(values), seat_command(name, cmd), path_shim=True,
+                       *pane_env(values), command, path_shim=True,
                        unit=None if running else f"agentkit-seat-{name}")
     if rc != 0:
-        config.seat_file("launch", name).unlink(missing_ok=True)
+        launch.unlink(missing_ok=True)
         raise config.Error(f"tmux could not start the session {name} in {cwd}: {out}")
     started()
     # A server started as a systemd service writes its stdout to the journal, so tmux
@@ -2319,7 +2322,8 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     kept, and only that one, so what comes back is the seat's own conversation and never a
     stranger's.  A seat whose record names none -- one whose TUI could not be told an id, one
     from before any of this -- starts fresh under the same name, and owns whatever id the
-    launcher can give it this time.
+    launcher can give it this time.  The owner's way in goes on with what the end cut off
+    (`reopen`), as ak's own reopens do.
 
     `hand_over=False` is the same way in for a caller with no terminal -- a run whose seat is
     gone, the tick -- and it answers what came back instead of an exit code: "resumed" for
@@ -2328,8 +2332,8 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
 
     `account` reopens even a live pane on that subscription, without changing its selection
     or surrendering its conversation. Ordinary resumes keep the account already recorded.
-    `still` is `_start_harness`'s.  `line` is what the conversation, where it comes back with
-    its past, opens on.
+    `still` is `_start_harness`'s.  `line`, such a caller's, is what the conversation, where it
+    comes back with its past, opens on.
     """
     name = config.resolve_session(name)
     record = (config.session_records() if detached else records()).get(name) or {}
@@ -2343,6 +2347,12 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
         return attach(name, log=log, wait=wait, session=session) if hand_over else False
     if not session and not record:
         raise config.Error(f"no session {name!r} to resume and no record of one")
+    if hand_over and not (detached or dry_run):
+        reopen(cfg, name, log=log, account=account, still=still)
+        config.update_session(name, seen=int(time.time()))
+        # the seat it just put a harness in: live now, whatever its row said before
+        return attach(name, log=log, wait=wait,
+                      session={**(session or {"name": name}), "exited": False})
     selection = config.load_session(cfg, name, required=False)
     if not selection:
         raise config.Error(f"{config.session_path(name)} does not say which model held {name!r}")
@@ -2386,15 +2396,29 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
         return 0
     launch(name, orchestrator, cwd, cmd, conversation, session, still)
     config.update_session(name, account=account)
-    if not hand_over:
-        # its own conversation only where the harness has opened it: an id nothing wrote
-        # down is handed over as one to open, and the seat comes back with no past
-        return "resumed" if recorded and opened(harness, ran_in, recorded) else "fresh"
-    if detached:
-        return 0           # restarting is neither attaching nor reading the seat
-    config.update_session(name, seen=int(time.time()))
-    # the seat it just put a harness in: live now, whatever its row said before
-    return attach(name, log=log, wait=wait, session={**(session or {"name": name}), "exited": False})
+    if hand_over:
+        return 0           # detached: restarting is neither attaching nor reading the seat
+    # its own conversation only where the harness has opened it: an id nothing wrote
+    # down is handed over as one to open, and the seat comes back with no past
+    return "resumed" if recorded and opened(harness, ran_in, recorded) else "fresh"
+
+
+def reopen(cfg, name, **kw):
+    """`resume`'s relaunch of that seat's ended harness, told what the end cut off
+    (`watch.cut_off`), read before the relaunch moves its hook facts aside: as the first prompt
+    where its conversation came back (`watch.relaunched`, so the tick types it for a harness
+    that takes none), and owed, saying so, where it came back fresh, as the tick's reopen owes
+    it (`watch.revive`).  A seat the owner closed or stopped ended on purpose: told nothing.
+    """
+    from . import watch   # here, not at the top: it imports this module
+    ended = watch.seat_stopped_at(name) or watch.seat_closed_by_owner(name)
+    at, line = time.time(), None if ended else watch.cut_off(cfg, name)[1]
+    back = resume(cfg, name, hand_over=False, line=line, **kw)
+    if line and back == "resumed":
+        watch.relaunched(name, watch.seat_model(cfg, name)[0], line, at)
+    elif line and back == "fresh":
+        watch.owe_line(name, None, {"line": line + watch.FRESH_NOTE})
+    return back
 
 
 # --- the conversation a seat holds ------------------------------------------
@@ -2605,7 +2629,7 @@ def _start_harness(name, model, cwd, cmd, session, started=lambda: None, still=N
         server = seat_socket(session)
         target = harness_pane(name, server)
         values = seat_env(name, server)
-        command = seat_command(name, cmd, server)
+        command, launch = seat_command(name, cmd, server)
         thaw = ("set-option", "-pu", "-t", target, FROZEN_OPTION, ";",
                 "select-pane", "-e", "-t", target)
         if still:
@@ -2618,7 +2642,7 @@ def _start_harness(name, model, cwd, cmd, session, started=lambda: None, still=N
                               socket=server)[0] == 0
             if not (frozen and still(target)):
                 tmux_out(*thaw, socket=server)
-                config.seat_file("launch", name).unlink(missing_ok=True)
+                launch.unlink(missing_ok=True)
                 raise config.Error(f"{name} changed as its harness was to be replaced; kept")
         # One command list: a failed respawn keeps the old tty, and a new wrapper's
         # publishing client cannot run before the old name is removed.  A frozen pane's list
@@ -2632,7 +2656,7 @@ def _start_harness(name, model, cwd, cmd, session, started=lambda: None, still=N
         if rc != 0:
             if still:
                 tmux_out(*thaw, socket=server)
-            config.seat_file("launch", name).unlink(missing_ok=True)
+            launch.unlink(missing_ok=True)
             raise config.Error(f"cannot resume the session {name}: {out}")
         started()
         # A refused respawn leaves the old harness up: its menu keeps that same home too.
@@ -2779,7 +2803,7 @@ def replace_file(path, data):
     tmp.replace(path)
 
 
-def rulebook_news(session, conversation):
+def rulebook_news(session, conversation, whole=lambda news: news):
     """What a seat's next prompt carries when its conversation is to be told its rulebook: "".
 
     A harness reads its rulebook only when it opens, so a seat left open across a change to
@@ -2792,7 +2816,9 @@ def rulebook_news(session, conversation):
     name and is never it.  Handing it over records it as held, so later prompts carry nothing
     until the rules change again; a prompt the harness drops after this loses the change until
     a compaction or `/clear` tells it again from the launch's rulebook.  Where the record
-    cannot be written nothing is handed over, and the next prompt tries again.  No seat's
+    cannot be written nothing is handed over, and the next prompt tries again.  News that would
+    make the prompt's whole context (`whole`) too long for its harness goes to a file the
+    prompt names instead, until the code there comes back (`rulebook_pointer`).  No seat's
     lock: a delivery holds it while it types this very prompt, and the record's own lock
     refuses a write over a rename.  A harness whose prompt hook carries no context (`context`
     on its `UserPromptSubmit` event) reads the new rulebook at its next launch.
@@ -2802,10 +2828,27 @@ def rulebook_news(session, conversation):
     if not found or found[1] != conversation:
         return ""
     record, _, text = found
+    sha = config.rulebook_digest(text)
+    told = record.get("rulebook_told") or {}
+    pending = told.get("conversation") == conversation and told.get("sha") == sha
     change = rulebook_change(name, record, conversation, text)
+    if change:
+        # what changed, not the whole rulebook again: most changes are a line or two
+        news = ("Your rulebook changed: the diff below takes the one you hold to your current "
+                "one, and where your current rulebook differs from the one you were opened "
+                f"with, it wins.\n\n{change}")
+    else:
+        news = ("Your current rulebook follows, whole: where it differs from the one you were "
+                f"opened with, it wins.\n\n{text}")
+
+    def fits(part):
+        return seat_plugin(record).context_fits(whole(part))
+
+    if pending or not fits(news):
+        return rulebook_pointer(name, told if pending else None, conversation, sha, news, fits)
     try:
         if config.update_session(name, rulebook_read={
-                "conversation": conversation, "sha": config.rulebook_digest(text)}) is None:
+                "conversation": conversation, "sha": sha}) is None:
             return ""
     except OSError:
         return ""
@@ -2813,13 +2856,33 @@ def rulebook_news(session, conversation):
         replace_file(config.seat_file("held", name), text.encode())   # what a later change is told against
     except OSError:
         pass        # a change is then told whole
-    if change:
-        # what changed, not the whole rulebook again: most changes are a line or two
-        return ("Your rulebook changed: the diff below takes the one you hold to your current "
-                "one, and where your current rulebook differs from the one you were opened "
-                f"with, it wins.\n\n{change}")
-    return ("Your current rulebook follows, whole: where it differs from the one you were "
-            f"opened with, it wins.\n\n{text}")
+    return news
+
+
+def rulebook_pointer(name, told, conversation, sha, news, fits):
+    """What a prompt carries in place of `news` too long for it, or for a prompt before it: the
+    seat's `change` file, which holds `news` and ends with `ak orch rules CODE`.  Only that file
+    gives the code, so running it says the conversation read the file to its end
+    (`rulebook_ack`), and until then nothing is held: every prompt names the file again, however
+    short its other context, with the code `told` recorded while the rules stay the same.  A
+    prompt whose other context leaves no room even for this (`fits`) names nothing, since more
+    would cut that context off, and neither does one whose record or file cannot be written:
+    the next prompt tries again."""
+    path = config.seat_file("change", name)
+    # as short as its two instructions allow: it gives way only where nothing naming the file fits
+    pointer = f"Read all of {path}; run its last line."
+    if not fits(pointer):
+        return ""
+    try:
+        if not told:
+            told = {"conversation": conversation, "sha": sha, "code": secrets.token_hex(6)}
+            if config.update_session(name, rulebook_told=told) is None:
+                return ""
+        replace_file(path, (f"{news.rstrip()}\n\nOnce you have read all of the above, run this "
+                            f"to say so:\n\nak orch rules {told['code']}\n").encode())
+    except OSError:
+        return ""
+    return pointer
 
 
 def prompt_news(session, conversation, said=None):
@@ -2835,8 +2898,12 @@ def prompt_news(session, conversation, said=None):
     record = config.session_records().get(name)
     besides = ((handback.riding(name), notify.answer_context(name, said))
                if said is not None and takes_prompt_context(record, conversation) else ())
+
+    def context(news):
+        return "\n\n".join(filter(None, (news, *besides)))
+
     # the rulebook last: held from its hand-over on, so nothing may fail after it
-    return "\n\n".join(filter(None, (rulebook_news(session, conversation), *besides)))
+    return context(rulebook_news(session, conversation, context))
 
 
 def rulebook_compacted(session, conversation):
@@ -2851,10 +2918,10 @@ def rulebook_compacted(session, conversation):
 
 
 def rulebook_ack(name, code):
-    """The seat's conversation read the rulebook its prompt named (`ak orch rules CODE`): its
-    prompts stop naming it until the rules change again.  The code is the one that prompt
-    carried, for that conversation and those rules, so a client that inherited the seat's
-    name, and rules that changed since, say nothing read."""
+    """The seat's conversation read the rulebook file its prompt named (`ak orch rules CODE`):
+    its prompts stop naming it until the rules change again.  The code is the one that file
+    ended with, for that conversation and those rules (`rulebook_pointer`), so a client that
+    inherited the seat's name, and rules that changed since, say nothing read."""
     from . import notify
     with notify.session_lock(name) as current:
         record = config.session_records().get(current) or {}
@@ -3566,14 +3633,16 @@ def cmd_list(argv):
 
 
 def mark_owner_closed(name):
-    """The mark a pause script leaves when it ends a seat the way `ak orch stop` does.
+    """The mark `ak orch stop` and a pause script leave on a seat the owner ended on purpose.
 
     The seat stays closed: no hand-back reopens it, and the endings wait for the owner's own
-    reopening instead.  A launch under the name clears it again.
+    reopening instead.  A launch under the name clears it again.  A line still owed to the
+    harness ended, to go on with what an earlier end cut off (`reopen`, `watch.revive`), goes
+    with it: the reopen after this one goes on with nothing.
     """
     from . import watch
     watch.seat_write(name, stopped_at=time.time(), closed_by_owner=True,
-                     usage_wait=None, usage_refusal=None)
+                     usage_wait=None, usage_refusal=None, midturn=None, owed_lines=None)
 
 
 def session_owned_files(name):
@@ -3652,11 +3721,10 @@ def cmd_stop(argv):
                     # the owner ended this seat: a run of its that finishes later, or is still
                     # going, brings it back through neither handback.announce nor the tick, until
                     # a seat is launched under the name again.  The hand-back reads
-                    # `closed_by_owner` for the same decision, and a pause script that ends a
-                    # seat writes the same mark through `mark_owner_closed`; it goes in ahead of
-                    # the kill, so a hand-back meeting the session gone finds the seat closed.
-                    watch.seat_write(name, stopped_at=time.time(), closed_by_owner=True,
-                                     usage_wait=None, usage_refusal=None)
+                    # `closed_by_owner` for the same decision, a pause script's mark as well;
+                    # it goes in ahead of the kill, so a hand-back meeting the session gone
+                    # finds the seat closed.
+                    mark_owner_closed(name)
                     if session:
                         rc, out = tmux_out("kill-session", "-t", f"={name}",
                                            socket=seat_socket(session))
@@ -4545,10 +4613,7 @@ def ensure(cfg, name, log=print, saved=False, roles=None, repo=None):
 
 def cmd_ended(argv):
     """`pane-died`'s (`ended_options`): a seat whose harness ended without ak ending it, at
-    WHEN by tmux's clock, comes back in its pane, as its number opens it, told what the end cut
-    off, as a reboot's seats are (`watch.resume_after_boot`).  One whose past could not come
-    back took no line with its fresh conversation: it is owed that line, saying so, as a seat
-    the tick reopens is (`watch.revive`).
+    WHEN by tmux's clock, comes back in its pane, as its number opens it (`reopen`).
 
     Decided and done under the lock `cmd_stop` decides under, so a stop finds it back or this
     finds it closed.  It is left as it is with no record, closed by the owner, live again or
@@ -4569,12 +4634,7 @@ def cmd_ended(argv):
         if (not record or watch.seat_closed_by_owner(name) or not (session and session["exited"])
                 or died - (record.get("launched") or 0) < watch.INBOX_WARMUP):
             return 0
-        at, line = time.time(), watch.cut_off(cfg, name)[1]   # read before the relaunch writes
-        back = resume(cfg, name, hand_over=False, line=line)
-        if line and back == "resumed":
-            watch.relaunched(name, watch.seat_model(cfg, name)[0], line, at)
-        elif line and back == "fresh":
-            watch.owe_line(name, None, {"line": line + watch.FRESH_NOTE})
+        reopen(cfg, name)
     return 0
 
 

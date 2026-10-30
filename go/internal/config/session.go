@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"agentkit/internal/commandhelp"
+	"agentkit/internal/tmux"
 )
 
 var sessionPunctuation = regexp.MustCompile(`[^a-z0-9_-]+`)
@@ -52,6 +53,24 @@ func SessionPath(name string) (string, error) {
 	return sessionPath(Fold(name))
 }
 
+// SessionName is the seat name Python's session_name makes of a word: lowercased, each run of
+// anything but a-z, 0-9, _ and - one dash, cut to 40, and none for ak's control session's name.
+func SessionName(raw string) string {
+	// Python's lower() maps İ to i and a combining dot, which then reads as punctuation;
+	// Go's ToLower maps it to a lone i, which names another seat.
+	name := strings.ToLower(strings.ReplaceAll(Fold(raw), "\u0130", "i\u0307"))
+	name = sessionPunctuation.ReplaceAllString(name, "-")
+	name = strings.Trim(sessionDashes.ReplaceAllString(name, "-"), "-")
+	if len(name) > 40 {
+		name = name[:40]
+	}
+	name = strings.Trim(name, "-")
+	if name == tmux.Control {
+		return ""
+	}
+	return name
+}
+
 // A rename leaves a pointer because the running seat keeps its original
 // environment. Return the resolved record with its name so lookups agree.
 func ResolveSession(name string) (string, map[string]any, error) {
@@ -62,18 +81,7 @@ func ResolveSession(name string) (string, map[string]any, error) {
 	}
 	if strings.Contains(name, " ") {
 		if _, err := os.Stat(path); err != nil {
-			// Python's lower() maps İ to i and a combining dot, which then reads as
-			// punctuation; Go's ToLower maps it to a lone i, which names another seat.
-			name = strings.ToLower(strings.ReplaceAll(name, "\u0130", "i\u0307"))
-			name = sessionPunctuation.ReplaceAllString(name, "-")
-			name = strings.Trim(sessionDashes.ReplaceAllString(name, "-"), "-")
-			if len(name) > 40 {
-				name = name[:40]
-			}
-			name = strings.Trim(name, "-")
-			if name == "_ak" {
-				name = ""
-			}
+			name = SessionName(name)
 		}
 	}
 	origin, err := sessionPath(name)

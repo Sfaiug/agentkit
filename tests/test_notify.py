@@ -108,18 +108,21 @@ class Notifications(unittest.TestCase):
         """A newer declaration reaches publication while the older answer waits."""
         old_ready, new_ready, old_finished = (threading.Event() for _ in range(3))
         transition = notify.transition
+        # How long one side waits before calling the other stuck. A passing run waits only as
+        # long as the other side takes, which passed 10 s on a loaded landing host.
+        stuck = 120
 
         def interleave(*args, **kwargs):
             if threading.current_thread().name.startswith("old-decision"):
                 old_ready.set()
-                if not new_ready.wait(10):
+                if not new_ready.wait(stuck):
                     raise RuntimeError("new declaration did not reach publication")
                 try:
                     return transition(*args, **kwargs)
                 finally:
                     old_finished.set()
             new_ready.set()
-            if not old_finished.wait(10):
+            if not old_finished.wait(stuck):
                 raise RuntimeError("old publication did not finish")
             return transition(*args, **kwargs)
 
@@ -128,9 +131,9 @@ class Notifications(unittest.TestCase):
             with ThreadPoolExecutor(max_workers=1, thread_name_prefix="old-decision") as pool:
                 old = pool.submit(notify.shaped, kind, text, session="seat")
                 try:
-                    self.assertTrue(old_ready.wait(10))
+                    self.assertTrue(old_ready.wait(stuck))
                     newer()
-                    self.assertEqual(old.result(10), 0)
+                    self.assertEqual(old.result(stuck), 0)
                 finally:
                     new_ready.set()
 

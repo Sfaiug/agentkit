@@ -9,7 +9,8 @@ import (
 )
 
 // Every place ak keeps is owner-only after EnsureDirs, one made before by someone else too,
-// and a file where a place goes is refused and left as it was.
+// and a file where a place goes is refused and left as it was, with what EnsureDirs made and
+// changed on the way taken back.
 func TestEnsureDirs(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -41,11 +42,28 @@ func TestEnsureDirs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	wt := filepath.Join(Home(), "wt")
+	if err := os.Remove(wt); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(state, 0o755|os.ModeSticky); err != nil {
+		t.Fatal(err)
+	}
+	shared, err := os.Stat(state)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := EnsureDirs(); err == nil {
 		t.Fatal("EnsureDirs took a file named jobs for its folder")
 	}
 	if after, err := os.Stat(jobs); err != nil || after.Mode() != before.Mode() {
 		t.Fatalf("the file named jobs was changed: %v %v", after, err)
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Fatalf("a failed EnsureDirs left wt made: %v", err)
+	}
+	if info, err := os.Stat(state); err != nil || info.Mode() != shared.Mode() {
+		t.Fatalf("a failed EnsureDirs left state changed: %v %v", info, err)
 	}
 }
 
@@ -154,5 +172,10 @@ func TestResolveFollowsLinksBeforeTheirParents(t *testing.T) {
 		if got := Resolve(path); got != want {
 			t.Errorf("Resolve(%q) = %q, want %q", path, got, want)
 		}
+	}
+	// Absolute puts the home in `~`'s place and leaves the rest to Resolve as spelled
+	t.Setenv("HOME", dir+"/")
+	if got := Absolute("~/link/../api.py"); got != dir+"/real/api.py" {
+		t.Errorf("Absolute(~/link/../api.py) = %q", got)
 	}
 }

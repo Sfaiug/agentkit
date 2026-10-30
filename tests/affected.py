@@ -20,11 +20,10 @@ from pathlib import Path
 import re
 import subprocess
 
-from suite_shares import LIVE_CHECKS, SETUP, STATIC_CHECKS, smoke_blocks
+from suite_shares import LIVE_CHECKS, SETUP, SMOKE, STATIC_CHECKS, smoke_blocks
 
 MACHINERY = {"tests/landing.py", "tests/every_file.py", "tests/suite_shares.py",
              "tests/affected.py"}
-SMOKE = "tests/smoke.sh"
 TEST_FILE = re.compile(r"tests/test_[^/]*\.py")
 IMPORT = re.compile(r"^[ \t]*(?:from[ \t]+([\w.]+)[ \t]+)?import[ \t]+(\([^)]*\)|[^\n#;]*)",
                     re.MULTILINE)

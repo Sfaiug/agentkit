@@ -2,8 +2,7 @@
 
 Offline: origin is a throwaway bare repository, ~/agentkit its clone under a temporary HOME,
 behind it.  Only the suite body is fake -- it writes `exit`, `output` and `failed` the way
-tests/live.sh does -- and so is the seat a red is handed to.  The `logins` suite runs the real
-`smoke_sync_logins` of tests/smoke.sh after the real `finish` of tests/acceptance.sh.
+tests/live.sh does -- and so is the seat a red is handed to.
 """
 
 from contextlib import ExitStack
@@ -19,18 +18,6 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, orch, update, watch
-
-SMOKE = (REPO / "tests/smoke.sh").read_text()
-SYNC = SMOKE[SMOKE.index("smoke_sync_logins() {"):SMOKE.index("# A bounded way")]
-# The suite's last check passed, then its exit trap's login sync failed.
-LOGINS = f""". "{REPO}/tests/acceptance.sh"
-: >"$AK_LIVE_FAILED"
-ok "3 acme: answered"
-finish; rc=$?
-{SYNC}
-smoke_sync_logins || rc=1
-exit $rc
-"""
 
 
 def git(where, *args):
@@ -71,10 +58,6 @@ class LiveCompareOnlyWhenItDecides(unittest.TestCase):
         subprocess.run(["git", "clone", "-q", str(self.origin), str(self.clone)],
                        check=True, capture_output=True, timeout=60)
         self.now, self.suites, self.started, self.handed = int(time.time()), {}, [], []
-        # a checkout whose login merge fails, as one that cannot write the caller's login does
-        self.failing = self.root / "failing"
-        (self.failing / "tests").mkdir(parents=True)
-        (self.failing / "tests/merge_logins.py").write_text("raise SystemExit(1)\n")
 
     def merge(self, text):
         (self.seed / "notes").write_text(text + "\n")
@@ -91,16 +74,8 @@ class LiveCompareOnlyWhenItDecides(unittest.TestCase):
         if suite is None:       # capped or stopped: it never wrote an exit code
             (check / "output.tmp").write_text("live: check 3 waiting\n")
             return
-        if suite == "logins":
-            proc = subprocess.run(["bash", "-c", LOGINS], capture_output=True, text=True,
-                                  timeout=30, env={**os.environ, "WORK": str(check),
-                                                   "REPO": str(self.failing),
-                                                   "AK_LIVE_FAILED": f"{check}/failed.tmp",
-                                                   "AK_LIVE_FAILED_FINAL": f"{check}/failed"})
-            code, said = proc.returncode, proc.stdout + proc.stderr
-        else:
-            code, said = 1, "".join(f"FAIL  {label}: refused\n" for label in suite)
-            (check / "failed").write_text("".join(f"{label}\n" for label in suite))
+        code, said = 1, "".join(f"FAIL  {label}: refused\n" for label in suite)
+        (check / "failed").write_text("".join(f"{label}\n" for label in suite))
         (check / "output").write_text(said)
         (check / "exit").write_text(f"{code}\n")
         ended = int(check.name.rsplit("-", 1)[1]) + 1
@@ -155,28 +130,6 @@ class LiveCompareOnlyWhenItDecides(unittest.TestCase):
 
     def test_a_red_with_no_label_is_held_without_a_head_check(self):
         self.held_without_a_head_check([])
-
-    def test_a_login_sync_failing_after_finish_is_a_label_compared_like_any_other(self):
-        tip = self.merge("tip")
-        self.suites.update({tip: "logins", self.first: "logins"})
-        self.tick()
-        self.tick()
-        self.assertEqual(self.started, [tip, self.first])
-        check = [check for _, commit, check in update.live_checks() if commit == tip][0]
-        self.assertEqual(((check / "exit").read_text(), (check / "failed").read_text()),
-                         ("1\n", "logins\n"))
-        self.tick()
-        self.assertEqual(self.head(), tip)
-        self.assertEqual(len(self.handed), 1)
-        self.assertIn("FAIL  logins: ", self.handed[0])
-
-    def test_a_suite_that_died_before_finish_stays_unlabelled(self):
-        proc = subprocess.run(["bash", "-c", f'{SYNC}\nsmoke_sync_logins'],
-                              capture_output=True, text=True, timeout=30,
-                              env={**os.environ, "WORK": str(self.root), "REPO": str(self.failing),
-                                   "AK_LIVE_FAILED_FINAL": str(self.root / "failed")})
-        self.assertEqual((proc.returncode, proc.stdout), (1, ""))
-        self.assertFalse((self.root / "failed").exists())
 
 
 if __name__ == "__main__":

@@ -148,7 +148,7 @@ exit "$result"
 
     def test_rulebook_news_and_questions_arrive_together(self):
         self.ask()
-        config.update_session(SEAT, rulebook_sha=config.rulebook_digest("Old rules.\n"))
+        (config.HOME / "rules.md").write_text("A newer rule.\n")
         context = self.hook()
         self.assertIn("it wins", context)
         self.assertIn(QUESTION, context)
