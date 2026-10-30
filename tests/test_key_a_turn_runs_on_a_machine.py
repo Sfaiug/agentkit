@@ -19,9 +19,11 @@ from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
 WHERE = 'echo "${container:-here}" | tee "${AK_HAND_IN%/*}/where"'
+# What a login shell finds, as the real codex's `bash -lc` starts over from /etc/profile's PATH.
+LOGIN = 'env -i HOME="$HOME" PATH=/usr/bin:/bin bash -lc "command -v ak" >"${AK_HAND_IN%/*}/login"'
 # The executor commits where it ran, leaves left.txt uncommitted and removes gone.txt.
-EXECUTE = {"sh": f"{WHERE} >executor.txt && git add executor.txt && git commit -qm where && "
-                 "echo left >left.txt && rm gone.txt",
+EXECUTE = {"sh": f"{LOGIN}; {WHERE} >executor.txt && git add executor.txt && git commit -qm where "
+                 "&& echo left >left.txt && rm gone.txt",
            "final": "## Summary\nedited", "hand_in": [["done"]]}
 REVIEW = {"sh": WHERE, "final": "Handed in.", "hand_in": [["done"]]}
 
@@ -57,10 +59,12 @@ class ATurnRunsOnAMachine(unittest.TestCase):
         self.assertNotIn("gone.txt", rig.files())
         turns = sorted(path.read_text().strip() for path in run.rglob("where"))
         containers = len([*machine.glob("docker/roots/*-turn")])
+        self.login = next(run.rglob("login")).read_text().strip()
         return turns, rig.origin("show", "main:executor.txt"), containers
 
     def test_both_turns_run_on_the_machine(self):
         self.assertEqual(self.run_task(True, 2), (["docker"] * 2, "docker", 2))
+        self.assertTrue(self.login.endswith("/bin/ak"), self.login)
 
     def test_with_the_switch_off_or_no_room_the_turns_run_here(self):
         for switch, cpus in ((False, 2), (True, 1)):
