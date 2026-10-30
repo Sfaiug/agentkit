@@ -30,6 +30,7 @@ linux() {
     awk -v half="$(cpus)" -v spare="$spare" 'BEGIN {
       half /= 2; print "cpus " half; print "load " (spare < half ? half - spare : 0) }'
     echo "turns 1"    # it takes a model's turn (agentkit/machine_turn.py)
+    echo "spare $spare"    # past that half: what tells two machines with room apart
   }
   # admit KEY [CPUS], from `prepare` under the suites lock: the suite comes in while a quarter of
   # the machine is spare and holds half of it until its first piece runs or two minutes pass, so

@@ -98,6 +98,11 @@ class LinuxHelperTurnsASuiteAway(unittest.TestCase):
         """A piece of another suite runs there, given `cpus` CPUs and `gib` GiB."""
         (self.machine / "docker/containers" / name).write_text(f"{cpus}000000000 {gib << 30}\n")
 
+    def test_its_probe_says_what_is_spare_past_the_half_one_suite_gets(self):
+        self.assertEqual(self.readings()["spare"], "8")
+        self.assertEqual(self.prepare("a"), 0)
+        self.assertEqual(self.readings()["spare"], "4")
+
     def test_two_suites_fill_an_empty_machine_until_one_starts_a_piece(self):
         self.assertEqual(self.probe(), (4, 4))
         self.assertEqual((self.prepare("a"), self.prepare("b")), (0, 0))

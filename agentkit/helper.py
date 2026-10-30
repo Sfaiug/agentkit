@@ -96,14 +96,14 @@ def _tracked(cwd, path):
 
 
 def room(alias, piece_cpus, piece_mem_mb, least_mb=0, turns=False):
-    """((pieces, CPUs each, MiB each, most pieces), reason): a fit, or (None, why it cannot run
-    there). With `turns`, only a machine whose probe says `turns 1` fits: a Mac runs test suites
-    alone. Its CPUs less its load, split equally, as VMs time-share them; the memory ak's VMs
-    may still be given there (`left`), beside other suites' VMs. A VM gets two CPUs or more, as a
-    one-CPU VM's kernel hands a terminal's bytes over late and the suite's terminal tests read
-    them at once, and twice the piece's measured memory, as it also holds its own kernel, page
-    cache and clone, or `least_mb` where that is more. The most pieces are its CPUs' fit
-    with no load."""
+    """((pieces, CPUs each, MiB each, most pieces, spare CPUs), reason): a fit, or (None, why it
+    cannot run there). With `turns`, only a machine whose probe says `turns 1` fits: a Mac runs
+    test suites alone. Its CPUs less its load, split equally, as VMs time-share them; the memory
+    ak's VMs may still be given there (`left`), beside other suites' VMs. A VM gets two CPUs or
+    more, as a one-CPU VM's kernel hands a terminal's bytes over late and the suite's terminal
+    tests read them at once, and twice the piece's measured memory, as it also holds its own
+    kernel, page cache and clone, or `least_mb` where that is more. The most pieces are its CPUs'
+    fit with no load. Spare CPUs are what the probe says, past the half a suite may take."""
     try:
         probe = _remote(alias, "probe", text=True, timeout=30)
         if probe.returncode:
@@ -120,7 +120,8 @@ def room(alias, piece_cpus, piece_mem_mb, least_mb=0, turns=False):
         return None, "did not answer (asleep or away)"
     if count < 1:
         return None, f"has no room ({spare:g} spare CPUs and {room_mb:g} MiB)"
-    return (count, int(spare // count), each_mb, int(cpus // each_cpus)), ""
+    return (count, int(spare // count), each_mb, int(cpus // each_cpus),
+            readings.get("spare", spare)), ""
 
 
 def failure(code):
@@ -203,8 +204,10 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None):
     why = {alias: reason for alias, (_, reason) in rooms.items()}
     # Most room first, and on to the next where that refuses: its room can go between the probe
     # and `prepare`, and 40 checks in two hours then ran here on a host out of CPU (30 Oct 2026).
+    # Machines that each fit all a suite may take go by what is spare: the first named filled up
+    # to half while a machine rented beside it sat empty (30 Oct 2026).
     for alias in sorted(filter(lambda alias: rooms[alias][0], aliases),
-                        key=lambda alias: -rooms[alias][0][0]):
+                        key=lambda alias: (-rooms[alias][0][0], -rooms[alias][0][4])):
         fit = rooms[alias][0]
         away = away._replace(alias=alias, count=fit[0], cpus=fit[1], memory_mb=fit[2], most=fit[3])
         sent, known = LOST, _known(alias, repo)
