@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"os"
@@ -18,9 +19,10 @@ import (
 // written or already there, 1 where the heredoc ends in a traceback.
 func write(table config.HookTable, root string, out, errOut io.Writer) int {
 	path, whole := table.Settings, document(table, root)
-	// as spelled, never cleaned, as makedirs makes it: a `..` after a link is its target's parent
+	// as spelled, never cleaned, as makedirs makes it: a `..` after a link is its target's parent,
+	// and a bare name's directory the working one
 	dir, _ := filepath.Split(path)
-	if err := os.MkdirAll(dir, 0o777); err != nil {
+	if err := os.MkdirAll(cmp.Or(dir, "."), 0o777); err != nil {
 		fmt.Fprintln(errOut, err)
 		return 1
 	}

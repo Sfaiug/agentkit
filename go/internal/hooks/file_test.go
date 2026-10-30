@@ -137,14 +137,23 @@ func TestAHooksDirectoryThatCannotBeMadeExits1(t *testing.T) {
 	}
 }
 
-// The hooks directory is made as the home is spelled, never cleaned, as Python's makedirs makes
-// it: a `..` after a name is that name's parent, made where it is missing.
-func TestTheHooksDirectoryIsMadeAsTheHomeIsSpelled(t *testing.T) {
-	table := ownTable(t)
-	home := os.Getenv("HOME")
-	table.Settings = filepath.Join(home, "missing") + string(filepath.Separator) + filepath.Join("..", "chosen", "hooks", "agentkit.json")
-	code, _, errOut := install(table)
-	if code != 0 || errOut != "" || sha(t, filepath.Join(home, "chosen", "hooks", "agentkit.json")) != ownSha {
-		t.Fatalf("exit %d, stderr %q", code, errOut)
+// The hooks directory is made as the file is spelled, never cleaned, as Python's makedirs makes
+// it: a `..` after a name is that name's parent, made where it is missing, and a bare name's
+// directory is the working one.
+func TestTheHooksDirectoryIsMadeAsTheFileIsSpelled(t *testing.T) {
+	for spelled, made := range map[string]string{"missing/../chosen/hooks/agentkit.json": "chosen/hooks/agentkit.json", "agentkit.json": "agentkit.json"} {
+		t.Run(spelled, func(t *testing.T) {
+			table := ownTable(t)
+			was, _ := os.Getwd()
+			if err := os.Chdir(os.Getenv("HOME")); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.Chdir(was) })
+			table.Settings = filepath.FromSlash(spelled)
+			code, _, errOut := install(table)
+			if code != 0 || errOut != "" || sha(t, filepath.FromSlash(made)) != ownSha {
+				t.Fatalf("exit %d, stderr %q", code, errOut)
+			}
+		})
 	}
 }
