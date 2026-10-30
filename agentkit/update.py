@@ -59,21 +59,27 @@ LIVE = "live-checks"          # under config.STATE: one directory per check, `<c
 HARNESS_GATES = "harness-gates"  # under config.STATE: one failure episode per harness
 FRESH_FAULTS = "fresh-gate-faults"  # under config.STATE: the fresh-install gate's standing faults
 # A check of agentkit's tests/live.sh, detached: a throwaway worktree of exactly the commit,
-# the script in it, then the output and the exit code, each written whole.  Both run in the
-# process group of a holder, a `sleep` this runner starts first and reaps last, after every
-# signal to the group, so the group's id names no other process while it signals it.  Once the
-# script exits, KILL to the group ends whatever it left there; at the check's cap, or as soon
-# as the tick's TERM tells it to, TERM, then KILL after the grace, and a red exit code: so a
-# check ends on a host with no /proc for `worker.kill_marked` to read.
+# the script in it, then the output and the exit code, each written whole.  The worktree is
+# added under `MOVING`, shared: one added while a move adopts ~/agentkit (`versions.adopt`)
+# names a repository that move takes away.  The script runs in the process group of a holder,
+# a `sleep` this runner starts after the worktree and reaps last, after every signal to the
+# group, so the group's id names no other process while it signals it.  Once the script
+# exits, KILL to the group ends whatever it left there; at the check's cap, or as soon as the
+# tick's TERM tells it to, TERM, then KILL after the grace, and a red exit code: so a check
+# ends on a host with no /proc for `worker.kill_marked` to read.
 # This script is the only writer of both files; the tick only creates the directory and reads it.
-LIVE_RUN = r'''import os, signal, subprocess, sys, time
-check, repo, commit, cap, grace = sys.argv[1:]
+LIVE_RUN = r'''import fcntl, os, signal, subprocess, sys, time
+check, repo, commit, cap, grace, moving = sys.argv[1:]
 os.chdir(check)
 os.environ["AK_LIVE_FAILED"] = f"{check}/failed"
-holder = subprocess.Popen(["sleep", "99999999"], process_group=0)
 with open("output.tmp", "w") as out:
-    script = subprocess.Popen(["sh", "-c", 'git -C "$0" worktree add --quiet --detach "$1" "$2" '
-                               '&& cd "$1" && bash tests/live.sh', repo, f"{check}/tree", commit],
+    with open(moving, "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_SH)
+        added = subprocess.run(["git", "-C", repo, "worktree", "add", "--quiet", "--detach",
+                                f"{check}/tree", commit], stdout=out, stderr=out).returncode
+    holder = subprocess.Popen(["sleep", "99999999"], process_group=0)
+    script = subprocess.Popen(["sh", "-c", '[ "$0" = 0 ] || exit "$0"; cd "$1" && bash tests/live.sh',
+                               str(added), f"{check}/tree"],
                               stdout=out, stderr=out, process_group=holder.pid)
 
 
@@ -962,7 +968,7 @@ def live_tick(log, now, fetched):
     check.mkdir(parents=True)
     orch.start_in_slice(
         [sys.executable, "-c", LIVE_RUN, str(check), str(agentkit_dir()), tip,
-         str(int(now) + LIVE_CAP), str(worker.MARK_KILL_GRACE)],
+         str(int(now) + LIVE_CAP), str(worker.MARK_KILL_GRACE), str(config.TMP / MOVING)],
         f"agentkit-live-{check.name}",
         {**config.child_env(), **PINS, "AGENTKIT_ACCEPTANCE_REQUIRED": "1",
          worker.RUN_MARKER: str(check)}, os.devnull, log, target_slice=orch.slice_name())
