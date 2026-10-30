@@ -2259,18 +2259,18 @@ def run_round(cmds, cwd, log_path, artifacts, limit, log, silence, run_dir):
     say, there = log or (lambda line: None), ""
     if cmds and not any(map(names_shard, cmds)):
         cost = suite_cost(gitcall.declared(cwd, "tests") or "", cwd, run_dir)[1:]
-        away, why = helper.start(*cost, cwd, lambda line: None)
+        # Each command's header is no record (`$ cmd`, then its exit): those are counted.
+        script = "\n".join(f"printf '%s\\n' {shlex.quote(f'--- $ {cmd} ---')} && "
+                           f"bash -c {shlex.quote(cmd)} || exit" for cmd in cmds)
+        there_command = pinned(script, suite_times.handed(cwd))
+        away, why = helper.start(*cost, cwd, lambda line: None, there_command)
         if away:
             say(f"done-when on the suite helper {away.alias}, as one piece")
-            # Each command's header is no record (`$ cmd`, then its exit): those are counted.
-            script = "\n".join(f"printf '%s\\n' {shlex.quote(f'--- $ {cmd} ---')} && "
-                               f"bash -c {shlex.quote(cmd)} || exit" for cmd in cmds)
             try:
                 run_record.stop_check(run_dir)    # a stop marked while it prepared starts none
                 with log_path.open("wb") as progress:
                     code, _, killed = worker.limited(
-                        helper.piece(away, "1/1", PINNED_PIECE.format(
-                            shlex.quote(suite_times.handed(cwd)), shlex.quote(script))),
+                        helper.piece(away, "1/1", there_command),
                         limit, cwd=str(cwd), activity=log_path, output=progress,
                         env=suite_env(), silence=silence, stderr=subprocess.STDOUT,
                         stdin=subprocess.DEVNULL)
