@@ -58,18 +58,15 @@ class WatchesTheBill(unittest.TestCase):
             ak=AK, repo=str(Path(AK).resolve().parents[1]), tests=str(REPO / "tests"),
             now=str(home.path / "clock" / "now")))
         google.env["PYTHONPATH"] = str(home.path / "clock")
-        google.machines = [ONE, OWN]
-        cls.off = cls.at(T)
-        config = home.path / ".agentkit/config.toml"
-        config.write_text(config.read_text() + "\n[google_cloud]\nactive = true\nmax_month = 30\n")
-        cls.unpriced = cls.at(T)
+        google.machines, cls.toml = [ONE, OWN], (home.path / ".agentkit/config.toml").read_text()
+        cls.off, cls.unpriced = cls.at(T, 0), cls.at(T)
         # renamed, acme-1 keeps its meter; acme-3 is read again as another machine of its name
         google.machines = [{**ONE, "name": "acme-1b"}, TWO, OWN, THREE]
         google.again, google.refused = {"acme-3": FOUR}, {"acme-2"}
         cls.refused, google.silent = cls.at(T + 180), True
         cls.unanswered = cls.at(T + HOUR)
         google.silent, google.refused, google.machines = False, set(), google.machines[:3]
-        cls.over = cls.at(T + 2 * HOUR)
+        cls.over = cls.at(T + 2 * HOUR, 10)
         google.machines = [FOUR, OWN]
         cls.december = cls.at(DECEMBER)
         google.refused, cls.unreadable = {"acme-4"}, []
@@ -78,8 +75,11 @@ class WatchesTheBill(unittest.TestCase):
             cls.unreadable += [(text, cls.at(DECEMBER + 180), ledger.read_text())]
 
     @classmethod
-    def at(cls, when):
-        """At `when`, what a tick asked Google, whom it deleted, and `ak doctor`'s lines then."""
+    def at(cls, when, cap=50):
+        """At `when` and a cap of `cap` euros, 0 not active, what a tick asked Google, whom it
+        deleted, and `ak doctor`'s lines then."""
+        cls.home.write(".agentkit/config.toml", f"{cls.toml}\n[google_cloud]\nactive = "
+                       f"{'true' if cap else 'false'}\nmax_month = {cap}\n")
         cls.home.write("clock/now", str(when))
         start, done = len(cls.google.asked), cls.home.tick(env=cls.google.env)
         assert done.code == 0, done.out + done.err
@@ -90,11 +90,11 @@ class WatchesTheBill(unittest.TestCase):
     def test_off_asks_nothing_on_one_past_its_end_or_unpriced_goes_back_and_prices_follow(self):
         self.assertEqual((*self.off[:2], self.off[2][0][:23]), ([], [], "best now c4a-standard-8"))
         self.assertEqual(self.unpriced[1:], (["acme-1"], [
-            "1 running · €0.00 of €30.00 this month",
+            "1 running · €0.00 of €50.00 this month",
             "acme-1 listed with no price kept, given back"]))
         # acme-1b 3 minutes, acme-2 from 00:30 and acme-3 from 02:00
         self.assertEqual(self.refused[1:], (["acme-2"], [
-            f"3 running · €{1.65 * P:.2f} of €30.00 this month",
+            f"3 running · €{1.65 * P:.2f} of €50.00 this month",
             "acme-2 listed past its end, not given back: Google refused: Forbidden",
             "acme-3 listed past its end, given back"]))
         self.assertEqual([sum("/skus?" in one for one in step[0]) for step in (
@@ -102,16 +102,16 @@ class WatchesTheBill(unittest.TestCase):
         self.assertNotIn("Partial", str([one for one in self.google.asked if "/instances?" in one]))
         # a Google that does not answer is asked once and moves nothing
         self.assertEqual(self.unanswered, (["/token"], [], [
-            f"3 running · €{1.65 * P:.2f} of €30.00 this month as of 1 Nov 02:03",
+            f"3 running · €{1.65 * P:.2f} of €50.00 this month as of 1 Nov 02:03",
             *self.refused[2][1:]]))
 
     def test_past_the_cap_each_goes_back_and_a_month_counts_its_own_time(self):
         # acme-1b and acme-2 1.95 hours more, acme-3 nothing past its end
         self.assertEqual(self.over[1:], (["acme-1b", "acme-2"], [
-            f"2 running · €{5.55 * P:.2f} of €30.00 this month",
+            f"2 running · €{5.55 * P:.2f} of €10.00 this month",
             "acme-1b listed past the cap, given back", "acme-2 listed past its end, given back"]))
         # acme-4 half an hour, acme-1b's last hour in November
-        self.assertEqual(self.december[1:], ([], ["1 running · €3.00 of €30.00 this month"]))
+        self.assertEqual(self.december[1:], ([], ["1 running · €3.00 of €50.00 this month"]))
         # a ledger that cannot be read is past the cap, and kept; a refusal is still said
         for text, step, kept in self.unreadable:
             self.assertEqual((step[1:], kept), ((["acme-4"], [
