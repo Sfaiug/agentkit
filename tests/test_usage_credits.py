@@ -179,7 +179,7 @@ class Picks(unittest.TestCase):
         said = {"meters": [{"name": "weekly", "used": 100, "resets_at": self.now + 3600,
                             "window_secs": WEEK}], "credits": 62469.67, "error": None}
         answer = subprocess.CompletedProcess([], 0, stdout=json.dumps(said), stderr="")
-        with patch.object(usage.subprocess, "run", return_value=answer), \
+        with patch.object(config, "run_adapter", return_value=answer), \
                 patch.object(usage, "_resets", return_value=0.0):
             self.assertEqual(usage._probe(self.cfg, "openai", self.now)["credits"], 62469.67)
 

@@ -9,6 +9,7 @@ import math
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -586,9 +587,7 @@ def listed_providers(harness):
     add` offers the harness (provider_hosts): OpenCode's is OpenCode, whatever OpenCode calls
     it.  Error, in the adapter's own last words, when it lists none."""
     try:
-        proc = subprocess.run([str(adapter(harness)), "providers"], capture_output=True,
-                              timeout=75, stdin=subprocess.DEVNULL, encoding="utf-8",
-                              errors="replace", env=child_env())
+        proc = run_adapter([str(adapter(harness)), "providers"], timeout=75, env=child_env())
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise Error(f"{harness} providers: {exc}") from exc
     own = provider_hosts().get(harness)
@@ -665,10 +664,8 @@ def _logins(cfg, harness):
 def _listed(harness, account, providers):
     """What one login of that harness lists (catalog), [] for nothing usable."""
     try:
-        proc = subprocess.run([str(adapter(harness)), "models"], capture_output=True, timeout=15,
-                              stdin=subprocess.DEVNULL, encoding="utf-8", errors="replace",
-                              env={**child_env(), **account_env(account),
-                                   **provider_env(providers)})
+        proc = run_adapter([str(adapter(harness)), "models"], timeout=15,
+                           env={**child_env(), **account_env(account), **provider_env(providers)})
         out = proc.stdout if proc.returncode == 0 else ""
     except (Error, OSError, subprocess.TimeoutExpired):
         out = ""
@@ -1643,6 +1640,68 @@ def adapter(harness):
 def adapter_path(harness):
     """Where `adapter` looks for that harness's script, there or not."""
     return Path(os.environ.get(ADAPTER_DIR_ENV) or REPO / "adapters").expanduser() / f"{harness}.sh"
+
+
+def run_adapter(argv, timeout, env=None):
+    """`subprocess.run` of one adapter call, its output captured as text and its stdin empty,
+    except that the call runs in a process group of its own, in ak's session, and that past
+    `timeout`, or on anything else that ends the wait, `_end` kills what it runs."""
+    with subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, env=env, process_group=0, encoding="utf-8",
+                          errors="replace") as proc:
+        try:
+            out, err = proc.communicate(timeout=timeout)
+        except BaseException:
+            _end(proc.pid)
+            raise
+    return subprocess.CompletedProcess(argv, proc.returncode, out, err)
+
+
+def _end(pid):
+    """KILL that adapter call, every process below it still in ak's session and each group one
+    of those leads -- `timeout` makes one for itself, and a CLI under it may catch TERM --
+    then wait up to a second for them to go.
+
+    No process below the call leads ak's own group, which the menu shares with its terminal, so
+    no group kill reaches it; one below the call that joined it is killed on its own.  A process
+    in a session of its own is never killed: that is a harness's own service, which an adapter
+    call starts on purpose, and everything below it is in that session too.  What has left the
+    call's tree and its groups by now is the leftover sweep's.
+    """
+    parents, below = host.parents(), {}
+    for child, parent in parents.items():
+        below.setdefault(parent, []).append(child)
+    tree, stack = [], [pid]
+    while stack:
+        if (current := stack.pop()) not in tree:
+            tree.append(current)
+            stack.extend(below.get(current, ()))
+    ours = [member for member in tree if _session(member) == os.getsid(0)]
+    groups = {member for member in ours if _group(member) == member}
+    for kill, targets in ((os.killpg, groups), (os.kill, ours)):
+        for target in targets:
+            try:
+                kill(target, signal.SIGKILL)
+            except OSError:
+                pass
+    killed = {*ours, *(other for other in parents if _group(other) in groups)}
+    deadline = time.monotonic() + 1
+    while killed & host.parents().keys() and time.monotonic() < deadline:
+        time.sleep(.01)
+
+
+def _session(pid):
+    try:
+        return os.getsid(pid)
+    except OSError:
+        return None   # gone
+
+
+def _group(pid):
+    try:
+        return os.getpgid(pid)
+    except OSError:
+        return None   # gone
 
 
 _MANIFESTS = {}

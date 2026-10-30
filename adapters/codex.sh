@@ -381,7 +381,7 @@ models)
   # to bound it (stock macOS): nothing waits on a listing it cannot stop.
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   if listed=$(command -v timeout >/dev/null && command -v codex >/dev/null \
-      && timeout 10 codex debug models 2>/dev/null | jq -r '.models[] | select(.visibility == "list")
+      && timeout -k 1 10 codex debug models 2>/dev/null | jq -r '.models[] | select(.visibility == "list")
         | [.slug, .display_name, ((.supported_reasoning_levels // []) | map(.effort) | join(" "))]
         | @tsv') && [ -n "$listed" ]; then
     python3 "$REPO/tools/catalog.py" codex default
