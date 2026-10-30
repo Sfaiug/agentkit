@@ -483,10 +483,47 @@ def verify(name, check=None):
         return _verify_held(name, check)
 
 
+def verify_delivered(name):
+    """`verify` for a run that just delivered, unless each line open by its turn was checked by
+    a verification begun after it delivered: that one fetched main with this delivery on it.
+    Delivered runs each ran every open line behind the last, 21 runs behind 29 lines, the
+    seat's `ak plan` behind them all (30 Oct 2026)."""
+    with held(name) as current:
+        since = _verified(current)[0]
+    with verifying(name):
+        with held(name) as current:
+            checked = _verified(current)[1]
+            owed = {identity(line) for line in lines(current) if is_open(line)} - {None}
+            if all(checked.get(bare, 0) > since for bare in owed):
+                return
+        _verify_held(name)
+
+
+def _verified(name):
+    """(verifications begun, {each open line: the number of the last that checked it}): one
+    numbers itself as it begins and its lines only as it finishes, so one that dies, or a line
+    put in while it checked, has none."""
+    try:
+        head, *rest = config.seat_file("verified", name).read_text(encoding="utf-8").splitlines()
+        return int(head), {bare: int(number) for number, _, bare in (line.partition(" ") for line in rest)}
+    except (OSError, ValueError):
+        return 0, {}
+
+
+def _record(name, begun, checked):
+    path = config.seat_file("verified", name)
+    fresh = path.with_name(path.name + ".new")
+    fresh.write_text("".join([f"{begun}\n", *(f"{number} {bare}\n" for bare, number in checked.items())]),
+                     encoding="utf-8")
+    fresh.replace(path)
+
+
 def _verify_held(name, check=None):
     checks = {}
     with held(name) as current:
         snapshot = lines(current)
+        begun, checked = _verified(current)
+        _record(current, begun + 1, checked)    # numbered before it fetches
     for line in snapshot:
         found = LINE.match(line.strip())
         if (found and found["check"] and is_open(line)
@@ -521,6 +558,9 @@ def _verify_held(name, check=None):
             write(current, text)
         # only lines ticked here: one replaced while its check ran was never ticked
         ticks = [passing[bare] for bare in map(identity, present) if bare in passing]
+        left = {identity(line) for line in text if is_open(line)}
+        _record(current, begun + 1, {bare: number for bare, number in
+                                     {**checked, **dict.fromkeys(results, begun + 1)}.items() if bare in left})
     for repo, found, commit in ticks:
         retire(repo, found, commit)
     return [line.strip() for line in text if is_open(line)]
