@@ -43,10 +43,11 @@ class OpenGates(unittest.TestCase):
         overrides.start()
         self.addCleanup(overrides.stop)
         # Every harness binary a gate asks about is a fake, ahead of any this host installed:
-        # each real adapter's `lend` then asks no real harness.
+        # each real adapter's `lend` then asks no real harness, nor macOS's Keychain, which no
+        # HOME hides.
         fakes = tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-bin-", dir=REPO)
         self.addCleanup(fakes.cleanup)
-        for name in ('claude', 'codex', 'muse', 'grok', 'opencode', 'agy'):
+        for name in ('claude', 'codex', 'muse', 'grok', 'opencode', 'agy', 'security'):
             (Path(fakes.name) / name).write_text('#!/bin/sh\nexit 97\n')
             (Path(fakes.name) / name).chmod(0o755)
         path = patch.dict(os.environ, {'PATH': f'{fakes.name}:{os.environ["PATH"]}'})
