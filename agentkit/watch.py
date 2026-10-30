@@ -7651,7 +7651,7 @@ def doctor(argv):
     print(f"tick  {tick_health()}", flush=True)
     from . import machines
     cfg = config.load()
-    print("\n".join(f"machine  {machine}" for machine in machines.known(cfg)), flush=True)
+    print("\n".join(f"machine  {machine}" for machine in machines.known()), flush=True)
     wrong = []
     for name in config.offered(cfg):
         entry = cfg["models"][name]

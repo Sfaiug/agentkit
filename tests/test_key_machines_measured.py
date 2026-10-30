@@ -32,13 +32,15 @@ if sys.argv[:1] == [{ak!r}]:
     clock.time = lambda: time.time() + float(open({ahead!r}).read())
 """
 # Of the test's files in ~/fakes: the alias goes in `asked`; one named in `away` is away, one in
-# `hang` never answers, and any other runs the command with the tools of machines/<alias> first.
+# `hang` never answers, one in `garbled` answers bytes that are no text, and any other runs the
+# command with the tools of machines/<alias> first.
 SSH = """#!/bin/sh
 while :; do case $1 in --) shift; break ;; -[bcDEeFIiJLlmOoPpQRSWw]) shift 2 ;; -*) shift ;;
   *) break ;; esac; done
 echo "$1" >>{root}/asked
 ! grep -qx "$1" {root}/away || exit 255
 ! grep -qx "$1" {root}/hang || exec sleep 3600
+! grep -qx "$1" {root}/garbled || {{ printf '\\377\\n'; exit 0; }}
 PATH={root}/machines/$1:$PATH
 shift
 exec sh -c "$*"
@@ -73,14 +75,15 @@ class MachinesMeasured(unittest.TestCase):
             ak=AK, repo=str(Path(AK).resolve().parents[1]), tests=str(REPO / "tests"),
             ahead=str(home.path / "fakes" / "ahead")))
         cls.env = {"PYTHONPATH": str(home.path / "fakes")}
-        cls.ticks = [cls.tick(0, away="helper", hang="stuck"), cls.tick(2 * DAY, away="stuck"),
-                     cls.tick(3.5 * DAY, away="stuck\nmini")]
+        cls.ticks = [cls.tick(0, away="helper", hang="stuck"), cls.tick(2 * DAY, garbled="stuck"),
+                     cls.tick(3.5 * DAY, away="mini", garbled="stuck")]
 
     @classmethod
-    def tick(cls, ahead, away, hang=""):
+    def tick(cls, ahead, away="", hang="", garbled=""):
         """One tick `ahead` seconds on: the aliases ssh was given, the minutes it ran in as
         doctor writes them, and doctor's line of each machine by name."""
-        for name, text in (("ahead", str(ahead)), ("away", away), ("hang", hang), ("asked", "")):
+        for name, text in (("ahead", str(ahead)), ("away", away), ("hang", hang),
+                           ("garbled", garbled), ("asked", "")):
             cls.home.write(f"fakes/{name}", text)
         start = time.time() + ahead
         done = cls.home.tick(env=cls.env)
@@ -106,7 +109,8 @@ class MachinesMeasured(unittest.TestCase):
             # and one that hangs holds no tick
             {"mac": f"sometimes on · {SAID} · on battery", "mini": f"new · {SAID}",
              "helper": f"new · {NEVER}", "stuck": f"new · {NEVER}"},
-            # every check answered for a day is always on; one of two, or none, sometimes on
+            # every check answered for a day is always on; one of two, or none, sometimes on,
+            # and an answer that is no text is one machine's miss
             {"mini": f"always on · {SAID}", "helper": f"sometimes on · {SAID}",
              "stuck": f"sometimes on · {NEVER}"},
             # only the last three days count: helper's miss at the first tick is gone
@@ -121,6 +125,14 @@ class MachinesMeasured(unittest.TestCase):
         (_, first, lines), (_, second, _), (_, _, last) = self.ticks
         self.assertIn(lines["mac"].rsplit("last answered ", 1)[1], {at[-5:] for at in first})
         self.assertIn(last["mini"].rsplit("last answered ", 1)[1], second)
+
+    def test_machines_are_the_owner_s_in_a_config_naming_no_models(self):
+        with Home() as home:
+            home.write(".agentkit/config.toml", 'suite_helper = "helper"\n\n[machines.acme]\n')
+            done = home.ak("doctor")
+        self.assertEqual(done.code, 0, done.err)
+        self.assertIn("machine  acme: new · never answered", done.out.splitlines())
+        self.assertIn("machine  helper: new · never answered", done.out.splitlines())
 
 
 if __name__ == "__main__":

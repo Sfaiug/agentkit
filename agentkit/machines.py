@@ -53,9 +53,10 @@ class Machine(namedtuple("Machine", "name checks said")):
         return f"{self.name}: {' · '.join(words)}"
 
 
-def known(cfg=None):
-    """Every machine ak may use, this one first, as the ticks found it."""
-    named = (cfg or config.load()).get("machines")
+def known():
+    """Every machine ak may use, this one first, as the ticks found it.  Named by the owner's
+    own config.toml, even one `config.load` passes over for the shipped models."""
+    named = (config._read_toml(config.HOME / config.CONFIG_NAME) or {}).get("machines")
     names = [HERE, *(named if isinstance(named, dict) else ()), config.suite_helper()]
     try:
         record = json.loads(_path().read_text(encoding="utf-8"))
@@ -73,7 +74,7 @@ def check():
         ["bash", "-c", script] if machine.name == HERE else
         [*SSH, "--", machine.name, shlex.join(["bash", "-c", script])],
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-        start_new_session=True)) for machine in known()]
+        errors="replace", start_new_session=True)) for machine in known()]
     record = {}
     for machine, proc in asked:
         said = _said(proc, deadline)
