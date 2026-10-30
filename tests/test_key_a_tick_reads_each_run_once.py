@@ -31,6 +31,28 @@ class ATickReadsEachRunOnce(Sandbox):
                        pr="https://github.com/acme/widget/pull/7", handed_back=9991, reported=True)
         self.assertEqual(self.reads_of_a_bystander(), alone)
 
+    def test_the_pass_over_endings_reads_a_run_of_nobodys_no_more_for_each_ending(self):
+        config.save_session(self.cfg, "fix-api", "opus", ["astra"], {"cwd": str(self.root)})
+        config.plan_path("fix-api").write_text("- [ ] the parser is live\n")
+        self.ended("bystander", handed_back=9991, reported=True)
+        reads, real = Counter(), record.read_state
+        def counted(directory, *args, **kw):
+            reads[directory.name] += 1
+            return real(directory, *args, **kw)
+        def bystander():
+            reads.clear()
+            with patch.object(record, "read_state", counted):
+                watch.offer_endings(lambda _: None)
+            return reads["bystander"]
+        bystander()     # `reap` marks each new ending once, reading its record
+        alone = bystander()
+        self.ended("waits", owner="fix-api", state="queued", slot_waiting=True)
+        for name in ("run-a", "run-b", "run-c"):
+            self.ended(name, owner="fix-api", merged=True, merge_sha="a" * 40,
+                       pr="https://github.com/acme/widget/pull/7")
+        bystander()
+        self.assertEqual(bystander(), alone)
+
 
 if __name__ == "__main__":
     unittest.main()
