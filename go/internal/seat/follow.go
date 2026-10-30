@@ -1,26 +1,18 @@
 package seat
 
 import (
-	"bytes"
-	"io"
-	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
-	"strings"
-	"unicode/utf16"
 
 	"agentkit/internal/config"
+	"agentkit/internal/harness"
 	"agentkit/internal/run"
 )
-
-// projectCut is where Claude Code ends a project folder's name with a hash of the path.
-const projectCut = 200
 
 // audit is the weekly audit's seat (audit.NAME), whose models run at their entries' efforts.
 const audit = "audit"
 
-// A move is what a Claude seat's last answer moves in its record (watch.follow_model): the
+// A move is what a seat's last answer moves in its record (watch.follow_model): the
 // configured model the answer ran on, the seat's own first, and that model's orchestrator effort
 // where the answer ran at another it takes; "" for none.
 type move struct{ chosen, effort string }
@@ -31,7 +23,7 @@ type move struct{ chosen, effort string }
 func follows(record *run.Object, models map[string]config.Model, offered []string) (move, bool) {
 	kept := record.Str("orchestrator")
 	own := models[kept]
-	model, effort, answered := lastAnswer(record)
+	model, effort, answered := harness.LastAnswer(own.Harness, record.Str("conversation"), record.Str("cwd"))
 	if own.ID == "" || own.ID == "default" || !answered {
 		return move{}, true
 	}
@@ -63,48 +55,6 @@ func follows(record *run.Object, models map[string]config.Model, offered []strin
 		return move{chosen, word}, true
 	}
 	return move{chosen, ""}, true
-}
-
-// lastAnswer is the model and effort of the last answer a Claude seat's conversation records
-// (claude.py `running`), read back from its end: its own, never a subagent's or one Claude Code
-// made up itself. Read anywhere else Claude Code would keep it, or not read, there is none.
-func lastAnswer(record *run.Object) (model, effort any, found bool) {
-	conversation, cwd := record.Str("conversation"), record.Str("cwd")
-	if conversation == "" || cwd == "" {
-		return nil, nil, false
-	}
-	home, _ := os.UserHomeDir()
-	file, err := os.Open(filepath.Join(home, ".claude", "projects", projectFolder(cwd), conversation+".jsonl"))
-	if err != nil {
-		return nil, nil, false
-	}
-	defer file.Close()
-	end, err := file.Seek(0, io.SeekEnd)
-	var rest []byte
-	for err == nil && end > 0 {
-		start := max(0, end-65536)
-		chunk := make([]byte, end-start, end-start+int64(len(rest)))
-		if _, err = file.ReadAt(chunk, start); err != nil {
-			break
-		}
-		lines := bytes.Split(append(chunk, rest...), []byte("\n"))
-		rest = nil
-		if start > 0 { // the head of a line the next read ends
-			rest, lines = lines[0], lines[1:]
-		}
-		for at := len(lines) - 1; at >= 0; at-- {
-			value, _ := run.Decode(lines[at])
-			entry, _ := value.(*run.Object)
-			if entry == nil || entry.Str("type") != "assistant" || entry.Truthy("isSidechain") || entry.Dict("message") == nil {
-				continue
-			}
-			if model = entry.Dict("message").Get("model"); model != nil && model != "<synthetic>" {
-				return model, entry.Get("effort"), true
-			}
-		}
-		end = start
-	}
-	return nil, nil, false
 }
 
 // moved writes into the record what its last answer moved: its orchestrator, through
@@ -192,33 +142,4 @@ func entryEfforts(entry config.Model) *run.Object {
 		}
 	}
 	return efforts
-}
-
-// projectFolder is the folder Claude Code files a working directory's conversations under
-// (claude.py `project`): each UTF-16 unit not an ASCII letter or digit a hyphen, and a long
-// name its start and the magnitude of the path's 31-times hash as a signed 32-bit number.
-func projectFolder(cwd string) string {
-	var name strings.Builder
-	for _, char := range cwd {
-		switch {
-		case char < 0x80 && (char >= '0' && char <= '9' || char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z'):
-			name.WriteRune(char)
-		case char > 0xFFFF:
-			name.WriteString("--")
-		default:
-			name.WriteByte('-')
-		}
-	}
-	if name.Len() <= projectCut {
-		return name.String()
-	}
-	var hash uint32
-	for _, unit := range utf16.Encode([]rune(cwd)) {
-		hash = hash*31 + uint32(unit)
-	}
-	magnitude := int64(int32(hash))
-	if magnitude < 0 {
-		magnitude = -magnitude
-	}
-	return name.String()[:projectCut] + "-" + strconv.FormatInt(magnitude, 36)
 }

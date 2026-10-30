@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -94,7 +95,8 @@ func runRecord(t *testing.T, home, name string, fields map[string]any) string {
 
 func transcript(t *testing.T, home, name, content string) {
 	t.Helper()
-	folder := projectFolder(filepath.Join(home, "work", name))
+	// a short ASCII path's folder is each character not a letter or digit a hyphen
+	folder := regexp.MustCompile("[^A-Za-z0-9]").ReplaceAllString(filepath.Join(home, "work", name), "-")
 	write(t, filepath.Join(home, ".claude", "projects", folder, "conv-"+name+".jsonl"), content)
 }
 
@@ -410,18 +412,5 @@ func TestAnUnchangedSeatFileIsNotWritten(t *testing.T) {
 	}
 	if data, err := os.ReadFile(path); err != nil || string(data) != unchanged {
 		t.Fatalf("seat file %q: %v", data, err)
-	}
-}
-
-func TestProjectFolderIsClaudeCodes(t *testing.T) {
-	for cwd, want := range map[string]string{
-		"/home/acme/code/fix-api":                "-home-acme-code-fix-api",
-		"/home/acme/caf\u00e9/\U0001F680":        "-home-acme-caf----",
-		"/home/acme/" + strings.Repeat("x", 210): "-home-acme-" + strings.Repeat("x", 189) + "-jum450",
-		"/home/acme/" + strings.Repeat("\u00e9", 150) + strings.Repeat("\U0001F680", 40): "-home-acme-" + strings.Repeat("-", 189) + "-1yrcfo",
-	} {
-		if got := projectFolder(cwd); got != want {
-			t.Fatalf("projectFolder(%q) = %q, want %q", cwd, got, want)
-		}
 	}
 }

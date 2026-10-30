@@ -19,6 +19,7 @@ import (
 
 	"agentkit/internal/agent"
 	"agentkit/internal/config"
+	"agentkit/internal/harness"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 	"agentkit/internal/terminal"
@@ -34,7 +35,7 @@ type Seat struct {
 	reason, restart                                   string
 	since, repo                                       any
 	infer                                             bool     // the record holds no repo
-	unowned                                           bool     // Claude's with no conversation: Python offers it no row
+	unowned                                           bool     // would resume its record's conversation, and it names none: Python offers it no row
 	home                                              []string // where the menu files it (orch.home_key)
 	follow                                            move     // what its last answer moves in its record
 }
@@ -49,13 +50,6 @@ type Home struct {
 
 // Seatless is whether the home holds no record at all.
 func (home Home) Seatless() bool { return len(home.records) == 0 }
-
-// restarts are the harnesses whose Python hooks this reading follows, with what each one's
-// seat does on reopening: Claude's conversation is its record's (claude.py `resumable`), and
-// Codex owns one only by a launch receipt no record here names (codex.py `reconcile`), so its
-// seat starts fresh, and Python writes `resumable: false` into its record, which from then on
-// is a record this reading does not follow.
-var restarts = map[string]string{"claude": "", "codex": "starts a new Codex conversation"}
 
 // kinds are the files state/ may hold for a seat, by kind: its record and its seat file's.
 var kinds = map[string][]string{"session": {"json"}, "seat": {"json", "lock", "announce"}}
@@ -138,7 +132,7 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 	if err != nil || record == nil || !only(record, recordFields) {
 		return Seat{}, false
 	}
-	restart, known := restarts[models[record.Str("orchestrator")].Harness]
+	restart, known := harness.Reopens(models[record.Str("orchestrator")].Harness)
 	workers, complaint, crewed := crew(record.Get("workers"), models)
 	created, dated := number(record.Get("created"))
 	if !known || !crewed || !dated || !text(record.Get("cwd")) || !text(record.Get("repo")) || !text(record.Get("conversation")) ||
@@ -146,8 +140,7 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 		return Seat{}, false
 	}
 	var follow move
-	// Codex owns no conversation a record here names, and a record Python cannot read moves nothing
-	if restart == "" && complaint == "" {
+	if complaint == "" { // a record Python cannot read moves nothing
 		if follow, known = follows(record, models, offered); !known {
 			return Seat{}, false
 		}
@@ -441,7 +434,7 @@ func crew(workers any, models map[string]config.Model) (string, string, bool) {
 	complaint := ""
 	for _, each := range listed {
 		name, ok := each.(string)
-		if _, known := restarts[models[name].Harness]; !ok || !known {
+		if _, known := harness.Reopens(models[name].Harness); !ok || !known {
 			return "", "", false
 		}
 		if slices.Contains(names, name) {
