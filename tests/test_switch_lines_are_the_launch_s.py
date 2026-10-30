@@ -1,7 +1,8 @@
 """A seat moved in place is typed the model and effort its harness's own launch is handed for
 the same entry, so a switch and a restart land it alike: each `[switch]` in adapters/*.toml,
 read by orch.switch_lines, against the line that harness's `interactive` prints.  OpenCode,
-whose TUI takes a model only in its dialogs, has none and restarts.
+whose TUI takes a model only in its dialogs, has none and restarts, as does a move to a model
+whose launch names none (`default`), which no line can name.
 
 Offline: the real adapters, run against a temporary HOME with a fake harness binary on PATH,
 and the seat's pane faked live.
@@ -61,19 +62,18 @@ class SwitchLinesAreTheLaunchS(unittest.TestCase):
                     "AGENTKIT_SESSION": "atoll", config.RULEBOOK_ENV: str(rulebook),
                     "AGENTKIT_CLAUDE_CHECKED": "1"}
 
-    def launch(self, harness, effort):
-        """The words of `harness`'s `interactive` line for `test-model` at `effort`."""
+    def launch(self, harness, effort, model="test-model"):
+        """The words of `harness`'s `interactive` line for `model` at `effort`."""
         proc = subprocess.run([str(REPO / f"adapters/{harness}.sh"), "interactive",
-                               "test-model", effort], capture_output=True, text=True,
-                              env=self.env)
+                               model, effort], capture_output=True, text=True, env=self.env)
         self.assertEqual(proc.returncode, 0, f"{harness}: {proc.stderr}")
         return shlex.split(proc.stdout)
 
-    def switch(self, harness, effort):
-        """The lines a live seat on another model of `harness` is owed for `test-model`."""
+    def switch(self, harness, effort, model="test-model"):
+        """The lines a live seat on another model of `harness` is owed for `model`."""
         cfg = {"providers": {"acme": {}}, "models": {
-            name: {"harness": harness, "model": model, "effort": "low", "provider": "acme"}
-            for name, model in (("was", "old-model"), ("to", "test-model"))}}
+            name: {"harness": harness, "model": own, "effort": "low", "provider": "acme"}
+            for name, own in (("was", "old-model"), ("to", model))}}
         with patch.object(config, "session_records", return_value={"atoll": {
                 "orchestrator": "was"}}), patch.object(orch, "find", return_value=None), \
                 patch.object(orch, "harness_pane", return_value="%7"), \
@@ -88,6 +88,10 @@ class SwitchLinesAreTheLaunchS(unittest.TestCase):
                 self.assertEqual(self.switch(harness, effort), lines)
                 words = self.launch(harness, effort)
                 self.assertTrue(holds(words, run), words)
+
+    def test_a_model_its_harness_picks_itself_restarts(self):
+        self.assertNotIn("-m", self.launch("codex", "high", model=config.DEFAULT_MODEL))
+        self.assertEqual(self.switch("codex", "high", model=config.DEFAULT_MODEL), [])
 
 
 if __name__ == "__main__":
