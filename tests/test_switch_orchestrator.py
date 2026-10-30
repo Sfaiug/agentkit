@@ -1,6 +1,6 @@
 """An open session moves to another orchestrator from the menu, its runs untouched.
 
-Picking another model in the `c` screen's orchestrator column moves the seat to it at
+A model its harness takes no move to, picked in `c`'s orchestrator column, moves the seat to it at
 once under the same name: the old harness process ends, the new one starts in the seat's
 directory, and the runs, plan file and record stay, with the new orchestrator in the
 record. The new seat's rulebook ends on `ak plan`, `ak run status` and the file the old
