@@ -122,7 +122,8 @@ def _keep(database):
     until it closes, so no write's close is the host's last, which would checkpoint and remove the
     WAL.  One per process, as each lives under one HOME; another database's replaces it."""
     if database not in _KEPT:
-        connection = sqlite3.connect(database, timeout=2)
+        # Any thread of this process may be the one to close it, so sqlite's check stays out.
+        connection = sqlite3.connect(database, timeout=2, check_same_thread=False)
         connection.execute("SELECT 1 FROM sqlite_master").fetchall()
         while _KEPT:
             _KEPT.popitem()[1].close()
