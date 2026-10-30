@@ -3,11 +3,12 @@
 The run's hand-back carries the verdict, the pull request and the result, so a seat whose `ak
 wait` names that run, or the pull request it lands (waited on as the run), gets that one line: the tick's wait pass
 (`watch.wait_over`) types nothing while the hand-back is on its way and marks the wait told once
-it is in.  A routine ending, recorded and never typed, still ends the wait with its own line.
+it is in, or once its seat's own `ak wait` on the ended run has printed it.  A routine ending,
+recorded and never typed, still ends the wait with its own line.
 The fixture is fixtures.seats: a temporary HOME, a fake tmux and pane.
 """
 
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import io
 import os
 import unittest
@@ -108,6 +109,18 @@ class OneLinePerRunEnd(Seats):
         self.assertEqual(len(self.typed), 2)
         self.assertEqual(self.typed[1],
                          "PR #7 closed without merging; your wait is over. Decide the next step.")
+        self.assertTrue(self.told())
+
+    def test_its_ending_read_in_its_ak_wait_ends_the_wait_untyped(self):
+        record.save_state(self.directory, dict(record.read_state(self.directory), state="fail",
+                                               verdict="FAIL", merged=False,
+                                               handback_pending=True))   # deferred: busy seat
+        with (patch.dict(os.environ, {config.SESSION_ENV: SEAT}),
+              redirect_stderr(io.StringIO()) as err):
+            self.assertEqual(watch.wait_main([RUN]), 1)
+        self.assertIn(f"run {RUN} finished FAIL", err.getvalue())
+        self.tick()
+        self.assertEqual(self.typed, [])
         self.assertTrue(self.told())
 
     def test_a_routine_ending_still_ends_the_wait_with_its_line(self):

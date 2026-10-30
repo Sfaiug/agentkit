@@ -1,6 +1,7 @@
 """An ending that waits for its seat's next quiet prompt is that seat's own question: its
 `ak run status` reads `needs you` and points to the look by id, and that look prints the line the
 tick would type and records the ending handed back, so the tick never types it as news after.
+Its `ak wait` on that run, refused as over, is such a look too.
 
 Only that seat's look by id records it: a listing can be cut before its row is read, a look whose
 output never got out told nobody, and a look finding the delivery lock held, never waiting for
@@ -86,6 +87,23 @@ class SeatReadsWaitingEnding(unittest.TestCase):
         listing = self.status()
         self.assertIn("done", self.row(listing))
         self.assertNotIn(POINTER, listing)
+
+    def wait(self, seat="acme"):
+        done = self.home.ak("wait", RUN, env={"AGENTKIT_SESSION": seat,
+                                              "AK_HOST_READINGS": json.dumps(READINGS)})
+        self.assertEqual(done.code, 1, done.err)       # over: nothing is left to wait on
+        return done.err
+
+    def test_its_wait_on_the_ended_run_prints_the_line_and_the_tick_owes_it_no_more(self):
+        self.assertNotRegex(self.wait(seat="beta"), LINE)
+        self.assert_waiting()
+        self.assertRegex(self.wait(), LINE)
+        said = self.record()
+        self.assertNotIn("handback_pending", said)
+        self.assertGreaterEqual(said["handed_back"], said["finished_at"])
+        self.assertTrue(said["reported"])
+        self.assertNotRegex(self.wait(), LINE)          # said once
+        self.assertIn("done", self.row(self.status()))
 
     def test_the_owner_another_seat_and_json_read_as_before(self):
         for seat in (None, "beta"):

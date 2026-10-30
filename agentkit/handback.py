@@ -923,14 +923,15 @@ def printed_at_launch(run_dir, state, log):
         log(f"run {run_dir.name} {PRINTED_NOTE}")
 
 
-LOOKED_NOTE = "read by its seat's own ak run status: printed there, not typed"
+LOOKED_NOTE = "read by its seat's own ak run status or ak wait: printed there, not typed"
 
 
 def look_line(run_dir, state):
-    """The hand-back line its own seat's `ak run status <id>` prints, or None.  A long line's
-    full notice is saved to result.md under the delivery lock (`seat_notice`), taken here
-    without waiting and released before the look prints: one held elsewhere is the tick
-    handing this ending back now, saving that notice itself."""
+    """The hand-back line its own seat's `ak run status <id>` prints, as does its `ak wait`
+    refused on that ended run, or None.  A long line's full notice is saved to result.md under
+    the delivery lock (`seat_notice`), taken here without waiting and released before the look
+    prints: one held elsewhere is the tick handing this ending back now, saving that notice
+    itself."""
     try:
         with delivery_lock(run_dir, wait=False) as held:
             return handback_line(state, run_dir, save=held)
@@ -939,12 +940,12 @@ def look_line(run_dir, state):
 
 
 def printed_at_look(run_dir, state):
-    """An ending its own seat's `ak run status <id>` has just printed, the line the tick would
-    type: the seat read it there, so it is recorded as handed back, as `printed_at_launch`
-    records a refusal -- typed in as well, it would be news the seat had already acted on
-    (28 Oct).  Only while this attempt's ending still waits (`waits`), and never waiting for
-    the lock: one held elsewhere is the tick typing that ending now, so it is left to it, and
-    the seat may read it twice."""
+    """An ending its own seat's `ak run status <id>` or `ak wait` has just printed, the line
+    the tick would type: the seat read it there, so it is recorded as handed back, as
+    `printed_at_launch` records a refusal -- typed in as well, it would be news the seat had
+    already acted on (28 Oct).  Only while this attempt's ending still waits (`waits`), and
+    never waiting for the lock: one held elsewhere is the tick typing that ending now, so it
+    is left to it, and the seat may read it twice."""
     with delivery_lock(run_dir, wait=False) as held:
         said = held and run_record.read_state(run_dir)
         if said and same_attempt(state, said) and waits(said):
