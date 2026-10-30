@@ -98,6 +98,14 @@ darwin() {
 # the kernel drops when its holder dies; suites preparing at once share the machine by these locks.
 locked() { lock "$1" bash -c "$(declare -f)"'
   "$@"' mac.sh "${@:2}"; }
+# session: the sshd process ak's ssh session runs under, else 1; once it ends, so does the work.
+session() {
+  s=$PPID
+  until [ "$s" -le 1 ] || ps -o comm= -p "$s" | grep -q sshd; do
+    s=$(ps -o ppid= -p "$s" | tr -d ' ')
+  done
+  echo "$s"
+}
 # held FLAG PID, under a lock: says it holds the lock by deleting FLAG, then keeps it until FLAG
 # is back or PID has ended.
 held() { rm "$1"; until [ -e "$1" ] || ! kill -0 "$2"; do sleep 0.1; done; rm -f "$1"; }
@@ -139,9 +147,11 @@ known)     # REPO: the commit its history here reaches, if any. A suite asks jus
 prepare)   # KEY IMAGE REPO, the parcel on stdin
   # -p: the recipe's files keep HEAD's modes, whatever umask the machine's shell has.
   mkdir -p "$ROOT/$2" && tar -x -p -C "$ROOT/$2" && echo "$3" >"$ROOT/$2/image/name" || exit 253
-  # Dead callers' trees go after a day; the build lock stays.
-  find "$ROOT" -mindepth 1 -maxdepth 1 -type d ! -name mirrors -mtime +1 -exec rm -rf {} + \
-    2>/dev/null
+  # A turn's harness program, which a later task installs, is in $ROOT/harness/<its harness>.
+  [ ! -f "$ROOT/$2/harness" ] || [ -d "$ROOT/harness/$(cat "$ROOT/$2/harness")" ] || exit 253
+  # Dead callers' trees go after a day; the build lock and harness programs stay.
+  find "$ROOT" -mindepth 1 -maxdepth 1 -type d ! -name mirrors ! -name harness -mtime +1 \
+    -exec rm -rf {} + 2>/dev/null
   # The repository's copy, empty at first, comes before its image, so the collection finds an
   # image whose suite then failed.
   M="$MIRRORS/$4"
@@ -155,10 +165,7 @@ run)       # KEY IMAGE NAME CPUS MEMORY_MB REPO, then piece.sh's arguments
   # The piece names its failed tests in /out (piece.sh), which `failed` reads once it ends.
   out="$D/$name.out"
   [ -d "$D" ] && [ -d "$M" ] && rm -rf "$out" && mkdir -m 777 "$out" || exit 253
-  session=$PPID
-  until [ "$session" -le 1 ] || ps -o comm= -p "$session" | grep -q sshd; do
-    session=$(ps -o ppid= -p "$session" | tr -d ' ')
-  done
+  session=$(session)
   # Pieces are admitted one at a time, each running before the next is weighed, so pieces placed
   # at once never get more together than `left` allows; one that does not fit runs on ak's host.
   flag=$D/$name.admit
@@ -189,6 +196,29 @@ failed)    # KEY NAME [flaky]: the tests piece NAME named as failed (or flaky); 
            # link it left there
   f="$ROOT/$2/$3.out/${4:-failed}"
   [ ! -f "$f" ] || [ -L "$f" ] || cat "$f"; exit 0 ;;
+turn)      # KEY IMAGE MEMORY_MB REPO, volumes PART:PATH[:ro] of its parcel, `--`, turn.sh's
+  # arguments: the turn's container, its events on stdout and harness's stderr on stderr, ended
+  # with ak's ssh session. It exits as the turn did.
+  D="$ROOT/$2" image=$3 memory=$4 M="$MIRRORS/$5" name="ak-$2-turn" volumes=()
+  H="$ROOT/harness/$(cat "$D/harness")"
+  shift 5
+  while [ "${1:---}" != -- ]; do mkdir -p "$D/${1%%:*}" && volumes+=(--volume "$D/$1"); shift; done
+  shift
+  session=$(session)
+  start_turn "$@" >&2 &
+  vm=$!
+  ( while ps -p "$session"; do sleep 5; done
+    while ps -p "$vm"; do stop "$name"; sleep 1; done ) >/dev/null 2>&1 &
+  guard=$!
+  tail -c +1 -F --pid="$vm" "$D/out/events.jsonl" 2>/dev/null &
+  tail -c +1 -F --pid="$vm" "$D/out/stderr.log" >&2 2>/dev/null &
+  wait "$vm"
+  code=$?
+  kill "$guard"
+  wait
+  exit "$code" ;;
+collect)   # KEY: an ended turn's out dir and the bundle turn.sh left, as a tar on stdout
+  cd "$ROOT/$2" && [ -f back.bundle ] && tar -c out back.bundle || exit 253 ;;
 finish) rm -rf "${ROOT:?}/$2" ;;
 *) exit 253 ;;
 esac

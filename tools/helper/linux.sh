@@ -10,6 +10,7 @@ linux() {
     docker info >/dev/null 2>&1 || return
     echo "cpus $(nproc)"
     echo "load $(uptime | awk -F'load average: ' '{print $2 + 0}')"
+    echo "turns 1"    # it takes a model's turn (agentkit/machine_turn.py)
   }
   # left: the MiB ak's containers here may still be given: all the machine's memory but a tenth
   # its system keeps, less what the running ones were given.
@@ -46,6 +47,15 @@ linux() {
       --security-opt apparmor=unconfined --security-opt systempaths=unconfined \
       --volume "$D:/in:ro" --volume "$M:/mirror:ro" --volume "$out:/out" "$image" \
       /bin/bash /in/piece.sh "$@"
+  }
+  # start_turn, from `turn`, with turn.sh's arguments: `start`'s container, but as the user who owns
+  # its volumes, with a network for the harness's API and no CPU bound: a turn mostly waits.
+  start_turn() {
+    docker run --rm --init --name "$name" --user "$(id -u):$(id -g)" --memory "${memory}m" \
+      --memory-swap "${memory}m" --security-opt seccomp=unconfined \
+      --security-opt apparmor=unconfined --security-opt systempaths=unconfined \
+      --volume "$D:/in" --volume "$M:/mirror:ro" --volume "$H:/harness:ro" "${volumes[@]}" \
+      "$image" /bin/bash /in/turn.sh "$@"
   }
   stop() { docker stop -t 1 "$1"; }
 }
