@@ -192,6 +192,12 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
     "macbridge": ("usage: ak macbridge [--reader]", "macOS only: forward requested files to the server over SSH.\n"
                   "--reader starts a detached reader under this terminal app for dropped files.",
                   "ak macbridge"),
+    "move": ("usage: ak move ALIAS",
+             "Copy this home to the same path on the machine `ssh ALIAS` reaches.\n"
+             "Run again, it sends only what changed and deletes there what was deleted here.\n"
+             "Refused if ALIAS is this machine, its home path differs, ak's tick is in its crontab,\n"
+             "or ak's tmp folder, ~/.ssh/authorized_keys or the browser profile is a link on either.",
+             "ak move acme-mini"),
 }
 
 
