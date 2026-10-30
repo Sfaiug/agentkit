@@ -374,11 +374,11 @@ def prose_grown(lp):
 
 
 def keyless_python(lp):
-    """The refusal for a branch that changes a .py file outside tests/ and no answer key (`KEY`), or "".
+    """The refusal for a branch that changes Python outside tests/ with no answer key (`KEY`), or "".
 
     In force where the base holds a key: the base's keys count, so a branch deleting its own frees
     nothing.  Decided from git's change records alone: every record but a deletion or a pure move
-    (R100) writes its file, and a key counts written or moved in from another name.
+    (R100) writes its file, and a pure move from another kind of name makes a new key or .py file.
     """
     # `git` replaces only bytes that are not UTF-8, never "/" or ASCII: a key's name keeps its shape
     held = gitcall.git(lp.wt, "ls-tree", "-z", "--name-only", lp.base_sha, "--", "tests/")
@@ -396,7 +396,7 @@ def keyless_python(lp):
         writes = status not in ("D", "R100")
         if KEY.fullmatch(new):
             keyed |= writes or not KEY.fullmatch(old)
-        elif writes and new.endswith(".py") and not new.startswith("tests/"):
+        elif (writes or not old.endswith(".py")) and new.endswith(".py") and not new.startswith("tests/"):
             python.append(new)
     if keyed or not python:
         return ""

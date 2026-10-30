@@ -19,14 +19,15 @@ from fixtures.akbin import Home
 from fixtures.gitrig import Rig
 
 PLAIN = {"src/widget.py": "def turns():\n    return 1\n", "src/spare.py": "SPARE = 1\n",
+         "src/notes.txt": "print('a note')\n",
          "tests/test_widget.py": "from widget import turns\nassert turns() == 1\n"}
 KEYED = {**PLAIN, "tests/test_key_widget_starts.py": "# starts the widget from outside\n"}
 # The widget edited, and its plain test with it.
 EDIT = {"src/widget.py": "def turns():\n    return 2\n",
         "tests/test_widget.py": "from widget import turns\nassert turns() == 2\n"}
-REFUSAL = ("Python changed with no answer key: src/widget.py. A change to a .py file outside "
-           "tests/ adds, edits or moves in a tests/test_key_*.py in the same change: a black-box "
-           "test of what it does.")
+REFUSAL = ("Python changed with no answer key: src/notes.py, src/widget.py. A change to a .py file "
+           "outside tests/ adds, edits or moves in a tests/test_key_*.py in the same change: a "
+           "black-box test of what it does.")
 
 
 def step(write, sh=None):
@@ -65,16 +66,18 @@ class RunOn:
 
 
 class PythonEditedBesideAPlainTest(RunOn, unittest.TestCase):
-    """The executor edits the widget and its plain test, and deletes the base's key, which frees
-    nothing; the fixer the refusal gets adds a key."""
+    """The executor edits the widget and its plain test, renames a text file to Python, which adds
+    a Python file, and deletes the base's key, which frees nothing; the fixer the refusal gets adds
+    a key."""
 
     @classmethod
     def setUpClass(cls):
         cls.start(KEYED, "grep -q 2 src/widget.py",
-                  step(EDIT, "git rm -q tests/test_key_widget_starts.py"),
+                  step(EDIT, "git rm -q tests/test_key_widget_starts.py && "
+                             "git mv src/notes.txt src/notes.py"),
                   step({"tests/test_key_widget_turns.py": "# turns the widget from outside\n"}))
 
-    def test_the_round_fails_naming_the_python_file_and_not_its_test(self):
+    def test_the_round_fails_naming_the_python_files_and_not_the_test(self):
         prompt = (self.run_dir / "round-1/fixer/prompt.md").read_text()
         failed = prompt.split("## The done-when commands failed.", 1)
         self.assertEqual(len(failed), 2, prompt)
