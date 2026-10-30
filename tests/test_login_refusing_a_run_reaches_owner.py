@@ -1,0 +1,220 @@
+"""A login that refused runs twice since it last answered keeps their seat's card up until it does.
+
+A key `auth` passes can still be refused at every turn, and the tick resumes the parked run
+straight back into the refusal.  The card names the login, is sent once, and stays up through
+resumes, refusals, a killed turn and the owner opening the seat; it comes down once the login
+answers, or once no run it refused is going, and a later run it refuses before it answers raises
+it at once.  One refusal whose next turn is answered raises none.  Black-box against `AK_BIN`
+(tests/fixtures/akbin.py), on fakeadapter.py's harness, whose `auth` says yes while its turns say
+its logout words, from a seat of akseat.py paging tests/fixtures/sink.py, each tick in the box
+`home.tick()` builds.
+"""
+
+import json
+import sys
+import time
+from pathlib import Path
+import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import akconfig, fakeadapter, taskfile
+from fixtures.akbin import REAL_TMUX, Home, boxable
+from fixtures.akseat import Seat
+from fixtures.akterm import Terminal
+from fixtures.gitrig import Rig
+from fixtures.sink import Sink
+
+OFFLINE = "http://127.0.0.1:9"    # a refused port: the tick's public-board reads stay on loopback
+# a turn the key is refused for, while `auth` keeps answering the fake's yes
+REFUSED = {"stderr": "Invalid API key · Please run /login\n", "exit": 1}
+# a turn killed by signal: resumed at once, and no answer from the login
+KILLED = {"sh": "kill -TERM $PPID"}
+
+
+@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
+class Refusals(unittest.TestCase):
+    steps = ()
+
+    @classmethod
+    def setUpClass(cls):
+        cls.home = Home()
+        cls.addClassCleanup(cls.home.close)
+        cls.home.env.update(https_proxy=OFFLINE, HTTPS_PROXY=OFFLINE,
+                            no_proxy="127.0.0.1,localhost")
+        cls.sink = Sink(cls.home)
+        cls.addClassCleanup(cls.sink.close)
+        cls.seat = Seat(cls.home, "acme", planned=True)
+        cls.rig = Rig(cls.home, "widgets")
+        akconfig.write(cls.home, ["opus"])
+        cls.claude = fakeadapter.install(cls.home, claude=list(cls.steps))["claude"]
+        cls.code = cls.launch("Add retry file")
+        cls.run_dir = taskfile.only_run(cls.home)
+
+    @classmethod
+    def launch(cls, title):
+        """Run a task from the seat until it first parks or ends; its exit code."""
+        task = taskfile.write(cls.home, cls.rig.path, title)
+        return cls.home.ak("run", str(task), "--no-merge", timeout=300,
+                           env={"AGENTKIT_SESSION": "acme"}).code
+
+    @classmethod
+    def record(cls):
+        return json.loads((cls.run_dir / "run.json").read_text())
+
+    @classmethod
+    def tick(cls):
+        done = cls.home.tick()
+        assert done.code == 0, done.err
+
+    @classmethod
+    def parked(cls, turns, bound=60):
+        """Wait until the run has parked on its login after that many turns."""
+        deadline = time.monotonic() + bound
+        while True:
+            state = cls.record()
+            if (cls.claude.n >= turns and state["state"] == "waiting_login"
+                    and "login_back_at" not in state):
+                return state
+            if time.monotonic() > deadline:
+                raise AssertionError(f"not parked after {turns} turns: {state['state']}")
+            time.sleep(0.2)
+
+    @classmethod
+    def ended(cls, bound=120):
+        deadline = time.monotonic() + bound
+        while (state := cls.record())["state"] in ("waiting_login", "queued", "running"):
+            if time.monotonic() > deadline:
+                raise AssertionError(f"still {state['state']} after {bound} s")
+            time.sleep(0.2)
+        return state
+
+    @classmethod
+    def card(cls):
+        """The seat's login card while it is up, else None."""
+        try:
+            notice = json.loads(
+                (cls.home.path / ".agentkit/state/notify-acme.json").read_text())
+        except FileNotFoundError:
+            return None
+        up = (notice.get("kind") == "needs" and not notice.get("seen")
+              and str(notice.get("source")).startswith("auth:acme:"))
+        return notice if up else None
+
+    @classmethod
+    def needs_pages(cls):
+        """`needs` pages sent or still owed: the outbox keeps each, delivered or not."""
+        return sum(json.loads(path.read_text()).get("kind") == "needs" for path in
+                   (cls.home.path / ".agentkit/state/notification-outbox").glob("*.json"))
+
+    @classmethod
+    def open_seat(cls, bound=30):
+        """The owner opens the seat at a terminal, and leaves it."""
+        term = Terminal(cls.home, "orch", "acme")
+        deadline = time.monotonic() + bound
+        while "acme" not in cls.home.tmux("list-clients", "-F", "#{client_session}").out.split():
+            if time.monotonic() > deadline:
+                raise AssertionError(f"never opened: {term.screen()}")
+            time.sleep(0.05)
+        cls.home.tmux("detach-client", "-s", "=acme")
+        assert term.exit_code() == 0
+
+    def assertNamesTheLogin(self, card):
+        self.assertIsNotNone(card)
+        self.assertTrue(card["source"].startswith("auth:acme:claude:"), card)
+        self.assertIn("Claude Code", card["text"])
+
+
+class KeepsRefusing(Refusals):
+    # the executor refused twice, killed, refused, then answered; the reviewer refused, answered
+    steps = (REFUSED, REFUSED, KILLED, REFUSED, "work", REFUSED, "work")
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.parked(1)
+        cls.tick()                  # refused once: resumed, and nobody hears of it
+        cls.after_one = (cls.card(), cls.needs_pages())
+        cls.parked(2)
+        cls.tick()                  # refused twice in a row: the card goes up
+        cls.after_two = (cls.card(), cls.needs_pages())
+        cls.open_seat()             # the owner looks, which answers nothing
+        cls.after_open = (cls.card(), cls.needs_pages())
+        cls.parked(4)
+        cls.seat.show("claude-working-pane.txt")    # and output after that look answers nothing
+        cls.tick()                  # and stays up while the refusals go on, its turn next
+        cls.after_three = (cls.card(), cls.needs_pages())
+        cls.parked(6)
+        cls.tick()                  # answered, then refused once: the run still goes
+        cls.after_answer = (cls.card(), cls.needs_pages())
+        cls.end = cls.ended()
+        cls.tick()
+        cls.after_end = (cls.card(), cls.needs_pages())
+
+    def test_one_refusal_raises_no_card(self):
+        self.assertEqual(self.code, 1)
+        self.assertEqual(self.after_one, (None, 0))
+
+    def test_a_second_refusal_in_a_row_puts_the_card_up_once_naming_the_login(self):
+        self.assertNamesTheLogin(self.after_two[0])
+        self.assertEqual(self.after_two[1], 1)
+
+    def test_the_card_stays_up_and_is_not_sent_again_while_the_refusals_go_on(self):
+        self.assertEqual(self.after_three, (self.after_two[0], 1))
+
+    def test_opening_the_seat_leaves_the_card_up_and_sends_it_no_second_time(self):
+        self.assertEqual(self.after_open, (self.after_two[0], 1))
+
+    def test_the_card_comes_down_once_the_login_answers(self):
+        self.assertEqual(self.after_answer, (None, 1))
+        self.assertEqual(self.claude.n, 7)      # four refused, one killed, executor, reviewer
+        self.assertEqual((self.end["state"], self.end["verdict"]), ("pass", "PASS"))
+        self.assertEqual(self.after_end, (None, 1))
+
+
+class RefusedOnce(Refusals):
+    steps = (REFUSED, "work")
+
+    def test_a_run_refused_once_whose_next_turn_gets_through_raises_no_card(self):
+        self.assertEqual(self.code, 1)
+        self.parked(1)
+        self.tick()
+        cards = [self.card()]
+        self.assertEqual(self.ended()["state"], "pass")
+        self.tick()
+        cards.append(self.card())
+        self.assertEqual((cards, self.needs_pages()), ([None, None], 0))
+
+
+class EndsRefused(Refusals):
+    steps = (REFUSED,)              # every turn, of either run
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.parked(1)
+        cls.tick()
+        cls.parked(2)
+        cls.tick()                  # refused twice: the card goes up
+        cls.before_end = cls.card()
+        cls.parked(3)
+        cls.stopped = cls.home.ak("run", "stop", cls.run_dir.name).code
+        cls.tick()                  # its one refused run ended
+        cls.after_end = (cls.card(), cls.needs_pages())
+        cls.later = cls.launch("Add other file")
+        cls.tick()                  # refused once more, the login still unanswered
+        cls.after_later = (cls.card(), cls.needs_pages())
+
+    def test_a_refused_run_that_ends_takes_its_seats_card_down(self):
+        self.assertNamesTheLogin(self.before_end)
+        self.assertEqual((self.stopped, self.record()["state"]), (0, "stopped"))
+        self.assertEqual(self.after_end, (None, 1))
+
+    def test_a_later_run_the_login_refuses_before_it_answers_raises_the_card_at_once(self):
+        self.assertEqual(self.later, 1)
+        self.assertNamesTheLogin(self.after_later[0])
+        self.assertEqual(self.after_later[1], 2)
+
+
+if __name__ == "__main__":
+    unittest.main()
