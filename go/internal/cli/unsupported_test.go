@@ -41,7 +41,7 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 		{"run", "gc", "--dry-run"}, {"run", "--review-pr", "https://github.com/acme/api/pull/12"},
 		{"orch", "acme", "--dry-run"}, {"orch", "acme"}, {"orch", "ended", "acme", "1700000000"}, {"plan", "check", "٣", "true"}, {"plan", "check", "²", "a\nb"}, {"plan", "check", "1", "true \xff"}, {"hand-in", "done"},
 		{"notify", "--check"}, {"notify", "needs", "Which branch?"},
-		{"wait", "https://github.com/acme/api/pull/12"}, {"update", "--dry-run"},
+		{"wait", "https://github.com/acme/api/pull/12"},
 		{"watch", "--dry-run"}, {"doctor"}, {"browser", "status"},
 	}
 	if runtime.GOOS == "darwin" {

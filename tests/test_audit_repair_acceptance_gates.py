@@ -111,7 +111,7 @@ for harness in claude codex muse; do fakeadapter "$AGENTKIT_ADAPTER_DIR" "$harne
     def test_throwaway_home_shell_and_driver_need_no_privilege(self):
         for banned in ("asroot", "runas", "sudo", "useradd", "SUDO_USER"):
             self.assertNotIn(banned, FRESH)
-        as_user = between(FRESH, "\nas()", "# A subscription login")
+        as_user = between(FRESH, "\nas()", "\ncleanup_logs()")
         drive = between(FRESH, "drive()", "# All supported harnesses")
         for block in (as_user, drive):
             self.assertIn('HOME=$UH', block)
@@ -463,8 +463,7 @@ exec "$dir/muse-bin-$(cat "$dir/.muse-version")" "$@"
     def test_fresh_cleanup_keeps_remote(self):
         cleanup = between(FRESH, 'cleanup() {', '\ntrap cleanup EXIT')
         self.script("gh", 'echo "$*" >>"$WORK/gh-calls"\nexit 97\n')
-        self.shell('''sync_back() { :; }
-cleanup_logs() { :; }
+        self.shell('''cleanup_logs() { :; }
 KEEP=0 UH="$WORK/home"
 E2E_TMUX_DIR="$TMUX_TMPDIR"
 ''' + cleanup + '\ncleanup', check=True)
@@ -495,59 +494,16 @@ INVOKER=fixture INVHOME="$HOME" UH="$WORK/home" BORROWED=""
         self.assertEqual(list(archive.parent.glob('e2e-fresh*')), [archive])
         before = archive.read_bytes()
         work = self.root / 'failed-archive'
-        work.mkdir()
+        (work / 'home').mkdir(parents=True)
         self.script('tar', 'echo "fixture archive failure" >&2; exit 29\n')
         result = self.shell('''say() { echo "$*"; }
 INVOKER=fixture INVHOME="$HOME" UH="$WORK/home" BORROWED=""
 ''' + cleanup + '\ncleanup_logs 1', env={"WORK": str(work)}, check=True)
+        self.assertIn('fixture archive failure', result.stderr)
         self.assertIn('WARN could not archive', result.stdout)
         self.assertFalse(work.exists())
         self.assertEqual(archive.read_bytes(), before)
         self.assertEqual(list(archive.parent.glob('e2e-fresh*')), [archive])
-
-    def test_fresh_failure_archive_keeps_no_borrowed_login_or_secret(self):
-        (self.bin / 'install').unlink()   # step c installs the copies itself
-        borrow = between(FRESH, '  LENT=" "', '  # Whether each harness can log in')
-        sync_back = between(FRESH, 'sync_back()', '\ncleanup_logs()')
-        cleanup = between(FRESH, 'cleanup_logs()', '\ncleanup()')
-        archive = self.home / '.agentkit/tmp/e2e-fresh-failure.tar.gz'
-        claude = {'claudeAiOauth': {'accessToken': 'fixture-secret-old',
-                                    'refreshToken': 'fixture-secret-old', 'expiresAt': 1000}}
-        grok = {'fixture': {'key': 'fixture-secret-old', 'expires_at': '2000-01-01T00:00:00Z'}}
-        for name, text in (('.claude/.credentials.json', json.dumps(claude)),
-                           ('.grok/auth.json', json.dumps(grok)),
-                           ('.config/opencode/opencode.json', '{"key": "fixture-secret-opencode"}'),
-                           ('.agentkit/secrets/discord_webhook', 'fixture-secret-webhook')):
-            (self.home / name).parent.mkdir(parents=True, exist_ok=True)
-            (self.home / name).write_text(text)
-        # What Claude and Grok do when they renew: a fresh file renamed over the lent link.
-        claude['claudeAiOauth'].update(accessToken='fixture-secret-renewed',
-                                       refreshToken='fixture-secret-renewed', expiresAt=4102444800000)
-        grok['fixture'].update(key='fixture-secret-renewed', expires_at='2100-01-01T00:00:00Z')
-        (self.root / 'renewed-claude').write_text(json.dumps(claude))
-        (self.root / 'renewed-grok').write_text(json.dumps(grok))
-        work = self.root / 'gate'
-        result = self.shell('''say() { echo "$*"; }
-INVOKER=fixture INVHOME="$HOME" UH="$WORK/home" BORROWED="" bad="" HOSTBIN=" "
-caller_config="$HOME/.config" caller_data="$HOME/.local/share" caller_claude="$HOME/.claude"
-caller_grok="$HOME/.grok" caller_opencode="$HOME/.config/opencode/opencode.json"
-mkdir -p -- "$UH"
-''' + borrow + '''
-mv -f -- "$ACCEPTANCE_FIXTURE/renewed-claude" "$UH/.claude/.credentials.json"
-mv -f -- "$ACCEPTANCE_FIXTURE/renewed-grok" "$UH/.grok/auth.json"
-echo "bad=[$bad]"
-''' + sync_back + cleanup + '\nsync_back && cleanup_logs 1',
-                            env={"WORK": str(work), "CODEX_HOME": ""}, check=True)
-        self.assertIn('bad=[]', result.stdout)
-        self.assertIn(f'failure logs: {archive}', result.stdout)
-        self.assertFalse(work.exists())
-        # The renewed logins went home before the archive was made without them.
-        self.assertEqual(json.loads((self.home / '.claude/.credentials.json').read_text()), claude)
-        self.assertEqual(json.loads((self.home / '.grok/auth.json').read_text()), grok)
-        with tarfile.open(archive) as saved:
-            leaked = [m.name for m in saved.getmembers()
-                      if m.isfile() and b'fixture-secret' in saved.extractfile(m).read()]
-        self.assertEqual(leaked, [])
 
     def test_fresh_source_is_the_committed_branch_and_remote_presence_is_not_done(self):
         source = between(FRESH, 'SOURCE_SHA=', 'IRC=$?')

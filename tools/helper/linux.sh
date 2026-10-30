@@ -33,13 +33,14 @@ linux() {
   }
   # admit KEY [CPUS], from `prepare` under the suites lock: the suite comes in while a quarter of
   # the machine is spare and holds half of it until its first piece runs or two minutes pass, so
-  # suites whose `probe`s all saw the machine empty do not all start. A turn holds only the CPUS it
-  # takes: turns start seconds apart, and each holding half would turn suites and the next turn
-  # away.
+  # suites whose `probe`s all saw the machine empty do not all start. A turn asks and holds only the
+  # CPUS it takes: turns start seconds apart, each holding half would turn suites and the next turn
+  # away, and asking a quarter kept 13 turns on a host out of CPU beside a machine with 72 (30 Oct 2026).
   admit() {
     rm -f "$ROOT/$1/reserved"    # a suite preparing again (exit 3) is weighed without its own
     spare=$(spare) || exit 253
-    awk -v cpus="$(cpus)" -v spare="$spare" 'BEGIN {exit spare < cpus / 4}' || exit 252
+    awk -v cpus="$(cpus)" -v spare="$spare" -v turn="${2:-}" \
+      'BEGIN {exit spare < (turn == "" ? cpus / 4 : turn)}' || exit 252
     mkdir -p "$ROOT/$1" && echo "${2:-$(( $(cpus) / 2 ))}" >"$ROOT/$1/reserved" || exit 253
   }
   # started, from `run` once its piece runs or has ended: the suite's reservation ends, under the

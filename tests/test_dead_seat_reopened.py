@@ -250,9 +250,9 @@ class V5s(Sandbox):
         overtaken = watch.type_at_prompt.call_args.kwargs["stale"]
         self.assertFalse(overtaken(SEAT))
         # renamed while its line went in, and told by another teller: this one types no more
-        line, = self.owed
+        told, = watch.seat_read(SEAT)["owed_lines"]
         config.rename_session(SEAT, "renamed")
-        watch.owe_line(SEAT, line, None)
+        watch.owe_line(SEAT, told)
         self.assertEqual(watch.seat_read("renamed").get("owed_lines"), None)
         self.assertTrue(overtaken("renamed"))
         self.assertIsNone(watch.news_owed("renamed", [], read=False))
