@@ -66,7 +66,9 @@ FRESH_FAULTS = "fresh-gate-faults"  # under config.STATE: the fresh-install gate
 # group, so the group's id names no other process while it signals it.  Once the script
 # exits, KILL to the group ends whatever it left there; at the check's cap, or as soon as the
 # tick's TERM tells it to, TERM, then KILL after the grace, and a red exit code: so a check
-# ends on a host with no /proc for `worker.kill_marked` to read.
+# ends on a host with no /proc for `worker.kill_marked` to read.  The exit code waits, up to
+# the grace, until signal 0 finds the group gone, zombies reaped; past the holder's reaping it
+# only probes, so an id named anew costs that wait and nothing else.
 # This script is the only writer of both files; the tick only creates the directory and reads it.
 LIVE_RUN = r'''import fcntl, os, signal, subprocess, sys, time
 check, repo, commit, cap, grace, moving = sys.argv[1:]
@@ -106,6 +108,13 @@ if code is None:
 end(signal.SIGKILL)
 script.wait()
 holder.wait()
+gone = time.monotonic() + float(grace)
+while time.monotonic() < gone:  # a busy host runs what KILL reached only later
+    try:
+        os.killpg(holder.pid, 0)
+    except OSError:
+        break
+    time.sleep(0.01)
 subprocess.run(["git", "-C", repo, "worktree", "remove", "--force", f"{check}/tree"],
                capture_output=True)
 with open("output.tmp", "a") as out:
