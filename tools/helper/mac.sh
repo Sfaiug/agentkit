@@ -63,6 +63,7 @@ darwin() {
     done
     return 0
   }
+  building() { :; }    # `images` does it: any build's end stops the builder of all
   # images KEY IMAGE, under the build lock, as any build's end stops the builder of all: the
   # suite's image, built unless the Mac has it.
   images() {
@@ -153,6 +154,7 @@ prepare)   # KEY IMAGE REPO, the parcel on stdin
   M="$MIRRORS/$4"
   mkdir -p "$MIRRORS" && locked "$M.lock" git init -q --bare "$M" || exit 253
   locked "$ROOT/build.lock" images "$2" "$3" || exit
+  building "$2" "$3" || exit
   locked "$M.lock" history "$2" "$M" ;;
 run)       # KEY IMAGE NAME CPUS MEMORY_MB REPO, then piece.sh's arguments
   D="$ROOT/$2" image=$3 name=$4 cpus=$5 memory=$6 M="$MIRRORS/$7"
