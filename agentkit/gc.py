@@ -17,8 +17,8 @@ import subprocess
 import sys
 import time
 
-from . import (config, gitcall, handback, host, job as jobs, land, macbridge, orch, proc_snapshot,
-               record, retention, run, stop, transitions, turns, watch, worktrees)
+from . import (config, gitcall, handback, host, job as jobs, land, macbridge, orch, owner,
+               proc_snapshot, record, retention, run, stop, transitions, turns, watch, worktrees)
 from .harness import (conversation_stores, end_conversation, idle_conversations,
                       load as harness_plugin)
 
@@ -899,8 +899,9 @@ def schedule_gc(log):
         return
     try:
         subprocess.Popen([sys.executable, "-m", "agentkit.retention", "collect"],
-                         cwd=config.REPO, env=config.child_env(), stdin=subprocess.DEVNULL,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                         cwd=config.REPO, env=owner.unmarked(config.child_env()),
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
     except OSError as exc:
         log(f"WARN could not start retention: {exc}")
 
