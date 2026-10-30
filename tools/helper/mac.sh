@@ -183,6 +183,9 @@ run)       # KEY IMAGE NAME CPUS MEMORY_MB REPO, then piece.sh's arguments
     while ps -p "$vm"; do stop "$name"; sleep 1; done ) >/dev/null 2>&1 &
   # The next piece is weighed once this one runs, or has ended: stopped while starting, it ends.
   until running "$name" || ! kill -0 "$vm" 2>/dev/null; do sleep 0.2; done
+  # Its suite's reservation (linux's `admit`) ends here, under the lock `admit` reads by, so no
+  # suite comes in while neither the reservation nor the container holds the machine.
+  [ ! -e "$D/reserved" ] || locked "$ROOT/suites.lock" rm -f "$D/reserved"
   : >"$flag"
   wait "$vm"
   code=$?

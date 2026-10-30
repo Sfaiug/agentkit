@@ -27,7 +27,7 @@ linux() {
       half /= 2; print "cpus " half; print "load " (spare < half ? half - spare : 0) }'
   }
   # admit KEY, from `prepare` under the suites lock: the suite comes in while a quarter of the
-  # machine is spare and holds half of it until its first piece starts or two minutes pass, so
+  # machine is spare and holds half of it until its first piece runs or two minutes pass, so
   # suites whose `probe`s all saw the machine empty do not all start.
   admit() {
     rm -f "$ROOT/$1/reserved"    # a suite preparing again (exit 3) is weighed without its own
@@ -61,10 +61,8 @@ linux() {
     expire
   }
   # start, from `run`, with piece.sh's arguments: the piece's container, with no network beyond
-  # loopback and no swap, which ends its suite's reservation. Its sandboxes need user namespaces
-  # and an unmasked /proc.
+  # loopback and no swap. Its sandboxes need user namespaces and an unmasked /proc.
   start() {
-    rm -f "$D/reserved"
     docker run --rm --init --name "$name" --network none --cpus "$cpus" --memory "${memory}m" \
       --memory-swap "${memory}m" --security-opt seccomp=unconfined \
       --security-opt apparmor=unconfined --security-opt systempaths=unconfined \

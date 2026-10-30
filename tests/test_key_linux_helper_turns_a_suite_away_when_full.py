@@ -1,6 +1,6 @@
 """A Linux suite helper admits a suite at its `prepare` while a quarter of the machine is spare,
-counting half of it for each suite admitted that has started no piece, and gives one suite at
-most half of it.
+counting half of it for each suite admitted whose first piece does not run yet, and gives one
+suite at most half of it.
 
 Black-box, as tests/test_key_helper_on_linux.py: tools/helper's script runs here as ak sends it,
 in a HOME of its own, with the machine's programs first on PATH: eight CPUs, 64 GiB and a fake
@@ -14,18 +14,21 @@ import subprocess
 import tarfile
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 import unittest
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools" / "helper"
 IMAGE = "ak-helper-acme:0123456789ab"
 
 # docker, as tools/helper/linux.sh asks it: images and containers are files under the machine's
-# `docker`, a container's holding the CPUs and bytes it was given; one ends as it starts.
+# `docker`, a container's holding the CPUs and bytes it was given; one `run` leaves `asked`,
+# starts once `starting` is gone and ends as it starts.
 DOCKER = r"""#!/bin/bash
 cd "$(dirname "$0")/../docker" || exit 1
 case $1 in
 build) touch "images/$4" ;;    # build -q -t IMAGE -f RECIPE CONTEXT
 image) [ "$2" != inspect ] || [ -e "images/$3" ] ;;
+run) : >asked; while [ -e starting ]; do sleep 0.1; done ;;
 ps) ls containers ;;
 inspect)    # inspect --format FORMAT NAME...: an unknown container fails it, as docker's does
   for name in "${@:4}"; do
@@ -91,10 +94,17 @@ class LinuxHelperTurnsASuiteAway(unittest.TestCase):
         self.assertEqual(self.probe(), (4, 4))
         self.assertEqual((self.prepare("a"), self.prepare("b")), (0, 0))
         self.assertEqual(self.probe(), (0, 4))
-        self.assertEqual(self.prepare("c"), 252)
-        run = self.helper("run", "a", IMAGE, "ak-a-1-1", "2", "1024", "acme", "1/1", "", "", "",
-                          "true")
-        self.assertEqual(run.returncode, 0, run.stderr)
+        state = self.machine / "docker"
+        (state / "starting").touch()
+        with ThreadPoolExecutor() as pool:
+            run = pool.submit(self.helper, "run", "a", IMAGE, "ak-a-1-1", "2", "1024", "acme",
+                              "1/1", "", "", "", "true")
+            deadline = time.monotonic() + 30
+            while not (state / "asked").exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertEqual(self.prepare("c"), 252)    # a's piece starts: a holds its half
+            (state / "starting").unlink()
+            self.assertEqual(run.result().returncode, 0, run.result().stderr)
         self.assertEqual(self.prepare("c"), 0)
         self.assertEqual(self.prepare("d"), 252)
 
