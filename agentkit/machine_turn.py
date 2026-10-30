@@ -1,9 +1,11 @@
 """A model turn on a rented machine once config.toml says `machine_turns = true`, its results back
 here when it ends. Hidden here: the machine, picked as agentkit/helper.py picks a suite's among
 those that take turns, and the ssh to it; the parcel beside a suite's: the out dir, the checkout's
-uncommitted paths, ak itself and a HOME of the turn's own; the container tools/helper/turn.sh runs
-the turn in, at this host's paths; and what comes back: the out dir and a bundle of the turn's
-commits, the last holding what it left uncommitted, which git applies here.
+uncommitted paths, ak itself, a HOME of the turn's own and the harness program to run, which the
+machine fetches the first time a turn names it (mac.sh's `fetch`), a new version here reaching it
+at its next turn; the container tools/helper/turn.sh runs the turn in, at this host's paths; and
+what comes back: the out dir and a bundle of the turn's commits, the last holding what it left
+uncommitted, which git applies here.
 """
 
 import io
@@ -21,18 +23,19 @@ AK = ("adapters", "agentkit", "bin", "tools")    # ak itself, read-only there, `
 
 def call(harness, cmd, cwd, out_dir, env, places, watch):
     """(exit, killed) of the turn `cmd` on a machine with room, or None: it runs here, as with the
-    switch off, `places`, no recipe or no room. `watch(argv, **streams)` runs ssh as the worker's
-    watchdog runs a turn, into the out dir's events.jsonl and stderr.log. A lost machine's turn
-    fails, this host's checkout as it was."""
+    switch off, `places`, no program for it (`_program`), no recipe or no room. `watch(argv,
+    **streams)` runs ssh as the worker's watchdog runs a turn, into the out dir's events.jsonl and
+    stderr.log. A lost machine's turn fails, this host's checkout as it was."""
     try:
         on = (config._read_toml(config.HOME / config.CONFIG_NAME) or {}).get("machine_turns")
+        program = _program(harness) if on is True and not places else None
     except config.Error:    # a config.toml mid-edit fails no turn: it runs here
-        on = False
-    if places or on is not True:
+        program = None
+    if not program:
         return None
     cwd, out_dir = Path(cwd).absolute(), Path(out_dir).absolute()
     away = helper.start(2, 1024, cwd, lambda line: None, shlex.join(cmd),
-                        lambda tar: _parcel(tar, harness, cwd, out_dir, env))[0]
+                        lambda tar: _parcel(tar, program, cwd, out_dir, env))[0]
     if away is None:
         return None
     volumes = [f"work:{cwd}", f"out:{out_dir}", f"home:{env['HOME']}",
@@ -52,10 +55,26 @@ def call(harness, cmd, cwd, out_dir, env, places, watch):
     return code, killed
 
 
-def _parcel(tar, harness, cwd, out_dir, env):
+def _program(harness):
+    """(`<harness>/<version>/<program>`, {`uname -m`: URL}) of the program a machine needs for this
+    harness's turn: the URLs its toml's `[fetch]` names, with `{version}` the version `ak update`
+    reads here. None: it names none, or that version cannot be read."""
+    from . import update    # here, not at the top: update reaches this module through the worker
+    where = config.manifest(harness).get("fetch")
+    entry = next((entry for entry in update.harnesses() if entry["name"] == harness), None)
+    identity = where and entry and update.version(entry)
+    if not identity:
+        return None
+    version = update.VERSION.search(identity).group(0)
+    return (f"{harness}/{version}/{config.harness_program(harness)}",
+            {machine: url.replace(update.VERSION_KEY, version) for machine, url in where.items()})
+
+
+def _parcel(tar, program, cwd, out_dir, env):
     """Adds the turn's own to its parcel: turn.sh, the out dir, ak, the uncommitted paths (`paths`
     lists them all, `dirty/` holds those the checkout has), info/exclude, the HOME's .gitconfig,
-    the harness and the environment, never the loop's whole one."""
+    the program (`harness`, and `fetch/` where each kind of machine gets it) and the environment,
+    never the loop's whole one."""
     from .worker import RUN_MARKER    # here, not at the top: the worker calls this module
     def put(name, text):
         info = tarfile.TarInfo(name)
@@ -76,7 +95,9 @@ def _parcel(tar, harness, cwd, out_dir, env):
         tar.add(exclude, "exclude")
     who = [gitcall.git_out(cwd, "config", f"user.{key}")[1] for key in ("name", "email")]
     put("home/.gitconfig", "[user]\n\tname = {}\n\temail = {}\n".format(*who))
-    put("harness", f"{harness}/{config.harness_program(harness)}")
+    put("harness", program[0])
+    for machine, url in program[1].items():
+        put(f"fetch/{machine}", url)
     put("env", "".join(f"{key}={value}\0" for key, value in {**env, "TMPDIR": "/var/tmp"}.items()
                        if key.startswith(("AK_", "BASH_"))
                        or key in (RUN_MARKER, "HOME", "LANG", "SHELL", "TMPDIR")))
