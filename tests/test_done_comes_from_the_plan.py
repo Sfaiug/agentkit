@@ -188,7 +188,7 @@ class DoneFromThePlan(Sandbox):
 
     def test_a_merge_runs_the_seat_s_plan_checks(self):
         merged = {"merged": True, "launched_session": self.name}
-        with patch.object(plan, "verify") as verify, patch.object(plan, "delivery") as delivery:
+        with patch.object(plan, "verify_delivered") as verify, patch.object(plan, "delivery") as delivery:
             handback.settle_delivered_line(merged, print)
             handback.settle_delivered_line({**merged, "followup": {"check": "test -f fix.txt"}}, print)
             handback.settle_delivered_line({**merged, "merged": False}, print)

@@ -26,6 +26,8 @@ from agentkit import config as akconfig, orch
 SMOKE = (REPO / "tests/smoke.sh").read_text()
 FRESH = (REPO / "tests/e2e-fresh.sh").read_text()
 CLAUDE = json.dumps({'claudeAiOauth': {'accessToken': 'fixture', 'expiresAt': 4102444800000}})
+CODEX = json.dumps({'OPENAI_API_KEY': 'fixture-key'})
+GROK = json.dumps({'fixture': {'key': 'fixture-key', 'expires_at': '2100-01-01T00:00:00Z'}})
 
 
 def owner():
@@ -143,77 +145,6 @@ class OpenGates(unittest.TestCase):
                                     text=True, capture_output=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(os.path.lexists(home / '.config/gh/hosts.yml'))
-
-    def test_fresh_merges_back_only_valid_renamed_logins_whole(self):
-        sync_back = FRESH[FRESH.index('sync_back() {'):FRESH.index('\ncleanup_logs()')]
-        old = {'claudeAiOauth': {'accessToken': 'old', 'refreshToken': 'old-pair',
-                                'expiresAt': 4_000_000_000_000}}
-        fresh = {'claudeAiOauth': {'accessToken': 'new', 'refreshToken': 'new-pair',
-                                  'expiresAt': 4_100_000_000_000}}
-        grok_old = {'fixture': {'key': 'old', 'expires_at': '2096-01-01T00:00:00Z'}}
-        grok_fresh = {'fixture': {'key': 'new', 'expires_at': '2099-01-01T00:00:00Z'}}
-        # What Claude and Grok do on a refresh: a new file renamed over the link.
-        rename = '''python3 - <<'PY'
-import os
-from pathlib import Path
-path = Path(os.environ['SANDBOX']) / os.environ['LOGIN_PATH']
-assert path.is_symlink()
-tmp = path.with_suffix('.tmp')
-tmp.write_text(os.environ['REPLACEMENT'])
-tmp.replace(path)
-assert not path.is_symlink()
-PY
-'''
-        # A link as the e2e gate lends it, and its merge-back.
-        gate = ('set -eu\nsay() { :; }\n' + sync_back
-                + '\nexport SANDBOX="$WORK/home"\nUH=$SANDBOX INVOKER=fixture\n'
-                'caller_claude="$HOME/.claude" caller_grok="$HOME/.grok"\n'
-                'mkdir -p -- "$(dirname -- "$UH/$LOGIN_PATH")"\n'
-                'ln -s -- "$HOME/$LOGIN_PATH" "$UH/$LOGIN_PATH"\n' + rename + 'sync_back\n')
-        for relative, original, replacement in (('.claude/.credentials.json', old, fresh),
-                                                 ('.grok/auth.json', grok_old, grok_fresh)):
-            for content, expected, behind_link in (
-                    (replacement, replacement, False),
-                    (replacement, replacement, True),
-                    ({}, original, False),
-                    ({key: {} for key in original}, original, False),
-                    ({key: {**value, 'expiresAt': 1, 'expires_at': '2000-01-01T00:00:00Z'}
-                      for key, value in replacement.items()}, original, False),
-                    (original, original, False),
-                    ('invalid JSON', original, False)):
-                with self.subTest(path=relative, replacement=content, link=behind_link), \
-                        tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
-                    root = Path(tmp)
-                    path = root / 'caller' / relative
-                    path.parent.mkdir(parents=True)
-                    # The caller's own login may itself be a link, into dotfiles say.
-                    target = root / 'dotfiles/login.json' if behind_link else path
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_text(json.dumps(original))
-                    target.chmod(0o600)
-                    if behind_link:
-                        path.symlink_to(target)
-                    before = target.stat()
-                    result = subprocess.run(['bash', '-c', gate],
-                                            env={**os.environ, 'HOME': str(root / 'caller'),
-                                                 'REPO': str(REPO), 'WORK': str(root / 'work'),
-                                                 'LOGIN_PATH': relative,
-                                                 'REPLACEMENT': content if isinstance(content, str)
-                                                 else json.dumps(content)},
-                                            text=True, capture_output=True, timeout=10)
-                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                    self.assertEqual(json.loads(path.read_text()), expected)
-                    self.assertEqual(path.is_symlink(), behind_link)
-                    self.assertEqual(target.stat().st_mode & 0o777, 0o600)
-                    if expected == original:
-                        self.assertEqual((target.stat().st_ino, target.stat().st_mtime_ns),
-                                         (before.st_ino, before.st_mtime_ns))
-                    else:   # written beside it and renamed over, never truncated in place
-                        self.assertNotEqual(target.stat().st_ino, before.st_ino)
-                    self.assertEqual([name for name in os.listdir(target.parent)
-                                      if name.startswith(f'.{target.name}.')], [])
-        cleanup = FRESH[FRESH.index('cleanup() {'):FRESH.index('\ntrap cleanup EXIT')]
-        self.assertLess(cleanup.index('sync_back'), cleanup.index('cleanup_logs'))
 
     def test_smoke_borrows_overridden_logins_before_clearing_overrides(self):
         setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
@@ -530,8 +461,7 @@ ak() { printf '%s\\n' "$ROW"; }
                 self.test_smoke_keeps_webhook_get_check_without_posting()
 
     def test_fresh_borrows_what_this_host_has_and_needs_one_harness(self):
-        callers = FRESH[FRESH.index('caller_config=${XDG_CONFIG_HOME'):FRESH.index('\nTS=$(date')]
-        block = FRESH[FRESH.index('  # Each login is linked, file by file'):
+        block = FRESH[FRESH.index("  # Each harness's login is a copy"):
                       FRESH.index('  # `claude` also writes')]
 
         def gate(hostbin, logins, answers, broken=()):
@@ -564,12 +494,12 @@ ak() { printf '%s\\n' "$ROW"; }
                         (root / 'vault').chmod(0)
                     else:
                         (caller / name).chmod(0) if side == 'caller' else (home / name).touch()
-                script = ('. "$REPO/tests/acceptance.sh"\nbad=""\n' + callers + '\n' + block
+                script = ('. "$REPO/tests/acceptance.sh"\nbad=""\n' + block
                           + 'printf "HERE=%s\\nSEAT=%s\\nbad=%s\\n" "$HERE" "$SEATLOGIN" "$bad"\n'
                           'finish')
                 result = subprocess.run(['/bin/bash', '-c', script],
                                         env={**os.environ, 'WORK': tmp, 'REPO': str(REPO),
-                                             'INVHOME': str(caller), 'UH': str(home),
+                                             'HOME': str(caller), 'INVHOME': str(caller), 'UH': str(home),
                                              'HOSTBIN': f' {hostbin} ', 'EPATH': '/usr/bin:/bin',
                                              'AGENTKIT_ACCEPTANCE_REQUIRED': '1'},
                                         text=True, capture_output=True, timeout=60)
@@ -593,28 +523,18 @@ ak() { printf '%s\\n' "$ROW"; }
         self.assertIn('SKIP  c: the Discord user id is not on this host', out)
         self.assertEqual(links, {'.agentkit/secrets/claude_oauth_token':
                                  caller / '.agentkit/secrets/claude_oauth_token'})
-        # So is a Codex login whose missing directory sits directly under `/`, as CODEX_HOME=/codex.
-        missing = f'/.open-gates-{os.getpid()}'
-        self.assertFalse(os.path.lexists(missing))
-        with patch.dict(os.environ, {'CODEX_HOME': missing}):
-            out, _, _, _ = gate('claude', {'.agentkit/secrets/claude_oauth_token': 'fixture token'},
-                                {'claude': '0 fixture: worker token'})
-        self.assertIn('HERE= claude:anthropic\nSEAT=\nbad=\n', out)
-        self.assertIn('SKIP  c: codex is not on this host', out)
-        # A seat pair that is there, whatever it holds, is the menu step's to judge, not a skip.
+        # Claude's own login lent is the menu's seat, whatever the step makes of it.
         out, _, _, _ = gate('claude', {'.agentkit/secrets/claude_oauth_token': 'fixture token',
-                                       '.claude/.credentials.json': 'not JSON'},
+                                       '.claude/.credentials.json': CLAUDE},
                             {'claude': '0 fixture: worker token'})
         self.assertIn('HERE= claude:anthropic\nSEAT=1\nbad=\n', out)
-        # A Grok-only host lends its login and its lock, both linked, so Grok renews the
-        # caller's own login under the caller's own lock.
-        out, links, _, caller = gate('grok', {'.grok/auth.json': '{}'},
-                                     {'grokbuild': '0 grok: renews its lapsed key itself'})
+        # A Grok-only host lends a copy of its login, and links nothing.
+        out, links, copies, _ = gate('grok', {'.grok/auth.json': GROK},
+                                     {'grokbuild': '0 grok: logged in'})
         self.assertIn('HERE= grokbuild:-\nSEAT=\nbad=\n', out)
-        self.assertEqual(links, {'.grok/auth.json': caller / '.grok/auth.json',
-                                 '.grok/auth.json.lock': caller / '.grok/auth.json.lock'})
+        self.assertEqual((links, list(copies)), ({}, ['.grok/auth.json']))
         # OpenCode's settings with no key in them lend no login: its refusal is a skip, and the
-        # settings, like the Discord secret, are a copy.
+        # Discord secret is a copy.
         out, links, copies, _ = gate('claude opencode',
                                      {'.agentkit/secrets/claude_oauth_token': 'fixture token',
                                       '.config/opencode/opencode.json': '{"theme": "dark"}',
@@ -624,8 +544,7 @@ ak() { printf '%s\\n' "$ROW"; }
         self.assertIn('HERE= claude:anthropic\nSEAT=\nbad=\n', out)
         self.assertIn("SKIP  c: opencode's login is not on this host: opencode: no provider key", out)
         self.assertEqual(set(links), {'.agentkit/secrets/claude_oauth_token'})
-        self.assertEqual(copies, {'.config/opencode/opencode.json': '{"theme": "dark"}',
-                                  '.agentkit/secrets/discord_webhook': 'fixture webhook'})
+        self.assertEqual(copies, {'.agentkit/secrets/discord_webhook': 'fixture webhook'})
         # Its silence with none lent is a skip too: a new HOME's first OpenCode is slow to start.
         out, _, _, _ = gate('claude opencode', {'.agentkit/secrets/claude_oauth_token': 'fixture token'},
                             {'claude': '0 fixture: worker token',
@@ -633,27 +552,27 @@ ak() { printf '%s\\n' "$ROW"; }
         self.assertIn('HERE= claude:anthropic\nSEAT=\nbad=\n', out)
         self.assertIn("SKIP  c: opencode's login is not on this host, and its auth gave no answer: "
                       "opencode: provider discovery unavailable for mimo", out)
-        # A login this host lent that is refused, unanswered in time, unreadable or cannot be
-        # linked fails, for every harness; no harness at all fails.
+        # A lent login refused or unanswered in time, a lend that fails, or a worker token unreadable
+        # or that cannot be linked fails, for every harness; no harness at all fails.
+        codex, token = {'.codex/auth.json': CODEX}, '.agentkit/secrets/claude_oauth_token'
+        worker = ('claude', {token: 'fixture'}, {'claude': '0 fixture: worker token'})
         for host, logins, answers, broken, why in (
-                ('codex', {'.codex/auth.json': '{}'}, {'codex': '1 codex: the token expired'},
+                ('codex', codex, {'codex': '1 codex: the token expired'},
                  (), 'bad=; codex: the token expired'),
-                ('grok', {'.grok/auth.json': '{}'}, {'grokbuild': '1 grok: the login is expired'},
+                ('grok', {'.grok/auth.json': GROK}, {'grokbuild': '1 grok: the login is expired'},
                  (), 'bad=; grok: the login is expired'),
-                ('codex', {'.codex/auth.json': '{}'}, {'codex': '2 codex: jq is missing'},
+                ('codex', codex, {'codex': '2 codex: jq is missing'},
                  (), 'bad=; codex: its auth gave no answer: codex: jq is missing'),
-                ('codex', {'.codex/auth.json': '{}'}, {'codex': 'hang'},
+                ('codex', codex, {'codex': 'hang'},
                  (), 'bad=; codex: its auth gave no answer: ; no harness here'),
-                ('codex', {'.codex/auth.json': '{}'}, {'codex': '0'},
+                ('codex', codex, {'codex': '0'},
                  (), 'bad=; codex: its auth gave no answer: ; no harness here'),
-                ('codex', {'.codex/auth.json': '{}'}, {'codex': '0 codex: fine'},
-                 (('caller', '.codex/auth.json'),), '/.codex/auth.json cannot be read'),
-                ('codex', {'.codex/auth.json': '{}'}, {'codex': '0 codex: fine'},
-                 (('caller', '.codex'),), '/.codex/auth.json cannot be read'),
-                ('codex', {'.codex/auth.json': '{}'}, {'codex': '0 codex: fine'},
-                 (('link', '.codex/auth.json'),), '/.codex/auth.json cannot be read'),
-                ('codex', {'.codex/auth.json': '{}'}, {'codex': '0 codex: fine'},
-                 (('home', '.codex'),), 'auth.json could not be linked into the new HOME'),
+                ('codex', codex, {'codex': '0 codex: fine'},
+                 (('home', '.codex'),), "bad=; this host's logins could not be lent"),
+                (*worker, (('caller', token),), 'claude_oauth_token cannot be read'),
+                (*worker, (('caller', '.agentkit/secrets'),), 'claude_oauth_token cannot be read'),
+                (*worker, (('link', token),), 'claude_oauth_token cannot be read'),
+                (*worker, (('home', '.agentkit'),), 'claude_oauth_token could not be linked into the new HOME'),
                 ('', {}, {}, (), 'bad=; no harness here is installed with its login; the gate needs one')):
             with self.subTest(why=why, broken=broken):
                 out, _, _, _ = gate(host, logins, answers, broken)

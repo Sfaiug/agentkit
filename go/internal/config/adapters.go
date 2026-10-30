@@ -45,6 +45,20 @@ func manifests() (map[string]*table, error) {
 	return found, nil
 }
 
+// Section is one table of a harness's manifest, nil where it has none.
+func Section(harness, name string) (map[string]any, error) {
+	manifests, err := manifests()
+	if err != nil {
+		return nil, err
+	}
+	if root, ok := manifests[harness]; ok {
+		if block, ok := root.values[name].(*table); ok {
+			return block.values, nil
+		}
+	}
+	return nil, nil
+}
+
 // SeatEnv is the variables a launch sets for its seat alone, as the manifests' `[launch]
 // seat_env` declare them: nothing the seat starts may be told them, or a check would run
 // to the orchestrator's rules.

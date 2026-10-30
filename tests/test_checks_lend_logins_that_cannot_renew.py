@@ -45,7 +45,9 @@ LENT = {".claude/.credentials.json", ".codex/auth.json", ".config/muse/auth.json
         ".gemini/antigravity-cli/antigravity-oauth-token", ".config/opencode/opencode.json"}
 
 
-class ChecksLendLoginsThatCannotRenew(unittest.TestCase):
+class LentLogins(unittest.TestCase):
+    """The caller HOME and faked programs, and what a HOME lent from them holds."""
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-lend-checks-", dir=REPO)
         self.addCleanup(tmp.cleanup)
@@ -82,6 +84,8 @@ class ChecksLendLoginsThatCannotRenew(unittest.TestCase):
                     self.assertNotIn("fixture-refresh", path.read_text())
         self.assertEqual({path: path.read_bytes() for path in self.before}, self.before)
 
+
+class ChecksLendLoginsThatCannotRenew(LentLogins):
     def test_the_smoke_home_holds_copies_that_cannot_renew(self):
         setup = SMOKE[SMOKE.index("smoke_share_probes() {"):SMOKE.index("# A bounded way")]
         result = subprocess.run(["/bin/bash", "-c", setup + "\nsmoke_home\n"],

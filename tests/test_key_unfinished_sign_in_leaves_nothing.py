@@ -19,6 +19,7 @@ Judged by the files under HOME and what the terminal shows.
 import os
 from pathlib import Path
 import sys
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -156,6 +157,9 @@ class UnfinishedSignInLeavesNothing(unittest.TestCase):
 
     def test_a_log_in_again_that_does_not_finish_says_so_and_keeps_its_login(self):
         self.home.write(".claude-a1/.credentials.json", "{}")
+        # a login ending tomorrow, so `↻ log in again` is offered
+        self.home.write(".agentkit/state/logins.json", {"anthropic": {"a1": {
+            "ends": time.time() + 86400, "checked_at": time.time()}}})
         self.open({"fable": "claude"},
                   providers={"anthropic": {"mode": "subscription", "accounts": ["default", "a1"]}})
         self.to("Claude II")
