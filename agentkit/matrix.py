@@ -134,9 +134,10 @@ def lineup(boards, offers):
 def answer(lineup, within, compared=None):
     """Per role, `rated`: `quality.rated` over every row of `lineup`, so a row's quality never
     changes with what is compared; then over the rows of the releases in `compared` (slugs, None
-    for every one), `best` quality, `pick` at `within`, `front`: those with a cost, cheapest
-    first, each better than every cheaper one, and `take`: the cheapest of them that is yours
-    within `within` of `best`, the pick itself when it is yours."""
+    for every one), `best` quality, `pick` at `within`, `front`: those with a cost, best first,
+    each better than every cheaper one, a row of yours than every cheaper one of yours, as one
+    no harness of yours runs is no reason to leave it out; and `take`: the cheapest of them that
+    is yours within `within` of `best`, the pick itself when it is yours."""
     out = {}
     for role in quality.ROLES:
         rated = quality.rated(lineup, role)
@@ -144,10 +145,9 @@ def answer(lineup, within, compared=None):
         best = max((row["quality"] for row in them), default=None)
         priced = sorted((row for row in them if row["cost"] is not None),
                         key=lambda row: (row["cost"], -row["quality"]))
-        front = []
-        for row in priced:
-            if not front or row["quality"] > front[-1]["quality"]:
-                front.append(row)
+        front = sorted((row for n, row in enumerate(priced) if all(
+            cheaper["quality"] < row["quality"] for cheaper in priced[:n]
+            if cheaper["yours"] or not row["yours"])), key=lambda row: -row["quality"])
         take = next((row for row in priced
                      if row["yours"] and row["quality"] >= best - within), None)
         out[role] = {"rated": rated, "best": best, "pick": quality.pick(them, within),
@@ -339,11 +339,11 @@ def main(argv):
     if "--json" in flags:
         json.dump({**{role: {"best": said["best"], "front": [
             {**{key: row[key] for key in ("release", "name", "effort", "quality", "se", "cost")},
-             "notes": notes(row, said)} for row in said["front"][::-1]]}
+             "notes": notes(row, said)} for row in said["front"]]}
             for role, said in found.items()}, "live": own}, sys.stdout, indent=2)
         print()
         return 0
-    body, _ = menu.models_body(menu.models_said(found, rows), within(cfg), marked, len(current),
-                               stored().get("fetched_at"))
+    body, _ = menu.models_body(menu.models_said(found, rows, within(cfg)), within(cfg), marked,
+                               len(current), stored().get("fetched_at"))
     print("\n".join([*body, *(["", *live_lines(own)] if own else [])]))
     return 0

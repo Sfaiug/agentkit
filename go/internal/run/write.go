@@ -65,11 +65,24 @@ func Change(dir string, change func(*Object) error) error {
 	if err := change(record); err != nil {
 		return err
 	}
+	return write(dir, data, before, record)
+}
+
+// Create writes a run's first record as Change writes one, but without recovery.lock, as
+// Python's first save: a stop refuses a run with no record, so none races it.
+func Create(dir string, record *Object) error {
+	return write(dir, []byte("{}"), map[string]string{}, record)
+}
+
+// write puts what changed from before, the record data held, to record onto the record as it
+// stands under the run directory's lock.
+func write(dir string, data []byte, before map[string]string, record *Object) error {
+	path := filepath.Join(dir, "run.json")
 	after := encoded(record)
 	if maps.Equal(before, after) {
 		return nil
 	}
-	release, err = hold(dir, "")
+	release, err := hold(dir, "")
 	if err != nil {
 		return err
 	}

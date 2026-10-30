@@ -196,7 +196,7 @@ class SeatEnvironment(Sandbox):
         self.assertEqual(self.launched, [old_harness])
         self.assertEqual(self.ran(self.command), old_harness)
         self.assertEqual(self.session_env, old_environment)
-        self.assertFalse(config.seat_file("launch", "acme").exists())
+        self.assertEqual(list(config.STATE.glob("launch-*")), [])
 
 
 if __name__ == "__main__":

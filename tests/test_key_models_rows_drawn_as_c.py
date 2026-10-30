@@ -99,6 +99,24 @@ class ModelsRowsDrawnAsC(unittest.TestCase):
         self.assertRegex(pick, "^━+╸?─+$")
         self.assertIn("Crux 2", [row[0] for row in map(drawn, shown) if row])    # no effort
 
+    def test_every_row_within_the_points_shows_then_two_more(self):
+        # review's qualities: 100 99 98 97, Bolt 2 96.4 the pick, Acme Max 5 medium 96 what `r` takes
+        # though Bolt 2 is cheaper and better, then 88, 86 and 84, one too many.  Gulp 1 95 lies under
+        # Bolt 2 and Acme Max 5 high 94 under Acme Max 5 medium, so both are left out.
+        self.home.write(".agentkit/state/boards.json", boards([
+            ("apex-5", "Apex 5", "max", 100, 20.0), ("apex-5", "Apex 5", "high", 95, 18.0),
+            ("apex-5", "Apex 5", "medium", 90, 16.0), ("apex-5", "Apex 5", "low", 85, 14.0),
+            ("bolt-2", "Bolt 2", None, 82, 1.0), ("gulp-1", "Gulp 1", None, 75, 2.0),
+            ("acme-max-5", "Acme Max 5", "high", 70, 4.0), ("acme-max-5", "Acme Max 5", "medium", 80, 3.0),
+            ("acme-max-5", "Acme Max 5", "low", 40, 0.5), ("crux-2", "Crux 2", None, 30, 0.4),
+            ("dune-1", "Dune 1", None, 20, 0.3)]))
+        shown = self.models(100, "comparing all 6 models")
+        at = next(n for n, line in enumerate(shown) if line.startswith("  reviews · best 100.0"))
+        self.assertEqual([" ".join(row[0].split()) for row in map(drawn, shown[at + 1:]) if row],
+                         ["Apex 5 ▰▰▰▰ max", "Apex 5 ▰▰▰▱ high", "Apex 5 ▰▰▱▱ medium",
+                          "Apex 5 ▰▱▱▱ low", "Bolt 2", "Acme Max 5 ▰▰▱ medium", "Acme Max 5 ▰▱▱ low",
+                          "Crux 2"])
+
     def test_a_roles_head_is_never_cut_beside_a_short_name(self):
         # A 1's row would fit one line, its line 9 cells, but not under its role's head
         self.home.write(".agentkit/state/boards.json", boards([("a-1", "A 1", None, 50, 1.0)]))

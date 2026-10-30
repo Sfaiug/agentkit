@@ -2969,8 +2969,9 @@ MODELS_KEYS = {"answer": ("↑↓ move   ←→ points   ⏎ why   p pick   r ta
                           "esc back"),
                "pick": ("↑↓ move   ␣ mark   type to find   esc done",
                         "up/down move   space mark   type to find   esc done")}
-NEAR = 2                          # the line's rows shown either side of the pick
-LEGEND = (("as good", "{} within {} points of the best, then the cheapest"),)
+NEAR = 2                          # the line's rows shown past those within `within` of the best
+LEGEND = (("as good", "{} within {} points of the best, then the cheapest"),
+          ("left out", "a row no better than a cheaper one, yours compared with yours"))
 KNOB = ("legend", "within")
 LINES = ("lines",)                # the rows' lines, which grow in as they first show
 NAMED = 13                        # the cells before a legend line's words: its name's column
@@ -2991,10 +2992,10 @@ def pointed(role, row):
     return ("row", role, row["release"], row["effort"])
 
 
-def models_said(answer, lineup):
+def models_said(answer, lineup, within):
     """What the models screen says of `answer` (matrix.answer) per role: (its head and best,
-    `none` with no front, its lines): the front best first, the pick and up to NEAR rows either
-    side, each (where the pointer is on it, name, its effort's cells out of the efforts its
+    `none` with no front, its lines): each row of the front within `within` of the best, so the
+    pick and what `r` takes among them, and up to NEAR rows more, each (where the pointer is on it, name, its effort's cells out of the efforts its
     release has in `lineup`, a row naming none one of them (terminal.effort_cells), its effort
     or "" for none, how near the role's best it is from 0, config.POINTS behind or more, to 1,
     quality, cost, notes), and under a pick not yours what `r` takes.  With no pick, no priced
@@ -3007,10 +3008,10 @@ def models_said(answer, lineup):
     said = []
     for role, head in zip(quality.ROLES, orch.ROLE_HEADS):
         found = answer[role]
-        front, pick, take = found["front"][::-1], found["pick"], found["take"]
-        at = front.index(pick) if pick else 0
+        front, pick, take = found["front"], found["pick"], found["take"]
+        near = sum(row["quality"] >= found["best"] - within for row in front)
         lines = [] if pick or not front else ["no row with a cost is as good"]
-        for row in front[max(0, at - NEAR):at + NEAR + 1]:
+        for row in front[:near + NEAR]:
             missing = sum(one["how"] == "missing" for one in row["measures"].values())
             notes = (terminal.styled("★ pick", "accent") if row is pick else "",
                      f"{missing} missing" if missing else "",
@@ -3238,7 +3239,7 @@ def models_screen(cfg, session, selected, providers):
             current = {row["release"] for row in lineup}
             compared = matrix.compared(cfg, current)
             answer = matrix.answer(lineup, matrix.within(cfg), compared)
-            said = models_said(answer, lineup)
+            said = models_said(answer, lineup, matrix.within(cfg))
             rows = [line[0] for _, lines in said for line in lines if isinstance(line, tuple)]
             if here not in rows:
                 role = here[1] if here else next(iter(quality.ROLES))

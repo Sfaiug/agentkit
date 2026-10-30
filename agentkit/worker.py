@@ -141,7 +141,7 @@ SUITE = ("[worker judgement] Never run the repository's `tests:` suite or a larg
          "say so in your summary.")
 SIZE = (f"[checked by ak: tests/test_size_gate.py] ak ends the run blocked with `split it` when "
         f"its first review would read more than {taskfile.MAX_PR_LINES} added lines, the tests among "
-        "them (generated files and blocks moved unchanged aside).")
+        "them (files `.gitattributes` marks generated and blocks moved unchanged aside).")
 REVIEW_COPY = ("[checked by ak: tests/test_reviewer_edits_never_land.py] ak reviews in an isolated copy, "
                "archives and undoes edits; they never reach the branch.")
 TIMEOUT = 124       # what a turn killed for running past its limit exits with, as `timeout(1)` does
