@@ -4993,12 +4993,13 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     target = next((a for a in order if a == current
                    or orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
     with state_lock():
-        # Slow meters must not undo a stop, rename, manual open or another launch.
+        # Slow meters must not undo a stop, rename, manual open or another launch.  A screen
+        # that says the same is the same screen: OpenCode keeps redrawing a box's shading.
         current_seat = orch.find(name)
         if (seat_closed_by_owner(name) or config.session_records().get(name) != record
                 or seat_read(name).get("opened_at") != live.get("opened_at")
                 or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)
-                or pane_text(current_seat) != pane):
+                or strip_sgr(pane_text(current_seat)) != strip_sgr(pane)):
             return True
         if refusal and not waiting and not spent(current):
             # The host may have slept through the deadline. Never replace that old
