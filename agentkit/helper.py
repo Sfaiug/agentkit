@@ -39,8 +39,9 @@ Away = namedtuple("Away", "alias key repo image count cpus memory_mb branch defa
 
 
 def _remote(alias, verb, *args, **kwargs):
-    script = (TOOLS / "mac.sh").read_text()
-    argv = [*SSH, alias, shlex.join(["bash", "-c", script, "mac.sh", verb, *map(str, args)])]
+    name = "linux.sh" if alias.startswith("ak-g") else "mac.sh"
+    script = (TOOLS / name).read_text()
+    argv = [*SSH, alias, shlex.join(["bash", "-c", script, name, verb, *map(str, args)])]
     return subprocess.run(argv, capture_output=True, **kwargs) if kwargs else argv
 
 
