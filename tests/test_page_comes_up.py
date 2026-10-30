@@ -1,7 +1,8 @@
 """A page comes up as it opens: under its header and rule it fades in out of the background
 while the header keeps `agentkit` and writes the page's name out after it, in FADE seconds, and
-is then as drawn -- `c`, `p`, a project's features, the models and the new-session picker as each
-opens.  A screen gone back to is drawn as it is.
+is then as drawn -- `c`, `p`, a project's features, the models, the new-session picker and the
+pages `c` opens as each opens.  A screen gone back to is drawn as it is, and a list one of `c`'s
+pages opens comes up under its row as the line under the menu's highlighted row does.
 
 The owner's pick of 18 Oct 2026 (motion 5, a page that slides in).  Offline: a temporary HOME,
 no terminal, the motion clock's time injected and each frame it writes read back.
@@ -20,6 +21,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox  # noqa: E402
 from agentkit import menu, motion, terminal  # noqa: E402
+from agentkit.terminal import Key  # noqa: E402
 
 OPENED = 500.0
 
@@ -104,6 +106,71 @@ class PageComesUp(Sandbox):
         self.assertNotIn("\033[Kagentkit", output.getvalue())     # never first drawn as it is
         self.assertIn("fix-api", terminal.plain("".join(clock.rising[0])))
         self.assert_comes_up(clock, "past sessions")
+
+    def pages(self):
+        """The pages `c` opens: each one's name and how it opens."""
+        return (("models", lambda: menu.models_page(self.cfg, None)),
+                ("discord", menu.config_discord),
+                ("weekly audit", lambda: menu.config_audit(self.cfg)))
+
+    def read(self, opens, keys, step=motion.FADE / 6):
+        """What `opens()` writes read with `keys`, each `step` seconds after the one before,
+        then Esc; and the clock it made.  A key may be a call, read at once, giving the key."""
+        keys = iter([*keys, Key("esc")])
+
+        def read_key(*_args, **_kwargs):
+            key = next(keys)
+            if callable(key):
+                return key()
+            self.time.now += step
+            return key
+        self.made.clear()
+        self.time.now, output = OPENED, io.StringIO()
+        with patch.object(terminal, "taken", return_value=True), \
+                patch.object(terminal, "read_key", side_effect=read_key), redirect_stdout(output):
+            opens()
+        clock, = self.made
+        return output.getvalue(), clock
+
+    def test_cs_pages_come_up_under_their_header_as_they_open(self):
+        for name, opens in self.pages():
+            with self.subTest(name):
+                output, clock = self.read(opens, [], step=0)
+                self.assertNotIn("\033[Kagentkit", output)      # never first drawn as it is
+                self.assert_comes_up(clock, f"config · {name}")
+
+    def test_a_cs_page_gone_back_to_from_a_list_or_a_field_is_drawn_as_it_is(self):
+        """Inside the opening, Weekly audit's `Orchestrator` list opened and closed, and
+        Discord's `Mention` typed into and left."""
+        pages = dict(self.pages())
+        for name, keys in (("weekly audit", [Key("down"), Key("enter"), Key("esc")]),
+                           ("discord", [Key("enter"), Key("esc")])):
+            with self.subTest(name):
+                output, clock = self.read(pages[name], keys)
+                back = output.rsplit("\033[H", 1)[-1]
+                self.assertTrue(back.startswith(f"\033[Kagentkit · config · {name}"),
+                                repr(back[:120]))
+                self.assertIsNone(clock.rising)
+
+    def test_a_list_a_cs_page_opens_comes_up_under_its_row(self):
+        """Weekly audit's `Orchestrator`, on screen row 4, opened once the page is up: each
+        choice under it fades in in OPEN seconds from the draw, and nothing else moves."""
+        frames = []
+
+        def drawn():              # the key after Enter, read once the list is drawn
+            clock, began, lines = self.made[0], self.time.now, terminal.on_screen()
+            for at in (0.5, 1):
+                self.time.now = began + at * motion.OPEN
+                amount = 1 - motion.eased((self.time.now - began) / motion.OPEN)
+                frames.append((amount, rows(clock.frame()), lines))
+            return Key("esc")
+        self.read(lambda: menu.config_audit(self.cfg), [Key("down"), Key("enter"), drawn], step=1)
+        choices = list(range(5, 5 + len(menu.config.offered(self.cfg))))
+        self.assertEqual(len(frames), 2)
+        for amount, written, lines in frames:
+            self.assertEqual(sorted(written), choices)
+            for row in choices:
+                self.assertEqual(written[row], terminal.fade(lines[row - 1], amount))
 
     def test_a_page_gone_back_to_is_drawn_as_it_is(self):
         """`x` on the past screen as it opens: the stop's own screen, and the page back as it is,
