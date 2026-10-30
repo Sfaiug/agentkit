@@ -38,29 +38,45 @@ def say(word):
     with socket.socket(socket.AF_UNIX) as kernel:
         kernel.connect({address!r})
         kernel.sendall(word.encode())
-        kernel.recv(1)
+        return kernel.recv(1)
 say("start")
 time.sleep(4)
+while say("wait") == b"n":
+    time.sleep(0.1)
 say("end")
 """
-# The Mac: room for two pieces, which it takes and passes without running them here.
-SSH = """import shlex, sys
+# The Mac: on battery at a suite's first look, then room for two pieces, which it takes and
+# passes without running them here, telling the kernel when it takes a suite's last.
+SSH = """import os, shlex, socket, sys
 words = shlex.split(" ".join(sys.argv[1:]))
-verb = words[words.index("mac.sh") + 1]
-if verb == "probe":
+at = words.index("mac.sh")
+verb = words[at + 1]
+if verb == "probe" and os.path.exists({battery!r}):
+    os.remove({battery!r})
+    sys.exit(251)
+elif verb == "probe":
     print("cpus 4\\nload 0\\nroom_mb 65536")
 elif verb == "prepare":
     sys.stdin.buffer.read()
+elif verb == "run":
+    shard, total = words[at + 8].split("/")
+    if shard == total:
+        with socket.socket(socket.AF_UNIX) as kernel:
+            kernel.connect({address!r})
+            kernel.sendall(b"last")
+            kernel.recv(1)
 """
 
 
 class Kernel:
     """One cgroup's memory as its pieces start and end; `passes` holds the pieces of each
-    pass that ran on this host."""
+    pass that ran on this host. Beside a `helper`, a piece here ends once the helper took its
+    suite's last piece (`last`), so what waits goes there."""
 
-    def __init__(self, unit, cap, swap_cap):
+    def __init__(self, unit, cap, swap_cap, helper=False):
         self.unit, self.cap, self.swap_cap = unit, cap, swap_cap
         self.running, self.oom, self.passes = 0, 0, []
+        self.helper, self.taken = helper, 0    # the suites whose last piece the helper took
         self.listener = socket.socket(socket.AF_UNIX)
         self.address = f"\0ak-kernel-{os.getpid()}-{id(self)}"
         self.listener.bind(self.address)
@@ -81,15 +97,19 @@ class Kernel:
             except OSError:
                 return
             with piece:
-                if piece.recv(16) == b"start":
+                word = piece.recv(16)
+                if word == b"start":
                     if not self.running:
                         self.passes.append(0)
                     self.passes[-1] += 1
                     self.running += 1
-                else:
+                elif word == b"end":
                     self.running -= 1
+                elif word == b"last":
+                    self.taken += 1
                 self.held()
-                piece.sendall(b".")
+                piece.sendall(b"n" if word == b"wait" and self.helper and
+                              self.taken < len(self.passes) else b".")
 
     def held(self):
         need = BASE + self.running * NEED
@@ -108,7 +128,7 @@ def passes(case, cap=UNCAPPED, swap_cap=0, helper=False):
     case.addCleanup(home.close)
     unit = home.root / "cgroups" / "acme.slice" / "run.scope"
     unit.mkdir(parents=True)
-    kernel = Kernel(unit, cap, swap_cap)
+    kernel = Kernel(unit, cap, swap_cap, helper)
     case.addCleanup(kernel.close)
     (home.root / "cgroup").write_text("0::/acme.slice/run.scope\n")
     home.env.update(AK_CGROUP_ROOT=str(home.root / "cgroups"),
@@ -118,14 +138,18 @@ def passes(case, cap=UNCAPPED, swap_cap=0, helper=False):
         "suite.py": SUITE.format(address=kernel.address),
         "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
     GitHub(home).grant(rig.slug, "WRITE")
+    battery = home.root / "battery"
     if helper:
-        home.fake("ssh", f"#!{sys.executable}\n{SSH}")
-        # pieces stay here only on heavy suite turns, which `AK_MAX_RUNS=0` turns off
+        home.fake("ssh", f"#!{sys.executable}\n"
+                         f"{SSH.format(battery=str(battery), address=kernel.address)}")
+        # the suite starts here on heavy suite turns, which `AK_MAX_RUNS=0` turns off
         home.env.pop("AK_MAX_RUNS")
     akconfig.write(home, ["opus", "astra"], settings={"suite_helper": "acme-mac"} if helper else None)
     claude = fakeadapter.install(home, claude="work", codex="pass")["claude"]
     for task, made in enumerate(("retry.txt", "notes.txt"), 1):
         title = f"Add {made}"
+        if helper:
+            battery.touch()
         # The executor's turn waits while the cgroup comes to hold its run's loop alone.
         claude.behave({"write": {made: "hello\n"}, "commit": f"add {made}", "hand_in": [["done"]],
                        "sh": f"until [ -e {claude.dir / made} ]; do sleep 0.1; done"})
@@ -154,7 +178,8 @@ class SuiteOverflowSplitsSmaller(unittest.TestCase):
         self.assertEqual(passes(self, cap=3100, swap_cap=4000), [10, 6])
 
     def test_pieces_on_the_helper_do_not_lower_the_cost_measured_here(self):
-        # 2 of the 12 pieces on the Mac: 600 a piece here, 500 over all of them
+        # Half of each suite's pieces on the Mac, which joins it once on power: 600 a piece here,
+        # 300 over all of them
         self.assertEqual(passes(self, helper=True), [10, 6])
 
     def test_a_suite_that_fit_costs_what_it_held(self):
