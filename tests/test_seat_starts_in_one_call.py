@@ -87,7 +87,11 @@ class OneCall(Sandbox):
         self.assertEqual(self.heard(said), self.log)
 
     def test_a_reopened_seat_s_environment_is_one_call_after_its_respawn(self):
-        orch.start("acme", self.root, ["sleep", "600"], "opus")
+        first = self.root / "first"
+        orch.start("acme", self.root, [sys.executable, "-c", SAYS, str(first), notify.SINK_LOG_ENV],
+                   "opus")
+        # running, so its launch file is gone: removed later, it would take the respawn's
+        self.heard(first)
         self.calls.clear()
         said = self.root / "said"
         orch._start_harness("acme", "opus", self.root,
