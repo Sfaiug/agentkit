@@ -291,9 +291,11 @@ class SuiteHelper(unittest.TestCase):
                                  ["WARN the suite helper cannot build suite_image"])
 
     def test_no_helper_named_runs_here(self):
-        (config.HOME / config.CONFIG_NAME).write_text("")
-        self.assertNotIn("helper ran", self.check({})[0])
-        self.assertFalse((self.fake / "calls").exists())
+        for text in ("", 'suite_helper = "acme-mac\n'):
+            with self.subTest(config=text):
+                (config.HOME / config.CONFIG_NAME).write_text(text)
+                self.assertNotIn("helper ran", self.check({})[0])
+                self.assertFalse((self.fake / "calls").exists())
 
 
 class HelperMac(unittest.TestCase):
