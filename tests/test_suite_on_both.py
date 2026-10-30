@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import sys
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -121,6 +122,15 @@ class SuiteOnBoth(unittest.TestCase):
                 self.assertIn((shard, 2), self.local_turns)
                 self.assertIn(f"AK_SHARD={shard} runs here: helper acme-mac "
                               f"{helper.failure(failed)}", self.logs)
+
+    def test_a_vm_turned_away_for_room_asks_the_helper_again_no_sooner_than_a_poll(self):
+        # Its one VM's place ends; each turn here comes a moment later, time enough for an ask
+        # the piece it turned away wakes.
+        with patch.object(helper, "room", return_value=((1, 2, 820), "")), \
+                patch.object(helper, "start", wraps=helper.start) as asked, \
+                patch.object(Turn, "take", lambda _hold, _stopped: time.sleep(0.2) or True):
+            code, text, killed, _ = self.check({"helper": (helper.FULL,)}, places=3)
+        self.assertEqual((code, killed, asked.call_count), (0, False, 1), text)
 
     def test_local_failure_retries_alone_and_is_not_a_helper_failure(self):
         code, text, killed, _ = self.check({"here": (1, 0)})

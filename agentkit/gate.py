@@ -1831,13 +1831,18 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             log(f"the suite helper lost AK_SHARD={shard}; it runs here")
 
                 def ask():
+                    asked = time.monotonic()    # as the suite went
                     while True:
                         with pieces_left.cond:
                             if over() or not (pieces_left.waiting or pieces_left.out):
                                 return
-                            pieces_left.cond.wait(GATE_POLL)
-                            if pieces_left.there or not pieces_left.mine(False):
+                            # A place ending wakes this, yet it asks once a poll at most.
+                            left = asked + GATE_POLL - time.monotonic()
+                            pieces_left.cond.wait(left if left > 0 else GATE_POLL)
+                            if pieces_left.there or not pieces_left.mine(False) or (
+                                    time.monotonic() < asked + GATE_POLL):
                                 continue
+                        asked = time.monotonic()
                         said, answer = [], []
                         # The suite never waits on an answer (a probe, a copy sent) past its
                         # last piece: one that comes later finishes the helper it joined.
