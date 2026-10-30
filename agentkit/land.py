@@ -6,7 +6,7 @@ that stack have left the line; later stacks are rebuilt without it.
 A red suite piece runs again on the target's tip alone before anyone is blamed: red there
 pauses the line on the retry ladder, and red through the ladder is the target's own and
 gets one repair, at once where the tests that failed it fail again there alone.  So does a
-test that failed, then passed, on two trees (`_flaked`).  The lander never owns a member's
+file whose tests failed, then passed, on two trees (`_flaked`).  The lander never owns a member's
 process or delivery.
 """
 
@@ -28,8 +28,8 @@ from . import config, gitcall, prompts, record, transitions, turns, update
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 CHECKED = 60        # a pass shorter than a minute checked nothing: it says nothing of the pace
-FLAKY = 7 * 24 * 3600   # a test failing, then passing, on two trees this close gets one repair,
-                        # which holds it as long unless a change editing it merges first
+FLAKY = 7 * 24 * 3600   # a file's tests failing, then passing, on two trees this close get one
+                        # repair, which holds the file as long unless a change editing it merges
 # A stack's scratch checkout says so in its own git directory: gc takes one a killed lander
 # left, whatever it holds, and no other checkout for it.
 SCRATCH_MARK = "ak-lander-scratch"
@@ -363,13 +363,20 @@ def _start_repair(state, directory, repair, log):
         return None
 
 
+def _file(test):
+    """The file `test` is in: its name up to its first `::` (a pytest node) or `#` (a smoke
+    block), all of it with neither."""
+    return test.split("::")[0].split("#")[0]
+
+
 def _flaked(turn, directory, state, scratch, tree, log_path, log, flaky, failed, passed):
     """Keep in the record of the line `turn` the tests that failed, then passed, on `tree`, as
     this member's check there found them: `flaky`, those `gate.run_done_when` names, and those
     a check confirmed red there (`failed`, by command) once a later one passes them (`passed`,
-    by command: the tests it ran, None for all).  A test seen so on two trees within FLAKY gets
-    one repair of the target, owned by this member, and holds it until a change editing it
-    merges or FLAKY has passed; what it saw before then is that repair's."""
+    by command: the tests it ran, None for all), each toward its file.  A file seen so on two
+    trees within FLAKY, whichever of its tests, gets one repair of the target, owned by this
+    member, and holds it until a change editing it merges or FLAKY has passed; what its tests
+    saw before then is that repair's."""
     from . import run
     now = time.time()
     with turn.with_suffix(".flakes.lock").open("a") as lock:
@@ -379,8 +386,12 @@ def _flaked(turn, directory, state, scratch, tree, log_path, log, flaky, failed,
             kept = json.loads(path.read_text())
         except (OSError, ValueError):
             kept = {}
-        tests = {test: entry for test, entry in kept.get("tests", {}).items()
-                 if now - (entry.get("repair") or entry["seen"][-1])["at"] < FLAKY}
+        seen, repairs = kept.get("seen", []), kept.get("repairs", [])
+        for name, entry in kept.get("tests", {}).items():     # kept by test before files
+            seen += [{"test": name, **sight} for sight in entry.get("seen", ())]
+            repairs += [{"file": _file(name), **entry["repair"]}] if "repair" in entry else []
+        seen = [sight for sight in seen if now - sight["at"] < FLAKY]
+        repairs = [repair for repair in repairs if now - repair["at"] < FLAKY]
         logs, reds = {test: [] for test in flaky}, []     # each test seen, its red's log first
         for red in (red for red in kept.get("red", ()) if now - red["at"] < FLAKY):
             ran = passed.get(red["command"], ()) if red["tree"] == tree else ()
@@ -397,29 +408,33 @@ def _flaked(turn, directory, state, scratch, tree, log_path, log, flaky, failed,
         shutil.copyfile(log_path, shown)
         reds += [{"tree": tree, "command": cmd, "tests": named, "at": now, "log": shown}
                  for cmd, named in failed.items() if named]
-        for test, before in logs.items():
-            upstream, held = _upstream(state), tests.get(test, {}).get("repair")
+        for file in dict.fromkeys(map(_file, logs)):
+            upstream = _upstream(state)
+            held = max((repair for repair in repairs if repair["file"] == file),
+                       key=lambda repair: repair["at"], default=None)
             if held and not run.git_out(scratch, "diff", "--quiet", held["sha"], upstream, "--",
-                                        test)[0]:
+                                        file)[0]:
+                seen = [sight for sight in seen if _file(sight["test"]) != file]    # the repair's
                 continue
-            seen = [sight for sight in tests.get(test, {}).get("seen", ())
-                    if now - sight["at"] < FLAKY] + [
-                        {"tree": tree, "at": now, "logs": [*before, shown]}]
-            tests[test] = {"seen": seen}
-            trees = {sight["tree"] for sight in seen}
+            repairs = [repair for repair in repairs if repair["file"] != file]  # released for good
+            seen += [{"test": test, "tree": tree, "at": now, "logs": [*before, shown]}
+                     for test, before in logs.items() if _file(test) == file]
+            sights = [sight for sight in seen if _file(sight["test"]) == file]
+            trees = {sight["tree"] for sight in sights}
             if len(trees) > 1:
                 tip = run.git(scratch, "rev-parse", f"{upstream}^{{commit}}")
                 suite = gitcall.declared_suite(scratch, ref=tip)
                 # its first sight keys the repair: no run of an earlier hold answers for it
                 name = _start_repair(state, directory, {
-                    "command": test, "check": f"{suite}  # once", "sha": tip,
-                    "flaky": seen[0]["at"],
-                    "text": prompts.flaky_test_text(test, state["repo"], upstream, seen)}, log)
+                    "command": file, "check": f"{suite}  # once", "sha": tip,
+                    "flaky": min(sight["at"] for sight in sights),
+                    "text": prompts.flaky_test_text(file, state["repo"], upstream, sights)}, log)
                 if name:
-                    log(f"{test} failed, then passed, on {len(trees)} trees: repaired by {name}")
-                    tests[test] = {"repair": {"run": name, "at": now, "sha": tip}}
+                    log(f"{file} failed, then passed, on {len(trees)} trees: repaired by {name}")
+                    seen = [sight for sight in seen if _file(sight["test"]) != file]
+                    repairs.append({"file": file, "run": name, "at": now, "sha": tip})
         fresh = path.with_name(path.name + ".new")
-        fresh.write_text(json.dumps({"red": reds, "tests": tests}))
+        fresh.write_text(json.dumps({"red": reds, "seen": seen, "repairs": repairs}))
         fresh.replace(path)
 
 
@@ -689,16 +704,20 @@ def _pr_moved(state, heads):
             "the line checks them")
 
 
-def _stack_member(repo, state, top, upstream, opened):
-    """Integrate a reviewed head in scratch; no scratch means setup failed."""
+def _stack_member(repo, state, top, upstream, opened, scratch=None):
+    """Integrate a reviewed head in scratch, the one given put back at the head; no scratch
+    means setup failed."""
     from . import roundloop, run
     head = state["review"]["head_sha"]
-    code, out = _member_commit(repo, state, head)
-    if code:
-        return None, f"[exit {code}]\nERROR: reviewed commit {head} is unavailable\n{out}"
-    scratch, text = _scratch(repo, head, opened)
-    if text:
-        return None, text
+    if scratch:
+        _put_back(scratch, head)
+    else:
+        code, out = _member_commit(repo, state, head)
+        if code:
+            return None, f"[exit {code}]\nERROR: reviewed commit {head} is unavailable\n{out}"
+        scratch, text = _scratch(repo, head, opened)
+        if text:
+            return None, text
     lp = SimpleNamespace(state=state, wt=scratch,
                          base_sha=state.get("base_sha") or
                          run.git(scratch, "merge-base", head, top))
@@ -811,7 +830,9 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     log_path.write_text(moved + "\n")
                     alone(member, {"fix": {"line": moved, "log": str(log_path), "moved": True}})
                     continue
-                # Earlier changes can hide a target conflict, so try the bare tip first.
+                # Earlier changes can hide a target conflict, so try the bare tip first, then the
+                # stack in the same checkout: a checkout of a large repository takes half a minute
+                # on a busy disk (two for each of 24 members held a pass 28 minutes, 30 Oct 2026).
                 scratch, text = _stack_member(repo, saved, tip, upstream, opened)
                 if text:
                     if member == directory or scratch is not None:
@@ -821,7 +842,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                                **({"conflict": True} if scratch is not None else {})}})
                     continue
                 if top != tip:
-                    scratch, text = _stack_member(repo, saved, top, upstream, opened)
+                    scratch, text = _stack_member(repo, saved, top, upstream, opened, scratch)
                     if text:
                         continue
                 # AGENTS.md is measured on the tree that lands, before any evidence answers it: a

@@ -300,5 +300,5 @@ def error(record, cwd, conversation):
     wait = failed.get("retryAfterMs")
     if isinstance(wait, (int, float)) and isinstance(created, (int, float)):
         reset = datetime.fromtimestamp((created + wait) / 1000, timezone.utc)
-        said += f" try again at {reset.isoformat(timespec='seconds')}"
+        said += f" try again at {reset.isoformat(timespec='milliseconds')}"
     return said

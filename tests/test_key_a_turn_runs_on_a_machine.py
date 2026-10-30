@@ -1,4 +1,4 @@
-"""A model turn runs on a machine with room once config.toml says `machine_turns = true`, its
+"""A model turn runs on a machine with room once config.toml says `turns_on_machines = true`, its
 results back here when it ends; with the switch off or no room there, it runs here.
 
 Black-box, as tests/test_key_changed_paths_go_with_the_piece.py is, on its machine, which has both
@@ -19,9 +19,11 @@ from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
 WHERE = 'echo "${container:-here}" | tee "${AK_HAND_IN%/*}/where"'
+# What a login shell finds, as the real codex's `bash -lc` starts over from /etc/profile's PATH.
+LOGIN = 'env -i HOME="$HOME" PATH=/usr/bin:/bin bash -lc "command -v ak" >"${AK_HAND_IN%/*}/login"'
 # The executor commits where it ran, leaves left.txt uncommitted and removes gone.txt.
-EXECUTE = {"sh": f"{WHERE} >executor.txt && git add executor.txt && git commit -qm where && "
-                 "echo left >left.txt && rm gone.txt",
+EXECUTE = {"sh": f"{LOGIN}; {WHERE} >executor.txt && git add executor.txt && git commit -qm where "
+                 "&& echo left >left.txt && rm gone.txt",
            "final": "## Summary\nedited", "hand_in": [["done"]]}
 REVIEW = {"sh": WHERE, "final": "Handed in.", "hand_in": [["done"]]}
 
@@ -36,7 +38,7 @@ class ATurnRunsOnAMachine(unittest.TestCase):
             "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
         GitHub(home).grant(rig.slug, "WRITE")
         akconfig.write(home, ["opus", "astra"],
-                       settings={"suite_helper": "acme-linux", "machine_turns": switch})
+                       settings={"suite_helper": "acme-linux", "turns_on_machines": switch})
         fakeadapter.install(home, claude=EXECUTE, codex=REVIEW)
         machine = akmachine.install(home)
         for harness, version in (("claude", "1.2.3"), ("codex", "4.5.6")):
@@ -57,14 +59,16 @@ class ATurnRunsOnAMachine(unittest.TestCase):
         self.assertNotIn("gone.txt", rig.files())
         turns = sorted(path.read_text().strip() for path in run.rglob("where"))
         containers = len([*machine.glob("docker/roots/*-turn")])
+        self.login = next(run.rglob("login")).read_text().strip()
         return turns, rig.origin("show", "main:executor.txt"), containers
 
     def test_both_turns_run_on_the_machine(self):
         self.assertEqual(self.run_task(True, 2), (["docker"] * 2, "docker", 2))
+        self.assertTrue(self.login.endswith("/bin/ak"), self.login)
 
     def test_with_the_switch_off_or_no_room_the_turns_run_here(self):
         for switch, cpus in ((False, 2), (True, 1)):
-            with self.subTest(machine_turns=switch, cpus=cpus):
+            with self.subTest(turns_on_machines=switch, cpus=cpus):
                 self.assertEqual(self.run_task(switch, cpus), (["here"] * 2, "here", 0))
 
 

@@ -7150,7 +7150,7 @@ def merge_record(repo, sha, pr_url=None):
     return {"health": {"command": command} if command else {}}
 
 
-def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes):
+def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes, records=None):
     """Keep the merge commit `sha` on the run and its history row, for the next tick and the
     scoreboard; then follow the merge's declaration in its original checkout, stopping at its
     first pass."""
@@ -7221,7 +7221,7 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
                 handback.mark_delivery(run_dir, st, live_notified=now, live_typed=None)
                 log(f"{handback.live_sentence(st, run_dir)} Recorded, not typed")
             return "passed", None, None
-        if handback.carries_live(st) or not st.get("live_typed") and handback.rides(st):
+        if handback.carries_live(st) or not st.get("live_typed") and handback.rides(st, records):
             # its ending, still to be said, carries it, or it rides on the seat's next prompt
             # (`handback.riding`)
             return "passed", None, None
@@ -7481,8 +7481,12 @@ def after_merge_checks(state, dry_run, log, now=None):
         return
     grouped = {}
     probes = {}
+    # Every run's, one read for every merged run's question about its seat (`handback.rides`):
+    # one read each was 5167 files read 200 times a tick (30 Oct 2026).
+    records = []
     for run_dir in directories:
         st = run_record.read_state(run_dir)
+        records.append((run_dir, st or {}))
         if not st or not st.get("merged"):
             continue
         finished = st.get("finished_at")
@@ -7527,7 +7531,7 @@ def after_merge_checks(state, dry_run, log, now=None):
                 verdict, check, url = "ignored", None, None
             try:
                 health = after_merge_health(run_dir, st, key, sha, pr_url, now,
-                                            dry_run, log, probes)
+                                            dry_run, log, probes, records)
             except (config.Error, OSError, ValueError, AttributeError, KeyError, TypeError) as exc:
                 # Until a command is known, discovery cannot change the target's check verdict.
                 health = ("unknown", None, None) if st.get("health") or st.get("live_at") else None
@@ -7772,6 +7776,10 @@ def local_passes(state, dry_run, log):
                      else usage.collect(config.load(), refresh=True))
 
     return (
+        # First, and outside the `gh api user` gate: a merged change's `health:` needs no GitHub,
+        # and the seats' passes below read its `live_at` this tick (`awaiting_live`).  The pass's
+        # own gh calls fail on their own, and the next tick asks again.
+        ("merged runs were not followed", lambda: after_merge_checks(state, dry_run, log), True),
         ("the boot resume pass did not run",
          lambda: resume_after_boot(config.load(), dry_run=dry_run, log=log), True),
         ("the held-line Enter pass did not run",
@@ -7783,8 +7791,9 @@ def local_passes(state, dry_run, log):
         # `auth` verb passes again: before the seats, so no seat reads a login back as one to fix.
         ("the login-resume pass did not run",
          lambda: resume_waiting_login(dry_run=dry_run, log=log), True),
-        # the seats first, and never behind GitHub: a stalled seat is the one thing on this tick
-        # that nothing else will ever get to, and a gh that is down is no reason to leave it stuck
+        # the seats early, and never behind the `gh api user` gate: a stalled seat is the one
+        # thing on this tick that nothing else will ever get to, and a gh that is down is no
+        # reason to leave it stuck
         ("the session health pass did not run",
          lambda: health(config.load(), state, dry_run, log), True),
         ("the mid-turn continue pass did not run",
@@ -7936,7 +7945,6 @@ def main(argv):
             state.pop("gh_out", None)
         incoming(state, me, dry_run, log)
         outgoing(state, me, dry_run, log)
-        after_merge_checks(state, dry_run, log)
         if not dry_run:
             save_state(state)
         return 0

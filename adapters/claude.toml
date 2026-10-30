@@ -17,6 +17,9 @@ first_prompt = true
 [worker]
 state = ["~/.claude", "$CLAUDE_CONFIG_DIR", "~/.claude-$AGENTKIT_ACCOUNT"]
 logins = ["~/.claude/.credentials.json", "$CLAUDE_CONFIG_DIR/.credentials.json", "~/.claude-$AGENTKIT_ACCOUNT/.credentials.json"]
+# where a turn's conversation lives, `{id}` its id: what travels with a turn on a machine
+# (agentkit/machine_turn.py); a harness without this takes no turns there
+sessions = ["~/.claude/projects/*/{id}*"]
 # the `type`s of events.jsonl records that only say a tool still runs: about every 30 s while
 # one Bash call blocks, so a hung call would never go silent if they counted
 heartbeats = ["tool_progress"]
@@ -132,6 +135,30 @@ kinds = ["manual"]
 name = "PostCompact"
 state = "at_prompt"
 kinds = ["manual"]
+
+# What the Go build's `hooks` merges into the settings file (`~` is HOME), as adapters/claude.sh
+# does until Go takes over: which of ak's hooks/ scripts each event runs, in this order.  A
+# `heard` event runs it in the background (`async`, 2.1.292), where seat-state.sh would hold what
+# it fires on for half a second; a matched one runs it only for those tools, a tool ending heard
+# only where it is an answer.  An entry naming a script's former name is that script's,
+# repointed, so nothing an older checkout wrote is left calling a file that is no longer there.
+[hooks.install]
+settings = "~/.claude/settings.json"
+heard = ["PermissionRequest", "PostToolUse", "PreCompact", "PostCompact"]
+matchers = { PostToolUse = "AskUserQuestion|ExitPlanMode", PreToolUse = "AskUserQuestion" }
+formerly = { "seat-state.sh" = ["idle-compact-stop.sh"] }
+
+[hooks.install.events]
+SessionStart = ["seat-state.sh"]
+UserPromptSubmit = ["seat-state.sh"]
+Stop = ["seat-state.sh", "orchestrator-stop.sh"]
+StopFailure = ["seat-state.sh"]
+Notification = ["seat-state.sh"]
+PermissionRequest = ["seat-state.sh"]
+PostToolUse = ["seat-state.sh"]
+PreCompact = ["seat-state.sh"]
+PostCompact = ["seat-state.sh"]
+PreToolUse = ["orchestrator-stop.sh"]
 
 [screen]
 # fullmatch against a bottom line: the input box, which is chrome and not anything Claude said;

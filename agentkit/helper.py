@@ -168,7 +168,8 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None):
     """(the suite sent to the roomiest helper, reason): an Away, or (None, why it runs here).
     `command` is what each of its pieces runs there (`piece`): one whose line is longer than one
     argument holds keeps the suite here. With `turn`, a model turn's (agentkit/machine_turn.py),
-    it goes to a machine that takes turns, `turn(tar)` adding its own files to the parcel."""
+    it goes to a machine that takes turns, holding `piece_cpus` of it until it starts, not half,
+    `turn(tar)` adding its own files to the parcel."""
     try:
         aliases = machines.helpers()
     except config.Error:  # a config.toml mid-edit fails no run's suite: it runs here
@@ -210,7 +211,8 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None):
                 _parcel(cwd, away.default, known, recipe, parcel, turn)
                 parcel.seek(0)
                 # a new recipe's build fetches packages, a first suite sends the whole history
-                sent = _remote(alias, "prepare", away.key, image, repo, stdin=parcel,
+                sent = _remote(alias, "prepare", away.key, image, repo,
+                               *([piece_cpus] if turn else []), stdin=parcel,
                                timeout=1800).returncode
             # The copy went since `known` answered: the whole history, once.
             known = [] if known and sent == LACKS else None

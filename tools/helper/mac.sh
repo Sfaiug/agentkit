@@ -165,15 +165,20 @@ history() {
 }
 # fetch PROGRAM URLFILE, under its version's lock: a turn's harness program, unless a turn before
 # this one fetched it, whole or not at all: it stays outside the directory `turn` mounts until it
-# is all here. A `.tar.gz` holds only the program, under another name. Bounded, as a hung download
-# would hold the lock against every later turn.
+# is all here. A `.tar.gz` is a package: the program with what it runs beside it or finds on PATH
+# (a real one failed to run any command without them, seen on a real machine, 30 Oct 2026), its
+# programs going flat in one directory wherever it keeps them. Bounded, as a hung download would
+# hold the lock against every later turn.
 fetch() {
   [ ! -x "$1" ] || return 0
   url=$(cat "$2") || return
   part=${1%/*}.part
-  case $url in *.tar.gz) unpack="tar -xzO" ;; *) unpack=cat ;; esac
-  (set -o pipefail; curl -fsSL --max-time 600 "$url" | $unpack >"$part") && chmod +x "$part" &&
-    mv "$part" "$1" || { rm -f "$part"; return 1; }
+  rm -rf "$part" && mkdir "$part" || return
+  case $url in
+    *.tar.gz) (set -o pipefail; curl -fsSL --max-time 600 "$url" | tar -xz -C "$part") &&
+      find "$part" -mindepth 2 -type f -perm -u+x -exec mv -t "$part" {} + ;;
+    *) curl -fsSL --max-time 600 "$url" >"$part/${1##*/}" && chmod +x "$part/${1##*/}" ;;
+  esac && [ -x "$part/${1##*/}" ] && mv -T "$part" "${1%/*}" || { rm -rf "$part"; return 1; }
 }
 case $(uname) in Darwin) darwin ;; Linux) linux ;; *) false ;; esac || exit 253
 case "$1" in
@@ -186,10 +191,10 @@ known)     # REPO: the commit its history here reaches, if any. A suite asks jus
   # `prepare`, so this marks the history in use: no other suite's `prepare` deletes it for a week.
   touch -c "$MIRRORS/$2"
   git -C "$MIRRORS/$2" rev-parse -q --verify refs/known/base 2>/dev/null; exit 0 ;;
-prepare)   # KEY IMAGE REPO, the parcel on stdin
+prepare)   # KEY IMAGE REPO [CPUS a turn holds], the parcel on stdin
   # Suites are admitted one at a time, before anything of theirs is unpacked.
   mkdir -p "$ROOT" || exit 253
-  locked "$ROOT/suites.lock" admit "$2" || exit
+  locked "$ROOT/suites.lock" admit "$2" "$5" || exit
   # -p: the recipe's files keep HEAD's modes, whatever umask the machine's shell has.
   mkdir -p "$ROOT/$2" && tar -x -p -C "$ROOT/$2" && echo "$3" >"$ROOT/$2/image/name" || exit 253
   # A turn's harness program is $ROOT/harness/<harness>/<version>/<program>; a suite names none.
@@ -220,13 +225,24 @@ failed)    # KEY NAME [flaky]: the tests piece NAME named as failed (or flaky); 
            # link it left there
   f="$ROOT/$2/$3.out/${4:-failed}"
   [ ! -f "$f" ] || [ -L "$f" ] || cat "$f"; exit 0 ;;
-turn)      # KEY IMAGE MEMORY_MB REPO, volumes PART:PATH[:ro] of its parcel, `--`, turn.sh's
-  # arguments: the turn's container, its events on stdout and harness's stderr on stderr, ended
-  # with ak's ssh session. It exits as turn.sh did: 0 once the turn's exit is in `code`.
-  D="$ROOT/$2" image=$3 memory=$4 M="$MIRRORS/$5" name="ak-$2-turn" volumes=()
+turn)      # KEY IMAGE MEMORY_MB REPO, volumes PART:PATH[:ro] of its parcel, `home` first, `--`,
+  # turn.sh's arguments: the turn's container, its events on stdout and harness's stderr on stderr,
+  # ended with ak's ssh session. It exits as turn.sh did: 0 once the turn's exit is in `code`. By
+  # then, however it ended, the paths `lent` names, read before the turn could change them, are
+  # gone, so `collect` cannot send them.
+  D="$ROOT/$2" image=$3 memory=$4 M="$MIRRORS/$5" name="ak-$2-turn" volumes=() lent=()
   H="$ROOT/harness/$(dirname "$(cat "$D/harness")")"
   shift 5
-  while [ "${1:---}" != -- ]; do mkdir -p "$D/${1%%:*}" && volumes+=(--volume "$D/$1"); shift; done
+  while IFS= read -r -d '' path; do lent+=("$D/home/$path"); done <"$D/lent"
+  trap 'rm -rf -- "${lent[@]}"' EXIT
+  home=${1#home:}
+  while [ "${1:---}" != -- ]; do
+    mkdir -p "$D/${1%%:*}" && volumes+=(--volume "$D/$1") || exit 253
+    # docker makes a mount point missing from HOME as root, which `finish` could not remove.
+    place=${1#*:} place=${place%:ro}
+    case $place in "$home"/*) mkdir -p "$D/home/${place#"$home"/}" || exit 253 ;; esac
+    shift
+  done
   shift
   streamed() {
     start_turn "$@" >&2 & turn=$!
@@ -235,8 +251,10 @@ turn)      # KEY IMAGE MEMORY_MB REPO, volumes PART:PATH[:ro] of its parcel, `--
     wait "$turn"; code=$?; wait; exit "$code"
   }
   admitted streamed "$@" ;;
-collect)   # KEY: an ended turn's out dir, the bundle and exit turn.sh left, as a tar on stdout
-  cd "$ROOT/$2" && [ -f code ] && tar -c out back.bundle code || exit 253 ;;
+collect)   # KEY FOLDER...: an ended turn's out dir, the bundle and exit turn.sh left and those
+  # folders of its HOME, as a tar on stdout
+  cd "$ROOT/$2" && [ -f code ] && shift 2 && mkdir -p "${@/#/home/}" &&
+    tar -c out back.bundle code "${@/#/home/}" || exit 253 ;;
 finish) rm -rf "${ROOT:?}/$2" ;;
 *) exit 253 ;;
 esac
