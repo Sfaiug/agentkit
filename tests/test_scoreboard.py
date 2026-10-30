@@ -115,11 +115,11 @@ class Scoreboard(unittest.TestCase):
         self.ended("real")
         self.ended("stopped", state="stopped", tokens=(10000, 10000))
         self.ended("old-smoke", repo="agentkit-smoke", tokens=(10000, 10000))
-        # Old databases kept both suite names and suite repos identifiable only by their record.
-        self.ended("old-e2e", tokens=(10000, 10000))
+        # Old databases kept the suite's name and suite repos identifiable only by their record.
+        self.ended("old-name", tokens=(10000, 10000))
         self.ended("old-tmp", tokens=(10000, 10000))
         with closing(sqlite3.connect(history.path())) as db, db:
-            db.execute("UPDATE runs SET repo='agentkit-e2e' WHERE run_id='old-e2e'")
+            db.execute("UPDATE runs SET repo='agentkit-smoke' WHERE run_id='old-name'")
         self.saved("old-tmp", repo="/home/acme/.agentkit/tmp/suite/repo-retry")
         board = scoreboard.compute(NOW)
         self.assertEqual(board["products"][0]["runs"], 1)
