@@ -156,23 +156,33 @@ class InstallSwitchesInOneStep(unittest.TestCase):
         self.live(sixth)
         self.assertEqual(self.swapped_out(), sorted([self.new, third, fourth, fifth]))
 
-    def pruned_unseen(self):
-        """A prune by whatever cannot see ~/agentkit, from a run's worktree of the same repository."""
+    def pruned_unseen(self, path):
+        """A prune by whatever cannot see `path`, from a run's worktree of the same repository."""
         away = self.root / "away"
-        self.clone.rename(away)
+        path.rename(away)
         git(self.wt, "worktree", "prune")
-        away.rename(self.clone)
+        away.rename(path)
 
     def test_no_prune_takes_the_record_of_the_version_live(self):
         self.go_live()
-        self.pruned_unseen()
+        self.pruned_unseen(self.clone)
         self.live(self.new)
-        # the version bringing the lock went live by the code before it: its next tick, moving
-        # nothing, locks it
-        git(versions.repository(), "worktree", "unlock", str(self.clone))
+
+    def test_the_version_the_code_before_the_lock_put_live_is_locked_at_its_next_tick(self):
         self.go_live()
-        self.pruned_unseen()
-        self.live(self.new)
+        third, real = self.push("third"), versions.exchange
+
+        def exchange(one, other):
+            real(one, other)
+            raise KeyboardInterrupt     # the tick, killed the moment after its swap
+        with patch.object(versions, "exchange", exchange), self.assertRaises(KeyboardInterrupt):
+            self.go_live()
+        # ~/agentkit's record, as that code left it: no lock, and the path of the version swapped out
+        record = Path(git(self.clone, "rev-parse", "--absolute-git-dir"))
+        (record / "locked").unlink()
+        self.go_live()      # its install, owed, and nothing to move
+        self.pruned_unseen(Path((record / "gitdir").read_text().strip()).parent)
+        self.live(third)
 
     def test_a_version_git_will_not_remove_leaves_no_record(self):
         self.go_live()

@@ -34,7 +34,7 @@ CAP = 30 * 60                   # one git step, as update.STEP_CAP
 AT_FDCWD = -100                 # Linux's, for renameat2
 RENAME_EXCHANGE = 2             # renameat2's flag on Linux
 RENAME_SWAP = 2                 # renamex_np's flag on macOS
-LOCKED = ("--reason", "a version of ak's")     # each version's record, kept from any prune
+LOCKED = "a version of ak's"   # why each version's record is locked, kept from any prune
 
 
 def repository():
@@ -55,12 +55,14 @@ def git(where, *args):
 
 
 def owned(live):
-    """Is `live` a version checked out here, rather than somebody's clone?"""
+    """git's record of `live`, the one its .git names, when it is a version checked out here;
+    None for somebody's clone."""
     try:
         named = (live / ".git").read_text().removeprefix("gitdir: ").strip()
     except OSError:         # a repository of its own, a link to one, or none
-        return False
-    return Path(live, named).resolve().parent.parent == repository().resolve()
+        return None
+    record = Path(live, named).resolve()
+    return record if record.parent.parent == repository().resolve() else None
 
 
 def finish(live):
@@ -69,8 +71,11 @@ def finish(live):
     before the lock put it live without one."""
     if repository().is_dir() and not os.path.lexists(live / ".git"):
         (live / ".git").symlink_to(repository())
-    if owned(live):
-        git(repository(), "worktree", "lock", *LOCKED, str(live))     # once locked, a refusal
+    record = owned(live)
+    if record and record.is_dir():      # a record gone, no lock brings back
+        # as `git worktree lock` writes it, which finds a record by the path held in it: a swap
+        # cut off before its repair leaves that path the version swapped out's
+        (record / "locked").write_text(f"{LOCKED}\n")
 
 
 def adopt(live):
@@ -169,8 +174,8 @@ def switch(live, commit):
     tidy(live)
     (config.HOME / VERSIONS).mkdir(parents=True, exist_ok=True)
     new = Path(tempfile.mkdtemp(prefix=f"{commit[:12]}.", dir=config.HOME / VERSIONS))
-    code, said = git(repository(), "worktree", "add", "--quiet", "--detach", "--lock", *LOCKED,
-                     str(new), commit)
+    code, said = git(repository(), "worktree", "add", "--quiet", "--detach", "--lock", "--reason",
+                     LOCKED, str(new), commit)
     if code:
         remove(new)
         return f"{commit[:12]} could not be checked out in {new}: {said}"
