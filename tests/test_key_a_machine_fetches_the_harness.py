@@ -81,7 +81,7 @@ class AMachineFetchesTheHarness(unittest.TestCase):
             "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
         GitHub(home).grant(rig.slug, "WRITE")
         akconfig.write(home, list(models),
-                       settings={"suite_helper": "acme-linux", "machine_turns": True})
+                       settings={"suite_helper": "acme-linux", "turns_on_machines": True})
         fakes = fakeadapter.install(home, claude=[turn("claude", fakeadapter.WORK),
                                                   turn("claude", fakeadapter.PASS)],
                                     codex=turn("codex", fakeadapter.PASS))

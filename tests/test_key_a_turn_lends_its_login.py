@@ -65,7 +65,7 @@ class ATurnLendsItsLogin(unittest.TestCase):
         GitHub(home).grant(rig.slug, "WRITE")
         akconfig.write(home, ["opus", "astra"],
                        providers={"anthropic": {"mode": "subscription", "accounts": ["second"]}},
-                       settings={"suite_helper": "acme-linux", "machine_turns": True})
+                       settings={"suite_helper": "acme-linux", "turns_on_machines": True})
         fakes = fakeadapter.install(home, claude=EXECUTE, codex=REVIEW)
         for fake in fakes.values():
             if lend:

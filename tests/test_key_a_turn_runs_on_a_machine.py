@@ -1,4 +1,4 @@
-"""A model turn runs on a machine with room once config.toml says `machine_turns = true`, its
+"""A model turn runs on a machine with room once config.toml says `turns_on_machines = true`, its
 results back here when it ends; with the switch off or no room there, it runs here.
 
 Black-box, as tests/test_key_changed_paths_go_with_the_piece.py is, on its machine, which has both
@@ -36,7 +36,7 @@ class ATurnRunsOnAMachine(unittest.TestCase):
             "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
         GitHub(home).grant(rig.slug, "WRITE")
         akconfig.write(home, ["opus", "astra"],
-                       settings={"suite_helper": "acme-linux", "machine_turns": switch})
+                       settings={"suite_helper": "acme-linux", "turns_on_machines": switch})
         fakeadapter.install(home, claude=EXECUTE, codex=REVIEW)
         machine = akmachine.install(home)
         for harness, version in (("claude", "1.2.3"), ("codex", "4.5.6")):
@@ -64,7 +64,7 @@ class ATurnRunsOnAMachine(unittest.TestCase):
 
     def test_with_the_switch_off_or_no_room_the_turns_run_here(self):
         for switch, cpus in ((False, 2), (True, 1)):
-            with self.subTest(machine_turns=switch, cpus=cpus):
+            with self.subTest(turns_on_machines=switch, cpus=cpus):
                 self.assertEqual(self.run_task(switch, cpus), (["here"] * 2, "here", 0))
 
 
