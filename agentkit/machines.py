@@ -55,10 +55,7 @@ class Machine(namedtuple("Machine", "name checks said")):
 
 def helpers():
     """Every machine ak may use but this one: the owner's config.toml as is, not `config.load`'s."""
-    try:
-        named = (config._read_toml(config.HOME / config.CONFIG_NAME) or {}).get("machines")
-    except config.Error:  # one mid-edit names none: a run's suite then runs here, not fails
-        named = None
+    named = (config._read_toml(config.HOME / config.CONFIG_NAME) or {}).get("machines")
     names = [*(named if isinstance(named, dict) else ()), config.suite_helper()]
     return [name for name in dict.fromkeys(names) if name]
 

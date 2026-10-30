@@ -150,7 +150,10 @@ def _parcel(cwd, default, known, recipe, parcel):
 
 def start(piece_cpus, piece_mem_mb, cwd, log):
     """(the suite sent to the roomiest helper, reason): an Away, or (None, why it runs here)."""
-    aliases = machines.helpers()
+    try:
+        aliases = machines.helpers()
+    except config.Error:  # a config.toml mid-edit fails no run's suite: it runs here
+        aliases = []
     if not aliases:
         return None, "no suite helper set up"
     alias = aliases[0]
