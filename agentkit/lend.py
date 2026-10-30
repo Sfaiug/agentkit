@@ -7,8 +7,8 @@ HOME a copy nothing can renew, its adapter's `lend`, of its usual login whatever
 names, and nothing goes back; one with none to lend, or no adapter here, lends none.
 
 Usage: python3 -m agentkit.lend <home>
-    a line per harness lent, its name and the files it placed; exit 1 saying why where a lend
-    failed or a place it takes in <home> is taken.
+    a line per harness lent, its name and the files it placed, by their path in <home>; exit 1
+    saying why where a lend failed or a place it takes in <home> is taken.
 """
 
 import os
@@ -60,9 +60,10 @@ def into(home):
 
 
 if __name__ == "__main__":
+    home = Path(sys.argv[1])
     try:
-        lent, _ = into(sys.argv[1])
+        lent, _ = into(home)
     except (config.Error, OSError, ValueError, subprocess.TimeoutExpired) as exc:
         sys.exit(f"lend: {exc}")
     for harness, files in lent.items():
-        print(harness, *files)
+        print(harness, *(path.relative_to(home) for path in files))
