@@ -689,6 +689,15 @@ def _pr_moved(state, heads):
             "the line checks them")
 
 
+def _may_conflict(repo, state, onto):
+    """Whether a member's reviewed head may not integrate onto `onto`: anything but git's clean
+    answer is a yes, for a checkout to find out and say why."""
+    from . import run
+    head = state["review"]["head_sha"]
+    return bool(_member_commit(repo, state, head)[0]
+                or run.git_out(repo, "merge-tree", "--write-tree", onto, head)[0])
+
+
 def _stack_member(repo, state, top, upstream, opened):
     """Integrate a reviewed head in scratch; no scratch means setup failed."""
     from . import roundloop, run
@@ -811,15 +820,19 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     log_path.write_text(moved + "\n")
                     alone(member, {"fix": {"line": moved, "log": str(log_path), "moved": True}})
                     continue
-                # Earlier changes can hide a target conflict, so try the bare tip first.
-                scratch, text = _stack_member(repo, saved, tip, upstream, opened)
-                if text:
-                    if member == directory or scratch is not None:
-                        log_path = member / "lander.log"
-                        log_path.write_text(text)
-                        alone(member, {"fix": {"line": prompts.first_failure(text), "log": str(log_path),
-                                               **({"conflict": True} if scratch is not None else {})}})
-                    continue
+                # Earlier changes can hide a target conflict, so try the bare tip first, by git's
+                # objects alone where they show none: a checkout of a large repository takes half
+                # a minute on a busy disk (twice for each of 24 members held a pass 28 minutes, 30
+                # Oct 2026), and this one would only be thrown away for the stacked one.
+                if top == tip or _may_conflict(repo, saved, tip):
+                    scratch, text = _stack_member(repo, saved, tip, upstream, opened)
+                    if text:
+                        if member == directory or scratch is not None:
+                            log_path = member / "lander.log"
+                            log_path.write_text(text)
+                            alone(member, {"fix": {"line": prompts.first_failure(text), "log": str(log_path),
+                                                   **({"conflict": True} if scratch is not None else {})}})
+                        continue
                 if top != tip:
                     scratch, text = _stack_member(repo, saved, top, upstream, opened)
                     if text:
