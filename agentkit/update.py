@@ -59,29 +59,29 @@ LIVE = "live-checks"          # under config.STATE: one directory per check, `<c
 HARNESS_GATES = "harness-gates"  # under config.STATE: one failure episode per harness
 FRESH_FAULTS = "fresh-gate-faults"  # under config.STATE: the fresh-install gate's standing faults
 # A check of agentkit's tests/live.sh, detached: a throwaway worktree of exactly the commit,
-# the script in it, then the output and the exit code, each written whole.  The worktree is
-# added under `MOVING`, shared: one added while a move adopts ~/agentkit (`versions.adopt`)
-# names a repository that move takes away.  The script runs in the process group of a holder,
-# a `sleep` this runner starts after the worktree and reaps last, after every signal to the
-# group, so the group's id names no other process while it signals it.  Once the script
-# exits, KILL to the group ends whatever it left there; at the check's cap, or as soon as the
-# tick's TERM tells it to, TERM, then KILL after the grace, and a red exit code: so a check
-# ends on a host with no /proc for `worker.kill_marked` to read.  The exit code waits, up to
-# the grace, until signal 0 finds the group gone, zombies reaped; past the holder's reaping it
-# only probes, so an id named anew costs that wait and nothing else.
+# the script in it, then the output and the exit code, each written whole.  Both run in the
+# process group of a holder, a `sleep` this runner starts first and reaps last, after every
+# signal to the group, so the group's id names no other process while it signals it.  Once the
+# script exits, KILL to the group ends whatever it left there; at the check's cap, or as soon
+# as the tick's TERM tells it to, TERM, then KILL after the grace, and a red exit code: so a
+# check ends on a host with no /proc for `worker.kill_marked` to read.  The exit code waits,
+# up to the grace, until signal 0 finds the group gone, zombies reaped; past the holder's
+# reaping it only probes, so an id named anew costs that wait and nothing else.
+# The worktree is added under `MOVING`, shared: one added while a move adopts ~/agentkit
+# (`versions.adopt`) names a repository that move takes away.  The script's fd 3 holds it, a
+# flock outliving the python that took it, until the add ends; git gets no fd 3, so nothing it
+# leaves running keeps it.
 # This script is the only writer of both files; the tick only creates the directory and reads it.
-LIVE_RUN = r'''import fcntl, os, signal, subprocess, sys, time
+LIVE_RUN = r'''import os, signal, subprocess, sys, time
 check, repo, commit, cap, grace, moving = sys.argv[1:]
 os.chdir(check)
 os.environ["AK_LIVE_FAILED"] = f"{check}/failed"
+holder = subprocess.Popen(["sleep", "99999999"], process_group=0)
 with open("output.tmp", "w") as out:
-    with open(moving, "a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_SH)
-        added = subprocess.run(["git", "-C", repo, "worktree", "add", "--quiet", "--detach",
-                                f"{check}/tree", commit], stdout=out, stderr=out).returncode
-    holder = subprocess.Popen(["sleep", "99999999"], process_group=0)
-    script = subprocess.Popen(["sh", "-c", '[ "$0" = 0 ] || exit "$0"; cd "$1" && bash tests/live.sh',
-                               str(added), f"{check}/tree"],
+    script = subprocess.Popen(["sh", "-c", 'exec 3>>"$3" && "$4" -c "import fcntl; fcntl.flock(3, '
+                               'fcntl.LOCK_SH)" && git -C "$0" worktree add --quiet --detach "$1" "$2" '
+                               '3>&- && exec 3>&- && cd "$1" && bash tests/live.sh',
+                               repo, f"{check}/tree", commit, moving, sys.executable],
                               stdout=out, stderr=out, process_group=holder.pid)
 
 
