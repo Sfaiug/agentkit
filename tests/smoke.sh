@@ -1708,14 +1708,15 @@ if [ "$RC" = 0 ] && [ -n "$RUNDIR" ]; then
     "$CLONE" "$WORK/task.md" "$WORK/delivered"
   DELIVERYRC=$?
 fi
-python3 "$REPO/tests/sandbox_branch.py" close "$CLONE" >>"$WORK/seed.log" 2>&1
+checked "$WORK/close.log" python3 "$REPO/tests/sandbox_branch.py" close "$CLONE"
+CLOSERC=$?
 if [ "$RC" = 0 ] && [ -n "$RUNDIR" ] && grep -q '^VERDICT: PASS' "$RUNDIR/result.md" 2>/dev/null &&
    grep -q '^merged: yes$' "$RUNDIR/result.md" && grep -q '^pr: https://' "$RUNDIR/result.md" &&
-   [ "$DELIVERYRC" = 0 ]; then
+   [ "$DELIVERYRC" = 0 ] && [ "$CLOSERC" = 0 ]; then
   ok "4 ak run: $(grep '^pr: ' "$RUNDIR/result.md") merged, $EXEC executing and $REVIEW reviewing;"\
      "done-when passed on the fetched branch it merged into"
 else
-  no "4 ak run: exit=$RC rundir=${RUNDIR:-none} delivery-exit=$DELIVERYRC"
+  no "4 ak run: exit=$RC rundir=${RUNDIR:-none} delivery-exit=$DELIVERYRC close-exit=$CLOSERC"
   diagnose "$RC" "$WORK/run.log" ak run "$WORK/task.md" --rounds 2 --exec "$EXEC" --review "$REVIEW"
 fi
 

@@ -637,7 +637,7 @@ TASK
   must "it was not merged" grep -q '^merged: yes$' "$RESULT"
   must "no PR URL" grep -q '^pr: https://' "$RESULT"
   must "remote done-when failed" as 'python3 ~/agentkit/tests/verify_delivery.py ~/agentkit-smoke ~/e2e/task.md ~/e2e/delivered'
-  as 'python3 ~/agentkit/tests/sandbox_branch.py close ~/agentkit-smoke' >>"$WORK/seed.log" 2>&1
+  must "removing its sandbox branches failed" as 'python3 ~/agentkit/tests/sandbox_branch.py close ~/agentkit-smoke'
   verdict "f  a real task, orchestrated headlessly" \
     "$(grep -h '^pr: ' "$RESULT" 2>/dev/null) merged, done-when passed on the fetched branch it merged into"
 fi

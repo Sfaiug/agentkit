@@ -3,9 +3,9 @@
 Two smoke suites' check 4 and one fresh-install gate's step f, each lifted out of its script, run
 at once against one bare origin, missing until a gate makes it, through a fake `gh` and a fake
 `ak`; the real tests/sandbox_branch.py and tests/verify_delivery.py do the rest.  Each lands on
-and then removes only its own branches, and no repository but `agentkit-smoke` is made.  How the
-module makes the repository and clears what killed suites left: tests/test_sandbox_branch.py.
-Offline: nothing reaches GitHub or a model.
+and then removes only its own branches, failing where they stay, and no repository but
+`agentkit-smoke` is made.  How the module makes the repository and clears what killed suites
+left: tests/test_sandbox_branch.py.  Offline: nothing reaches GitHub or a model.
 """
 
 import os
@@ -34,10 +34,11 @@ case "$*" in
   *) exit 97 ;;
 esac
 '''
+ZERO = "0" * 40   # the sha an update hook reads for a missing ref: one made, or deleted
 # Origin's update hook says which gate wrote which ref, and refuses `main` once it is made.
-HOOK = '''#!/bin/sh
+HOOK = f'''#!/bin/sh
 echo "$WORK $1" >>"$FAKE/updates"
-[ "$1" != refs/heads/main ] || [ "$2" = 0000000000000000000000000000000000000000 ]
+[ "$1" != refs/heads/main ] || [ "$2" = {ZERO} ] || exit 1
 '''
 # A run cut from the base the task or the clone's origin/HEAD names, its fix pushed as `ak/<id>`
 # and merged into that base once every gate's run is this far, all three gates' branches on
@@ -122,13 +123,18 @@ class OneSandboxRepo(unittest.TestCase):
         return self.gate("fresh", MUST + stubs + STEP_F, UH=str(home),
                          HOME=str(self.root / "caller"), MARKER="e2e-marker.txt", TS="0")
 
-    def test_two_smoke_suites_and_a_fresh_gate_share_one_repository_at_once(self):
-        gates = {"smoke-1": self.smoke("smoke-1"), "smoke-2": self.smoke("smoke-2"),
+    def gates(self):
+        """Two smoke suites' check 4 and a fresh gate's step f, run at once: {name: (exit, output)}."""
+        procs = {"smoke-1": self.smoke("smoke-1"), "smoke-2": self.smoke("smoke-2"),
                  "fresh": self.fresh()}
-        outs = {name: proc.communicate(timeout=300)[0] for name, proc in gates.items()}
-        self.assertEqual({name: proc.returncode for name, proc in gates.items()},
-                         dict.fromkeys(gates, 0), "\n".join(outs.values()))
-        for name, out in outs.items():
+        outs = {name: proc.communicate(timeout=300)[0] for name, proc in procs.items()}
+        return {name: (proc.returncode, outs[name]) for name, proc in procs.items()}
+
+    def test_two_smoke_suites_and_a_fresh_gate_share_one_repository_at_once(self):
+        gates = self.gates()
+        self.assertEqual({name: code for name, (code, _) in gates.items()}, dict.fromkeys(gates, 0),
+                         "\n".join(out for _, out in gates.values()))
+        for name, (_, out) in gates.items():
             if name == "fresh":
                 self.assertIn("PASS  f  a real task, orchestrated headlessly: pr: https://", out)
             else:
@@ -152,6 +158,16 @@ class OneSandboxRepo(unittest.TestCase):
                           (self.root / "gh.log").read_text().splitlines()},
                          {"api user --jq", "repo create caller/agentkit-smoke",
                           "repo clone caller/agentkit-smoke"})
+
+    def test_a_gate_whose_branches_stay_fails(self):
+        (self.root / "update").write_text(HOOK + f'[ "$3" != {ZERO} ]\n')   # no deletion
+        gates = self.gates()
+        self.assertNotIn(0, [code for code, _ in gates.values()])
+        for name in ("smoke-1", "smoke-2"):
+            self.assertRegex(gates[name][1], r"FAIL  4 ak run: exit=0 rundir=\S+ delivery-exit=0 "
+                                             r"close-exit=[1-9]")
+        self.assertIn("FAIL  f  a real task, orchestrated headlessly: removing its sandbox branches "
+                      "failed", gates["fresh"][1])
 
 
 if __name__ == "__main__":
