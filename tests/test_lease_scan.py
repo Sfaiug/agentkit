@@ -10,6 +10,7 @@ run.  Offline: the lease stage (`fixtures.leases`), a real repository with one c
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import time
 import unittest
@@ -110,6 +111,116 @@ class LeaseScan(LiveRuns):
         (shim / "git").chmod(0o755)
         with patch.dict(os.environ, {"PATH": f"{shim}{os.pathsep}{os.environ['PATH']}"}):
             self.clash_with_main()
+
+    def test_only_a_pair_git_has_something_to_decide_on_is_merged(self):
+        (self.repo / "pkg" / "sub").mkdir(parents=True)
+        for name in ("a.py", "b.py"):
+            (self.repo / "pkg" / "sub" / name).write_text(f"{name}\n" * 9)
+        self.git(self.repo, "add", ".")
+        self.git(self.repo, "commit", "-qm", "A package")
+        base = self.git(self.repo, "rev-parse", "HEAD")
+        older = self.run_on("20260101-0900-older", 900, base=base)
+        younger = self.run_on("20260101-1000-younger", 1000, base=base)
+        self.edit(older, "api.py", 5, "older's line 5")
+        self.edit(younger, "other.py", 1, "younger's line")
+        with patch.object(leases, "merged", wraps=leases.merged) as merge:
+            self.assertEqual(leases.scan(self.repo, now=2000), {})
+        merge.assert_not_called()
+        # no path in common, yet git's own conflicts: a directory moved, its files a level down,
+        # under a file added to it,
+        self.git(older, "mv", "pkg", "moved")
+        (younger / "pkg" / "new.py").write_text("new\n")
+        self.assertEqual(leases.scan(self.repo, now=2100)["20260101-1000-younger"]["files"],
+                         ["moved/new.py"])
+        # a file where the other has a directory,
+        self.git(older, "mv", "moved", "pkg")
+        (younger / "pkg" / "new.py").unlink()
+        (older / "shared").write_text("a file\n")
+        (younger / "shared").mkdir()
+        (younger / "shared" / "x.py").write_text("x\n")
+        self.assertIn("shared", " ".join(leases.scan(self.repo, now=2200)["20260101-1000-younger"]["files"]))
+        # a run behind main moving a directory main added to, the addition taken along to where
+        # the other adds it,
+        (younger / "shared" / "x.py").unlink()
+        (older / "shared").unlink()
+        self.edit(older, "api.py", 5, "line 5")
+        self.edit(younger, "other.py", 1, "other")
+        self.git(older, "mv", "pkg", "moved")
+        (self.repo / "pkg" / "f.py").write_text("main's\n")
+        self.git(self.repo, "add", ".")
+        self.git(self.repo, "commit", "-qm", "Added")
+        added = self.run_on("20260101-1050-added", 1050, base=self.git(self.repo, "rev-parse", "HEAD"))
+        (added / "moved").mkdir()
+        (added / "moved" / "f.py").write_text("its own\n")
+        self.assertEqual(leases.scan(self.repo, now=2250)["20260101-1050-added"]["files"],
+                         ["moved/f.py"])
+        self.git(older, "mv", "moved", "pkg")
+        shutil.rmtree(added / "moved")
+        # and a run behind renames on main, more than a diff's rename limit takes, its edit
+        # followed to a line the other changes
+        self.git(self.repo, "config", "diff.renameLimit", "1")
+        self.git(self.repo, "config", "merge.renameLimit", "100")
+        self.git(self.repo, "mv", "api.py", "renamed.py")
+        self.git(self.repo, "mv", "pkg/sub/b.py", "pkg/sub/c.py")
+        self.edit(self.repo, "renamed.py", 30, "main's line 30")
+        self.edit(self.repo, "pkg/sub/c.py", 9, "main's line 9")
+        self.git(self.repo, "commit", "-qam", "Renamed")
+        moved = self.git(self.repo, "rev-parse", "HEAD")
+        third = self.run_on("20260101-1100-third", 1100, base=moved)
+        self.edit(older, "api.py", 5, "older's line 5")
+        self.edit(third, "renamed.py", 5, "third's line 5")
+        self.assertEqual(leases.scan(self.repo, now=2300)["20260101-1100-third"]["waits_on"],
+                         "20260101-0900-older")
+
+    def tree_with_other_unreadable(self, checkout):
+        """The checkout's `leases.tree`, other.py, unchanged, unreadable once the checkout's
+        own index holds its stat data: a scan reading it says so."""
+        self.git(checkout, "config", "core.trustctime", "false")   # the chmod changes its ctime alone
+        os.utime(checkout / "other.py", (1, 1))
+        self.git(checkout, "status")
+        (checkout / "other.py").chmod(0)
+        self.addCleanup((checkout / "other.py").chmod, 0o644)
+        tree = leases.tree(checkout, (), self.logs.append)
+        self.assertEqual(self.logs, [])
+        return tree
+
+    def test_a_scan_reads_no_file_the_checkouts_own_index_knows_is_unchanged(self):
+        checkout = self.run_on("20260101-0900-older", 900)
+        self.assertEqual(self.tree_with_other_unreadable(checkout),
+                         self.git(checkout, "rev-parse", "HEAD^{tree}"))
+
+    def test_nor_while_a_merge_leaves_another_file_unmerged(self):
+        checkout = self.run_on("20260101-0900-older", 900)
+        self.edit(checkout, "api.py", 5, "older's line 5", commit=True)
+        self.edit(self.repo, "api.py", 5, "main's line 5", commit=True)
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.git(checkout, "merge", "-q", "main")
+        tree = self.tree_with_other_unreadable(checkout)
+        self.assertIn("main's line 5", self.git(checkout, "show", f"{tree}:api.py"))
+
+    def test_an_edit_the_index_cannot_tell_by_its_stat_data_is_read_while_git_replaces_it(self):
+        checkout = self.run_on("20260101-0900-older", 900)
+        self.git(checkout, "config", "core.trustctime", "false")
+        api = checkout / "api.py"
+        os.utime(api, (1, 1))
+        self.git(checkout, "status")
+        index = checkout / self.git(checkout, "rev-parse", "--git-path", "index")
+        os.utime(index, (1, 1))     # written the second api.py was: git hashes it to be sure
+        api.write_text(api.read_text().replace("line 5", "LINE 5"))     # its size and stat kept
+        os.utime(api, (1, 1))
+        opened, replaced = open, []
+
+        def replaced_once_open(path, *args, **kwargs):
+            file = opened(path, *args, **kwargs)
+            if path == index and not replaced:      # another git adds, renaming a new index in
+                replaced.append(path)
+                (checkout / "other.py").write_text("changed\n")
+                self.git(checkout, "add", "other.py")
+            return file
+        with patch("builtins.open", replaced_once_open):
+            tree = leases.tree(checkout, (), self.logs.append)
+        self.assertEqual(replaced, [index])
+        self.assertIn("LINE 5", self.git(checkout, "show", f"{tree}:api.py"))
 
     def test_a_run_launched_from_a_linked_worktree_is_of_the_repository_it_was_added_from(self):
         seat = self.root / "seat-checkout"

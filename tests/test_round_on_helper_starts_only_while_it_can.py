@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentkit import gate, helper
 from agentkit import record as run_record
 
-AWAY = helper.Away("acme-mac", "key", "repo", "image", 1, 2, 1024, "main", "", "")
+AWAY = helper.Away("acme-mac", "key", "repo", "image", 1, 2, 1024, 1, "main", "", "")
 
 
 class RoundOnHelper(unittest.TestCase):

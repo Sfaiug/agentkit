@@ -17,7 +17,7 @@ from contextlib import ExitStack, contextmanager, nullcontext
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import config, gitcall, handback, helper, history, host, orch, stuck, suite_times
+from . import config, gitcall, handback, helper, history, host, machines, orch, stuck, suite_times
 from . import transitions, turns
 from . import update
 from . import waiter
@@ -407,8 +407,9 @@ def _gates_admit(state, readings, is_first):
         reason, kind = _wait_reason(readings, minimum, maximum, frozen)
     else:
         reason, kind = _wait_reason(readings, minimum, 0)
-    if reason is None and not is_first and landing_waits():
-        # Finished work goes first: the headroom a new run would take is the suite's.
+    if reason is None and not is_first and landing_waits() and not machines.helpers():
+        # Finished work goes first: the headroom a new run would take is the suite's, which needs
+        # none here with a machine to go to (owner, 30 Oct 2026: nothing waits for compute).
         reason, kind = "waiting for a landing suite's turn · finished work goes first", "landing"
     if reason:
         return _held(state, reason, kind)
@@ -701,9 +702,10 @@ def landing_wait(landing, since=None, run_id=None, line=False):
     Its own file says when its wait began, for which run and whether it is a line's own
     check, so landing waits rank among themselves (`_landing_waiters`); the line's checkers
     mark no member's record.  `.heavy-landing.wait`, shared by every line's check, says one
-    waits: round checks and new runs stay behind it (`landing_waits`), as they do behind a
-    waiter on code from before 29 Oct 2026, which holds it for any landing wait.  The
-    kernel lets go with the holder, so a dead waiter holds nobody back.
+    waits: round checks and, with no machine for suites, new runs stay behind it
+    (`landing_waits`), as they do behind a waiter on code from before 29 Oct 2026, which holds
+    it for any landing wait.  The kernel lets go with the holder, so a dead waiter holds nobody
+    back.
     """
     if not landing:
         yield
@@ -839,37 +841,37 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False):
 
 class _Pieces:
     """A sharded suite's pieces not yet run, each taken by the next place to free, a turn here or
-    a VM on the suite helper; one the helper lost (`helper.GONE`) waits for a turn here, one it had
-    no room to start (`helper.FULL`) for the next place."""
+    a VM on a machine; one a machine had no room to start (`helper.FULL`) waits for the next place,
+    one it lost (`helper.GONE`) for the next but the VMs of the suite there that lost it."""
 
     def __init__(self, count):
-        self.waiting, self.back, self.out, self.there = list(range(count)), set(), 0, 0
+        self.waiting, self.lost, self.out, self.there = list(range(count)), {}, 0, 0
         self.cond, self.hold = threading.Condition(), None
 
-    def mine(self, here):
-        return [index for index in self.waiting if here or index not in self.back]
+    def mine(self, there):
+        return [index for index in self.waiting if there not in self.lost.get(index, ())]
 
-    def next(self, ended, here):
+    def next(self, ended, there):
         """(the next piece, its turn here or True), or None once none may come for this place."""
         while True:
             with self.cond:
-                while here and not self.waiting and self.out and not ended():
+                while not there and not self.waiting and self.out and not ended():
                     self.cond.wait(GATE_POLL)
-                if ended() or not self.mine(here):
-                    self.there -= not here
+                if ended() or not self.mine(there):
+                    self.there -= bool(there)
                     return None
             turn = self.hold.take(lambda: ended() or not self.waiting) if (
-                here and self.hold) else True
+                not there and self.hold) else True
             with self.cond:
-                if turn is not None and (mine := self.mine(here)):
+                if turn is not None and (mine := self.mine(there)):
                     self.waiting.remove(mine[0])
                     self.out += 1
                     return mine[0], turn
             if turn is not True:
                 self.hold.give(turn)
 
-    def done(self, index, back, turn):
-        """`back`, the helper's exit for a piece it gave back, ends that place there."""
+    def done(self, index, back, turn, there):
+        """`back`, the exit of a piece `there` gave back, ends that place there."""
         if turn is not True:
             self.hold.give(turn)
         with self.cond:
@@ -877,7 +879,7 @@ class _Pieces:
             if back:
                 self.waiting.insert(0, index)
                 if back in helper.GONE:    # lost, not turned away before its VM started
-                    self.back.add(index)
+                    self.lost.setdefault(index, []).append(there)
                 self.there -= 1
             self.cond.notify_all()
 
@@ -1050,12 +1052,12 @@ def whole_checks_that_fit(command=None):
     return pinned or derived_heavy_limit()
 
 
-def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, wait=True,
+def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None,
                        elsewhere=None):
-    """Hold host-wide heavy-suite turns; with `wait=False`, take only turns free now.
+    """Hold host-wide heavy-suite turns.
 
-    While it waits and no waiter ranks before it, it asks `elsewhere()` each poll; once that
-    answers, it stops waiting with the turns free by then, if any.
+    While it waits it asks `elsewhere()` each poll, before it looks for a turn here; once that
+    answers, it stops waiting and holds none.
     """
     record = context if context is not None else (run_record.read_state(run_dir) or {}
                                                 if run_dir else {})
@@ -1137,9 +1139,6 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
             for fh in slot:
                 fcntl.flock(fh, fcntl.LOCK_UN)
             slot = []
-            if not wait:
-                files.close()
-                return None
             began = time.monotonic()
             counted = (time.time(), began)
             said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
@@ -1161,30 +1160,24 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                     # a checker's wait is its member's, kept beside that member's line time
                     if run_dir or is_landing:
                         counted = count_wait(self_id, "suite" if run_dir else "lander", counted)
+                    # Rank and a line's own check waiting decide this host's turns, never who
+                    # asks the helper (owner, 30 Oct 2026: nothing waits for compute), as the
+                    # first may not ask for long: it waits here to rerun what a machine failed,
+                    # or sets up a new machine, and a suite on one takes nothing from a wait here.
+                    if elsewhere and elsewhere():
+                        turnless = True
+                        break
                     slot, limit, held = admit()
                     if not limit:
                         turnless = True
                         break
                     said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
-                    if not slot:
-                        if not (elsewhere and not _gate_waiter_before(
-                                repo, self_id, waited_since, is_landing, line) and elsewhere()):
-                            continue
-                        # Its setup there can outlast a turn here: it takes those free now.
-                        slot, limit, held = admit()
-                        if slot and _gate_waiter_before(repo, self_id, waited_since,
+                    if slot and not _gate_waiter_before(repo, self_id, waited_since,
                                                         is_landing, line):
-                            for fh in slot:
-                                fcntl.flock(fh, fcntl.LOCK_UN)
-                            slot = []
-                        turnless = not slot
                         break
-                    if _gate_waiter_before(repo, self_id, waited_since, is_landing, line):
-                        for fh in slot:
-                            fcntl.flock(fh, fcntl.LOCK_UN)
-                        slot = []
-                        continue
-                    break
+                    for fh in slot:
+                        fcntl.flock(fh, fcntl.LOCK_UN)
+                    slot = []
             finally:
                 if run_dir:
                     mark_gate_wait(run_dir, None)
@@ -1264,8 +1257,8 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, c
     A command naming AK_SHARD gets as many places as the derived limit fits, using its
     repository's measured cost when available: it takes the turns free now, then those freed
     while it ranks first, each running one piece at a time (`_GateHold`, `run_suite`).
-    A suite the helper has room for (`helper.start`) also takes the local turns free now;
-    one that waits asks it again while it ranks first, and goes there once it has room.
+    A suite the helper has room for (`helper.start`) takes no turn here; one that waits asks it
+    again each poll, and goes there once it has room.
     `changed` is the file AK_CHANGED names, its paths in each piece's command there (`pinned`).
     """
     if (getattr(_GATE_HELD, "hold", None) is not None or getattr(_GATE_HELD, "away", None)
@@ -1290,11 +1283,11 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, c
         if _GATE_HELD.here and log is not None:
             log(f"suite runs here: {_GATE_HELD.here}")
     try:
-        _GATE_HELD.home = lambda wait=True: _acquire_gate_turn(run_dir, log_path, log, command,
-                                                             cwd, context=context, wait=wait)
-        _GATE_HELD.hold = _acquire_gate_turn(run_dir, log_path, log, command, cwd,
-                                             context=context, wait=not _GATE_HELD.away,
-                                             elsewhere=elsewhere)
+        _GATE_HELD.home = lambda elsewhere: _acquire_gate_turn(
+            run_dir, log_path, log, command, cwd, context=context, elsewhere=elsewhere)
+        # A suite gone to a helper takes no turn here: those are for what cannot leave this host.
+        _GATE_HELD.hold = None if _GATE_HELD.away else _acquire_gate_turn(
+            run_dir, log_path, log, command, cwd, context=context, elsewhere=elsewhere)
         yield
     finally:
         current, _GATE_HELD.hold = getattr(_GATE_HELD, "hold", None), None
@@ -1684,8 +1677,9 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         path, cpu, mem = suite_cost(command, cwd, run_dir)
         there_command = pinned(command, times, changed)
         # Twice the places it starts with, so a faster machine takes more and every place ends
-        # near the others; without a turn every piece runs at once.
-        places = (hold.pieces if hold else 0) + (away.count if away else 0)
+        # near the others; without a turn every piece runs at once.  The helper's count as many
+        # as it fits empty: a suite starting on its little room grows into what frees there.
+        places = (hold.pieces if hold else 0) + (away.most if away else 0)
         count = 2 * places or derived_heavy_limit(running=0, job_cpus=cpu, job_mem_mb=mem,
                                                   unit=True)
         # the piece threads do not inherit this thread's held turn
@@ -1699,7 +1693,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         silenced = set()    # the pieces whose first go silence stopped, each to go again
         starved = set()     # those whose last go here the kernel killed for memory
         home_reason = getattr(_GATE_HELD, "here", None) or (
-            "free heavy suite turns" if away else
+            "no place is left on the suite helper" if away else
             "command is not sent to the suite helper (suite already holds a local turn)")
         home_reasons = {}
 
@@ -1823,12 +1817,12 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
 
                 def place(there=None):    # a VM there ends with the piece it gives back
                     back = False
-                    while not back and (taken := pieces_left.next(over, not there)) is not None:
+                    while not back and (taken := pieces_left.next(over, there)) is not None:
                         (index, turn), shard = taken, f"{taken[0] + 1}/{count}"
                         result = attempt(shard, first=True, there=there, turn=turn)
                         code = result[0]
                         back = there and code in (*helper.GONE, helper.FULL) and not result[2]
-                        pieces_left.done(index, back and code, turn)
+                        pieces_left.done(index, back and code, turn, there)
                         if there and not back and flaky is not None:
                             flaky.extend(helper.failed(there, shard, "flaky"))
                         if there and code and log is not None:
@@ -1840,7 +1834,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                                 f"memory: its next VMs get {least} MiB")
                         elif code == helper.LOST and log:
                             # Without this a suite the helper lost reads as one it ran.
-                            log(f"the suite helper lost AK_SHARD={shard}; it runs here")
+                            log(f"the suite helper {there.alias} lost AK_SHARD={shard}; it runs "
+                                "again on the first machine with room, this one included")
 
                 def ended():    # no piece waits or runs, or no place is left to take one
                     return over() or not (pieces_left.waiting or pieces_left.out) or not (
@@ -1855,7 +1850,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             # A place ending wakes this, yet it asks once a poll at most.
                             left = asked + GATE_POLL - time.monotonic()
                             pieces_left.cond.wait(left if left > 0 else GATE_POLL)
-                            if ended() or not pieces_left.mine(False) or (
+                            if ended() or not pieces_left.waiting or (
                                     time.monotonic() < asked + GATE_POLL):
                                 continue
                         asked = time.monotonic()
@@ -1884,7 +1879,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
 
                 def run_there(there):
                     with pieces_left.cond:
-                        vms = min(there.count, len(pieces_left.mine(False)))
+                        vms = min(there.count, len(pieces_left.mine(there)))
                         pieces_left.there += vms
                     futures.extend(pool.submit(place, there) for _ in range(vms))
 
@@ -1908,17 +1903,31 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             if ran and not (hold and hold.waited) and not any(
                     result[2] or result[0] == SUITE_BUSY for result in results if result):
                 measure.save(path, len(ran), min(len(ran), hold.pieces if hold else count))
-            again = [index for index, there in enumerate(where) if there and results[index][0]
-                     and not results[index][2] and not cancel.is_set()]
-            named = {}    # by index, a piece red on the helper: what it printed there, its tests
-            if any(where) and log is not None and not pieces_left.back and all(
+            named = {}    # by index, a piece red on a machine: what it printed there, its tests
+            if any(where) and log is not None and not pieces_left.lost and all(
                     result and not result[0] and not result[2] for result in results):
                 log(f"every piece passed on the suite helper {next(filter(None, where)).alias}"
                     f"{' and this host' if not all(where) else ''}")
-            if (again or pieces_left.waiting or any(where) and silenced) and not cancel.is_set():
-                # What the helper lost, failed, ran out of memory for or stopped runs again
-                # here, on this host's own turns; a stopped piece alone, below.
-                for index in again:
+            again, joined = [], [None]
+
+            def elsewhere():    # asked while waiting for a turn here
+                said = []
+                if pieces_left.waiting:
+                    joined[0] = helper.start(cpu, mem, cwd, said.append, there_command)[0]
+                if joined[0]:
+                    files.callback(helper.finish, joined[0])
+                    for line in said if log else ():
+                        log(line)
+                return joined[0]
+
+            # What a machine failed or stopped runs again here, on this host's own turns, a
+            # stopped piece alone, below; what it lost or had no room for, on the first machine
+            # with room, this one included.
+            while not cancel.is_set():
+                for index, there in enumerate(where):
+                    if index in again or not there or not results[index][0] or results[index][2]:
+                        continue
+                    again.append(index)
                     if log is not None:
                         # its go here takes its place in the suite's output: a copy keeps this one
                         handle, kept = tempfile.mkstemp(dir=run_dir or activity.parent,
@@ -1928,16 +1937,24 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         shutil.copyfile(results[index][1].name, kept)
                         log(f"WARN AK_SHARD={index + 1}/{count} failed on the suite helper; "
                             f"what it printed there: {kept}")
-                    if tests := helper.failed(where[index], f"{index + 1}/{count}"):
+                    if tests := helper.failed(there, f"{index + 1}/{count}"):
                         named[index] = results[index][1], tests
-                if hold is None:
-                    began = time.monotonic()
-                    hold = _GATE_HELD.hold = _GATE_HELD.home()
-                    queued = time.monotonic() - began    # as busy_turn's: no ceiling is charged
-                    deadline += queued
-                    if on_wait is not None:
-                        on_wait(queued)
+                if hold is not None or not (
+                        again or pieces_left.waiting or any(where) and silenced) or over():
+                    break
+                joined[0] = None
+                began = time.monotonic()
+                hold = _GATE_HELD.hold = _GATE_HELD.home(elsewhere)
+                queued = time.monotonic() - began    # as busy_turn's: no ceiling is charged
+                deadline += queued
+                if on_wait is not None:
+                    on_wait(queued)
                 env = suite_env(changed, times)
+                if not joined[0]:
+                    break
+                away = joined[0]
+                pull(hold.pieces if hold else 0)
+            if not cancel.is_set():
                 if pieces_left.waiting:
                     pull(hold.pieces if hold else len(pieces_left.waiting))
                 if again:

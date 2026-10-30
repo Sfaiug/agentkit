@@ -169,14 +169,23 @@ def tree(worktree, artifacts, log=lambda _: None):
     (`gitcall.committable_paths`: never test sandboxes, dependency trees, run locks, what
     `.gitignore` names or what the run's checks generated, its `artifacts`), read and written
     through an index of its own in the repository's object store: the checkout's own index is
-    neither read, locked nor rewritten (`git diff` refreshes and rewrites the index it reads,
+    copied, neither locked nor rewritten (`git diff` refreshes and rewrites the index it reads,
     optional locks or not), and its files are never touched.  A file that vanished since it
     was listed, or one git cannot read, is left out, the latter said once: neither costs a
     pair its record."""
     from . import run
-    with tempfile.NamedTemporaryFile(dir=config.TMP, prefix="lease-index-") as index:
-        env = {**os.environ, "GIT_INDEX_FILE": index.name}
-        run.git(worktree, "read-tree", "HEAD", env=env)
+    with tempfile.TemporaryDirectory(dir=config.TMP, prefix="lease-index-") as scratch:
+        index = Path(scratch) / "index"     # none yet is git's empty index
+        env = {**gitcall.tool_env(), "GIT_INDEX_FILE": str(index)}
+        own = Path(worktree) / run.git(worktree, "rev-parse", "--git-path", "index")
+        # a copy of its own: its stat data spares hashing every file, and its moment, which
+        # git's racy check reads, is that same file's while git renames a newer one in
+        if own.is_file():
+            with open(own, "rb") as source, open(index, "wb") as copy:
+                shutil.copyfileobj(source, copy)
+                moment = os.fstat(source.fileno())
+            os.utime(index, ns=(moment.st_atime_ns, moment.st_mtime_ns))
+        run.git(worktree, "read-tree", "--reset", "HEAD", env=env)    # unmerged entries dropped
         real, _ = gitcall.committable_paths(worktree, artifacts, env=env)
         if real:
             staged(worktree, real, env, log)
@@ -225,7 +234,7 @@ def merged(repo, base, ours, theirs, ours_wins=False):
     (bare trees only from 2.45) and finds their base itself.  With `ours_wins` a hunk the two
     sides clash on is `ours` (`favour_ours`), and nothing is left unmerged."""
     from . import run
-    env = {**os.environ, **STAMP}
+    env = {**gitcall.tool_env(), **STAMP}
     sides = [run.git(repo, "commit-tree", each, "-p", base, "-m", "lease", env=env)
              for each in (ours, theirs)]
     code, out = run.git_out(repo, "merge-tree", "--write-tree", "--name-only", "-z", *sides)
@@ -305,6 +314,42 @@ def collide(repo, older, younger, trees):
     return merged(repo, base, trees["older"], trees["younger"])[1]
 
 
+def diff_paths(repo, base, tree):
+    """(the files a run's diff changes, a rename as its two; the directories above them; the
+    directories it removed, as moving one does), for `may_clash`."""
+    from . import run
+    words = run.git(repo, "diff-tree", "-r", "-t", "-z", "--no-renames", base, tree).split("\0")
+    # each entry is ":<old mode> <new mode> <old id> <new id> <status>", then its path
+    entries = [(meta[1:].split()[:2], path) for meta, path in zip(words[::2], words[1::2])]
+    files = [Path(path) for modes, path in entries if "040000" not in modes]
+    return ({str(path) for path in files},
+            {str(parent) for path in files for parent in path.parents} - {"."},
+            {path for modes, path in entries if modes == ["040000", "000000"]})
+
+
+def may_clash(repo, older, younger, diffs):
+    """Whether `collide` has anything to decide for the pair (`diffs` holds each run's
+    `diff_paths`), as most pairs of 64 live runs have not: a file both change, a file where the
+    other has a directory, or a directory one removed, perhaps moved, the other changes in; on
+    bases that differ, also a rename on main between them, or a directory either removed, which
+    takes along what main added to it: either carries the diff `collide` brings onto the newer
+    base to paths that diff never changed."""
+    one, other = diffs[older["run"]], diffs[younger["run"]]
+    return bool(one[0] & (other[0] | other[1]) or other[0] & one[1] or one[2] & other[1]
+                or other[2] & one[1] or older["base"] != younger["base"]
+                and (one[2] or other[2] or renamed_between(repo, older["base"], younger["base"])))
+
+
+@functools.lru_cache(maxsize=1024)      # commits never change
+def renamed_between(repo, base, other):
+    """Whether main renamed a file between two bases: `collide` follows it, so diffs of
+    different paths may meet.  No rename limit (`-l0`): a merge's own (`merge.renameLimit`)
+    may find more than `diff.renameLimit` lets a diff, and either may change between scans."""
+    from . import run
+    return bool(run.git(repo, "diff-tree", "-r", "-M", "-l0", "--name-only", "--diff-filter=R",
+                        base, other))
+
+
 def scan(repo, log=lambda _: None, now=None):
     """One repository's pass: each younger run that collides with an older one is written
     down as waiting on the oldest such holder, with the paths and since when; the rest of
@@ -316,10 +361,11 @@ def scan(repo, log=lambda _: None, now=None):
     before = read(repo)
     runs = live(repo)
     trees = {each["run"]: tree(each["worktree"], each["artifacts"], log) for each in runs}   # each read once
+    diffs = {each["run"]: diff_paths(repo, each["base"], trees[each["run"]]) for each in runs}
     waits = {}
     for at, younger in enumerate(runs):
         for older in runs[:at]:
-            files = collide(repo, older, younger, trees)
+            files = collide(repo, older, younger, trees) if may_clash(repo, older, younger, diffs) else []
             # Markdown-only conflicts can be settled at landing without rebuilding.
             if not files or all(path.endswith(".md") for path in files):
                 continue

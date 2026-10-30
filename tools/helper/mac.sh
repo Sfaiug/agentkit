@@ -20,6 +20,9 @@ darwin() {
     echo "cpus $(sysctl -n hw.ncpu)"
     echo "load $(sysctl -n vm.loadavg | awk '{print $2}')"
   }
+  # admit and started: a Mac takes every suite; its VMs share it by `left`.
+  admit() { :; }
+  started() { :; }
   # left: the MiB ak's VMs here may still be given. Together they get at most half of what would
   # be free without them, so the Mac stays its owner's: half of what macOS calls free and what
   # they hold, less what they were given. The VMs running are the truth: one counts exactly while
@@ -60,6 +63,7 @@ darwin() {
     done
     return 0
   }
+  building() { :; }    # `images` does it: any build's end stops the builder of all
   # images KEY IMAGE, under the build lock, as any build's end stops the builder of all: the
   # suite's image, built unless the Mac has it.
   images() {
@@ -127,6 +131,7 @@ admitted() {
     while ps -p "$vm"; do stop "$name"; sleep 1; done ) >/dev/null 2>&1 &
   # The next is weighed once this one runs, or has ended: stopped while starting, it ends.
   until running "$name" || ! kill -0 "$vm" 2>/dev/null; do sleep 0.2; done
+  started
   : >"$flag"
   wait "$vm"
   code=$?
@@ -170,12 +175,17 @@ known)     # REPO: the commit its history here reaches, if any. A suite asks jus
   touch -c "$MIRRORS/$2"
   git -C "$MIRRORS/$2" rev-parse -q --verify refs/known/base 2>/dev/null; exit 0 ;;
 prepare)   # KEY IMAGE REPO, the parcel on stdin
+  # Suites are admitted one at a time, before anything of theirs is unpacked.
+  mkdir -p "$ROOT" || exit 253
+  locked "$ROOT/suites.lock" admit "$2" || exit
   # -p: the recipe's files keep HEAD's modes, whatever umask the machine's shell has.
   mkdir -p "$ROOT/$2" && tar -x -p -C "$ROOT/$2" && echo "$3" >"$ROOT/$2/image/name" || exit 253
   # A turn's harness program, which a later task installs, is $ROOT/harness/<harness>/<program>.
+  # Without it the machine is no use to this turn, and the admission is not held for it.
   program=$ROOT/harness/$(cat "$ROOT/$2/harness" 2>/dev/null)
-  [ ! -f "$ROOT/$2/harness" ] || { [ -f "$program" ] && [ -x "$program" ]; } || exit 253
-  # Dead callers' trees go after a day; the build lock and harness programs stay.
+  [ ! -f "$ROOT/$2/harness" ] || { [ -f "$program" ] && [ -x "$program" ]; } ||
+    { rm -f "$ROOT/$2/reserved"; exit 253; }
+  # Dead callers' trees go after a day; the locks and harness programs stay.
   find "$ROOT" -mindepth 1 -maxdepth 1 -type d ! -name mirrors ! -name harness -mtime +1 \
     -exec rm -rf {} + 2>/dev/null
   # The repository's copy, empty at first, comes before its image, so the collection finds an
@@ -183,6 +193,7 @@ prepare)   # KEY IMAGE REPO, the parcel on stdin
   M="$MIRRORS/$4"
   mkdir -p "$MIRRORS" && locked "$M.lock" git init -q --bare "$M" || exit 253
   locked "$ROOT/build.lock" images "$2" "$3" || exit
+  building "$2" "$3" || exit
   locked "$M.lock" history "$2" "$M" ;;
 run)       # KEY IMAGE NAME CPUS MEMORY_MB REPO, then piece.sh's arguments
   D="$ROOT/$2" image=$3 name=$4 cpus=$5 memory=$6 M="$MIRRORS/$7"
