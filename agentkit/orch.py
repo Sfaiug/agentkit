@@ -2831,7 +2831,7 @@ def prompt_news(session, conversation, said=None):
     record = config.session_records().get(name)
     besides = ((handback.riding(name), notify.answer_context(name, said))
                if said is not None and takes_prompt_context(record, conversation) else ())
-    # the rulebook last: it is held from the moment it is handed over
+    # the rulebook last: held from its hand-over on, so nothing may fail after it
     return "\n\n".join(filter(None, (rulebook_news(session, conversation), *besides)))
 
 
