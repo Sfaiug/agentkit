@@ -1208,9 +1208,9 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
     run, launched ahead of the queue, makes the target pass that command again.  Its guard
     is an open repair of the same repository, target and command instead of a receipt.
     Returns the repair's run, started, already open, or left queued by a launch that
-    raised, or None when none is.  A `flaky` repair's command is a test the landing line saw
-    fail, then pass, `flaky` when it first did, which keys it too, and its `text` all it is
-    told: a passing run says nothing there.
+    raised, or None when none is.  A `flaky` repair's command is a test file the landing line
+    saw tests of fail, then pass, `flaky` when it first did, which keys it too, and its `text`
+    all it is told: a passing run says nothing there.
     A slow suite's `split` starts the same way, with ak's task and check. Its cost record
     keeps the receipt even after run retention, whatever the run's ending.
     """

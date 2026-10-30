@@ -12,6 +12,9 @@ type entry struct {
 
 var Verbs = []string{"usage", "models", "worker", "run", "notify", "wait", "orch", "attach", "update", "watch", "browser", "fetch", "macbridge", "doctor", "hand-in", "plan"}
 var public = []string{"run", "plan", "notify", "wait", "usage", "models", "browser", "fetch"}
+
+// `adapter`, what the stubs under go/adapters run, joins the internal line when Go takes over:
+// until then the listing stays Python's, and cli.Main runs it unlisted.
 var internal = []string{"orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor"}
 
 // Keep the shadow command's text in step with agentkit/command_help.py until the switch.

@@ -5,7 +5,7 @@ acts on when its turn ended waiting on it: its `ak wait` names that run, or noth
 seat's holds the turn.  Any other is typed into no seat and wakes none: it rides on the seat's
 next prompt, beside every other line waiting there, oldest first, once, where the seat's harness
 hands a prompt context at all; on one that does not (Grok) it is typed as before.  A change going
-live while its merge rides is typed after that merge, in one line.  A failed or blocked ending is
+live before its merge is told is typed after that merge, in one line.  A failed or blocked ending is
 the seat's to decide, and is typed whatever it waits on.  Black-box: the program `AK_BIN` names runs
 `ak wait` and `ak watch` from outside (tests/fixtures/akbin.py), Claude's hooks as its adapter
 registers them (hookdrive.py), seats of akseat.py, one asleep with a harness of fakeadapter.py
@@ -87,6 +87,14 @@ class Routine(unittest.TestCase):
         found = re.search(re.escape(RIDES) + r"((?:run .*\n?)+)", context)
         return found and found.group(1).splitlines()
 
+    def told_merge_then_live_in_one_line(self):
+        lines = self.seat.wait_lines(1)
+        self.assertEqual(len(lines), 1, lines)
+        merge, live = lines[0].split(" Decide the next step. ")
+        self.assertTrue(merge.startswith(f"run {self.RUN} finished "), lines)
+        self.assertEqual(live, f"run {self.RUN} is live: {PR}.", lines)
+        self.assertIsNone(self.prompt())
+
 
 class Rides(Routine):
     """acme waits on HELD and owes work; two merges of its own and two changes going live, a
@@ -147,9 +155,10 @@ class Rides(Routine):
 
 
 class EndsTheWait(Routine):
-    """acme waits on its own run, which merges and goes live: both end its wait."""
+    """acme waits on its own run, which merges and goes live on one tick: one line ends its
+    wait."""
     RUN = "20261029-0910-fix-api"
-    typed = 2
+    typed = 1
 
     @classmethod
     def stage(cls):
@@ -159,11 +168,8 @@ class EndsTheWait(Routine):
         cls.wait("acme", cls.RUN)
         cls.proven(cls.RUN, 30)
 
-    def test_its_merge_and_its_going_live_are_typed(self):
-        lines = self.seat.wait_lines(2)
-        self.assertEqual(sorted(line.split(":")[0].split(" finished ")[0] for line in lines),
-                         [f"run {self.RUN}", f"run {self.RUN} is live"], lines)
-        self.assertIsNone(self.prompt())
+    def test_its_merge_and_its_going_live_are_typed_in_one_line(self):
+        self.told_merge_then_live_in_one_line()
 
 
 
@@ -178,12 +184,7 @@ class CarriesItsMerge(Routine):
         cls.proven(cls.RUN, 30)
 
     def test_its_going_live_is_typed_after_its_merge_in_one_line(self):
-        lines = self.seat.wait_lines(1)
-        self.assertEqual(len(lines), 1, lines)
-        merge, live = lines[0].split(" Decide the next step. ")
-        self.assertTrue(merge.startswith(f"run {self.RUN} finished "), lines)
-        self.assertEqual(live, f"run {self.RUN} is live: {PR}.", lines)
-        self.assertIsNone(self.prompt())
+        self.told_merge_then_live_in_one_line()
 
 
 if __name__ == "__main__":
