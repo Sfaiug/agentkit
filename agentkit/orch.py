@@ -2865,11 +2865,12 @@ def rulebook_pointer(name, told, conversation, sha, news, fits):
     gives the code, so running it says the conversation read the file to its end
     (`rulebook_ack`), and until then nothing is held: every prompt names the file again, however
     short its other context, with the code `told` recorded while the rules stay the same.  A
-    prompt whose other context leaves no room even for this (`fits`) names nothing, and neither
-    does one whose record or file cannot be written: the next prompt tries again."""
+    prompt whose other context leaves no room even for this (`fits`) names nothing, since more
+    would cut that context off, and neither does one whose record or file cannot be written:
+    the next prompt tries again."""
     path = config.seat_file("change", name)
-    pointer = (f"What changed in your rulebook is in {path}: read it now, before anything else, "
-               "to its very end, then run the command on its last line.")
+    # as short as its two instructions allow: it gives way only where nothing naming the file fits
+    pointer = f"Read all of {path}; run its last line."
     if not fits(pointer):
         return ""
     try:

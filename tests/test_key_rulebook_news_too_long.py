@@ -6,7 +6,7 @@ is written to the seat's `change` file instead, ending with `ak orch rules CODE`
 carries a pointer to it.  Nothing is held until that command runs: every prompt points again,
 with the same code while the rules stay the same, however little else it carries, and after it
 prompts carry nothing.  An open question rides an owner's prompt and counts toward the limit;
-where it leaves no room even for the pointer it goes alone, and the next prompt points.  A
+where it leaves no room for anything naming the file it goes alone, and the next prompt points.  A
 change that fits is still carried inline and held at hand-over.  Black-box: Claude's hooks as ak's
 adapter registers them, fired as Claude fires them (tests/fixtures/hookdrive.py); this test
 fails against `/bin/false`.
@@ -113,9 +113,10 @@ class TooLong(unittest.TestCase):
         news, _, again = self.pointed(NOT_OWNER)
         self.assertEqual((again, QUESTION in news), (code, False))
 
-    def test_a_question_that_leaves_no_room_for_the_pointer_goes_alone(self):
+    def test_a_question_that_leaves_no_room_to_name_the_file_goes_alone(self):
         self.rules(f"Rule two. {WIDE * 5000}\n")
-        self.ask(f"{QUESTION} {'Q' * 9800}")
+        # its context, as tests/test_key_answer_context.py pins it, 12 units short of the limit
+        self.ask(f"{QUESTION} {'Q' * 9860}")
         news = self.told()
         self.assertIn(QUESTION, news)
         self.assertNotIn(str(self.home.path / CHANGE), news)

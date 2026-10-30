@@ -24,7 +24,7 @@ SEAT = "acme-fix"
 BEFORE = f"{(REPO / 'orchestrator.md').read_text().rstrip()}\n\nAn older rule.\n"
 OWN = "0f5d6e2a-6a43-4c3e-9b0e-3a1f6c2d9e10"      # the conversation the seat's launch handed out
 OWNED = {"conversation": OWN, "id_source": "launcher", "resumable": True}
-TOLD = "rulebook"                                   # what a notice, or the file it names, is about
+TOLD = '"additionalContext"'                        # what a notice rides in, inline or naming a file
 
 
 class RulebookNews(Sandbox):
