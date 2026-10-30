@@ -660,7 +660,7 @@ esac
             # file with AGENTKIT_ACCEPTANCE_REQUIRED=1, which would make it exit 2
             env = {**os.environ, "HOME": directory, "WORK": directory, "REPO": str(REPO),
                    "SMOKE_CALLER_HOME": directory,
-                   "PATH": f"{root}:{os.environ['PATH']}", "AGENTKIT_ACCEPTANCE_REQUIRED": "0"}
+                   "PATH": f"{root}:{REPO}/bin:{os.environ['PATH']}", "AGENTKIT_ACCEPTANCE_REQUIRED": "0"}
 
             def spend(*spent):
                 providers = {provider: {"meters": [{"name": "weekly_all", "used": 100 if provider in spent else 10,
