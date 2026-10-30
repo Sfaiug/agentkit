@@ -621,9 +621,9 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
            only=None, artifacts=None, line=None):
     """(whether the checks passed, their output, what they found red as `red_part` reads it,
     `suite` standing for a red no command showed); with `shard` every command runs as that
-    one piece alone, on one turn, and with `only` just those tests.  A run checking before it
-    joins names the `line` it joins: a flake it sees counts there as one the line's check
-    sees."""
+    one piece alone, on one turn, and with `only` just those tests, on none.  A run checking
+    before it joins names the `line` it joins: a flake it sees counts there as one the line's
+    check sees."""
     from . import gate, run
     identity = gitcall.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
