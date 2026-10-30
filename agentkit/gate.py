@@ -1050,12 +1050,12 @@ def whole_checks_that_fit(command=None):
     return pinned or derived_heavy_limit()
 
 
-def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, wait=True,
+def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None,
                        elsewhere=None):
-    """Hold host-wide heavy-suite turns; with `wait=False`, take only turns free now.
+    """Hold host-wide heavy-suite turns.
 
     While it waits and no waiter ranks before it, it asks `elsewhere()` each poll; once that
-    answers, it stops waiting with the turns free by then, if any.
+    answers, it stops waiting and holds none.
     """
     record = context if context is not None else (run_record.read_state(run_dir) or {}
                                                 if run_dir else {})
@@ -1137,9 +1137,6 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
             for fh in slot:
                 fcntl.flock(fh, fcntl.LOCK_UN)
             slot = []
-            if not wait:
-                files.close()
-                return None
             began = time.monotonic()
             counted = (time.time(), began)
             said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
@@ -1170,14 +1167,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                         if not (elsewhere and not _gate_waiter_before(
                                 repo, self_id, waited_since, is_landing, line) and elsewhere()):
                             continue
-                        # Its setup there can outlast a turn here: it takes those free now.
-                        slot, limit, held = admit()
-                        if slot and _gate_waiter_before(repo, self_id, waited_since,
-                                                        is_landing, line):
-                            for fh in slot:
-                                fcntl.flock(fh, fcntl.LOCK_UN)
-                            slot = []
-                        turnless = not slot
+                        turnless = True
                         break
                     if _gate_waiter_before(repo, self_id, waited_since, is_landing, line):
                         for fh in slot:
@@ -1264,8 +1254,8 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, c
     A command naming AK_SHARD gets as many places as the derived limit fits, using its
     repository's measured cost when available: it takes the turns free now, then those freed
     while it ranks first, each running one piece at a time (`_GateHold`, `run_suite`).
-    A suite the helper has room for (`helper.start`) also takes the local turns free now;
-    one that waits asks it again while it ranks first, and goes there once it has room.
+    A suite the helper has room for (`helper.start`) takes no turn here; one that waits asks it
+    again while it ranks first, and goes there once it has room.
     `changed` is the file AK_CHANGED names, its paths in each piece's command there (`pinned`).
     """
     if (getattr(_GATE_HELD, "hold", None) is not None or getattr(_GATE_HELD, "away", None)
@@ -1290,11 +1280,13 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, c
         if _GATE_HELD.here and log is not None:
             log(f"suite runs here: {_GATE_HELD.here}")
     try:
-        _GATE_HELD.home = lambda wait=True: _acquire_gate_turn(run_dir, log_path, log, command,
-                                                             cwd, context=context, wait=wait)
-        _GATE_HELD.hold = _acquire_gate_turn(run_dir, log_path, log, command, cwd,
-                                             context=context, wait=not _GATE_HELD.away,
-                                             elsewhere=elsewhere)
+        _GATE_HELD.home = lambda: _acquire_gate_turn(run_dir, log_path, log, command, cwd,
+                                                     context=context)
+        # A suite gone to a helper takes no turn here: those are for what cannot leave this host,
+        # and its pieces waiting for one would rank first and keep every later waiter from asking
+        # the helper (owner, 30 Oct 2026: nothing waits for compute).
+        _GATE_HELD.hold = None if _GATE_HELD.away else _acquire_gate_turn(
+            run_dir, log_path, log, command, cwd, context=context, elsewhere=elsewhere)
         yield
     finally:
         current, _GATE_HELD.hold = getattr(_GATE_HELD, "hold", None), None
@@ -1684,8 +1676,9 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         path, cpu, mem = suite_cost(command, cwd, run_dir)
         there_command = pinned(command, times, changed)
         # Twice the places it starts with, so a faster machine takes more and every place ends
-        # near the others; without a turn every piece runs at once.
-        places = (hold.pieces if hold else 0) + (away.count if away else 0)
+        # near the others; without a turn every piece runs at once.  The helper's count as many
+        # as it fits empty: a suite starting on its little room grows into what frees there.
+        places = (hold.pieces if hold else 0) + (away.most if away else 0)
         count = 2 * places or derived_heavy_limit(running=0, job_cpus=cpu, job_mem_mb=mem,
                                                   unit=True)
         # the piece threads do not inherit this thread's held turn
@@ -1699,7 +1692,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         silenced = set()    # the pieces whose first go silence stopped, each to go again
         starved = set()     # those whose last go here the kernel killed for memory
         home_reason = getattr(_GATE_HELD, "here", None) or (
-            "free heavy suite turns" if away else
+            "no place is left on the suite helper" if away else
             "command is not sent to the suite helper (suite already holds a local turn)")
         home_reasons = {}
 
