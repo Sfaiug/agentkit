@@ -363,15 +363,15 @@ def _start_repair(state, directory, repair, log):
         return None
 
 
-def _flaked(directory, state, scratch, tree, log_path, log, flaky, failed, passed):
-    """Keep the tests that failed, then passed, on `tree`, as this member's check there found
-    them: `flaky`, those `gate.run_done_when` names, and those a check confirmed red there
-    (`failed`, by command) once a later one passes them (`passed`, by command: the tests it
-    ran, None for all).  A test seen so on two trees within FLAKY gets one repair of the
-    target, owned by this member, and holds it until a change editing it merges or FLAKY has
-    passed; what it saw before then is that repair's."""
+def _flaked(turn, directory, state, scratch, tree, log_path, log, flaky, failed, passed):
+    """Keep in the record of the line `turn` the tests that failed, then passed, on `tree`, as
+    this member's check there found them: `flaky`, those `gate.run_done_when` names, and those
+    a check confirmed red there (`failed`, by command) once a later one passes them (`passed`,
+    by command: the tests it ran, None for all).  A test seen so on two trees within FLAKY gets
+    one repair of the target, owned by this member, and holds it until a change editing it
+    merges or FLAKY has passed; what it saw before then is that repair's."""
     from . import run
-    turn, now = config.RUNS / state["waiting_on"]["line"], time.time()
+    now = time.time()
     with turn.with_suffix(".flakes.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         path = turn.with_suffix(".flakes")
@@ -603,10 +603,12 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok):
 
 
 def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=None,
-           only=None, artifacts=None):
+           only=None, artifacts=None, line=None):
     """(whether the checks passed, their output, what they found red as `red_part` reads it,
     `suite` standing for a red no command showed); with `shard` every command runs as that
-    one piece alone, on one turn, and with `only` just those tests."""
+    one piece alone, on one turn, and with `only` just those tests.  A run checking before it
+    joins names the `line` it joins: a flake it sees counts there as one the line's check
+    sees."""
     from . import gate, run
     identity = gitcall.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
@@ -633,9 +635,10 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
                  "these commands do not verify the pinned commit.")
     text = f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}"
     log_path.write_text(text)
-    if context and not moved:
+    turn = config.RUNS / wait["line"] if context else line
+    if turn and not moved:
         # a pinned piece passing ran just `only` of its tests, and without them, none it names
-        _flaked(directory, state, scratch, identity["tree_sha"], log_path, log, flaky,
+        _flaked(turn, directory, state, scratch, identity["tree_sha"], log_path, log, flaky,
                 {cmd: [test for tests in confirmed.get(cmd, {}).values() for test in tests]
                  for cmd in cmds},
                 {cmd: only if shard else None for cmd, mark in zip(cmds, marks)
@@ -748,10 +751,11 @@ def _check_tests(directory, state, scratch, tree, command, piece, tests, log):
                     **red}} if red.get("tests") or not tests else {}
 
 
-def _check_tree(directory, state, scratch, tree, checks, log, suite, *, artifacts=None):
+def _check_tree(directory, state, scratch, tree, checks, log, suite, *, artifacts=None,
+                line=None):
     log_path = directory / f"lander-{tree}.log"
     ok, text, red = _check(directory, state, scratch, list(checks), log_path, log,
-                           suite=suite, artifacts=artifacts)
+                           suite=suite, artifacts=artifacts, line=line)
     if red.get("short"):
         log(f"AK_SHARD={red['piece']} of {directory.name}'s tree ran out of memory again, run "
             "alone: nobody is blamed; the next pass checks it again")
