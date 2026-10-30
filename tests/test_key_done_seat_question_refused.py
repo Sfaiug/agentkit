@@ -5,23 +5,24 @@ is done, every line ticked, and the owner has written nothing in its conversatio
 plan's last write, the question would hold only the owner: the hook prints Claude's deny, its
 reason telling the seat to say it in its last message instead.  A line still open, no plan, or a
 word from the owner since, and the hook prints nothing: the card goes up.
-Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, before
-seats of tests/fixtures/akseat.py whose hooks fire as their harness fires them
-(tests/fixtures/hookdrive.py).
+Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, writing
+and ticking the plan of a seat of tests/fixtures/akseat.py in a project of gitrig.py, whose hooks
+fire as their harness fires them (tests/fixtures/hookdrive.py).
 """
 
 import json
+import os
 import sys
 from pathlib import Path
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REAL_TMUX, Home
-from fixtures.akseat import PLAN_LINE, Seat
+from fixtures.akseat import Seat
+from fixtures.gitrig import Rig
 from fixtures import hookdrive
 
-DONE = ("- [x] The parser parses · check: `true` · acme · written 2026-10-23 09:00"
-        " · done 0123456789ab\n")
 # as Claude Code 2.1.305 hands its PreToolUse hooks a question card before drawing it
 ASKED = {"tool_name": "AskUserQuestion", "tool_input": {"questions": [
     {"question": "The parser is live and checked. Can I mark this done?", "header": "Done",
@@ -37,15 +38,24 @@ class DoneSeatQuestionRefused(unittest.TestCase):
         cls.addClassCleanup(cls.home.close)
         cls.hooks = hookdrive.Hooks(cls.home)
 
-    def seat(self, name, plan=None):
-        """A seat mid-turn on a job the owner's word began, its plan, when given, written since."""
-        seat = Seat(self.home, name, screen="claude-working-pane.txt")
+    def seat(self, name, planned=("parser.py",)):
+        """A seat mid-turn on a job the owner's word began, in a project of its own.  Since,
+        `ak plan add` wrote it a line for each file in `planned` that it is on main, and once
+        the parser landed there `ak plan` ticked its line."""
+        rig = Rig(self.home, name)
+        seat = Seat(self.home, name, screen="claude-working-pane.txt", cwd=rig.path,
+                    record={"repo": str(rig.path)})
         self.hooks.prompt("go", seat)
-        if plan is not None:
-            # stamped from the clock the word's own stamp was read from: a file system's stamp
-            # may lag that clock by a tick
-            self.home.write(f".agentkit/state/plan-{name}.md", plan, ago=0)
+        for file in planned:
+            self.ak(seat, "plan", "add", f"{file} is on main", "--check", f"test -f {file}")
+        if planned:
+            rig.commit({"parser.py": "parse = str.split\n"}, "the parser")
+            self.ak(seat, "plan")
         return seat
+
+    def ak(self, seat, *args):
+        done = self.home.ak(*args, env={"AGENTKIT_SESSION": seat.name}, cwd=seat.cwd)
+        self.assertEqual(done.code, 0, done.err)
 
     def asked(self, seat):
         """What the seat's PreToolUse hooks printed as its question card was about to go up."""
@@ -54,20 +64,23 @@ class DoneSeatQuestionRefused(unittest.TestCase):
         return fired.out
 
     def test_a_done_plan_with_nothing_from_the_owner_since_refuses_the_card(self):
-        printed = json.loads(self.asked(self.seat("done", DONE)))
+        printed = json.loads(self.asked(self.seat("done")))
         reason = printed["hookSpecificOutput"].pop("permissionDecisionReason")
         self.assertEqual(printed, {"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                                           "permissionDecision": "deny"}})
         self.assertIn("last message", reason)
 
     def test_an_open_line_or_no_plan_lets_the_card_go_up(self):
-        for name, plan in (("open-line", DONE + PLAN_LINE + "\n"), ("no-plan", None)):
+        for name, planned in (("open-line", ("parser.py", "lexer.py")), ("no-plan", ())):
             with self.subTest(name):
-                self.assertEqual(self.asked(self.seat(name, plan)), "")
+                self.assertEqual(self.asked(self.seat(name, planned)), "")
 
     def test_the_owner_writing_since_the_plans_last_write_lets_the_card_go_up(self):
-        seat = Seat(self.home, "owner-wrote", screen="claude-working-pane.txt")
-        self.home.write(".agentkit/state/plan-owner-wrote.md", DONE, ago=600)
+        seat = self.seat("owner-wrote")
+        # its last line ticked ten minutes ago: Claude stamps the owner's word to the millisecond,
+        # which a write a moment before may share
+        ago = time.time() - 600
+        os.utime(self.home.path / ".agentkit" / "state" / "plan-owner-wrote.md", (ago, ago))
         self.hooks.prompt("8080", seat)
         self.assertEqual(self.asked(seat), "")
 
