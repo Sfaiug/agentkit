@@ -24,9 +24,9 @@ workspace = ["AGENTS.md", "GEMINI.md", ".agents/rules", ".agent/rules"]
 first_prompt = true
 
 # The lines its prompt takes to move its conversation to another model or effort
-# (`orch.switch_lines`): agy 1.3.4 on takes the base model `run` passes as --model, and
-# `/effort` picks its variant, the full id `interactive` launches on; a model at no effort is
-# that id itself, and is typed no effort.
+# (`orch.switch_lines`): `/model` takes the base model, as `run`'s --model does (agy 1.3.4 on),
+# and `/effort` picks its variant, the full id `interactive` launches on; a model at no effort
+# is that id itself, and is typed no effort.
 [switch]
 model = "/model {model}"
 effort = "/effort {effort}"
