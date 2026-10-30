@@ -22,10 +22,19 @@ TIMEOUT = 30                       # a page of the price list is 5,000 entries, 
 # A project's own key may not read its billing account's currency (billingAccounts.get: 403).
 CURRENCY = "EUR"
 COMPUTE_SKUS = "6F81-5844-456A"    # Compute Engine's service in the price list
+DISK_GB = 20                       # a boot disk holding the system, a checkout and its tests
+HOURS_A_MONTH = 730                # how Google turns a monthly price into an hourly one
 # A Spot core or memory price of one machine family, e.g. "Spot Preemptible C4A Arm Instance
 # Core running in Netherlands"; a custom shape costs more and is not offered as a type.
 SPOT = re.compile(r"^Spot Preemptible (?!.*Custom)(\w+) (?:[\w-]+ )*?"
                   r"Instance (Core|Ram) running in ")
+DISK = re.compile(r"^(Balanced PD|Hyperdisk Balanced) Capacity in ")
+# The boot disks a series takes, which neither the price list nor a machine type says: Google's
+# older series Persistent Disk alone, C3, C3D, H3, M3 and Z3 either, every other Hyperdisk alone.
+PD, HYPERDISK = ("Balanced PD",), ("Hyperdisk Balanced",)
+BOOT_DISKS = {**dict.fromkeys(["c2", "c2d", "e2", "n1", "n2", "n2d", "t2a", "t2d"], PD),
+              **dict.fromkeys(["c3", "c3d", "h3", "m3", "z3"], PD + HYPERDISK)}
+ADDRESS = "External IP Charge on a Spot Preemptible VM"    # the same in every region: "global"
 
 
 class Unavailable(Exception):
@@ -37,18 +46,18 @@ class Offer(NamedTuple):
     region: str
     cores: float      # physical: an arm64 vCPU is one, two x86 vCPUs share one
     memory_mb: int
-    per_core: float   # euros an hour: a core and its share of the memory
+    hourly: float     # euros: its cores, memory, boot disk and address, as the bill will
 
     def __str__(self):
         return (f"{self.name} in {self.region} · {self.cores:g} cores · "
-                f"{self.memory_mb / 1024:g} GB · €{self.per_core * self.cores:.3f} an hour")
+                f"{self.memory_mb / 1024:g} GB · €{self.hourly:.3f} an hour")
 
 
 def best(mb_per_core):
     """Of the offers with at least `mb_per_core` of memory a core, the one with the lowest price
-    per core, the most cores among equals, or None when there is none; raises Unavailable."""
+    per core, or None when there is none; raises Unavailable."""
     fits = [offer for offer in offers() if offer.memory_mb >= mb_per_core * offer.cores]
-    return min(fits, key=lambda offer: (offer.per_core, -offer.cores, offer), default=None)
+    return min(fits, key=lambda offer: (offer.hourly / offer.cores, offer), default=None)
 
 
 def offers():
@@ -63,13 +72,20 @@ def offers():
     except (OSError, ValueError, TypeError, AttributeError, subprocess.CalledProcessError) as exc:
         raise Unavailable(f"cannot use {config.tilde(path)}: {exc}")
     project = key.get("project_id")
-    core, ram = {}, {}
+    core, ram, disk, address = {}, {}, {}, None
     for sku in _pages(token, _url("cloudbilling", f"/v1/services/{COMPUTE_SKUS}/skus"),
                       "skus", currencyCode=CURRENCY, pageSize=5000):
-        spot, price = SPOT.match(sku.get("description", "")), _hourly(sku)
-        if spot and price is not None:
-            for region in sku.get("serviceRegions") or ():
+        description, price = sku.get("description", ""), _hourly(sku)
+        spot, boot = SPOT.match(description), DISK.match(description)
+        if price is None:
+            continue
+        if description == ADDRESS:
+            address = price
+        for region in sku.get("serviceRegions") or ():
+            if spot:
                 (core if spot[2] == "Core" else ram)[spot[1].lower(), region] = price
+            elif boot:
+                disk[boot[1], region] = price
     found = {}
     for zone, listed in _pages(token, _url("compute", f"/compute/v1/projects/{project}/"
                                            "aggregated/machineTypes"),
@@ -79,17 +95,17 @@ def offers():
             name, vcpus, mb = kind.get("name", ""), kind.get("guestCpus"), kind.get("memoryMb")
             family = name.split("-")[0]
             a_vcpu, a_gb = core.get((family, region)), ram.get((family, region))
+            a_disk_gb = min((disk[product, region] for product in BOOT_DISKS.get(family, HYPERDISK)
+                             if (product, region) in disk), default=None)
             # a shared core, an accelerator or a bundled local SSD is priced apart from the cores,
             # and bare metal is never Spot
             if (kind.get("isSharedCpu") or kind.get("accelerators") or kind.get("deprecated")
                     or kind.get("bundledLocalSsds") or name.endswith("-metal")
-                    or not vcpus or not mb or None in (a_vcpu, a_gb)):
+                    or not vcpus or not mb or None in (a_vcpu, a_gb, a_disk_gb, address)):
                 continue
             cores = vcpus if kind.get("architecture") == "ARM64" else vcpus / 2
-            # from the vCPUs and memory a core has, the same for every size of a family to the
-            # last bit, as the type's price over its cores is not: a tie goes to the most cores
-            per_core = vcpus / cores * a_vcpu + mb / 1024 / cores * a_gb
-            found[name, region] = Offer(name, region, cores, mb, per_core)
+            hourly = vcpus * a_vcpu + mb / 1024 * a_gb + DISK_GB * a_disk_gb + address
+            found[name, region] = Offer(name, region, cores, mb, hourly)
     return list(found.values())
 
 
@@ -144,11 +160,13 @@ def _url(host, path):
 
 
 def _hourly(sku):
-    """A price-list entry's steady price, its last tier's, or None: a Spot core's or GB's an
-    hour."""
+    """A price-list entry's steady price an hour, its last tier's, or None: a Spot core's or GB's,
+    a disk's GB's or an address's."""
     try:
-        price = sku["pricingInfo"][-1]["pricingExpression"]["tieredRates"][-1]["unitPrice"]
-        return int(price.get("units") or 0) + price.get("nanos", 0) / 1e9
+        expression = sku["pricingInfo"][-1]["pricingExpression"]
+        price = expression["tieredRates"][-1]["unitPrice"]
+        amount = int(price.get("units") or 0) + price.get("nanos", 0) / 1e9
+        return amount / HOURS_A_MONTH if expression["usageUnit"].endswith("mo") else amount
     except (KeyError, IndexError, TypeError, ValueError):
         return None
 
