@@ -341,7 +341,7 @@ class RulebookNews(Sandbox):
                 patch.object(config, "accounts", return_value=["default"]), \
                 patch.object(orch, "opened", return_value=True), \
                 patch.object(orch, "command", side_effect=command), \
-                patch.object(orch, "seat_command", return_value="true"), \
+                patch.object(orch, "seat_command", return_value=("true", self.root / "launch")), \
                 patch.object(orch, "tmux_out", side_effect=tmux), \
                 self.assertRaises(config.Error):
             orch.resume(self.cfg, SEAT, log=lambda _: None, hand_over=False, account="default")
@@ -374,7 +374,7 @@ class RulebookNews(Sandbox):
         with patch.object(orch, "_switch_plan", return_value=("", None)), \
                 patch.object(orch, "find", return_value=live), \
                 patch.object(orch, "command", side_effect=command), \
-                patch.object(orch, "seat_command", return_value="true"), \
+                patch.object(orch, "seat_command", return_value=("true", self.root / "launch")), \
                 patch.object(orch, "tmux_out", side_effect=tmux):
             self.assertIn("tmux refused", orch.switch_orchestrator(self.cfg, SEAT, "fable",
                                                                     providers={}))

@@ -1029,7 +1029,7 @@ SEAT_FILES = {
     "rules": "md",
     "change": "md",
     "held": "md",        # the rulebook its conversation was last handed
-    "launch": "sh",      # the command its pane runs, until that pane starts (`orch.seat_command`)
+    "launch": "sh",      # the command a pane runs, until it starts: one per launch, `.sh` a token (`orch.seat_command`)
     "refused": "txt",    # its screen when it read at its prompt yet took no line (`watch.untyped`)
     "handover": "md",    # what moves to another harness handed it of its conversation (`orch.handover`)
     # written by nothing since seats stopped messaging one another: named so a stop and the daily collector still

@@ -6,6 +6,7 @@ harness here is a stand-in that writes down how long the argument it was handed 
 """
 
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -62,6 +63,13 @@ class LongCommand(Sandbox):
         left = [path for path in config.STATE.iterdir() if "acme" in path.name]
         self.assertTrue(left)
         self.assertEqual(set(left) - set(orch.session_owned_files("acme")), set())
+
+    def test_a_pane_starting_after_the_next_launch_leaves_it_its_command(self):
+        late, _ = orch.seat_command("acme", ["true"])
+        command, _ = orch.seat_command("acme", ["echo", "the next harness"])
+        self.assertEqual(subprocess.run(shlex.split(late)).returncode, 0)
+        self.assertEqual(subprocess.run(shlex.split(command), capture_output=True,
+                                        text=True).stdout, "the next harness\n")
 
 
 if __name__ == "__main__":
