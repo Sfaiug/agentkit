@@ -672,13 +672,15 @@ def pickup_while_queued(run_dir, behind=None, execv=None, current=None):
     return True
 
 
-def seat_refusal(opts, flags):
+def seat_refusal(opts, flags, tasks=1):
     """Why a seat's launch is refused: a seat names no model, no place in the queue and no
     second run of a change under way, since ak picks the models, decides what goes first and
-    refuses the rival itself; and it launches only while its plan has an open line, since the
+    refuses the rival itself; it launches only while its plan has an open line, since the
     plan is what its bar counts and what a review of its pull request checks against
-    (`prompts.plan_context`).  A seat is a recorded session (`config.session_records`);
-    a shell naming none is no seat, and outside a seat neither holds.  Nor in a queued child,
+    (`prompts.plan_context`); and unless it reviews a PR, its `tasks` need room in its queue,
+    all of them (`gate.seat_full`), asked before anything is created, so no resume, restart or
+    later round has a way around it.  A seat is a recorded session (`config.session_records`);
+    a shell naming none is no seat, and outside a seat none of this holds.  Nor in a queued child,
     which `spawn_bg` starts under the seat's name: it is ak's own pick (a job's rerun on the
     next executor) or the seat's launch, judged at its parsing."""
     if not from_seat():
@@ -691,7 +693,7 @@ def seat_refusal(opts, flags):
     if not plan.open_lines(config.current_session()):
         return ("your plan has no open line, and the plan is what your bar counts: first run "
                 "ak plan add \"<outcome>\" --check '<command>'")
-    return None
+    return None if opts.get("--review-pr") else gate.seat_full(config.current_session(), tasks)
 
 
 def from_seat():
@@ -3034,7 +3036,7 @@ def main(argv):
         else:
             positional.append(arg)
             i += 1
-    refused = seat_refusal(opts, flags)
+    refused = seat_refusal(opts, flags, len(positional))
     if refused:
         raise config.Error(refused)
     if opts["--review-pr"]:

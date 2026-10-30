@@ -186,6 +186,33 @@ def slot_counts(state, *, remember=False):
     return running, ahead, queue[:ahead] + queue[ahead + 1:]
 
 
+def seat_full(seat, launches):
+    """Why that seat may not launch that many more runs, or None: a seat may have as many runs
+    waiting for a slot as holding one (as `slot_counts` tells them), and always one, and each
+    launch waits until it holds one.  Seats launched everything at once, so the queue outgrew
+    what the host could check and a seat's urgent work sat behind its own; a host admitting more
+    runs lets more wait.  The reason names the run to `ak wait` for: the one that has held its
+    slot longest, else the oldest waiting."""
+    holding, waiting = [], []
+    records = ((directory, run_record.read_state(directory) or {})
+               for directory in run_record.run_dirs())
+    for directory, other in transitions.runs_by_seat(records).get(seat, []):
+        if other.get("run_depth", 0):
+            continue
+        if other.get("state") == "running" and run_record.process_active(other):
+            holding.append((other.get("slot_started_at") or 0, directory.name))
+        elif other.get("state") == "queued" and other.get("slot_waiting"):
+            waiting.append((transitions.first_queued(other), directory.name))
+    room = max(len(holding), 1) - len(waiting)
+    if launches <= room:
+        return None
+    first = min(holding or waiting, default=None)
+    return (f"{seat} may have as many runs waiting for a slot as holding one, and always one: "
+            f"it has {len(waiting)} waiting and {len(holding)} holding, so room for "
+            f"{max(room, 0)} more, not {launches}; "
+            + (f"`ak wait {first[1]}`, then launch again" if first else "launch one at a time"))
+
+
 def _save_queue(running, queue, let_in=None, turns=None):
     """Under slot_lock: the queue as this poll decided it, for the waiters behind its first,
     since when that first has waited there while polled (`first_in_line`), and how long the last
