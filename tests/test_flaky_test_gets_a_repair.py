@@ -1,7 +1,8 @@
 """A test that failed, then passed, on two trees of the landing line within a week -- named so
 by the checks, or confirmed red by one and passing on the same tree later -- gets one repair
 run naming it, owned by the run whose check saw it the second time; one tree gets none, and
-no second starts until a merged change edits the test or the week has passed.
+no second starts until a merged change edits the test or the week has passed.  A test is
+kept toward its file, its name up to its first `::` or `#`, as a ledger's full names are.
 
 Offline: real Git and the lander's own check, the suite faked to say what it found, sandbox
 records, an injected clock and the repair's launch caught, leaving the record it would.
@@ -125,6 +126,23 @@ class FlakyTestGetsARepair(test_lander.LanderFixture, unittest.TestCase):
         self.seen("four")
         self.assertEqual(self.launch.call_count, 2)
         self.assertIn("2 times", (self.launch.call_args.args[0] / "task.md").read_text())
+
+    def test_what_a_ledger_keeps_under_a_test_s_full_name_counts_toward_its_file(self):
+        ledger = self.turn.with_suffix(".flakes")
+        ledger.write_text(json.dumps({"tests": {f"{TEST}::test_a": {"seen": [
+            {"tree": "elsewhere", "at": self.now, "logs": ["elsewhere.log"]}]}}}))
+        self.seen("one", flaky=[f"{TEST}::test_b"])
+        (directory, _, origin, *_), = (call.args for call in self.launch.call_args_list)
+        self.assertEqual(origin["repair"]["command"], TEST)
+        task = (directory / "task.md").read_text()
+        self.assertIn(f"`{TEST}::test_a`:\n- elsewhere.log", task)
+        self.assertIn(f"`{TEST}::test_b`", task)
+        held = {"run": "fix-old", "at": self.now,
+                "sha": run.git(self.repo, "rev-parse", "origin/main")}
+        ledger.write_text(json.dumps({"tests": {f"{TEST}::test_a": {"repair": held}}}))
+        self.seen("two", flaky=[f"{TEST}::test_b"])
+        self.seen("three", flaky=[f"{TEST}::test_b"])
+        self.assertEqual(self.launch.call_count, 1)
 
 
 if __name__ == "__main__":
