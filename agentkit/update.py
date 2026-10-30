@@ -767,12 +767,16 @@ def _last_pass(key):
 
 def _note_pass(key, began, ended):
     """Keep a pass of check `key` for `margin`, unless a later one is kept: the tick reads one
-    check until the install moves, past any upgrade's run since.  A failed write costs a margin."""
-    if ended > _last_pass(key)[0]:
-        try:
-            _put(config.STATE / f"{key}-check-passed", json.dumps([ended, ended - began]))
-        except OSError:
-            pass
+    check until the install moves, past any upgrade's run since, so each looks and writes under
+    one lock.  A failed write costs a margin."""
+    record = config.STATE / f"{key}-check-passed"
+    try:
+        with record.with_suffix(".lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if ended > _last_pass(key)[0]:
+                _put(record, json.dumps([ended, ended - began]))
+    except OSError:
+        pass
 
 
 def margin(key):
@@ -788,8 +792,9 @@ def _waits_for_login(key, what, seconds, log, now):
     failing all that needs it for no fault of the code, until it is renewed (by its harness on use,
     the tick's usage probes or `auth seat`) or lapsed and lends none.  The log hears it once: `key`
     names the record of what it heard, gone when `what` starts."""
-    said = config.STATE / f"{key}-check-held"
+    said, asked = config.STATE / f"{key}-check-held", time.time()
     first = lend.first_lapse()
+    now += time.time() - asked      # `auth seat` and lending can take minutes of a login's life
     if first is None or first[0] >= now + seconds:
         said.unlink(missing_ok=True)
         return False
@@ -956,6 +961,9 @@ def live_tick(log, now, fetched):
             # its runner, told to, ends its group within one grace and writes its exit in the next
             worker.kill_marked(str(check), grace=2 * worker.MARK_KILL_GRACE)
             alive = _alive(check, started, now)
+        if not alive and _live_passed(check, started):
+            # before the pruning below takes a pass the install has already
+            _note_pass("live", started, _live_ended(check, _exit(check, started)))
         if alive:
             running = True
         elif had[commit] and not (baseline or notice):
@@ -993,8 +1001,6 @@ def live_tick(log, now, fetched):
     episode = None      # a pass ends what was red before it; one typed or told stands until then
     reds = 0            # red checks in a row since the last pass, whichever commits they checked
     for started, commit, check, code in done:
-        if _live_passed(check, started):
-            _note_pass("live", started, _live_ended(check, code))
         if commit == head and not (check / "baseline").exists():
             continue
         record = _handed(episode[1]) if episode else None

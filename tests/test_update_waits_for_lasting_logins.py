@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import Mock, patch
@@ -77,10 +78,13 @@ class WaitsForLastingLogins(unittest.TestCase):
         for module, name, value in ((update, "agentkit_dir", root / "agentkit"), (config, "load", cfg),
                                     (update, "left_as_is", ""), (update, "_alive", False)):
             stack.enter_context(patch.object(module, name, return_value=value))
-        # no commit named here is in HEAD: the tip, or a check's
+        # of the commits named here, only OLD is in HEAD
         stack.enter_context(patch.object(update, "_git", side_effect=lambda *args, **_kw: (
-            (1, "") if args[0] == "merge-base" else (0, "b" * 40 if args[-1] == "HEAD" else TIP))))
+            (int(OLD not in args), "") if args[0] == "merge-base"
+            else (0, "b" * 40 if args[-1] == "HEAD" else TIP))))
         stack.enter_context(patch.object(update.gitcall, "no_auto_gc"))
+        self.now = T
+        stack.enter_context(patch.object(update, "time", Mock(wraps=time, time=lambda: self.now)))
         self.checks = stack.enter_context(patch.object(orch, "start_in_slice"))
         self.upgrades = stack.enter_context(patch.object(update, "start"))
 
@@ -93,12 +97,12 @@ class WaitsForLastingLogins(unittest.TestCase):
         return path.read_text().splitlines() if path.exists() else []
 
     def live_tick(self, now):
-        said = []
+        said, self.now = [], now
         update.live_tick(said.append, now, fetched=True)
         return said
 
     def upgrade_tick(self, now):
-        said = []
+        said, self.now = [], now
         update.keep_current(said.append, now=now)
         return said
 
@@ -114,6 +118,20 @@ class WaitsForLastingLogins(unittest.TestCase):
         self.assertEqual(self.checks.call_args.args[0][5], TIP)
         self.assertEqual(Path(self.read("homes")[0]).parents[1], config.TMP)    # lent aside
         self.assertEqual(list(config.TMP.glob("lend-*")), [])                   # and gone again
+
+    def test_the_margin_counts_from_when_asking_ends(self):
+        update._note_pass("live", T - 110, T - 10)
+        self.write(ends=int(T + 201))
+        asking = lend.first_lapse
+
+        def slow():
+            self.now += 120     # the tick's clock, two minutes on once `auth seat` and lending end
+            return asking()
+
+        with patch.object(lend, "first_lapse", slow):
+            self.assertEqual(self.live_tick(T), [waits("tests/live.sh", T + 201)])
+            self.write(ends=int(T + TICK + 320))
+            self.assertEqual(self.live_tick(T + TICK), [CHECKING])
 
     def test_a_login_auth_seat_renews_is_lent_fresh(self):
         self.write(ends=int(T + 60), renewed=int(T + 8 * 3600))
@@ -143,7 +161,7 @@ class WaitsForLastingLogins(unittest.TestCase):
         update._note_pass("live", T, T + 50)                # ended before the one on record
         self.assertEqual(update.margin("live"), 200)
 
-    def test_the_tick_keeps_a_passing_live_check_and_no_other(self):
+    def test_the_tick_keeps_a_passing_live_check_and_no_other_even_one_it_prunes(self):
         for commit, began, ended, code in ((OLD, T, T + 100, 0), (TIP, T + 200, T + 500, 1)):
             check = config.STATE / update.LIVE / f"{commit}-{int(began)}"
             check.mkdir(parents=True)
@@ -151,12 +169,32 @@ class WaitsForLastingLogins(unittest.TestCase):
             os.utime(check / "exit", (ended, ended))
         self.live_tick(T + 600)
         self.assertEqual(update.margin("live"), 200)
+        self.assertEqual([commit for _, commit, _ in update.live_checks()], [TIP])
+
+    def test_an_older_pass_never_replaces_one_kept_meanwhile(self):
+        looked, kept, put = threading.Event(), threading.Event(), update._put
+
+        def stalls(path, text):     # the tick, between its look at the record and its write
+            if threading.current_thread() is tick:
+                looked.set()
+                kept.wait(10)
+            put(path, text)
+
+        tick = threading.Thread(target=update._note_pass, args=("live", T, T + 100))
+        gate = threading.Thread(target=update._note_pass, args=("live", T, T + 300))
+        with patch.object(update, "_put", stalls):
+            tick.start()
+            looked.wait(10)
+            gate.start()
+            gate.join(1)        # done at once where nothing makes it wait for the tick
+            kept.set()
+            tick.join(10)
+            gate.join(10)
+        self.assertEqual(update.margin("live"), 600)
 
     def test_a_gate_keeps_its_own_pass_and_no_skip_or_failure(self):
-        clock = [T]
-        takes = lambda result: lambda *_a, **_kw: clock.__setitem__(0, clock[0] + 100) or result
-        with tempfile.NamedTemporaryFile(mode="w", dir=self.root) as log, \
-                patch.object(update, "time", Mock(time=lambda: clock[0])):
+        takes = lambda result: lambda *_a, **_kw: setattr(self, "now", self.now + 100) or result
+        with tempfile.NamedTemporaryFile(mode="w", dir=self.root) as log:
             for key, ran, took in (("live", False, None), ("live", True, 100),
                                    ("fresh", (False, "failed"), None),
                                    ("fresh", (False, "skipped: no room"), None),
