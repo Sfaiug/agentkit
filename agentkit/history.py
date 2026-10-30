@@ -13,7 +13,6 @@ from statistics import median
 from . import config, gitcall, host, record, waiter
 
 _LOCK = threading.Lock()
-_KEPT = {}     # database -> this process's connection left open (`_writable`), never used again
 SUMMARY_TASKS = 20    # the status line looks back over this many finished runs per repo
 SUMMARY_WORDS = 400   # ... and contrasts tasks over this many words outside the checks block
 SUMMARY_POINTS = 3    # ... and tasks over this many numbered goal points, by median rounds
@@ -150,30 +149,12 @@ def path():
     return config.HOME / "history.db"
 
 
-def _writable():
-    connection = sqlite3.connect(path(), timeout=2)
-    # Readers take no lock of ours (`_writing`), and in the default journal mode a read held
-    # past sqlite's wait made a write give up; in WAL a reader never blocks the writer.
-    # Persistent in the file, so this is a no-op after the first write.
-    connection.execute("PRAGMA journal_mode=WAL")
-    # Every write holds the one lock (`_writing`), and flushing to disk under it held 100 runs and
-    # the tick behind 1 to 4 s a write on a busy disk (30 Oct 2026). So a commit flushes nothing: a
-    # power cut can lose the last ones, never the database. And one connection stays open, having
-    # read, as the last to close flushes the WAL into the database and removes it.
-    connection.execute("PRAGMA synchronous=NORMAL")
-    if str(path()) not in _KEPT:
-        kept = sqlite3.connect(path(), timeout=2)
-        kept.execute("SELECT count(*) FROM sqlite_master").fetchall()
-        _KEPT[str(path())] = kept
-    return connection
-
-
 def _connect(*, readonly=False):
     if readonly:
         connection = sqlite3.connect(path().resolve().as_uri() + "?mode=ro", uri=True, timeout=2)
         connection.create_function("suite_run", 2, suite_run)     # what REAL_WORK reads by
         return connection
-    connection = _writable()
+    connection = waiter.connect(path())
     connection.execute(KEPT_SCHEMA)
     # Read before `runs` is made, in the statement that writes it, so two first connects agree;
     # committed at once, as the tables below are made outside a transaction.
@@ -248,7 +229,7 @@ def _ensure_tokens_recounted():
                     return
                 repairs = list(_recount_tokens(connection))
             if repairs:
-                with contextlib.closing(_writable()) as connection:
+                with contextlib.closing(waiter.connect(path())) as connection:
                     _apply_token_recounts(connection, repairs)
     except (OSError, sqlite3.Error, TypeError, ValueError):
         pass

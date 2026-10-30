@@ -23,6 +23,9 @@ import time
 
 # The wait counted up to the exec into the waiter, and back: "<began> <monotonic since>".
 SLOT_WAIT_ENV = "AK_SLOT_WAIT"
+# The WAL's bytes past which a write checkpoints it (`writing`): SQLite's own 1000 pages of 4 KiB.
+CHECKPOINT_AT = 1000 * 4096
+_KEPT = {}     # database -> this process's connection left open (`connect`), never used again
 
 
 def stale_after(place, poll):
@@ -76,10 +79,38 @@ def head(repo, env=None):
 def writing(database, wait=True):
     """One writer of history.db at a time, across processes: runs, the tick and the menu each
     write, and sqlite's own wait gives up after its timeout and the write would be lost.
-    Without `wait`, BlockingIOError while another writer has it."""
+    Without `wait`, BlockingIOError while another writer has it.  Once it is released, a WAL
+    grown past CHECKPOINT_AT goes into the database, flushed, as writes go on into the WAL."""
     with Path(database).with_suffix(".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
         yield
+    with contextlib.suppress(OSError, sqlite3.Error):     # one missed waits for the next write
+        if os.path.getsize(f"{database}-wal") > CHECKPOINT_AT:
+            with contextlib.closing(sqlite3.connect(database, timeout=2)) as connection:
+                connection.execute("PRAGMA wal_checkpoint(PASSIVE)")
+
+
+def connect(database):
+    """A connection to write history.db with, under `writing`, flushing nothing to disk: every
+    run and the tick wait on that lock, and flushes under it held 100 runs and the tick behind 1
+    to 4 s a write on a busy disk (30 Oct 2026)."""
+    connection = sqlite3.connect(database, timeout=2)
+    # Readers take no lock of ours, and in the default journal mode a read held past sqlite's
+    # wait made a write give up; in WAL a reader never blocks the writer.  Persistent in the
+    # file, so this is a no-op after the first write.
+    connection.execute("PRAGMA journal_mode=WAL")
+    # A commit syncs nothing but the header of a WAL begun anew, once per CHECKPOINT_AT: a power
+    # cut can lose the last commits, never the database.  Nor does it checkpoint: `writing` does,
+    # and a WAL cut back to what it holds tells it when.
+    connection.execute("PRAGMA synchronous=NORMAL")
+    connection.execute("PRAGMA wal_autocheckpoint=0")
+    connection.execute("PRAGMA journal_size_limit=0")
+    # And one connection stays open, having read, as the last to close checkpoints the WAL.
+    if str(database) not in _KEPT:
+        kept = sqlite3.connect(database, timeout=2)
+        kept.execute("SELECT count(*) FROM sqlite_master").fetchall()
+        _KEPT[str(database)] = kept
+    return connection
 
 
 def add_wait(connection, run_id, wait, seconds, began, at):
@@ -107,9 +138,7 @@ def count(database, run_id, began, since):
     never ends the wait."""
     now = time.monotonic()
     try:
-        with writing(database, wait=False), contextlib.closing(
-                sqlite3.connect(database, timeout=2)) as connection:
-            connection.execute("PRAGMA synchronous=NORMAL")     # history._writable says why
+        with writing(database, wait=False), contextlib.closing(connect(database)) as connection:
             add_wait(connection, run_id, "slot", max(0.0, now - since), began, time.time())
             connection.commit()
     except BlockingIOError:
