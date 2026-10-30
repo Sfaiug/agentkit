@@ -1,8 +1,8 @@
 """A model may review its own work, but only as the last choice.
 
-The reviewer is picked from the run's models in this order: another model, from
-the executor's company as readily as from another, budget order among them, then
-the executor's own model. Nothing refuses or parks a run only because the one
+The reviewer is picked from the run's models in this order: a model on another
+provider, then another model on the executor's provider, budget order within each,
+then the executor's own model. Nothing refuses or parks a run only because the one
 reviewer left is the executor's own, and the launch line and `ak run status`
 say `self-reviewed` where a round was reviewed by the executor's own model.
 
@@ -79,25 +79,27 @@ class SelfReviewLast(unittest.TestCase):
         lp.round_dir.mkdir(exist_ok=True)
         return lp
 
-    def test_reviewer_order_is_every_other_model_then_own(self):
+    def test_reviewer_order_is_another_provider_then_own_provider_then_own(self):
         order = ["acme-two", "beta-one", "acme-one"]
         self.assertEqual(run.reviewer_order(self.cfg, "acme-one", order),
-                         ["acme-two", "beta-one", "acme-one"])
-        # the incoming (budget) order is kept among the others: the executor's company
-        # counts as any other
+                         ["beta-one", "acme-two", "acme-one"])
+        # the incoming (budget) order is kept within a tier
         self.assertEqual(run.reviewer_order(self.cfg, "beta-one",
                                             ["beta-one", "acme-one", "acme-two"]),
                          ["acme-one", "acme-two", "beta-one"])
         self.assertEqual(run.reviewer_order(self.cfg, "acme-one", ["acme-one"]), ["acme-one"])
         # a review with no executor keeps budget order: nothing is anyone's own
         self.assertEqual(run.reviewer_order(self.cfg, None, order), order)
+        # a writer since removed from the config holds no reviewer back
+        self.assertEqual(run.reviewer_order(self.cfg, ["retired", "acme-one"], order),
+                         ["beta-one", "acme-two", "acme-one"])
 
     def test_first_pick_reviews_itself_only_when_nothing_else_is_left(self):
-        # acme-two has the most budget of the other models, its company notwithstanding
-        self.assertEqual(self.pick(), ("acme-one", "acme-two"))
-        self.assertEqual(self.pick("acme-one"), ("acme-one", "acme-two"))
-        self.providers = self.meters(acme=90, beta=10)
+        # beta-one is on another provider: it reviews though acme-two has more budget
+        self.assertEqual(self.pick(), ("acme-one", "beta-one"))
         self.assertEqual(self.pick("acme-one"), ("acme-one", "beta-one"))
+        self.providers = self.meters(beta=100)
+        self.assertEqual(self.pick("acme-one"), ("acme-one", "acme-two"))
         self.cfg["defaults"]["workers"] = ["acme-one"]
         self.assertEqual(self.pick(), ("acme-one", "acme-one"))
 
@@ -113,7 +115,7 @@ class SelfReviewLast(unittest.TestCase):
     def test_best_pair_weighs_tier_then_executor_then_reviewer_budget(self):
         executors = ["acme-one", "acme-two", "beta-one"]
         self.assertEqual(run.best_pair(self.cfg, executors, ["acme-one"]),
-                         ("acme-two", "acme-one"))
+                         ("beta-one", "acme-one"))
         self.assertEqual(run.best_pair(self.cfg, ["acme-one", "acme-two"], ["acme-one"]),
                          ("acme-two", "acme-one"))
         self.assertIsNone(run.best_pair(self.cfg, ["acme-one"], ["acme-one"],
@@ -123,7 +125,7 @@ class SelfReviewLast(unittest.TestCase):
     def test_first_pick_prefers_another_model_over_self_across_executors(self):
         self.assertEqual(run.pick_models(self.cfg, self.providers, None, None,
                                          self.logs.append, reviewers=["acme-one"]),
-                         ("acme-two", "acme-one"))
+                         ("beta-one", "acme-one"))
 
     def test_an_explicit_self_review_is_allowed(self):
         self.assertEqual(self.pick("acme-one", "acme-one"), ("acme-one", "acme-one"))
@@ -134,7 +136,7 @@ class SelfReviewLast(unittest.TestCase):
 
     def test_a_named_reviewer_takes_the_best_executor_for_it(self):
         self.assertEqual(run.pick_models(self.cfg, self.providers, None, "acme-one",
-                                         self.logs.append), ("acme-two", "acme-one"))
+                                         self.logs.append), ("beta-one", "acme-one"))
         self.cfg["defaults"]["workers"] = ["acme-one"]
         self.assertEqual(run.pick_models(self.cfg, self.providers, None, "acme-one",
                                          self.logs.append), ("acme-one", "acme-one"))
@@ -246,9 +248,9 @@ class SelfReviewLast(unittest.TestCase):
                 patch.object(config, "load_session", return_value=session), \
                 patch.object(run, "pr_view", return_value={"author": "owner"}), \
                 patch.object(run, "viewer_login", return_value="owner"):
-            self.assertEqual(run.preset_review_model(self.cfg, opts), "acme-two")
-            self.providers = self.meters(acme=90, beta=10)
             self.assertEqual(run.preset_review_model(self.cfg, opts), "beta-one")
+            self.providers = self.meters(beta=100)
+            self.assertEqual(run.preset_review_model(self.cfg, opts), "acme-two")
             self.cfg["defaults"]["workers"] = ["acme-one"]
             self.assertEqual(run.preset_review_model(self.cfg, opts), "acme-one")
             # an explicit review by the writer's own model is allowed, not refused

@@ -45,12 +45,13 @@ def _conversation(harness, session):
 
 def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     """(exit, killed, session) of the turn `cmd` of the model `entry` on a machine with room, or
-    None: it runs here, as with the switch off, `places`, no program for it (`_program`), no login
-    to lend, no recipe, no room, a harness with no `sessions`, or a `session` to resume that this
-    host does not hold, as here is where a later resume would look for it too. `watch(argv,
-    **streams)` runs ssh as the worker's watchdog runs a turn, into the out dir's events.jsonl and
-    stderr.log. A lost machine's turn fails, this host's files as they were, and leaves `session`,
-    the conversation it was given: the id it streamed names one that is nowhere. One whose results
+    None: it runs here, as with the switch off, `places`, no program for it (`_program`), a
+    checkout where a rebase, merge or cherry-pick stopped (`_stopped`), no login to lend, no
+    recipe, no room, a harness with no `sessions`, or a `session` to resume that this host does
+    not hold, as here is where a later resume would look for it too. `watch(argv, **streams)` runs
+    ssh as the worker's watchdog runs a turn, into the out dir's events.jsonl and stderr.log. A
+    lost machine's turn fails, this host's files as they were, and leaves `session`, the
+    conversation it was given: the id it streamed names one that is nowhere. One whose results
     came home leaves the conversation it reported, whatever its exit."""
     harness = entry["harness"]
     try:
@@ -58,7 +59,7 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
         program = _program(harness) if on is True and not places and _sessions(harness) else None
     except config.Error:    # a config.toml mid-edit fails no turn: it runs here
         program = None
-    if not program:
+    if not program or _stopped(cwd):
         return None
     held = [name for place in _conversation(harness, session)
             for name in glob.glob(place, root_dir=env["HOME"])]
@@ -91,6 +92,15 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     finally:
         helper.finish(away)
     return code, killed, session
+
+
+def _stopped(cwd):
+    """Is a rebase, merge or cherry-pick stopped in the checkout at `cwd`? git keeps one in the
+    checkout's own git directory, which no parcel carries: a machine's clone has none to go on."""
+    try:
+        return gitcall.in_progress(cwd, *gitcall.STOPS)
+    except config.Error:    # a directory git cannot answer for goes as any other
+        return False
 
 
 def _program(harness):

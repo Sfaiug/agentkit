@@ -4167,7 +4167,7 @@ def handover(record, old_model, old_harness, owned):
 
 def _switch_plan(cfg, name, model, providers, credits=True, effort=None):
     """(note, account): why the seat cannot move to `model`, or "" and the login to use; given
-    `effort`, its own model is judged as another would be, for the restart at it.
+    `effort`, its own model is judged as another would be, for the move at it.
 
     One computation for the refusal and the launch, so the menu's key path asks each
     login once: installed is read off the filesystem, the seat login off the kept or
@@ -4233,7 +4233,8 @@ def switch_lines(cfg, name, model, effort=None):
     """The lines owed to that seat's harness (`watch.owe_line`) in its launch's pane, which its
     prompt takes to run `model` at `effort`, else at the seat's own: `[switch]`'s `model` then
     `effort`, an effort of `none` typing none.  None where the move restarts the seat: another
-    harness or provider (a login is the process's), that pane ended or gone, or no `model` line."""
+    harness or provider (a login is the process's), that pane ended or gone, no `model` line, or
+    a model with no id of its own (`default`: its launch names none, so the harness picks)."""
     record = config.session_records().get(name) or {}
     try:
         was, entry = config.model(cfg, record.get("orchestrator")), config.model(cfg, model)
@@ -4243,7 +4244,8 @@ def switch_lines(cfg, name, model, effort=None):
     server = seat_socket(find(name))
     pane = harness_pane(name, server)   # no id once it is gone, whatever other window lives on
     if ((was["harness"], was["provider"]) != (entry["harness"], entry["provider"])
-            or "model" not in block or not pane.startswith("%") or tmux_out(
+            or "model" not in block or entry["model"] in ("", config.DEFAULT_MODEL)
+            or not pane.startswith("%") or tmux_out(
                 "display-message", "-p", "-t", pane, "#{pane_dead}", socket=server) != (0, "0")):
         return None
     at = effort or config.role_effort(config.at_efforts(cfg, record)["models"][model],
@@ -4253,30 +4255,46 @@ def switch_lines(cfg, name, model, effort=None):
             if key in block and (key, at) != ("effort", "none")]
 
 
+def effort_back(name, model, effort, was):
+    """`model`'s orchestrator effort in that seat's record back at `was`, a move at `effort`
+    having failed, where the record still holds `effort` there: a move made since keeps its own,
+    and every other key stays as it stands."""
+    def back(data):
+        efforts = dict(data.get("efforts") or {})
+        if (efforts.get(model) or {}).get("effort") == effort:
+            efforts[model] = {**efforts[model], "effort": was}
+        return efforts
+    config.change_efforts(name, back)
+
+
 def switch_in_place(cfg, name, model, effort):
     """Move that seat to `model`, at `effort` where given, by owing its harness the lines
     `switch_lines` gives (`watch.owe_line`), a turn its usage cut off told to go on after them:
-    nothing restarts, so nothing is cut or asked.  The record takes the move first, put back
-    where the lines cannot be owed, so a refused move is left to make again; the harness's next
-    answer puts it back where it refused a line (`watch.follow_model`).  What to say under the
-    rows, or ""; None where the seat, as it stands under its lock, must restart for the move."""
+    nothing restarts, so nothing is cut or asked.  The record takes the move first, model and
+    effort, put back where it or the lines cannot be written, so a refused move is left to make
+    again; the harness's next answer puts it back where it refused a line (`watch.follow_model`).
+    What to say under the rows, or ""; None where the seat, as it stands under its lock, must
+    restart for the move."""
     from . import notify, watch   # here, not at the top: both import this module
     try:    # in one hold, so no look follows the old model's last answer back meanwhile
         with notify.session_lock(name), watch.announcing(name):
             lines = switch_lines(cfg, name, model, effort)
             if not lines:
                 return None
-            if effort is not None:
-                config.change_efforts(name, lambda data: config.orchestrating_at(
-                    cfg["models"], data, model, effort))
             if (watch.seat_read(name).get("usage_wait") or {}).get("continue"):
                 lines.append({"line": watch.ACCOUNT_LINE})
-            was = config.session_records()[name]["orchestrator"]
-            config.update_session(name, orchestrator=model)
+            record = config.session_records()[name]
             try:
+                if effort is not None:
+                    config.change_efforts(name, lambda data: config.orchestrating_at(
+                        cfg["models"], data, model, effort))
+                config.update_session(name, orchestrator=model)
                 watch.owe_line(name, None, *lines)
             except (config.Error, OSError):
-                config.update_session(name, orchestrator=was)
+                if effort is not None:
+                    effort_back(name, model, effort,
+                                config.at_efforts(cfg, record)["models"][model]["effort"])
+                config.update_session(name, orchestrator=record["orchestrator"])
                 raise
             watch.seat_write(name, usage_wait=None)
     except (config.Error, OSError) as exc:
@@ -4289,10 +4307,10 @@ def switch_in_place(cfg, name, model, effort):
 
 
 def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=None,
-                        effort=None, in_place=False):
-    """Move the open seat to another orchestrator at once, under the same name: given
-    `in_place`, inside its running harness where that takes lines for it (`switch_lines`),
-    asking nothing; else by a restart.
+                        effort=None):
+    """Move the open seat to another orchestrator at once, under the same name: inside its
+    running harness where that takes lines for it (`switch_lines`), asking nothing; else by a
+    restart.
 
     The old harness process ends and the new one starts in the seat's directory: a live or
     exited pane is respawned, a seat tmux has lost is started again. The runs it launched
@@ -4328,16 +4346,10 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
         return config.orchestrating_at(cfg["models"], data, model, effort)
 
     def given_back():
-        """The effort `taken` back, the launch at `effort` having failed, where the record
-        still holds `effort` there: a restart launched since keeps its own."""
-        def back(data):
-            efforts = dict(data.get("efforts") or {})
-            if (efforts.get(model) or {}).get("effort") == effort:
-                efforts[model] = {**efforts[model], "effort": taken[0]}
-            return efforts
+        """The effort `taken` back, the launch at `effort` having failed (effort_back)."""
         if taken:     # set by the hold's own write, not the command's
             try:
-                config.change_efforts(name, back)
+                effort_back(name, model, effort, taken[0])
             except (config.Error, OSError):
                 pass    # the note returned already says the restart failed
 
@@ -4350,7 +4362,7 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     old_model = record["orchestrator"]
     if old_model == model and effort is None:
         return ""
-    note = switch_in_place(cfg, name, model, effort) if in_place else None
+    note = switch_in_place(cfg, name, model, effort)
     if note is not None:
         return note
     new_harness = config.model(cfg, model)["harness"]

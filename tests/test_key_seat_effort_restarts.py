@@ -1,5 +1,6 @@
-"""On a seat's `c`, a step of its orchestrator's effort asks first, and `Restart` restarts the
-seat's harness at it; Esc changes nothing.
+"""On a seat's `c`, a step of its orchestrator's effort is typed into the harness running in
+its pane, asking nothing (orch.switch_lines); where that harness has ended it asks first, and
+`Restart` restarts the seat's harness at it; Esc changes nothing.
 
 The owner (24 Oct 2026), about the orchestrator: "it should ask me to confirm. As this restarts
 the session."  Black-box: the program `AK_BIN` names, as the popup over a seat on Opus 5.5 at
@@ -42,8 +43,8 @@ class SeatEffortRestarts(unittest.TestCase):
         self.addCleanup(home.close)
         self.fakes = fakeadapter.install(home, claude="pass", codex="pass")
         akconfig.write(home, ["opus", "astra"], workers=["opus"])
-        Seat(home, SEAT, model="opus",
-             record={"reviewers": ["astra"], "efforts": {"opus": {"effort": "xhigh"}}})
+        self.seat = Seat(home, SEAT, model="opus",
+                         record={"reviewers": ["astra"], "efforts": {"opus": {"effort": "xhigh"}}})
         self.path = home.path / ".agentkit" / "state" / f"session-{SEAT}.json"
         self.term = Terminal(home, "attach", "--overlay", size=(100, 30),
                              env={"NO_COLOR": "1", "AGENTKIT_SESSION": SEAT, **OFFLINE})
@@ -55,6 +56,9 @@ class SeatEffortRestarts(unittest.TestCase):
 
     def asked(self):
         """Space on the orchestrator's effort, and the card it asks on, nothing changed yet."""
+        self.home.tmux("respawn-pane", "-k", "-t", self.seat.pane, "true")   # its harness ends
+        self.term.wait(lambda _: self.home.tmux("display-message", "-p", "-t", self.seat.pane,
+                                                "#{pane_dead}").out.strip() == "1")
         record, launched = self.path.read_bytes(), self.launches()
         self.term.keys("Right", "Space")
         self.term.wait(lambda screen: ASK in lines(screen) and "› ✓ Keep" in lines(screen)
@@ -64,6 +68,14 @@ class SeatEffortRestarts(unittest.TestCase):
 
     def launches(self):
         return self.fakes["claude"].calls("interactive")
+
+    def test_a_step_goes_into_its_running_harness_asking_nothing(self):
+        self.term.keys("Right", "Space")
+        self.assertEqual(self.seat.wait_lines(2), ["/model claude-opus-5-5", "/effort max"])
+        self.term.wait(lambda screen: any(line.lstrip("› ").startswith("Opus 5.5")
+                                          and line.split()[5] == "max" for line in lines(screen)))
+        self.assertNotIn(ASK, lines(self.term.screen()))
+        self.assertEqual(self.launches(), [])
 
     def test_esc_on_the_card_changes_nothing(self):
         record, launched = self.asked()

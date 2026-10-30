@@ -92,7 +92,7 @@ class GreenBase(unittest.TestCase):
                 self.turns.clear()
 
                 def fix(lp, role, text, name, **_kw):
-                    if not roundloop.in_progress(wt, how):
+                    if not gitcall.in_progress(wt, how):
                         return self.fixer(lp, role, text, name)
                     self.turns.append(name)
                     lp.round_dir.mkdir(parents=True, exist_ok=True)
@@ -313,7 +313,7 @@ class GreenBase(unittest.TestCase):
                 def fix(lp, role, text, name, **_kw):
                     self.turns.append(name)
                     lp.round_dir.mkdir(parents=True, exist_ok=True)
-                    if roundloop.in_progress(wt, how):
+                    if gitcall.in_progress(wt, how):
                         (wt / "work.txt").write_text("both intents\n")
                         run.git(wt, "add", "work.txt")
                         if how == "rebase":

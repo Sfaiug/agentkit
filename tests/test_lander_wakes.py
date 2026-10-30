@@ -394,7 +394,7 @@ class LanderWakes(Sandbox):
         self.assert_rounds(state)
         # a conflict with the target says nothing about what review let through
         self.assertFalse(history.get(self.directory.name)["landing_breaks"])
-        self.assertFalse(roundloop.in_progress(self.wt, how))
+        self.assertFalse(gitcall.in_progress(self.wt, how))
         self.assertTrue(roundloop.integrated(self.wt, "origin/main"))
 
     def test_conflict_uses_the_existing_rebase_fixer(self):

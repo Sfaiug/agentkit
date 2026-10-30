@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import REAL_TMUX, SOCKET, Home, _strays
+from fixtures.akbin import REAL_TMUX, SOCKET, Home, _strays, boxable
 from fixtures.clock import Clock
 
 
@@ -83,6 +83,18 @@ class Runner(unittest.TestCase):
         clock.monotonic = lambda: len(slept)
         with patch.object(Path, "glob", return_value=entries), patch("fixtures.akbin.time", clock):
             self.assertEqual(_strays(self.home.path), [7])
+
+    @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
+    def test_a_tick_waits_out_what_it_detached_however_long_it_runs(self):
+        # as a run the tick resumes goes on in its box, past a minute on a loaded host
+        slow = self.home.path / "slow-ak"
+        slow.write_text("#!/bin/sh\nsetsid sh -c 'sleep 65; touch \"$HOME/ended\"' "
+                        "</dev/null >/dev/null 2>&1 &\n")
+        slow.chmod(0o755)
+        with patch("fixtures.akbin.AK", str(slow)):
+            done = self.home.tick()
+        self.assertEqual(done.code, 0, done.err)
+        self.assertTrue((self.home.path / "ended").exists())
 
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
     def test_tmux_is_real_and_only_this_homes_own(self):

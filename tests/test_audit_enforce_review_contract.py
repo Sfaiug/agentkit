@@ -217,11 +217,11 @@ sys.exit(row["code"])
         self.respond({"astra": [{"code": 1, "text": "You've hit your usage limit."}]})
         code, directory, state = self.launch("--exec", "opus", "--review", "astra")
         self.assertEqual(code, 0)
-        self.assertEqual([r["model"] for r in self.calls("reviewer")], ["astra", "fable"])
+        self.assertEqual([r["model"] for r in self.calls("reviewer")], ["astra", "spark"])
         self.assertTrue(run.review_pass(state, self.cfg))
-        self.assertEqual(state["review"]["reviewer"], "fable")
+        self.assertEqual(state["review"]["reviewer"], "spark")
         self.assertEqual(state["review"]["reviewer_provider"],
-                         config.model(self.cfg, "fable")["provider"])
+                         config.model(self.cfg, "spark")["provider"])
         self.assertEqual(self.calls("reviewer")[-1]["session"], [])
         waits = [c.args[0] for c in self.sleep.call_args_list
                  if c.args and c.args[0] in turns.TRANSIENT_BACKOFF]
@@ -237,7 +237,7 @@ sys.exit(row["code"])
         self.assertEqual(state["state"], "exhausted")
         self.assert_undelivered(state)
         self.assertEqual([r["model"] for r in self.calls("reviewer")],
-                         ["astra", "fable", "spark", "opus"])
+                         ["astra", "spark", "fable", "opus"])
         waits = [c.args[0] for c in self.sleep.call_args_list
                  if c.args and c.args[0] in turns.TRANSIENT_BACKOFF]
         self.assertEqual(waits, [])
@@ -271,8 +271,7 @@ sys.exit(row["code"])
             self.assertIn("fable", config.active_session(self.cfg)["workers"])
             self.assertEqual([r["model"] for r in self.calls("executor")], ["fable"])
             # The preference is gone by resume; the review is still pending, so only the
-            # reviewer moves to the best other model for the saved executor, its company
-            # notwithstanding.
+            # reviewer moves to the best model on another provider for the saved executor.
             self.providers["anthropic"]["meters"][1]["used"] = 80
             fail_then_pass = [
                 {"code": 0, "text": "VERDICT: FAIL\nFix the remaining finding."},
@@ -283,7 +282,7 @@ sys.exit(row["code"])
             state = record.read_state(directory)
             self.assertEqual(state["executor"], "fable")
             self.assertEqual(state["rounds"], 2)
-            self.assertEqual(state["reviewer"], "opus")
+            self.assertEqual(state["reviewer"], "astra")
             self.assertEqual([r["model"] for r in self.calls("executor")], ["fable", "fable"])
             self.assertEqual(self.calls("executor")[1]["session"], ["session-fable"])
             self.assertTrue(run.review_pass(state, self.cfg))
@@ -368,7 +367,7 @@ sys.exit(row["code"])
         lp.reviewer = "astra"
         self.respond({"astra": [{"code": 1, "text": "You've hit your usage limit."}]})
         self.assertEqual(run.review(lp, "saved work", True, "passed"), "PASS")
-        self.assertEqual([r["model"] for r in self.calls()[count + 1:]], ["astra", "fable"])
+        self.assertEqual([r["model"] for r in self.calls()[count + 1:]], ["astra", "spark"])
 
     def test_done_when_failure_still_overrides_successful_review(self):
         directory, state = self.legacy()
