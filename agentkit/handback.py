@@ -1005,9 +1005,9 @@ def rides(state):
 
 
 def ending_rides(state):
-    """A merge, or a `not needed`, that rides (`rides`): typed today, so neither a routine
-    ending (`routine_ending`), recorded and never typed, nor a line already in the composer for
-    its Enter (`handback_typed`), which is the typed path's."""
+    """Whether this run's ending rides (`rides`): a merge, or a `not needed`, typed today --
+    not a routine ending (`routine_ending`), recorded and never typed -- and not a line already
+    in the composer for its Enter (`handback_typed`), which is the typed path's."""
     return (transitions.delivered(state) and not routine_ending(state)
             and not state.get("handback_typed") and rides(state))
 
