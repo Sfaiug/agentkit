@@ -17,7 +17,8 @@ stoppable, so its owner's stop or its seat's close calls the restart off.  A you
 that point, a pull request's review (its work is built already, so a park would only delay it,
 and the landing line fixes its conflict), a job's task, a red target's repair and a suite's
 split are only written down: the lander orders their landings.  The record under
-`~/.agentkit/state/leases/` holds the collisions as the last scan saw them.  A diff counts
+`~/.agentkit/state/leases/` holds the collisions as the last scan saw them, and what it compared:
+a pair's result follows from its bases and trees, so each is compared once for those.  A diff counts
 only while its run holds its lines (`holds`: going, and not waiting on a person or a spent
 provider window), is to land and its checkout is there; a record
 whose pair no longer collides, or whose holder is gone, is cleared on the next scan.
@@ -64,18 +65,18 @@ def path(repo):
     return config.STATE / DIR / f"{home(str(repo)).name}-{key}.json"
 
 
-def read(repo):
+def read(repo, target=None):
     """The collisions the last scan wrote down: `{younger run: {waits_on, files, since}}`."""
     try:
-        found = json.loads(path(repo).read_text(encoding="utf-8"))
+        found = json.loads((target or path(repo)).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return found if isinstance(found, dict) else {}
 
 
-def write(repo, waits):
+def write(repo, waits, target=None):
     """The record as this scan saw it, whole: nothing from an earlier scan outlives it."""
-    target = path(repo)
+    target = target or path(repo)
     target.parent.mkdir(parents=True, exist_ok=True)
     with (target.parent / ".lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -168,15 +169,20 @@ def tree(worktree, artifacts, log=lambda _: None):
     """The checkout's tree as it stands: HEAD with the uncommitted paths a commit would take
     (`gitcall.committable_paths`: never test sandboxes, dependency trees, run locks, what
     `.gitignore` names or what the run's checks generated, its `artifacts`), read and written
-    through an index of its own in the repository's object store: the checkout's own index is
-    neither read, locked nor rewritten (`git diff` refreshes and rewrites the index it reads,
-    optional locks or not), and its files are never touched.  A file that vanished since it
+    through an index of its own in the repository's object store, a copy of the checkout's so that
+    git need not read every file (`read-tree -m` keeps a path's stat data where it holds HEAD's
+    contents): the checkout's own is neither locked nor rewritten (`git diff` refreshes and
+    rewrites the index it reads, optional locks or not), and its files are never touched.  A file that vanished since it
     was listed, or one git cannot read, is left out, the latter said once: neither costs a
     pair its record."""
     from . import run
     with tempfile.NamedTemporaryFile(dir=config.TMP, prefix="lease-index-") as index:
-        env = {**os.environ, "GIT_INDEX_FILE": index.name}
-        run.git(worktree, "read-tree", "HEAD", env=env)
+        env = {**gitcall.tool_env(), "GIT_INDEX_FILE": index.name}
+        own = Path(worktree) / run.git(worktree, "rev-parse", "--git-path", "index")
+        if own.is_file():
+            shutil.copy2(own, index.name)   # its moment too: git's check for a racy file reads it
+        if run.git_out(worktree, "read-tree", "-m", "HEAD", env=env)[0]:    # unmerged paths refuse
+            run.git(worktree, "read-tree", "HEAD", env=env)
         real, _ = gitcall.committable_paths(worktree, artifacts, env=env)
         if real:
             staged(worktree, real, env, log)
@@ -225,7 +231,7 @@ def merged(repo, base, ours, theirs, ours_wins=False):
     (bare trees only from 2.45) and finds their base itself.  With `ours_wins` a hunk the two
     sides clash on is `ours` (`favour_ours`), and nothing is left unmerged."""
     from . import run
-    env = {**os.environ, **STAMP}
+    env = {**gitcall.tool_env(), **STAMP}
     sides = [run.git(repo, "commit-tree", each, "-p", base, "-m", "lease", env=env)
              for each in (ours, theirs)]
     code, out = run.git_out(repo, "merge-tree", "--write-tree", "--name-only", "-z", *sides)
@@ -258,7 +264,7 @@ def favour_ours(repo, base, ours, theirs, tree, clashes):
     from . import run
     with tempfile.NamedTemporaryFile(dir=config.TMP, prefix="lease-index-") as index, \
             tempfile.TemporaryDirectory(dir=config.TMP, prefix="lease-merge-") as work:
-        env = {**os.environ, "GIT_INDEX_FILE": index.name}
+        env = {**gitcall.tool_env(), "GIT_INDEX_FILE": index.name}
         run.git(repo, "read-tree", tree, env=env)
         for path in clashes:
             mine, old, other = (entry(repo, ref, path) for ref in (ours, base, theirs))
@@ -316,10 +322,13 @@ def scan(repo, log=lambda _: None, now=None):
     before = read(repo)
     runs = live(repo)
     trees = {each["run"]: tree(each["worktree"], each["artifacts"], log) for each in runs}   # each read once
-    waits = {}
+    memo = path(repo).with_suffix(".compared")
+    known, seen, waits = read(repo, memo), {}, {}
     for at, younger in enumerate(runs):
         for older in runs[:at]:
-            files = collide(repo, older, younger, trees)
+            held = older["base"], trees[older["run"]], younger["base"], trees[younger["run"]]
+            pair = hashlib.sha256(" ".join(held).encode()).hexdigest()[:32]
+            files = seen[pair] = known[pair] if pair in known else collide(repo, older, younger, trees)
             # Markdown-only conflicts can be settled at landing without rebuilding.
             if not files or all(path.endswith(".md") for path in files):
                 continue
@@ -336,6 +345,7 @@ def scan(repo, log=lambda _: None, now=None):
                 + ("is stopped, its branch kept, to start again once the older has landed "
                    "or is over" if stopped else "is only written down"))
             break
+    write(repo, seen, memo)
     if waits or before:
         write(repo, waits)
     return waits
