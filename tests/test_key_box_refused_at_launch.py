@@ -120,7 +120,8 @@ class RefusedAtLaunch(unittest.TestCase):
                            f"hide there; run `chmod u+rx {shlex.quote(str(ssh))}`")
 
     def test_a_probe_silent_past_ten_seconds_admits_the_launch(self):
-        self.bwrap("exec sleep 60")
+        # it never ends by itself, so only giving up on it lets the launch go on
+        self.bwrap("exec tail -f /dev/null")
         task = taskfile.write(self.home, "none", "Fix api", done_when=("true",) * 4)
         done = self.home.ak("run", str(task), timeout=300)
         state = json.loads((taskfile.only_run(self.home) / "run.json").read_text())
