@@ -2322,7 +2322,8 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     kept, and only that one, so what comes back is the seat's own conversation and never a
     stranger's.  A seat whose record names none -- one whose TUI could not be told an id, one
     from before any of this -- starts fresh under the same name, and owns whatever id the
-    launcher can give it this time.
+    launcher can give it this time.  The owner's way in goes on with what the end cut off
+    (`reopen`), as ak's own reopens do.
 
     `hand_over=False` is the same way in for a caller with no terminal -- a run whose seat is
     gone, the tick -- and it answers what came back instead of an exit code: "resumed" for
@@ -2331,8 +2332,8 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
 
     `account` reopens even a live pane on that subscription, without changing its selection
     or surrendering its conversation. Ordinary resumes keep the account already recorded.
-    `still` is `_start_harness`'s.  `line` is what the conversation, where it comes back with
-    its past, opens on.
+    `still` is `_start_harness`'s.  `line`, such a caller's, is what the conversation, where it
+    comes back with its past, opens on.
     """
     name = config.resolve_session(name)
     record = (config.session_records() if detached else records()).get(name) or {}
@@ -2346,6 +2347,12 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
         return attach(name, log=log, wait=wait, session=session) if hand_over else False
     if not session and not record:
         raise config.Error(f"no session {name!r} to resume and no record of one")
+    if hand_over and not (detached or dry_run):
+        reopen(cfg, name, log=log, account=account, still=still)
+        config.update_session(name, seen=int(time.time()))
+        # the seat it just put a harness in: live now, whatever its row said before
+        return attach(name, log=log, wait=wait,
+                      session={**(session or {"name": name}), "exited": False})
     selection = config.load_session(cfg, name, required=False)
     if not selection:
         raise config.Error(f"{config.session_path(name)} does not say which model held {name!r}")
@@ -2389,15 +2396,29 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
         return 0
     launch(name, orchestrator, cwd, cmd, conversation, session, still)
     config.update_session(name, account=account)
-    if not hand_over:
-        # its own conversation only where the harness has opened it: an id nothing wrote
-        # down is handed over as one to open, and the seat comes back with no past
-        return "resumed" if recorded and opened(harness, ran_in, recorded) else "fresh"
-    if detached:
-        return 0           # restarting is neither attaching nor reading the seat
-    config.update_session(name, seen=int(time.time()))
-    # the seat it just put a harness in: live now, whatever its row said before
-    return attach(name, log=log, wait=wait, session={**(session or {"name": name}), "exited": False})
+    if hand_over:
+        return 0           # detached: restarting is neither attaching nor reading the seat
+    # its own conversation only where the harness has opened it: an id nothing wrote
+    # down is handed over as one to open, and the seat comes back with no past
+    return "resumed" if recorded and opened(harness, ran_in, recorded) else "fresh"
+
+
+def reopen(cfg, name, **kw):
+    """`resume`'s relaunch of that seat's ended harness, told what the end cut off
+    (`watch.cut_off`), read before the relaunch moves its hook facts aside: as the first prompt
+    where its conversation came back (`watch.relaunched`, so the tick types it for a harness
+    that takes none), and owed, saying so, where it came back fresh, as the tick's reopen owes
+    it (`watch.revive`).  A seat the owner closed or stopped ended on purpose: told nothing.
+    """
+    from . import watch   # here, not at the top: it imports this module
+    ended = watch.seat_stopped_at(name) or watch.seat_closed_by_owner(name)
+    at, line = time.time(), None if ended else watch.cut_off(cfg, name)[1]
+    back = resume(cfg, name, hand_over=False, line=line, **kw)
+    if line and back == "resumed":
+        watch.relaunched(name, watch.seat_model(cfg, name)[0], line, at)
+    elif line and back == "fresh":
+        watch.owe_line(name, None, {"line": line + watch.FRESH_NOTE})
+    return back
 
 
 # --- the conversation a seat holds ------------------------------------------
@@ -4548,10 +4569,7 @@ def ensure(cfg, name, log=print, saved=False, roles=None, repo=None):
 
 def cmd_ended(argv):
     """`pane-died`'s (`ended_options`): a seat whose harness ended without ak ending it, at
-    WHEN by tmux's clock, comes back in its pane, as its number opens it, told what the end cut
-    off, as a reboot's seats are (`watch.resume_after_boot`).  One whose past could not come
-    back took no line with its fresh conversation: it is owed that line, saying so, as a seat
-    the tick reopens is (`watch.revive`).
+    WHEN by tmux's clock, comes back in its pane, as its number opens it (`reopen`).
 
     Decided and done under the lock `cmd_stop` decides under, so a stop finds it back or this
     finds it closed.  It is left as it is with no record, closed by the owner, live again or
@@ -4572,12 +4590,7 @@ def cmd_ended(argv):
         if (not record or watch.seat_closed_by_owner(name) or not (session and session["exited"])
                 or died - (record.get("launched") or 0) < watch.INBOX_WARMUP):
             return 0
-        at, line = time.time(), watch.cut_off(cfg, name)[1]   # read before the relaunch writes
-        back = resume(cfg, name, hand_over=False, line=line)
-        if line and back == "resumed":
-            watch.relaunched(name, watch.seat_model(cfg, name)[0], line, at)
-        elif line and back == "fresh":
-            watch.owe_line(name, None, {"line": line + watch.FRESH_NOTE})
+        reopen(cfg, name)
     return 0
 
 
