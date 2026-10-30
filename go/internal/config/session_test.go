@@ -78,4 +78,7 @@ func TestSpacedNameIsPythonsSeatName(t *testing.T) {
 			t.Errorf("ResolveSession(%q) = %q, %v; Python names it %q", raw, name, err, want)
 		}
 	}
+	if name := SessionName(" _ak "); name != "" {
+		t.Errorf("SessionName(%q) = %q; Python names ak's control session no seat", " _ak ", name)
+	}
 }
