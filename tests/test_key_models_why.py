@@ -1,8 +1,8 @@
 """↑/↓ on the models screen move a pointer over the rows its answer shows, from the first role's
 pick; a knob step keeps it on its row while that row is shown, else puts it on its role's pick.
-⏎ opens the pointed row's why: its quality and cost, how far behind the role's best it is, each
-measure's points behind and how it was got, and the rows the boards cannot tell from it; Esc
-returns with the pointer where it was.  On 40 cells each measure's how takes a line under it.
+⏎ opens the pointed row's why: its quality and cost, how far behind the role's best it is, and
+each measure's points behind and how it was got; Esc returns with the pointer where it was.  On
+40 cells each measure's how takes a line under it.
 
 Black-box, as tests/test_key_models_answer.py: the program `AK_BIN` names in a terminal, its
 harnesses fakes listing invented models, the boards held as just asked with invented rows;
@@ -59,8 +59,6 @@ CRUX_ORCH = ["  why Crux 2 low orchestrates",
              "  AA-Omniscience               8.0  measured, 42",
              "  AA-Briefcase                 0.0  measured, 1400",
              "",
-             "  no tie: the boards tell it from every other row",
-             "",
              "  esc back"]
 MAX_HIGH_BUILDS = ["  why Acme Max 5 high builds",
                    "  quality 94.8 ± 1.9   $10.00 a FrontierCode 2.0 task",
@@ -69,10 +67,7 @@ MAX_HIGH_BUILDS = ["  why Acme Max 5 high builds",
                    "                      behind the best",
                    "  FrontierCode 2.0                6.0  measured, 74.0%",
                    "  Arena Agent                     4.0  carried from max",
-                   "  Terminal-Bench 4.0              6.0  measured, 74.0%",
-                   "",
-                   "  ≈ tie with 2 rows, among them:",
-                   "    Acme Mid 5 high · Bolt 3 medium"]
+                   "  Terminal-Bench 4.0              6.0  measured, 74.0%"]
 CRUX_BUILDS_40 = ["  why Crux 2 low builds",
                   "  quality 80.0 ± 3.6",
                   "  $1.00 a FrontierCode 2.0 task",
@@ -84,10 +79,7 @@ CRUX_BUILDS_40 = ["  why Crux 2 low builds",
                   "  Arena Agent                    20.0",
                   "    no score, counted as its worst",
                   "  Terminal-Bench 4.0             20.0",
-                  "    measured, 60.0%",
-                  "",
-                  "  no tie: the boards tell it from every",
-                  "  other row"]
+                  "    measured, 60.0%"]
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -159,11 +151,11 @@ class ModelsWhy(unittest.TestCase):
         self.assertEqual(self.why(term, *["Down"] * 6)[:len(CRUX_BUILDS_40)], CRUX_BUILDS_40)
 
     def test_a_why_taller_than_the_screen_turns_its_pages(self):
-        term, _ = self.models(40, 22)
+        term, _ = self.models(40, 14)
         shown = self.why(term)
-        self.assertNotIn("    Acme Max 5 high", shown)
+        self.assertNotIn("  AA-Briefcase                    6.0", shown)
         term.keys("Down")
-        term.wait("    Acme Max 5 high")       # the pick's one tie, under its fold
+        term.wait("  AA-Briefcase")            # its last measure, under its fold
 
 
 if __name__ == "__main__":

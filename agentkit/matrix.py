@@ -321,7 +321,6 @@ def notes(row, said):
     missing = sum(one["how"] == "missing" for one in row["measures"].values())
     return [word for word, true in (
         ("pick", row is said["pick"]),
-        ("tie", row is not said["pick"] and said["pick"] and quality.tie(row, said["pick"])),
         (f"{missing} missing", missing), ("no harness", not row["yours"])) if true]
 
 
