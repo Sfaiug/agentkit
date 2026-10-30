@@ -11,8 +11,8 @@ import (
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
+	"agentkit/internal/seat"
 	"agentkit/internal/terminal"
-	"agentkit/internal/tmux"
 )
 
 func init() { commands["orch"] = orchOpen }
@@ -140,13 +140,5 @@ func tidy() bool {
 			}
 		}
 	}
-	if len(tmux.Sessions(tmux.Own())) > 0 {
-		return false
-	}
-	for _, session := range tmux.Sessions(tmux.Default) {
-		if session.Mark == "1" {
-			return false
-		}
-	}
-	return true
+	return seat.OnNoServer()
 }

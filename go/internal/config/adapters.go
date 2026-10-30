@@ -133,6 +133,30 @@ func Hooks(harness string) (HookTable, bool, error) {
 	return found, true, nil
 }
 
+// fixedEfforts are the effort words of a harness whose manifest names none (config.EFFORTS).
+var fixedEfforts = []string{"low", "medium", "high", "xhigh", "max", "ultra"}
+
+// Efforts are the effort words that harness's model takes, as config.efforts reads them where
+// no login has listed the harness's models: its manifest's `[catalog]` row, else its `[effort]
+// levels` where each is a word, else the fixed list.
+func Efforts(harness, model string) ([]string, error) {
+	manifests, err := manifests()
+	root := manifests[harness]
+	if err != nil || root == nil {
+		return fixedEfforts, err
+	}
+	if catalog, ok := root.values["catalog"].(*table); ok {
+		if listed := words(catalog, model, "efforts"); len(listed) > 0 {
+			return listed, nil
+		}
+	}
+	levels := words(root, "effort", "levels")
+	if block, ok := root.values["effort"].(*table); ok && len(levels) > 0 && len(levels) == len(block.values["levels"].([]any)) && !slices.Contains(levels, "") {
+		return levels, nil
+	}
+	return fixedEfforts, nil
+}
+
 // words is the strings a manifest lists under one key of one section.
 func words(root *table, section, key string) (found []string) {
 	if block, ok := root.values[section].(*table); ok {
