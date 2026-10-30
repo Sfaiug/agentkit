@@ -11,7 +11,7 @@ process or delivery.
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, nullcontext
 import fcntl
 import functools
 import json
@@ -634,7 +634,10 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
     run_dir = None if context else directory
     sharded = None if shard else next((cmd for cmd in cmds if gate.names_shard(cmd)), None)
     marks, pieces, confirmed, flaky = [], {}, {}, []
-    with gate.gate_turn(run_dir, log_path, log, sharded, scratch, context=context):
+    # Tests named alone cost what a model's own test does, which takes no turn: on a host out of
+    # CPU none comes until it is idle, and the wait held whole lines up to an hour (30 Oct 2026).
+    with nullcontext() if only else gate.gate_turn(run_dir, log_path, log, sharded, scratch,
+                                                   context=context):
         ok, text = gate.run_done_when(
             cmds, scratch, log_path, set() if artifacts is None else artifacts,
             3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,

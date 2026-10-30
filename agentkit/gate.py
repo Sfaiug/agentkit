@@ -2157,8 +2157,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     command is not re-run: it spent the silence window or ceiling, which a second go would
     only spend again.
 
-    When `heavy` the list runs on one host-wide heavy-suite turn (`gate_turn`),
-    taken before its first command and let go however the list ends; the ceiling
+    When `heavy`, unless `only` names tests, the list runs on one host-wide heavy-suite turn
+    (`gate_turn`), taken before its first command and let go however the list ends; the ceiling
     counts from the turn, not the wait.  Otherwise it runs without one.  A heavy
     command that exits `SUITE_BUSY` never ran: it is no failure and no re-run, it gives
     its turn back for a poll (`busy_turn`) and runs again.
@@ -2192,7 +2192,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     split = names_shard if shard is None else lambda _: False
     suite = next((cmd for cmd in cmds if split(cmd)), None)
     with (gate_turn(run_dir, log_path, log, suite, cwd, changed=changed)
-          if heavy or suite else nullcontext()):
+          if (heavy and not only) or suite else nullcontext()):
         deadline = time.monotonic() + limit
         def waited(seconds):
             nonlocal deadline
