@@ -2271,7 +2271,7 @@ def seen_by_user(name, session=None):
             watch.opened_now(name)      # `waiting for you` becomes `idle` from here on
             harness, _ = watch.seat_model(config.load(), name)
             notify.opened(name, lambda: watch.progress_output(harness, watch.pane_text(session)))
-    except (config.Error, OSError) as exc:
+    except (config.Error, OSError, ValueError) as exc:
         print(f"WARN could not record opening {name}: {exc}", file=sys.stderr)
 
 
