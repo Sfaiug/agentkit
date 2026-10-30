@@ -17,6 +17,8 @@ within = 5                # a model this many points under the best (`ak models`
 # live_host = "<alias>" is the ssh alias of your live/deploy host a seat may not scp/rsync/sftp a file
 # onto (it reaches the live host through the repo). ak ships with none set, so no transfer is guarded
 # until you name your own host here; your deploy host is yours, and ak does not guess it.
+# [machines.<alias>], an empty table each, names by ssh alias a machine ak may use beside this
+# one and the suite_helper; `ak doctor` says what ak found each one is.
 
 # Every [models.*] entry whose provider has a [providers.*] table can orchestrate and can work.
 # [defaults] is what a new seat takes with Enter, and what anything outside a seat works with.

@@ -7633,10 +7633,11 @@ def after_merge_checks(state, dry_run, log, now=None):
 
 
 def doctor(argv):
-    """`ak doctor`: where the agents run, whether the tick that watches them is alive, and any
-    model set to an effort its model does not take, its `effort` or the one a role runs it at.
+    """`ak doctor`: where the agents run, whether the tick that watches them is alive, what each
+    machine ak may use is, and any model set to an effort its model does not take, its `effort`
+    or the one a role runs it at.
 
-    The first two lines are read and never asked, so they cost nothing on a host already in
+    The first lines are read and never asked, so they cost nothing on a host already in
     trouble -- which is the host this is typed on -- and come out before the efforts, which
     ask each harness for its models.  A model the owner set to an effort it does not take is
     named here and left as it is: the owner chose it, and the `c` screen is where it changes.
@@ -7648,7 +7649,9 @@ def doctor(argv):
     # the slice line says its own name, so only the tick's needs one
     print(orch.slice_line())
     print(f"tick  {tick_health()}", flush=True)
+    from . import machines
     cfg = config.load()
+    print("\n".join(f"machine  {machine}" for machine in machines.known(cfg)), flush=True)
     wrong = []
     for name in config.offered(cfg):
         entry = cfg["models"][name]
@@ -7723,7 +7726,7 @@ def local_passes(state, dry_run, log):
     Each pass re-derives placement or state from what it finds: a finding remembered from one
     tick to the next loses its race.
     """
-    from . import job as jobs, leases, logins, retire, run
+    from . import job as jobs, leases, logins, machines, retire, run
     providers = {}
 
     def read_usage():
@@ -7828,6 +7831,9 @@ def local_passes(state, dry_run, log):
         # The shared browser's idle tabs are reaped: a machine with no browser on CDP costs one
         # refused connection and nothing else.
         ("browser tidy did not finish", lambda: browser.tidy(log), False),
+        # Each machine ak may use is asked what it is; one that does not answer holds the tick
+        # no longer than its ssh timeout.
+        ("the machines were not checked", machines.check, False),
         # A merge to a project reaches its seats' rulebooks: their next prompts name it.
         ("the projects' rules were not fetched", orch.fetch_projects, False),
         # Merged agentkit goes live after every local pass, so as little of this tick's old

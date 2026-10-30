@@ -37,7 +37,7 @@ INTERNAL_PURPOSE = {
     "update": "upgrade harnesses and verify with acceptance gates",
     "macbridge": "macOS only: forward requested files to the server over SSH",
     "attach": "the menu",
-    "doctor": "show the slice, the tick, and any model set to an effort it does not take",
+    "doctor": "show the slice, the tick, the machines, and any model set to an effort it does not take",
 }
 FLAGS = {
     "usage": ("[--json]",),
