@@ -4,17 +4,21 @@ The owner (20 Oct 2026) asked that a model or effort changed inside a session mo
 session's own choice, for its orchestrator.  The harness records each answer's model, effort
 and time, and only an answer made since the harness in the seat was launched counts: before
 that, the conversation still ends on what the model it replaced said.  Offline: a temporary
-HOME, transcripts written the way Claude Code and Codex write theirs, no tmux.
+HOME, transcripts written the way Claude Code and Codex write theirs and OpenCode its
+database, no tmux.
 """
 
+from contextlib import closing
 from datetime import datetime, timezone
 import json
+from pathlib import Path
+import sqlite3
 import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
 from agentkit import config, harness, watch
-from agentkit.harness import claude, codex
+from agentkit.harness import claude, codex, opencode
 
 NAME, THREAD, LAUNCHED = "acme-api", "6b1d0c4e-0000-4000-8000-00000000000a", 1_800_000_000
 
@@ -95,6 +99,21 @@ class SeatFollows(Sandbox):
                 "type": "task_complete", "error": {"message": "usage limit"}}})))
         with patch.object(codex, "transcript", return_value=str(rollout)):
             self.assertEqual(codex.running({}, None, THREAD), ("gpt-6.1-sol", "max", LAUNCHED + 12))
+
+    def test_opencode_reads_its_latest_answer_a_failed_one_and_no_variant_set_among_them(self):
+        db, session = self.root / "opencode.db", "ses_0fa1c2d3e4ffAcmeFollow1"
+        with closing(sqlite3.connect(db)) as conn, conn:
+            conn.executescript((Path(__file__).parent / "fixtures/said-opencode.sql").read_text())
+            for seq, model, variant, finish in ((90, "mimo-v2.6-pro", "high", "stop"),
+                                                (91, "mimo-v2.6-flash", "default", "error")):
+                at = (LAUNCHED + seq) * 1000
+                conn.execute("INSERT INTO session_message VALUES (?, ?, 'assistant', ?, ?, ?, ?)",
+                             (f"msg_{seq}", session, seq, at, at, json.dumps({
+                                 "time": {"created": at}, "finish": finish, "model": {
+                                     "id": model, "providerID": "mimo", "variant": variant}})))
+        with patch.object(opencode, "database", return_value=db):
+            self.assertEqual(opencode.running({}, None, session),
+                             ("mimo/mimo-v2.6-flash", None, LAUNCHED + 91))
 
 
 if __name__ == "__main__":

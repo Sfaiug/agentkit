@@ -634,6 +634,22 @@ def card(record, cwd, conversation):
             "text": text if isinstance(text, str) else "", "at": at / 1e6}
 
 
+def running(record, cwd, conversation):
+    """The model of that session's latest answer, the one its launch passed as `--model`: Muse
+    records it as each model request completes, so `/model` typed in the seat shows at its next
+    answer.  It records no effort of a session's own: `reminder_roster`'s are its reminder
+    subagents', and settings.json holds whatever any session picked last."""
+    from . import last_entry
+
+    def answer(entry):
+        return (isinstance(run_event(entry, "model_completed").get("model"), str)
+                and type(entry.get("recorded_at")) is int)
+    path = session_log(conversation)
+    entry = path and last_entry(path, answer)
+    return ((run_event(entry, "model_completed")["model"], None, entry["recorded_at"] / 1_000_000)
+            if entry else None)
+
+
 def session_log(conversation):
     """That session's log, or None where it has none or no such name."""
     if not isinstance(conversation, str) or not SESSION.fullmatch(conversation):
