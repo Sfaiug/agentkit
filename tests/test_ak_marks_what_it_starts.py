@@ -9,16 +9,16 @@ Offline: a command's body is a stand-in, the unit's work, the seat's harness, tm
 adapter are the test's own small programs, and every detached start is caught at `Popen`.
 """
 
+from contextlib import redirect_stdout
+import io
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
-import unittest
-from contextlib import redirect_stdout
-import io
 from types import SimpleNamespace
-from unittest.mock import patch
+import unittest
+from unittest.mock import Mock, call, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import REPO, Sandbox  # noqa: E402
@@ -50,28 +50,24 @@ try:
     runpy.run_path(sys.argv[0], run_name="__main__")
 except SystemExit as exc:
     code = exc.code
-print(json.dumps({"code": code, "seen": seen, "opened": opened, "mark": os.environ.get(owner.MARK)}))
+print(json.dumps({"code": code, "seen": seen, "opened": opened,
+                  "mark": os.environ.get(owner.MARK)}))
 """
 SAYS = [sys.executable, "-c", f"import os; print(os.environ.get({owner.MARK!r}, 'unmarked'), "
         "os.environ.get('AGENTKIT_RUN'))"]
 
 
-class Keyboard:
-    def __init__(self):
-        self.held = True
-
-    def give(self):
-        self.held = False
-
-    def take(self):
-        self.held = True
-
-
 class AkMarksWhatItStarts(Sandbox):
     def setUp(self):
         super().setUp()
-        self.stack.enter_context(patch.dict(os.environ, {owner.MARK: MARKED,
-                                                         "TERM": "xterm-256color"}))
+        self.adapters, self.said = self.root / "adapters", self.root / "said"
+        self.adapters.mkdir()
+        (self.adapters / "relay.sh").write_text(
+            f'#!/bin/sh\necho "$1 ${{{owner.MARK}-unmarked}}" >> "{self.said}"\n')
+        (self.adapters / "relay.sh").chmod(0o755)
+        self.stack.enter_context(patch.dict(os.environ, {
+            owner.MARK: MARKED, "TERM": "xterm-256color",
+            config.ADAPTER_DIR_ENV: str(self.adapters)}))
 
     def ak(self, *args, session=None):
         env = {key: value for key, value in os.environ.items()
@@ -120,7 +116,7 @@ class AkMarksWhatItStarts(Sandbox):
     def test_a_seat_s_pane_drops_a_mark_its_server_holds(self):
         with patch.object(orch, "user_manager", return_value=False):
             command, _ = orch.seat_command("acme", SAYS)
-        self.assertIsNone(orch.seat_env("acme", "agentkit-test")[owner.MARK])   # and -r for later panes
+        self.assertIsNone(orch.seat_env("acme", "agentkit-test")[owner.MARK])   # -r: later panes
         ran = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=60)
         self.assertEqual(ran.stdout.split()[:1], ["unmarked"], ran.stderr)
 
@@ -140,7 +136,7 @@ class AkMarksWhatItStarts(Sandbox):
         starts = {
             "gc.schedule_gc": lambda: gc.schedule_gc(print),
             "update.start": lambda: update.start("claude"),
-            "menu.update_first": lambda: menu.update_first(),
+            "menu.update_first": menu.update_first,
             "menu.stop_behind": lambda: menu.stop_behind("acme", True),
             "watch.start_look": lambda: watch.start_look("acme"),
             "orch.stop_scope": lambda: orch.stop_scope("agentkit-run-fix-api", wait=False),
@@ -158,25 +154,12 @@ class AkMarksWhatItStarts(Sandbox):
                     self.assertIsNotNone(started[0])      # None would hand on this one's own
                     self.assertNotIn(owner.MARK, started[0])
 
-
-class SignInUnmarkedInstallMarked(Sandbox):
-    def setUp(self):
-        super().setUp()
-        self.adapters, self.said = self.root / "adapters", self.root / "said"
-        self.adapters.mkdir()
-        (self.adapters / "relay.sh").write_text(
-            f'#!/bin/sh\necho "$1 ${{{owner.MARK}-unmarked}}" >> "{self.said}"\n')
-        (self.adapters / "relay.sh").chmod(0o755)
-        self.stack.enter_context(patch.dict(os.environ, {owner.MARK: MARKED,
-                                                         config.ADAPTER_DIR_ENV: str(self.adapters)}))
-        self.stack.enter_context(patch.object(menu, "pause"))
-        self.stack.enter_context(patch.object(menu.worker, "auth_ok", return_value=(True, "ok")))
-
     def verbs(self, *verbs):
-        keyboard = Keyboard()
-        with redirect_stdout(io.StringIO()):
+        keyboard = Mock()
+        with patch.object(menu, "pause"), redirect_stdout(io.StringIO()), \
+                patch.object(menu.worker, "auth_ok", return_value=(True, "ok")):
             failed = menu._adapter_verbs(keyboard, "relay", verbs, "Zeta", provider="zeta")
-        self.assertTrue(keyboard.held)              # the menu has the keys again
+        self.assertEqual(keyboard.method_calls, [call.give(), call.take()])   # the keys back
         return failed
 
     def test_a_sign_in_is_unmarked_and_the_install_keeps_the_mark(self):
@@ -189,7 +172,8 @@ class SignInUnmarkedInstallMarked(Sandbox):
         (self.adapters / "relay.toml").write_text("[launch\n")
         for verb in ("install", "login"):
             with self.subTest(verb=verb):
-                self.assertEqual(self.verbs(verb), f"relay {verb} did not finish; Zeta is not added")
+                self.assertEqual(self.verbs(verb),
+                                 f"relay {verb} did not finish; Zeta is not added")
         self.assertFalse(self.said.exists())
 
 
