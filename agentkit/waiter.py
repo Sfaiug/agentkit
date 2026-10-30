@@ -88,11 +88,11 @@ def writing(database, wait=True):
 
 
 def connect(database):
-    """A connection to history.db for one write under `writing`, every other writer on the host
-    waiting behind it: no sync SQLite could leave for later is made there.  A write took a median
-    1.29 s on a busy disk, a dozen processes queued on the lock, the tick 96% of its time there,
-    all syncing: each commit the WAL, every 1000 pages a checkpoint, each close the host's last,
-    checkpointing and removing the WAL (30 Oct 2026).
+    """A connection to history.db as every writer opens it: under `writing`, where every other
+    writer on the host waits, it makes no sync SQLite could leave for later.  A write took a
+    median 1.29 s on a busy disk, a dozen processes queued on the lock, the tick 96% of its time
+    there, all syncing: each commit the WAL, every 1000 pages a checkpoint, each close the host's
+    last, checkpointing and removing the WAL (30 Oct 2026).
 
     A commit runs at `synchronous=NORMAL` and never checkpoints: the tick alone does
     (`checkpoint`).  Readers take no lock of ours, and in the default journal mode a read held
