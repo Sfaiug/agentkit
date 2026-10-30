@@ -109,7 +109,8 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
 
     def test_a_piece_its_pace_stopped_on_the_helper_goes_again_here_on_a_turn(self):
         turns = []
-        with patch.object(gate._GATE_HELD, "away", SimpleNamespace(count=1), create=True), \
+        with patch.object(gate._GATE_HELD, "away", SimpleNamespace(count=1, most=1),
+                          create=True), \
                 patch.object(gate._GATE_HELD, "home", lambda: turns.append(1), create=True), \
                 patch.object(gitcall, "_RUN_CONTEXT", SimpleNamespace(state={"run_id": "fixture"})), \
                 patch.object(helper, "piece", lambda _away, _shard, _command: ["true"]):
@@ -141,7 +142,8 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
 
         hold = SimpleNamespace(slots=[1, 2], pieces=2, alone=lambda: None,
                                take=lambda stopped: True, give=lambda slot: None)
-        with patch.object(gate._GATE_HELD, "away", SimpleNamespace(count=1), create=True), \
+        with patch.object(gate._GATE_HELD, "away", SimpleNamespace(count=1, most=1),
+                          create=True), \
                 patch.object(gate._GATE_HELD, "hold", None, create=True), \
                 patch.object(gate._GATE_HELD, "home", lambda: hold, create=True), \
                 patch.object(helper, "piece", lambda _away, _shard, _command: ["true"]), \

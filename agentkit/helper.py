@@ -183,7 +183,8 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command):
     named, default = gitcall.git_out(cwd, "rev-parse", "--abbrev-ref", "origin/HEAD")
     programs = {program for program in orch.agent_programs() if config.harness_binary(program)}
     wide = 2 ** 64 - 1    # the shard, CPUs and MiB, unknown before the probe, at their widest
-    away = Away(alias, secrets.token_hex(6), repo, image, wide, wide, wide, "" if code else branch,
+    away = Away(alias, secrets.token_hex(6), repo, image, wide, wide, wide, wide,
+                "" if code else branch,
                 "" if named else default.removeprefix("origin/"), " ".join(sorted(programs)))
     size = len(os.fsencode(piece(away, f"{wide}/{wide}", command)[-1]))
     if size >= MAX_ARG_STRLEN:
@@ -194,7 +195,7 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command):
     fit = rooms[alias][0]
     if fit is None:
         return None, " · ".join(f"helper {alias} {why}" for alias, (_, why) in rooms.items())
-    away = away._replace(alias=alias, count=fit[0], cpus=fit[1], memory_mb=fit[2])
+    away = away._replace(alias=alias, count=fit[0], cpus=fit[1], memory_mb=fit[2], most=fit[3])
     sent, known = LOST, _known(alias, repo)
     try:
         while known is not None:
