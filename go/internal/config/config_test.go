@@ -46,7 +46,11 @@ func TestEnsureDirs(t *testing.T) {
 	if err := os.Remove(wt); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(state, 0o755); err != nil {
+	if err := os.Chmod(state, 0o755|os.ModeSticky); err != nil {
+		t.Fatal(err)
+	}
+	shared, err := os.Stat(state)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := EnsureDirs(); err == nil {
@@ -58,7 +62,7 @@ func TestEnsureDirs(t *testing.T) {
 	if _, err := os.Stat(wt); !os.IsNotExist(err) {
 		t.Fatalf("a failed EnsureDirs left wt made: %v", err)
 	}
-	if info, err := os.Stat(state); err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != 0o755 {
+	if info, err := os.Stat(state); err != nil || info.Mode() != shared.Mode() {
 		t.Fatalf("a failed EnsureDirs left state changed: %v %v", info, err)
 	}
 }

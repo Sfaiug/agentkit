@@ -72,7 +72,8 @@ func EnsureDirs() (err error) {
 			return err
 		}
 		if statErr == nil {
-			undo = append(undo, func() { os.Chmod(dir, before.Mode().Perm()) })
+			// its whole mode: Chmod sets the setuid, setgid and sticky bits too
+			undo = append(undo, func() { os.Chmod(dir, before.Mode()) })
 		}
 	}
 	return nil
