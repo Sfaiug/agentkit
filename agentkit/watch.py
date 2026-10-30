@@ -1234,9 +1234,9 @@ def _pane(session):
 
 
 def pinned(session):
-    """That seat held to the pane it shows now, by id: what is read and typed for one line goes
+    """That seat held to its pane (`_pane`), by id: what is read and typed for one line goes
     to that pane, whichever pane the owner selects meanwhile; as it was where tmux cannot say."""
-    rc, pane = orch.tmux_out("display-message", "-p", "-t", f"={session['name']}:", "#{pane_id}",
+    rc, pane = orch.tmux_out("display-message", "-p", "-t", _pane(session), "#{pane_id}",
                              socket=orch.seat_socket(session))
     return dict(session, pane=pane) if rc == 0 and re.fullmatch(r"%[0-9]+", pane) else session
 
@@ -1600,8 +1600,9 @@ def follow_model(cfg, name):
     """Make the model that seat's harness says its latest answer ran on its orchestrator:
     `/model` typed inside a seat moves its row, its bar and `c`'s mark as a move on `c` would,
     nothing restarted (the owner's word of 20 Oct 2026).  Only an answer made since the harness
-    in the seat was launched counts (`launched` in its record, written once it is up), so a
-    move on `c` is not undone by the old model's last answer; a seat launched before launches
+    in the seat was launched counts (`launched` in its record, written once it is up), or since
+    the last line of a move in place went in (`switched`), and none while one is still owed, so
+    a move on `c` is not undone by the old model's last answer; a seat launched before launches
     were written down counts every answer.  The model is the configured entry running it on
     that harness, the seat's own first, at the effort the answer recorded where one does, and
     `/effort` typed inside moves that entry's orchestrator effort in the seat's record, its
@@ -1613,15 +1614,18 @@ def follow_model(cfg, name):
         entry = record and config.model(cfg, record["orchestrator"])
     except config.Error:
         return
-    if not entry or entry["model"] in ("", config.DEFAULT_MODEL):
+    live = seat_read(name)
+    if (not entry or entry["model"] in ("", config.DEFAULT_MODEL)
+            or any(owed.get("switch") for owed in live.get("owed_lines") or ())):
         return
     plugin, cwd = orch.harness_plugin(entry["harness"]), record.get("cwd")
     try:
         ran = plugin.running(record, cwd, plugin.conversation(record, cwd))
     except OSError:
         return
-    launched = _stamp(record.get("launched"))
-    if not ran or launched is not None and not (ran[2] or 0) > launched:
+    since = [at for at in (_stamp(record.get("launched")), _stamp(live.get("switched")))
+             if at is not None]
+    if not ran or since and not (ran[2] or 0) > max(since):
         return
     kept, models = record["orchestrator"], config.at_efforts(cfg, record)["models"]
     runs = [each for each in (kept, *config.offered(cfg))
@@ -2697,9 +2701,10 @@ def news_owed(name, mine, read=True):
     runs nobody has heard that is the seat's to decide (`handback.owes_ending`, less a routine
     one, which is never typed, and one riding on its next prompt, `handback.ending_rides`).
     Only the first while no rule or hook `read` its screen: the harness of a seat just reopened
-    is still drawing its prompt."""
+    is still drawing its prompt.  A move's line (`switch`) is none of them: it tells the seat
+    nothing, and waits only for its next quiet prompt."""
     marks = seat_read(name)
-    if marks.get("owed_lines"):
+    if any(not owed.get("switch") for owed in marks.get("owed_lines") or ()):
         return "telling it what it missed while it was gone"
     if not read:
         return None
@@ -4586,28 +4591,37 @@ def revive(name, line, log, cfg=None, *, prepare):
 
 
 def owe_line(name, line, owed):
-    """The line owed to that seat with the text `line` becomes `owed`: added where `line` is
-    None, gone where `owed` is.  Under the seat's send lock, which a rename takes too, so the
-    lines are written where the seat's record is."""
+    """The first line owed to that seat with the text `line` becomes `owed`: added where `line`
+    is None, a move's (`switch`) ahead of all but those begun or of an earlier move, and gone
+    where `owed` is.  Under the seat's send lock, which a rename takes too, so the lines are
+    written where the seat's record is."""
     with notify.session_lock(name) as held, seat_lock(held):
         data = seat_read(held)
-        lines = data.get("owed_lines") or []
-        lines = ([owed if old["line"] == line else old for old in lines] if line
-                 else [*lines, owed])
-        _seat_put(held, data, {"owed_lines": [old for old in lines if old] or None})
+        lines = list(data.get("owed_lines") or [])
+        found = [at for at, old in enumerate(lines) if old["line"] == line] if line else []
+        if found:
+            lines[found[0]:found[0] + 1] = [owed] if owed else []
+        elif not line:
+            lines.insert(next((at for at, old in enumerate(lines)
+                               if not (old.get("switch") or old.get("typed"))), len(lines))
+                         if owed.get("switch") else len(lines), owed)
+        _seat_put(held, data, {"owed_lines": lines or None})
 
 
 def tell_owed(name, log, cfg=None):
-    """The oldest line `revive` owes that seat goes in at its quiet prompt (`type_at_prompt`),
+    """The oldest line owed to that seat goes in at its quiet prompt (`type_at_prompt`),
     never onto text the owner typed there; the tick asks this of every seat, so the line waits
     for a harness however slow to draw its prompt.  Its mark is kept from try to try until the
     composer reads empty, so it goes in once.  `revive` in a run's process and the tick may both
     get here: each key goes only while the line it read still heads the seat's lines, read under
-    the send lock, so a teller another one overtook types nothing more."""
+    the send lock, so a teller another one overtook types nothing more.  A line goes to the pane
+    it names, a move's to its harness's, and a move's begins no turn: the next goes in at the
+    same prompt, its harness's answers counted from the moment it went in (`switched`)."""
     owed = (seat_read(name).get("owed_lines") or [None])[0]
     seat = orch.find(name) if owed else None
     if not seat:
         return
+    seat = dict(seat, pane=owed.get("pane"))
     line, read = owed["line"], [owed]
 
     def kept(mark):
@@ -4619,8 +4633,12 @@ def tell_owed(name, log, cfg=None):
 
     if type_at_prompt(seat, line, log, cfg=cfg, typed=owed.get("typed"), receipt=kept,
                       stale=overtaken):
+        if owed.get("switch"):
+            seat_write(name, switched=time.time())     # written before its line is no longer owed
         owe_line(name, line, None)
         log(f"told {name}: {line}")
+        if owed.get("switch"):
+            tell_owed(name, log, cfg)
 
 
 def seat_subscription(cfg, provider, name):
