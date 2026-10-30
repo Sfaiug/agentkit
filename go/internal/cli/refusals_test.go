@@ -187,7 +187,7 @@ func TestNotifyCheck(t *testing.T) {
 		} else if request.URL.Path == "/moved" {
 			http.Redirect(reply, request, "/404", http.StatusFound)
 		} else {
-			http.Redirect(reply, request, "http://"+request.Host+request.URL.Path+"%zz", http.StatusFound)
+			http.Redirect(reply, request, request.URL.Path+"%zz", http.StatusFound)
 		}
 	}))
 	defer server.Close()
@@ -205,8 +205,9 @@ func TestNotifyCheck(t *testing.T) {
 	if <-asked; (<-asked).Get("Referer") != "" {
 		t.Fatal("a redirect carried the webhook as its Referer")
 	}
-	t.Setenv("AGENTKIT_DISCORD_WEBHOOK", server.URL+"/broken")
-	assertCall(t, check, 1, "", `notify: fail (no response: failed to parse Location header "<webhook>%zz": parse "<webhook>%zz": invalid URL escape "%zz")`+"\n")
+	// a Location Go cannot follow, which would quote the token, is answered with its status
+	t.Setenv("AGENTKIT_DISCORD_WEBHOOK", server.URL+"/secret-token?thread_id=9")
+	assertCall(t, check, 1, "notify: fail (302)\n", "")
 }
 
 func TestPlanInputRefusals(t *testing.T) {

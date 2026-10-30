@@ -100,7 +100,7 @@ func Check(out, errOut io.Writer) (int, error) {
 		if errors.As(err, &quoting) {
 			err = quoting.Err // it quotes the URL with its password starred, which the scrub would miss
 		}
-		// the URL is the secret, and an error within may quote it, as a bad redirect's does
+		// the URL is the secret: scrub it in case an error within quotes it back
 		fmt.Fprintf(errOut, "notify: fail (no response: %s)\n", strings.ReplaceAll(err.Error(), hook, "<webhook>"))
 		return 1, nil
 	}
@@ -119,7 +119,7 @@ func answer(hook string) (int, error) {
 		return 0, err
 	}
 	request.Header.Set("User-Agent", "agentkit/1 (+https://github.com)")
-	client := &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(next *http.Request, via []*http.Request) error {
+	client := &http.Client{Transport: lastHop{http.DefaultTransport}, Timeout: 15 * time.Second, CheckRedirect: func(next *http.Request, via []*http.Request) error {
 		next.Header.Del("Referer") // Go's, which would hand the secret URL to where it redirects
 		if len(via) >= 10 {
 			return http.ErrUseLastResponse // past Python's 10, the redirect is the answer
@@ -135,6 +135,20 @@ func answer(hook string) (int, error) {
 		_, err = io.Copy(io.Discard, response.Body)
 	}
 	return response.StatusCode, err
+}
+
+// lastHop makes a redirect Go cannot follow the answer, as a status, the way Python's
+// redirects end: Go's error would quote its Location, which can carry the webhook's token.
+type lastHop struct{ http.RoundTripper }
+
+func (hop lastHop) RoundTrip(request *http.Request) (*http.Response, error) {
+	response, err := hop.RoundTripper.RoundTrip(request)
+	if err == nil {
+		if _, unfollowable := response.Location(); unfollowable != nil {
+			response.Header.Del("Location") // a redirect without one is the answer
+		}
+	}
+	return response, err
 }
 
 // payload is what a page posts: its title, then the owner's mention, the only one it may ping.
