@@ -845,7 +845,8 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False):
 
 class _Pieces:
     """A sharded suite's pieces not yet run, each taken by the next place to free, a turn here or
-    a VM on the suite helper; one the helper gave back (`helper.GONE`) waits for a turn here."""
+    a VM on the suite helper; one the helper lost (`helper.GONE`) waits for a turn here, one it had
+    no room to start (`helper.FULL`) for the next place."""
 
     def __init__(self, count):
         self.waiting, self.back, self.out, self.there = list(range(count)), set(), 0, 0
@@ -874,13 +875,15 @@ class _Pieces:
                 self.hold.give(turn)
 
     def done(self, index, back, turn):
+        """`back`, the helper's exit for a piece it gave back, ends that place there."""
         if turn is not True:
             self.hold.give(turn)
         with self.cond:
             self.out -= 1
-            if back:    # and its place there ends
+            if back:
                 self.waiting.insert(0, index)
-                self.back.add(index)
+                if back in helper.GONE:    # lost, not turned away before its VM started
+                    self.back.add(index)
                 self.there -= 1
             self.cond.notify_all()
 
@@ -1811,8 +1814,9 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     while not back and (taken := pieces_left.next(over, not there)) is not None:
                         (index, turn), shard = taken, f"{taken[0] + 1}/{count}"
                         result = attempt(shard, first=True, there=there, turn=turn)
-                        code, back = result[0], there and result[0] in helper.GONE and not result[2]
-                        pieces_left.done(index, back, turn)
+                        code = result[0]
+                        back = there and code in (*helper.GONE, helper.FULL) and not result[2]
+                        pieces_left.done(index, back and code, turn)
                         if there and not back and flaky is not None:
                             flaky.extend(helper.failed(there, shard, "flaky"))
                         if there and code and log is not None:
@@ -1827,13 +1831,18 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             log(f"the suite helper lost AK_SHARD={shard}; it runs here")
 
                 def ask():
+                    asked = time.monotonic()    # as the suite went
                     while True:
                         with pieces_left.cond:
                             if over() or not (pieces_left.waiting or pieces_left.out):
                                 return
-                            pieces_left.cond.wait(GATE_POLL)
-                            if pieces_left.there or not pieces_left.mine(False):
+                            # A place ending wakes this, yet it asks once a poll at most.
+                            left = asked + GATE_POLL - time.monotonic()
+                            pieces_left.cond.wait(left if left > 0 else GATE_POLL)
+                            if pieces_left.there or not pieces_left.mine(False) or (
+                                    time.monotonic() < asked + GATE_POLL):
                                 continue
+                        asked = time.monotonic()
                         said, answer = [], []
                         # The suite never waits on an answer (a probe, a copy sent) past its
                         # last piece: one that comes later finishes the helper it joined.
