@@ -386,14 +386,12 @@ def _flaked(turn, directory, state, scratch, tree, log_path, log, flaky, failed,
             kept = json.loads(path.read_text())
         except (OSError, ValueError):
             kept = {}
-        files = {}      # a ledger keeping a test under its full name counts it toward its file
-        for name, entry in kept.get("tests", {}).items():
-            if now - (entry.get("repair") or entry["seen"][-1])["at"] < FLAKY:
-                into = files.setdefault(_file(name), {"seen": []})
-                if "repair" in entry:
-                    files[_file(name)] = entry      # its hold takes every sight of the file
-                elif "repair" not in into:
-                    into["seen"] += [{"test": name, **sight} for sight in entry["seen"]]
+        seen, repairs = kept.get("seen", []), kept.get("repairs", [])
+        for name, entry in kept.get("tests", {}).items():     # kept by test before files
+            seen += [{"test": name, **sight} for sight in entry.get("seen", ())]
+            repairs += [{"file": _file(name), **entry["repair"]}] if "repair" in entry else []
+        seen = [sight for sight in seen if now - sight["at"] < FLAKY]
+        repairs = [repair for repair in repairs if now - repair["at"] < FLAKY]
         logs, reds = {test: [] for test in flaky}, []     # each test seen, its red's log first
         for red in (red for red in kept.get("red", ()) if now - red["at"] < FLAKY):
             ran = passed.get(red["command"], ()) if red["tree"] == tree else ()
@@ -411,29 +409,30 @@ def _flaked(turn, directory, state, scratch, tree, log_path, log, flaky, failed,
         reds += [{"tree": tree, "command": cmd, "tests": named, "at": now, "log": shown}
                  for cmd, named in failed.items() if named]
         for file in dict.fromkeys(map(_file, logs)):
-            upstream, held = _upstream(state), files.get(file, {}).get("repair")
+            upstream = _upstream(state)
+            held = max((repair for repair in repairs if repair["file"] == file),
+                       key=lambda repair: repair["at"], default=None)
             if held and not run.git_out(scratch, "diff", "--quiet", held["sha"], upstream, "--",
                                         file)[0]:
                 continue
-            seen = [sight for sight in files.get(file, {}).get("seen", ())
-                    if now - sight["at"] < FLAKY] + [
-                        {"tree": tree, "at": now, "test": test, "logs": [*before, shown]}
-                        for test, before in logs.items() if _file(test) == file]
-            files[file] = {"seen": seen}
-            trees = {sight["tree"] for sight in seen}
+            seen += [{"test": test, "tree": tree, "at": now, "logs": [*before, shown]}
+                     for test, before in logs.items() if _file(test) == file]
+            sights = [sight for sight in seen if _file(sight["test"]) == file]
+            trees = {sight["tree"] for sight in sights}
             if len(trees) > 1:
                 tip = run.git(scratch, "rev-parse", f"{upstream}^{{commit}}")
                 suite = gitcall.declared_suite(scratch, ref=tip)
                 # its first sight keys the repair: no run of an earlier hold answers for it
                 name = _start_repair(state, directory, {
                     "command": file, "check": f"{suite}  # once", "sha": tip,
-                    "flaky": seen[0]["at"],
-                    "text": prompts.flaky_test_text(file, state["repo"], upstream, seen)}, log)
+                    "flaky": min(sight["at"] for sight in sights),
+                    "text": prompts.flaky_test_text(file, state["repo"], upstream, sights)}, log)
                 if name:
                     log(f"{file} failed, then passed, on {len(trees)} trees: repaired by {name}")
-                    files[file] = {"repair": {"run": name, "at": now, "sha": tip}}
+                    seen = [sight for sight in seen if _file(sight["test"]) != file]
+                    repairs.append({"file": file, "run": name, "at": now, "sha": tip})
         fresh = path.with_name(path.name + ".new")
-        fresh.write_text(json.dumps({"red": reds, "tests": files}))
+        fresh.write_text(json.dumps({"red": reds, "seen": seen, "repairs": repairs}))
         fresh.replace(path)
 
 
