@@ -963,17 +963,28 @@ EOF
   echo "slice: $LIMITS caps agentkit at $slice_tasks tasks and $mem_max of memory; CPU yields to other work"
   fi
   # Finished work and runs get the CPU and I/O before seats testing their own work.
-  # Memory still protects 30% of the machine for seats, so under memory pressure the
-  # runs give memory back first.  A share, like the ceiling, so it follows this machine.  Our
-  # own file is rewritten when it differs; one whose first line is not ours is left alone.
+  # Seats keep one share of the machine's memory and of the slice's tasks: under memory
+  # pressure the runs give memory back first, and a burst of runs never takes the last fork a
+  # seat needs (30 Oct 2026: runs filled the slice and seats' harnesses died mid-turn; a run
+  # refused a fork is retried, a seat's turn is not).  TasksMax=N% is a share of the whole
+  # system, not of the slice, so the runs' cap is a number taken from the ceiling systemd now
+  # holds for the slice, whoever set it; a slice with none gives runs none.  Our own file is
+  # rewritten when it differs; one whose first line is not ours is left alone.
+  seats_share=30
+  slice_ceiling=$(systemctl --user show agentkit.slice -p TasksMax --value 2>/dev/null || true)
+  case "$slice_ceiling" in
+    ''|*[!0-9]*) runs_tasks=infinity ;;
+    *) runs_tasks=$((slice_ceiling * (100 - seats_share) / 100)) ;;
+  esac
   for child in agentkit-seats.slice agentkit-runs.slice; do
-    weight=10 protect=$'\nMemoryLow=30%'
-    [ "$child" = agentkit-runs.slice ] && weight=40 protect=""
+    weight=10 own="MemoryLow=$seats_share%"
+    [ "$child" = agentkit-runs.slice ] && weight=40 own="TasksMax=$runs_tasks"
     dropin="$HOME/.config/systemd/user/$child.d/weights.conf"
-    want="# Written by agentkit's install.sh: seats yield CPU and I/O to runs.
+    want="# Written by agentkit's install.sh: seats yield CPU and I/O to runs and keep their share.
 [Slice]
 CPUWeight=$weight
-IOWeight=$weight$protect"
+IOWeight=$weight
+$own"
     if [ -e "$dropin" ]; then
       case "$(head -n 1 -- "$dropin" 2>/dev/null || true)" in
         "# Written by agentkit's install.sh"*) ;;
@@ -986,8 +997,8 @@ IOWeight=$weight$protect"
       WEIGHTS_CHANGED=1
     fi
     # Updating the file alone must not leave already open seats with the old share.
-    systemctl --user set-property --runtime "$child" "CPUWeight=$weight" "IOWeight=$weight" 2>/dev/null ||
-      note "run \`systemctl --user set-property --runtime $child CPUWeight=$weight IOWeight=$weight\` to apply the weights"
+    systemctl --user set-property --runtime "$child" "CPUWeight=$weight" "IOWeight=$weight" "$own" 2>/dev/null ||
+      note "run \`systemctl --user set-property --runtime $child CPUWeight=$weight IOWeight=$weight $own\` to apply the shares"
   done
   # Each seat and each tmux pane holds a run's cap, so a runaway dies alone, long before the
   # slice fills: agentkit-seat-*.scope is a seat's harness with all it starts (and a server
