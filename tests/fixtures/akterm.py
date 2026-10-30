@@ -65,7 +65,8 @@ class Terminal:
 
     def wait(self, shown, bound=30):
         """The screen once it shows that text, or that test of it holds; the program draws when
-        it is ready, and a test that reads earlier reads nothing."""
+        it is ready, and a test that reads earlier reads nothing.  tmux may be read part way
+        through a draw, so what a test asserts of the screen belongs in the test it waits for."""
         test = shown if callable(shown) else (lambda screen: shown in screen)
         deadline = time.monotonic() + bound
         while True:

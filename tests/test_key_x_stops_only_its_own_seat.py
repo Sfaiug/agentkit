@@ -56,9 +56,9 @@ class XStopsOnlyItsOwnSeat(unittest.TestCase):
         menu.wait("› 1  atoll-fix  ")
         self.assertIn(MAIN_KEYS, menu.wait(MAIN_KEYS).splitlines())
         menu.keys("x", "j")                       # x first: once j has moved, x was read
-        screen = menu.wait("› 2  atoll-ask  ")
+        screen = menu.wait(lambda screen: "› 2  atoll-ask  " in screen
+                           and MAIN_KEYS in screen.splitlines())
         self.assertNotIn("everything it runs?", screen)
-        self.assertIn(MAIN_KEYS, screen.splitlines())
         menu.keys("Escape")
         self.assertEqual(menu.exit_code(), 0)
         self.assertTrue(alive(self.home, "atoll-fix"))
@@ -91,8 +91,8 @@ class XStopsOnlyItsOwnSeat(unittest.TestCase):
         self.home.write(".agentkit/state/plan-atoll-ask.md", DONE_PLAN)
         menu = self.popup("atoll-ask", CLOSE_KEYS)
         menu.keys("k")
-        screen = menu.wait("› 1  atoll-fix  ")
-        self.assertIn(CLOSE_KEYS, screen.splitlines())   # the word is its own seat's
+        menu.wait(lambda screen: "› 1  atoll-fix  " in screen      # the word is its own seat's
+                  and CLOSE_KEYS in screen.splitlines())
         menu.keys("x")
         self.assertEqual(menu.exit_code(), 0)
         self.assertTrue(gone(self.home, "atoll-ask"))
