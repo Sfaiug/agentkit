@@ -1242,6 +1242,28 @@ def prepare(run_dir, opts, log, cfg=None, job_id=None, task_file=None, receipt=N
         raise
 
 
+def judge_queued(run_dir, opts, log, cfg):
+    """Whether a launch waiting for its slot ended here, refused by a rule of the agentkit
+    installed now: a waiting launch moves to new code (`pickup_while_queued`), and the launch's
+    refusals (`preflight`) are judged again once for each version it waits on, so a rule
+    landing while it waits refuses it then, not when a slot comes.  A judgement git or GitHub
+    never answered refuses nothing; the next version, or the run itself, asks again."""
+    state = run_record.read_state(run_dir) or {}
+    now = installed_head()
+    if state.get("state") != "queued" or not now or state.get("judged_on") == now:
+        return False
+    try:
+        preflight(run_dir, opts, log)
+    except (Stopped, OSError):
+        return False
+    except run_record.StopRequested:
+        return True
+    except config.Error as exc:
+        refused(run_dir, exc, log, cfg)
+        return True
+    return False
+
+
 def preflight(run_dir, opts, log):
     """A compact launch receipt, also printed by the foreground parent of a background run."""
     url = opts.get("--review-pr")
@@ -1300,7 +1322,10 @@ def preflight(run_dir, opts, log):
         state["title"] = title
         run_record.save_state(run_dir, state)
         cmds = taskfile.done_when(body, run_dir / "task.md")
-        repo = task_repo(meta, run_dir / "task.md", state.get("task_file"))
+        # a launch judged again as it waits (`judge_queued`) no longer stands where its own
+        # preflight found the repository, and saved it with `scratch` beside it
+        repo = ((Path(state["repo"]) if state["repo"] else None) if "scratch" in state
+                else task_repo(meta, run_dir / "task.md", state.get("task_file")))
         base = (meta.get("base") or default_base(repo, log)) if repo else "none"
         target, method = meta.get("target") or base, meta.get("merge") or "squash"
         # the checks a round runs, settled as the loop settles them, against the same target
@@ -1352,6 +1377,9 @@ def preflight(run_dir, opts, log):
     # a job's task runs where its job puts it; every other launch is placed after this line
     log(f"scope: {scope_line(state) or ('none (foreground launch)' if state.get('job_id') else 'pending')}")
     log(f"result: {run_dir / 'result.md'} | log: {run_dir / 'log.txt'}")
+    # the agentkit whose refusals it passed: a version it waits on later judges it again
+    run_record.save_state(run_dir, {**(run_record.read_state(run_dir) or {}),
+                                    "judged_on": installed_head()})
     session = launch_session(run_dir)
     if url:
         if state.get("own_pr"):
@@ -3072,6 +3100,8 @@ def main(argv):
         recorded = (run_record.read_state(Path(resumed)) or {}).get("launch_opts") or {}
         flags.update({flag: recorded[flag] for flag in flags if flag in recorded})
         opts.update(recorded)
+        if judge_queued(Path(resumed), opts, logger(Path(resumed)), cfg):
+            return 2
     if opts["--review-pr"]:
         return review_pr_main(cfg, opts, flags, argv, resumed)
     if resumed:
