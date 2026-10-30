@@ -20,7 +20,7 @@ import subprocess
 import tarfile
 import tempfile
 
-from . import config, gitcall, orch
+from . import config, gitcall, machines, orch
 
 LOST = 255            # ssh's own failure
 LACKS = 3             # mac.sh's `prepare`: the Mac's copy lacks history the parcel left out
@@ -149,10 +149,14 @@ def _parcel(cwd, default, known, recipe, parcel):
 
 
 def start(piece_cpus, piece_mem_mb, cwd, log):
-    """(the suite sent to the helper, reason): an Away, or (None, why it runs here)."""
-    alias = config.suite_helper()
-    if not alias:
+    """(the suite sent to the roomiest helper, reason): an Away, or (None, why it runs here)."""
+    try:
+        aliases = machines.helpers()
+    except config.Error:  # a config.toml mid-edit fails no run's suite: it runs here
+        aliases = []
+    if not aliases:
         return None, "no suite helper set up"
+    alias = aliases[0]
     # A checkout's repository is the one its main checkout has, wherever the suite runs.
     repo = hashlib.sha256(str(gitcall.main_checkout(cwd)).encode()).hexdigest()[:12]
     try:
@@ -162,9 +166,11 @@ def start(piece_cpus, piece_mem_mb, cwd, log):
         return None, f"helper {alias} cannot build suite_image: {exc}"
     if not image:
         return None, f"no recipe for the suite helper {alias}"
-    fit, reason = room(alias, piece_cpus, piece_mem_mb, _least(repo))
+    rooms = {alias: room(alias, piece_cpus, piece_mem_mb, _least(repo)) for alias in aliases}
+    alias = max(aliases, key=lambda alias: (rooms[alias][0] or (0,))[0])
+    fit = rooms[alias][0]
     if fit is None:
-        return None, f"helper {alias} {reason}"
+        return None, " · ".join(f"helper {alias} {why}" for alias, (_, why) in rooms.items())
     code, branch = gitcall.git_out(cwd, "symbolic-ref", "-q", "--short", "HEAD")
     named, default = gitcall.git_out(cwd, "rev-parse", "--abbrev-ref", "origin/HEAD")
     programs = {program for program in orch.agent_programs() if config.harness_binary(program)}
