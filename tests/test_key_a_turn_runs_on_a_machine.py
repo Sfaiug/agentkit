@@ -23,11 +23,10 @@ EXECUTE = {"sh": f"{WHERE} >executor.txt && git add executor.txt && git commit -
                  "echo left >left.txt && rm gone.txt",
            "final": "## Summary\nedited", "hand_in": [["done"]]}
 REVIEW = {"sh": WHERE, "final": "Handed in.", "hand_in": [["done"]]}
-UPTIME = "#!/bin/sh\necho ' 12:00:00 up 1 day,  load average: {}, 0.00, 0.00'\n"
 
 
 class ATurnRunsOnAMachine(unittest.TestCase):
-    def run_task(self, switch, load, program=True):
+    def run_task(self, switch, cpus, program=True):
         """Where the task's turns and its commit ran, and the turn containers the machine ran."""
         home = Home()
         self.addCleanup(home.close)
@@ -43,7 +42,7 @@ class ATurnRunsOnAMachine(unittest.TestCase):
             place = machine / "home/.agentkit-helper/harness" / harness
             place.mkdir(parents=True)
             (place / harness).touch(0o755 if program else 0o644)
-        (machine / "bin/uptime").write_text(UPTIME.format(load))
+        (machine / "bin/nproc").write_text(f"#!/bin/sh\necho {cpus}\n")
         task = taskfile.write(home, rig.path, done_when=("test -f left.txt && test ! -e gone.txt",))
         done = home.ak("run", str(task), timeout=300)
         self.assertEqual(done.code, 0, done.out + done.err)
@@ -58,13 +57,12 @@ class ATurnRunsOnAMachine(unittest.TestCase):
         return turns, rig.origin("show", "main:executor.txt"), containers
 
     def test_both_turns_run_on_the_machine(self):
-        self.assertEqual(self.run_task(True, "0.00"), (["docker"] * 2, "docker", 2))
+        self.assertEqual(self.run_task(True, 2), (["docker"] * 2, "docker", 2))
 
     def test_with_the_switch_off_no_room_or_no_program_the_turns_run_here(self):
-        for switch, load, program in ((False, "0.00", True), (True, "2.00", True),
-                                      (True, "0.00", False)):
-            with self.subTest(machine_turns=switch, load=load, program=program):
-                self.assertEqual(self.run_task(switch, load, program), (["here"] * 2, "here", 0))
+        for switch, cpus, program in ((False, 2, True), (True, 1, True), (True, 2, False)):
+            with self.subTest(machine_turns=switch, cpus=cpus, program=program):
+                self.assertEqual(self.run_task(switch, cpus, program), (["here"] * 2, "here", 0))
 
 
 if __name__ == "__main__":

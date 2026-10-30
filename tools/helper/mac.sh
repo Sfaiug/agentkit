@@ -181,10 +181,8 @@ prepare)   # KEY IMAGE REPO, the parcel on stdin
   # -p: the recipe's files keep HEAD's modes, whatever umask the machine's shell has.
   mkdir -p "$ROOT/$2" && tar -x -p -C "$ROOT/$2" && echo "$3" >"$ROOT/$2/image/name" || exit 253
   # A turn's harness program, which a later task installs, is $ROOT/harness/<harness>/<program>.
-  # Without it the machine is no use to this turn, and the admission is not held for it.
   program=$ROOT/harness/$(cat "$ROOT/$2/harness" 2>/dev/null)
-  [ ! -f "$ROOT/$2/harness" ] || { [ -f "$program" ] && [ -x "$program" ]; } ||
-    { rm -f "$ROOT/$2/reserved"; exit 253; }
+  [ ! -f "$ROOT/$2/harness" ] || { [ -f "$program" ] && [ -x "$program" ]; } || exit 253
   # Dead callers' trees go after a day; the locks and harness programs stay.
   find "$ROOT" -mindepth 1 -maxdepth 1 -type d ! -name mirrors ! -name harness -mtime +1 \
     -exec rm -rf {} + 2>/dev/null
