@@ -484,17 +484,31 @@ def verify(name, check=None):
 
 
 def verify_delivered(name):
-    """`verify` for a run that just delivered, unless another holds the place next in line: it
-    has yet to fetch, so it proves all this one would.  Each ran every open line behind the last,
-    21 runs behind 29 lines, the seat's `ak plan` behind them all (30 Oct 2026)."""
-    with config.seat_file("nextverify", config.resolve_session(name)).open("a") as next_up:
-        try:
-            fcntl.flock(next_up, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return
-        with verifying(name):
-            fcntl.flock(next_up, fcntl.LOCK_UN)
-            _verify_held(name)
+    """`verify` for a run that just delivered, unless one begun after it delivered finished
+    while it waited: that one fetched main with this delivery on it.  Delivered runs each ran
+    every open line behind the last, 21 runs behind 29 lines, the seat's `ak plan` behind them
+    all (30 Oct 2026).  A verification is numbered as it begins and again as it finishes, so
+    one that dies checking finishes nothing and the next checks again."""
+    with held(name) as current:
+        since = _verified(current)[0]
+    with verifying(name):
+        with held(name) as current:
+            begun, finished = _verified(current)
+            if finished > since:
+                return
+            config.seat_file("verified", current).write_text(f"{begun + 1} {finished}\n")
+        _verify_held(name)
+        with held(name) as current:
+            config.seat_file("verified", current).write_text(f"{begun + 1} {begun + 1}\n")
+
+
+def _verified(name):
+    """(verifications delivered runs began, the number of the last that finished)."""
+    try:
+        begun, finished = map(int, config.seat_file("verified", name).read_text().split())
+    except (OSError, ValueError):
+        return 0, 0
+    return begun, finished
 
 
 def _verify_held(name, check=None):
