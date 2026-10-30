@@ -6,8 +6,9 @@ the real ssh and is written down; a turn that did so and ends with no open line 
 back once, told to `ak plan add` what it changed there, and in that turn `ak plan add` takes a
 check that already passes, written done on the commit it passed on.  Black-box: the shims a
 seat's launch installs (tests/fixtures/shims.py), hooks/seat-state.sh starting each turn,
-hooks/orchestrator-stop.sh ending it, both beside the program `AK_BIN` names, and `ak plan add`,
-all run as the harness and the seat run them, in an answer-key Home with `prod` as its live host.
+hooks/orchestrator-stop.sh ending it and judging its questions, both beside the program `AK_BIN`
+names, and `ak plan add`, all run as the harness and the seat run them, in an answer-key Home
+with `prod` as its live host.
 """
 
 import json
@@ -155,12 +156,13 @@ class LiveWork(unittest.TestCase):
         self.assertTrue(done.out.startswith(DONE), done.out)
         self.assertTrue(done.out.endswith(f" · done {head}\n"), done.out)
         self.assertEqual(self.plan.read_text(), done.out)
-        listed = self.home.ak("plan", env={"AGENTKIT_SESSION": "acme"}, cwd=self.rig.path)
-        self.assertEqual(listed.code, 0, listed.err)
-        # the seat's work is done: its plan's one line, written done, owes nothing
-        self.assertTrue(listed.out.startswith(" 1  - [x] the monitor account is enrolled · "),
-                        listed.out)
-        self.assertNotIn("- [ ]", listed.out)
+        # the seat's work reads done: a question now would block nothing but the owner, so its
+        # question prompt is refused, which only a finished plan does
+        asked = self.hook("orchestrator-stop.sh", {
+            "hook_event_name": "PreToolUse", "tool_name": "AskUserQuestion",
+            "session_id": "conv-acme"}, "acme")
+        self.assertNotEqual(asked, "", "the question went through: the plan reads as owing work")
+        self.assertEqual(json.loads(asked)["hookSpecificOutput"]["permissionDecision"], "deny")
 
 
 if __name__ == "__main__":
