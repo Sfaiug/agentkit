@@ -5,7 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from . import config, gitcall, handback, retention, roundloop, run, transitions
+from . import config, gitcall, handback, retention, run, transitions
 from . import record as run_record
 
 
@@ -278,7 +278,7 @@ def preserve_checkout(state, wt, log):
     branch, artifacts = state.get("branch"), state.get("artifacts", ())
     try:
         if (gitcall.git(wt, "symbolic-ref", "--quiet", "HEAD") != f"refs/heads/{branch}"
-                or roundloop.in_progress(wt, "rebase") or roundloop.in_progress(wt, "merge")):
+                or gitcall.in_progress(wt, "rebase", "merge")):
             raise config.Error(f"the checkout is off {branch} or a rebase or merge is unfinished")
         paths, _junk = gitcall.committable_paths(wt, artifacts)
         if paths:
