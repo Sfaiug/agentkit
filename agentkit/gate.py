@@ -1806,7 +1806,9 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
 
             def pull(here):
                 """`here` places on this host and `away`'s VMs each take the next waiting piece
-                as they free; while no VM takes any, the helper is asked again as each ends."""
+                as they free; while one waits, the helper is asked again each GATE_POLL, also
+                while the suite runs VMs there, which its probe counts, and those it gives take
+                the waiting pieces."""
                 pieces_left.hold, futures = hold, []
 
                 def place(there=None):    # a VM there ends with the piece it gives back
@@ -1830,16 +1832,20 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             # Without this a suite the helper lost reads as one it ran.
                             log(f"the suite helper lost AK_SHARD={shard}; it runs here")
 
+                def ended():    # no piece waits or runs, or no place is left to take one
+                    return over() or not (pieces_left.waiting or pieces_left.out) or not (
+                        here or pieces_left.there)
+
                 def ask():
                     asked = time.monotonic()    # as the suite went
                     while True:
                         with pieces_left.cond:
-                            if over() or not (pieces_left.waiting or pieces_left.out):
+                            if ended():
                                 return
                             # A place ending wakes this, yet it asks once a poll at most.
                             left = asked + GATE_POLL - time.monotonic()
                             pieces_left.cond.wait(left if left > 0 else GATE_POLL)
-                            if pieces_left.there or not pieces_left.mine(False) or (
+                            if ended() or not pieces_left.mine(False) or (
                                     time.monotonic() < asked + GATE_POLL):
                                 continue
                         asked = time.monotonic()
@@ -1849,8 +1855,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         threading.Thread(target=start, args=(said, answer), daemon=True,
                                          name=ASKING).start()
                         with pieces_left.cond:
-                            while not answer and not over() and (
-                                    pieces_left.waiting or pieces_left.out):
+                            while not answer and not ended():
                                 pieces_left.cond.wait(GATE_POLL)
                             answer.append(None)
                         if joined := answer[0]:
@@ -1869,14 +1874,15 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
 
                 def run_there(there):
                     with pieces_left.cond:
-                        pieces_left.there += min(there.count, count)
-                    futures.extend(pool.submit(place, there) for _ in range(min(there.count, count)))
+                        vms = min(there.count, len(pieces_left.mine(False)))
+                        pieces_left.there += vms
+                    futures.extend(pool.submit(place, there) for _ in range(vms))
 
                 with ThreadPoolExecutor(max_workers=here + count + 1) as pool:
                     futures.extend(pool.submit(place) for _ in range(here))
                     if away:
                         run_there(away)
-                    if here and changed is None:
+                    if changed is None:
                         futures.append(pool.submit(ask))
                     try:
                         for future in futures:
