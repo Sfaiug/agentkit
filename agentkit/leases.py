@@ -306,23 +306,29 @@ def collide(repo, older, younger, trees):
 
 
 def diff_paths(repo, base, tree):
-    """(the paths a run's diff changes, a rename as its two; the directories above them; the
-    directories it deleted a file from), for `may_clash`."""
+    """(the files a run's diff changes, a rename as its two; the directories above them; the
+    directories it removed, as moving one does), for `may_clash`."""
     from . import run
-    words = run.git(repo, "diff-tree", "-r", "-z", "--no-renames", "--name-status", base,
-                    tree).split("\0")
-    paths = [Path(path) for path in words[1::2]]
-    return ({str(path) for path in paths},
-            {str(parent) for path in paths for parent in path.parents} - {"."},
-            {str(path.parent) for status, path in zip(words[::2], paths) if status == "D"})
+    words = run.git(repo, "diff-tree", "-r", "-t", "-z", "--no-renames", base, tree).split("\0")
+    # each entry is ":<old mode> <new mode> <old id> <new id> <status>", then its path
+    entries = [(meta[1:].split()[:2], path) for meta, path in zip(words[::2], words[1::2])]
+    files = [Path(path) for modes, path in entries if "040000" not in modes]
+    return ({str(path) for path in files},
+            {str(parent) for path in files for parent in path.parents} - {"."},
+            {path for modes, path in entries if modes == ["040000", "000000"]})
 
 
-def may_clash(one, other):
-    """Whether git's merge of two diffs (`diff_paths`) has anything to decide, as most pairs of 64
-    live runs have not, which spares each a `collide`: a path both change, a file where the other
-    has a directory, or a directory one deleted a file from, so perhaps moved, the other changes."""
-    return bool(one[0] & (other[0] | other[1]) or other[0] & one[1] or
-                one[2] & other[1] or other[2] & one[1])
+def may_clash(repo, older, younger, diffs):
+    """Whether `collide` has anything to decide for the pair (`diffs` holds each run's
+    `diff_paths`), as most pairs of 64 live runs have not: a file both change, a file where the
+    other has a directory, or a directory one removed, perhaps moved, the other changes in; on
+    bases that differ, also a rename on main between them, or a directory either removed, which
+    takes along what main added to it: either carries the diff `collide` brings onto the newer
+    base to paths that diff never changed."""
+    one, other = diffs[older["run"]], diffs[younger["run"]]
+    return bool(one[0] & (other[0] | other[1]) or other[0] & one[1] or one[2] & other[1]
+                or other[2] & one[1] or older["base"] != younger["base"]
+                and (one[2] or other[2] or renamed_between(repo, older["base"], younger["base"])))
 
 
 @functools.lru_cache(maxsize=1024)      # commits never change
@@ -330,8 +336,7 @@ def renamed_between(repo, base, other):
     """Whether main renamed a file between two bases: `collide` follows it, so diffs of
     different paths may meet."""
     from . import run
-    return base != other and bool(run.git(repo, "diff-tree", "-r", "-M", "--name-only",
-                                          "--diff-filter=R", base, other))
+    return bool(run.git(repo, "diff-tree", "-r", "-M", "--name-only", "--diff-filter=R", base, other))
 
 
 def scan(repo, log=lambda _: None, now=None):
@@ -349,9 +354,7 @@ def scan(repo, log=lambda _: None, now=None):
     waits = {}
     for at, younger in enumerate(runs):
         for older in runs[:at]:
-            files = (collide(repo, older, younger, trees)
-                     if may_clash(diffs[older["run"]], diffs[younger["run"]])
-                     or renamed_between(repo, older["base"], younger["base"]) else [])
+            files = collide(repo, older, younger, trees) if may_clash(repo, older, younger, diffs) else []
             # Markdown-only conflicts can be settled at landing without rebuilding.
             if not files or all(path.endswith(".md") for path in files):
                 continue

@@ -112,9 +112,9 @@ class LeaseScan(LiveRuns):
             self.clash_with_main()
 
     def test_only_a_pair_git_has_something_to_decide_on_is_merged(self):
-        (self.repo / "pkg").mkdir()
+        (self.repo / "pkg" / "sub").mkdir(parents=True)
         for name in ("a.py", "b.py"):
-            (self.repo / "pkg" / name).write_text(f"{name}\n" * 9)
+            (self.repo / "pkg" / "sub" / name).write_text(f"{name}\n" * 9)
         self.git(self.repo, "add", ".")
         self.git(self.repo, "commit", "-qm", "A package")
         base = self.git(self.repo, "rev-parse", "HEAD")
@@ -125,7 +125,8 @@ class LeaseScan(LiveRuns):
         with patch.object(leases, "merged", wraps=leases.merged) as merge:
             self.assertEqual(leases.scan(self.repo, now=2000), {})
         merge.assert_not_called()
-        # no path in common, yet git's own conflicts: a directory moved under a file added to it,
+        # no path in common, yet git's own conflicts: a directory moved, its files a level down,
+        # under a file added to it,
         self.git(older, "mv", "pkg", "moved")
         (younger / "pkg" / "new.py").write_text("new\n")
         self.assertEqual(leases.scan(self.repo, now=2100)["20260101-1000-younger"]["files"],
@@ -137,11 +138,24 @@ class LeaseScan(LiveRuns):
         (younger / "shared").mkdir()
         (younger / "shared" / "x.py").write_text("x\n")
         self.assertIn("shared", " ".join(leases.scan(self.repo, now=2200)["20260101-1000-younger"]["files"]))
-        # and a run behind a rename on main, its edit followed to a line the other changes
+        # a run behind main moving a directory main added to, the addition taken along to where
+        # the other adds it,
         (younger / "shared" / "x.py").unlink()
         (older / "shared").unlink()
         self.edit(older, "api.py", 5, "line 5")
         self.edit(younger, "other.py", 1, "other")
+        self.git(older, "mv", "pkg", "moved")
+        (self.repo / "pkg" / "f.py").write_text("main's\n")
+        self.git(self.repo, "add", ".")
+        self.git(self.repo, "commit", "-qm", "Added")
+        added = self.run_on("20260101-1050-added", 1050, base=self.git(self.repo, "rev-parse", "HEAD"))
+        (added / "moved").mkdir()
+        (added / "moved" / "f.py").write_text("its own\n")
+        self.assertEqual(leases.scan(self.repo, now=2250)["20260101-1050-added"]["files"],
+                         ["moved/f.py"])
+        self.git(older, "mv", "moved", "pkg")
+        shutil.rmtree(added / "moved")
+        # and a run behind a rename on main, its edit followed to a line the other changes
         self.git(self.repo, "mv", "api.py", "renamed.py")
         self.git(self.repo, "commit", "-qm", "Renamed")
         moved = self.git(self.repo, "rev-parse", "HEAD")
