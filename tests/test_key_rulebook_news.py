@@ -14,14 +14,13 @@ Claude fires them (tests/fixtures/hookdrive.py); this test fails against `/bin/f
 
 import hashlib
 import os
-import re
 import sys
 from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import AK, Home
-from fixtures.hookdrive import Hooks
+from fixtures.hookdrive import Hooks, read_rules
 
 CONVERSATION = "7d3c1e2a-5b4f-4a6e-8c9d-0e1f2a3b4c5d"
 SHIPPED = Path(AK).resolve().parents[1] / "orchestrator.md"   # ak's own rules, beside it
@@ -87,12 +86,10 @@ class RulebookNews(unittest.TestCase):
             with self.subTest(record=record):
                 self.seat(**record)
                 news = self.prompt().said[0]["hookSpecificOutput"]["additionalContext"]
-                written = (self.home.path / ".agentkit/state/change-acme.md").read_text()
-                self.assertIn(str(self.home.path / ".agentkit/state/change-acme.md"), news)
-                self.assertIn(rulebook("Rule one.\n"), written)
-                code = re.search(r"ak orch rules (\S+)\n*$", written)[1]
-                done = self.home.ak("orch", "rules", code, env={"AGENTKIT_SESSION": "acme"})
-                self.assertEqual(done.code, 0, done.err)
+                change = self.home.path / ".agentkit/state/change-acme.md"
+                self.assertIn(str(change), news)
+                self.assertIn(rulebook("Rule one.\n"), change.read_text())
+                read_rules(self.home, "acme")
                 self.assertEqual(self.prompt(), SILENT)
 
     @unittest.skipIf(os.geteuid() == 0, "root writes whatever a directory's mode")
