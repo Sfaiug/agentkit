@@ -41,14 +41,14 @@ class Claims(unittest.TestCase):
         named = os.environ.get("AK_BIN")
         with tempfile.TemporaryDirectory(prefix="ak-go-keys-") as tree:
             shutil.copytree(REPO, tree, ignore=LEFT_OUT, symlinks=True, dirs_exist_ok=True)
-            # a checkout, as Go finds the one it runs from (config.Repo), without the history
-            subprocess.run(["git", "init", "-q", tree], check=True)
             program = REPO / named if named else Path(tree, "go/bin/ak")
             if not named:
                 # Never a skip: the landing suite counts a skipped case as passed.
                 built = subprocess.run(["go", "build", "-o", program, "./cmd/ak"], env=ENV,
                                        cwd=Path(tree, "go"), capture_output=True, text=True)
                 self.assertEqual(built.returncode, 0, built.stderr)
+            # a checkout, as Go finds the one it runs from (config.Repo), without the history
+            subprocess.run(["git", "init", "-q", tree], check=True)
             failed = []
             # One after another: every_file.py already runs other files beside this one.  No
             # PYTHONPATH: the caller's could lead back to agentkit.
