@@ -14,7 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import Home
 
 COMMANDS = ("run", "plan", "notify", "wait", "usage", "models", "browser", "fetch",
-            "orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor")
+            "orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor",
+            "move")
 NESTED = ("run status", "orch list", "hand-in done", "notify needs", "browser login")
 
 

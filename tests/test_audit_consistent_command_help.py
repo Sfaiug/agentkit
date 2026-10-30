@@ -78,6 +78,7 @@ MATRIX = [
      {"--client", "--overlay", "--dry-run"}),
     ("fetch", "usage: ak fetch PATH", ["--serve"], {"--serve"}),
     ("macbridge", "usage: ak macbridge [--reader]", ["--lock-fd"], {"--reader"}),
+    ("move", "usage: ak move ALIAS", ["mini"], set()),
 ]
 
 

@@ -10,9 +10,9 @@ type entry struct {
 	usage, description, example string
 }
 
-var Verbs = []string{"usage", "models", "worker", "run", "notify", "wait", "orch", "attach", "update", "watch", "browser", "fetch", "macbridge", "doctor", "hand-in", "plan"}
+var Verbs = []string{"usage", "models", "worker", "run", "notify", "wait", "orch", "attach", "update", "watch", "browser", "fetch", "macbridge", "doctor", "hand-in", "plan", "move"}
 var public = []string{"run", "plan", "notify", "wait", "usage", "models", "browser", "fetch"}
-var internal = []string{"orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor"}
+var internal = []string{"orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor", "move"}
 
 // Keep the shadow command's text in step with agentkit/command_help.py until the switch.
 var entries = map[string]entry{
@@ -211,6 +211,11 @@ var entries = map[string]entry{
 		"macOS only: forward requested files to the server over SSH.\n--reader starts a detached reader under this terminal app for dropped files.",
 		"ak macbridge",
 	},
+	"move": {
+		"usage: ak move ALIAS",
+		"Copy this home to the same path on the machine `ssh ALIAS` reaches, while ak runs;\nrun again, it sends only what changed and deletes there what was deleted here.\nak's tmp folder, ~/.ssh/authorized_keys and the browser profile's locks stay out.\nRefused when ALIAS is this machine, its home is another path or ak's tick runs there.",
+		"ak move mini",
+	},
 }
 
 var purposes = map[string]string{
@@ -230,6 +235,7 @@ var purposes = map[string]string{
 	"wait":      "end this turn waiting on a pull request or run",
 	"fetch":     "copy requested Mac files to this host",
 	"macbridge": "macOS only: forward requested files to the server over SSH",
+	"move":      "copy this home to the same path on another machine",
 }
 
 func Known(command string) bool {
