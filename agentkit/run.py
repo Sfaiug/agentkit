@@ -709,6 +709,19 @@ def rival_advice():
     return "wait for it" + ("" if from_seat() else ", or add --anyway to start a second run")
 
 
+def check_seat_queue(tasks):
+    """Refuse a seat's fresh launch of that many tasks beyond what its seat may queue
+    (`gate.seat_full`), asked last before it creates anything, so a launch refused for good hears
+    that first.  Only a fresh launch asks: a new job, or a run `main` resumes nothing for, whatever
+    run directory it carries; a run that exists is never asked again, nor a PR review.  A seat is
+    a recorded session (`config.session_records`); nothing below a run is told one
+    (`config.seatless_env`)."""
+    seat = config.current_session()
+    refusal = seat in config.session_records() and gate.seat_full(seat, tasks)
+    if refusal:
+        raise config.Error(refusal)
+
+
 def depth_refused():
     depth = run_depth()
     if depth < 2:
@@ -1242,8 +1255,38 @@ def prepare(run_dir, opts, log, cfg=None, job_id=None, task_file=None, receipt=N
         raise
 
 
+class Refused(config.Error):
+    """A rule refusing the launch (`preflight`), where any other error is a read that failed:
+    only a rule refuses a launch already waiting for its slot (`judge_queued`)."""
+
+
+def judge_queued(run_dir, opts, log, cfg):
+    """Whether a launch waiting for its slot ended here, refused by a rule of the agentkit
+    installed now: a waiting launch moves to new code (`pickup_while_queued`), and the launch's
+    refusals (`preflight`) are judged again once for each version it waits on, so a rule
+    landing while it waits refuses it then, not when a slot comes.  A read that failed, of
+    GitHub or of git, refuses nothing; the next version, or the run itself, asks again."""
+    state = run_record.read_state(run_dir) or {}
+    now = installed_head()
+    if state.get("state") != "queued" or not now or state.get("judged_on") == now:
+        return False
+    try:
+        preflight(run_dir, opts, log)
+    except Refused as exc:
+        refused(run_dir, exc, log, cfg)
+        return True
+    except run_record.StopRequested:
+        return True
+    except (config.Error, OSError):
+        return False
+    return False
+
+
 def preflight(run_dir, opts, log):
     """A compact launch receipt, also printed by the foreground parent of a background run."""
+    # the agentkit whose refusals these are, read before they are: a version installed while
+    # they run judges the launch again
+    version = installed_head()
     url = opts.get("--review-pr")
     alongside = None
     if url:
@@ -1261,23 +1304,23 @@ def preflight(run_dir, opts, log):
         state.setdefault("own_orchestrator_effort", effort if is_own else None)
         run_record.save_state(run_dir, state)
         if is_own and not orch:
-            raise config.Error(f"no session record names the writer of this PR; "
-                               f"review of the seat's own PR needs its orchestrator")
+            raise Refused(f"no session record names the writer of this PR; "
+                          f"review of the seat's own PR needs its orchestrator")
         if is_own:
             # the budget is the pull request's: earlier runs' rounds on it are spent
             why = own_pr_budget(url, run_dir)[1]
             if why:
-                raise config.Error(why)
+                raise Refused(why)
             # ... and a PR too large for the seat is refused before it waits for a slot
             checkout = checkout_for(f"{owner}/{name}", log)
             default = origin_default(checkout)
             if info["baseRefName"] != default:
                 # it would land on its base: stacked on an unmerged change, into that change's
                 # branch under that change's own review, never on the default branch
-                raise config.Error(f"PR #{number} is based on {info['baseRefName']}, not {default}: "
-                                   f"ak lands a seat's own PR on {default} only. If it builds on "
-                                   f"an unmerged change, wait for that to land, then rebase this "
-                                   f"branch onto origin/{default} and point the PR at {default}")
+                raise Refused(f"PR #{number} is based on {info['baseRefName']}, not {default}: "
+                              f"ak lands a seat's own PR on {default} only. If it builds on "
+                              f"an unmerged change, wait for that to land, then rebase this "
+                              f"branch onto origin/{default} and point the PR at {default}")
             head = info["headRefOid"]
             fetch_pr(checkout, number, info["baseRefName"], log)
             target_sha = git(checkout, "rev-parse", f"origin/{info['baseRefName']}^{{commit}}")
@@ -1285,7 +1328,7 @@ def preflight(run_dir, opts, log):
             why = (own_pr_first_review(checkout, url, number, base_sha, target_sha, head, run_dir)
                    or (0, None))[1]
             if why:
-                raise config.Error(why)
+                raise Refused(why)
         repo, base, target = f"{owner}/{name}", info["baseRefName"], info["baseRefName"]
         if is_own:
             method, action = ("squash",
@@ -1300,7 +1343,10 @@ def preflight(run_dir, opts, log):
         state["title"] = title
         run_record.save_state(run_dir, state)
         cmds = taskfile.done_when(body, run_dir / "task.md")
-        repo = task_repo(meta, run_dir / "task.md", state.get("task_file"))
+        # a launch judged again as it waits (`judge_queued`) no longer stands where its own
+        # preflight found the repository, and saved it with `scratch` beside it
+        repo = ((Path(state["repo"]) if state["repo"] else None) if "scratch" in state
+                else task_repo(meta, run_dir / "task.md", state.get("task_file")))
         base = (meta.get("base") or default_base(repo, log)) if repo else "none"
         target, method = meta.get("target") or base, meta.get("merge") or "squash"
         # the checks a round runs, settled as the loop settles them, against the same target
@@ -1310,7 +1356,7 @@ def preflight(run_dir, opts, log):
                    or from_refusal(run_dir / "task.md", (meta.get("from") or "").strip(), repo,
                                    opts["--no-worktree"]))
         if refusal:
-            raise config.Error(refusal)
+            raise Refused(refusal)
         commands = " ; ".join(every)
         if once:
             commands += f"{' ; ' if commands else ''}once: {' ; '.join(once)}"
@@ -1352,6 +1398,8 @@ def preflight(run_dir, opts, log):
     # a job's task runs where its job puts it; every other launch is placed after this line
     log(f"scope: {scope_line(state) or ('none (foreground launch)' if state.get('job_id') else 'pending')}")
     log(f"result: {run_dir / 'result.md'} | log: {run_dir / 'log.txt'}")
+    run_record.save_state(run_dir, {**(run_record.read_state(run_dir) or {}),
+                                    "judged_on": version})
     session = launch_session(run_dir)
     if url:
         if state.get("own_pr"):
@@ -1891,6 +1939,8 @@ def resume_run(argv):
         state = place_here(run_dir, log) or state
     if unstarted and not state.get("launch_opts"):
         log("old launch receipt has no saved options; recovery keeps work local (--no-merge)")
+    if unstarted and judge_queued(run_dir, opts, log, cfg):
+        return 2
     if state.get("review_pr"):
         return drive(cfg, run_dir, opts, log,
                      job=lambda: review_pr(cfg, run_dir, state["review_pr"], opts, log))
@@ -3072,6 +3122,8 @@ def main(argv):
         recorded = (run_record.read_state(Path(resumed)) or {}).get("launch_opts") or {}
         flags.update({flag: recorded[flag] for flag in flags if flag in recorded})
         opts.update(recorded)
+        if judge_queued(Path(resumed), opts, logger(Path(resumed)), cfg):
+            return 2
     if opts["--review-pr"]:
         return review_pr_main(cfg, opts, flags, argv, resumed)
     if resumed:
@@ -3113,6 +3165,7 @@ def main(argv):
                       f"started {started}, \"{first['title']}\") shares {detail}; "
                       f"{rival_advice()}", file=sys.stderr)
                 return 2
+        check_seat_queue(1)
         run_id = f"{datetime.now():%Y%m%d-%H%M}-{slugify(title)}"
         run_dir = config.RUNS / run_id
         n = 1

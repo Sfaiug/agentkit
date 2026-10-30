@@ -170,11 +170,13 @@ else:
     Client = runpy.run_path(str(repo / 'tools/codex-seat.py'))['Client']
     client = Client(args[args.index('--remote') + 1].removeprefix('unix://'))
     try:
-        if 'resume' in args:
-            sid = client.call('thread/resume', {'threadId': args[args.index('resume') + 1]})
-        else:
-            sid = client.call('thread/start', {})
-        sid = sid['thread']['id']
+        method, params = (('thread/resume', {'threadId': args[args.index('resume') + 1]})
+                          if 'resume' in args else ('thread/start', {}))
+        # The server answers once the thread's first turn has run its hooks, however long a
+        # loaded host takes them; Client.call would give up after 15 seconds.
+        client.socket.settimeout(None)
+        client.send({'id': 0, 'method': method, 'params': params})
+        sid = client.receive()['result']['thread']['id']
         if os.environ.get('FAKE_SCREEN'):       # the screen a TUI at its prompt draws
             print(Path(os.environ['FAKE_SCREEN']).read_text(), end='', flush=True)
         publish('fake-tui', {'argv': args, 'pid': os.getpid()})

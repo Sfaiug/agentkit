@@ -15,13 +15,13 @@ linux() {
   # half what it is given for its bursts (36 given two each kept 72 cores 48% busy, on a machine
   # that keeps their files in memory, with nothing waiting on a disk).
   cpus() { echo $(( $(nproc) * 2 )); }
-  # spare: the CPUs nothing holds: `cpus`, less those its running containers were given and half
-  # of it for each suite admitted in the last two minutes that has started no piece.
+  # spare: the CPUs nothing holds: `cpus`, less those its running containers were given and those
+  # each `reserved` says it holds, of what was admitted in the last two minutes and has not started.
   spare() {
     given=$(given NanoCpus) || return
-    find "$ROOT" -mindepth 2 -maxdepth 2 -name reserved -mmin -2 2>/dev/null |
-      awk -v cpus="$(cpus)" -v given="$given" 'END {
-        spare = cpus - given / 1e9 - NR * cpus / 2; print (spare > 0 ? spare : 0) }'
+    find "$ROOT" -mindepth 2 -maxdepth 2 -name reserved -mmin -2 -exec cat {} + 2>/dev/null |
+      awk -v cpus="$(cpus)" -v given="$given" '{held += $1} END {
+        spare = cpus - given / 1e9 - held; print (spare > 0 ? spare : 0) }'
   }
   # probe: docker answers; half of `cpus`, what one suite takes at most, and a load that leaves
   # what is spare of them.
@@ -31,14 +31,16 @@ linux() {
       half /= 2; print "cpus " half; print "load " (spare < half ? half - spare : 0) }'
     echo "turns 1"    # it takes a model's turn (agentkit/machine_turn.py)
   }
-  # admit KEY, from `prepare` under the suites lock: the suite comes in while a quarter of the
-  # machine is spare and holds half of it until its first piece runs or two minutes pass, so
-  # suites whose `probe`s all saw the machine empty do not all start.
+  # admit KEY [CPUS], from `prepare` under the suites lock: the suite comes in while a quarter of
+  # the machine is spare and holds half of it until its first piece runs or two minutes pass, so
+  # suites whose `probe`s all saw the machine empty do not all start. A turn holds only the CPUS it
+  # takes: turns start seconds apart, and each holding half would turn suites and the next turn
+  # away.
   admit() {
     rm -f "$ROOT/$1/reserved"    # a suite preparing again (exit 3) is weighed without its own
     spare=$(spare) || exit 253
     awk -v cpus="$(cpus)" -v spare="$spare" 'BEGIN {exit spare < cpus / 4}' || exit 252
-    mkdir -p "$ROOT/$1" && : >"$ROOT/$1/reserved" || exit 253
+    mkdir -p "$ROOT/$1" && echo "${2:-$(( $(cpus) / 2 ))}" >"$ROOT/$1/reserved" || exit 253
   }
   # started, from `run` once its piece runs or has ended: the suite's reservation ends, under the
   # lock `admit` reads by, so no suite comes in while neither it nor the container holds the

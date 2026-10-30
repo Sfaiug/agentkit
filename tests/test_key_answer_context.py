@@ -23,7 +23,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
-from fixtures.hookdrive import Hooks
+from fixtures.hookdrive import Hooks, read_rules
 
 QUESTION = "Which schema should the parser read?"
 HEAD = "Questions you asked the owner that this prompt may answer:\n\n"
@@ -39,9 +39,10 @@ class AnswerContext(unittest.TestCase):
         cls.hooks = Hooks(cls.home)
 
     def acknowledged(self, name):
-        """A seat whose conversation its first prompt handed its rulebook."""
+        """A seat whose conversation read the rulebook its first prompt named."""
         Seat(self.home, name)
         self.assertEqual(len(self.prompt(name, "hello").said), 1)
+        read_rules(self.home, name)
 
     def ask(self, name, question):
         """The seat's question, and the moments just before and after it was asked."""

@@ -45,8 +45,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, host, notify,
-               orch, questions, seat_tokens, staffing, statusbar, transitions, turns, update,
-               usage, worker)
+               orch, parsed, questions, seat_tokens, staffing, statusbar, transitions, turns,
+               update, usage, worker)
 from . import record as run_record
 from . import sleep
 from . import terminal as terminal_mod
@@ -1537,7 +1537,7 @@ def recorded_error(harness, name):
     notice, nor a wrapped error from two rows; the record the harness writes down can, since a
     model's answer is never one of its error entries.
     """
-    record = config.session_records().get(name) if name else None
+    record = config.session_record(name) if name else None
     plugin = orch.harness_plugin(harness)
     if not record or not plugin.keeps_errors:
         return None
@@ -1553,7 +1553,7 @@ def limit_ended(harness, name):
     to wrap up, so it stopped without a refusal -- on a job its plan does not prove done; None
     where it did not."""
     from . import plan as plan_mod
-    record = config.session_records().get(name) if name else None
+    record = config.session_record(name) if name else None
     if not record:
         return False
     plugin = orch.harness_plugin(harness)
@@ -1568,7 +1568,7 @@ def limit_ended(harness, name):
 def interrupted_at(harness, name):
     """When the owner interrupted that seat's turn, as its harness recorded it -- a turn's end it
     reports by no hook -- or None where it recorded none or keeps no record to read."""
-    record = config.session_records().get(name) if name else None
+    record = config.session_record(name) if name else None
     if not record:
         return None
     plugin = orch.harness_plugin(harness)
@@ -1584,7 +1584,7 @@ def seat_fact(name, harness):
     card's going up or settling writes: a card no hook of the seat's launch hears, in a
     conversation the harness opened after it, still blocks it, and its settling still ends that."""
     fact = hook_facts(name)
-    record = config.session_records().get(name) if harness else None
+    record = config.session_record(name) if harness else None
     if not record:
         return fact
     try:
@@ -1641,7 +1641,7 @@ def cancelled(harness, name, pane):
     """Did the owner cancel that seat's turn before any answer?  Its harness records nothing
     then and sends no hook, so its record is that of a turn not yet answered; but it puts the
     prompt back in the composer, word for word, where a turn that runs leaves none."""
-    record = config.session_records().get(name) if name else None
+    record = config.session_record(name) if name else None
     if not record or not pane:
         return False
     plugin = orch.harness_plugin(harness)
@@ -2007,10 +2007,11 @@ def classify(harness, tail, fact, opened_at, previous, now, interrupted=None):
 
 
 def seat_read(name):
-    """The seat's persisted live state, or {} where it has none yet."""
+    """The seat's persisted live state, or {} where it has none yet: every reader's
+    (`config._read_json`), so only read, and written as a copy (`_seat_put`)."""
     try:
-        data = json.loads(config.seat_state_path(name).read_text(encoding="utf-8"))
-    except (OSError, ValueError, config.Error):
+        data = config._read_json(config.seat_state_path(name), shared=True)
+    except config.Error:
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -2052,7 +2053,7 @@ def _seat_put(name, data, fields):
     """The write under `seat_lock`: merge fields into the record as it was just read."""
     if all(data.get(key) == value for key, value in fields.items()):
         return data
-    data.update(fields, session=name)
+    data = {**data, **fields, "session": name}
     path = config.seat_state_path(name)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data) + "\n")
@@ -2407,9 +2408,13 @@ def plan_text(name):
     """
     from . import plan
     try:
-        return plan.path(name).read_text(encoding="utf-8", errors="replace")
+        return parsed.read(plan.path(name), _replaced)
     except (OSError, config.Error):
         return ""
+
+
+def _replaced(path):
+    return path.read_text(encoding="utf-8", errors="replace")
 
 
 def plan_progress(name):
@@ -2442,7 +2447,7 @@ def unsent(name, harness, found, session, cfg=None):
 def session_state(name, now=None, session=None, cfg=None, records=None, number=None,
                   run_numbers=None, index=None, silent=None, live=None, harness=None,
                   previous=None, auth_out=None, gh_out=None, token_out=None, card=False,
-                  stalls=None):
+                  stalls=None, mine=None):
     """`working`, `needs you`, `done`, `idle` or `out of usage` -- why, and since when.  The one
     decision.  `working` on its runs, its `ak wait` or its live check alone is marked `waits`
     where nothing else ak moves would move the seat: no turn, usage wait, retry or line to type.
@@ -2493,8 +2498,9 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     run is parked with no scheduled resume and still needs his attention.
 
     Every argument is a fact, and every one of them is read where it is left out: `session`,
-    `cfg`, `records` and `index` (a `transitions.supersession_index` over the same records) are one
-    draw's, handed down so a screen full of seats reads each of them once; `number` is this
+    `cfg`, `records`, `mine` (this seat's own among them, `own_runs`) and `index` (a
+    `transitions.supersession_index` over the same records) are one draw's, handed down so a
+    screen full of seats reads each of them once; `number` is this
     seat's number on the menu, which a gone seat's reason names; `silent` is one draw's map
     of run directory name to how long that run has been quiet; `live`/`harness` are what
     `look_at` read off the seat's own screen and hooks, `auth_out` what the last tick's `auth`
@@ -2532,7 +2538,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
             harness = None
     answer = _session_state(name, at, session, cfg, records, number, run_numbers, index,
                             silent, live, harness, auth_out, gh_out, token_out,
-                            menu_mod, run_mod, terminal_mod, stalls)
+                            menu_mod, run_mod, terminal_mod, stalls, mine)
     # `since` is the beginning of this run of this word, the way the classifier carries
     # `began`: unchanged, it keeps counting from where it started; changed, it starts now,
     # because a fact older than the change is not when the word began.  Only the first
@@ -2586,7 +2592,7 @@ def announce_state(session, cfg=None, look=False, **facts):
             seat_write(name, word=answer["word"], reason=answer["reason"],
                        unsent=answer.get("unsent", ""), word_since=answer["since"],
                        word_from=decided)
-        statusbar.redress(session, answer, cfg=cfg, records=facts.get("records"))
+        statusbar.redress(session, answer, cfg=cfg, records=facts.get("mine", facts.get("records")))
         if previous.get("word") != answer["word"]:
             statusbar.retell(session)
     return answer
@@ -2774,7 +2780,7 @@ def work_live(name):
 
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,
                    found, harness, auth_out, gh_out, token_out, menu_mod, run_mod,
-                   terminal_mod, stalls):
+                   terminal_mod, stalls, mine):
     """The ladder itself, top rung first, from the facts its caller gathered.
 
     The seat's own runs are gathered before the first rung, because a login the top rung
@@ -2787,7 +2793,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             records = menu_mod.run_records()
         except (config.Error, OSError, ValueError):
             records = []
-    mine = own_runs(name, records)
+    if mine is None:
+        mine = own_runs(name, records)
     # 1. a login expired: the seat cannot move and only he can move it.  What decides it for
     # this seat is its harness's own `auth seat` verb, as the last tick asked it -- never the
     # pane, which a queued input redraws between ticks, and which is how `needs login` and
@@ -7631,7 +7638,7 @@ def after_merge_checks(state, dry_run, log, now=None):
 def doctor(argv):
     """`ak doctor`: where the agents run, whether the tick that watches them is alive, what each
     machine ak may use is, and any model set to an effort its model does not take, its `effort`
-    or the one a role runs it at, then the best machine to rent now, or why there is none.
+    or the one a role runs it at, then what ak rents while it may, else the best machine to rent.
 
     The first lines are read and never asked, so they cost nothing on a host already in
     trouble -- which is the host this is typed on -- and come out before the efforts, which
@@ -7660,10 +7667,10 @@ def doctor(argv):
     print("\n".join(wrong) or "effort  every model takes the effort it is set to", flush=True)
     from . import gate, google_cloud   # here, not at the top: the gate imports this module
     try:
-        best = google_cloud.best(gate.HEAVY_MEM_MB)
-        print(f"rented machines: best now {best}" if best else "rented machines: nothing offered")
-    except google_cloud.Unavailable as exc:
-        print(f"rented machines: {exc}")
+        lines = google_cloud.said(gate.HEAVY_MEM_MB)
+    except config.Error as exc:
+        lines = [str(exc)]
+    print("\n".join(f"rented machines: {line}" for line in lines))
     return 0
 
 
@@ -7728,7 +7735,7 @@ def local_passes(state, dry_run, log):
     Each pass re-derives placement or state from what it finds: a finding remembered from one
     tick to the next loses its race.
     """
-    from . import job as jobs, leases, logins, machines, retire, run
+    from . import google_cloud, job as jobs, leases, logins, machines, retire, run
     providers = {}
 
     def read_usage():
@@ -7836,6 +7843,8 @@ def local_passes(state, dry_run, log):
         # Each machine ak may use is asked what it is; one that does not answer holds the tick
         # no longer than its ssh timeout.
         ("the machines were not checked", machines.check, False),
+        # ... and Google for what ak rents, given back past its time or the month's cap
+        ("the rented machines were not watched", google_cloud.watch, False),
         # A merge to a project reaches its seats' rulebooks: their next prompts name it.
         ("the projects' rules were not fetched", orch.fetch_projects, False),
         # Merged agentkit goes live after every local pass, so as little of this tick's old

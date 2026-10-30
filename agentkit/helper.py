@@ -1,6 +1,6 @@
 """A machine that runs a sharded suite's pieces beside this one: `suite_helper` in config.toml
 names it by ssh alias. A Mac runs each piece in a Linux VM of Apple's `container` while it is awake
-and on power; a Linux machine with docker (on Debian, its packages `docker.io` and `docker-cli`,
+and on power; a Linux machine with docker (on Debian, its packages `docker.io`, `docker-cli`, `curl`,
 the ssh user in group `docker`), which holds nothing but ak's work and gives it all its memory but
 a tenth, in a container. Its image is built from the recipe the repository's `suite_image:` names,
 else its tools/helper/Containerfile (ak's own), with only the tree under test and its repository's
@@ -168,7 +168,8 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None):
     """(the suite sent to the roomiest helper, reason): an Away, or (None, why it runs here).
     `command` is what each of its pieces runs there (`piece`): one whose line is longer than one
     argument holds keeps the suite here. With `turn`, a model turn's (agentkit/machine_turn.py),
-    it goes to a machine that takes turns, `turn(tar)` adding its own files to the parcel."""
+    it goes to a machine that takes turns, holding `piece_cpus` of it until it starts, not half,
+    `turn(tar)` adding its own files to the parcel."""
     try:
         aliases = machines.helpers()
     except config.Error:  # a config.toml mid-edit fails no run's suite: it runs here
@@ -210,7 +211,8 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None):
                 _parcel(cwd, away.default, known, recipe, parcel, turn)
                 parcel.seek(0)
                 # a new recipe's build fetches packages, a first suite sends the whole history
-                sent = _remote(alias, "prepare", away.key, image, repo, stdin=parcel,
+                sent = _remote(alias, "prepare", away.key, image, repo,
+                               *([piece_cpus] if turn else []), stdin=parcel,
                                timeout=1800).returncode
             # The copy went since `known` answered: the whole history, once.
             known = [] if known and sent == LACKS else None

@@ -145,17 +145,30 @@ def host_status_line():
     return f"{first}\n{heavy}"
 
 
+def slot_place(state):
+    """`holding` for a top-level run holding its slot, `waiting` for one waiting for it, a dead
+    waiter included, which the tick resumes; else None."""
+    if state.get("run_depth", 0):
+        return None
+    if state.get("state") == "running" and run_record.process_active(state):
+        return "holding"
+    if state.get("state") == "queued" and state.get("slot_waiting"):
+        return "waiting"
+    return None
+
+
 def slot_counts(state, *, remember=False):
     """Live slot owners, top-level receipts ahead of this one (including dead waiters), and
     the other waiters' run ids in queue order. Under slot_lock, `remember` saves the queue."""
     running, waiting = 0, [state]
     for directory in run_record.run_dirs():
         other = run_record.read_state(directory) or {}
-        if other.get("run_id") == state.get("run_id") or other.get("run_depth", 0):
+        if other.get("run_id") == state.get("run_id"):
             continue
-        if other.get("state") == "running" and run_record.process_active(other):
+        place = slot_place(other)
+        if place == "holding":
             running += 1
-        elif other.get("state") == "queued" and other.get("slot_waiting"):
+        elif place == "waiting":
             waiting.append(other)
     previous, batches = slot_queue()[5], {}
     for other in waiting:
@@ -184,6 +197,32 @@ def slot_counts(state, *, remember=False):
     if remember:
         _save_queue(running, queue, turns=turns)
     return running, ahead, queue[:ahead] + queue[ahead + 1:]
+
+
+def seat_full(seat, launches):
+    """Why that seat may not launch that many more runs, or None: a seat may have as many runs
+    waiting for a slot as holding one (`slot_place`), and always one, and each launch waits until
+    it holds one.  Seats launched everything at once, so the queue outgrew what the host could
+    check and a seat's urgent work sat behind its own; a host admitting more runs lets more wait.
+    The reason names the run to `ak wait` for: the one that has held its slot longest, else the
+    oldest waiting."""
+    holding, waiting = [], []
+    records = ((directory, run_record.read_state(directory) or {})
+               for directory in run_record.run_dirs())
+    for directory, other in transitions.runs_by_seat(records).get(seat, []):
+        place = slot_place(other)
+        if place == "holding":
+            holding.append((other.get("slot_started_at") or 0, directory.name))
+        elif place == "waiting":
+            waiting.append((transitions.first_queued(other), directory.name))
+    room = max(len(holding), 1) - len(waiting)
+    if launches <= room:
+        return None
+    first = min(holding or waiting, default=None)
+    return (f"{seat} may have as many runs waiting for a slot as holding one, and always one: "
+            f"it has {len(waiting)} waiting and {len(holding)} holding, so room for "
+            f"{max(room, 0)} more, not {launches}; "
+            + (f"`ak wait {first[1]}`, then launch again" if first else "launch one at a time"))
 
 
 def _save_queue(running, queue, let_in=None, turns=None):
@@ -439,17 +478,19 @@ def claim_slot(state, limit, readings=None):
         state.pop("resume_from", None)
         return True
     is_first = not slot_order(state)[0]
-    if ahead or (limit and running >= limit and not is_first):
+    # A green delivery only merges a tree its line already checked: it spends no headroom a
+    # gate guards, every member behind it in the line waits on it, and the queue's one admission
+    # a poll has nothing to pace for it: 47 taking turns there held every other run back for half
+    # an hour (30 Oct 2026). Who merges next is the line's order (`deliver.merge_lock`).
+    green = landing.green_delivery(state.get("waiting_on") or {})
+    if (ahead and not green) or (limit and running >= limit and not is_first):
         state["slot_waited"] = True
         state["slot_wait_reason"] = slot_line(running, ahead, limit, is_first)
         state["slot_wait_kind"] = "count"
         state["slot_healthy_polls"] = 0
         return False
-    # A green delivery only merges a tree its line already checked: it spends no headroom a
-    # gate guards, and every member behind it in the line waits on it.
     state.pop("slot_stall", None)
-    if not landing.green_delivery(state.get("waiting_on") or {}) and not _host_admits(
-            state, readings, is_first):
+    if not green and not _host_admits(state, readings, is_first):
         return False
     _save_queue(running + 1, others, let_in=state)
     state.update(state="running", slot_waiting=False, slot_started_at=time.time(),

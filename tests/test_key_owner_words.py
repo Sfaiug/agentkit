@@ -18,13 +18,14 @@ from datetime import datetime, timezone
 import json
 import shlex
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import AK, REAL_TMUX, REPO, Home
+from fixtures.akbin import AK, REAL_TMUX, REPO, Home, owner
 from fixtures.akseat import Seat
 
 KEY = "sk-acme-0000000000000000000000"
@@ -84,6 +85,15 @@ class Launch(unittest.TestCase):
         home.write(f".claude/projects/{project}/{seat.record['conversation']}.jsonl",
                    json.dumps({"type": "user", "timestamp": at,
                                "message": {"role": "user", "content": SAID}}) + "\n")
+        # two of the seat's runs hold a slot each, so it has room to queue both tasks
+        for n in range(2):
+            sleep = subprocess.Popen(["sleep", "600"], start_new_session=True)
+            cls.addClassCleanup(lambda sleep=sleep: (sleep.kill(), sleep.wait()))
+            run_id = f"20261029-090{n}-lagoon-holds"
+            home.write(f".agentkit/runs/{run_id}/run.json", {
+                "run_id": run_id, "launched_session": "lagoon", "state": "running",
+                "run_depth": 0, "started_at": time.time(), "slot_started_at": time.time(),
+                **owner(sleep.pid)})
         tasks = []
         for title in ("Fix API", "Fix UI"):
             tasks.append(seat.cwd / f"{title.lower().replace(' ', '-')}.md")

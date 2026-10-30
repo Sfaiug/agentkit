@@ -627,8 +627,9 @@ esac
         for flags in ([], ["--no-worktree"]):
             cmd = [sys.executable, str(REPO / "bin" / "ak"), "run", str(task), "--no-merge",
                    "--exec", "opus", "--review", "astra", *flags]
+            # a limit for a hang, not a speed: a loaded host takes half a minute over the run
             result = in_account_home(cmd, home, env=env, capture_output=True,
-                                     text=True, timeout=30)
+                                     text=True, timeout=120)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("preflight", result.stdout)
             self.assertIn("done-when:", result.stdout)

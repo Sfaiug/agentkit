@@ -11,7 +11,8 @@ when the run has no landing; it leaves one run whose record says error and why, 
 calls no harness.  A line holding `<<` that bash reads as no heredoc runs as written.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on a
 project from gitrig.py, with tasks from taskfile.py and harnesses from fakeadapter.py that a
-refused task never reaches.
+refused task never reaches; the checks ceiling is launched as a real home launches, on the
+shipped adapters, whose harness programs are the Home's fakes that log a call and refuse it.
 """
 
 import json
@@ -39,12 +40,13 @@ ONCE = (*FOUR[:3], "test -f .keep  # once")
 MODES = (("--no-merge",), ("--no-merge", "--bg"))
 
 
-def project(cls):
+def project(cls, fakes=True):
     cls.home = Home()
     cls.addClassCleanup(cls.home.close)
     cls.rig = Rig(cls.home, "widgets")
     akconfig.write(cls.home, ["opus", "astra"])
-    cls.fakes = fakeadapter.install(cls.home, claude="work", codex="pass")
+    if fakes:
+        cls.fakes = fakeadapter.install(cls.home, claude="work", codex="pass")
 
 
 def entries(directory):
@@ -110,7 +112,7 @@ class MoreThanThreeChecks(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        project(cls)
+        project(cls, fakes=False)
         cls.launched = {}
         for title, (in_project, done_when, flags) in cls.CASES.items():
             task = taskfile.write(cls.home, cls.rig.path if in_project else None, title,
@@ -137,8 +139,8 @@ class MoreThanThreeChecks(unittest.TestCase):
                 self.assertIn(CEILING, lines)
 
     def test_no_harness_branch_or_worktree_is_started(self):
-        self.assertEqual({name: fake.n for name, fake in self.fakes.items()},
-                         {"claude": 0, "codex": 0})
+        self.assertEqual({name: self.home.calls(name) for name in ("claude", "codex")},
+                         {"claude": [], "codex": []})
         self.assertEqual((self.rig.branches(remote=False), self.rig.branches()),
                          (["main"], ["main"]))
         self.assertEqual(entries(self.home.path / ".agentkit" / "wt"), [])

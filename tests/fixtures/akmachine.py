@@ -16,7 +16,9 @@ SSH = '#!/bin/bash\nexec env -i HOME={home} PATH={bin}:/usr/bin:/bin bash -c "${
 # and a container runs only an image a build left. Its root is a directory holding its volumes as
 # links, its home and /tmp, its own cgroup's memory.events and the kernel's /proc/vmstat, shared
 # with every container and counting one more kill at each read; its command runs with the paths it
-# names there. A volume at a path of this host's own, a turn's, is bound there by bubblewrap.
+# names there. A volume at a path of this host's own, a turn's, is bound there by bubblewrap; one
+# nested in another, its mount point missing there, makes it as docker does, as root: here,
+# read-only.
 DOCKER = r"""
 import itertools, os, re, shutil, subprocess, sys, threading
 from pathlib import Path
@@ -64,6 +66,13 @@ elif words[0] == "run":
                 vmstat.write(f"oom_kill {count}\n")
 
     threading.Thread(target=kills, daemon=True).start()
+    points = [Path(place, inside[len(over) + 1:]) for inside in links
+              for over, place in links.items() if inside.startswith(f"{over}/")]
+    made = {path for point in points for path in (point, *point.parents) if not path.exists()}
+    for point in points:
+        point.mkdir(parents=True, exist_ok=True)
+    for path in made:
+        path.chmod(0o555)
     binds = []
     for inside, outside in sorted(links.items()):
         if inside[1:] in ("in", "out", "mirror", "harness"):
@@ -81,14 +90,15 @@ elif words[0] == "run":
     sys.exit(code)
 """
 
-# The machine's own programs: docker; its size; and the piece's way offline, which changes
-# nothing here.
+# The machine's own programs: docker; its size; the piece's way offline, which changes nothing
+# here; and a curl that reaches nothing until a test gives it its own.
 TOOLS = {"docker": f"#!{sys.executable}\n{DOCKER}",
          "nproc": "#!/bin/sh\necho 2\n",
          "free": "#!/bin/sh\nprintf '%s\\n' '  total used' 'Mem: 65536 1024'\n",
          "unshare": '#!/bin/sh\nwhile [ "${1#-}" != "$1" ]; do shift; done\nexec "$@"\n',
          "setpriv": '#!/bin/sh\nwhile [ "${1#-}" != "$1" ]; do shift; done\nexec "$@"\n',
-         "ip": '#!/bin/sh\n[ "$1" != -o ] || echo "1: lo: <LOOPBACK,UP>"\n'}
+         "ip": '#!/bin/sh\n[ "$1" != -o ] || echo "1: lo: <LOOPBACK,UP>"\n',
+         "curl": "#!/bin/sh\nexit 7\n"}
 
 
 def install(home):
