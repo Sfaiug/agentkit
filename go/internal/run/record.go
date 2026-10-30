@@ -84,7 +84,7 @@ func Read(dir string) (*Object, error) {
 // to sweep, so only the stamp changes, here in memory alone.
 func Reap(record *Object) (*Object, bool) {
 	loop := []any{record.Get("pid"), record.Get("process_identity")}
-	if !(Failed(record) || record.Str("state") == "pass") || ProcessActive(record) || equal(record.Get("tree_stopped"), loop) {
+	if !(Failed(record) || record.Str("state") == "pass") || ProcessActive(record) || Equal(record.Get("tree_stopped"), loop) {
 		return record, false
 	}
 	if record.Get("pid") != nil || record.Get("scope") != nil {
