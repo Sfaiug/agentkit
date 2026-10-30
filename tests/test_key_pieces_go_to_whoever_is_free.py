@@ -86,7 +86,8 @@ class PiecesGoToWhoeverIsFree(unittest.TestCase):
     def test_what_a_helper_that_drops_left_runs_here(self):
         places, logs = self.suite(4, drop=True)
         self.assertEqual(places, {"helper": 1, "here": 3})
-        self.assertIn("the suite helper lost AK_SHARD=3/4; it runs here", logs)
+        self.assertIn("the suite helper acme-mac lost AK_SHARD=3/4; it runs again on the first "
+                      "machine with room, this one included", logs)
 
     def test_an_absent_helper_leaves_the_whole_suite_here(self):
         (self.fake / "gone").touch()

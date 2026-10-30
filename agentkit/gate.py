@@ -845,37 +845,37 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False):
 
 class _Pieces:
     """A sharded suite's pieces not yet run, each taken by the next place to free, a turn here or
-    a VM on the suite helper; one the helper lost (`helper.GONE`) waits for a turn here, one it had
-    no room to start (`helper.FULL`) for the next place."""
+    a VM on a machine; one a machine had no room to start (`helper.FULL`) waits for the next place,
+    one it lost (`helper.GONE`) for the next but the VMs of the suite there that lost it."""
 
     def __init__(self, count):
-        self.waiting, self.back, self.out, self.there = list(range(count)), set(), 0, 0
+        self.waiting, self.lost, self.out, self.there = list(range(count)), {}, 0, 0
         self.cond, self.hold = threading.Condition(), None
 
-    def mine(self, here):
-        return [index for index in self.waiting if here or index not in self.back]
+    def mine(self, there):
+        return [index for index in self.waiting if there not in self.lost.get(index, ())]
 
-    def next(self, ended, here):
+    def next(self, ended, there):
         """(the next piece, its turn here or True), or None once none may come for this place."""
         while True:
             with self.cond:
-                while here and not self.waiting and self.out and not ended():
+                while not there and not self.waiting and self.out and not ended():
                     self.cond.wait(GATE_POLL)
-                if ended() or not self.mine(here):
-                    self.there -= not here
+                if ended() or not self.mine(there):
+                    self.there -= bool(there)
                     return None
             turn = self.hold.take(lambda: ended() or not self.waiting) if (
-                here and self.hold) else True
+                not there and self.hold) else True
             with self.cond:
-                if turn is not None and (mine := self.mine(here)):
+                if turn is not None and (mine := self.mine(there)):
                     self.waiting.remove(mine[0])
                     self.out += 1
                     return mine[0], turn
             if turn is not True:
                 self.hold.give(turn)
 
-    def done(self, index, back, turn):
-        """`back`, the helper's exit for a piece it gave back, ends that place there."""
+    def done(self, index, back, turn, there):
+        """`back`, the exit of a piece `there` gave back, ends that place there."""
         if turn is not True:
             self.hold.give(turn)
         with self.cond:
@@ -883,7 +883,7 @@ class _Pieces:
             if back:
                 self.waiting.insert(0, index)
                 if back in helper.GONE:    # lost, not turned away before its VM started
-                    self.back.add(index)
+                    self.lost.setdefault(index, []).append(there)
                 self.there -= 1
             self.cond.notify_all()
 
@@ -1297,8 +1297,8 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, l
         if _GATE_HELD.here and log is not None:
             log(f"suite runs here: {_GATE_HELD.here}")
     try:
-        _GATE_HELD.home = lambda wait=True: _acquire_gate_turn(run_dir, log_path, log, command,
-                                                             cwd, context=context, wait=wait)
+        _GATE_HELD.home = lambda elsewhere: _acquire_gate_turn(
+            run_dir, log_path, log, command, cwd, context=context, elsewhere=elsewhere)
         _GATE_HELD.hold = _acquire_gate_turn(run_dir, log_path, log, command, cwd,
                                              context=context, wait=not _GATE_HELD.away,
                                              elsewhere=elsewhere)
@@ -1813,12 +1813,12 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
 
                 def place(there=None):    # a VM there ends with the piece it gives back
                     back = False
-                    while not back and (taken := pieces_left.next(over, not there)) is not None:
+                    while not back and (taken := pieces_left.next(over, there)) is not None:
                         (index, turn), shard = taken, f"{taken[0] + 1}/{count}"
                         result = attempt(shard, first=True, there=there, turn=turn)
                         code = result[0]
                         back = there and code in (*helper.GONE, helper.FULL) and not result[2]
-                        pieces_left.done(index, back and code, turn)
+                        pieces_left.done(index, back and code, turn, there)
                         if there and not back and flaky is not None:
                             flaky.extend(helper.failed(there, shard, "flaky"))
                         if there and code and log is not None:
@@ -1830,7 +1830,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                                 f"memory: its next VMs get {least} MiB")
                         elif code == helper.LOST and log:
                             # Without this a suite the helper lost reads as one it ran.
-                            log(f"the suite helper lost AK_SHARD={shard}; it runs here")
+                            log(f"the suite helper {there.alias} lost AK_SHARD={shard}; it runs "
+                                "again on the first machine with room, this one included")
 
                 def ended():    # no piece waits or runs, or no place is left to take one
                     return over() or not (pieces_left.waiting or pieces_left.out) or not (
@@ -1845,7 +1846,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             # A place ending wakes this, yet it asks once a poll at most.
                             left = asked + GATE_POLL - time.monotonic()
                             pieces_left.cond.wait(left if left > 0 else GATE_POLL)
-                            if ended() or not pieces_left.mine(False) or (
+                            if ended() or not pieces_left.waiting or (
                                     time.monotonic() < asked + GATE_POLL):
                                 continue
                         asked = time.monotonic()
@@ -1874,7 +1875,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
 
                 def run_there(there):
                     with pieces_left.cond:
-                        vms = min(there.count, len(pieces_left.mine(False)))
+                        vms = min(there.count, len(pieces_left.mine(there)))
                         pieces_left.there += vms
                     futures.extend(pool.submit(place, there) for _ in range(vms))
 
@@ -1902,13 +1903,14 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             again = [index for index, there in enumerate(where) if there and results[index][0]
                      and not results[index][2] and not cancel.is_set()]
             named = {}    # by index, a piece red on the helper: what it printed there, its tests
-            if any(where) and log is not None and not pieces_left.back and all(
+            if any(where) and log is not None and not pieces_left.lost and all(
                     result and not result[0] and not result[2] for result in results):
                 log(f"every piece passed on the suite helper {next(filter(None, where)).alias}"
                     f"{' and this host' if not all(where) else ''}")
             if (again or pieces_left.waiting or any(where) and silenced) and not cancel.is_set():
-                # What the helper lost, failed, ran out of memory for or stopped runs again
-                # here, on this host's own turns; a stopped piece alone, below.
+                # What a machine failed or stopped runs again here, on this host's own turns, a
+                # stopped piece alone, below; what it lost or had no room for, on the first
+                # machine with room, this one included.
                 for index in again:
                     if log is not None:
                         # its go here takes its place in the suite's output: a copy keeps this one
@@ -1921,13 +1923,30 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             f"what it printed there: {kept}")
                     if tests := helper.failed(where[index], f"{index + 1}/{count}"):
                         named[index] = results[index][1], tests
-                if hold is None:
+                joined = [None]
+
+                def elsewhere():    # asked while waiting for a turn here
+                    said = []
+                    if pieces_left.waiting:
+                        joined[0] = helper.start(cpu, mem, cwd, said.append)[0]
+                    if joined[0]:
+                        files.callback(helper.finish, joined[0])
+                        for line in said if log else ():
+                            log(line)
+                    return joined[0]
+
+                while hold is None and (again or pieces_left.waiting or silenced) and not over():
+                    joined[0] = None
                     began = time.monotonic()
-                    hold = _GATE_HELD.hold = _GATE_HELD.home()
+                    hold = _GATE_HELD.hold = _GATE_HELD.home(elsewhere)
                     queued = time.monotonic() - began    # as busy_turn's: no ceiling is charged
                     deadline += queued
                     if on_wait is not None:
                         on_wait(queued)
+                    if not joined[0]:
+                        break
+                    away = joined[0]
+                    pull(hold.pieces if hold else 0)
                 env = suite_env(changed, times)
                 if pieces_left.waiting:
                     pull(hold.pieces if hold else len(pieces_left.waiting))
