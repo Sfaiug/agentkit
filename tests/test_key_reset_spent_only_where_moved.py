@@ -2,11 +2,11 @@
 list and a line on `c` → Subscriptions open lit only on `↻ log in again`, and the light stays on
 the act it is on, by what it is, nothing lit once that act is gone.  Antigravity's usual login
 offers no `log in again` (`[auth] again = false`): holding a reset, its line and its meter's list
-open with nothing lit, and Enter spends nothing.  ChatGPT's line, lit on `↻ spend a reset`, loses
-it when its reading comes back with none in hand, and Enter then does nothing.  Black-box:
-`AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py) over usage and logins in a temporary
-HOME, harnesses faked (tests/fixtures/fakeadapter.py), each logging a reset spent, NO_COLOR, so
-the lit act is bracketed.  This test fails against `/bin/false`.
+open with nothing lit, and Enter spends nothing.  ChatGPT's line, its login ending in two days and
+lit on `↻ spend a reset`, loses it when its reading comes back with none in hand, and Enter then
+does nothing.  Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py) over usage
+and logins in a temporary HOME, harnesses faked (tests/fixtures/fakeadapter.py), each logging a
+reset spent, NO_COLOR, so the lit act is bracketed.  This test fails against `/bin/false`.
 """
 
 import json
@@ -24,7 +24,6 @@ MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   c config   esc leave"
 UNLIT, LIT = "  ↑↓←→ move   esc back", "  ↑↓←→ move   ⏎ {}   esc back"
 PAGE = "agentkit · config · subscriptions"
 GEMINI = "    gem@acme.test   {}   {}"
-CHATGPT = "    owner@acme.test · plus   {}   {}   {}"
 
 
 def lines(screen):
@@ -48,15 +47,23 @@ class ResetSpentOnlyWhereMoved(unittest.TestCase):
         self.home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {
             "google": {**week, "resets": 1}, "openai": {**week, "resets": 1}}})
 
-        def login(email, plan=None):
-            return {"default": {"email": email, "ends": None, "plan": plan, "checked_at": now}}
+        def login(email, plan=None, ends=None):
+            return {"default": {"email": email, "ends": ends, "plan": plan, "checked_at": now}}
+        ends = int(now + 2 * 86400)       # UTC, as the menu reads it
+        self.ends = time.strftime("%a %d %b %H:%M", time.gmtime(ends))
         self.home.write(".agentkit/state/logins.json", {
-            "google": login("gem@acme.test"), "openai": login("owner@acme.test", "plus")})
-        self.term = Terminal(self.home, size=(100, 40), env={"NO_COLOR": "1"})
+            "google": login("gem@acme.test"), "openai": login("owner@acme.test", "plus", ends)})
+        # wide enough for ChatGPT's line, its login's end and its three acts, on one line
+        self.term = Terminal(self.home, size=(120, 40), env={"NO_COLOR": "1"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
                         "sleep 86400", server=SERVER)
         self.main = self.term.wait(lambda screen: MAIN_KEYS in lines(screen)
                                    and "Gemini" in screen and "ChatGPT" in screen)
+
+    def chatgpt(self, *acts):
+        """ChatGPT's line on Subscriptions, its login ending in two days, with `acts`."""
+        told = f"    login owner@acme.test ends {self.ends} (in 2 days) · plus"
+        return "   ".join([told, *acts])
 
     def spent(self):
         return [call for fake in self.fakes.values() for call in fake.calls("reset")]
@@ -93,10 +100,10 @@ class ResetSpentOnlyWhereMoved(unittest.TestCase):
     def test_the_act_lit_gone_from_under_the_light_leaves_nothing_lit(self):
         self.subscriptions()
         self.term.keys("Down")
-        self.term.wait(CHATGPT.format("[↻ log in again]", "↻ spend a reset", "− remove"))
+        self.term.wait(self.chatgpt("[↻ log in again]", "↻ spend a reset", "− remove"))
         self.term.keys("Right")
-        self.term.wait(lambda screen: CHATGPT.format("↻ log in again", "[↻ spend a reset]",
-                                                     "− remove") in lines(screen)
+        self.term.wait(lambda screen: self.chatgpt("↻ log in again", "[↻ spend a reset]",
+                                                   "− remove") in lines(screen)
                        and LIT.format("spend a reset") in lines(screen))
         # the menu's opening probe written first, or it writes back the reading it took before
         self.term.wait(lambda _: all("probed_at" in prov for prov in json.loads(
@@ -107,7 +114,7 @@ class ResetSpentOnlyWhereMoved(unittest.TestCase):
             if reading["providers"]["openai"].get("resets"):
                 reading["providers"]["openai"]["resets"] = 0
                 self.home.write(".agentkit/state/usage.json", reading)
-            return ("    owner@acme.test · plus   ↻ log in again   − remove" in lines(screen)
+            return (self.chatgpt("↻ log in again", "− remove") in lines(screen)
                     and UNLIT in lines(screen))
         self.term.wait(rewritten)
         self.term.keys("Enter", "Right")

@@ -1,8 +1,9 @@
-"""A Gemini subscription of its own login offers `↻ log in again` first on `c` → Subscriptions, as
-every other does; Antigravity's usual login does not (`[auth] again = false`): agy restores that
-one from the desktop keyring.  Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py)
-over usage and logins in a temporary HOME, the harness faked (tests/fixtures/fakeadapter.py),
-NO_COLOR, so the lit act is bracketed.  This test fails against `/bin/false`.
+"""A Gemini subscription of its own login ending soon offers `↻ log in again` first on `c` →
+Subscriptions, as every other does; Antigravity's usual login does not (`[auth] again = false`):
+agy restores that one from the desktop keyring.  Black-box: `AK_BIN`'s menu in a terminal
+(tests/fixtures/akterm.py) over usage and logins in a temporary HOME, the harness faked
+(tests/fixtures/fakeadapter.py), NO_COLOR, so the lit act is bracketed.  This test fails against
+`/bin/false`.
 """
 
 import sys
@@ -34,9 +35,12 @@ class GeminiSignsInAgain(unittest.TestCase):
         used = {"meters": [{"name": "weekly", "used": 30, "window_secs": 604800}]}
         home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {
             "google": {"accounts": {"default": used, "two": used}}}})
+        ends = int(now + 2 * 86400)       # inside the warning window, UTC as the menu reads it
         home.write(".agentkit/state/logins.json", {"google": {
-            account: {"email": f"{account}@acme.test", "ends": None, "plan": None,
+            account: {"email": f"{account}@acme.test", "ends": ends, "plan": None,
                       "checked_at": now} for account in ("default", "two")}})
+        soon = "    login {}@acme.test ends " + time.strftime("%a %d %b %H:%M (in 2 days)",
+                                                              time.gmtime(ends))
         term = Terminal(home, size=(100, 40), env={"NO_COLOR": "1"})
         self.addCleanup(home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
@@ -47,10 +51,10 @@ class GeminiSignsInAgain(unittest.TestCase):
         term.wait("› Subscriptions")
         term.keys("Enter")
         usual = term.wait(lambda screen: PAGE in screen and "› Gemini I " in screen)
-        self.assertIn("    default@acme.test   − remove", lines(usual))
+        self.assertIn(soon.format("default") + "   − remove", lines(usual))
         term.keys("Down")
         named = term.wait(lambda screen: "› Gemini II " in screen)
-        self.assertIn("    two@acme.test   [↻ log in again]   − remove", lines(named))
+        self.assertIn(soon.format("two") + "   [↻ log in again]   − remove", lines(named))
         self.assertIn("  ↑↓←→ move   ⏎ log in again   esc back", lines(named))
         term.keys("Enter")
         term.wait(lambda screen: PAGE in screen and fakes["antigravity"].calls("login"))

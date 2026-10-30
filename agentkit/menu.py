@@ -3859,10 +3859,12 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         if here[0] == "model" and column not in columns:      # no effort here: onto its mark
             column = column - 3 if column - 3 in columns else columns[0]
         opens = here[0] in ("row", "usage")       # else a mark or an effort, changed in place
+        # a meter that offers nothing opens no list (meter_acts)
+        shut = here[0] == "usage" and not subscription_acts(cfg, keyboard, here[1])
         keys = terminal.keys(*([ADVICE_KEY] if advice else []),
                              *([APPLY_KEY] if fresh else []), "esc back",
                              space=None if opens else "mark" if column < 3 else "step",
-                             enter="open" if opens else "start" if born else None)
+                             enter=None if shut else "open" if opens else "start" if born else None)
         # each meter's cells, on the lines over the page counted back from it, washing in and out
         moves = [(line - len(over), ("sub", number), number == lit,
                   motion.washing([(column, text, rest)], colour(cfg, subs[number - 1][0])))
@@ -4455,28 +4457,31 @@ def config_spend_reset(cfg, picked):
 
 def subscription_acts(cfg, keyboard, number, remove=False):
     """What subscription `number`, from 1 in usage_rows' order, offers, as (text, act) each, an
-    act what to say under the screen or "": `log in again` where its harness signs it in
-    afresh (sign_in, config.signs_in_again), `spend a reset` while it holds one (config_spend_reset), and with `remove`,
-    `remove` (config_remove_provider)."""
+    act what to say under the screen or "": `log in again` while its own login ends soon or has
+    ended (login_notes), where its harness signs it in afresh (sign_in, config.signs_in_again),
+    `spend a reset` while it holds one (config_spend_reset), and with `remove`, `remove`
+    (config_remove_provider).  A login the tick finds logged out with no end recorded is told
+    by its alert alone: that record is its harness's, which can carry several subscriptions."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
-    name, label, prov, account = usage_rows(cfg)[number - 1]
+    rows = usage_rows(cfg)[number - 1:number]
+    name, label, prov, account = rows[0]
     # its label as usage_cells has it, which config_spend_reset reads its week back by
     picked = (name, account, label)
     harness = logins.harness(cfg, name)
     return [(act_text(text), act) for text, act, offers in (
-        (SUBSCRIPTION_ACTS[0], lambda: sign_in(cfg, keyboard, picked),
-         harness and config.signs_in_again(harness, account)),
+        (SUBSCRIPTION_ACTS[0], lambda: sign_in(cfg, keyboard, picked), login_notes(rows)[0]
+         and harness and config.signs_in_again(harness, account)),
         (SUBSCRIPTION_ACTS[1], lambda: config_spend_reset(cfg, picked), in_hand(prov)),
         (SUBSCRIPTION_ACTS[2], lambda: config_remove_provider(cfg, picked), remove)) if offers]
 
 
-@terminal.clicks_its_own
 def meter_acts(cfg, keyboard, number, screen):
     """Enter or a click on subscription `number`'s meter, on the ak screen or `c` alike: what it
     offers (subscription_acts, nothing removed from here), picked from a list under its name,
     `screen` the title it is drawn under, the highlight on `log in again` where it is offered
-    and otherwise on nothing, so a reset is spent only by a move or a click there.  What to say
-    under the screen, or ""."""
+    and otherwise on nothing, so a reset is spent only by a move or a click there.  One that
+    offers nothing opens no list and leaves the pointer where it is, its detail line under it:
+    the list and each act let the pointer go themselves.  What to say under the screen, or ""."""
     acts = dict(subscription_acts(cfg, keyboard, number))
     if not acts:
         return ""
