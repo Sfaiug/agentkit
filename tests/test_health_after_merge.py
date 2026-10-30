@@ -95,13 +95,14 @@ class HealthAfterMerge(unittest.TestCase):
         return self.remote.get(endpoint.partition("?ref=")[2]), "AGENTS.md unavailable"
 
     def merged(self, sha, name="run-a", age=600, seat=SEAT):
+        """A merge its seat has heard: a tick hands an ending back before it follows the merge."""
         directory = config.RUNS / name
         directory.mkdir()
         record.save_state(directory, {
             "run_id": name, "state": "pass", "verdict": "PASS", "merged": True,
             "pr": PR, "merge_sha": sha, "target": "origin/main", "launched_session": seat,
             "repo": str(self.repo), "worktree": str(self.root / "dropped-worktree"),
-            "finished_at": NOW - age})
+            "finished_at": NOW - age, "handed_back": NOW - age, "reported": True})
         history.start_run(name, repo=self.repo, started_at=NOW - age - 60)
         history.finish_run(name, final_state="pass", finished_at=NOW - age)
         return directory

@@ -958,8 +958,8 @@ def seat_owes_nothing(state):
     """Whether the seat that launched the run owes no work (`stop.owed`): then no turn of its
     waits on the run or on its change going live, and either is recorded, never typed.  A
     seat that owes work may have ended its turn on that very wait (`stop.recorded_ending`),
-    so for it the ending, or the change going live (`watch.after_merge_health`), is the end
-    of the wait and goes to it like any other."""
+    so for it the ending, or the change going live (`watch.after_merge_health`), goes to it
+    where it ends that wait (`ends_wait`), and rides on its next prompt otherwise (`rides`)."""
     from . import stop  # here, not at the top: they reach run
     session = transitions.launched_session(state)
     return not (session and stop.owed(session))
@@ -977,6 +977,56 @@ def routine_ending(state):
     if not transitions.delivered(state):
         return False
     return bool(state.get("repair")) or seat_owes_nothing(state)
+
+
+def ends_wait(state):
+    """Whether this run's ending, or its change going live, ends the wait its seat's turn may
+    have ended on (`stop.recorded_ending`): its `ak wait` names this run or its pull request,
+    or nothing else of the seat's holds the turn any more."""
+    from . import stop, watch  # here, not at the top: they reach run
+    session = transitions.launched_session(state)
+    wait = watch.seat_read(session).get("wait")
+    if isinstance(wait, dict) and not wait.get("told") and (
+            state.get("run_id") in (wait.get("on"), wait.get("run"))
+            or state.get("pr") and state.get("pr") == wait.get("on")):
+        return True
+    return not stop.recorded_ending(session)[0]
+
+
+def rides(state):
+    """Whether a routine line of this run -- its ending that is typed (`ending_rides`), or its
+    change going live, whatever run it is (`watch.after_merge_health`) -- rides on its seat's
+    next prompt (`riding`): nothing in it is the seat's to decide, and it does not end the
+    seat's wait (`ends_wait`), so it starts no turn and wakes no seat.  Only where the seat's
+    harness hands a prompt context at all: elsewhere typing is its one way in.  Read only: it
+    runs nothing."""
+    record = config.session_records().get(transitions.launched_session(state))
+    return bool(record) and orch.seat_plugin(record).prompt_context and not ends_wait(state)
+
+
+def ending_rides(state):
+    """Whether this run's ending rides (`rides`): a merge, or a `not needed`, typed today --
+    not a routine ending (`routine_ending`), recorded and never typed -- and not a line already
+    in the composer for its Enter (`handback_typed`), which is the typed path's."""
+    return (transitions.delivered(state) and not routine_ending(state)
+            and not state.get("handback_typed") and rides(state))
+
+
+def live_owed(state):
+    """Whether its seat still has to hear that this merged change is live: a seat owing no
+    work has it recorded (`watch.after_merge_health`)."""
+    return bool(state.get("merged") and state.get("live_at") and not state.get("live_notified")
+                and not seat_owes_nothing(state))
+
+
+def carries_live(state):
+    """Whether this run's hand-back carries its change gone live after it, in its one line
+    (`hand_back`): its ending is still to be said, and no live notice waits in a composer but
+    in that line, whose mark is then both lines' (`live_typed`).  A prompt the line starts
+    passes over this run, whose lock the typing holds (`riding`), so a live notice typed alone
+    there would reach the seat before its merge."""
+    return (owes_ending(state) and live_owed(state)
+            and state.get("live_typed") == state.get("handback_typed"))
 
 
 def settle_delivered_line(state, log):
@@ -1355,7 +1405,7 @@ def live_line(state, run_dir):
                        f"run {run_dir.name} is live.")
 
 
-def handback_line(state, run_dir, cfg=None, save=True):
+def handback_line(state, run_dir, cfg=None, save=True, live=False):
     """The one line a finished run types into the seat that launched it.
 
     `run <id> finished <verdict>: <why>. Result: <path>. Decide the next step.` -- an ending
@@ -1365,7 +1415,7 @@ def handback_line(state, run_dir, cfg=None, save=True):
     reviews spent the whole round budget says so and says to split: the task was too big, not
     the worker.  A FAIL a check left behind says no such thing: more rounds of the same task
     would not have passed it either.  A scratch run names its workspace too: the files
-    there are what it delivered.
+    there are what it delivered.  `live` adds its change gone live after it (`carries_live`).
     """
     workspace = (f" Workspace: {state['worktree']}."
                  if state.get("scratch") and state.get("worktree") else "")
@@ -1381,6 +1431,9 @@ def handback_line(state, run_dir, cfg=None, save=True):
         split = f" {word} rounds spent: split or re-scope"
         line += split
         action += split
+    if live:
+        line += f" {live_sentence(state, run_dir)}"
+        action += f" {live_sentence(state, run_dir)}"
     return seat_notice(line, state, run_dir, f"run {run_dir.name} {ending}.", action, save)
 
 
@@ -1428,16 +1481,19 @@ def hand_back(state, run_dir, log, cfg=None, busy=None):
             # The seat is not going to read the tree: the ending is history.
             worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
             return True
-        line = handback_line(state, run_dir, cfg)
+        live = carries_live(said)
+        line = handback_line(state, run_dir, cfg, live=live)
         busy = {} if busy is None else busy
         read = session not in busy or said.get("handback_typed")
         if read and watch.type_at_prompt(seat, line, log, cfg=cfg,
                                          typed=said.get("handback_typed"),
                                          receipt=lambda mark: mark_delivery(
-                                             run_dir, state, handback_typed=mark)):
+                                             run_dir, state, handback_typed=mark,
+                                             **({"live_typed": mark} if live else {}))):
             mark_delivery(run_dir, state, handed_back=time.time(), reported=True,
                           handback_pending=None, handback_typed=None, handback_note=None,
-                          handback_wait_reason=None, notification_pending=None)
+                          handback_wait_reason=None, notification_pending=None,
+                          **({"live_notified": time.time(), "live_typed": None} if live else {}))
             log(f"handed run {run_dir.name} back to the {session} seat")
             # The seat was told. It reads result.md, not the checkout.
             worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
@@ -1469,11 +1525,12 @@ def riding(session):
     owner's message, or another ending typed -- and find the run ended by itself; the line
     typed after that turn was old news, one turn each (19 Oct: 40 minutes late, and a seat
     fed 30 endings a turn at a time).  So every ending still waiting for this seat goes with
-    the prompt that does start one, and is told for good.  A merged change's live notice
-    still owed to this seat goes with it too.  One whose lock is held is being
-    typed this moment, perhaps as this very prompt, and one whose line waits in the composer
-    for its Enter is the typed path's: both are left to it.  The prompt never waits: a held
-    lock is passed over, and its checkout goes with the sweep, never here.
+    the prompt that does start one, and is told for good, oldest first, as a merge its seat
+    was not waiting on is only ever told (`rides`).  A merged change's live notice still owed
+    to this seat goes with it too.  One whose lock is held is being typed this moment,
+    perhaps as this very prompt, and one whose line waits in the composer for its Enter is the
+    typed path's: both are left to it.  The prompt never waits: a held lock is passed over,
+    and its checkout goes with the sweep, never here.
     """
     lines = []
     for run_dir in run_record.run_dirs():
@@ -1492,17 +1549,17 @@ def riding(session):
                     if mark_delivery(run_dir, said, handed_back=time.time(), reported=True,
                                      handback_pending=None, handback_note=None,
                                      handback_wait_reason=None, notification_pending=None):
-                        lines.append(line)
-                if (said.get("merged") and said.get("live_at") and not said.get("live_notified")
-                        and not said.get("live_typed") and not seat_owes_nothing(said)):
+                        lines.append((said.get("finished_at") or 0, line))
+                if live_owed(said) and not said.get("live_typed"):
                     line = live_line(said, run_dir)
                     if mark_delivery(run_dir, said, live_notified=time.time()):
-                        lines.append(line)
+                        lines.append((said["live_at"], line))
         except (config.Error, OSError, ValueError, KeyError, TypeError):
             continue        # left waiting: the tick types it at the next quiet prompt
     if not lines:
         return ""
-    return "Runs you have not been told about yet:\n" + "\n".join(lines)
+    return "Runs you have not been told about yet:\n" + "\n".join(
+        line for _, line in sorted(lines, key=lambda told: told[0]))
 
 
 def announce_safely(state, run_dir, log, cfg=None):
@@ -1519,8 +1576,9 @@ def announce(state, run_dir, log, cfg=None, busy=None):
     A routine ending (`routine_ending`) -- merged, or not needed, while its seat owes no work
     -- is recorded and never typed: nothing in it is the seat's to decide, so the seat hears
     only an ending that needs its decision, a fail, a blocked, a pass not merged, or the end
-    of a wait its turn may have ended on, and never a line opening a turn for news it can
-    read in `ak run status` and its plan.
+    of a wait its turn may have ended on (`ends_wait`), and never a line opening a turn for
+    news it can read in `ak run status` and its plan.  Any other merge of a seat owing work
+    rides on its next prompt (`ending_rides`): neither typed nor waking it.
 
     A run under an open seat is handed back to it -- one line into its composer saying how the
     run ended and that the next step is its own -- because the ending is the orchestrator's and
@@ -1580,6 +1638,12 @@ def announce(state, run_dir, log, cfg=None, busy=None):
             "recorded, not typed")
         # The seat reads result.md and its plan, never the checkout: the ending is history.
         worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
+        return
+    if ending_rides(state):
+        if not state.get("handback_pending"):
+            mark_delivery(run_dir, state, handback_pending=True)
+            log(f"run {run_dir.name} ended {'merged' if state.get('merged') else 'not needed'}: "
+                f"rides on the {session} seat's next prompt")
         return
     if not sleep.wake(session, log, cfg):
         mark_delivery(run_dir, state, handback_pending=True)   # owed: the next tick wakes it
