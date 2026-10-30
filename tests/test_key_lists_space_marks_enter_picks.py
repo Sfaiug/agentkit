@@ -11,8 +11,10 @@ what the terminal shows, config.toml and the logins run; NO_COLOR.  This test fa
 `/bin/false`.
 """
 
+import json
 import sys
 from pathlib import Path
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -114,6 +116,10 @@ class ListsSpaceMarksEnterPicks(unittest.TestCase):
 
     def test_on_subscriptions_enter_or_a_click_runs_an_act_and_space_runs_nothing(self):
         acts = "  ↑↓←→ move   ⏎ log in again   esc back"
+        # a login ending tomorrow, as each sign-in here answers, so `↻ log in again` stays offered
+        login = {"email": None, "ends": time.time() + 86400}
+        self.home.write(".agentkit/state/logins.json", {"anthropic": {"default": login}})
+        self.fakes["claude"].answer("login-end", json.dumps(login))
         self.to("Subscriptions")
         self.term.keys("Enter")
         self.to("Claude", acts)

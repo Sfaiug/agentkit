@@ -2,9 +2,10 @@
 
 A subscription's line under the grid of `ak` says `1 reset in hand` (`2 resets in hand`) while it
 holds any, and nothing with none.  Its meter, on `ak` and over the page of `c` alike, then offers
-`↻ spend a reset` after `↻ log in again`, Enter on the list never landing on the spend; it spends
-exactly one through `usage.replenish` -- the only caller of it in ak -- and the row shows the
-week that came back.  A fake Codex adapter answers every verb in a temporary HOME.
+`↻ spend a reset` after `↻ log in again`, which its login ending soon offers, Enter on the list
+never landing on the spend; it spends exactly one through `usage.replenish` -- the only caller of
+it in ak -- and the row shows the week that came back.  A fake Codex adapter answers every verb
+in a temporary HOME.
 """
 
 from contextlib import ExitStack
@@ -43,6 +44,9 @@ class ResetByHand(unittest.TestCase):
                                        "accounts": ["default", "second"]}}
         cfg["models"] = {n: e for n, e in cfg["models"].items() if e["provider"] == "openai"}
         self.cfg = cfg
+        soon = {"ends": time.time() + 2 * 86400}
+        (config.STATE / "logins.json").write_text(json.dumps({"openai": {
+            "default": soon, "second": soon}}))
         stack.enter_context(patch.object(usage, "_probe_every", return_value=0))
         # each subscription by the name its adapter is told: "" the usual login
         self.used, self.held, self.spent = {"": 100, "second": 100}, {"": 2, "second": 1}, []
@@ -82,8 +86,8 @@ class ResetByHand(unittest.TestCase):
     def test_a_usage_row_says_the_resets_its_subscription_holds(self):
         usage.collect(self.cfg, refresh=True)
         first, second = self.rows()
-        self.assertRegex(first, r"^ChatGPT I resets .* · 2 resets in hand$")
-        self.assertRegex(second, r"^ChatGPT II resets .* · 1 reset in hand$")
+        self.assertRegex(first, r"^ChatGPT I login ends .* · resets .* · 2 resets in hand$")
+        self.assertRegex(second, r"^ChatGPT II login ends .* · resets .* · 1 reset in hand$")
         self.assertEqual(self.offered(1), [([AGAIN, "↻ spend a reset"], AGAIN)])
         self.held.update({"": 0, "second": 0})
         (config.STATE / "usage.json").unlink()
