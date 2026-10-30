@@ -111,3 +111,7 @@ mode = "subscription"
 # No mode: MiMo's is read off the global OpenCode opencode.json, over any mode written here --
 # a plain token-plan URL is a subscription, anything else payg.
 [providers.mimo]
+
+[google_cloud]       # machines ak rents, with the key at ~/.agentkit/secrets/google-cloud.json
+active = false       # whether ak may rent at all
+max_month = 0        # the most it may cost in a calendar month, in euros

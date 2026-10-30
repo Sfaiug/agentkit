@@ -1,10 +1,14 @@
-"""Machines ak rents from Google Cloud: the best one to rent now (`best`); renting, listing and
-returning them come later, behind the same names, so another provider is one more module.  This
+"""Machines ak rents from Google Cloud: the best one to rent now (`best`), those it has (`rented`),
+giving one back (`give_back`) and their month's cost (`watch`, `said`); renting comes later, behind
+the same names, so another provider is one more module.  This
 module alone knows Google: the service-account key `KEY`, the token its JWT buys (signed by the
 openssl CLI: the standard library has no RSA), Compute Engine's Spot price list and machine types.
 """
 
 import base64
+from collections import namedtuple
+import contextlib
+from datetime import datetime, timezone
 import http.client
 import json
 import os
@@ -35,10 +39,21 @@ PD, HYPERDISK = ("Balanced PD",), ("Hyperdisk Balanced",)
 BOOT_DISKS = {**dict.fromkeys(["c2", "c2d", "e2", "n1", "n2", "n2d", "t2a", "t2d"], PD),
               **dict.fromkeys(["c3", "c3d", "h3", "m3", "z3"], PD + HYPERDISK)}
 ADDRESS = "External IP Charge on a Spot Preemptible VM"    # the same in every region: "global"
+OFFERS, FRESH_FOR = "google-cloud-offers.json", 86400    # kept a day: a listing takes a minute
+LEDGER = "google-cloud-ledger.json"     # this month's meter: Google's billing export is hours late
+PASS = 180                         # seconds between the tick's passes: cron's */3 (install.sh)
+UNANSWERED = []                    # Google not answering this process, which then asks no more
 
 
-class Unavailable(Exception):
+class Unavailable(config.Error):
     """Why ak cannot say what Google offers, in plain words."""
+
+
+class Gone(Unavailable):
+    """Google's 404: nothing by that name."""
+
+
+Rented = namedtuple("Rented", "id name zone type created until")   # `id` survives a rename
 
 
 class Offer(NamedTuple):
@@ -60,18 +75,82 @@ def best(mb_per_core):
     return min(fits, key=lambda offer: (offer.hourly / offer.cores, offer), default=None)
 
 
+def said(mb_per_core):
+    """`ak doctor`'s lines: the tick's last answer while ak may rent, else `best`'s."""
+    active, cap = _setting()
+    if not active:
+        return [f"best now {cheapest}" if (cheapest := best(mb_per_core)) else "nothing offered"]
+    try:
+        if (ledger := config._read_json(config.STATE / LEDGER)) is None:
+            return ["Google has not answered the tick yet"]
+        at = ledger["answered"]
+        since = f" as of {time.strftime('%-d %b %H:%M', time.localtime(at))}"
+        return [f"{len(ledger['machines'])} running · €{ledger['spent']:.2f} of €{cap:.2f} this "
+                f"month{since * (time.time() - at > 2 * PASS)}", *ledger["late"]]
+    except (config.Error, KeyError, TypeError, ValueError):
+        return [f"{config.tilde(config.STATE / LEDGER)} cannot be read: every machine goes back"]
+
+
+def watch():
+    """The tick's pass while ak may rent: the meter moved on to what Google lists, and each machine
+    past its end, unpriced or past the cap given back and said; only then a stale price list."""
+    active, cap = _setting()
+    if not active:
+        return
+    listed, now = rented(), time.time()
+    try:
+        kept = json.loads((config.STATE / OFFERS).read_text())
+        at, prices = kept["at"], {(name, region): hourly
+                                  for name, region, *_, hourly in kept["offers"]}
+    except (OSError, ValueError, TypeError, KeyError):
+        at, prices = 0, {}
+    try:
+        ledger = _moved(config._read_json(config.STATE / LEDGER), listed, now, prices)
+    except (config.Error, KeyError, TypeError, ValueError, AttributeError):
+        ledger = None       # losing the month's total never reads as money left
+    late = []
+    for machine in listed:
+        if why := ("past its end" if now >= machine.until else "with no price kept"
+                   if not prices else "past the cap" if not ledger or ledger["spent"] > cap
+                   else None):
+            try:
+                give_back(machine)
+                late.append(f"{machine.name} listed {why}, given back")
+            except Unavailable as exc:
+                late.append(f"{machine.name} listed {why}, not given back: {exc}")
+    if ledger:
+        config._write_json(config.STATE / LEDGER, {**ledger, "late": late})
+    if now - at >= FRESH_FOR:
+        config._write_json(config.STATE / OFFERS, {"at": now, "offers": offers()})
+
+
+def rented():
+    """What Google says ak has now: every machine labelled `ak=rented`, in every zone."""
+    compute, token = _login()
+    found = []
+    for zone, listed in _pages(token, f"{compute}/aggregated/instances", "items"):
+        for one in filter(_ours, listed.get("instances") or ()):
+            created = datetime.fromisoformat(one["creationTimestamp"]).timestamp()
+            life = ((one.get("scheduling") or {}).get("maxRunDuration") or {}).get("seconds", 0)
+            found.append(Rented(one["id"], one["name"], zone.removeprefix("zones/"),
+                                one["machineType"].split("/")[-1], created, created + int(life)))
+    return found
+
+
+def give_back(machine):
+    """Delete `machine`, its boot disk and address with it, if Google, asked again, says it is
+    still that one and ak's; raises Unavailable with what Google refused."""
+    compute, token = _login()
+    url = f"{compute}/zones/{machine.zone}/instances/{machine.name}"
+    with contextlib.suppress(Gone):     # given back already
+        found = _call(url, token)
+        if found.get("id") == machine.id and _ours(found):
+            _call(url, token, method="DELETE")
+
+
 def offers():
     """Every machine type a zone offers that the price list prices."""
-    path = config.SECRETS / KEY
-    try:
-        if not path.exists():
-            raise Unavailable(f"not set up: no Google service-account key at {config.tilde(path)}")
-        key = json.loads(path.read_text())
-        token = _token(key)
-    # out of reach, not JSON, not an object of strings, or nothing openssl signs with
-    except (OSError, ValueError, TypeError, AttributeError, subprocess.CalledProcessError) as exc:
-        raise Unavailable(f"cannot use {config.tilde(path)}: {exc}")
-    project = key.get("project_id")
+    compute, token = _login()
     core, ram, disk, address = {}, {}, {}, None
     for sku in _pages(token, _url("cloudbilling", f"/v1/services/{COMPUTE_SKUS}/skus"),
                       "skus", currencyCode=CURRENCY, pageSize=5000):
@@ -87,8 +166,7 @@ def offers():
             elif boot:
                 disk[boot[1], region] = price
     found = {}
-    for zone, listed in _pages(token, _url("compute", f"/compute/v1/projects/{project}/"
-                                           "aggregated/machineTypes"),
+    for zone, listed in _pages(token, f"{compute}/aggregated/machineTypes",
                                "items", returnPartialSuccess="true"):   # names zones it missed
         region = zone.removeprefix("zones/").rsplit("-", 1)[0]
         for kind in listed.get("machineTypes") or ():
@@ -107,6 +185,47 @@ def offers():
             hourly = vcpus * a_vcpu + mb / 1024 * a_gb + DISK_GB * a_disk_gb + address
             found[name, region] = Offer(name, region, cores, mb, hourly)
     return list(found.values())
+
+
+def _login():
+    path = config.SECRETS / KEY
+    try:
+        if not path.exists():
+            raise Unavailable(f"not set up: no Google service-account key at {config.tilde(path)}")
+        key = json.loads(path.read_text())
+        return _url("compute", f"/compute/v1/projects/{key.get('project_id')}"), _token(key)
+    # out of reach, not JSON, not an object of strings, or nothing openssl signs with
+    except (OSError, ValueError, TypeError, AttributeError, subprocess.CalledProcessError) as exc:
+        raise Unavailable(f"cannot use {config.tilde(path)}: {exc}")
+
+
+def _setting():
+    """Whether ak may rent, and the most a month may cost, 0 for no number: an owner's slip."""
+    cap = (table := config.load().get("google_cloud") or {}).get("max_month")
+    return table.get("active") is True, cap if type(cap) in (int, float) else 0
+
+
+def _moved(ledger, listed, now, prices):
+    """`ledger`, None before the first, moved on to `now`, Google listing `listed`: each machine
+    charged since the last answer, one new since its creation, one gone up to its allowed end, at
+    the dearer of its kept price and its type's there, else the dearest kept; in this UTC month."""
+    start = datetime(*time.gmtime(now)[:2], 1, tzinfo=timezone.utc).timestamp()
+    since, kept, spent = (0, {}, 0) if ledger is None else (
+        ledger["answered"], ledger["machines"], ledger["spent"])
+    spent, machines = spent if since >= start else 0, {}
+    for one in listed:
+        old = kept.pop(one.id, None)
+        price = max(old["price"] if old else 0, prices.get(
+            (one.type, one.zone.rsplit("-", 1)[0]), max(prices.values(), default=0)))
+        machines[one.id] = {"name": one.name, "price": price, "until": one.until}
+        spent += price * max(0, now - max(since if old else one.created, start)) / 3600
+    for gone in kept.values():
+        spent += gone["price"] * max(0, min(now, gone["until"]) - max(since, start)) / 3600
+    return {"answered": now, "spent": spent, "machines": machines}
+
+
+def _ours(machine):
+    return (machine.get("labels") or {}).get("ak") == "rented"
 
 
 def _token(key):
@@ -144,14 +263,21 @@ def _pages(token, url, field, **query):
         query["pageToken"] = page["nextPageToken"]
 
 
-def _call(url, token=None, data=None):
+def _call(url, token=None, data=None, method=None):
     headers = {"Authorization": f"Bearer {token}"} if token else {}
+    if UNANSWERED:
+        raise Unavailable(UNANSWERED[0])
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, data, headers),
+        with urllib.request.urlopen(urllib.request.Request(url, data, headers, method=method),
                                     timeout=TIMEOUT) as response:
             return json.load(response)
-    except (OSError, http.client.HTTPException, ValueError) as exc:   # urllib's, http's, json's
-        raise Unavailable(f"asking Google failed: {getattr(exc, 'reason', exc)}")
+    except urllib.request.HTTPError as exc:     # Google's answer: 403 Forbidden, 404 Not Found ...
+        raise (Gone if exc.code == 404 else Unavailable)(f"Google refused: {exc.reason}")
+    except OSError as exc:      # no answer: it costs a process one TIMEOUT, no more
+        UNANSWERED.append(f"asking Google failed: {getattr(exc, 'reason', exc)}")
+        raise Unavailable(UNANSWERED[0])
+    except (http.client.HTTPException, ValueError) as exc:   # http's, json's
+        raise Unavailable(f"asking Google failed: {exc}")
 
 
 def _url(host, path):
