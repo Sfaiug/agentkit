@@ -71,8 +71,9 @@ class ATurnLendsItsLogin(unittest.TestCase):
             if lend:
                 fake.answer("lend", *lend)
         machine = akmachine.install(home)
-        for harness in fakes:
-            place = machine / "home/.agentkit-helper/harness" / harness
+        for harness, version in (("claude", "1.2.3"), ("codex", "4.5.6")):
+            home.fake(harness, f"#!/bin/sh\necho {version}\n")
+            place = machine / "home/.agentkit-helper/harness" / harness / version
             place.mkdir(parents=True)
             (place / harness).touch(0o755)
         (machine / "bin/nproc").write_text("#!/bin/sh\necho 4\n")    # eight CPUs to give
