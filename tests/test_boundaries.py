@@ -53,12 +53,13 @@ RULES = [
      "home": ("agentkit/worker.py", "go/internal/host/process.go"),
      "max": 0},
     # Host and cgroup readings have one reader: paths and counter names in code or
-    # comments outside host.py count as another copy of how the host reports them.
+    # comments outside host.py count as another copy of how the host reports them.  A machine
+    # reached over ssh has no host.py to import: tools/machine.sh reads it there.
     {"name": "host readings",
      "flags": (),
      "pattern": r"/proc/meminfo|/proc/loadavg|/sys/fs/cgroup|cgroup\.freeze|"
                 r"\b(cpu|memory|pids)\.(pressure|stat|max|high|current|events)\b|CGROUP_ROOT",
-     "home": ("agentkit/host.py", "go/internal/host/readings.go"),
+     "home": ("agentkit/host.py", "go/internal/host/readings.go", "tools/machine.sh"),
      "max": 0},
     # A process's stat and statm fields have one reader: host.proc_stat names them, and
     # host.resident_bytes counts pages. box.py runs as its own script inside the worker's
