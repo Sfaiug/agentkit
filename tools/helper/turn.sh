@@ -14,10 +14,9 @@ git init -q --bare ${default:+-b "$default"} /in/origin.git &&
   git clone -q --no-checkout /in/origin.git "$work" && cd "$work" &&
   git checkout -q ${branch:+-B "$branch"} "$tree" || fail "the tree did not check out"
 [ ! -f /in/exclude ] || cp /in/exclude .git/info/exclude || fail "info/exclude did not copy"
+# Each uncommitted path goes, a directory in its way too, then comes back as the checkout has it.
+while IFS= read -r -d '' path; do rm -rf -- "$path"; done </in/paths
 [ ! -d /in/dirty ] || cp -a /in/dirty/. . || fail "the uncommitted paths did not apply"
-while IFS= read -r -d '' path; do    # each path the checkout lacks, removed there
-  [ -e "/in/dirty/$path" ] || [ -L "/in/dirty/$path" ] || rm -f "$path"
-done </in/paths
 while IFS= read -r -d '' pair; do export "$pair"; done </in/env
 export PATH="/harness:$ak/bin:$PATH"
 "$@"

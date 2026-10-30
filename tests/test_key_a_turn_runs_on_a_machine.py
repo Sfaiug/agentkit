@@ -1,5 +1,5 @@
 """A model turn runs on a machine with room once config.toml says `machine_turns = true`, its
-results back here when it ends; with the switch off, or no room there, it runs here.
+results back here when it ends; with the switch off, no room there or no program, it runs here.
 
 Black-box, as tests/test_key_changed_paths_go_with_the_piece.py is, on its machine, which has both
 harnesses' programs and whose containers have `container=docker` in their environment: each
@@ -27,7 +27,7 @@ UPTIME = "#!/bin/sh\necho ' 12:00:00 up 1 day,  load average: {}, 0.00, 0.00'\n"
 
 
 class ATurnRunsOnAMachine(unittest.TestCase):
-    def run_task(self, switch, load):
+    def run_task(self, switch, load, program=True):
         """Where the task's turns and its commit ran, and the turn containers the machine ran."""
         home = Home()
         self.addCleanup(home.close)
@@ -39,8 +39,10 @@ class ATurnRunsOnAMachine(unittest.TestCase):
                        settings={"suite_helper": "acme-linux", "machine_turns": switch})
         fakeadapter.install(home, claude=EXECUTE, codex=REVIEW)
         machine = akmachine.install(home)
-        for harness in ("claude", "codex"):
-            (machine / "home/.agentkit-helper/harness" / harness).mkdir(parents=True)
+        for harness in ("claude", "codex"):    # each fake adapter's program, which it never runs
+            place = machine / "home/.agentkit-helper/harness" / harness
+            place.mkdir(parents=True)
+            (place / harness).touch(0o755 if program else 0o644)
         (machine / "bin/uptime").write_text(UPTIME.format(load))
         task = taskfile.write(home, rig.path, done_when=("test -f left.txt && test ! -e gone.txt",))
         done = home.ak("run", str(task), timeout=300)
@@ -58,10 +60,11 @@ class ATurnRunsOnAMachine(unittest.TestCase):
     def test_both_turns_run_on_the_machine(self):
         self.assertEqual(self.run_task(True, "0.00"), (["docker"] * 2, "docker", 2))
 
-    def test_with_the_switch_off_or_no_room_the_turns_run_here(self):
-        for switch, load in ((False, "0.00"), (True, "2.00")):
-            with self.subTest(machine_turns=switch, load=load):
-                self.assertEqual(self.run_task(switch, load), (["here"] * 2, "here", 0))
+    def test_with_the_switch_off_no_room_or_no_program_the_turns_run_here(self):
+        for switch, load, program in ((False, "0.00", True), (True, "2.00", True),
+                                      (True, "0.00", False)):
+            with self.subTest(machine_turns=switch, load=load, program=program):
+                self.assertEqual(self.run_task(switch, load, program), (["here"] * 2, "here", 0))
 
 
 if __name__ == "__main__":

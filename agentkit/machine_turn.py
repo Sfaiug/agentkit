@@ -20,8 +20,8 @@ AK = ("adapters", "agentkit", "bin", "tools")    # ak itself, read-only there, `
 
 
 def call(harness, cmd, cwd, out_dir, env, places, watch):
-    """(exit, killed) of the turn `cmd` on a machine with room, or None: it runs here, as with
-    the switch off, `places` or no recipe. `watch(argv, **streams)` runs ssh as the worker's
+    """(exit, killed) of the turn `cmd` on a machine with room, or None: it runs here, as with the
+    switch off, `places`, no recipe or no room. `watch(argv, **streams)` runs ssh as the worker's
     watchdog runs a turn, into the out dir's events.jsonl and stderr.log. A lost machine's turn
     fails, this host's checkout as it was."""
     try:
@@ -43,11 +43,11 @@ def call(harness, cmd, cwd, out_dir, env, places, watch):
             code, _, killed = watch(helper._remote(
                 away.alias, "turn", away.key, away.image, away.memory_mb, away.repo, *volumes,
                 "--", cwd, config.REPO, away.branch, away.default, *cmd), stdout=events, stderr=err)
-        if not killed and code != helper.LOST and not _home(away, cwd, out_dir):
+        if not killed and code not in (helper.LOST, helper.FULL) and not _home(away, cwd, out_dir):
             code = helper.LOST
     finally:
         helper.finish(away)
-    return code, killed
+    return None if code == helper.FULL else (code, killed)    # no room left there: it runs here
 
 
 def _parcel(tar, harness, cwd, out_dir, env):
@@ -74,7 +74,7 @@ def _parcel(tar, harness, cwd, out_dir, env):
         tar.add(exclude, "exclude")
     who = [gitcall.git_out(cwd, "config", f"user.{key}")[1] for key in ("name", "email")]
     put("home/.gitconfig", "[user]\n\tname = {}\n\temail = {}\n".format(*who))
-    put("harness", harness)
+    put("harness", f"{harness}/{config.harness_program(harness)}")
     put("env", "".join(f"{key}={value}\0" for key, value in {**env, "TMPDIR": "/var/tmp"}.items()
                        if key.startswith(("AK_", "BASH_"))
                        or key in (RUN_MARKER, "HOME", "LANG", "SHELL", "TMPDIR")))
