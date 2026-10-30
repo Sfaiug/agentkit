@@ -16,7 +16,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox
-from agentkit import config, run
+from agentkit import config, run, watch
 from agentkit import record as run_record
 
 FULL = BlockingIOError(errno.EAGAIN, "Resource temporarily unavailable")   # as a fork raises it
@@ -31,8 +31,10 @@ class StarvedRun(Sandbox):
         self.run_dir = config.RUNS / "fix-api"
         self.run_dir.mkdir()
 
-    def saved(self, state):
-        run_record.save_state(self.run_dir, {"run_id": "fix-api", "state": state})
+    def saved(self, state, worktree=True):
+        run_record.save_state(self.run_dir, {
+            "run_id": "fix-api", "state": state, **run_record.process_owner(),
+            "worktree": str(self.root) if worktree else None})
 
     def ended(self, call, lone=True):
         """The exit code `call` ended this process with, or None where it returned."""
@@ -52,13 +54,17 @@ class StarvedRun(Sandbox):
                       OSError(errno.ENOMEM, "Cannot allocate memory"), config.Error("no room")):
             self.assertFalse(run.starved(other), other)
 
-    def test_an_ending_the_record_saved_reads_running_and_a_stop_stays(self):
-        for before, after in (("pass", "running"), ("fail", "running"), ("running", "running"),
-                              ("queued", "queued"), ("stopped", "stopped")):
-            self.saved(before)
+    def test_the_tick_resumes_whatever_record_it_leaves_and_a_stop_stays(self):
+        for before, worktree in (("pass", True), ("fail", True), ("running", True),
+                                 ("queued", True), ("running", False), ("stopped", True)):
+            self.saved(before, worktree)
             code = self.ended(lambda: run.end_starved(FULL, print, self.run_dir))
-            self.assertEqual((code, run_record.read_state(self.run_dir)["state"]),
-                             (os.EX_TEMPFAIL, after))
+            with patch.object(run_record, "process_active", return_value=False), \
+                    patch.object(watch, "launch_resume") as resumed:
+                watch.resume_dead_loops(log=lambda _: None)
+            with self.subTest(before=before, worktree=worktree):
+                self.assertEqual((code, resumed.called), (os.EX_TEMPFAIL, before != "stopped"))
+        self.assertEqual(run_record.read_state(self.run_dir)["state"], "stopped")
 
     def test_a_process_shared_with_others_ends_as_before(self):
         self.saved("pass")

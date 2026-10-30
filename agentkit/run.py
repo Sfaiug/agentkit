@@ -1037,13 +1037,19 @@ def end_starved(exc, log, run_dir=None):
     on (`watch.resume_dead_loops`): on 30 Oct 2026 a full task table ended 44 runs in `error`
     that a resume by hand carried on.  With `run_dir`, an ending the record had saved, a PASS
     not yet delivered say, reads `running`, as the `error` this replaces would have replaced
-    it; a stop stays.  `os._exit` runs no `finally`, as one may want a task itself.  Returns
-    where this process is not one run's `ak` (`lone_run`): exiting would end the others too."""
+    it, and a run with no worktree yet reads as the slot wait it was, the one that pass takes
+    up with nothing to continue into; a stop stays.  `os._exit` runs no `finally`, as one may
+    want a task itself.  Returns where this process is not one run's `ak` (`lone_run`):
+    exiting would end the others too."""
     if not lone_run():
         return
     if run_dir is not None:
         with run_record.record(run_dir) as state:
-            if state.get("state") not in (*run_record.ACTIVE, "stopped"):
+            if state.stopped:
+                pass
+            elif not state.get("worktree"):
+                state.update(state="queued", slot_waiting=True)
+            elif state.get("state") not in run_record.ACTIVE:
                 state["state"] = "running"
     log(f"{exc!r}: no room to start a thread or process; the tick carries the run on")
     os._exit(os.EX_TEMPFAIL)
