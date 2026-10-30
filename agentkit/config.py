@@ -1025,6 +1025,7 @@ SEAT_FILES = {
     "input": "jsonl",    # each line ak typed, with its source and conversation
     "rulebook": "md",    # the rulebook its orchestrator was started on
     "verify": "lock",    # held by one verification of its plan at a time (`plan.verifying`)
+    "nextverify": "lock",    # held by the delivered run next in line for it (`plan.verify_delivered`)
     # left by the prompts that named a rulebook to read, before they carried it: goes with its
     # seat, and a change may still be told against it (`orch.rulebook_change`)
     "rules": "md",

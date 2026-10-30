@@ -483,6 +483,20 @@ def verify(name, check=None):
         return _verify_held(name, check)
 
 
+def verify_delivered(name):
+    """`verify` for a run that just delivered, unless another holds the place next in line: it
+    has yet to fetch, so it proves all this one would.  Each ran every open line behind the last,
+    21 runs behind 29 lines, the seat's `ak plan` behind them all (30 Oct 2026)."""
+    with config.seat_file("nextverify", config.resolve_session(name)).open("a") as next_up:
+        try:
+            fcntl.flock(next_up, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        with verifying(name):
+            fcntl.flock(next_up, fcntl.LOCK_UN)
+            _verify_held(name)
+
+
 def _verify_held(name, check=None):
     checks = {}
     with held(name) as current:
