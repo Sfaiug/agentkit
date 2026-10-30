@@ -5,6 +5,12 @@ linux() {
   export LC_ALL=C    # `free` says what it reads in English
   on_power() { :; }    # a rented machine has no battery
   lock() { flock "$@"; }
+  # given FIELD: the sum of HostConfig's FIELD over ak's running containers.
+  given() {
+    ids=$(docker ps -q --filter name=ak-) || return
+    docker inspect --format "{{.HostConfig.$1}}" $ids 2>/dev/null |
+      awk '{sum += $1} END {printf "%.0f\n", sum}'
+  }
   # cpus: what ak's containers may be given together: twice the machine's CPUs, as a piece holds
   # half what it is given for its bursts (36 given two each kept 72 cores 48% busy, on a machine
   # that keeps their files in memory, with nothing waiting on a disk).
@@ -12,9 +18,7 @@ linux() {
   # spare: the CPUs nothing holds: `cpus`, less those its running containers were given and half
   # of it for each suite admitted in the last two minutes that has started no piece.
   spare() {
-    ids=$(docker ps -q --filter name=ak-) || return
-    given=$(docker inspect --format '{{.HostConfig.NanoCpus}}' $ids 2>/dev/null |
-      awk '{sum += $1} END {printf "%.0f\n", sum}')
+    given=$(given NanoCpus) || return
     find "$ROOT" -mindepth 2 -maxdepth 2 -name reserved -mmin -2 2>/dev/null |
       awk -v cpus="$(cpus)" -v given="$given" 'END {
         spare = cpus - given / 1e9 - NR * cpus / 2; print (spare > 0 ? spare : 0) }'
@@ -39,10 +43,13 @@ linux() {
   # lock `admit` reads by, so no suite comes in while neither it nor the container holds the
   # machine.
   started() { [ ! -e "$D/reserved" ] || locked "$ROOT/suites.lock" rm -f "$D/reserved"; }
-  # left: the MiB a container here may still be given: what the machine has available, but a
-  # tenth of it its system keeps. What the running ones were given is only their limit: a piece
-  # given 2.6 GiB held 0.5, and what it does hold is no longer available.
-  left() { free -m | awk '$1 == "Mem:" {print int($7 - $2 / 10)}'; }
+  # left: the MiB ak's containers here may still be given: all the machine's memory but a tenth
+  # its system keeps, less what the running ones were given. A limit counts whole, though a piece
+  # holds less at first: it may grow to it once running, and together they must fit the machine.
+  left() {
+    given=$(given Memory) || return
+    free -m | awk -v given="$given" '$1 == "Mem:" {print int($2 - $2 / 10 - given / 1048576)}'
+  }
   running() { [ "$(docker inspect --format '{{.State.Running}}' "$1" 2>/dev/null)" = true ]; }
   tags() { docker image ls --format '{{.Repository}}:{{.Tag}}' "$1"; }
   # drop: deletes the images named on stdin, but those a suite here prepared and has not finished

@@ -80,7 +80,7 @@ elif words[0] == "run":
 # nothing here.
 TOOLS = {"docker": f"#!{sys.executable}\n{DOCKER}",
          "nproc": "#!/bin/sh\necho 2\n",
-         "free": "#!/bin/sh\nprintf '%s\\n' '  total used free shared cache available' 'Mem: 65536 1024 0 0 0 64512'\n",
+         "free": "#!/bin/sh\nprintf '%s\\n' '  total used' 'Mem: 65536 1024'\n",
          "unshare": '#!/bin/sh\nwhile [ "${1#-}" != "$1" ]; do shift; done\nexec "$@"\n',
          "setpriv": '#!/bin/sh\nwhile [ "${1#-}" != "$1" ]; do shift; done\nexec "$@"\n',
          "ip": '#!/bin/sh\n[ "$1" != -o ] || echo "1: lo: <LOOPBACK,UP>"\n'}
