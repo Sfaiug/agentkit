@@ -143,7 +143,7 @@ class EffortPerRole(Acme):
                     patch.object(watch, "tick_health", return_value="lock free"), \
                     redirect_stdout(io.StringIO()) as out:
                 self.assertEqual(watch.doctor([]), 0)
-            return out.getvalue().splitlines()[2:]
+            return out.getvalue().splitlines()[3:]     # past slice, tick and this machine
         self.assertEqual(doctor(), ["exec_effort  acme: acme-1 takes low medium high xhigh max, "
                                     "not ultra"])
         self.assertEqual(self.path.read_text(), text, "named, never changed")

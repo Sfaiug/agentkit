@@ -268,7 +268,7 @@ class Catalog(unittest.TestCase):
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(watch.doctor([]), 0)
         self.assertEqual(out.getvalue().splitlines(), [
-            "slice test", "tick  lock free",
+            "slice test", "tick  lock free", "machine  this one: new · never answered",
             "effort  haiku: claude-haiku-4-5 takes none, not low",
             "effort  grok: grok-4.5 takes low medium high, not xhigh"])
         self.assertEqual(path.read_text(), text, "flagged, never changed")

@@ -176,8 +176,8 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                         "Install the stack if absent; verify an existing installation.",
                         "ak browser install"),
     "doctor": ("usage: ak doctor",
-               "Show the slice the agents run in, the state of the tick, and any model\n"
-               "set to an effort it does not take, which it names and never changes.\n"
+               "Show the agents' slice, the tick's state, each machine ak may use, and any\n"
+               "model set to an effort it does not take, which it names and never changes.\n"
                "Says `no slice` where the machine has no user systemd manager.",
                "ak doctor"),
     "attach": ("usage: ak attach [--client] [--overlay] [--dry-run]",
@@ -211,7 +211,7 @@ PURPOSES = {
     "browser": "inspect the shared browser, sign in, register MCP tools, or install the stack",
     "update": "upgrade harnesses and verify with acceptance gates",
     "watch": "check PRs and stalled sessions",
-    "doctor": "show the slice, the tick, and any model set to an effort it does not take",
+    "doctor": "show the slice, the tick, the machines, and any model set to an effort it does not take",
     "notify": "record a needs-you question",
     "wait": "end this turn waiting on a pull request or run",
     "fetch": "copy requested Mac files to this host",
