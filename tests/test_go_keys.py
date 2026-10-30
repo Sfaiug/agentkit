@@ -27,16 +27,16 @@ REPO = Path(__file__).resolve().parents[1]
 # Another file of the suite may be writing or removing the rest of these as this copies.
 LEFT_OUT = shutil.ignore_patterns("agentkit", ".git", "__pycache__", ".ak-test-*")
 # A skip exits 0 and a file with no test may too: only unittest's tally tells, as every_file.py
-# reads it.
-PASSED = re.compile(r"^Ran [1-9]\d* tests? in .*\n\nOK$", re.MULTILINE)
+# reads it.  The claim's own is the last: a tally of a child it ran comes before.
+PASSED = re.compile(r"^Ran [1-9]\d* tests? in .*\n\nOK\n\Z", re.MULTILINE)
 
 
 class Claims(unittest.TestCase):
     def test_each_claim_passes(self):
-        claims = {name: parts for name, *parts in
-                  map(str.split, (REPO / "go/keys.txt").read_text().splitlines())}
-        asked = sys.argv[1:] or claims
-        self.assertFalse(set(asked) - set(claims), "go/keys.txt does not list these")
+        listed = [line.split() for line in (REPO / "go/keys.txt").read_text().splitlines()]
+        asked = sys.argv[1:]
+        self.assertFalse(set(asked) - {claim[0] for claim in listed},
+                         "go/keys.txt does not list these")
         named = os.environ.get("AK_BIN")
         with tempfile.TemporaryDirectory(prefix="ak-go-keys-") as tree:
             shutil.copytree(REPO, tree, ignore=LEFT_OUT, symlinks=True, dirs_exist_ok=True)
@@ -49,14 +49,15 @@ class Claims(unittest.TestCase):
             failed = []
             # One after another: every_file.py already runs other files beside this one.  No
             # PYTHONPATH: the caller's could lead back to agentkit.
-            for name in asked:
-                done = subprocess.run([sys.executable, f"tests/{name}.py", *claims[name]], cwd=tree,
+            for name, *parts in listed:
+                if asked and name not in asked:
+                    continue
+                done = subprocess.run([sys.executable, f"tests/{name}.py", *parts], cwd=tree,
                                       env={**os.environ, "AK_BIN": str(program), "PYTHONPATH": ""},
                                       capture_output=True, text=True)
                 if done.returncode or not PASSED.search(done.stderr):
-                    claim = " ".join((name, *claims[name]))
-                    print(f"--- {claim}\n{done.stdout}{done.stderr}", flush=True)
-                    failed.append(claim)
+                    failed.append(" ".join((name, *parts)))
+                    print(f"--- {failed[-1]}\n{done.stdout}{done.stderr}", flush=True)
         self.assertFalse(failed, "these claims of go/keys.txt fail or skip")
 
 

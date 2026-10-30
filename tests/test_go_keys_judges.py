@@ -24,6 +24,10 @@ KEYS = {
     "test_key_passes": KEY.format("pass"),
     "test_key_fails": KEY.format('self.fail("acme")'),
     "test_key_skips": KEY.format('self.skipTest("acme")'),
+    "test_key_child_passes": KEY.format(
+        'subprocess.run([sys.executable, "-c", "import unittest; unittest.TextTestRunner().run('
+        'unittest.TestSuite([unittest.FunctionTestCase(lambda: None)]))"], check=True)\n'
+        '        self.skipTest("acme")'),
     "test_key_no_test": "import unittest\nunittest.main()\n",
     "test_key_python_ak": KEY.format('subprocess.run([sys.executable, "-c", "import agentkit"], '
                                      'cwd=Path(__file__).parents[1], check=True)'),
@@ -65,10 +69,12 @@ class Judges(unittest.TestCase):
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 
     def test_a_claim_failing_skipping_empty_or_reaching_python_ak_is_named(self):
-        for claim in ("test_key_fails Acme", "test_key_skips Acme", "test_key_no_test",
-                      "test_key_python_ak Acme", "test_key_passes Other", "test_key_passes Absent"):
+        for claim in ("test_key_fails Acme", "test_key_skips Acme", "test_key_child_passes Acme",
+                      "test_key_no_test", "test_key_python_ak Acme", "test_key_passes Other",
+                      "test_key_passes Absent"):
             with self.subTest(claim):
-                done = self.judged(keys=["test_key_passes Acme", claim])
+                # Listed before a passing claim, of the same file in the last two.
+                done = self.judged(keys=[claim, "test_key_passes Acme"])
                 self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
                 self.assertIn(f"['{claim}'] is not false", done.stderr)
 
