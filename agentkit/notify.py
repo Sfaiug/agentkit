@@ -638,8 +638,9 @@ def waited(notice, at):
 
 
 def opened(session, capture):
-    """Record the first interactive open of this notice, including its output baseline.  The
-    alert of a login that keeps refusing gets none: output after an open answers nothing there."""
+    """Record the first interactive open of this notice, including its output baseline.  A
+    watcher's alert gets none while a login keeps refusing that seat's runs: output after an
+    open answers nothing there."""
     from . import watch    # here, not at the top: watch imports this module
     with session_lock(session) as session:
         previous = last(session)
