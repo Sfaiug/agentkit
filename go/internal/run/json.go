@@ -391,12 +391,25 @@ func (p *parser) unit() (rune, bool) {
 // indents, `": "` between key and value, every character past ASCII escaped.
 func Encode(value any) string {
 	var out strings.Builder
-	encode(&out, value, "")
+	encode(&out, value, ",", "\n")
 	return out.String()
 }
 
-func encode(out *strings.Builder, value any, indent string) {
-	inner := indent + "  "
+// Line writes a value as Python's json.dumps(value) writes what it read: on one line, `", "`
+// between items and `": "` between key and value, every character past ASCII escaped.
+func Line(value any) string {
+	var out strings.Builder
+	encode(&out, value, ", ", "")
+	return out.String()
+}
+
+// encode writes the value with comma between items, each on a line of its own two spaces past
+// newline's indent where newline breaks the line.
+func encode(out *strings.Builder, value any, comma, newline string) {
+	inner := newline
+	if newline != "" {
+		inner += "  "
+	}
 	switch value := value.(type) {
 	case nil:
 		out.WriteString("null")
@@ -414,12 +427,12 @@ func encode(out *strings.Builder, value any, indent string) {
 		out.WriteString("[")
 		for i, item := range value {
 			if i > 0 {
-				out.WriteString(",")
+				out.WriteString(comma)
 			}
-			out.WriteString("\n" + inner)
-			encode(out, item, inner)
+			out.WriteString(inner)
+			encode(out, item, comma, inner)
 		}
-		out.WriteString("\n" + indent + "]")
+		out.WriteString(newline + "]")
 	case *Object:
 		if len(value.keys) == 0 {
 			out.WriteString("{}")
@@ -428,12 +441,12 @@ func encode(out *strings.Builder, value any, indent string) {
 		out.WriteString("{")
 		for i, key := range value.keys {
 			if i > 0 {
-				out.WriteString(",")
+				out.WriteString(comma)
 			}
-			out.WriteString("\n" + inner + quote(key) + ": ")
-			encode(out, value.values[key], inner)
+			out.WriteString(inner + quote(key) + ": ")
+			encode(out, value.values[key], comma, inner)
 		}
-		out.WriteString("\n" + indent + "}")
+		out.WriteString(newline + "}")
 	}
 }
 

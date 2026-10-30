@@ -40,6 +40,10 @@ func TestRecordGoesOutAsPythonWritesIt(t *testing.T) {
 	if got := Encode(record); got != want {
 		t.Fatalf("got\n%s", got)
 	}
+	// and as json.dumps(record) writes it, on one line
+	if got := Line(record); got != `{"a": 0, "b": Infinity, "c": "caf\u00e9 \ud83d\ude00", "n": NaN, "d": 100.0, "list": [1, [], {}], "nested": {"x": null, "y": true}, "tab": "a\tb\"\\"}` {
+		t.Fatalf("got %s", got)
+	}
 	if got, _ := record.Num("n"); !math.IsNaN(got) {
 		t.Fatalf("NaN read as %v", got)
 	}
