@@ -3,9 +3,12 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -157,6 +160,39 @@ func TestNotifyNeeds(t *testing.T) {
 	t.Setenv("AK_RUN_ROLE", "worker")
 	t.Setenv("AK_RUN_LOG", filepath.Join(home, "run.log"))
 	assertCall(t, ask("no question", "--dry-run"), 0, "notify: needs suppressed: AK_RUN_ROLE=worker; only an orchestrator may notify\n", "")
+}
+
+// What the answer key cannot reach: what Go leaves to Python, who the GET says asks, an answer
+// cut off, and a URL Go's errors would quote.
+func TestNotifyCheck(t *testing.T) {
+	home := sandbox(t)
+	check := []string{"notify", "--check"}
+	unimplemented := "ak notify --check: not implemented in Go yet\n"
+	t.Setenv("AGENTKIT_DISCORD_WEBHOOK", "http://acme.example/\xff")
+	assertCall(t, check, 3, "", unimplemented)
+	t.Setenv("AGENTKIT_DISCORD_WEBHOOK", "")
+	write(t, filepath.Join(home, ".agentkit", "secrets", "discord_webhook", "hook"), "http://acme.example/\n")
+	assertCall(t, check, 3, "", unimplemented)
+
+	t.Setenv("AGENTKIT_DISCORD_WEBHOOK", "http://acme.example/secret-token%zz")
+	assertCall(t, check, 1, "", `notify: fail (no response: invalid URL escape "%zz")`+"\n")
+
+	agents := make(chan string, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(reply http.ResponseWriter, request *http.Request) {
+		agents <- request.UserAgent()
+		status, _ := strconv.Atoi(strings.TrimPrefix(request.URL.Path, "/"))
+		reply.Header().Set("Content-Length", "2")
+		reply.WriteHeader(status)
+		reply.Write([]byte("x")) // one byte short: the connection closes on it
+	}))
+	defer server.Close()
+	t.Setenv("AGENTKIT_DISCORD_WEBHOOK", server.URL+"/200")
+	assertCall(t, check, 1, "", "notify: fail (no response: unexpected EOF)\n")
+	if agent := <-agents; agent != "agentkit/1 (+https://github.com)" {
+		t.Fatalf("User-Agent %q", agent)
+	}
+	t.Setenv("AGENTKIT_DISCORD_WEBHOOK", server.URL+"/404")
+	assertCall(t, check, 1, "notify: fail (404)\n", "")
 }
 
 func TestPlanInputRefusals(t *testing.T) {

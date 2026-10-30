@@ -11,7 +11,23 @@ import (
 	"agentkit/internal/notify"
 )
 
-func init() { commands["notify needs"] = notifyNeeds }
+func init() {
+	commands["notify"] = notifyCheck
+	commands["notify needs"] = notifyNeeds
+}
+
+// notifyCheck answers --check, all validateNotify leaves `ak notify` without a sub-verb.
+func notifyCheck(_ []string, out, errOut io.Writer) int {
+	code, err := notify.Check(out, errOut)
+	if errors.Is(err, notify.ErrUnread) {
+		return notImplemented(errOut, "notify --check")
+	}
+	if err != nil {
+		fmt.Fprintf(errOut, "ak notify: %s\n", err)
+		return 2
+	}
+	return code
+}
 
 // notifyNeeds decides in notify.main's order: the arguments (validateNotify), the worker, the
 // question's shape, then the seat.  It carries out a dry run; a real ask, and a seat's ask for

@@ -1,13 +1,16 @@
 // Package notify owns what a page says and who may ask.  It hides a page's title, the owner's
-// mention and where its id comes from ($AGENTKIT_DISCORD_USER_ID, else the secrets file), the
-// terminal notice's text, the rule that a question asks first, and a worker's suppression: a
-// run's worker asks the owner nothing.  Sending, cards and the outbox join it later.
+// mention, where the owner's id and the webhook come from (the environment, else the secrets
+// file), how the webhook is asked whether it is live, the terminal notice's text, the rule that
+// a question asks first, and a worker's suppression: a run's worker asks the owner nothing.
+// Sending, cards and the outbox join it later.
 package notify
 
 import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +26,11 @@ import (
 // from its start and cut the rest, so context written before the ask hides it.  One classic
 // terminal line.
 const askCap = 80
+
+const (
+	webhookEnv  = "AGENTKIT_DISCORD_WEBHOOK"
+	webhookFile = "discord_webhook"
+)
 
 // ErrUnread is text Go cannot read as Python does, which leaves the command to Python.
 var ErrUnread = errors.New("not UTF-8, or unreadable")
@@ -71,10 +79,60 @@ func DryRun(seat, question string, out, errOut io.Writer) error {
 	return nil
 }
 
+// Check asks the configured webhook whether it is live and says how it answered, returning
+// ak's exit code.  Its GET pages nobody, so $AK_NOTIFY_SINK never changes which webhook is
+// asked.  An error asks nothing: ErrUnread, or no webhook configured.
+func Check(out, errOut io.Writer) (int, error) {
+	hook, err := secret(webhookEnv, webhookFile)
+	if err != nil {
+		return 0, err
+	}
+	if hook == "" {
+		return 0, fmt.Errorf("--check: no webhook configured; put one in %s or $%s", secretPath(webhookFile), webhookEnv)
+	}
+	if !strings.HasPrefix(hook, "https://") && !strings.HasPrefix(hook, "http://") {
+		fmt.Fprintln(errOut, "notify: fail (the configured webhook is not an http(s) URL)")
+		return 1, nil
+	}
+	status, err := answer(hook)
+	var quoting *url.Error
+	if errors.As(err, &quoting) {
+		err = quoting.Err // it quotes the URL, which is the secret
+	}
+	if err != nil {
+		fmt.Fprintf(errOut, "notify: fail (no response: %s)\n", err)
+		return 1, nil
+	}
+	if status != http.StatusOK {
+		fmt.Fprintf(out, "notify: fail (%d)\n", status)
+		return 1, nil
+	}
+	fmt.Fprintln(out, "notify: ok (200)")
+	return 0, nil
+}
+
+// answer is the status the URL answers a GET with; a 200 cut off is no answer.
+func answer(hook string) (int, error) {
+	request, err := http.NewRequest(http.MethodGet, hook, nil)
+	if err != nil {
+		return 0, err
+	}
+	request.Header.Set("User-Agent", "agentkit/1 (+https://github.com)")
+	response, err := (&http.Client{Timeout: 15 * time.Second}).Do(request)
+	if err != nil {
+		return 0, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusOK {
+		_, err = io.Copy(io.Discard, response.Body)
+	}
+	return response.StatusCode, err
+}
+
 // payload is what a page posts: its title, then the owner's mention, the only one it may ping.
 // What was asked stays in the seat.
 func payload(seat string) (*run.Object, error) {
-	owner, err := ownerID()
+	owner, err := secret("AGENTKIT_DISCORD_USER_ID", "discord_user_id")
 	if err != nil {
 		return nil, err
 	}
@@ -92,11 +150,11 @@ func payload(seat string) (*run.Object, error) {
 	return page, nil
 }
 
-// ownerID is $AGENTKIT_DISCORD_USER_ID, else the one line of the secrets file; "" for none.
-func ownerID() (string, error) {
-	id := os.Getenv("AGENTKIT_DISCORD_USER_ID")
-	if id == "" {
-		data, err := os.ReadFile(filepath.Join(config.Home(), "secrets", "discord_user_id"))
+// secret is $variable, else the one line of the secrets file; "" for none.
+func secret(variable, file string) (string, error) {
+	value := os.Getenv(variable)
+	if value == "" {
+		data, err := os.ReadFile(secretPath(file))
 		if os.IsNotExist(err) {
 			return "", nil
 		}
@@ -104,12 +162,16 @@ func ownerID() (string, error) {
 			return "", ErrUnread
 		}
 		// Python reads the file in universal newlines mode
-		id = strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(string(data))
+		value = strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(string(data))
 	}
-	if !utf8.ValidString(id) {
+	if !utf8.ValidString(value) {
 		return "", ErrUnread
 	}
-	return strings.TrimFunc(id, config.Space), nil
+	return strings.TrimFunc(value, config.Space), nil
+}
+
+func secretPath(file string) string {
+	return filepath.Join(config.Home(), "secrets", file)
 }
 
 // notice is text as a terminal notice shows it: on one line, each character Python's
