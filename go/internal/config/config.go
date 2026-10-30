@@ -4,6 +4,7 @@ package config
 import (
 	"cmp"
 	_ "embed"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -12,6 +13,7 @@ import (
 	"reflect"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -55,15 +57,23 @@ func EnsureDirs() error {
 }
 
 func Expand(path string) string {
-	if path == "~" || strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~"+string(filepath.Separator)) {
-		home, _ := os.UserHomeDir()
-		path = filepath.Join(home, strings.TrimPrefix(path[1:], "/"))
-	}
-	return filepath.Clean(path)
+	return filepath.Clean(tilde(path))
 }
 
+// Absolute is path as Python's Path(path).expanduser().resolve() reads it: the rest as spelled,
+// so a `..` after a link leaves the link's target.
 func Absolute(path string) string {
-	return Resolve(Expand(path))
+	return Resolve(tilde(path))
+}
+
+// tilde is path with a leading `~` put in the home's place as Python's expanduser puts it, the
+// rest as spelled.
+func tilde(path string) string {
+	if path != "~" && !strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, "~"+string(filepath.Separator)) {
+		return path
+	}
+	home, _ := os.UserHomeDir()
+	return cmp.Or(strings.TrimRight(home, "/"+string(filepath.Separator))+path[1:], "/")
 }
 
 // Resolve is path made absolute with its links followed, as far as they exist, and a leading
@@ -292,9 +302,6 @@ func validate(root *table) error {
 			return fmt.Errorf("[defaults].orchestrator must be a model name (got %s)", valueRepr(value))
 		}
 	}
-	if _, exists := defaults.values["workers"]; !exists {
-		defaults.put("workers", []any{})
-	}
 	for _, key := range []string{"workers", "reviewers"} {
 		if value, exists := defaults.values[key]; exists && !stringList(value, key == "reviewers") {
 			return fmt.Errorf("[defaults].%s must list distinct model names (got %s)", key, valueRepr(value))
@@ -347,6 +354,78 @@ func Models() (map[string]Model, error) {
 		}
 	}
 	return models, nil
+}
+
+// A Binding is what a launch outside any seat binds from the config, as Python's
+// capture_launch binds it: [defaults]' workers and reviewers as load() keeps them to the models
+// offered, Reviewers nil where it names none, and the effort keys of each [models.*] table.
+type Binding struct {
+	Workers, Reviewers []any
+	Models             []string
+	Efforts            map[string][][2]string
+}
+
+// errUnbound is a config Go binds otherwise than Python: [defaults] efforts, which stand in for
+// the models' own, or an effort that is no string.
+var errUnbound = errors.New("a config Go binds otherwise than Python")
+
+// Bind is the home config's Binding.
+func Bind() (Binding, error) {
+	root, err := load()
+	if err != nil {
+		return Binding{}, err
+	}
+	defaults, models := root.values["defaults"].(*table), root.values["models"].(*table)
+	if _, held := defaults.values["efforts"]; held {
+		return Binding{}, errUnbound
+	}
+	bound := Binding{Efforts: map[string][][2]string{}}
+	var offered []any // a model naming a harness, and a provider with a table
+	for _, name := range models.keys {
+		entry, ok := models.values[name].(*table)
+		if !ok {
+			continue
+		}
+		bound.Models = append(bound.Models, name)
+		for _, key := range []string{"effort", "exec_effort", "review_effort"} {
+			if value, set := entry.values[key]; set {
+				effort, ok := value.(string)
+				if !ok {
+					return Binding{}, errUnbound
+				}
+				bound.Efforts[name] = append(bound.Efforts[name], [2]string{key, effort})
+			}
+		}
+		_, harness := entry.values["harness"].(string)
+		provider, named := entry.values["provider"].(string)
+		if _, listed := root.values["providers"].(*table).values[provider]; harness && named && listed {
+			offered = append(offered, name)
+		}
+	}
+	if len(offered) == 0 {
+		return Binding{}, errUnbound
+	}
+	// load() passes over a model no longer offered, the first offered taking a list it empties;
+	// executors written empty beside reviewers stay empty
+	kept := func(key string) (kept []any) {
+		listed, _ := defaults.values[key].([]any)
+		for _, name := range listed {
+			if slices.Contains(offered, name) {
+				kept = append(kept, name)
+			}
+		}
+		return kept
+	}
+	workers, _ := defaults.values["workers"].([]any)
+	_, written := defaults.values["workers"]
+	_, reviews := defaults.values["reviewers"]
+	if bound.Workers = kept("workers"); bound.Workers == nil && (len(workers) > 0 || !written || !reviews) {
+		bound.Workers = offered[:1]
+	}
+	if bound.Reviewers = kept("reviewers"); reviews && bound.Reviewers == nil {
+		bound.Reviewers = offered[:1]
+	}
+	return bound, nil
 }
 
 // resolve is the [models.*] entry `config.model` runs, or why it runs none.

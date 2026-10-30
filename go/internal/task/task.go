@@ -26,7 +26,7 @@ var (
 	fence    = regexp.MustCompile("(?s)```(?:bash|sh)?\n(.*?)```")
 	frontRe  = regexp.MustCompile(`(?s)^---\n(.*?)\n---\n?(.*)$`)
 	agentsRe = regexp.MustCompile(`(?s)^---\n(|.*?\n)---`)
-	onceRe   = regexp.MustCompile(`^#\s*once\s*$`)
+	onceRe   = regexp.MustCompile(strings.ReplaceAll(`^#\s*once\s*$`, `\s`, config.SpaceClass))
 	// bash's own warning for a heredoc it never closes, from 3.2 (`bash: warning: …`) to 5.2
 	// (`bash: line 1: warning: …`)
 	unclosedHeredoc = regexp.MustCompile(`(?m)^[^:\n]+: (?:line \d+: )?warning: here-document at line \d+ delimited by end-of-file`)
@@ -86,6 +86,20 @@ func Read(path string) (map[string]string, []string, error) {
 	return meta, cmds, nil
 }
 
+// Title is the task's first `# ` heading after its front matter, as Python's parse_task reads
+// it, else stem.
+func Title(text, stem string) string {
+	if match := frontRe.FindStringSubmatch(text); match != nil {
+		text = match[2]
+	}
+	for _, line := range config.SplitLines(text) {
+		if heading, found := strings.CutPrefix(line, "# "); found {
+			return strings.TrimFunc(heading, config.Space)
+		}
+	}
+	return stem
+}
+
 // Refusal is the sentence a task read whole cannot start with, or "". A heredoc never works
 // in done-when: each line runs as a command of its own, so the opening line reads an empty
 // script and its body lines run as commands.
@@ -99,6 +113,15 @@ func Refusal(meta map[string]string, cmds []string) string {
 		}
 	}
 	return RoundsRefusal(meta["rounds"], "task rounds")
+}
+
+// ChecksRefusal is the sentence for more than 3 checks a round runs, or "": every as the loop
+// settles it, a `# once` line among them where the run has no landing.
+func ChecksRefusal(every []string) string {
+	if len(every) <= 3 {
+		return ""
+	}
+	return fmt.Sprintf("%d done-when checks: a task has at most 3, one behaviour a reviewer holds in one read; split it", len(every))
 }
 
 // RoundsRefusal is the sentence for a round budget over three, or "": three rounds is the
@@ -164,8 +187,9 @@ func opensHeredoc(command string) bool {
 	return ctx.Err() == nil && unclosedHeredoc.Match(said.Bytes())
 }
 
-// Once is whether a command ends in a `# once` marker outside any quotes.
-func Once(cmd string) bool {
+// SplitOnce is the command without its trailing `# once` marker, the marker's `#` outside any
+// quotes, and whether it had one, as Python's split_once reads it.
+func SplitOnce(cmd string) (string, bool) {
 	single, double, escaped := false, false, false
 	for i, ch := range cmd {
 		switch {
@@ -179,11 +203,11 @@ func Once(cmd string) bool {
 			double = !double
 		case ch == '#' && !single && !double:
 			if i > 0 && (cmd[i-1] == ' ' || cmd[i-1] == '\t') && onceRe.MatchString(cmd[i:]) {
-				return true
+				return strings.TrimRightFunc(cmd[:i], config.Space), true
 			}
 		}
 	}
-	return false
+	return cmd, false
 }
 
 // FrontValue is a key's value in AGENTS.md front matter, or "".
