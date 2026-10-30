@@ -73,6 +73,24 @@ class PlanHome(unittest.TestCase):
         self.assertEqual(self.plan(seat), before)
 
 
+class AVerificationsChecksShareATree(PlanHome):
+    def test_each_finds_the_last_ones_mess_gone_and_the_rest_not_written_again(self):
+        rig = self.project("fix-api", "acme")
+        rig.commit({".gitignore": "ignored\n", "a": "a\n", "b": "b\n", "check.sh": """
+{ git status --porcelain --ignored; git log -1 --format=%s; cat a; stat -c %y b; } > "$1"
+echo x > a; echo x > new; echo x > ignored; git -c user.name=a -c user.email=a@b.c commit -qam moved
+[ -z "$2" ] || { mkdir stuck; touch stuck/file; chmod 555 stuck; }
+exit 1
+"""}, "the project")
+        checks = [(self.home.root / f"seen-{index}", extra) for index, extra in enumerate(("", "stuck", ""))]
+        for seen, extra in checks:
+            self.add(rig, "fix-api", seen.name, f"bash check.sh {seen} {extra}".strip())
+        self.assertEqual(self.ak(rig, "fix-api", "plan").code, 0)
+        first, second, third = (seen.read_text().splitlines() for seen, _ in checks)
+        self.assertEqual((first[:-1], second), (["the project", "a"], first))
+        self.assertEqual(third[:-1], first[:-1])
+
+
 class TheCheckRunsOnOriginsDefaultBranch(PlanHome):
     @classmethod
     def setUpClass(cls):

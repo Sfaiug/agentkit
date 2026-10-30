@@ -23,7 +23,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager, nullcontext
 from pathlib import Path
 
 from . import command_help, config, gitcall, guard, parsed, terminal
@@ -242,9 +242,11 @@ def verifying(name):
 def default_branch(repo, at=None):
     """(its commit as `<sha12> <subject>`, the environment a check runs in, `checkout`): the
     project's current default branch, fetched first -- or, with `at`, that commit, the one a
-    line's check was proven failing on.  `checkout()` is a clean checkout of that commit made
-    for one check and removed after it, so nothing one check writes or moves -- files, HEAD, a
-    submodule -- is there for the next.  It sits beside runs' checkouts in `config.WT`, as
+    line's check was proven failing on.  `checkout()` is a clean checkout of that commit for one
+    check, so nothing one check writes or moves -- files, HEAD, a submodule -- is there for the
+    next: one tree, cleaned between checks and made again where that leaves anything, as one per
+    check wrote 2.4 GB of ATLAS for 29 lines at this disk's 40 MB/s (30 Oct 2026).  It sits beside
+    runs' checkouts in `config.WT`, as
     the landing line's do: ak's history counts a repository under `.agentkit/tmp` as a test
     suite's throwaway, so a test keeping its fixtures in its own checkout read differently
     there than in a run.  A check gets the project's env file
@@ -272,7 +274,7 @@ def default_branch(repo, at=None):
     config.WT.mkdir(parents=True, exist_ok=True)
 
     @contextmanager
-    def checkout():
+    def fresh():
         with tempfile.TemporaryDirectory(dir=config.WT, prefix="plan-") as tmp:
             tree = Path(tmp) / "main"
             try:
@@ -287,6 +289,24 @@ def default_branch(repo, at=None):
                         shutil.rmtree(tree, ignore_errors=True)
                         git("worktree", "prune")
 
+    def cleaned(tree):
+        try:
+            git("checkout", "-q", "--force", "--detach", sha, cwd=tree)
+            git("clean", "-q", "-ffdx", cwd=tree)
+            return not git("status", "--porcelain", "--ignored", cwd=tree)
+        except config.Error:
+            return False
+
+    kept, made = ExitStack(), []
+
+    def checkout():
+        if made and not cleaned(made[0]):
+            kept.close()
+            made.clear()
+        if not made:
+            made.append(kept.enter_context(fresh()))
+        return nullcontext(made[0])
+
     def stop(signum, _frame):
         # Tool timeouts send SIGTERM; repeated requests must let cleanup finish.
         signal.signal(signum, signal.SIG_IGN)
@@ -294,7 +314,8 @@ def default_branch(repo, at=None):
 
     previous = signal.signal(signal.SIGTERM, stop)
     try:
-        yield commit, env, checkout
+        with kept:
+            yield commit, env, checkout
     finally:
         signal.signal(signal.SIGTERM, previous)
 
@@ -539,7 +560,7 @@ def _verify_held(name, check=None):
         with default_branch(repo) as (commit, env, checkout):
             for bare, found in group.items():
                 try:
-                    with checkout() as tree:     # its own: never another check's leftovers
+                    with checkout() as tree:     # clean: never another check's leftovers
                         # the repository the line recorded, in the very tree it runs in
                         passed = ((not written or holds(tree, written, "HEAD"))
                                   and not fails(tree, found["check"], env))
