@@ -1,7 +1,7 @@
 """Every `ak` command marks what it starts, and nothing meant to outlive it carries the mark.
 
-`bin/ak` sets `owner.MARK` just before it runs a command: this process's pid namespace, pid and
-start, the command and the seat, inherited by all it starts.  `--help` and an unknown command
+`bin/ak` sets `owner.MARK` just before it runs a command: this process's pid namespace, pid,
+start and session and the command, inherited by all it starts.  `--help` and an unknown command
 set none and read nothing.  A unit, a tmux server, a seat's pane, the warm server, each detached
 start and a sign-in are started unmarked; the menu's install keeps the mark.
 
@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import REPO, Sandbox  # noqa: E402
 from agentkit import config, gc, menu, orch, owner, update, warm, watch  # noqa: E402
 
-MARKED = "4026531836 4242 777 watch acme"
+MARKED = "4026531836 4242 777 4200 watch"
 # `ak usage` through bin/ak, its body a stand-in reporting what it runs under
 PROBE = r"""
 import json, os, runpy, subprocess, sys
@@ -39,10 +39,10 @@ sys.addaudithook(lambda event, values: event == "open" and not seen
 def body(argv):
     with open("/proc/self/stat") as stat:
         seen["start"] = int(stat.read().rsplit(")", 1)[1].split()[19])
-    seen.update(pid=os.getpid(), mark=os.environ.get(owner.MARK),
+    seen.update(pid=os.getpid(), session=os.getsid(0), mark=os.environ.get(owner.MARK),
                 namespace=os.stat("/proc/self/ns/pid").st_ino, child=subprocess.run(
                     [sys.executable, "-c", f"import os; print(os.environ[{owner.MARK!r}])"],
-                    capture_output=True, text=True).stdout.removesuffix("\n"))
+                    capture_output=True, text=True).stdout.strip())
     return 0
 usage.main = body
 sys.argv = [os.path.join(repo, "bin", "ak"), *sys.argv[2:]]
@@ -69,23 +69,17 @@ class AkMarksWhatItStarts(Sandbox):
             owner.MARK: MARKED, "TERM": "xterm-256color",
             config.ADAPTER_DIR_ENV: str(self.adapters)}))
 
-    def ak(self, *args, session=None):
-        env = {key: value for key, value in os.environ.items()
-               if key not in (owner.MARK, config.SESSION_ENV)}
-        env.update({config.SESSION_ENV: session} if session else {})
-        done = subprocess.run([sys.executable, "-c", PROBE, str(REPO), *args], env=env,
-                              capture_output=True, text=True, timeout=120)
+    def ak(self, *args):
+        done = subprocess.run([sys.executable, "-c", PROBE, str(REPO), *args],
+                              env=owner.unmarked(), capture_output=True, text=True, timeout=120)
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout.splitlines()[-1])
 
     def test_a_command_runs_under_a_mark_naming_its_own_ak(self):
-        for session in ("acme", None):
-            with self.subTest(session=session):
-                said = self.ak("usage", session=session)
-                seen = said["seen"]
-                self.assertEqual(seen["mark"], f"{seen['namespace']} {seen['pid']} "
-                                               f"{seen['start']} usage {session or ''}")
-                self.assertEqual(seen["child"], seen["mark"])     # what it starts inherits it
+        seen = self.ak("usage")["seen"]
+        self.assertEqual(seen["mark"], f"{seen['namespace']} {seen['pid']} {seen['start']} "
+                                       f"{seen['session']} usage")
+        self.assertEqual(seen["child"], seen["mark"])     # what it starts inherits it
 
     def test_help_and_an_unknown_command_set_none_and_read_nothing(self):
         for args, code in ((["usage", "--help"], 0), (["--help"], 0), (["bogus"], 2)):

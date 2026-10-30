@@ -10,18 +10,17 @@ it is no command's leftover.
 
 import os
 
-from . import config, host
-
-MARK = "AK_OWNER"   # `warm.MARK` spells it again: the warm client imports no agentkit
+from . import host
+from .warm import MARK   # its home there, as the warm client imports no agentkit
 
 
 def mark(command):
     """Mark this process, and so everything it starts, as `ak <command>`'s.
 
-    The value is `<pid namespace> <pid> <start> <command> <seat>`: the namespace's inode, the
-    pid and the start in clock ticks name this process alone, as no process given its pid later
-    starts at the same tick; the seat, last as the one free-form field, is $AGENTKIT_SESSION, ""
-    outside a seat.  Where /proc cannot say, the mark inherited, if any, stays.
+    The value is `<pid namespace> <pid> <start> <session> <command>`: the namespace's inode,
+    the pid and the start in clock ticks name this process alone, as no process given its pid
+    later starts at the same tick, and its POSIX session tells what it left there from what left
+    for a session of its own.  Where /proc cannot say, the mark inherited, if any, stays.
     """
     try:
         namespace = os.stat("/proc/self/ns/pid").st_ino
@@ -29,8 +28,7 @@ def mark(command):
         return
     stat = host.proc_stat("self")
     if stat is not None:
-        os.environ[MARK] = (f"{namespace} {os.getpid()} {stat.start} {command} "
-                            f"{os.environ.get(config.SESSION_ENV, '')}")
+        os.environ[MARK] = f"{namespace} {os.getpid()} {stat.start} {stat.session} {command}"
 
 
 def unmarked(env=None):

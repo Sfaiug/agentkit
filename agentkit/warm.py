@@ -36,7 +36,7 @@ NICE = 10       # ... and it gives way to the rest of the host meanwhile
 # What the terminal signals the process in its session, the client, and the menu has to hear.
 FORWARDED = ("SIGWINCH", "SIGHUP", "SIGTERM", "SIGINT", "SIGQUIT", "SIGTSTP", "SIGCONT")
 _PRIMED = None  # in a forked menu: the reader's last read, for its first frame
-MARK = "AK_OWNER"   # `owner.MARK`, spelled here as `place` spells STATE: the client imports none
+MARK = "AK_OWNER"   # what an `ak` command marks all it starts with (`owner`): the client's too
 
 
 def place(repo):

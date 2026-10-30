@@ -15,8 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentkit import host  # noqa: E402
 
 
-def stat_line(pid, comm, state, ppid, start):
-    fields = [state, str(ppid)] + ["0"] * 17 + [str(start)] + ["0"] * 10
+def stat_line(pid, comm, state, ppid, start, session=0):
+    fields = [state, str(ppid), "0", str(session)] + ["0"] * 15 + [str(start)] + ["0"] * 10
     return f"{pid} ({comm}) " + " ".join(fields) + "\n"
 
 
@@ -31,8 +31,8 @@ class ProcStat(unittest.TestCase):
         (self.root / str(pid) / name).write_text(text)
 
     def test_a_command_name_holding_spaces_and_parens_keeps_its_fields(self):
-        self.write(41, "stat", stat_line(41, "x) S 9 (y", "R", 7, 12345))
-        self.assertEqual(host.proc_stat(41, self.root), host.ProcStat("R", 7, 12345))
+        self.write(41, "stat", stat_line(41, "x) S 9 (y", "R", 7, 12345, 40))
+        self.assertEqual(host.proc_stat(41, self.root), host.ProcStat("R", 7, 12345, 40))
         self.assertFalse(host.proc_stat(41, self.root).exited)
 
     def test_a_command_name_cut_inside_a_character_keeps_its_fields(self):
@@ -41,7 +41,7 @@ class ProcStat(unittest.TestCase):
         line = line.replace(b"name", b"\xc3\xa9" * 7 + b"\xc3")
         (self.root / "48").mkdir()
         (self.root / "48" / "stat").write_bytes(line)
-        self.assertEqual(host.proc_stat(48, self.root), host.ProcStat("S", 7, 9))
+        self.assertEqual(host.proc_stat(48, self.root), host.ProcStat("S", 7, 9, 0))
 
     def test_a_zombie_or_a_dead_task_has_exited(self):
         for pid, state in ((42, "Z"), (43, "X")):
@@ -60,7 +60,7 @@ class ProcStat(unittest.TestCase):
 
     def test_this_process_reads_its_parent_and_its_identity_start(self):
         stat = host.proc_stat(os.getpid())
-        self.assertEqual(stat.ppid, os.getppid())
+        self.assertEqual((stat.ppid, stat.session), (os.getppid(), os.getsid(0)))
         self.assertEqual(host.process_identity(os.getpid())["ticks"], stat.start)
 
 
