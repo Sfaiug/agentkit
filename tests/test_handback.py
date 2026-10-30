@@ -631,7 +631,7 @@ class HandBack(Sandbox):
         self.rows = [self.live()]
         run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.typed, [(SEAT, decided(directory, "FAIL (3 of 3): "
-            "a.py:1 - one - why. Next: split the task."))])
+            "a.py:1 - one. Next: split the task."))])
         self.assertEqual(self.cards, [])
         # and no row sends him to it either, while the seat that was told is still there
         found = watch.session_state(SEAT, session=self.live(), cfg=self.cfg)
@@ -765,7 +765,7 @@ class HandBack(Sandbox):
         self.rows = [self.live()]
         run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual(self.typed, [(SEAT, decided(directory, "FAIL (2 of 2): "
-            "a.py:1 - one - why. Next: split the task."))])
+            "a.py:1 - one. Next: split the task."))])
         self.assertEqual(self.cards, [])
         # reaping it afterwards is not a second chance to say the same thing
         run.reap(directory, record.read_state(directory))
@@ -1068,7 +1068,7 @@ class HandBack(Sandbox):
         self.rows = [self.live()]
         self.tick()
         self.assertEqual(len(self.typed), 1)
-        self.assertIn("FAIL (2 of 2): a.py:1 - one - why", self.typed[0][1])
+        self.assertIn("FAIL (2 of 2): a.py:1 - one.", self.typed[0][1])
         # said once: the next tick finds it heard
         self.assertFalse(handback.owes_ending(record.read_state(directory)))
         self.tick()
@@ -1156,7 +1156,7 @@ class HandBack(Sandbox):
         with jobs.job_muted():
             run.announce(state, directory, self.logs.append)
         self.assertEqual(len(self.typed), 1)
-        self.assertIn("FAIL (3 of 3): a.py:1 - one - why", self.typed[0][1])
+        self.assertIn("FAIL (3 of 3): a.py:1 - one.", self.typed[0][1])
         self.assertIn("Next: split the task.", self.typed[0][1])
         task = {"name": "a.md", "state": "running", "run_id": directory.name}
         job = {"job_id": "j", "seat": SEAT, "tasks": [task], "opts": {}}
