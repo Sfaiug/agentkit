@@ -45,7 +45,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, host, notify,
-               orch, questions, seat_tokens, staffing, statusbar, transitions, turns, update,
+               orch, questions, seat_tokens, setups, staffing, statusbar, transitions, turns, update,
                usage, worker)
 from . import record as run_record
 from . import sleep
@@ -7685,6 +7685,8 @@ def doctor(argv):
     # the slice line says its own name, so only the tick's needs one
     print(orch.slice_line())
     print(f"tick  {tick_health()}", flush=True)
+    for project, code, tail in setups.failing():
+        print("\n    ".join([f"setup  {project} failed (exit {code}); its last lines:", *tail]))
     cfg = config.load()
     wrong = []
     for name in config.offered(cfg):
@@ -7866,6 +7868,8 @@ def local_passes(state, dry_run, log):
         ("browser tidy did not finish", lambda: browser.tidy(log), False),
         # A merge to a project reaches its seats' rulebooks: their next prompts name it.
         ("the projects' rules were not fetched", orch.fetch_projects, False),
+        # ... and its setup readies this machine for its work, in the background.
+        ("the projects' setups were not started", lambda: setups.start(log), False),
         # Merged agentkit goes live after every local pass, so as little of this tick's old
         # code as can be is left to run over new files; GitHub imports nothing new.
         ("agentkit did not go live", lambda: update.go_live(log), False),

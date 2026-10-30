@@ -176,7 +176,8 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                         "Install the stack if absent; verify an existing installation.",
                         "ak browser install"),
     "doctor": ("usage: ak doctor",
-               "Show the slice the agents run in, the state of the tick, and any model\n"
+               "Show the slice the agents run in, the state of the tick, each project\n"
+               "whose setup failed on this machine with its last lines, and any model\n"
                "set to an effort it does not take, which it names and never changes.\n"
                "Says `no slice` where the machine has no user systemd manager.",
                "ak doctor"),
