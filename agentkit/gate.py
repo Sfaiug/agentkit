@@ -1158,11 +1158,11 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                     # a checker's wait is its member's, kept beside that member's line time
                     if run_dir or is_landing:
                         counted = count_wait(self_id, "suite" if run_dir else "lander", counted)
-                    # Rank decides this host's turns, never who asks the helper (owner, 30 Oct
-                    # 2026: nothing waits for compute), as the first may not ask for long: it
-                    # waits here to rerun what the helper lost.  Only a line's own check waiting
-                    # holds the rest back, as it goes first (owner, 29 Oct 2026).
-                    if elsewhere and (line or not landing_waits()) and elsewhere():
+                    # Rank and a line's own check waiting decide this host's turns, never who
+                    # asks the helper (owner, 30 Oct 2026: nothing waits for compute), as the
+                    # first may not ask for long: it waits here to rerun what the helper lost,
+                    # and a suite on a machine takes nothing from a wait here.
+                    if elsewhere and elsewhere():
                         turnless = True
                         break
                     slot, limit, held = admit()

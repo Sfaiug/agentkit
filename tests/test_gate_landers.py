@@ -186,6 +186,28 @@ class GateLanders(unittest.TestCase):
         self.assertFalse(gate.claim_slot(new, 0, readings))   # its first steady poll
         self.assertTrue(gate.claim_slot(new, 0, readings))
 
+    def test_a_round_check_asks_the_helper_past_a_line_check_waiting_here(self):
+        # The line's wait decides this host's turns; a suite on a machine takes nothing from it.
+        holder = gate.gate_lock(ACME, 0).open("a")
+        self.addCleanup(holder.close)
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        context = {"repo": ACME, "run_id": "member", "landing": True, "since": time.time()}
+        def check():
+            with gate.gate_turn(None, self.root / "line.log", None, None, self.root,
+                                context=context):
+                pass
+        checker = threading.Thread(target=check, daemon=True)
+        checker.start()
+        self.until(gate.landing_waits, "the checker to wait for a turn")
+        asked = threading.Event()
+        threading.Thread(target=gate._acquire_gate_turn, daemon=True,
+                         args=(self.record("round", ACME), self.root / "round.log", None),
+                         kwargs={"elsewhere": lambda: asked.set() or True}).start()
+        self.assertTrue(asked.wait(20))
+        self.assertTrue(gate.landing_waits())
+        fcntl.flock(holder, fcntl.LOCK_UN)
+        checker.join(20)
+
     def test_a_landing_check_is_seen_from_its_first_look_at_the_turns(self):
         # No new run or round check slips in while the checker reads headroom for its pieces.
         seen, real = [], gate._heavy_max_existing
