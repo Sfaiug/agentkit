@@ -81,9 +81,9 @@ class _Answers(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_args):
         pass
 
-    def answer(self, body, code=200):
+    def answer(self, body):
         data = json.dumps(body).encode()
-        self.send_response(code)
+        self.send_response(200)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -97,7 +97,7 @@ class _Answers(http.server.BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         self.server.asked.append(f"DELETE {(name := self.path.rsplit('/', 1)[1])}")
-        self.answer({}, 403 if name in self.server.refused else 200)
+        return self.send_error(403) if name in self.server.refused else self.answer({})
 
     def do_GET(self):
         self.server.asked.append(self.path)
@@ -105,7 +105,7 @@ class _Answers(http.server.BaseHTTPRequestHandler):
         if "/instances/" in url.path:
             found = ({one["name"]: one for one in self.server.machines} | self.server.again).get(
                 url.path.rsplit("/", 1)[1])
-            return self.answer(found or {}, 200 if found else 404)
+            return self.answer(found) if found else self.send_error(404)
         pages = {"/v1/services/6F81-5844-456A/skus": [{"skus": skus} for skus in self.server.skus],
                  "/compute/v1/projects/acme-build/aggregated/machineTypes":
                      [{"items": zones, **self.server.missed} for zones in self.server.zones],

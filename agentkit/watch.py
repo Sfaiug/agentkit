@@ -7661,7 +7661,7 @@ def doctor(argv):
     from . import gate, google_cloud   # here, not at the top: the gate imports this module
     try:
         lines = google_cloud.said(gate.HEAVY_MEM_MB)
-    except google_cloud.Unavailable as exc:
+    except config.Error as exc:
         lines = [str(exc)]
     print("\n".join(f"rented machines: {line}" for line in lines))
     return 0
