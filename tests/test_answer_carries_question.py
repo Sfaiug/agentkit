@@ -150,12 +150,10 @@ exit "$result"
         self.ask()
         config.update_session(SEAT, rulebook_sha=config.rulebook_digest("Old rules.\n"))
         context = self.hook()
-        self.assertIn("it is your current rulebook", context)
+        self.assertIn("it wins", context)
         self.assertIn(QUESTION, context)
         self.typed("Use v2.")
-        context = self.hook()
-        self.assertIn("it is your current rulebook", context)
-        self.assertNotIn(QUESTION, context)
+        self.assertEqual(self.hook(), "")
 
     def test_only_the_seats_own_context_capable_prompt_hears_questions(self):
         self.ask()
