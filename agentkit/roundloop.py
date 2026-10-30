@@ -1459,16 +1459,18 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     name = f"reviewer-{lp.reviewer}" if handed else turns.open_review(rd)[0] or "reviewer"
 
     def ready_reviewers():
-        """The run's marked reviewers with room, as the meters read now, in pick order; only
-        those that already failed this round stay out."""
+        """The run's marked reviewers with room, as the meters read now, in pick order beside
+        everyone who wrote part of the head (`reviewer_order`); only those that already failed
+        this round stay out."""
         failed = lp.state["review_pending"].get("failed", [])
         try:
             providers = staffing.collect_usage(lp.cfg)
         except config.Error as exc:
             providers = {}      # meters nobody could read withhold no reviewer from a dead review
             lp.log(f"WARN could not read the meters: {exc}")
-        return [n for n in staffing.ready_order(lp.cfg, providers, staffing.run_reviewers(lp.cfg, lp.state),
-                                                lp.log, role="reviewer", repo=lp.state.get("repo"))
+        ready = staffing.ready_order(lp.cfg, providers, staffing.run_reviewers(lp.cfg, lp.state),
+                                     lp.log, role="reviewer", repo=lp.state.get("repo"))
+        return [n for n in staffing.reviewer_order(lp.cfg, staffing.head_writers(lp.state), ready)
                 if n not in failed]
 
     def independent(names):
@@ -1495,8 +1497,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         failed = lp.state["review_pending"].setdefault("failed", [])
         if lp.reviewer not in failed:
             failed.append(lp.reviewer)
-        # everyone who wrote part of the head reviews last
-        offered = staffing.reviewer_order(lp.cfg, staffing.head_writers(lp.state), ready_reviewers())
+        offered = ready_reviewers()
         if not allow_self:
             # A flake waits unless another model can review: only a reviewer that cannot
             # come back settles for the executor's own model.

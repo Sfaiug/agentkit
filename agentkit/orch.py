@@ -4233,7 +4233,8 @@ def switch_lines(cfg, name, model, effort=None):
     """The lines owed to that seat's harness (`watch.owe_line`) in its launch's pane, which its
     prompt takes to run `model` at `effort`, else at the seat's own: `[switch]`'s `model` then
     `effort`, an effort of `none` typing none.  None where the move restarts the seat: another
-    harness or provider (a login is the process's), that pane ended or gone, or no `model` line."""
+    harness or provider (a login is the process's), that pane ended or gone, no `model` line, or
+    a model with no id of its own (`default`: its launch names none, so the harness picks)."""
     record = config.session_records().get(name) or {}
     try:
         was, entry = config.model(cfg, record.get("orchestrator")), config.model(cfg, model)
@@ -4243,7 +4244,8 @@ def switch_lines(cfg, name, model, effort=None):
     server = seat_socket(find(name))
     pane = harness_pane(name, server)   # no id once it is gone, whatever other window lives on
     if ((was["harness"], was["provider"]) != (entry["harness"], entry["provider"])
-            or "model" not in block or not pane.startswith("%") or tmux_out(
+            or "model" not in block or entry["model"] in ("", config.DEFAULT_MODEL)
+            or not pane.startswith("%") or tmux_out(
                 "display-message", "-p", "-t", pane, "#{pane_dead}", socket=server) != (0, "0")):
         return None
     at = effort or config.role_effort(config.at_efforts(cfg, record)["models"][model],
