@@ -15,8 +15,10 @@ from unittest.mock import patch
 from fixtures.sandbox import Sandbox
 from agentkit import config, notify, orch, statusbar
 
-SAYS = ("import os, pathlib, sys, time; pathlib.Path(sys.argv[1]).write_text("
-        "os.environ[sys.argv[2]]); time.sleep(600)")
+# written whole or not at all: a file read as it is created holds nothing yet
+SAYS = ("import os, pathlib, sys, time; said = pathlib.Path(sys.argv[1]); "
+        "said.with_suffix('.part').write_text(os.environ[sys.argv[2]]); "
+        "said.with_suffix('.part').replace(said); time.sleep(600)")
 ROOT = "XDG_STATE_HOME"
 
 

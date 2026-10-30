@@ -2114,8 +2114,10 @@ def seat_command(name, cmd, socket=None):
 
     tmux refuses a command longer than its 16 KiB message ("command too long"), and a harness
     that takes its rulebook as an argument (Grok's `--rules`, OpenCode's config) carries tens
-    of KiB.  So the pane runs the seat's launch file, which removes itself and execs the
-    command: any length, and nothing left behind once the harness is up.
+    of KiB.  So the pane runs a launch file, which removes itself and execs the command: any
+    length, and nothing left behind once the harness is up.  Each launch has a file of its own,
+    so a pane that starts late removes its own, never the next launch's.  Its path comes back
+    with the command: a caller whose pane tmux refuses removes it.
     """
     if user_manager():
         unit = f"agentkit-seat-{name}-{uuid.uuid4().hex[:8]}"
@@ -2127,14 +2129,14 @@ def seat_command(name, cmd, socket=None):
                "[ -t 0 ]; tty=$?; "
                f"trap '' HUP; {ends} "
                'trap - HUP; [ $tty = 1 ] || [ -t 0 ] || kill -HUP $$; exec "$@"', "sh", *cmd]
-    path = config.seat_file("launch", name)
+    path = config.seat_file("launch", name).with_suffix(f".{uuid.uuid4().hex[:8]}")
     # new-session -e can set a variable, but cannot remove one inherited from its server.
     # Clear absent overrides before the harness starts; the session is refreshed below too.
     absent = [key for key, value in seat_env(name, socket_name() if socket is None else socket).items()
               if value is None]
     unset = "unset " + " ".join(absent) + "\n" if absent else ""
     path.write_text('rm -f -- "$0"\n' + unset + 'exec ' + shlex.join(cmd) + "\n")
-    return shlex.join(["sh", str(path)])
+    return shlex.join(["sh", str(path)]), path
 
 
 def seat_env(name, server):
@@ -2183,11 +2185,12 @@ def start(name, cwd, cmd, orchestrator, started=lambda: None):
     # Its answer is also what says whether this command is the one starting the server: only
     # that one can put the server in agentkit's slice.  The harness goes in either way.
     running = tmux_out("source-file", str(conf))[0] == 0
+    command, launch = seat_command(name, cmd)
     rc, out = tmux_out("-f", str(conf), "new-session", "-d", "-s", name, "-c", str(cwd),
-                       *pane_env(values), seat_command(name, cmd), path_shim=True,
+                       *pane_env(values), command, path_shim=True,
                        unit=None if running else f"agentkit-seat-{name}")
     if rc != 0:
-        config.seat_file("launch", name).unlink(missing_ok=True)
+        launch.unlink(missing_ok=True)
         raise config.Error(f"tmux could not start the session {name} in {cwd}: {out}")
     started()
     # A server started as a systemd service writes its stdout to the journal, so tmux
@@ -2605,7 +2608,7 @@ def _start_harness(name, model, cwd, cmd, session, started=lambda: None, still=N
         server = seat_socket(session)
         target = harness_pane(name, server)
         values = seat_env(name, server)
-        command = seat_command(name, cmd, server)
+        command, launch = seat_command(name, cmd, server)
         thaw = ("set-option", "-pu", "-t", target, FROZEN_OPTION, ";",
                 "select-pane", "-e", "-t", target)
         if still:
@@ -2618,7 +2621,7 @@ def _start_harness(name, model, cwd, cmd, session, started=lambda: None, still=N
                               socket=server)[0] == 0
             if not (frozen and still(target)):
                 tmux_out(*thaw, socket=server)
-                config.seat_file("launch", name).unlink(missing_ok=True)
+                launch.unlink(missing_ok=True)
                 raise config.Error(f"{name} changed as its harness was to be replaced; kept")
         # One command list: a failed respawn keeps the old tty, and a new wrapper's
         # publishing client cannot run before the old name is removed.  A frozen pane's list
@@ -2632,7 +2635,7 @@ def _start_harness(name, model, cwd, cmd, session, started=lambda: None, still=N
         if rc != 0:
             if still:
                 tmux_out(*thaw, socket=server)
-            config.seat_file("launch", name).unlink(missing_ok=True)
+            launch.unlink(missing_ok=True)
             raise config.Error(f"cannot resume the session {name}: {out}")
         started()
         # A refused respawn leaves the old harness up: its menu keeps that same home too.
