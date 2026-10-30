@@ -572,11 +572,26 @@ lend)
   # The config, with the key of each provider's active login OpenCode saved itself (`auth
   # export`, 2.2.0) as the `apiKey` of the entry OpenCode reads for it (see config_key) where
   # that sets none or a blank one; a saved OAuth login holds no key.  Each provider named needs
-  # a key in the copy, or no login at all, as `auth` reads it.  Keys never leave jq and these
-  # pipes.
+  # a key in the copy, or no login at all, as `auth` reads it.  OpenCode merges every other
+  # config document it lists over this one (`config.get`, each already parsed: opencode.jsonc,
+  # $OPENCODE_CONFIG, a remote one), and that merge is not re-created here: where another names
+  # a provider, the copy could log in as another login than OpenCode does, so none is lent, nor
+  # where OpenCode answers no one list of them.  A document with no path bash can hold (a remote
+  # one, one with a NUL) is never the config.  Keys never leave jq and these pipes.
   [ $# -ge 1 ] || { echo "opencode.sh lend needs <home>" >&2; exit 2; }
   command -v jq >/dev/null || { echo "opencode.sh lend: jq is required" >&2; exit 2; }
   home=$1 cfg=$CFG; [ -r "$cfg" ] || cfg=/dev/null
+  named=$(opencode api --standalone config.get 2>/dev/null | jq -rs 'if map(type) == ["array"]
+      then .[0] else error end | map(select(.type == "document"
+        and ((.info.providers // {}) + (.info.provider // {}) | length > 0))
+      | (.path | strings | select(test("\u0000") | not)) // "") | @sh' 2>/dev/null) || {
+    echo "opencode: OpenCode did not list the config documents it merges; no login lent" >&2; exit 1; }
+  eval "set -- $named"
+  for doc; do
+    [ "$doc" -ef "$CFG" ] && continue
+    [ -n "$doc" ] && printf -v doc %q "$doc" || doc="a document with no path"
+    echo "opencode: $doc names a provider OpenCode merges over $CFG; no login lent" >&2; exit 1
+  done
   saved=$(command -v opencode >/dev/null && opencode auth export --standalone 2>/dev/null)
   copy=$(printf '%s' "$saved" | jq -Rsc --slurpfile cfg "$cfg" 'reduce (fromjson? | .[]?
       | select(.active and .value.type == "key" and (.value.key | strings | test("[^[:space:]]"))))

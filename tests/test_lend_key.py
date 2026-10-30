@@ -4,8 +4,8 @@ Muse's login, Antigravity's and OpenCode's are keys that stay valid after use, s
 the login itself, where a turn run with HOME=<home> reads it, 0600, and says no expiry: OpenCode's
 is its config with each key it saved itself in it.  The real adapters run on a temporary HOME
 holding fixture logins of fake values, with a fake of every harness program recording any call
-but OpenCode's reads: `auth export` answers fixture keys and its catalog one provider needing no
-login.  The harnesses whose renewal retires the login are tests/test_lend_login.py's.
+but OpenCode's reads: `auth export` answers fixture keys, `config.get` the documents it merges
+and its catalog one provider needing no login.  The harnesses whose renewal retires the login are tests/test_lend_login.py's.
 """
 
 import itertools
@@ -43,13 +43,14 @@ LOGINS = {
                            "provider": {"mimo": {"options": {"apiKey": key}}}}),
 }
 
-# OpenCode's reads, each answered: a saved login of its own, and its catalog, where the
-# `opencode` provider runs with no login and no config document names any
+# OpenCode's reads, each answered: a saved login of its own, the config documents it merges
+# (none unless a test lists them), and its catalog, where the `opencode` provider runs with no
+# login and no config document names any
 READS = """case "$*" in
   "auth export --standalone") exec cat "{saved}" ;;
   "api integration.list") echo '{{"data": []}}'; exit 0 ;;
   "api provider.list") echo '{{"data": [{{"id": "opencode", "activation": "enabled"}}]}}'; exit 0 ;;
-  "api config.get"|"api --standalone config.get") echo '[]'; exit 0 ;;
+  "api config.get"|"api --standalone config.get") exec cat "{docs}" ;;
 esac
 """
 
@@ -74,9 +75,11 @@ class LendKey(unittest.TestCase):
         fakes.mkdir()
         self.saved, self.ran = self.root / "saved.json", self.root / "ran"
         self.saved.write_text("[]")
+        self.docs = self.root / "docs.json"
+        self.docs.write_text("[]")
         for name, data in MANIFESTS.items():
             program = fakes / data["update"]["version"][0]
-            reads = READS.format(saved=self.saved) if name == "opencode" else ""
+            reads = READS.format(saved=self.saved, docs=self.docs) if name == "opencode" else ""
             program.write_text(f'#!/bin/sh\n{reads}echo "$0 $*" >>"{self.ran}"\nexit 97\n')
             program.chmod(0o755)
         self.path = f"{fakes}{os.pathsep}{os.environ['PATH']}"
@@ -193,6 +196,33 @@ class LendKey(unittest.TestCase):
     def test_opencode_lends_a_provider_that_needs_no_login(self):
         _, login = self.fixture("opencode", login={"$schema": "https://opencode.ai/config.json"})
         self.assert_lent("opencode", *self.lend("opencode", provider="opencode"), login)
+
+    def test_opencode_lends_none_where_another_document_it_merges_names_a_provider(self):
+        # Its config, listed by another spelling of its path, and a document naming no provider
+        # leave the login lent; a document OpenCode merges over it naming one, in its native
+        # entry or its legacy one, could log in as another, whether its path is the config's
+        # and a newline or it has none (a remote one), as could any reply but one list
+        path, login = self.fixture("opencode")
+        doc = lambda where, info: {"type": "document", "path": str(where), "info": info}
+        merged = [doc(str(path).replace("/.config/", "//.config/"), {"providers": {"mimo": {}}}),
+                  {"type": "directory", "path": str(path.parent), "info": None},
+                  doc(self.root / "update.jsonc", {"update": "disable"})]
+        self.docs.write_text(json.dumps(merged))
+        self.assert_lent("opencode", *self.lend("opencode"), login)
+        other = {"provider": {"mimo": {"options": {"apiKey": "fixture-other"}}}}
+        for extra in (doc(self.root / "custom.jsonc",
+                          {"providers": {"acme": {"settings": {"baseURL": "https://acme.test"}}}}),
+                      doc(self.root / "custom.jsonc", other), doc(f"{path}\n", other),
+                      {"type": "document", "info": other}):
+            with self.subTest(extra=extra):
+                self.docs.write_text(json.dumps([*merged, extra]))
+                self.assert_none(*self.lend("opencode"))
+        for reply in ("", "{}"):
+            with self.subTest(reply=reply):
+                self.docs.write_text(reply)
+                self.assert_none(*self.lend("opencode"))
+        self.docs.unlink()
+        self.assert_none(*self.lend("opencode"))
 
 
 if __name__ == "__main__":
