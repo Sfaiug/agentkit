@@ -151,15 +151,18 @@ class SeatMove(Sandbox):
         self.assertEqual(self.move("fable", in_place=True), "")
         first = watch.seat_read(SEAT)["owed_lines"][0]
         for _ in range(2):        # retired by the teller that told it, then by one late to
-            watch.owe_line(SEAT, first, None)
+            watch.owe_line(SEAT, first)
         self.assertEqual(self.owed(), ["/effort xhigh", "/model claude-opus-5-5", "/effort xhigh",
                                        "/model claude-fable-5-1", "/effort xhigh",
                                        "a run of yours ended"])
 
-    def test_a_move_in_place_its_record_refuses_owes_nothing(self):
-        with patch.object(config, "update_session", side_effect=OSError("disk full")):
-            self.assertIn("disk full", self.move("fable", in_place=True))
-        self.assertEqual((self.owed(), self.record()["orchestrator"]), ([], "opus"))
+    def test_a_move_in_place_refused_by_either_write_leaves_the_seat_to_move_again(self):
+        for refusing in ((config, "update_session"), (watch, "owe_line")):
+            with patch.object(*refusing, side_effect=OSError("disk full")):
+                self.assertIn("disk full", self.move("fable", in_place=True))
+            self.assertEqual((self.owed(), self.record()["orchestrator"]), ([], "opus"))
+        self.assertEqual(self.move("fable", in_place=True), "")
+        self.assertEqual(self.owed(), ["/model claude-fable-5-1", "/effort xhigh"])
 
     def test_a_turn_its_usage_cut_off_goes_on_after_a_move_in_place(self):
         watch.seat_write(SEAT, state="at_prompt", usage_wait={

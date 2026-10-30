@@ -1,13 +1,11 @@
 """A seat moved on `c` to another model of its harness and login is typed `/model <id>` then
-`/effort <level>` into its harness's process, whichever window it shows, asking nothing, and keeps
-its conversation; a move to another harness's model, or once that process's pane is gone, asks,
-and restarts it.
+`/effort <level>` in its harness's process, whichever window it shows, asking nothing, and keeps
+its conversation; to another harness's model, or with that process's pane gone, it asks, restarts.
 
 The owner (30 Oct 2026): "if its a different harness, then yes, a restart must happen, but if
 it is merely a model change or effort, or both, then the change should be able to happen inside
 the session, without any need to restart."  Black-box: `AK_BIN`, as the popup over a seat on Opus
-5.5 whose pane keeps each line typed into it, its harnesses fakes; fails against `/bin/false`.
-"""
+5.5 whose pane keeps each line typed into it, its harnesses fakes; fails against `/bin/false`."""
 
 import json
 import sys

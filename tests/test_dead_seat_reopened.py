@@ -252,7 +252,7 @@ class V5s(Sandbox):
         # renamed while its line went in, and told by another teller: this one types no more
         told, = watch.seat_read(SEAT)["owed_lines"]
         config.rename_session(SEAT, "renamed")
-        watch.owe_line(SEAT, told, None)
+        watch.owe_line(SEAT, told)
         self.assertEqual(watch.seat_read("renamed").get("owed_lines"), None)
         self.assertTrue(overtaken("renamed"))
         self.assertIsNone(watch.news_owed("renamed", [], read=False))

@@ -4590,24 +4590,24 @@ def revive(name, line, log, cfg=None, *, prepare):
     return None
 
 
-def owe_line(name, was, owed):
-    """The line owed to that seat as read, `was`, becomes `owed`: added where `was` is None, a
-    move's (`switch`) ahead of all but those begun or of an earlier move, and gone where `owed`
-    is; nothing where `was` is owed no more.  A line added takes an id of its own, so a teller
-    late to retire the line it told never retires a later one with the same text.  Under the
-    seat's send lock, which a rename takes too, so the lines are written where the seat's
-    record is."""
+def owe_line(name, was, *owed):
+    """The line owed to that seat as read, `was`, becomes the lines `owed`, in one write: added
+    where `was` is None, a move's (`switch`) ahead of all but those begun or of an earlier move,
+    and gone where none is given; nothing where `was` is owed no more.  Each added takes an id,
+    so a teller late to retire the line it told never retires a later one with the same text.
+    Under the seat's send lock, which a rename takes too: written where the seat's record is."""
     with notify.session_lock(name) as held, seat_lock(held):
         data = seat_read(held)
         lines = list(data.get("owed_lines") or [])
         if was is None:
-            owed = {**owed, "id": os.urandom(8).hex()}
-            lines.insert(next((at for at, old in enumerate(lines)
-                               if not (old.get("switch") or old.get("typed"))), len(lines))
-                         if owed.get("switch") else len(lines), owed)
+            for line in owed:
+                line = {**line, "id": os.urandom(8).hex()}
+                lines.insert(next((at for at, old in enumerate(lines)
+                                   if not (old.get("switch") or old.get("typed"))), len(lines))
+                             if line.get("switch") else len(lines), line)
         elif was in lines:
             at = lines.index(was)
-            lines[at:at + 1] = [owed] if owed else []
+            lines[at:at + 1] = owed
         _seat_put(held, data, {"owed_lines": lines or None})
 
 
@@ -4638,7 +4638,7 @@ def tell_owed(name, log, cfg=None):
                       stale=overtaken):
         if owed.get("switch"):
             seat_write(name, switched=time.time())     # written before its line is no longer owed
-        owe_line(name, read[0], None)
+        owe_line(name, read[0])
         log(f"told {name}: {line}")
         if owed.get("switch"):
             tell_owed(name, log, cfg)
