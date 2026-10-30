@@ -101,7 +101,7 @@ def connect(database):
     connection.execute("PRAGMA journal_mode=WAL")
     # A commit syncs nothing but the header of a WAL begun anew, once per CHECKPOINT_AT: a power
     # cut can lose the last commits, never the database.  Nor does it checkpoint: `writing` does,
-    # and a WAL cut back to what it holds tells it when.
+    # by the WAL's size, which each WAL begun anew cuts back to what it holds.
     connection.execute("PRAGMA synchronous=NORMAL")
     connection.execute("PRAGMA wal_autocheckpoint=0")
     connection.execute("PRAGMA journal_size_limit=0")
