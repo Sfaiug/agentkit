@@ -126,7 +126,7 @@ class SuiteOnBoth(unittest.TestCase):
     def test_a_vm_turned_away_for_room_asks_the_helper_again_no_sooner_than_a_poll(self):
         # Its one VM's place ends; each turn here comes a moment later, time enough for an ask
         # the piece it turned away wakes.
-        with patch.object(helper, "room", return_value=((1, 2, 820), "")), \
+        with patch.object(helper, "room", return_value=((1, 2, 820, 1), "")), \
                 patch.object(helper, "start", wraps=helper.start) as asked, \
                 patch.object(Turn, "take", lambda _hold, _stopped: time.sleep(0.2) or True):
             code, text, killed, _ = self.check({"helper": (helper.FULL,)}, places=3)
