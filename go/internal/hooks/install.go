@@ -16,8 +16,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
+	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/run"
 )
@@ -36,7 +38,7 @@ func Install(table config.HookTable, root string, out, errOut io.Writer) int {
 	raw, err := os.ReadFile(path)
 	missing := errors.Is(err, fs.ErrNotExist)
 	if err != nil && !missing {
-		fmt.Fprintf(errOut, "cannot read %s: %v\n", path, err)
+		fmt.Fprintf(errOut, "cannot read %s: %s\n", path, osError(err, path))
 		return 1
 	}
 	data := run.NewObject()
@@ -193,11 +195,15 @@ func runs(table config.HookTable, root string) string {
 	return strings.Join(said, "; ")
 }
 
-// backUp copies the file's bytes, mode and modification time to backup, as Python's copy2 does.
+// backUp copies the file's bytes, mode and modification time to backup, as Python's copy2 does,
+// which refuses a backup that is the file itself, through a link, and so would keep nothing.
 func backUp(path, backup string, raw []byte) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return err
+	}
+	if same, err := os.Stat(backup); err == nil && os.SameFile(info, same) {
+		return fmt.Errorf("%s and %s are the same file", commandhelp.Quote(path), commandhelp.Quote(backup))
 	}
 	if err := os.WriteFile(backup, raw, info.Mode()); err != nil {
 		return err
@@ -206,4 +212,15 @@ func backUp(path, backup string, raw []byte) error {
 		return err
 	}
 	return os.Chtimes(backup, time.Time{}, info.ModTime())
+}
+
+// osError is the error as Python's OSError says it of path: `[Errno 13] Permission denied:
+// '<path>'`.
+func osError(err error, path string) string {
+	var errno syscall.Errno
+	if !errors.As(err, &errno) {
+		return err.Error()
+	}
+	text := errno.Error()
+	return fmt.Sprintf("[Errno %d] %s%s: %s", int(errno), strings.ToUpper(text[:1]), text[1:], commandhelp.Quote(path))
 }

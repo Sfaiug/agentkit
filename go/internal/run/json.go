@@ -248,7 +248,8 @@ var ErrLoneSurrogate = errors.New("a lone surrogate")
 var ErrLimit = errors.New("past a limit Python runs under")
 
 // Decode reads one JSON value as Python's json.loads does, NaN and Infinity numbers among
-// what it reads.  Text that is not UTF-8 is unreadable, as it is to Python.
+// what it reads, and refuses what it refuses in its words.  Text that is not UTF-8 is
+// unreadable, as it is to Python.
 func Decode(data []byte) (any, error) {
 	return decode(&parser{data: data})
 }
@@ -263,12 +264,15 @@ func decode(p *parser) (any, error) {
 	if !utf8.Valid(p.data) {
 		return nil, fmt.Errorf("not UTF-8")
 	}
+	if bytes.HasPrefix(p.data, []byte("\ufeff")) {
+		return nil, p.fail("Unexpected UTF-8 BOM (decode using utf-8-sig)", 0)
+	}
 	value, err := p.value(0)
 	if err != nil {
 		return nil, err
 	}
 	if p.space(); p.at < len(p.data) {
-		return nil, fmt.Errorf("extra data at byte %d", p.at)
+		return nil, p.fail("Extra data", p.at)
 	}
 	return value, nil
 }
@@ -299,8 +303,29 @@ func (p *parser) space() {
 	}
 }
 
-func (p *parser) fail() error {
-	return fmt.Errorf("unreadable JSON at byte %d", p.at)
+// fail is the message as Python's JSONDecodeError says it of the byte at: its line, column and
+// place in characters.
+func (p *parser) fail(message string, at int) error {
+	before := p.data[:at]
+	line := bytes.LastIndexByte(before, '\n')
+	return fmt.Errorf("%s: line %d column %d (char %d)", message, bytes.Count(before, []byte("\n"))+1,
+		utf8.RuneCount(before[line+1:])+1, utf8.RuneCount(before))
+}
+
+// after reads what follows an object's or array's item: its closing bracket, true, or a comma
+// and the space before the next item, a trailing one refused as Python 3.13 refuses it.
+func (p *parser) after(closing, kind string) (bool, error) {
+	if p.space(); p.take(closing) {
+		return true, nil
+	}
+	if !p.take(",") {
+		return false, p.fail("Expecting ',' delimiter", p.at)
+	}
+	comma := p.at - 1
+	if p.space(); p.take(closing) {
+		return false, p.fail("Illegal trailing comma before end of "+kind, comma)
+	}
+	return false, nil
 }
 
 // take moves past the word if it comes next.
@@ -320,38 +345,48 @@ func (p *parser) value(depth int) (any, error) {
 	switch {
 	case p.take("{"):
 		object := NewObject()
-		for p.space(); !p.take("}"); p.space() {
-			if len(object.keys) > 0 && !p.take(",") {
-				return nil, p.fail()
+		if p.space(); p.take("}") {
+			return object, nil
+		}
+		for {
+			if p.at == len(p.data) || p.data[p.at] != '"' {
+				return nil, p.fail("Expecting property name enclosed in double quotes", p.at)
 			}
-			p.space()
 			key, err := p.text()
 			if err != nil {
 				return nil, err
 			}
 			if p.space(); !p.take(":") {
-				return nil, p.fail()
+				return nil, p.fail("Expecting ':' delimiter", p.at)
 			}
 			value, err := p.value(depth + 1)
 			if err != nil {
 				return nil, err
 			}
 			object.Set(key, value)
+			if closed, err := p.after("}", "object"); err != nil {
+				return nil, err
+			} else if closed {
+				return object, nil
+			}
 		}
-		return object, nil
 	case p.take("["):
 		list := []any{}
-		for p.space(); !p.take("]"); p.space() {
-			if len(list) > 0 && !p.take(",") {
-				return nil, p.fail()
-			}
+		if p.space(); p.take("]") {
+			return list, nil
+		}
+		for {
 			value, err := p.value(depth + 1)
 			if err != nil {
 				return nil, err
 			}
 			list = append(list, value)
+			if closed, err := p.after("]", "array"); err != nil {
+				return nil, err
+			} else if closed {
+				return list, nil
+			}
 		}
-		return list, nil
 	case p.at < len(p.data) && p.data[p.at] == '"':
 		return p.text()
 	case p.take("true"):
@@ -365,41 +400,54 @@ func (p *parser) value(depth int) (any, error) {
 	digits := len(strings.TrimPrefix(string(found), "-"))
 	switch {
 	case found == nil:
-		return nil, p.fail()
+		return nil, p.fail("Expecting value", p.at)
 	case p.limited && integral(Number(found)) && digits > minDigits:
 		return nil, ErrLimit
 	case integral(Number(found)) && digits > maxDigits:
-		return nil, p.fail()
+		return nil, fmt.Errorf("Exceeds the limit (%d digits) for integer string conversion: value has %d digits; use sys.set_int_max_str_digits() to increase the limit", maxDigits, digits)
 	}
 	p.at += len(found)
 	return Number(found), nil
 }
 
+// text reads a string from its opening quote.
 func (p *parser) text() (string, error) {
-	if !p.take(`"`) {
-		return "", p.fail()
-	}
+	start := p.at
+	p.at++
 	var out []byte
-	for p.at < len(p.data) {
+	for {
+		if p.at == len(p.data) {
+			return "", p.fail("Unterminated string starting at", start)
+		}
 		c := p.data[p.at]
 		p.at++
 		switch {
 		case c == '"':
 			return string(out), nil
 		case c < ' ':
-			return "", p.fail()
+			return "", p.fail("Invalid control character at", p.at-1)
 		case c != '\\':
 			out = append(out, c)
-		case p.at < len(p.data) && strings.IndexByte(`"\/bfnrt`, p.data[p.at]) >= 0:
+		case p.at == len(p.data):
+			return "", p.fail("Unterminated string starting at", start)
+		case strings.IndexByte(`"\/bfnrt`, p.data[p.at]) >= 0:
 			out = append(out, "\"\\/\b\f\n\r\t"[strings.IndexByte(`"\/bfnrt`, p.data[p.at])])
 			p.at++
+		case p.data[p.at] != 'u':
+			return "", p.fail(`Invalid \escape`, p.at-1)
 		default:
-			r, ok := p.unit()
-			if !ok {
-				return "", p.fail()
+			r, err := p.unit()
+			if err != nil {
+				return "", err
 			}
-			if next := p.at; r >= 0xd800 && r < 0xdc00 && p.take(`\`) {
-				if low, ok := p.unit(); ok && low >= 0xdc00 && low <= 0xdfff {
+			// a high surrogate pairs with a low one right after it, where Python looks for one
+			if next := p.at; r >= 0xd800 && r < 0xdc00 && p.at+6 < len(p.data) && bytes.HasPrefix(p.data[p.at:], []byte(`\u`)) {
+				p.at++
+				low, err := p.unit()
+				if err != nil {
+					return "", err
+				}
+				if low >= 0xdc00 && low <= 0xdfff {
 					r = utf16.DecodeRune(r, low)
 				} else {
 					p.at = next
@@ -411,18 +459,20 @@ func (p *parser) text() (string, error) {
 			out = utf8.AppendRune(out, r)
 		}
 	}
-	return "", p.fail()
 }
 
-// unit reads the four hex digits of a \u escape, the backslash already read.
-func (p *parser) unit() (rune, bool) {
-	if !p.take("u") || p.at+4 > len(p.data) {
-		return 0, false
+// unit reads a \u escape's four hex digits from its u, which Python refuses where they end the
+// text, a quote still owed.
+func (p *parser) unit() (rune, error) {
+	u := p.at
+	if p.at += 5; p.at >= len(p.data) {
+		return 0, p.fail(`Invalid \uXXXX escape`, u)
 	}
-	digits := string(p.data[p.at : p.at+4])
-	parsed, err := strconv.ParseUint(digits, 16, 16)
-	p.at += 4
-	return rune(parsed), err == nil && !strings.ContainsAny(digits, "+-")
+	parsed, err := strconv.ParseUint(string(p.data[u+1:p.at]), 16, 16)
+	if err != nil {
+		return 0, p.fail(`Invalid \uXXXX escape`, u)
+	}
+	return rune(parsed), nil
 }
 
 // Encode writes a value as Python's json.dumps(value, indent=2) writes what it read: two-space

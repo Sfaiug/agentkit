@@ -35,9 +35,7 @@ var heredoc = []struct{ name, given, sha, err string }{
 	{"two of ours in one event across groups", `{"hooks": {"PostToolUse": [{"matcher": "Bash", "hooks": [{"command": "bash /a/hooks/seat-state.sh"}, {"type": "command", "command": "bash /x/lint.sh"}]}, {"hooks": [{"command": "bash /b/hooks/idle-compact-stop.sh"}]}], "Stop": [{"hooks": [{"command": "bash /a/hooks/seat-state.sh"}]}, {"hooks": [{"command": "bash /b/hooks/seat-state.sh", "async": true}]}]}}`,
 		"f051fc51415c4f6088b9ce47b0abf8b633c9cf01699e9bede4db04577f100784", ""},
 	{"a list", "[]", "", "%s is not a JSON object; left alone\n"},
-	// the reason is the decoder's own: Python's says `Expecting property name enclosed in
-	// double quotes: line 1 column 2 (char 1)`, in words that change with its version
-	{"not JSON", "{bad", "", "%s is not valid JSON (unreadable JSON at byte 1); left alone\n"},
+	{"not JSON", "{bad", "", "%s is not valid JSON (Expecting property name enclosed in double quotes: line 1 column 2 (char 1)); left alone\n"},
 	{"hooks as a list", `{"hooks": [], "theme": "dark"}`, "d709b0b344078ca34672ca23b7bf9621f2e0a3816ed91083e6753513d3d9bcc0", ""},
 	{"non-ASCII and U+007F", "{\"name\": \"caf\u00e9 \u2615 \U0001d11e\", \"del\": \"\x7f\", \"esc\": \"\\u00e9\"}",
 		"c3acf2f96630eef7995f7ed361c133edb889316fe72d394dc45f922dc288d8bd", ""},
@@ -178,5 +176,49 @@ func TestADirectoryThatCannotBeMadeExits2(t *testing.T) {
 	kept, _ := os.ReadFile(filepath.Dir(table.Settings))
 	if code != 2 || out != "" || strings.Count(errOut, "\n") != 1 || string(kept) != "acme" {
 		t.Fatalf("exit %d, stdout %q, stderr %q", code, out, errOut)
+	}
+}
+
+// A file that cannot be read is refused as Python's OSError says it, and left as it was.
+func TestAnUnreadableFileIsRefused(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows numbers its errors its own way")
+	}
+	table := table(t)
+	if err := os.MkdirAll(table.Settings, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut := install(table)
+	want := fmt.Sprintf("cannot read %s: [Errno 21] Is a directory: '%s'\n", table.Settings, table.Settings)
+	if info, err := os.Stat(table.Settings); code != 1 || out != "" || errOut != want || err != nil || !info.IsDir() {
+		t.Fatalf("exit %d, stdout %q, stderr %q", code, out, errOut)
+	}
+}
+
+// A backup that is the settings file itself, through a link, is refused as copy2 refuses it,
+// both left as they were: the backup would otherwise end up holding the rewritten file.
+func TestABackupThatIsTheFileIsRefused(t *testing.T) {
+	for name, link := range map[string]func(string, string) error{"symbolic": os.Symlink, "hard": os.Link} {
+		t.Run(name, func(t *testing.T) {
+			table := table(t)
+			path, given := table.Settings, "{}"
+			backup := path + ".bak-" + time.Now().Format("20060102")
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(given), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := link(path, backup); err != nil {
+				t.Skip(err)
+			}
+			code, out, errOut := install(table)
+			kept, _ := os.ReadFile(path)
+			backedUp, _ := os.ReadFile(backup)
+			want := fmt.Sprintf("'%s' and '%s' are the same file\n", path, backup)
+			if code != 1 || out != "" || errOut != want || string(kept) != given || string(backedUp) != given {
+				t.Fatalf("exit %d, stdout %q, stderr %q, file %q, backup %q", code, out, errOut, kept, backedUp)
+			}
+		})
 	}
 }
