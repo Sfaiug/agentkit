@@ -291,8 +291,8 @@ class RulebookNews(Sandbox):
         # `orch.stamp` writes `seen` from a read made before the prompt's hand-over
         read, held = config._read_json, threading.Event()
 
-        def slow(path):
-            data = read(path)
+        def slow(path, **kw):
+            data = read(path, **kw)
             if threading.current_thread().name == "stamp" and path == config.session_path(SEAT):
                 held.set()
                 time.sleep(0.3)
