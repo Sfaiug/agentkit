@@ -135,9 +135,11 @@ exec {real} "$@"
 
 class Home:
     """A throwaway HOME the program runs in; `close` (or leaving `with`), or else the death of
-    the process that made it, ends every process it left and removes it."""
+    the process that made it, ends every process it left and removes it.  `tmux_log=False` keeps
+    no log of the program's tmux calls (`calls`): each would start a Python, which a test counting
+    what the program reads would count."""
 
-    def __init__(self):
+    def __init__(self, tmux_log=True):
         self.root = Path(tempfile.mkdtemp(prefix="akbin-")).resolve()
         self.path = self.root / "home"
         self.bin = self.root / "bin"
@@ -172,7 +174,8 @@ class Home:
         for name in REFUSED:
             self.fake(name, REFUSE.format(python=python, name=name,
                                           log=shlex.quote(str(self.log(name)))))
-        self.fake("tmux", TMUX.format(python=python, log=shlex.quote(str(self.log("tmux"))),
+        tmux = TMUX if tmux_log else "#!/bin/sh\n" + TMUX.removeprefix(LOG)
+        self.fake("tmux", tmux.format(python=python, log=shlex.quote(str(self.log("tmux"))),
                                       tmpdir=shlex.quote(str(self.tmux_dir)),
                                       own=shlex.quote(str(self.tmux_dir / f"tmux-{os.getuid()}"
                                                           / SOCKET)),

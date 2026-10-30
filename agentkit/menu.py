@@ -1120,8 +1120,9 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     now, so a pass over every seat reads every run once (`transitions.runs_by_seat`).
     """
     name = session["name"]
-    found = seat_row_state(cfg, session, look=look, records=records, now=now, number=number,
-                           run_numbers=run_numbers, index=index, silent=silent_map)
+    own = (transitions.runs_by_seat(records) if mine is None else mine).get(name, [])
+    found = seat_row_state(cfg, session, look=look, records=records, mine=own, now=now,
+                           number=number, run_numbers=run_numbers, index=index, silent=silent_map)
     selection = selection_of(cfg, name)
     orchestrator = selection["orchestrator"] if selection else "-"
     shown = config.model_name(cfg, orchestrator)
@@ -1135,7 +1136,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     return {"number": str(number), "name": name, "session": session, "back": back,
             "go_on": go_on, "go_on_name": go_on and config.model_name(cfg, go_on),
             "crew": seat_crew(cfg, selection),
-            "tasks": seat_tasks(name, records if mine is None else mine.get(name, []), now),
+            "tasks": seat_tasks(name, own, now),
             "count": word, "orchestrator": shown, "worker": shown,
             "runs_on": ((cfg["models"].get(orchestrator) or {}).get("provider"),
                         selection.get("account") or config.DEFAULT_ACCOUNT) if selection else None,
