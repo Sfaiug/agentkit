@@ -3,8 +3,8 @@ counting half of it for each suite admitted whose first piece does not run yet, 
 suite at most half of it.
 
 Black-box, as tests/test_key_helper_on_linux.py: tools/helper's script runs here as ak sends it,
-in a HOME of its own, with the machine's programs first on PATH: eight CPUs, 64 GiB and a fake
-docker.
+in a HOME of its own, with the machine's programs first on PATH: four CPUs, each counting twice
+as a piece holds half what it is given, 64 GiB and a fake docker.
 """
 
 import io
@@ -38,7 +38,7 @@ inspect)    # inspect --format FORMAT NAME...: an unknown container fails it, as
 esac
 """
 
-MACHINE = {"docker": DOCKER, "nproc": "#!/bin/sh\necho 8\n",
+MACHINE = {"docker": DOCKER, "nproc": "#!/bin/sh\necho 4\n",
            "free": "#!/bin/sh\nprintf '%s\\n' '  total used' 'Mem: 65536 1024'\n"}
 
 
@@ -76,19 +76,22 @@ class LinuxHelperTurnsASuiteAway(unittest.TestCase):
             env={"HOME": str(self.machine / "home"),
                  "PATH": f"{self.machine / 'bin'}:/usr/bin:/bin"})
 
-    def probe(self):
-        """(CPUs spare for a suite, the most one gets), as `probe` answers."""
+    def readings(self):
         probe = self.helper("probe")
         self.assertEqual(probe.returncode, 0, probe.stderr)
-        readings = dict(line.split() for line in probe.stdout.decode().splitlines())
+        return dict(line.split() for line in probe.stdout.decode().splitlines())
+
+    def probe(self):
+        """(CPUs spare for a suite, the most one gets), as `probe` answers."""
+        readings = self.readings()
         return float(readings["cpus"]) - float(readings["load"]), float(readings["cpus"])
 
     def prepare(self, key):
         return self.helper("prepare", key, IMAGE, "acme").returncode
 
-    def running(self, name, cpus):
-        """A piece of another suite runs there, given `cpus` CPUs."""
-        (self.machine / "docker/containers" / name).write_text(f"{cpus}000000000 1073741824\n")
+    def running(self, name, cpus, gib=1):
+        """A piece of another suite runs there, given `cpus` CPUs and `gib` GiB."""
+        (self.machine / "docker/containers" / name).write_text(f"{cpus}000000000 {gib << 30}\n")
 
     def test_two_suites_fill_an_empty_machine_until_one_starts_a_piece(self):
         self.assertEqual(self.probe(), (4, 4))
@@ -107,6 +110,10 @@ class LinuxHelperTurnsASuiteAway(unittest.TestCase):
             self.assertEqual(run.result().returncode, 0, run.result().stderr)
         self.assertEqual(self.prepare("c"), 0)
         self.assertEqual(self.prepare("d"), 252)
+
+    def test_a_running_piece_counts_the_whole_memory_it_was_given(self):
+        self.running("ak-other-1-2", 1, 40)    # the machine holds 1 GiB: the piece may grow to 40
+        self.assertEqual(self.readings()["room_mb"], "18022")
 
     def test_a_suite_that_starts_no_piece_holds_nothing_two_minutes_on(self):
         self.assertEqual((self.prepare("a"), self.prepare("b"), self.prepare("c")), (0, 0, 252))
