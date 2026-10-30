@@ -163,6 +163,18 @@ history() {
     [ -d "$ROOT/${ref%/*}" ] || git -C "$2" update-ref -d "refs/suites/$ref"; done
   git -C "$2" -c gc.autoDetach=false gc --auto --quiet >/dev/null 2>&1
 }
+# fetch PROGRAM URLFILE, under its version's lock: a turn's harness program, unless a turn before
+# this one fetched it, whole or not at all: it stays outside the directory `turn` mounts until it
+# is all here. A `.tar.gz` holds only the program, under another name. Bounded, as a hung download
+# would hold the lock against every later turn.
+fetch() {
+  [ ! -x "$1" ] || return 0
+  url=$(cat "$2") || return
+  part=${1%/*}.part
+  case $url in *.tar.gz) unpack="tar -xzO" ;; *) unpack=cat ;; esac
+  (set -o pipefail; curl -fsSL --max-time 600 "$url" | $unpack >"$part") && chmod +x "$part" &&
+    mv "$part" "$1" || { rm -f "$part"; return 1; }
+}
 case $(uname) in Darwin) darwin ;; Linux) linux ;; *) false ;; esac || exit 253
 case "$1" in
 probe)     # what helper.room reads
@@ -180,9 +192,12 @@ prepare)   # KEY IMAGE REPO, the parcel on stdin
   locked "$ROOT/suites.lock" admit "$2" || exit
   # -p: the recipe's files keep HEAD's modes, whatever umask the machine's shell has.
   mkdir -p "$ROOT/$2" && tar -x -p -C "$ROOT/$2" && echo "$3" >"$ROOT/$2/image/name" || exit 253
-  # A turn's harness program, which a later task installs, is $ROOT/harness/<harness>/<program>.
-  program=$ROOT/harness/$(cat "$ROOT/$2/harness" 2>/dev/null)
-  [ ! -f "$ROOT/$2/harness" ] || { [ -f "$program" ] && [ -x "$program" ]; } || exit 253
+  # A turn's harness program is $ROOT/harness/<harness>/<version>/<program>; a suite names none.
+  [ ! -f "$ROOT/$2/harness" ] || {
+    program=$ROOT/harness/$(cat "$ROOT/$2/harness")
+    mkdir -p "${program%/*}" &&
+      locked "${program%/*}.lock" fetch "$program" "$ROOT/$2/fetch/$(uname -m)"
+  } || exit 253
   # Dead callers' trees go after a day; the locks and harness programs stay.
   find "$ROOT" -mindepth 1 -maxdepth 1 -type d ! -name mirrors ! -name harness -mtime +1 \
     -exec rm -rf {} + 2>/dev/null

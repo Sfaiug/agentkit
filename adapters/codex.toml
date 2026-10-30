@@ -38,6 +38,11 @@ upgrade = ["npm", "i", "-g", "@openai/codex@latest"]
 revert = ["npm", "i", "-g", "@openai/codex@{version}"]
 latest = ["npm", "view", "@openai/codex", "version"]
 
+# Where a rented Linux machine fetches the program a turn needs (`machine_turn._program`).
+[fetch]
+aarch64 = "https://github.com/openai/codex/releases/download/rust-v{version}/codex-aarch64-unknown-linux-musl.tar.gz"
+x86_64 = "https://github.com/openai/codex/releases/download/rust-v{version}/codex-x86_64-unknown-linux-musl.tar.gz"
+
 [usage]
 reset = true
 
