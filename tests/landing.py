@@ -102,10 +102,11 @@ with tempfile.NamedTemporaryFile() as output, tempfile.NamedTemporaryFile() as c
         contract.wait()
         shutil.copyfileobj(contract_output, sys.stdout.buffer)
         sys.stdout.buffer.flush()
-# every_file.py named its own failed files before it ended. A red smoke.sh is named by its exit
-# alone, whatever made it red: as itself, or where AK_ONLY lists its blocks by each that started.
-name_failed(test for test, red in ((SMOKE, smoke), ("tests/gate_contract.py", contract.returncode))
-            if red and (only is None or test in only))
-if smoke and ran.exists():
-    name_failed(test for test in ran.read_text().splitlines() if test.startswith(f"{SMOKE}#"))
+# every_file.py named its own failed files before it ended. smoke.sh's exit alone says it is red,
+# whatever made it so: it is named by each listed block that started, or where none did as itself.
+if smoke:
+    started = ran.read_text().splitlines() if ran.exists() else []
+    name_failed([test for test in started if test.startswith(f"{SMOKE}#")] or [SMOKE])
+if contract.returncode:
+    name_failed(["tests/gate_contract.py"])
 sys.exit(code or smoke or contract.returncode)

@@ -33,7 +33,8 @@ SMOKE = f'''if [ $# = 0 ]; then
   eval "$SMOKE_BODY"
   exit $?
 fi
-{SETUP}NFAIL=0
+{SETUP}case " $ACME_FAILS " in *" a-dead-setup "*) exit 1 ;; esac
+NFAIL=0
 check() {{
   echo "smoke.sh#$1" >>"$ACME_LOG"
   case " $ACME_FAILS " in *" smoke.sh#$1 "*) return 1 ;; esac
@@ -81,7 +82,7 @@ STATIC = [f"tests/{name}.py" for name in STATIC_CHECKS]
 
 class SuiteNarrowsToAChange(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-narrow-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix="ak-test-narrow-")
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         git = lambda *args: subprocess.run(
@@ -187,6 +188,10 @@ class SuiteNarrowsToAChange(unittest.TestCase):
                 self.assertEqual((code, sorted(failed)), (1, blocks))
                 [(code, ran, failed, _)] = self.pieces(1, only=blocks, fails=fails, **mode)
                 self.assertEqual((code, sorted(ran), sorted(failed)), (1, blocks, blocks))
+
+    def test_a_smoke_sh_dead_before_its_first_block_is_named_itself(self):
+        [(code, _, failed, _)] = self.pieces(1, changed=list(CHANGE), fails="a-dead-setup")
+        self.assertEqual((code, failed), (1, ["tests/smoke.sh"]))
 
     def test_agentkit_s_own_suite_opts_its_rounds_in(self):
         line = next(line for line in (REPO / "AGENTS.md").read_text().splitlines()
