@@ -709,6 +709,19 @@ def rival_advice():
     return "wait for it" + ("" if from_seat() else ", or add --anyway to start a second run")
 
 
+def check_seat_queue(tasks):
+    """Refuse a seat's fresh launch of that many tasks beyond what its seat may queue
+    (`gate.seat_full`), asked last before it creates anything, so a launch refused for good hears
+    that first.  Only a fresh launch asks: a new job, or a run `main` resumes nothing for, whatever
+    run directory it carries; a run that exists is never asked again, nor a PR review.  A seat is
+    a recorded session (`config.session_records`); nothing below a run is told one
+    (`config.seatless_env`)."""
+    seat = config.current_session()
+    refusal = seat in config.session_records() and gate.seat_full(seat, tasks)
+    if refusal:
+        raise config.Error(refusal)
+
+
 def depth_refused():
     depth = run_depth()
     if depth < 2:
@@ -3152,6 +3165,7 @@ def main(argv):
                       f"started {started}, \"{first['title']}\") shares {detail}; "
                       f"{rival_advice()}", file=sys.stderr)
                 return 2
+        check_seat_queue(1)
         run_id = f"{datetime.now():%Y%m%d-%H%M}-{slugify(title)}"
         run_dir = config.RUNS / run_id
         n = 1

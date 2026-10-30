@@ -26,7 +26,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import command_help, config, gitcall, guard, terminal
+from . import command_help, config, gitcall, guard, parsed, terminal
 
 CHECK_LIMIT = 600    # an unfinished check proves nothing
 # an eye line, from before every line had a check, reads done: how a change looks is the
@@ -102,12 +102,16 @@ def held(name):
             _HELD.names = taken
 
 
+def _text(plan):
+    return plan.read_text(encoding="utf-8")
+
+
 def lines(name):
     """The plan's lines; none when it has no plan, and an error when it has one nothing can
-    read -- an unread plan proves nothing done."""
+    read -- an unread plan proves nothing done.  Read again only once it changed (`parsed`)."""
     plan = path(name)
     try:
-        return plan.read_text(encoding="utf-8").splitlines()
+        return parsed.read(plan, _text).splitlines()
     except FileNotFoundError:
         return []
     except (OSError, UnicodeDecodeError) as exc:
