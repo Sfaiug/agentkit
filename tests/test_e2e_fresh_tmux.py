@@ -36,7 +36,6 @@ class FreshTmux(unittest.TestCase):
             self.assertEqual(sockets.stat().st_mode & 0o777, 0o700)
             cleanup = subprocess.run(
                 ["/bin/bash", "-c", """
-sync_back() { :; }
 tmux() { :; }
 KEEP=0
 """ + CLEANUP + "\ncleanup"],
