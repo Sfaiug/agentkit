@@ -107,9 +107,9 @@ class Stage:
         return new[0]
 
 
-def held(marks, name, text, line=5, first=""):
-    """An executor turn that writes `text` on `line`, uncommitted, and holds until let go."""
-    return {"sh": f"{first}sed -i '{line}s/.*/{text}/' api.py; touch '{marks}/{name}.held'; "
+def held(marks, name, text, first=""):
+    """An executor turn that writes `text` on line 5, uncommitted, and holds until let go."""
+    return {"sh": f"{first}sed -i '5s/.*/{text}/' api.py; touch '{marks}/{name}.held'; "
                   f"while [ -d '{marks}' ] && [ ! -e '{marks}/{name}.go' ]; do sleep 0.1; done",
             "commit": f"{text} line 5", "final": "Done.", "hand_in": [["done"]]}
 
@@ -189,13 +189,13 @@ class OlderLands(Stage, unittest.TestCase):
 class ComparedOnce(Stage, unittest.TestCase):
     """64 live runs were 2016 comparisons and 64 checkouts read on each scan, 400 CPU-seconds."""
 
-    def test_a_second_tick_compares_nothing_and_no_tick_reads_an_unchanged_file(self):
+    def test_a_pair_is_compared_again_only_under_new_rules_and_no_file_is_read_unchanged(self):
         # notes.txt is unchanged by its stat data, and git could not read it
         first = ("git config core.trustctime false; touch -d 2001-01-01 notes.txt; "
                  "git status >/dev/null; chmod 000 notes.txt; ")
         self.stage(lambda marks: [held(marks, "older", "older", first=first),
-                                  held(marks, "younger", "younger", line=15)])
-        self.rig.commit({"notes.txt": "notes\n"}, "notes")
+                                  held(marks, "younger", "younger")])
+        self.rig.commit({"notes.txt": "notes\n", ".gitattributes": "api.py merge=union\n"})
         calls, git = self.home.root / "git-calls", shutil.which("git", path="/usr/bin:/bin")
         self.home.fake("git", f'#!/bin/sh\necho "$*" >>"{calls}"\nexec {git} "$@"\n')
         self.launch(TITLES[0], "older.held")
@@ -204,6 +204,9 @@ class ComparedOnce(Stage, unittest.TestCase):
         self.assertGreaterEqual(once := calls.read_text().count(" merge-tree "), 1)
         self.tick()
         self.assertEqual(calls.read_text().count(" merge-tree "), once)
+        (self.rig.path / ".gitattributes").write_text("")
+        self.tick()
+        self.assertEqual(self.waits()[self.runs[1].name]["files"], ["api.py"])
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")

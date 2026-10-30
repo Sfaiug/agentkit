@@ -18,7 +18,8 @@ that point, a pull request's review (its work is built already, so a park would 
 and the landing line fixes its conflict), a job's task, a red target's repair and a suite's
 split are only written down: the lander orders their landings.  The record under
 `~/.agentkit/state/leases/` holds the collisions as the last scan saw them, and what it compared:
-a pair's result follows from its bases and trees, so each is compared once for those.  A diff counts
+a pair's result follows from its bases, its trees and the repository's merge rules (`rules`), so
+each is compared once for those.  A diff counts
 only while its run holds its lines (`holds`: going, and not waiting on a person or a spent
 provider window), is to land and its checkout is there; a record
 whose pair no longer collides, or whose holder is gone, is cleared on the next scan.
@@ -311,6 +312,25 @@ def collide(repo, older, younger, trees):
     return merged(repo, base, trees["older"], trees["younger"])[1]
 
 
+def rules(repo):
+    """What git's merge reads beside the two trees, as one key: its settings as `merged` runs
+    it (the user's attributes file among them, named by its contents: `gitcall.merge_config`)
+    and the repository's own attributes files, each `.gitattributes` of the checkout as it
+    stands and `info/attributes`."""
+    from . import run
+    env = gitcall.merge_config(["git", "-C", str(repo)], None, gitcall.tool_env(), None)
+    key = hashlib.sha256(run.git_out(repo, "config", "-z", "--get-regexp", r"^(core|diff|merge)\.",
+                                     env=env)[1].encode())
+    names = run.git(repo, "ls-files", "-z", "-co", "--exclude-standard", "--",
+                    ":(glob)**/.gitattributes").split("\0")
+    for name in [*filter(None, names), run.git(repo, "rev-parse", "--git-path", "info/attributes")]:
+        try:
+            key.update(name.encode() + b"\0" + (Path(repo) / name).read_bytes())
+        except OSError:
+            pass
+    return key.hexdigest()
+
+
 def scan(repo, log=lambda _: None, now=None):
     """One repository's pass: each younger run that collides with an older one is written
     down as waiting on the oldest such holder, with the paths and since when; the rest of
@@ -322,11 +342,11 @@ def scan(repo, log=lambda _: None, now=None):
     before = read(repo)
     runs = live(repo)
     trees = {each["run"]: tree(each["worktree"], each["artifacts"], log) for each in runs}   # each read once
-    memo = path(repo).with_suffix(".compared")
+    memo, merging = path(repo).with_suffix(".compared"), rules(repo)
     known, seen, waits = read(repo, memo), {}, {}
     for at, younger in enumerate(runs):
         for older in runs[:at]:
-            held = older["base"], trees[older["run"]], younger["base"], trees[younger["run"]]
+            held = merging, older["base"], trees[older["run"]], younger["base"], trees[younger["run"]]
             pair = hashlib.sha256(" ".join(held).encode()).hexdigest()[:32]
             files = seen[pair] = known[pair] if pair in known else collide(repo, older, younger, trees)
             # Markdown-only conflicts can be settled at landing without rebuilding.
