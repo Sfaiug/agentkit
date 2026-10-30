@@ -1839,7 +1839,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             def attempts(which, only=None):
                 """The pieces at `which`, each with `only`'s tests for it, if any, alone."""
                 only = only or {}
-                with ThreadPoolExecutor(max_workers=len(which)) as pool:
+                with ThreadPoolExecutor(max_workers=len(which) if hold else 1) as pool:
                     try:
                         futures = [pool.submit(attempt, f"{index + 1}/{count}", only.get(index))
                                    for index in which]
@@ -1961,9 +1961,11 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         log(line)
                 return joined[0]
 
-            # What a machine failed or stopped runs again here, on this host's own turns, a
-            # stopped piece alone, below; what it lost or had no room for, on the first machine
-            # with room, this one included.
+            # What a machine failed or stopped runs again here, a stopped piece alone, below; what
+            # it lost or had no room for, on the first machine with room, this one included. Only
+            # what names no test takes this host's turns: a red piece's named tests cost what a
+            # model's own test does, which takes none, where a turn was over an hour away (30 Oct
+            # 2026). They go one piece at a time.
             while not cancel.is_set():
                 for index, there in enumerate(where):
                     if index in again or not there or not results[index][0] or results[index][2]:
@@ -1981,7 +1983,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     if tests := helper.failed(there, f"{index + 1}/{count}"):
                         named[index] = results[index][1], tests
                 if hold is not None or not (
-                        again or pieces_left.waiting or any(where) and silenced) or over():
+                        set(again) - set(named) or pieces_left.waiting or any(where) and silenced
+                ) or over():
                     break
                 joined[0] = None
                 began = time.monotonic()
