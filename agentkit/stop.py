@@ -16,11 +16,12 @@ from . import record as run_record
 
 
 def _ending_work(name, records):
-    """The run census and this seat's records, keeping native reads and supplied reads apart."""
+    """The run census and this seat's records, keeping native reads and supplied reads apart;
+    a census read here is every reader's (`record.read_state`), so only read."""
     supplied = records
     if records is None:
         try:
-            records = [(directory, run_record.read_state(directory) or {})
+            records = [(directory, run_record.read_state(directory, shared=True) or {})
                        for directory in run_record.run_dirs()]
         except OSError:
             records = []
