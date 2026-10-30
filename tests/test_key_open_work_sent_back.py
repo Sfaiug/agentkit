@@ -3,11 +3,13 @@
 A Claude seat whose plan has an open line and whose turn ends with nothing recorded has its Stop
 sent back with the harness's block decision, at most twice in one turn.  The third stands: the
 seat reads `needs you`, its question to the owner holding its last words, and once that has
-stood a minute the owner is paged.  A new prompt counts afresh.  A plan with no open line, a
-question asked with `ak notify needs`, or an `ak wait` on a run of its own still going lets the
-first Stop stand.  Black-box: the program `AK_BIN` names runs from outside through
-tests/fixtures/akbin.py, its tick boxed, before seats of tests/fixtures/akseat.py whose hooks
-fire as Claude fires them (tests/fixtures/hookdrive.py), paging tests/fixtures/sink.py.
+stood a minute the owner is paged, the outbox's record of that page holding them too: what the
+sink is sent names only the seat (tests/test_key_page_question_once.py).  A new prompt counts
+afresh.  A plan with no open line, a question asked with `ak notify needs`, or an `ak wait` on a
+run of its own still going lets the first Stop stand.  Black-box: the program `AK_BIN` names runs
+from outside through tests/fixtures/akbin.py, its tick boxed, before seats of
+tests/fixtures/akseat.py whose hooks fire as Claude fires them (tests/fixtures/hookdrive.py),
+paging tests/fixtures/sink.py.
 """
 
 import re
@@ -21,6 +23,7 @@ from fixtures import akconfig, hookdrive
 from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.sink import Sink
+from test_key_notify_needs_card import events
 
 LAST = "I cannot reach the acme database from here."
 ASKED = "Which database should acme use? Options: postgres (Recommended), sqlite."
@@ -77,6 +80,9 @@ class OpenWorkSentBack(unittest.TestCase):
         done = self.home.tick()
         self.assertEqual(done.code, 0, done.out + done.err)
         self.assertEqual(self.sink.pages().count("🙋 Needs you · stuck"), 1, self.sink.pages())
+        page, = events(self.home, "stuck")
+        self.assertEqual(page["status"], "delivered", page)
+        self.assertIn(LAST, page["message"])
 
     def test_a_new_prompt_counts_afresh(self):
         seat = self.turn("again")
