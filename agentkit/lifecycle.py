@@ -101,5 +101,5 @@ def state(harness, fact):
         if entry.get("state") in LIVE:
             text = str(fact.get("text") or "").strip()
             return (entry["state"], f"{event}/{kind}" if kind else event,
-                    " ".join((text or event).split())[:160], float(when))
+                    " ".join((text or event).split()), float(when))
     return None, "", "", None

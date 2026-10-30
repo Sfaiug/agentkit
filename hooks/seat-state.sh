@@ -69,8 +69,10 @@ seat_state() {
   # both camelCase, so the twins are read beside them -- and a compaction its trigger
   kind=$("$jq" -r '.notification_type // .notificationType // .tool_name // .toolName // .trigger
                    // empty' <<<"$payload" 2>/dev/null) || kind=''
-  # a question's own words, where the event carries one, before a notice's
-  text=$("$jq" -r '((.tool_input.questions[0].question)? // .message // .title // "") | .[0:160]' \
+  # a question's own words, where the event carries one, before a notice's: whole, for each
+  # reader fits them to its own room (tests/test_highlighted_question_whole.py), and on stdin,
+  # for one argument holds 128 KiB
+  text=$("$jq" -r '(.tool_input.questions[0].question)? // .message // .title // ""' \
     <<<"$payload" 2>/dev/null) || text=''
 
   dir="$HOME/.agentkit/state"
@@ -113,7 +115,8 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
 from agentkit import config
-row, seat, event, kind, text, at = sys.argv[2:]
+row, seat, event, kind, at = sys.argv[2:]
+text = sys.stdin.read()[:-1]
 fact = {"session": seat, "event": event, "kind": kind, "text": text, "at": float(at)}
 def passive(standing):
     return False
@@ -137,10 +140,10 @@ if event not in ("UserPromptSubmit", "Stop"):
         return (bool(harness) and said not in watch.marked_events(harness, "interrupt")
                 and state in (None, watch.hook_state(harness, standing)[0]))
 config.record_hook_fact(row, fact, kept)
-' "${BASH_SOURCE[0]}" "$row" "$seat" "$event" "$kind" "$text" "$ts" ||
+' "${BASH_SOURCE[0]}" "$row" "$seat" "$event" "$kind" "$ts" <<<"$text" ||
     /usr/bin/env python3 -c "$write"'
 config.record_hook_fact(row, fact, kept)
-' "${BASH_SOURCE[0]}" "$row" "$seat" "$event" "$kind" "$text" "$ts"
+' "${BASH_SOURCE[0]}" "$row" "$seat" "$event" "$kind" "$ts" <<<"$text"
 
   # The owner's word answers an older question, once the background look checks its pane --
   # and, for a prompt, the seat's conversation (`notify.answer_written`).  The launch name still
