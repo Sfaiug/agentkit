@@ -46,7 +46,11 @@ type plan struct {
 // Main is `ak update` where Go carries it out, in Python's update.main order: what it prints,
 // and its exit code or a refusal in Python's words.
 func Main(dryRun bool, out, errOut io.Writer) (int, error) {
-	repo := config.Repo()
+	return run(config.Repo(), dryRun, out, errOut)
+}
+
+// run is Main for the checkout at repo.
+func run(repo string, dryRun bool, out, errOut io.Writer) (int, error) {
 	live := filepath.Join(repo, "tests", "live.sh")
 	if !regular(live) {
 		return refuse(fmt.Errorf("no acceptance gate at %s; an unverified upgrade is not one", live))
@@ -80,6 +84,15 @@ func Main(dryRun bool, out, errOut io.Writer) (int, error) {
 	if !dryRun && (len(absent) < len(plans) || held) {
 		return 0, ErrPython // a harness or ~/agentkit to move
 	}
+	agentkit := "update: agentkit: skipped: no checkout at " + checkout
+	if held {
+		said, err := agentkitVersion(env, checkout)
+		if err != nil {
+			return 0, err
+		}
+		agentkit = "update: agentkit " + cmp.Or(said, "?") +
+			": would move forward (the next version swapped in + `install.sh`)"
+	}
 	if config.EnsureDirs() != nil {
 		return 0, ErrPython
 	}
@@ -88,7 +101,7 @@ func Main(dryRun bool, out, errOut io.Writer) (int, error) {
 	}
 	if !dryRun {
 		fmt.Fprintln(out, "update: no harness installed here; nothing to upgrade")
-		fmt.Fprintf(out, "update: agentkit: skipped: no checkout at %s\n", checkout)
+		fmt.Fprintln(out, agentkit)
 		fmt.Fprintln(errOut, "update: nothing was upgraded; the gate was not run")
 		return 1, nil
 	}
@@ -119,16 +132,7 @@ func Main(dryRun bool, out, errOut io.Writer) (int, error) {
 	default:
 		fmt.Fprintf(out, "update: gate fresh: run (`bash %s`)\n", fresh)
 	}
-	if !held {
-		fmt.Fprintf(out, "update: agentkit: skipped: no checkout at %s\n", checkout)
-		return 0, nil
-	}
-	said := ""
-	if stdout, _, ok := output(env, time.Minute, "git", "-C", checkout, "log", "-1", "--format=%h · %cs"); ok {
-		said = strings.TrimFunc(string(stdout), config.Space)
-	}
-	fmt.Fprintf(out, "update: agentkit %s: would move forward (the next version swapped in + `install.sh`)\n",
-		cmp.Or(said, "?"))
+	fmt.Fprintln(out, agentkit)
 	return 0, nil
 }
 
@@ -224,12 +228,27 @@ func version(each plan, env []string) (string, error) {
 	return identity, nil
 }
 
+// agentkitVersion is that checkout's short commit and its date, "" when git cannot say them.
+func agentkitVersion(env []string, checkout string) (string, error) {
+	stdout, _, ok := output(env, time.Minute, "git", "-C", checkout, "log", "-1", "--format=%h · %cs")
+	if !ok {
+		return "", nil
+	}
+	if !utf8.Valid(stdout) {
+		return "", ErrPython // Python puts its own replacement in: its i18n.logOutputEncoding's bytes
+	}
+	return strings.TrimFunc(string(stdout), config.Space), nil
+}
+
 // output is what a command printed, as Python's subprocess.run captures it within a cap: its
 // stdout and stderr, and whether it ran and exited 0 in time.
 func output(env []string, limit time.Duration, argv ...string) (stdout, stderr []byte, ok bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	command := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	if errors.Is(command.Err, exec.ErrDot) {
+		command.Err = nil // Python's subprocess runs what a relative PATH entry finds
+	}
 	var out, errOut bytes.Buffer
 	command.Env, command.Stdin, command.Stdout, command.Stderr = env, os.Stdin, &out, &errOut
 	// a program it left holding its output open is waited for no longer than the cap

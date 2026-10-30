@@ -5,6 +5,7 @@ package harness
 
 import (
 	"cmp"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,7 +45,8 @@ func Binary(name string) string {
 		}
 		return ""
 	}
-	if found, err := exec.LookPath(name); err == nil {
+	// Python's which takes a relative PATH entry as it takes any other
+	if found, err := exec.LookPath(name); err == nil || errors.Is(err, exec.ErrDot) {
 		return found
 	}
 	home, _ := os.UserHomeDir()
