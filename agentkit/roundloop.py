@@ -1299,12 +1299,16 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     # what a later round replays, kept on the pending record so no dying attempt overwrites them
     delta_from = lp.state.get("delta_from")
     earlier = prompts.earlier_findings(lp)
-    # who could not finish this round's review, kept across parks as `since` is: none is
-    # asked again in this round, and a new round starts with nobody failed
-    failed = pending.get("failed", []) if pending.get("round") == lp.rnd else []
+    # who could not finish this round's review, and whether a reviewer took it over from
+    # outside it (`staffing.replace_reviewer`), kept across parks as `since` is: none is
+    # asked again in this round, and a new round starts with nobody failed or handed
+    this_round = pending.get("round") == lp.rnd
+    failed = pending.get("failed", []) if this_round else []
+    handed = this_round and pending.get("handed", False)
     lp.state.update(verdict=None, review=None,
                     review_pending={"round": lp.rnd, "summary": summary, "since": since,
                                     "earlier": earlier, "failed": failed,
+                                    **({"handed": True} if handed else {}),
                                     **({"passed_head_sha": passed_head} if passed_head else {})})
     if not record:
         lp.state["review_pending"]["record"] = False
@@ -1404,9 +1408,11 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     # A review cut off mid-turn is continued where it was, fallback model and all: the
     # attempt after a fallback wrote under `reviewer-<model>`, and asking `reviewer` for
     # it would start the review over in a directory beside the one holding its session.
+    # A reviewer that took the review over writes in its own, so the attempt it continues
+    # is only ever one it ran itself, never its predecessor's conversation.
     # The round is read off `dir`, which is what free_dir writes through.
     rd = lp.dir("reviewer").parent
-    name = turns.open_review(rd)[0] or "reviewer"
+    name = f"reviewer-{lp.reviewer}" if handed else turns.open_review(rd)[0] or "reviewer"
 
     def ready_reviewers():
         """The run's marked reviewers with room, as the meters read now, in pick order; only
