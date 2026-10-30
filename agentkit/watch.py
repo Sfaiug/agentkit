@@ -3226,11 +3226,13 @@ def wait_over(cfg, log):
         if run and transitions.launched_session(run) == name:
             # its own run hands this ending back with the verdict, PR and result: that line is
             # the one the seat hears, and a second for the same ending would join it in the
-            # composer (22 Oct).  A routine ending, or one said elsewhere, is not typed to it
+            # composer (22 Oct).  A routine ending, or one said elsewhere, is not typed to it;
+            # one its seat's own look printed has told it as the typed line would
             if not handback.routine_ending(run) and (
                     run.get("state") not in run_record.ENDED or handback.owes_ending(run)):
                 continue        # the hand-back is on its way
-            if handback.already_handed_back(run) and not run.get("handback_note"):
+            if handback.already_handed_back(run) and run.get("handback_note") in (
+                    None, handback.LOOKED_NOTE):
                 if wait_mark(name, wait, told=time.time()):
                     log(f"{name}: its own run's hand-back told it that {wait['over']}; its "
                         "wait is over")
