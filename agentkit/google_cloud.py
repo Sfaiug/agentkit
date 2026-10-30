@@ -28,7 +28,7 @@ HOURS_A_MONTH = 730                # how Google turns a monthly price into an ho
 # Core running in Netherlands"; a custom shape costs more and is not offered as a type.
 SPOT = re.compile(r"^Spot Preemptible (?!.*Custom)(\w+) (?:[\w-]+ )*?"
                   r"Instance (Core|Ram) running in ")
-DISK = re.compile(r"^(Balanced PD|Hyperdisk Balanced) Capacity in ")
+DISK = re.compile(r"^(Balanced PD|Hyperdisk Balanced) (?!IOPS|Throughput)\w+ in ")    # its GBs
 # The boot disks a series takes, which neither the price list nor a machine type says: Google's
 # older series Persistent Disk alone, C3, C3D, H3, M3 and Z3 either, every other Hyperdisk alone.
 PD, HYPERDISK = ("Balanced PD",), ("Hyperdisk Balanced",)
