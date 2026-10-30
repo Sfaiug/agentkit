@@ -4,8 +4,9 @@ Seats launched everything at once, so the queue outgrew what the host could chec
 hours for a slot while main moved on, and a seat's urgent work sat behind its own older work.  A
 seat's launch beyond that is refused, before anything is created: it exits non-zero, leaves no
 run, and names one of the seat's runs to `ak wait` for, the one holding its slot longest, else
-its oldest waiting.  A launch of several task files needs room for all of them.  A `--review-pr`
-and a launch from no seat are never refused.  Black-box: the program `AK_BIN` names runs from
+its oldest waiting.  A launch of several task files needs room for all of them, and one carrying
+the directory of a run it does not carry on is a fresh launch all the same.  A `--review-pr` and a
+launch from no seat are never refused.  Black-box: the program `AK_BIN` names runs from
 outside through tests/fixtures/akbin.py, from seats of akseat.py, on a project from gitrig.py and
 the GitHub of fakegh.py; the runs already holding or waiting are records written beside live
 processes, and the host admits exactly as many runs as hold a slot, so every accepted launch
@@ -35,7 +36,8 @@ GOING = (("20261029-0900-acme-holds", "acme", True), ("20261029-0901-acme-waits"
          ("20261029-0906-nobody-waits", None, False), ("20261029-0907-nobody-too", None, False))
 HOLDING = sum(holds for _, _, holds in GOING)
 TITLES = iter(("Add retry file", "Bump alpha notes", "Write beta log", "Trim gamma docs",
-               "Sort delta list", "Name epsilon flag", "Fix zeta cache", "Load eta page"))
+               "Sort delta list", "Name epsilon flag", "Fix zeta cache", "Load eta page",
+               "Draw theta map", "Rank iota rows", "Tune kappa knob"))
 
 
 def record(run_dir):
@@ -75,6 +77,8 @@ class SeatQueue(unittest.TestCase):
                 "state": "running" if holds else "queued", "slot_waiting": not holds,
                 **owner(sleeps[-1].pid), "run_depth": 0, "started_at": at, "queued_at": at,
                 **({"slot_started_at": at} if holds else {})})
+        finished = home.write(".agentkit/runs/20261028-0800-acme-passed/run.json", {
+            "run_id": "20261028-0800-acme-passed", "launched_session": "acme", "state": "pass"})
         cls.acme = cls.launch("acme")
         cls.bravo = cls.launch("bravo")
         cls.charlie = cls.launch("charlie")
@@ -90,6 +94,9 @@ class SeatQueue(unittest.TestCase):
                                 cls.gh.open_pr(cls.rig, "readme", title="Say what widgets is"))
         cls.nobody = cls.launch(None)
         cls.job = cls.launch("delta", cls.task(), cls.task())
+        stale = {"AGENTKIT_RUN_DIR": str(finished.parent)}
+        cls.stale = (cls.launch("acme", **stale),
+                     cls.launch("delta", cls.task(), cls.task(), **stale))
 
     @classmethod
     def task(cls):
@@ -98,13 +105,13 @@ class SeatQueue(unittest.TestCase):
                                   done_when=(f"test -f {title.split()[1]}.txt",)))
 
     @classmethod
-    def launch(cls, seat, *args):
-        """`ak run ... --bg` from that seat, or from none, of a new task unless `args` name what;
-        what it returned and the runs it added."""
+    def launch(cls, seat, *args, **env):
+        """`ak run ... --bg` from that seat, or from none, of a new task unless `args` name what,
+        with `env` besides; what it returned and the runs it added."""
         args = args or (cls.task(),)
         before = set(taskfile.runs(cls.home))
         done = cls.home.ak("run", *args, "--bg", cwd=cls.rig.path,
-                           env={"AGENTKIT_SESSION": seat}, timeout=300)
+                           env={"AGENTKIT_SESSION": seat, **env}, timeout=300)
         return done, sorted(set(taskfile.runs(cls.home)) - before)
 
     def refused(self, launched, named):
@@ -134,6 +141,11 @@ class SeatQueue(unittest.TestCase):
 
     def test_a_launch_of_two_task_files_with_room_for_one_is_refused_whole(self):
         self.refused(self.job, "20261029-0905-delta-holds")
+
+    def test_a_launch_carrying_a_run_it_does_not_carry_on_is_refused_alike(self):
+        single, job = self.stale
+        self.refused(single, "20261029-0900-acme-holds")
+        self.refused(job, "20261029-0905-delta-holds")
 
 
 if __name__ == "__main__":

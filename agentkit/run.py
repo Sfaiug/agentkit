@@ -696,10 +696,11 @@ def seat_refusal(opts, flags):
 
 def from_seat():
     """Whether this launch is a seat's own: a recorded session's (`config.session_records`),
-    outside any run (`RUN_DIR_ENV`)."""
-    seat = config.current_session()
+    carrying on no queued run (`RUN_DIR_ENV`).  A variable naming none is one `main` ignores,
+    launching afresh, so the launch is the seat's all the same."""
+    seat, child = config.current_session(), os.environ.get(config.RUN_DIR_ENV)
     return bool(seat and seat in config.session_records()
-                and not os.environ.get(config.RUN_DIR_ENV))
+                and not (child and queued(Path(child))))
 
 
 def rival_advice():

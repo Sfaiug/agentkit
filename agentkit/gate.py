@@ -145,17 +145,30 @@ def host_status_line():
     return f"{first}\n{heavy}"
 
 
+def slot_place(state):
+    """`holding` for a top-level run holding its slot, `waiting` for one waiting for it, a dead
+    waiter included, which the tick resumes; else None."""
+    if state.get("run_depth", 0):
+        return None
+    if state.get("state") == "running" and run_record.process_active(state):
+        return "holding"
+    if state.get("state") == "queued" and state.get("slot_waiting"):
+        return "waiting"
+    return None
+
+
 def slot_counts(state, *, remember=False):
     """Live slot owners, top-level receipts ahead of this one (including dead waiters), and
     the other waiters' run ids in queue order. Under slot_lock, `remember` saves the queue."""
     running, waiting = 0, [state]
     for directory in run_record.run_dirs():
         other = run_record.read_state(directory) or {}
-        if other.get("run_id") == state.get("run_id") or other.get("run_depth", 0):
+        if other.get("run_id") == state.get("run_id"):
             continue
-        if other.get("state") == "running" and run_record.process_active(other):
+        place = slot_place(other)
+        if place == "holding":
             running += 1
-        elif other.get("state") == "queued" and other.get("slot_waiting"):
+        elif place == "waiting":
             waiting.append(other)
     previous, batches = slot_queue()[5], {}
     for other in waiting:
@@ -188,20 +201,19 @@ def slot_counts(state, *, remember=False):
 
 def seat_full(seat, launches):
     """Why that seat may not launch that many more runs, or None: a seat may have as many runs
-    waiting for a slot as holding one (as `slot_counts` tells them), and always one, and each
-    launch waits until it holds one.  Seats launched everything at once, so the queue outgrew
-    what the host could check and a seat's urgent work sat behind its own; a host admitting more
-    runs lets more wait.  The reason names the run to `ak wait` for: the one that has held its
-    slot longest, else the oldest waiting."""
+    waiting for a slot as holding one (`slot_place`), and always one, and each launch waits until
+    it holds one.  Seats launched everything at once, so the queue outgrew what the host could
+    check and a seat's urgent work sat behind its own; a host admitting more runs lets more wait.
+    The reason names the run to `ak wait` for: the one that has held its slot longest, else the
+    oldest waiting."""
     holding, waiting = [], []
     records = ((directory, run_record.read_state(directory) or {})
                for directory in run_record.run_dirs())
     for directory, other in transitions.runs_by_seat(records).get(seat, []):
-        if other.get("run_depth", 0):
-            continue
-        if other.get("state") == "running" and run_record.process_active(other):
+        place = slot_place(other)
+        if place == "holding":
             holding.append((other.get("slot_started_at") or 0, directory.name))
-        elif other.get("state") == "queued" and other.get("slot_waiting"):
+        elif place == "waiting":
             waiting.append((transitions.first_queued(other), directory.name))
     room = max(len(holding), 1) - len(waiting)
     if launches <= room:
