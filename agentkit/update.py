@@ -17,7 +17,8 @@ upgrades one that is behind its latest release in the background, sessions or no
 `keep_current`), and no two upgrades ever run at once.  Agentkit itself moves after the
 harnesses either way, and the three-minute tick moves it on its own, in both cases only to a
 commit whose `tests/live.sh` has no regression where it has one (`live_target`), and never while
-a harness upgrade runs: its gates test one agentkit commit from start to end.
+a harness upgrade runs: its gates test one agentkit commit from start to end.  The tick starts a
+check only once the logins it lends will outlast it (`_waits_for_login`), `ak update` at once.
 """
 
 from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
@@ -36,8 +37,8 @@ import tempfile
 import time
 from datetime import datetime
 
-from . import (command_help, config, gitcall, host, orch, owner, retention, transitions,
-               versions, worker)
+from . import (command_help, config, gitcall, host, lend, orch, owner, retention,
+               transitions, versions, worker)
 from . import record as run_record
 from .harness import load as harness_plugin
 
@@ -441,7 +442,7 @@ def run_gate(key, fh):
     """
     failed = _failed_path(fh)
     failed.unlink(missing_ok=True)
-    mark = _end(fh)
+    mark, began = _end(fh), time.time()
     if key == "live":
         passed = step(["bash", str(live_gate())], fh,
                       {"AGENTKIT_ACCEPTANCE_REQUIRED": "1", "AK_LIVE_FAILED": str(failed)},
@@ -449,6 +450,8 @@ def run_gate(key, fh):
         why = "passed" if passed else "failed"
     else:
         passed, why = fresh_gate(fh, say)
+    if passed:
+        _note_pass(key, began, time.time())
     try:
         labels = set(failed.read_text().splitlines()) - {""}
         failed.unlink()
@@ -752,6 +755,52 @@ def go_live(log, now=None):
             log(f"  {line}")
 
 
+def _last_pass(key):
+    """Check `key`'s ("live" or "fresh") last pass on record: when it ended and how long it took,
+    (0, None) while it has none."""
+    try:
+        ended, took = json.loads((config.STATE / f"{key}-check-passed").read_text())
+        return float(ended), float(took)
+    except (OSError, ValueError, TypeError):
+        return 0, None
+
+
+def _note_pass(key, began, ended):
+    """Keep a pass of check `key` for `margin`, unless a later one is kept: the tick reads one
+    check until the install moves, past any upgrade's run since.  A failed write costs a margin."""
+    if ended > _last_pass(key)[0]:
+        try:
+            _put(config.STATE / f"{key}-check-passed", json.dumps([ended, ended - began]))
+        except OSError:
+            pass
+
+
+def margin(key):
+    """How long the logins a run of check `key` borrows must last: its last pass's time doubled,
+    never past its cap, which alone would hold a quarter of go-lives; the cap where none passed."""
+    cap = {"live": LIVE_CAP, "fresh": E2E_CAP}[key]
+    took = _last_pass(key)[1]
+    return cap if took is None else min(2 * took, cap)
+
+
+def _waits_for_login(key, what, seconds, log, now):
+    """Whether `what` waits for a later tick: a login lent to it lapses within `seconds` of `now`,
+    failing all that needs it for no fault of the code, until it is renewed (by its harness on use,
+    the tick's usage probes or `auth seat`) or lapsed and lends none.  The log hears it once: `key`
+    names the record of what it heard, gone when `what` starts."""
+    said = config.STATE / f"{key}-check-held"
+    first = lend.first_lapse()
+    if first is None or first[0] >= now + seconds:
+        said.unlink(missing_ok=True)
+        return False
+    line = (f"{what} waits: {first[1]}'s login lapses at "
+            f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(first[0]))}, before it could end")
+    if not said.exists() or said.read_text() != line:
+        log(line)
+        _put(said, line)
+    return True
+
+
 def live_checks():
     """Every check of tests/live.sh, oldest first: (started, commit, directory).
 
@@ -886,7 +935,7 @@ def live_tick(log, now, fetched):
     shared with that result can pass the tip; those standing faults are handed back without
     holding the move. The comparison stays with the tip result in `baseline`.
     Offline, the tick decides on the origin/main it fetched last, but no check starts: origin
-    may have moved on from it since.
+    may have moved on from it since; nor does one a login would not last (`_waits_for_login`).
     """
     from . import watch     # here, not at the top: watch imports this module
     tip = _git("rev-parse", "--verify", "--quiet", "origin/main")[1]
@@ -944,6 +993,8 @@ def live_tick(log, now, fetched):
     episode = None      # a pass ends what was red before it; one typed or told stands until then
     reds = 0            # red checks in a row since the last pass, whichever commits they checked
     for started, commit, check, code in done:
+        if _live_passed(check, started):
+            _note_pass("live", started, _live_ended(check, code))
         if commit == head and not (check / "baseline").exists():
             continue
         record = _handed(episode[1]) if episode else None
@@ -972,6 +1023,8 @@ def live_tick(log, now, fetched):
         if tip != head and now < ended + watch.RETRY_BACKOFF[
                 min(len(mine), len(watch.RETRY_BACKOFF)) - 1]:
             return
+    if _waits_for_login("live", "tests/live.sh", margin("live"), log, now):
+        return
     gitcall.no_auto_gc(agentkit_dir())
     log(f"checking agentkit at {tip[:12]} with tests/live.sh before it goes live")
     check = config.STATE / LIVE / f"{tip}-{int(now)}"
@@ -1275,7 +1328,8 @@ def keep_current(log, now=None):
     on later ticks while no seat can receive it.  A checkout that is somebody's work
     (`left_as_is`) holds it, unstarted, until an ask finds it main again: its gates test that
     checkout, and refused a half-moved ~/agentkit, a red that reverted a harness for nothing it
-    did.
+    did.  A login its gates would not outlast (`_waits_for_login`) holds it too, with no ask until
+    the first tick that one lasts: that tick starts the release it found.
     """
     if agentkit_dir().resolve() != config.REPO:
         return
@@ -1313,17 +1367,22 @@ def keep_current(log, now=None):
     for harness in harnesses():
         name = harness["name"]
         entry = asked.get(name) if isinstance(asked.get(name), dict) else {}
+        waited = entry.get("waits")
         if (not harness["latest"] or not config.harness_binary(harness["version"][0])
-                or now - entry.get("asked", 0) < ASK_EVERY):
+                or not waited and now - entry.get("asked", 0) < ASK_EVERY):
             continue
-        installed, newest = version(harness), latest(harness)
+        installed, newest = version(harness), waited or latest(harness)
         # behind: both name a release, and the installed one is the lower
         go = bool(installed) and _downgrade(newest, installed) and (
             entry.get("tried") != newest or now - entry.get("started", 0) >= RETRY_AFTER)
         held = go and left_as_is()
-        asked[name] = {**entry, "asked": now,
-                       **({"tried": newest, "started": now} if go and not held else {})}
+        waits = go and not held and _waits_for_login(
+            "upgrade", f"{name}'s upgrade", margin("live") + margin("fresh"), log, now)
+        asked[name] = {**entry, "asked": now, "waits": newest if waits else "",
+                       **({"tried": newest, "started": now} if go and not (held or waits) else {})}
         record.write_text(json.dumps(asked))
+        if waits:
+            return
         if held:
             log(f"{name} {_release(installed)} is behind {newest}: upgraded once "
                 f"{agentkit_dir()} is main as origin left it, not {held}: its gates test it")

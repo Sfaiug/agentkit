@@ -139,6 +139,7 @@ class HarnessLatest(unittest.TestCase):
         self.stack.enter_context(patch.object(
             config, "load", return_value={"models": {"muse": {"harness": "muse"}}}))
         start = self.stack.enter_context(patch.object(update, "start"))
+        self.stack.enter_context(patch.object(update.lend, "first_lapse", return_value=None))
         self.write(installed="Muse Code 1.4.1 (1.4.1-R4503.1)",
                    answer=MUSE_CHANNEL % ("1.4.1-R4503.1", "1.4.1-R4503.1"))
         update.keep_current(lambda line: None, now=1_000_000.0)
