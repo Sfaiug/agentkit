@@ -3271,10 +3271,11 @@ def wait_main(argv):
     nowhere else: no card, no notice.  Its next `ak wait` or `ak notify` replaces it.  A wait
     names a fact ak can read, never a session: the tick ends it when the pull request merges
     or closes, no run is going on it, or the run ends, and tells the seat so (`wait_over`).
-    One already over is refused with its fact (`wait_fact`), as is any from a seat whose work
-    is done and live (`work_live`): the tick would end it at once and wake the seat for
-    nothing.  A pull request the seat's own going run reviews or lands is waited on as that
-    run, whose hand-back then is the one line.
+    One already over is refused with its fact (`wait_fact`), and a run's ending that waits for
+    this seat with that ending's line, as is any from a seat whose work is done and live
+    (`work_live`): the tick would end it at once and wake the seat for nothing.  A pull
+    request the seat's own going run reviews or lands is waited on as that run, whose
+    hand-back then is the one line.
     """
     if command_help.show("wait", argv):
         return 0
@@ -3302,6 +3303,15 @@ def wait_main(argv):
         return 1
     if over or (why := work_live(seat)):
         print(f"ak wait: {why}; nothing is left to wait on", file=sys.stderr)
+        if over and kind == "run":
+            from . import status  # here, not at the top: it reaches watch
+            # its ending, waiting for this seat, read here as its look by id reads it: typed in
+            # after, it would be news the seat had already acted on (30 Oct)
+            run_dir = config.RUNS / on
+            state = run_record.read_state(run_dir) or {}
+            for run_dir, line in status.owed_lines([(run_dir, state)], seat, True).items():
+                print(f"  {line}", file=sys.stderr, flush=True)     # printed, then recorded
+                handback.printed_at_look(run_dir, state)
         return 1
     if kind == "pr":
         # its hand-back says the verdict and the merge; a wait on the pull request would type a
