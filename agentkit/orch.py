@@ -2686,15 +2686,19 @@ def held_sha(record, conversation):
 
 def rulebook_change(name, record, conversation, text):
     """What changed from the rulebook `conversation` holds to `text`, as a unified diff, or ""
-    where ak no longer has the one it holds: the rules it was last handed, which its `held`
-    file keeps, or its launch's, which a rename leaves under the name it was launched with."""
+    where ak no longer has the one it holds.  Any copy of it will do, under any name the seat
+    had, since a rename leaves some behind: its `held` file, of the rules it was last handed;
+    its `rules` file, of those a conversation said it read before prompts carried them; or its
+    launch's."""
     holds = held_sha(record, conversation)
-    for held in (config.seat_file("held", name), *map(config.rulebook_path, plan.names(name))):
-        data = on_disk(held)
-        if data and config.rulebook_digest(data) == holds:
-            return "".join(difflib.unified_diff(
-                data.decode(errors="replace").splitlines(True), text.splitlines(True),
-                "the rulebook you hold", "your current rulebook", n=1))
+    for each in plan.names(name):
+        for held in (config.seat_file("held", each), config.seat_file("rules", each),
+                     config.rulebook_path(each)):
+            data = on_disk(held)
+            if data and config.rulebook_digest(data) == holds:
+                return "".join(difflib.unified_diff(
+                    data.decode(errors="replace").splitlines(True), text.splitlines(True),
+                    "the rulebook you hold", "your current rulebook", n=1))
     return ""
 
 

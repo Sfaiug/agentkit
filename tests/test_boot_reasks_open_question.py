@@ -33,16 +33,16 @@ class BootReasks(Sandbox):
         self.stack.enter_context(patch.object(orch, "sessions", lambda: list(self.live)))
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         # what changes once the send has its lock, after every look before it
-        held = watch.seat_held
+        held = notify.session_lock
 
         @contextmanager
-        def locking(name):
-            with held(name) as current:
+        def locking(name, *args, **kwargs):
+            with held(name, *args, **kwargs) as current:
                 for _ in list(self.meanwhile):
                     self.meanwhile.pop(0)()
                 yield current
 
-        self.stack.enter_context(patch.object(watch, "seat_held", locking))
+        self.stack.enter_context(patch.object(notify, "session_lock", locking))
         self.stack.enter_context(patch.object(watch, "seat_model",
                                               return_value=("claude", "anthropic")))
         self.stack.enter_context(patch.object(watch, "pane_text",

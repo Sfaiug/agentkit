@@ -43,11 +43,11 @@ class OwnLineGetsItsEnter(Sandbox):
             "a pending Enter completes its line without gating new text")))
         self.keys, self.locked, self.fail_enter = [], False, False
         self.meanwhile = lambda: None   # what changes once the send has its lock
-        held = watch.seat_held
+        held = watch.notify.session_lock
 
         @contextmanager
-        def locking(name):
-            with held(name) as current:
+        def locking(name, *args, **kwargs):
+            with held(name, *args, **kwargs) as current:
                 self.locked = True
                 self.meanwhile()
                 try:
@@ -55,7 +55,7 @@ class OwnLineGetsItsEnter(Sandbox):
                 finally:
                     self.locked = False
 
-        self.stack.enter_context(patch.object(watch, "seat_held", locking))
+        self.stack.enter_context(patch.object(watch.notify, "session_lock", locking))
         self.compose(watch.ACCOUNT_LINE)
 
     def compose(self, line, harness="claude"):

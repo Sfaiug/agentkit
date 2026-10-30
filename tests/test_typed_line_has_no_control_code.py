@@ -43,14 +43,14 @@ class TypedLineHasNoControlCode(unittest.TestCase):
             return "empty" if self.entered else "line"
 
         fakes = [(watch, {
-            "seat_held": held, "_send_line": send_line, "_send_enter": send_enter,
+            "_send_line": send_line, "_send_enter": send_enter,
             "composer_holds": holds, "kept_asked_first": lambda *_a, **_kw: None,
             "seat_model": lambda *_a: (None, None), "owner_question": lambda *_a: False,
             "pinned": lambda session: session, "_past_text": lambda *_a: None,
             "takes_line": lambda *_a, **_kw: True, "quiet_prompt": lambda *_a: True,
             "_editor_kept": lambda *_a: {}, "pane_unread": lambda *_a: False}),
             (watch.config, {"resolve_session": lambda name: name, "load": dict}),
-            (watch.notify, {"last": lambda *_a: None}),
+            (watch.notify, {"last": lambda *_a: None, "session_lock": held}),
             (watch.time, {"sleep": lambda _s: None})]
         for target, names in fakes:
             for name, fake in names.items():
