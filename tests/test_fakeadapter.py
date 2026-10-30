@@ -81,7 +81,8 @@ class FakeAdapter(unittest.TestCase):
         manifest = tomllib.loads(fake.manifest.read_text())
         shipped = tomllib.loads((REPO / "adapters/codex.toml").read_text())
         self.assertEqual((manifest["worker"], manifest["stall"]),
-                         ({"state": [str(fake.dir)]}, shipped["stall"]))
+                         ({"state": [str(fake.dir)], "sessions": shipped["worker"]["sessions"]},
+                          shipped["stall"]))
         self.assertEqual(fakeadapter.install(self.home, codex="pass")["codex"].calls(), [])
 
 

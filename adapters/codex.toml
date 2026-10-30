@@ -13,6 +13,9 @@ effort = "low"
 [worker]
 state = ["~/.codex", "$CODEX_HOME", "~/.codex-$AGENTKIT_ACCOUNT"]
 logins = ["~/.codex/auth.json", "$CODEX_HOME/auth.json", "~/.codex-$AGENTKIT_ACCOUNT/auth.json"]
+# where a turn's conversation lives, `{id}` its id: what travels with a turn on a machine
+# (agentkit/machine_turn.py); a harness without this takes no turns there
+sessions = ["~/.codex/sessions/*/*/*/*{id}*"]
 
 # Codex reads at most `project_doc_max_bytes` of a project's AGENTS.md (32 KiB in 0.160) and
 # drops the rest without a word, so no project's file may grow past it.

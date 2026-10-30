@@ -246,8 +246,10 @@ turn)      # KEY IMAGE MEMORY_MB REPO, volumes PART:PATH[:ro] of its parcel, `ho
     wait "$turn"; code=$?; wait; exit "$code"
   }
   admitted streamed "$@" ;;
-collect)   # KEY: an ended turn's out dir, the bundle and exit turn.sh left, as a tar on stdout
-  cd "$ROOT/$2" && [ -f code ] && tar -c out back.bundle code || exit 253 ;;
+collect)   # KEY FOLDER...: an ended turn's out dir, the bundle and exit turn.sh left and those
+  # folders of its HOME, as a tar on stdout
+  cd "$ROOT/$2" && [ -f code ] && shift 2 && mkdir -p "${@/#/home/}" &&
+    tar -c out back.bundle code "${@/#/home/}" || exit 253 ;;
 finish) rm -rf "${ROOT:?}/$2" ;;
 *) exit 253 ;;
 esac

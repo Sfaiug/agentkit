@@ -2,15 +2,19 @@
 here when it ends. Hidden here: the machine, picked as agentkit/helper.py picks a suite's among
 those that take turns, and the ssh to it; the parcel beside a suite's: the out dir, the checkout's
 uncommitted paths, ak itself, a HOME of the turn's own, holding a copy of its login the adapter
-lends, and the harness program to run, which the machine fetches the first time a turn names it
-(mac.sh's `fetch`), a new version here reaching it at its next turn; the container
-tools/helper/turn.sh runs the turn in, at this host's paths; and what comes back: the out dir and a
-bundle of the turn's commits, the last holding what it left uncommitted, which git applies here.
+lends and the conversation it resumes, and the harness program to run, which the machine fetches
+the first time a turn names it (mac.sh's `fetch`), a new version here reaching it at its next turn;
+the container tools/helper/turn.sh runs the turn in, at this host's paths; and what comes back: the
+out dir, a bundle of the turn's commits, the last holding what it left uncommitted, which git
+applies here, and the conversation it reported, at its place under this host's HOME.
 """
 
+import fnmatch
+import glob
 import io
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import tarfile
@@ -25,18 +29,40 @@ AK = ("adapters", "agentkit", "bin", "tools")    # ak itself, read-only there, `
 LENT_FOR = 3600
 
 
-def call(entry, cmd, cwd, out_dir, env, places, watch):
-    """(exit, killed) of the turn `cmd` of the model `entry` on a machine with room, or None: it
-    runs here, as with the switch off, `places`, no program for it (`_program`), no login to lend,
-    no recipe or no room. `watch(argv, **streams)` runs ssh as the worker's watchdog runs a turn,
-    into the out dir's events.jsonl and stderr.log. A lost machine's turn fails, this host's
-    checkout as it was."""
+def _sessions(harness):
+    """Where the harness keeps a conversation, `[worker] sessions`: globs under HOME with `{id}`."""
+    return [place.removeprefix("~/") for place in
+            config.manifest(harness).get("worker", {}).get("sessions", ())]
+
+
+def _conversation(harness, session):
+    """The globs under HOME of the conversation `session`: it is what they match and all under
+    that. An id with a `/` names no file, so an id a turn reported reaches nowhere else."""
+    if not session or "/" in session:
+        return []
+    return [place.replace("{id}", glob.escape(session)) for place in _sessions(harness)]
+
+
+def call(entry, cmd, cwd, out_dir, env, places, session, watch):
+    """(exit, killed, session) of the turn `cmd` of the model `entry` on a machine with room, or
+    None: it runs here, as with the switch off, `places`, no program for it (`_program`), no login
+    to lend, no recipe, no room, a harness with no `sessions`, or a `session` to resume that this
+    host does not hold, as here is where a later resume would look for it too. `watch(argv,
+    **streams)` runs ssh as the worker's watchdog runs a turn, into the out dir's events.jsonl and
+    stderr.log. A lost machine's turn fails, this host's files as they were, and leaves `session`,
+    the conversation it was given: the id it streamed names one that is nowhere. One whose results
+    came home leaves the conversation it reported, whatever its exit."""
+    harness = entry["harness"]
     try:
         on = (config._read_toml(config.HOME / config.CONFIG_NAME) or {}).get("machine_turns")
-        program = _program(entry["harness"]) if on is True and not places else None
+        program = _program(harness) if on is True and not places and _sessions(harness) else None
     except config.Error:    # a config.toml mid-edit fails no turn: it runs here
         program = None
     if not program:
+        return None
+    held = [name for place in _conversation(harness, session)
+            for name in glob.glob(place, root_dir=env["HOME"])]
+    if session and not held:
         return None
     cwd, out_dir = Path(cwd).absolute(), Path(out_dir).absolute()
     with tempfile.TemporaryDirectory() as home:
@@ -46,7 +72,7 @@ def call(entry, cmd, cwd, out_dir, env, places, watch):
         # 2048: twice this is 4 GiB, as on 30 Oct 2026 this host's runs peaked at a median of 768
         # MiB and p90 of 1868 MiB, test pieces included, with one at 5438 MiB.
         away = helper.start(2, 2048, cwd, lambda line: None, shlex.join(cmd), lambda tar: _parcel(
-            tar, program, cwd, out_dir, env, home, lent))[0]
+            tar, program, cwd, out_dir, env, home, lent, held))[0]
     if away is None:
         return None
     volumes = [f"home:{env['HOME']}", f"work:{cwd}", f"out:{out_dir}",
@@ -59,11 +85,12 @@ def call(entry, cmd, cwd, out_dir, env, places, watch):
                 "--", cwd, config.REPO, away.branch, away.default, *cmd), stdout=events, stderr=err)
         if code == helper.FULL:    # its room went to another before it started: it runs here
             return None
-        if not killed:    # the turn's own exit comes home with its results
-            code = _home(away, cwd, out_dir) if code == 0 else helper.LOST
+        if not killed:    # the turn's own exit and conversation come home with its results
+            code, session = code == 0 and _home(away, harness, cwd, out_dir, env["HOME"]) or (
+                helper.LOST, session)
     finally:
         helper.finish(away)
-    return code, killed
+    return code, killed, session
 
 
 def _program(harness):
@@ -95,12 +122,12 @@ def _lend(entry, adapter, env, home):
     return [str(path.relative_to(home)) for path in Path(home).rglob("*") if path.is_file()]
 
 
-def _parcel(tar, program, cwd, out_dir, env, home, lent):
+def _parcel(tar, program, cwd, out_dir, env, home, lent, held):
     """Adds the turn's own to its parcel: turn.sh, the out dir, ak, the uncommitted paths (`paths`
     lists them all, `dirty/` holds those the checkout has), info/exclude, the HOME's .gitconfig,
-    the login lent from `home` (`lent` lists its paths, which `turn` removes), the program
-    (`harness`, and `fetch/` where each kind of machine gets it) and the environment, never the
-    loop's whole one."""
+    the login lent from `home` (`lent` lists its paths, which `turn` removes), `held`, the
+    conversation it resumes, the program (`harness`, and `fetch/` where each kind of machine gets
+    it) and the environment, never the loop's whole one."""
     from .worker import RUN_MARKER    # here, not at the top: the worker calls this module
     def put(name, text):
         info = tarfile.TarInfo(name)
@@ -124,6 +151,8 @@ def _parcel(tar, program, cwd, out_dir, env, home, lent):
     put("lent", "".join(f"{path}\0" for path in lent))
     for path in lent:
         tar.add(Path(home, path), f"home/{path}")
+    for name in held:
+        tar.add(Path(env["HOME"], name), f"home/{name}")
     put("harness", program[0])
     for machine, url in program[1].items():
         put(f"fetch/{machine}", url)
@@ -132,18 +161,24 @@ def _parcel(tar, program, cwd, out_dir, env, home, lent):
                        or key in (RUN_MARKER, "HOME", "LANG", "SHELL", "TMPDIR")))
 
 
-def _home(away, cwd, out_dir):
-    """The turn's exit once all its results came home before any applied, else LOST: its commits,
-    HEAD moved to its last, the checkout made its left commit and the index HEAD, so what it left
-    uncommitted stays so; then the out dir, but the events and stderr streamed here already."""
+def _home(away, harness, cwd, out_dir, home):
+    """(the turn's exit, the conversation it reported) once all its results came home before any
+    applied, else None: its commits, HEAD moved to its last, the checkout made its left commit and
+    the index HEAD, so what it left uncommitted stays so; then the out dir, but the events and
+    stderr streamed here already; last the conversation it reported, each file whole, which is all
+    of its HOME that comes home: from the folders `sessions` start from, so its caches do not
+    travel."""
+    from .turns import session_of    # here, not at the top: the worker calls this module
     try:
-        reply = helper._remote(away.alias, "collect", away.key, timeout=600)
+        folders = {os.path.dirname(re.split(r"[*?[{]", place)[0]) for place in _sessions(harness)}
+        reply = helper._remote(away.alias, "collect", away.key, *folders, timeout=600)
         if reply.returncode:
-            return helper.LOST
-        # Its regular files by relative name alone: nothing it sends reaches past the out dir.
+            return None
+        # Its regular files by relative name alone, each part a name: nothing it sends reaches
+        # past the out dir, nor lands elsewhere than the name a glob matched.
         with tarfile.open(fileobj=io.BytesIO(reply.stdout)) as tar:
             files = {member.name: tar.extractfile(member).read() for member in tar
-                     if member.isfile() and ".." not in member.name.split("/")}
+                     if member.isfile() and {"", ".", ".."}.isdisjoint(member.name.split("/"))}
         code = int(files.pop("code"))
         with tempfile.TemporaryDirectory() as back:
             bundle = Path(back, "back.bundle")
@@ -160,7 +195,22 @@ def _home(away, cwd, out_dir):
             if name.startswith("out/") and name not in ("out/events.jsonl", "out/stderr.log"):
                 (out_dir / name[4:]).parent.mkdir(parents=True, exist_ok=True)
                 (out_dir / name[4:]).write_bytes(data)
+        session = session_of(out_dir)
+        globs = [place.split("/") for place in _conversation(harness, session)]
+        real = Path(home).resolve()
+        for name, data in files.items():
+            parts = name.split("/")[1:]
+            path = real.joinpath(*parts)
+            # Through no link on its way, one a turn run here could leave to lead out of HOME.
+            if name.startswith("home/") and path.parent.resolve() == path.parent and any(
+                    len(parts) >= len(place) and all(map(fnmatch.fnmatchcase, parts, place))
+                    for place in globs):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                # 0600, and a name no glob matches: a reader sees the old file or the whole new one.
+                with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".", delete=False) as part:
+                    part.write(data)
+                Path(part.name).replace(path)
     except (OSError, subprocess.SubprocessError, tarfile.TarError, IndexError, KeyError,
             ValueError, config.Error):
-        return helper.LOST
-    return code
+        return None
+    return code, session
