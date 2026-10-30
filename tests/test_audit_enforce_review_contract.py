@@ -160,10 +160,11 @@ sys.exit(row["code"])
             with self.subTest(reviewer=reviewer):
                 code, directory, state = self.launch("--exec", "opus", "--review", reviewer)
                 self.assertEqual(code, 0)
-                self.assertEqual(state["reviewer"], reviewer)
+                # opus named to review its own work gives way to fable, which has room
+                self.assertEqual(state["reviewer"], "fable")
                 self.assertTrue(run.review_pass(state, self.cfg))
                 self.assertEqual(run.delivery(state), "PASS, delivered")
-                self.assertEqual(staffing.self_reviewed(state), reviewer == "opus")
+                self.assertFalse(staffing.self_reviewed(state))
 
     def test_only_anthropic_reviews_without_waiting(self):
         self.available("anthropic")
@@ -345,6 +346,7 @@ sys.exit(row["code"])
         run.git(repo, "commit", "--allow-empty", "-m", "fixture base")
         self.task.write_text(f"---\nrepo: {repo}\nbase: main\nrounds: 1\n---\n# Repo review\n\n"
                              "## Done when\n```bash\ntest -f deliverable\n```\n")
+        self.eligible = ["opus"]     # no other reviewer for opus's own work to give way to
         with patch.object(run, "merge") as merge:
             self.available("anthropic")
             self.respond({"opus": [{"code": 1, "text": "VERDICT: PASS"}]})
