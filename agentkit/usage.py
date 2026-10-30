@@ -1043,7 +1043,16 @@ def record_turn_meters(cfg, provider, meters, account=None, now=None):
     turn that said nothing changes nothing, and an older reading never replaces a
     newer one: the write shares the probe's own lock, so a probe in flight cannot
     write back the reading from before the turn. Returns whether anything was written.
+
+    The usual login goes by two names, None and `default`, and its reading is kept where
+    config.toml now says (`_on_disk`): under `default` where the provider lists it, else
+    as the provider's own record. A turn begun before accounts were added still reports
+    about the login it ran on.
     """
+    cfg = _on_disk(cfg)
+    if account in (None, config.DEFAULT_ACCOUNT):
+        listed = config.accounts(cfg, provider)
+        account = config.DEFAULT_ACCOUNT if config.DEFAULT_ACCOUNT in listed else None
     if not isinstance(meters, list) or not meters:
         return False
     fresh = [m for m in meters if isinstance(m, dict) and isinstance(m.get("name"), str)
