@@ -77,6 +77,21 @@ class Lineup(unittest.TestCase):
                          {"none": [{"harness": "anvil", "model": "eon-2"}],
                           "high": [{"harness": "anvil", "model": "eon-2"}]})
 
+    def test_a_model_naming_no_version_is_the_board_name_adding_one_and_any_effort_runs_a_bare_row(self):
+        boards = {"artificialanalysis.ai": {"rows": [
+            aa("eon-flash-1017", "Eon Flash 1017", "max", "eon-flash-1017", 0.5, 0.5),
+            aa("ray", "Ray 1.0", None, "ray", 0.4, 0.4),
+            aa("sol-1", "Sol 20", "high", "sol-1", 0.3, 0.3), aa("mir-1", "Sol 30", "high", "mir-1", 0.3, 0.3),
+            aa("zen-5", "Zen 5", "high", "zen-5", 0.2, 0.2)]}}
+        def yours(model, *efforts):
+            return {key(row) for row in matrix.lineup(boards, {"anvil": [
+                {"id": model, "efforts": list(efforts)}]}) if row["yours"]}
+        self.assertEqual(yours("cloud/eon-flash-free", "low", "max"), {("eon-flash-1017", "max")})
+        self.assertEqual(yours("ray-free", "low", "high"), {("ray", None)})
+        self.assertEqual(yours("sol", "high"), set())       # two releases stand for nothing
+        self.assertEqual(yours("zen", "low"), set())        # no such effort on the board
+        self.assertEqual(yours("zen-55", "high"), set())    # a version of its own
+
 
 class Answer(unittest.TestCase):
     def setUp(self):
