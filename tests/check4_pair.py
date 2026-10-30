@@ -1,6 +1,6 @@
 """Check 4's `executor reviewer`, as ak would pick them now; nothing when all it can run are spent.
 
-tests/smoke.sh asks this before check 4 takes a smoke target, so its one real `ak run` goes on
+tests/smoke.sh asks this before check 4 opens its branch, so its one real `ak run` goes on
 whichever configured models have budget and names none.  The pick is ak's own, `run.pick_models`
 over every model the config offers, on the suite's usage snapshot, each provider on the usual
 login the sandbox borrows and each harness asked whether it can run here.  When this host can

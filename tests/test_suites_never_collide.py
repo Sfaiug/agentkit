@@ -1,18 +1,16 @@
-"""two suites never collide on the smoke repo, and a branch name is unique on origin.
+"""Two suites never collide: their runs and seats are named apart, and a branch name is unique
+on origin.  (Their branches in the sandbox repository: tests/test_one_sandbox_repo.py.)
 
-Entirely offline: the only remotes here are bare repositories under a temporary directory, and
-the only locks are files of this test's own, handed to the suite through $AK_SMOKE_LOCK.  The
-host's suites queue on /tmp/agentkit-smoke-remote.lock, and a test queued behind them would wait
-out their turns instead of testing anything.  No tmux, no network, no harness call.
+Entirely offline: the only remotes here are bare repositories under a temporary directory.
+No tmux, no network, no harness call.
 """
 
-import fcntl
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 from unittest.mock import patch
 
@@ -20,171 +18,59 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, deliver, gitcall, run
 
-SMOKE = REPO / "tests/smoke.sh"
-E2E = REPO / "tests/e2e-fresh.sh"
-WAITING = "check 4: waiting for another suite's turn"
+SMOKE = (REPO / "tests/smoke.sh").read_text()
 
 
 def git(cwd, *args):
     subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
 
 
-def open_lock(path):
-    """Open the lock the way the suites do, without ever asking to create what is there.
+class TwoSuitesApart(unittest.TestCase):
+    """Two suites started in the same minute give their runs and seats different names."""
 
-    /tmp is sticky and world-writable, and under fs.protected_regular=2 an O_CREAT open of a
-    file a third account owns there fails with EACCES even read-only -- which is precisely
-    suites running as different accounts meeting on this file.
-    """
-    try:
-        return os.open(path, os.O_RDONLY)
-    except FileNotFoundError:
-        pass
-    try:
-        made = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-    except FileExistsError:
-        return os.open(path, os.O_RDONLY)
-    try:
-        os.fchmod(made, 0o644)
-    finally:
-        os.close(made)
-    return os.open(path, os.O_RDONLY)
+    # Every task file the suite writes, and every fixed seat name made of the suite's pid --
+    # with the repository name a review run's id is made of.
+    TASKS = re.findall(r'^cat >"\$WORK/[\w.-]+\.md" <<\'?MD\'?\n---\n.*?\nMD\n', SMOKE, re.M | re.S)
+    SEATS = re.findall(r'\b\w+="?((?:smoke|stall)[\w-]*-\$\$)', SMOKE)
 
+    def suites(self):
+        """What two suites started together make of those lines, each in a shell of its own."""
+        procs = []
+        for _ in range(2):
+            work = tempfile.TemporaryDirectory(prefix="smoke-names-")
+            self.addCleanup(work.cleanup)
+            script = "R=/r; TR=/tr\n" + "".join(self.TASKS) + "echo $$ " + " ".join(self.SEATS)
+            procs.append((Path(work.name), subprocess.Popen(
+                ["bash", "-c", script], env={**os.environ, "WORK": work.name},
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)))
+        return [(work, *proc.communicate(timeout=30)) for work, proc in procs]
 
-def probe(seconds, lock):
-    """`tests/smoke.sh --lock-probe <seconds>` on `lock`, bounded well past its own wait.
+    def names(self, work, out):
+        """Every run id and fixed seat name one suite gives, all in the same minute."""
+        pid, *seats = out.split()
+        found = set(seats)
+        for task in sorted(work.glob("*.md")):
+            title = re.search(r"^# (.+)$", task.read_text(), re.M).group(1)
+            # the pid has to survive the slug's cut to 40 characters, the widest one included
+            for token in (pid, "4194304"):
+                self.assertTrue(run.slugify(title.replace(pid, token)).endswith("-" + token),
+                                (task.name, title))
+            found.add(f"20260930-1200-{run.slugify(title)}")
+        return pid, found
 
-    The caller's config beside `lock` pins one heavy suite, so the pool is that one target.
-    """
-    home = Path(lock).parent / "home"
-    (home / ".agentkit").mkdir(parents=True, exist_ok=True)
-    (home / ".agentkit/config.toml").write_text("max_gates = 1\n")
-    return subprocess.run(["bash", str(SMOKE), "--lock-probe", str(seconds)],
-                          capture_output=True, text=True, timeout=seconds + 120,
-                          env={**os.environ, "AK_SMOKE_LOCK": lock, "HOME": str(home)})
+    def test_two_suites_started_together_name_nothing_alike(self):
+        self.assertGreaterEqual(len(self.TASKS), 7)
+        (work1, out1, err1), (work2, out2, err2) = self.suites()
+        self.assertEqual(err1 + err2, "")
+        first, ours = self.names(work1, out1)
+        second, theirs = self.names(work2, out2)
+        self.assertNotEqual(first, second)
+        self.assertEqual(len(ours), len(self.TASKS) + len(self.SEATS))
+        self.assertEqual(ours & theirs, set())
+        for seat in ("smoke-slice-", "smoke-ov-1-", "smoke-ov-2-", "smoke-inbox-",
+                     "stall-claude-", "smokerepo-"):
+            self.assertIn(seat + first, ours)
 
-
-def lock_program(script):
-    """The lock program a suite embeds, lifted out of the shell that carries it."""
-    return script.read_text().split("SMOKE_LOCK_PY='", 1)[1].split("\n'\n", 1)[0]
-
-
-def lock_argv(script, path, seconds):
-    """Both copies take the same file and wait; only smoke.sh's has a probe mode, and a pool
-    of targets whose bound here is the one file, with no repository behind it yet.
-
-    A parent of -1 is no live process, so e2e's copy -- which only ever holds -- falls straight
-    out of its `while os.getppid() == parent` watch once it has reported, instead of standing
-    there until this test does.
-    """
-    if script == SMOKE:
-        return [str(path), str(seconds), "probe", "-1", "1", ""]
-    return [str(path), str(seconds), "-1"]
-
-
-class SuiteLock(unittest.TestCase):
-    """The turn, taken and reported by the suite itself through `--lock-probe`.
-
-    The class holds its lock file for its whole run, so `busy` here is this test standing in
-    for the other suite and never an accident of timing.
-    """
-
-    @classmethod
-    def setUpClass(cls):
-        cls.tmp = tempfile.TemporaryDirectory(prefix="v5j-suite-")
-        cls.lock = str(Path(cls.tmp.name) / "remote.lock")
-        probe(0, cls.lock)      # the suite's own lock program makes the file, as on a new host
-        cls.fd = open_lock(cls.lock)
-        fcntl.flock(cls.fd, fcntl.LOCK_EX)
-
-    @classmethod
-    def tearDownClass(cls):
-        os.close(cls.fd)
-        cls.tmp.cleanup()
-
-    def probe_with_the_turn_given_back(self, seconds):
-        """Give the turn back, probe, and take it again."""
-        fcntl.flock(self.fd, fcntl.LOCK_UN)
-        try:
-            return probe(seconds, self.lock)
-        finally:
-            fcntl.flock(self.fd, fcntl.LOCK_EX)
-
-    def test_v5j_lock_probe_is_busy_while_another_suite_holds_the_remote(self):
-        result = probe(1, self.lock)
-        self.assertEqual(result.returncode, 75, result.stdout + result.stderr)
-        self.assertEqual(result.stdout.strip(), "busy", result.stdout)
-        # one line, and it names the check the caller is waiting for
-        self.assertIn(WAITING, result.stderr)
-        self.assertEqual(result.stderr.count(WAITING), 1, result.stderr)
-
-    def test_v5j_lock_probe_is_held_once_the_other_suite_is_done(self):
-        result = self.probe_with_the_turn_given_back(30)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(result.stdout.strip(), "held", result.stdout)
-        # and the probe gave its own turn back when it exited, so the next caller waits for it
-        again = self.probe_with_the_turn_given_back(30)
-        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
-
-    def test_v5j_lock_probe_clones_nothing_and_the_file_is_open_to_any_account(self):
-        busy = probe(1, self.lock)
-        held = self.probe_with_the_turn_given_back(30)
-        for result in (busy, held):
-            self.assertNotIn("Cloning", result.stdout + result.stderr)
-            self.assertNotIn("agentkit-smoke", result.stdout)
-            self.assertEqual(len(result.stdout.split()), 1, result.stdout)
-        # a suite running as another account has to be able to open it read-only and flock it
-        self.assertTrue(os.stat(self.lock).st_mode & 0o044, oct(os.stat(self.lock).st_mode))
-
-
-
-class LockProtocol(unittest.TestCase):
-    """What the lock program says, on a file whose contention is this test's alone to decide.
-
-    The shared file cannot answer "did it have to wait?" -- a real suite may take it in any
-    window, and rejecting a legitimate waiting line is how an ordinary concurrent done-when
-    turns red.  A private file can answer it, and it is the same program either way: both
-    copies are lifted out of the shells that carry them, so the two cannot drift apart
-    unnoticed, in their wording or in how they open the file.
-    """
-
-    def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix="v5j-lock-")
-        self.addCleanup(tmp.cleanup)
-        self.path = Path(tmp.name) / "private.lock"
-
-    def run_lock(self, script, seconds):
-        return subprocess.run([sys.executable, "-c", lock_program(script),
-                               *lock_argv(script, self.path, seconds)],
-                              capture_output=True, text=True, timeout=seconds + 120)
-
-    def test_v5j_a_free_lock_is_taken_at_once_and_says_nothing_about_waiting(self):
-        for script in (SMOKE, E2E):
-            with self.subTest(script=script.name):
-                result = self.run_lock(script, 5)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertEqual(result.stdout.split(), ["held"], result.stdout)
-                self.assertEqual(oct(os.stat(self.path).st_mode & 0o777), "0o644")
-
-    def test_v5j_a_held_lock_says_waiting_once_and_then_busy(self):
-        fd = os.open(self.path, os.O_CREAT | os.O_RDONLY, 0o644)
-        self.addCleanup(os.close, fd)
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        for script in (SMOKE, E2E):
-            with self.subTest(script=script.name):
-                started = time.monotonic()
-                result = self.run_lock(script, 2)
-                self.assertEqual(result.returncode, 75, result.stdout + result.stderr)
-                self.assertEqual(result.stdout.split(), ["waiting", "busy"], result.stdout)
-                self.assertGreaterEqual(time.monotonic() - started, 2)
-
-    def test_v5j_the_lock_file_is_opened_without_asking_to_create_it(self):
-        """The ordinary path must not carry O_CREAT: see open_lock's docstring for why."""
-        for script in (SMOKE, E2E):
-            with self.subTest(script=script.name):
-                body = lock_program(script)
-                self.assertIn("os.O_CREAT | os.O_EXCL", body)
-                self.assertNotIn("os.O_CREAT | os.O_RDONLY", body)
 
 
 class BranchNames(unittest.TestCase):

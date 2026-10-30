@@ -1,4 +1,5 @@
-"""Run the task's done-when commands on a new checkout of the fetched remote main."""
+"""Run the task's done-when commands on a new checkout of the branch the run merged into, fetched:
+the one `origin/HEAD` names, as the run took it for a task naming no `base:`."""
 
 from pathlib import Path
 import shlex
@@ -21,9 +22,10 @@ def verify(repo, task, checkout):
     if not commands:
         raise ValueError(f"no done-when commands in {task}")
     # Fetch explicitly: an old local remote-tracking ref is not delivery evidence.
-    if command(["git", "fetch", "origin", "+refs/heads/main:refs/remotes/origin/main"], repo):
+    branch = run.default_base(repo, print).removeprefix("origin/")
+    if command(["git", "fetch", "origin", f"+refs/heads/{branch}:refs/remotes/origin/{branch}"], repo):
         return 1
-    sha = run.git(repo, "rev-parse", "origin/main")
+    sha = run.git(repo, "rev-parse", f"origin/{branch}")
     print(f"delivered revision: {sha}", flush=True)
     if command(["git", "worktree", "add", "--detach", str(checkout), sha], repo):
         return 1

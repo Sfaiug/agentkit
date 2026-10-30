@@ -10,7 +10,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 FRESH = (REPO / "tests/e2e-fresh.sh").read_text()
-SETUP = FRESH[FRESH.index("INVOKER=$(id -un)"):FRESH.index("# --- one gate at a time")]
+SETUP = FRESH[FRESH.index("INVOKER=$(id -un)"):FRESH.index(". \"$REPO/tests/acceptance.sh\"")]
 CLEANUP = FRESH[FRESH.index("cleanup_logs()"):FRESH.index("\ntrap cleanup EXIT")]
 
 
@@ -37,7 +37,6 @@ class FreshTmux(unittest.TestCase):
             cleanup = subprocess.run(
                 ["/bin/bash", "-c", """
 sync_back() { :; }
-smoke_lock_drop() { :; }
 tmux() { :; }
 KEEP=0
 """ + CLEANUP + "\ncleanup"],
