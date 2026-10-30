@@ -7,15 +7,18 @@ turn.  No socket the host listens on in those places or its runtime directory an
 names resolve as on the host.  What the turn writes in its own places, who it runs as and the
 environment it was given are what the host sees.  Black-box: the program `AK_BIN` names runs
 from outside through tests/fixtures/akbin.py, with a scripted harness from fakeadapter.py whose
-`sh` step runs PROBE inside each turn; the class skips where bubblewrap cannot box one.
+`sh` step runs PROBE inside each turn; the class skips where bubblewrap cannot box one, or
+cannot give the file a /run of its own.
 """
 
+import functools
 import json
 import os
 from pathlib import Path
 import shlex
 import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -25,6 +28,10 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REPO, Home, boxable
 
 TEMPORARY = ("/tmp", "/var/tmp", "/dev/shm")
+# The host's /run, where its services listen, is not the test's to write: the file runs again in
+# a box whose /run is a throwaway overlay of it, so a service's socket can be put there.
+OWN_RUN = ("bwrap", "--dev-bind", "/", "/", "--overlay-src", "/run", "--tmp-overlay", "/run")
+INSIDE = "AK_KEY_OWN_RUN" in os.environ
 
 # Run inside the turn, from its workspace, with the plan the test wrote; writes what it found.
 PROBE = r'''import json, os, socket, sys
@@ -81,7 +88,13 @@ def resolved():
              for path in ("/etc/hosts", "/etc/resolv.conf")])
 
 
-@unittest.skipUnless(boxable(), "no bwrap able to box a turn here")
+@functools.cache
+def own_run():
+    return boxable() and subprocess.run([*OWN_RUN, "--", "true"], capture_output=True,
+                                        timeout=60).returncode == 0
+
+
+@unittest.skipUnless(INSIDE or own_run(), "no bwrap able to box a turn, or give a /run, here")
 class WorkerBoxWrites(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -103,10 +116,10 @@ class WorkerBoxWrites(unittest.TestCase):
         cls.elsewhere = home.root / "elsewhere"
         cls.elsewhere.mkdir()
         cls.tag = tag = home.root.name
-        # What the host keeps in the temporary places, and the sockets it listens on there and
-        # in its runtime directory.
+        # What the host keeps in the temporary places, and the sockets it listens on there, in
+        # its runtime directory and in /run.
         cls.host = []
-        for place in (*TEMPORARY, home.env["XDG_RUNTIME_DIR"]):
+        for place in (*TEMPORARY, home.env["XDG_RUNTIME_DIR"], "/run"):
             directory = Path(place, f"{tag}-host")
             directory.mkdir()
             cls.addClassCleanup(shutil.rmtree, directory, True)
@@ -193,4 +206,7 @@ class WorkerBoxWrites(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    if not INSIDE and own_run():
+        sys.exit(subprocess.call([*OWN_RUN, "--setenv", "AK_KEY_OWN_RUN", "1", "--",
+                                  sys.executable, os.path.abspath(sys.argv[0]), *sys.argv[1:]]))
     unittest.main()
