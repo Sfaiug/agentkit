@@ -80,7 +80,7 @@ class ForkDelivery(unittest.TestCase):
             "state": "pass", "verdict": "PASS", "merged": False, "merge_failed": False,
             "merge_note": NOTE, "foreign": True})
         lines = (self.run_dir / "result.md").read_text().splitlines()
-        self.assertEqual(lines[0], f"# PASS, not merged: {NOTE} — Add retry file")
+        self.assertEqual(lines[4], f"# PASS, not merged: {NOTE} — Add retry file")
         for line in ("VERDICT: PASS", f"pr: {self.state['pr']}", "merged: no",
                      f"merge: {NOTE}"):
             self.assertIn(line, lines)

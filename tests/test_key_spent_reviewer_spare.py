@@ -80,7 +80,7 @@ class SpentReviewer(unittest.TestCase):
 
     def test_result_md_names_the_reviewer_that_reviewed(self):
         lines = (self.run_dir / "result.md").read_text().splitlines()
-        self.assertEqual(lines[0], "# PASS, not merged: --no-merge — Add retry file")
+        self.assertEqual(lines[4], "# PASS, not merged: --no-merge — Add retry file")
         named = [line for line in lines if line.startswith("executor:")]
         self.assertEqual(len(named), 1, lines)
         self.assertRegex(named[0], r"^executor: opus\s+reviewer: spark$")

@@ -109,7 +109,7 @@ class TaskChange(unittest.TestCase):
         self.assertEqual((state["state"], state["verdict"], reviewed), ("blocked", "BLOCKED", 0))
         self.assertIn(f"BLOCKED {why}\n", (run_dir / "log.txt").read_text())
         lines = (run_dir / "result.md").read_text().splitlines()
-        self.assertEqual(lines[0], f"# BLOCKED — {title}")
+        self.assertEqual(lines[4], f"# BLOCKED — {title}")
         for line in ("VERDICT: BLOCKED", "rounds: 0 of 3", "## Blocked", why):
             self.assertIn(line, lines)
 
@@ -185,7 +185,7 @@ class SeatPullRequest(unittest.TestCase):
         self.assertIn(why, done.err)
         self.assertEqual(reviewed, 0)
         lines = (run_dir / "result.md").read_text().splitlines()
-        self.assertEqual(lines[0], "# FAIL — Review PR #1: big-change")
+        self.assertEqual(lines[4], "# FAIL — Review PR #1: big-change")
         self.assertIn(why, lines)
         self.assertEqual((self.gh.pr(1)["state"], self.gh.pr(1)["reviews"]), ("OPEN", []))
 

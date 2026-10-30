@@ -61,7 +61,7 @@ class Run:
         log = (self.run_dir / "log.txt").read_text()
         self.assertRegex(log, r"(?s)round 1 verdict: FAIL\n.*round 2 verdict: PASS\n")
         self.assertNotIn("round 3", log)
-        self.assertEqual(self.result[0], "# PASS, not merged: --no-merge — Add retry file")
+        self.assertEqual(self.result[4], "# PASS, not merged: --no-merge — Add retry file")
         for line in ("VERDICT: PASS", "rounds: 2 of 3", "merged: no"):
             self.assertIn(line, self.result)
         self.assertEqual((self.fakes["claude"].n, self.fakes["codex"].n), (2, 2))

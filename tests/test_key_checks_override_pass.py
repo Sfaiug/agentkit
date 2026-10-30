@@ -74,7 +74,7 @@ class ChecksOverridePass(unittest.TestCase):
 
     def test_result_md_says_fail_and_why_the_reviewer_s_pass_was_overridden(self):
         lines = (self.run_dir / "result.md").read_text().splitlines()
-        self.assertEqual(lines[0], "# FAIL — Add retry file")
+        self.assertEqual(lines[4], "# FAIL — Add retry file")
         for line in ("VERDICT: FAIL", "rounds: 1 of 1", "pr: (none)", "merged: no",
                      "## Round 1 (FAIL, done-when failed)"):
             self.assertIn(line, lines)

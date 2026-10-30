@@ -74,7 +74,7 @@ class ChangeOutsideFiles(unittest.TestCase):
         self.assertEqual([(run["role"], run["step"]) for run in reviews],
                          [("reviewer", "pass")] * 3)
         lines = (self.run_dir / "result.md").read_text().splitlines()
-        self.assertEqual(lines[0], "# FAIL — Add retry file")
+        self.assertEqual(lines[4], "# FAIL — Add retry file")
         for line in ("VERDICT: FAIL", "rounds: 3 of 3", "merged: no"):
             self.assertIn(line, lines)
         self.assertTrue([line for line in lines if "outside files: retry.txt" in line], lines)
