@@ -40,9 +40,10 @@ MAX_ARG_STRLEN = 128 * 1024
 
 
 # A suite on the helper: `key` names its directory there and its VMs, `repo` the history it
-# keeps there, `image` its pieces' image, `default` the branch origin/HEAD names, `programs` the
-# harness programs this host has, stand-ins there.
-Away = namedtuple("Away", "alias key repo image count cpus memory_mb branch default programs")
+# keeps there, `image` its pieces' image, `most` the VMs it fits empty, `default` the branch
+# origin/HEAD names, `programs` the harness programs this host has, stand-ins there.
+Away = namedtuple("Away", "alias key repo image count cpus memory_mb most branch default "
+                          "programs")
 
 
 def _remote(alias, verb, *args, **kwargs):
@@ -95,26 +96,28 @@ def _tracked(cwd, path):
 
 
 def room(alias, piece_cpus, piece_mem_mb, least_mb=0):
-    """((pieces, CPUs each, MiB each), reason): a fit, or (None, why it cannot run there).
-    Its CPUs less its load, split equally, as VMs time-share them; the memory ak's VMs may still
-    be given there (`left`), beside other suites' VMs. A VM gets two CPUs or more, as a
+    """((pieces, CPUs each, MiB each, most pieces), reason): a fit, or (None, why it cannot run
+    there). Its CPUs less its load, split equally, as VMs time-share them; the memory ak's VMs
+    may still be given there (`left`), beside other suites' VMs. A VM gets two CPUs or more, as a
     one-CPU VM's kernel hands a terminal's bytes over late and the suite's terminal tests read
     them at once, and twice the piece's measured memory, as it also holds its own kernel, page
-    cache and clone, or `least_mb` where that is more."""
+    cache and clone, or `least_mb` where that is more. The most pieces are its CPUs' fit
+    with no load."""
     try:
         probe = _remote(alias, "probe", text=True, timeout=30)
         if probe.returncode:
             return None, failure(probe.returncode)
         readings = {key: float(value) for key, value in
                     (line.split(None, 1) for line in probe.stdout.splitlines() if " " in line)}
-        spare, room_mb = readings["cpus"] - readings["load"], readings["room_mb"]
+        cpus, room_mb = readings["cpus"], readings["room_mb"]
+        spare, each_cpus = cpus - readings["load"], max(piece_cpus, 2)
         each_mb = int(max(2 * piece_mem_mb, least_mb))
-        count = min(int(spare // max(piece_cpus, 2)), int(room_mb // each_mb))
+        count = min(int(spare // each_cpus), int(room_mb // each_mb))
     except (OSError, subprocess.TimeoutExpired, KeyError, ValueError, OverflowError):
         return None, "did not answer (asleep or away)"
     if count < 1:
         return None, f"has no room ({spare:g} spare CPUs and {room_mb:g} MiB)"
-    return (count, int(spare // count), each_mb), ""
+    return (count, int(spare // count), each_mb, int(cpus // each_cpus)), ""
 
 
 def failure(code):
