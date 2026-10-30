@@ -2,8 +2,8 @@
 
 A rule names the knowledge, a pattern `git grep` finds it by, the path prefixes that are its
 home, and `max`: the count of matching lines outside that home on the day the rule was written.
-A rule's `names` are ak's own that the pattern also finds: a line counts only if the pattern
-still finds something once they are taken out of it.
+A rule's `names` are ak's own, or another rule's, that the pattern also finds: a line counts
+only if the pattern still finds something once they are taken out of it.
 A count above `max` fails with every path:line; a count below it passes and says which `max`
 to lower.  Any task may lower a `max` in the area it touches, and no task raises one.
 Existing maxima cannot exceed origin/main's; an unreadable target skips that comparison.
@@ -54,14 +54,21 @@ RULES = [
      "max": 0},
     # Host and cgroup readings have one reader: paths and counter names in code or
     # comments outside host.py count as another copy of how the host reports them.  A machine
-    # reached over ssh has no host.py to import: tools/machine.sh reads it there, and a piece in
-    # the suite helper's VM or container counts its own kills in tools/helper/piece.sh.
+    # reached over ssh has no host.py to import: tools/machine.sh reads it there.  A suite piece's
+    # own cgroup is the next rule's.
     {"name": "host readings",
      "flags": (),
      "pattern": r"/proc/meminfo|/proc/loadavg|/sys/fs/cgroup|cgroup\.freeze|"
                 r"\b(cpu|memory|pids)\.(pressure|stat|max|high|current|events)\b|CGROUP_ROOT",
-     "home": ("agentkit/host.py", "go/internal/host/readings.go", "tools/machine.sh",
-              "tools/helper/piece.sh"),
+     "names": r"/sys/fs/cgroup/memory\.events",
+     "home": ("agentkit/host.py", "go/internal/host/readings.go", "tools/machine.sh"),
+     "max": 0},
+    # A suite piece in the helper's VM or container has no host.py either: it counts its own
+    # cgroup's kills for memory, and reads nothing else of the host.
+    {"name": "a suite piece's kills for memory",
+     "flags": (),
+     "pattern": r"/sys/fs/cgroup/memory\.events",
+     "home": ("tools/helper/piece.sh",),
      "max": 0},
     # A process's stat and statm fields have one reader: host.proc_stat names them, and
     # host.resident_bytes counts pages. box.py runs as its own script inside the worker's
