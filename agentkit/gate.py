@@ -2018,8 +2018,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             if not cancel.is_set():
                 if pieces_left.waiting:
                     pull(hold.pieces if hold else len(pieces_left.waiting))
-                if unnamed := [index for index in again if index not in named]:
-                    attempts(unnamed)
+                if whole := [index for index in again if index not in named]:
+                    attempts(whole)
             for index in pieces_left.waiting:    # stopped before it ran
                 results[index] = attempt(f"{index + 1}/{count}")
             hold = getattr(_GATE_HELD, "hold", None)
