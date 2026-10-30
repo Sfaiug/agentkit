@@ -863,7 +863,7 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     paths = config.manifest(entry["harness"]).get("worker", {})
     watch = {"silence": limit, "activity": out_dir / "events.jsonl",
              "heartbeats": paths.get("heartbeats", ()), "abort": lambda: watching(out_dir)}
-    away = machine_turn.call(entry["harness"], cmd, workspace, out_dir, turn_env, places,
+    away = machine_turn.call(entry, cmd, workspace, out_dir, turn_env, places,
                              lambda argv, **streams: limited(argv, None, **watch, **streams))
     if away:
         code, killed = away
