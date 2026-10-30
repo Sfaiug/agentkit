@@ -1,7 +1,8 @@
 """`Subscriptions` on `c`, as the owner chose on 26 Oct 2026: each subscription under its
 company, drawn as the main screen draws its meter; the row the highlight is on opens one line,
-its login's email and plan, then its acts, the first lit, so Enter signs it in again, never
-removes; and what `+ add a subscription` adds comes back lit, its line saying whose it is.
+its login's email and plan, or when it ends while that is soon, then its acts, lit on `↻ log in
+again` where its login ending soon offers it, so Enter signs it in again, never removes; and
+what `+ add a subscription` adds comes back lit, its line saying whose it is.
 Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py) over usage and logins in a
 temporary HOME, harnesses faked (tests/fixtures/fakeadapter.py), NO_COLOR, so the lit act is
 bracketed.  This test fails against `/bin/false`.
@@ -21,6 +22,7 @@ from fixtures.akterm import SERVER, Terminal
 
 MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   c config   esc leave"
 PAGE_KEYS = "  ↑↓←→ move   ⏎ {}   esc back"     # Enter's word: the lit act's, or `open`
+UNLIT = "  ↑↓←→ move   esc back"                 # no act lit
 PAGE, ADD = "agentkit · config · subscriptions", "agentkit · config · add a subscription"
 
 
@@ -57,11 +59,14 @@ class SubscriptionsPage(unittest.TestCase):
         self.home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {
             "anthropic": {"accounts": {"default": used(16), "two": used(71)}},
             "openai": {**used(0), "resets": 1}}})
-        def login(email, plan=None):
-            return {"email": email, "ends": None, "plan": plan, "checked_at": now}
+        def login(email, plan=None, ends=None):
+            return {"email": email, "ends": ends, "plan": plan, "checked_at": now}
+        ends = int(now + 2 * 86400)       # Claude II's, UTC as the menu reads it
+        self.two = time.strftime("    login two@acme.test ends %a %d %b %H:%M (in 2 days)",
+                                 time.gmtime(ends))
         self.home.write(".agentkit/state/logins.json", {
             "anthropic": {"default": login("owner@acme.test", "max 20x"),
-                          "two": login("two@acme.test")},
+                          "two": login("two@acme.test", ends=ends)},
             "openai": {"default": login("owner@acme.test", "plus")}})
         self.term = Terminal(self.home, size=(100, 40), env={"NO_COLOR": "1"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
@@ -73,14 +78,14 @@ class SubscriptionsPage(unittest.TestCase):
         self.term.keys("Down", "Down", "Down")        # past GPT-6-Astra and `Models`
         self.term.wait("› Subscriptions")
         self.term.keys("Enter")
-        self.page = self.term.wait(lambda shown: title(shown) == PAGE
-                                   and PAGE_KEYS.format("log in again") in lines(shown))
+        self.page = self.term.wait(lambda shown: title(shown) == PAGE and "› Claude I " in shown
+                                   and UNLIT in lines(shown))
 
     def test_each_subscription_sits_under_its_company_with_the_main_screen_s_meter(self):
         self.assertEqual(body(self.page), [
             "Anthropic",
             "› Claude I   ▰▰▰▰▰▰▰▰▱▱  84% left",
-            "    owner@acme.test · max 20x   [↻ log in again]   − remove",
+            "    owner@acme.test · max 20x   − remove",
             "  Claude II  ▰▰▰▱▱▱▱▱▱▱  29% left",
             "OpenAI",
             "  ChatGPT    ▰▰▰▰▰▰▰▰▰▰  100% left · 1 reset in hand",
@@ -94,16 +99,16 @@ class SubscriptionsPage(unittest.TestCase):
         self.assertEqual(body(pointed)[1:5], [
             "  Claude I   ▰▰▰▰▰▰▰▰▱▱  84% left",
             "› Claude II  ▰▰▰▱▱▱▱▱▱▱  29% left",
-            "    two@acme.test   [↻ log in again]   − remove",
+            self.two + "   [↻ log in again]   − remove",
             "OpenAI"])
         self.term.keys("Down")
-        self.assertIn("    owner@acme.test · plus   [↻ log in again]   ↻ spend a reset   − remove",
+        self.assertIn("    owner@acme.test · plus   ↻ spend a reset   − remove",
                       body(self.term.wait("› ChatGPT")))
         self.term.keys("Right")
         self.term.wait(lambda screen: "[↻ spend a reset]" in screen
                        and PAGE_KEYS.format("spend a reset") in lines(screen))
         self.term.keys("Up")
-        self.term.wait("    two@acme.test   [↻ log in again]   − remove")
+        self.term.wait(self.two + "   [↻ log in again]   − remove")
         self.term.keys("Enter")
         self.term.wait(lambda screen: title(screen) == PAGE and "› Claude II" in screen
                        and self.fakes["claude"].calls("login"))
@@ -123,22 +128,21 @@ class SubscriptionsPage(unittest.TestCase):
         added = self.term.wait(lambda screen: title(screen) == PAGE and "› Claude III" in screen)
         self.assertEqual(body(added)[3:], [
             "› Claude III  — no reading yet",
-            "    new@acme.test   [↻ log in again]   − remove",
+            "    new@acme.test   − remove",
             "OpenAI", "  ChatGPT     ▰▰▰▰▰▰▰▰▰▰  100% left · 1 reset in hand", "",
             "  + add a subscription"])
 
-    def test_the_row_a_removal_lights_opens_on_its_first_act(self):
+    def test_the_row_a_removal_lights_opens_lit_as_any_row_opens(self):
         self.term.keys("Down", "Right")
-        self.term.wait(lambda screen: "    two@acme.test   ↻ log in again   [− remove]" in screen
+        self.term.wait(lambda screen: self.two + "   ↻ log in again   [− remove]" in lines(screen)
                        and PAGE_KEYS.format("remove") in lines(screen))
         self.term.keys("Enter")
         self.term.wait("Remove Claude II?")
         self.term.keys("Down", "Enter")                  # Keep is picked first
         left = self.term.wait(lambda screen: title(screen) == PAGE and "› ChatGPT" in screen)
-        # ChatGPT's second act, where remove was Claude II's, would spend its reset at one key
-        self.assertIn("    owner@acme.test · plus   [↻ log in again]   ↻ spend a reset   − remove",
-                      body(left))
-        self.assertIn(PAGE_KEYS.format("log in again"), lines(left))
+        # nothing lit: not Claude II's `− remove`, nor a `log in again` its login far off lacks
+        self.assertIn("    owner@acme.test · plus   ↻ spend a reset   − remove", body(left))
+        self.assertIn(UNLIT, lines(left))
 
     def test_a_reading_that_lands_shows_without_a_key(self):
         # the menu's opening probe written first, or it writes back the reading it took before

@@ -10,6 +10,7 @@ tests/fixtures/fakeadapter.py, the login refused so what it said stays; fails ag
 
 import sys
 from pathlib import Path
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -25,6 +26,9 @@ class SignInSaysItStarts(unittest.TestCase):
         self.addCleanup(home.close)
         fakeadapter.install(home, claude="pass", codex="pass")["claude"].answer("login", "<refused>", 1)
         akconfig.write(home, {"fable": "claude", "astra": "codex"})
+        # a login ending tomorrow, so `↻ log in again` is offered
+        home.write(".agentkit/state/logins.json", {"anthropic": {"default": {
+            "ends": time.time() + 86400, "checked_at": time.time()}}})
         term = Terminal(home, size=(100, 40), env={"NO_COLOR": "1"})
         self.addCleanup(home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)

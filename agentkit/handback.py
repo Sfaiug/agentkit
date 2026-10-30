@@ -1005,12 +1005,12 @@ def rides(state, records=None):
             and not ends_wait(state, records))
 
 
-def ending_rides(state):
+def ending_rides(state, records=None):
     """Whether this run's ending rides (`rides`): a merge, or a `not needed`, typed today --
     not a routine ending (`routine_ending`), recorded and never typed -- and not a line already
     in the composer for its Enter (`handback_typed`), which is the typed path's."""
     return (transitions.delivered(state) and not routine_ending(state)
-            and not state.get("handback_typed") and rides(state))
+            and not state.get("handback_typed") and rides(state, records))
 
 
 def live_owed(state):
@@ -1572,7 +1572,7 @@ def announce_safely(state, run_dir, log, cfg=None):
         log(f"WARN the ending was not handed back: {exc}")
 
 
-def announce(state, run_dir, log, cfg=None, busy=None):
+def announce(state, run_dir, log, cfg=None, busy=None, records=None):
     """The one message a run sends when it ends: to its orchestrator, or about a gone one.
 
     A routine ending (`routine_ending`) -- merged, or not needed, while its seat owes no work
@@ -1641,7 +1641,7 @@ def announce(state, run_dir, log, cfg=None, busy=None):
         # The seat reads result.md and its plan, never the checkout: the ending is history.
         worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
         return
-    if ending_rides(state):
+    if ending_rides(state, records):
         if not state.get("handback_pending"):
             mark_delivery(run_dir, state, handback_pending=True)
             log(f"run {run_dir.name} ended {'merged' if state.get('merged') else 'not needed'}: "
