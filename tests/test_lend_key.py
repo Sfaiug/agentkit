@@ -200,7 +200,8 @@ class LendKey(unittest.TestCase):
     def test_opencode_lends_none_where_another_document_it_merges_names_a_provider(self):
         # Its config, listed by another spelling of its path, and a document naming no provider
         # leave the login lent; a document OpenCode merges over it naming one, in its native
-        # entry or its legacy one, could log in as another, as could one OpenCode cannot list
+        # entry or its legacy one, could log in as another, whether its path is the config's
+        # and a newline or it has none (a remote one), as could any reply but one list
         path, login = self.fixture("opencode")
         doc = lambda where, info: {"type": "document", "path": str(where), "info": info}
         merged = [doc(str(path).replace("/.config/", "//.config/"), {"providers": {"mimo": {}}}),
@@ -208,10 +209,17 @@ class LendKey(unittest.TestCase):
                   doc(self.root / "update.jsonc", {"update": "disable"})]
         self.docs.write_text(json.dumps(merged))
         self.assert_lent("opencode", *self.lend("opencode"), login)
-        for info in ({"providers": {"acme": {"settings": {"baseURL": "https://acme.test"}}}},
-                     {"provider": {"mimo": {"options": {"apiKey": "fixture-other"}}}}):
-            with self.subTest(info=info):
-                self.docs.write_text(json.dumps([*merged, doc(self.root / "custom.jsonc", info)]))
+        other = {"provider": {"mimo": {"options": {"apiKey": "fixture-other"}}}}
+        for extra in (doc(self.root / "custom.jsonc",
+                          {"providers": {"acme": {"settings": {"baseURL": "https://acme.test"}}}}),
+                      doc(self.root / "custom.jsonc", other), doc(f"{path}\n", other),
+                      {"type": "document", "info": other}):
+            with self.subTest(extra=extra):
+                self.docs.write_text(json.dumps([*merged, extra]))
+                self.assert_none(*self.lend("opencode"))
+        for reply in ("", "{}"):
+            with self.subTest(reply=reply):
+                self.docs.write_text(reply)
                 self.assert_none(*self.lend("opencode"))
         self.docs.unlink()
         self.assert_none(*self.lend("opencode"))
