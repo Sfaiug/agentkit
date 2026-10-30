@@ -131,6 +131,7 @@ class FlakyTestGetsARepair(test_lander.LanderFixture, unittest.TestCase):
         self.seen("one")
         self.seen("two")
         self.merge(TEST)
+        self.now += 1
         self.seen("three")
         run.git(self.repo, "revert", "--no-edit", "HEAD")
         run.git(self.repo, "push", "-q", "origin", "main")
