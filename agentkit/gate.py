@@ -1900,18 +1900,31 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             if ran and not (hold and hold.waited) and not any(
                     result[2] or result[0] == SUITE_BUSY for result in results if result):
                 measure.save(path, len(ran), min(len(ran), hold.pieces if hold else count))
-            again = [index for index, there in enumerate(where) if there and results[index][0]
-                     and not results[index][2] and not cancel.is_set()]
-            named = {}    # by index, a piece red on the helper: what it printed there, its tests
+            named = {}    # by index, a piece red on a machine: what it printed there, its tests
             if any(where) and log is not None and not pieces_left.lost and all(
                     result and not result[0] and not result[2] for result in results):
                 log(f"every piece passed on the suite helper {next(filter(None, where)).alias}"
                     f"{' and this host' if not all(where) else ''}")
-            if (again or pieces_left.waiting or any(where) and silenced) and not cancel.is_set():
-                # What a machine failed or stopped runs again here, on this host's own turns, a
-                # stopped piece alone, below; what it lost or had no room for, on the first
-                # machine with room, this one included.
-                for index in again:
+            again, joined = [], [None]
+
+            def elsewhere():    # asked while waiting for a turn here
+                said = []
+                if pieces_left.waiting:
+                    joined[0] = helper.start(cpu, mem, cwd, said.append)[0]
+                if joined[0]:
+                    files.callback(helper.finish, joined[0])
+                    for line in said if log else ():
+                        log(line)
+                return joined[0]
+
+            # What a machine failed or stopped runs again here, on this host's own turns, a
+            # stopped piece alone, below; what it lost or had no room for, on the first machine
+            # with room, this one included.
+            while not cancel.is_set():
+                for index, there in enumerate(where):
+                    if index in again or not there or not results[index][0] or results[index][2]:
+                        continue
+                    again.append(index)
                     if log is not None:
                         # its go here takes its place in the suite's output: a copy keeps this one
                         handle, kept = tempfile.mkstemp(dir=run_dir or activity.parent,
@@ -1921,33 +1934,24 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         shutil.copyfile(results[index][1].name, kept)
                         log(f"WARN AK_SHARD={index + 1}/{count} failed on the suite helper; "
                             f"what it printed there: {kept}")
-                    if tests := helper.failed(where[index], f"{index + 1}/{count}"):
+                    if tests := helper.failed(there, f"{index + 1}/{count}"):
                         named[index] = results[index][1], tests
-                joined = [None]
-
-                def elsewhere():    # asked while waiting for a turn here
-                    said = []
-                    if pieces_left.waiting:
-                        joined[0] = helper.start(cpu, mem, cwd, said.append)[0]
-                    if joined[0]:
-                        files.callback(helper.finish, joined[0])
-                        for line in said if log else ():
-                            log(line)
-                    return joined[0]
-
-                while hold is None and (again or pieces_left.waiting or silenced) and not over():
-                    joined[0] = None
-                    began = time.monotonic()
-                    hold = _GATE_HELD.hold = _GATE_HELD.home(elsewhere)
-                    queued = time.monotonic() - began    # as busy_turn's: no ceiling is charged
-                    deadline += queued
-                    if on_wait is not None:
-                        on_wait(queued)
-                    if not joined[0]:
-                        break
-                    away = joined[0]
-                    pull(hold.pieces if hold else 0)
+                if hold is not None or not (
+                        again or pieces_left.waiting or any(where) and silenced) or over():
+                    break
+                joined[0] = None
+                began = time.monotonic()
+                hold = _GATE_HELD.hold = _GATE_HELD.home(elsewhere)
+                queued = time.monotonic() - began    # as busy_turn's: no ceiling is charged
+                deadline += queued
+                if on_wait is not None:
+                    on_wait(queued)
                 env = suite_env(changed, times)
+                if not joined[0]:
+                    break
+                away = joined[0]
+                pull(hold.pieces if hold else 0)
+            if not cancel.is_set():
                 if pieces_left.waiting:
                     pull(hold.pieces if hold else len(pieces_left.waiting))
                 if again:
