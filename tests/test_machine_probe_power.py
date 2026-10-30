@@ -1,7 +1,6 @@
 """On Linux the probe (tools/machine.sh) says whether the machine has a battery and is on power
-now: a charger's own `online` first, the battery's status only where no charger says either way,
-and never from a mouse's battery.  Each case runs the probe in a bubblewrap box whose
-/sys/class/power_supply holds only that case's supplies.
+now: a charger's own `online` first, else every battery's status, and never a mouse's battery.
+Each case runs the probe in a bubblewrap box whose /sys/class/power_supply holds only its own.
 """
 
 from pathlib import Path
@@ -21,6 +20,11 @@ CASES = {     # the supplies, then what the probe says: (battery, power)
     "discharging, no charger listed": ({"BAT0": {**BATTERY, "status": "Discharging"}}, ("1", "0")),
     "held below full, no charger listed": ({"BAT0": {**BATTERY, "status": "Not charging"}},
                                            ("1", "1")),
+    "one pack discharging, the other full": ({"BAT0": {**BATTERY, "status": "Discharging"},
+                                              "BAT1": {**BATTERY, "status": "Full"}}, ("1", "0")),
+    "charging, programmable supply online": ({"BAT0": {**BATTERY, "status": "Charging"},
+                                              "USB": {"type": "USB", "scope": "System",
+                                                      "online": "2"}}, ("1", "1")),
     "a mouse's battery only": ({"hid-mouse": {"type": "Battery", "scope": "Device",
                                               "status": "Discharging"}}, ("0", "1")),
     "no supply at all": ({}, ("0", "1")),

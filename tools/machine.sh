@@ -19,17 +19,21 @@ else
   awk '$1 == "MemTotal:" {print "memory_mb", int($2 / 1024)}
        $1 == "MemAvailable:" {print "free_mb", int($2 / 1024)}' /proc/meminfo
   echo "load $(cut -d ' ' -f 1 /proc/loadavg)"
-  # A mouse's battery is the mouse's (scope Device). On power: a charger says it is online;
-  # where none says either way, the battery charges or is full.
-  power= status=
+  # A mouse's battery is the mouse's (scope Device). On power: every battery charges, is full or
+  # is held, unless a charger says: online is 0 off, any other (1, 2 programmable) on.
+  online=
   for supply in /sys/class/power_supply/*; do
     [ "$(cat "$supply/scope" 2>/dev/null)" != Device ] || continue
     case $(cat "$supply/type" 2>/dev/null) in
-      Battery) battery=1 status=$(cat "$supply/status" 2>/dev/null) ;;
-      *) [ ! -r "$supply/online" ] || [ "$power" = 1 ] || power=$(cat "$supply/online") ;;
+      Battery) battery=1
+        case $(cat "$supply/status" 2>/dev/null) in
+          Charging|Full|"Not charging") ;;
+          *) power=0 ;;
+        esac ;;
+      *) [ ! -r "$supply/online" ] || online=$online$(cat "$supply/online") ;;
     esac
   done
-  case $power$status in [01]*) ;; Charging|Full|"Not charging"|"") power=1 ;; *) power=0 ;; esac
+  case $online in "") ;; *[!0]*) power=1 ;; *) power=0 ;; esac
 fi
 echo "processor $(uname -m)"
 echo "disk_free_mb $(df -Pk "$HOME" | awk 'NR == 2 {print int($4 / 1024)}')"
