@@ -1,16 +1,21 @@
-// Package notify owns what a page says and who may ask.  It hides a page's title, the owner's
-// mention and where its id comes from ($AGENTKIT_DISCORD_USER_ID, else the secrets file), the
-// terminal notice's text, the rule that a question asks first, and a worker's suppression: a
-// run's worker asks the owner nothing.  Sending, cards and the outbox join it later.
+// Package notify owns what a page says, who may ask and where pages go.  It hides a page's
+// title, the owner's mention, where its id and the webhook come from ($AGENTKIT_DISCORD_USER_ID
+// and $AGENTKIT_DISCORD_WEBHOOK, else the secrets file), how the webhook is asked whether it is
+// live, the terminal notice's text, the rule that a question asks first, and a worker's
+// suppression: a run's worker asks the owner nothing.  Sending, cards and the outbox join it
+// later.
 package notify
 
 import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -92,11 +97,78 @@ func payload(seat string) (*run.Object, error) {
 	return page, nil
 }
 
-// ownerID is $AGENTKIT_DISCORD_USER_ID, else the one line of the secrets file; "" for none.
+// ownerID is the owner's Discord id; "" for none.
 func ownerID() (string, error) {
-	id := os.Getenv("AGENTKIT_DISCORD_USER_ID")
-	if id == "" {
-		data, err := os.ReadFile(filepath.Join(config.Home(), "secrets", "discord_user_id"))
+	return secret("AGENTKIT_DISCORD_USER_ID", "discord_user_id")
+}
+
+// Check asks the webhook with a GET, which posts nothing, whatever $AK_NOTIFY_SINK says: Discord
+// answers it with the hook.  It says how the webhook answered and whether that was 200; the
+// error is for none configured, or ErrUnread.
+func Check(out, errOut io.Writer) (bool, error) {
+	url, err := secret("AGENTKIT_DISCORD_WEBHOOK", "discord_webhook")
+	if err != nil {
+		return false, err
+	}
+	if url == "" {
+		return false, fmt.Errorf("--check: no webhook configured; put one in %s or "+
+			"$AGENTKIT_DISCORD_WEBHOOK", secretsFile("discord_webhook"))
+	}
+	if !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") {
+		fmt.Fprintln(errOut, "notify: fail (the configured webhook is not an http(s) URL)")
+		return false, nil
+	}
+	status, err := get(url)
+	if err != nil {
+		fmt.Fprintf(errOut, "notify: fail (%s)\n", why(err))
+		return false, nil
+	}
+	if status != http.StatusOK {
+		fmt.Fprintf(out, "notify: fail (%d)\n", status)
+		return false, nil
+	}
+	fmt.Fprintln(out, "notify: ok (200)")
+	return true, nil
+}
+
+// get is url's status once its whole answer has come, asked as Python asks: its User-Agent,
+// and giving up after its 15 seconds.
+func get(url string) (int, error) {
+	request, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return 0, err
+	}
+	request.Header.Set("User-Agent", "agentkit/1 (+https://github.com)")
+	answer, err := (&http.Client{Timeout: 15 * time.Second}).Do(request)
+	if err != nil {
+		return 0, err
+	}
+	defer answer.Body.Close()
+	_, err = io.Copy(io.Discard, answer.Body)
+	return answer.StatusCode, err
+}
+
+// why is why the webhook did not answer, in words Go writes itself, never the error's text: the
+// URL is the secret, and a server, its certificate or its redirects can echo any part of it there.
+func why(err error) string {
+	var timeout net.Error
+	var dns *net.DNSError
+	switch {
+	case errors.As(err, &timeout) && timeout.Timeout():
+		return "no response: timed out"
+	case errors.As(err, &dns) && dns.IsNotFound:
+		return "no response: no such host"
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return "no response: connection refused"
+	}
+	return "no response"
+}
+
+// secret is $env, else the one line of the secrets file name; "" for none.
+func secret(env, name string) (string, error) {
+	value := os.Getenv(env)
+	if value == "" {
+		data, err := os.ReadFile(secretsFile(name))
 		if os.IsNotExist(err) {
 			return "", nil
 		}
@@ -104,12 +176,17 @@ func ownerID() (string, error) {
 			return "", ErrUnread
 		}
 		// Python reads the file in universal newlines mode
-		id = strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(string(data))
+		value = strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(string(data))
 	}
-	if !utf8.ValidString(id) {
+	if !utf8.ValidString(value) {
 		return "", ErrUnread
 	}
-	return strings.TrimFunc(id, config.Space), nil
+	return strings.TrimFunc(value, config.Space), nil
+}
+
+// secretsFile is where the secret name is kept outside the environment.
+func secretsFile(name string) string {
+	return filepath.Join(config.Home(), "secrets", name)
 }
 
 // notice is text as a terminal notice shows it: on one line, each character Python's
