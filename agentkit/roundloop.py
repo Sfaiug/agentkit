@@ -44,6 +44,11 @@ PROSE = (".md", ".markdown", ".mdx", ".rst", ".adoc")
 README_WORDS = 300
 
 
+# An answer key: a black-box test of the program from outside, which a port to another language
+# answers to.  Once a base holds one, every change to its Python brings one (`keyless_python`).
+KEY = re.compile(r"tests/test_key_[^/]*\.py")
+
+
 BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
                 "the task or its checks are wrong")
 
@@ -295,16 +300,16 @@ def files_scope(lp):
 
 
 def rules_check(lp):
-    """Refuse a branch that grows prose past what it may hold (`prose_grown`), or changes
-    AGENTS.md so workers would not get it as written: a link, a Git filter, more than a harness
-    reads of it, or a front matter line ak does not read; or grows its body past `BODY_WORDS`
-    and past what the base holds.  A branch that leaves the file alone, or deletes it, passes
-    that part."""
+    """Refuse a branch that grows prose past what it may hold (`prose_grown`), changes Python
+    with no answer key (`keyless_python`), or changes AGENTS.md so workers would not get it as
+    written: a link, a Git filter, more than a harness reads of it, or a front matter line ak
+    does not read; or grows its body past `BODY_WORDS` and past what the base holds.  A branch
+    that leaves the file alone, or deletes it, passes that part."""
     if lp.scratch:
         return ""
-    grown = prose_grown(lp)
-    if grown:
-        return grown
+    failure = prose_grown(lp) or keyless_python(lp)
+    if failure:
+        return failure
     if not gitcall.git(lp.wt, "diff", "--name-only", "--no-renames", f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
         return ""
     entry = gitcall.git(lp.wt, "ls-tree", "HEAD", "--", "AGENTS.md")
@@ -366,6 +371,38 @@ def prose_grown(lp):
                     "this adds into a test, a check or a comment at the code it is about; words that are "
                     "the product itself need the base's `content:` to name them first.")
     return ""
+
+
+def keyless_python(lp):
+    """The refusal for a branch that changes a .py file outside tests/ and no answer key (`KEY`), or "".
+
+    In force where the base holds a key: the base's keys count, so a branch deleting its own frees
+    nothing.  Decided from git's change records alone: every record but a deletion or a pure move
+    (R100) writes its file, and a key counts written or moved in from another name.
+    """
+    # `git` replaces only bytes that are not UTF-8, never "/" or ASCII: a key's name keeps its shape
+    held = gitcall.git(lp.wt, "ls-tree", "-z", "--name-only", lp.base_sha, "--", "tests/")
+    if not any(KEY.fullmatch(name) for name in held.split("\0")):
+        return ""
+    fields = iter(gitcall.git_bytes(lp.wt, "diff", "--name-status", "--find-renames", "-z",
+                                    f"{lp.base_sha}...HEAD").split("\0"))
+    python, keyed = [], False
+    for status in fields:
+        if not status:
+            break       # the NUL ending the last record
+        old = new = next(fields)
+        if status[0] == "R":
+            new = next(fields)
+        writes = status not in ("D", "R100")
+        if KEY.fullmatch(new):
+            keyed |= writes or not KEY.fullmatch(old)
+        elif writes and new.endswith(".py") and not new.startswith("tests/"):
+            python.append(new)
+    if keyed or not python:
+        return ""
+    return (f"Python changed with no answer key: {', '.join(python)}. A change to a .py file "
+            "outside tests/ adds, edits or moves in a tests/test_key_*.py in the same change: a "
+            "black-box test of what it does.")
 
 
 def unknown_front_lines(text):
