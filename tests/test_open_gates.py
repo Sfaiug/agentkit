@@ -7,7 +7,6 @@ No fixed owner remains anywhere.
 
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import fcntl
 import json
 import os
 import re
@@ -26,6 +25,7 @@ from agentkit import config as akconfig, orch
 
 SMOKE = (REPO / "tests/smoke.sh").read_text()
 FRESH = (REPO / "tests/e2e-fresh.sh").read_text()
+CLAUDE = json.dumps({'claudeAiOauth': {'accessToken': 'fixture', 'expiresAt': 4102444800000}})
 
 
 def owner():
@@ -43,7 +43,7 @@ class OpenGates(unittest.TestCase):
         overrides.start()
         self.addCleanup(overrides.stop)
         # Every harness binary a gate asks about is a fake, ahead of any this host installed:
-        # smoke_home's login probe then runs each real adapter's `auth` against no real harness.
+        # each real adapter's `lend` then asks no real harness.
         fakes = tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-bin-", dir=REPO)
         self.addCleanup(fakes.cleanup)
         for name in ('claude', 'codex', 'muse', 'grok', 'opencode', 'agy'):
@@ -55,17 +55,12 @@ class OpenGates(unittest.TestCase):
 
     def test_smoke_links_only_credentials_never_caller_directories(self):
         setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
-        credentials = ('.claude/.credentials.json', '.codex/auth.json',
-                       '.config/muse/auth.json', '.grok/auth.json',
-                       '.local/share/opencode/auth.json', '.config/gh/hosts.yml',
-                       '.agentkit/secrets/claude_oauth_token', '.grok/auth.json.lock',
-                       '.gemini/antigravity-cli/antigravity-oauth-token',
+        credentials = ('.config/gh/hosts.yml', '.agentkit/secrets/claude_oauth_token',
                        '.local/share/browser-bridge/Xauthority')
         copies = {'.claude.json': json.dumps({'oauthAccount': {'accountUuid': 'fixture'},
                                             'mcpServers': {'fixture': {'command': 'true'}}}),
                   '.gitconfig': '[user]\nname = fixture\n',
-                  '.config/gh/config.yml': 'git_protocol: https\n',
-                  '.config/opencode/opencode.json': '{"provider": {"mimo": {"apiKey": "fixture"}}}'}
+                  '.config/gh/config.yml': 'git_protocol: https\n'}
         with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             root = Path(tmp)
             caller, home = root / 'caller', root / 'work/home'
@@ -98,9 +93,6 @@ class OpenGates(unittest.TestCase):
             for name, path in links.items():
                 self.assertTrue(path.is_file(), f'{name} links a directory')
                 self.assertEqual(path.resolve(), caller / name)
-            # Codex writes in place; the rename-based writers are exercised separately.
-            links['.codex/auth.json'].write_text('refreshed login')
-            self.assertEqual((caller / '.codex/auth.json').read_text(), 'refreshed login')
             for name, value in copies.items():
                 self.assertEqual((home / name).read_text(), value)
                 (home / name).write_text('sandbox edit')
@@ -108,12 +100,12 @@ class OpenGates(unittest.TestCase):
             # A login the caller has that cannot be read, itself or through its link, ends the
             # suite, and so does one the sandbox cannot take: never an absence.
             (root / 'vault').mkdir()
-            (caller / '.config/muse/auth.json').rename(root / 'vault/auth.json')
-            (caller / '.config/muse/auth.json').symlink_to(root / 'vault/auth.json')
-            for broken, said in ((caller / '.codex/auth.json', f'cannot read {caller}/.codex/auth.json'),
-                                 (caller / '.codex', f'cannot read {caller}/.codex/auth.json'),
-                                 (root / 'vault', f'cannot read {caller}/.config/muse/auth.json'),
-                                 (home / '.codex', 'mkdir'), (home / '.claude.json', 'cp')):
+            hosts = caller / '.config/gh/hosts.yml'
+            hosts.rename(root / 'vault/hosts.yml')
+            hosts.symlink_to(root / 'vault/hosts.yml')
+            for broken, said in ((hosts, f'cannot read {hosts}'), (hosts.parent, f'cannot read {hosts}'),
+                                 (root / 'vault', f'cannot read {hosts}'),
+                                 (home / '.config', 'mkdir'), (home / '.claude.json', 'cp')):
                 with self.subTest(broken=broken.name):
                     shutil.rmtree(home)
                     if broken.is_relative_to(home):   # a file for a directory, a link to nowhere
@@ -129,19 +121,18 @@ class OpenGates(unittest.TestCase):
                         broken.chmod(0o700)
                     self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                     self.assertIn(said, result.stderr)
-            # A login whose missing directory sits directly under `/`, as CODEX_HOME=/codex, is
+            # A login whose missing directory sits directly under `/`, as GH_CONFIG_DIR=/gh, is
             # absent, just as one under a missing directory in /tmp is.
             missing = f'/.open-gates-{os.getpid()}'
             self.assertFalse(os.path.lexists(missing))
             shutil.rmtree(home)
             result = subprocess.run(['bash', '-c', setup + '\nsmoke_home'],
-                                    env={**os.environ, 'HOME': str(caller), 'CODEX_HOME': missing,
+                                    env={**os.environ, 'HOME': str(caller), 'GH_CONFIG_DIR': missing,
                                          'REPO': str(REPO), 'WORK': str(root / 'work')},
                                     text=True, capture_output=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertFalse(os.path.lexists(home / '.codex/auth.json'))
+            self.assertFalse(os.path.lexists(home / '.config/gh/hosts.yml'))
             # A login the worker box withholds reads as /dev/null there: absent, not broken.
-            hosts = caller / '.config/gh/hosts.yml'
             hosts.unlink()
             hosts.symlink_to('/dev/null')
             shutil.rmtree(home)
@@ -152,8 +143,7 @@ class OpenGates(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(os.path.lexists(home / '.config/gh/hosts.yml'))
 
-    def test_gates_merge_back_only_valid_renamed_logins_whole(self):
-        setup = SMOKE[SMOKE.index('smoke_share_probes()'):SMOKE.index('# A bounded way')]
+    def test_fresh_merges_back_only_valid_renamed_logins_whole(self):
         sync_back = FRESH[FRESH.index('sync_back() {'):FRESH.index('\ncleanup_logs()')]
         old = {'claudeAiOauth': {'accessToken': 'old', 'refreshToken': 'old-pair',
                                 'expiresAt': 4_000_000_000_000}}
@@ -173,28 +163,24 @@ tmp.replace(path)
 assert not path.is_symlink()
 PY
 '''
-        # The smoke suite's own borrowing, and a link as the e2e gate lends it, each with its
-        # own merge-back.
-        gates = {'smoke': ('set -eu\n' + setup + '\nsmoke_home\nexport SANDBOX=$HOME\n' + rename
-                           + 'smoke_sync_logins\n'),
-                 'e2e': ('set -eu\nsay() { :; }\n' + sync_back
-                         + '\nexport SANDBOX="$WORK/home"\nUH=$SANDBOX INVOKER=fixture\n'
-                         'caller_claude="$HOME/.claude" caller_grok="$HOME/.grok"\n'
-                         'mkdir -p -- "$(dirname -- "$UH/$LOGIN_PATH")"\n'
-                         'ln -s -- "$HOME/$LOGIN_PATH" "$UH/$LOGIN_PATH"\n' + rename + 'sync_back\n')}
+        # A link as the e2e gate lends it, and its merge-back.
+        gate = ('set -eu\nsay() { :; }\n' + sync_back
+                + '\nexport SANDBOX="$WORK/home"\nUH=$SANDBOX INVOKER=fixture\n'
+                'caller_claude="$HOME/.claude" caller_grok="$HOME/.grok"\n'
+                'mkdir -p -- "$(dirname -- "$UH/$LOGIN_PATH")"\n'
+                'ln -s -- "$HOME/$LOGIN_PATH" "$UH/$LOGIN_PATH"\n' + rename + 'sync_back\n')
         for relative, original, replacement in (('.claude/.credentials.json', old, fresh),
                                                  ('.grok/auth.json', grok_old, grok_fresh)):
-            for gate, content, expected, behind_link in (
-                    ('smoke', replacement, replacement, False),
-                    ('e2e', replacement, replacement, False),
-                    ('smoke', replacement, replacement, True),
-                    ('smoke', {}, original, False),
-                    ('smoke', {key: {} for key in original}, original, False),
-                    ('smoke', {key: {**value, 'expiresAt': 1, 'expires_at': '2000-01-01T00:00:00Z'}
-                               for key, value in replacement.items()}, original, False),
-                    ('smoke', original, original, False),
-                    ('smoke', 'invalid JSON', original, False)):
-                with self.subTest(path=relative, gate=gate, replacement=content, link=behind_link), \
+            for content, expected, behind_link in (
+                    (replacement, replacement, False),
+                    (replacement, replacement, True),
+                    ({}, original, False),
+                    ({key: {} for key in original}, original, False),
+                    ({key: {**value, 'expiresAt': 1, 'expires_at': '2000-01-01T00:00:00Z'}
+                      for key, value in replacement.items()}, original, False),
+                    (original, original, False),
+                    ('invalid JSON', original, False)):
+                with self.subTest(path=relative, replacement=content, link=behind_link), \
                         tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
                     root = Path(tmp)
                     path = root / 'caller' / relative
@@ -207,7 +193,7 @@ PY
                     if behind_link:
                         path.symlink_to(target)
                     before = target.stat()
-                    result = subprocess.run(['bash', '-c', gates[gate]],
+                    result = subprocess.run(['bash', '-c', gate],
                                             env={**os.environ, 'HOME': str(root / 'caller'),
                                                  'REPO': str(REPO), 'WORK': str(root / 'work'),
                                                  'LOGIN_PATH': relative,
@@ -225,9 +211,6 @@ PY
                         self.assertNotEqual(target.stat().st_ino, before.st_ino)
                     self.assertEqual([name for name in os.listdir(target.parent)
                                       if name.startswith(f'.{target.name}.')], [])
-        self.assertIn('WORK="$STREAM_HOME" smoke_sync_logins', SMOKE)
-        cleanup = SMOKE[SMOKE.index("trap 'SMOKE_RC=$?"):SMOKE.index('# --- the suite\'s own tmux')]
-        self.assertLess(cleanup.index('smoke_sync_logins'), cleanup.index('retention settle'))
         cleanup = FRESH[FRESH.index('cleanup() {'):FRESH.index('\ntrap cleanup EXIT')]
         self.assertLess(cleanup.index('sync_back'), cleanup.index('cleanup_logs'))
 
@@ -240,19 +223,14 @@ PY
             overrides = {name: str(root / name.lower()) for name in
                          ('CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'XDG_CONFIG_HOME',
                           'XDG_DATA_HOME', 'GROK_HOME', 'GH_CONFIG_DIR', 'OPENCODE_CONFIG_DIR')}
-            sources = {'.claude/.credentials.json': ('CLAUDE_CONFIG_DIR', '.credentials.json'),
-                       '.codex/auth.json': ('CODEX_HOME', 'auth.json'),
-                       '.config/muse/auth.json': ('XDG_CONFIG_HOME', 'muse/auth.json'),
-                       '.grok/auth.json': ('GROK_HOME', 'auth.json'),
-                       '.local/share/opencode/auth.json': ('XDG_DATA_HOME', 'opencode/auth.json'),
-                       '.config/gh/hosts.yml': ('GH_CONFIG_DIR', 'hosts.yml'),
+            sources = {'.config/gh/hosts.yml': ('GH_CONFIG_DIR', 'hosts.yml'),
                        '.claude.json': ('CLAUDE_CONFIG_DIR', '.claude.json'),
-                       '.config/gh/config.yml': ('GH_CONFIG_DIR', 'config.yml'),
-                       '.config/opencode/opencode.json': ('OPENCODE_CONFIG_DIR', 'opencode.json')}
+                       '.config/gh/config.yml': ('GH_CONFIG_DIR', 'config.yml')}
             for name, (override, relative) in sources.items():
                 path = Path(overrides[override]) / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(json.dumps({'source': name}))
+            (Path(overrides['CLAUDE_CONFIG_DIR']) / '.credentials.json').write_text(CLAUDE)
             result = subprocess.run(['bash', '-c', 'set -eu\n' + setup + '''
 smoke_home
 python3 - <<'PY'
@@ -266,15 +244,10 @@ PY
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             for name, (override, relative) in sources.items():
                 self.assertEqual(json.loads((home / name).read_text()), {'source': name})
-                if name.endswith(('auth.json', 'hosts.yml', '.credentials.json')):
+                if name.endswith('hosts.yml'):
                     self.assertEqual((home / name).resolve(), Path(overrides[override]) / relative)
-            self.assertEqual((home / '.grok/auth.json.lock').resolve(),
-                             Path(overrides['GROK_HOME']) / 'auth.json.lock')
-            with open(Path(overrides['GROK_HOME']) / 'auth.json.lock', 'w') as caller_lock, \
-                    open(home / '.grok/auth.json.lock', 'a') as sandbox_lock:
-                fcntl.flock(caller_lock, fcntl.LOCK_EX)
-                with self.assertRaises(BlockingIOError):
-                    fcntl.flock(sandbox_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lent = home / '.claude/.credentials.json'
+            self.assertEqual((lent.read_text(), lent.is_symlink()), (CLAUDE, False))
 
     def test_smoke_mcp_claude_uses_worker_token_instead_of_refreshing_seat(self):
         block = SMOKE[SMOKE.index('  BP=\'Use the browser MCP'):SMOKE.index('  if skip_spent 31e')]
@@ -706,7 +679,7 @@ ak() { printf '%s\\n' "$ROW"; }
                 binary.write_text('#!/bin/bash\nexit 0\n')
                 binary.chmod(0o755)
                 adapter = adapters / (harness + '.sh')
-                adapter.write_text('#!/bin/bash\necho "fixture login is valid"\n')
+                adapter.write_text('#!/bin/bash\n[ "$1" != lend ] || exit 1\necho "fixture login is valid"\n')
                 adapter.chmod(0o755)
             result = subprocess.run(['/bin/bash', '-c', 'set -eu\n' + setup + helpers + '''
 smoke_home
@@ -805,15 +778,15 @@ smoke_home
         with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             root = Path(tmp)
             caller = root / 'caller'
-            (caller / '.codex').mkdir(parents=True)
-            (caller / '.codex/auth.json').write_text('fixture login')
+            (caller / '.config/gh').mkdir(parents=True)
+            (caller / '.config/gh/hosts.yml').write_text('fixture login')
             for code in (0, 23):
                 output = root / f'output-{code}'
                 result = subprocess.run(['bash', '-c', '''set -eu
 python3() {
   if [ "$1" = "$REPO/tests/check_claude_stream.py" ]; then
-    test -L "$HOME/.codex/auth.json"
-    test ! -L "$HOME/.codex"
+    test -L "$HOME/.config/gh/hosts.yml"
+    test ! -L "$HOME/.config/gh"
     printf '%s\\n' "$HOME" >"$STREAM/sandbox-path"
     return "$FIXTURE_RC"
   fi
