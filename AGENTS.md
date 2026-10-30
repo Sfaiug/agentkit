@@ -44,6 +44,7 @@ Mistakes no check catches and no one area of the code holds; one that becomes a 
 - When review keeps finding races or recovery paths, delete state or simplify the design.
 - A task or PR promises only what its code decides, in the code's own terms ("has read or write access", not "can open"): a reviewer measures every word, and each wider one costs findings.
 - A module removed from agentkit breaks every run of the old install at its next lazy import (`ImportError`): keep it until no such run is left.
+- A Go milestone answers to the keys its task names: exit 3 fails a review only where those keys see it, a difference from Python only on what a real home holds, and its PR names any other for the shadow run. Reviews had spent milestones' three rounds on input no home holds (a surrogate in a file name, a FIFO for a manifest).
 
 ## Owner rules
 
