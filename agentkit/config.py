@@ -1659,13 +1659,13 @@ def run_adapter(argv, timeout, env=None):
 
 def _end(pid):
     """KILL that adapter call, every process below it still in ak's session and each group one
-    of those leads -- `timeout` makes one for itself, and a CLI under it may catch TERM, as
-    `agy` does -- then wait up to a second for them to go.
+    of those leads -- `timeout` makes one for itself, and a CLI under it may catch TERM --
+    then wait up to a second for them to go.
 
     Never ak's own group, which the menu shares with its terminal, nor a process in a session
-    of its own: that is a harness's own service, which an adapter call starts on purpose
-    (OpenCode's), and everything below it is in that session too.  What has left the call's
-    tree and its groups by now is the leftover sweep's.
+    of its own: that is a harness's own service, which an adapter call starts on purpose, and
+    everything below it is in that session too.  What has left the call's tree and its groups
+    by now is the leftover sweep's.
     """
     parents, below = host.parents(), {}
     for child, parent in parents.items():
