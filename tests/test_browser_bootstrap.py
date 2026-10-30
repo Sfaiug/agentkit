@@ -454,6 +454,8 @@ if [[ "$*" == *" -F "* ]]; then exit 0; fi
             script(name, 'exit 0\n')
         source = (REPO / 'install.sh').read_text()
         tail = source[source.index('# --- (3b)'):]
+        # the logged-out gh's pending line names install.sh's own login command
+        gh_login = next(line for line in source.splitlines() if line.startswith('GH_LOGIN='))
         prelude = f'''set -euo pipefail
 REPO={shlex.quote(str(REPO))}
 AK="$HOME/.agentkit"
@@ -465,6 +467,7 @@ mkdir -p "$AK/state" "$AK/secrets" "$AK/tmp" "$BIN"
 have() {{ command -v "$1" >/dev/null 2>&1; }}
 note() {{ echo "note: $*" >&2; }}
 py_ok() {{ python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))'; }}
+{gh_login}
 '''
         environment = {**os.environ, 'PATH': f'{fakebin}:/usr/bin:/bin', 'AGENTKIT_TMUX_SOCKET': 'agentkit-test'}
         result = subprocess.run(['bash'], input=prelude + tail, env=environment, cwd=self.home,

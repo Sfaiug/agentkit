@@ -382,7 +382,7 @@ class Wait(Sandbox):
         found = watch.session_state(SEAT, NOW, session=self.seats[SEAT], cfg=self.cfg, live=live,
                                     harness=harness, gh_out={"at": NOW, "seats": watch.pushing_seats()})
         self.assertEqual((found["word"], found["reason"]),
-                         ("needs you", "gh login expired: run `gh auth login`"))
+                         ("needs you", "gh login expired: run `gh auth login -p https -w`"))
 
     def test_o_an_empty_argument_names_no_run(self):
         for on in ("", " "):

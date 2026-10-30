@@ -331,7 +331,7 @@ class TickHealth(unittest.TestCase):
         self.assertEqual(watch.load_state()["gh_out"]["seats"], ["atoll"])
         blocked = self.seat_state("atoll")
         self.assertEqual(blocked["word"], "needs you")
-        self.assertEqual(blocked["reason"], "gh login expired: run `gh auth login`")
+        self.assertEqual(blocked["reason"], "gh login expired: run `gh auth login -p https -w`")
         # its run is merged, so it pushes nothing more and hears nothing about gh
         self.assertNotIn("beta", watch.load_state()["gh_out"]["seats"])
         self.assertNotIn("gh login", self.seat_state("beta")["reason"])
