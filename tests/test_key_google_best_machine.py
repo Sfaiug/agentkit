@@ -77,7 +77,7 @@ class FakeGoogle(http.server.BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         pages = {"/v1/services/6F81-5844-456A/skus": [{"skus": SKUS[:5]}, {"skus": SKUS[5:]}],
                  "/compute/v1/projects/acme-build/aggregated/machineTypes":
-                     [{"items": zones} for zones in ZONES]}
+                     [{"items": zones, **self.server.missed} for zones in ZONES]}
         listing, at = pages[url.path], int(parse_qs(url.query).get("pageToken", ["0"])[0])
         self.answer({**listing[at], **({"nextPageToken": str(at + 1)}
                                        if at + 1 < len(listing) else {})})
@@ -89,7 +89,7 @@ class GoogleBestMachine(unittest.TestCase):
         self.addCleanup(self.home.close)
         akconfig.write(self.home, {"echo": {"harness": "echo", "model": "echo-1"}})
         self.google = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeGoogle)
-        self.google.asked = []
+        self.google.asked, self.google.missed = [], {}
         threading.Thread(target=self.google.serve_forever, daemon=True).start()
         self.addCleanup(self.google.server_close)
         self.addCleanup(self.google.shutdown)
@@ -114,6 +114,18 @@ class GoogleBestMachine(unittest.TestCase):
         skus = [path for path in self.google.asked if "/skus?" in path]
         self.assertEqual(len(skus), 2, "every page of the price list")
         self.assertTrue(all("currencyCode=EUR" in path for path in skus), skus)
+
+    def test_a_zone_google_could_not_reach_leaves_no_best(self):
+        self.key()
+        self.google.missed = {"unreachables": ["zones/us-central1-c"]}
+        self.assertEqual(self.rented(), ["rented machines: asking Google failed: "
+                                         "zones/us-central1-c unreachable"])
+
+    def test_a_key_ak_cannot_use_is_a_plain_line(self):
+        for key in ("{", [], None, {"private_key": 7}):
+            self.home.write(".agentkit/secrets/google-cloud.json", key)
+            [line] = self.rented()
+            self.assertTrue(line.startswith("rented machines: cannot use"), line)
 
     def test_without_a_key_ak_is_not_set_up_and_asks_nobody(self):
         [line] = self.rented()

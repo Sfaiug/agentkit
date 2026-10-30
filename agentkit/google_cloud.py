@@ -54,12 +54,13 @@ def best(mb_per_core):
 def offers():
     """Every machine type a zone offers that the price list prices."""
     path = config.SECRETS / KEY
-    if not path.exists():
-        raise Unavailable(f"not set up: no Google service-account key at {config.tilde(path)}")
     try:
+        if not path.exists():
+            raise Unavailable(f"not set up: no Google service-account key at {config.tilde(path)}")
         key = json.loads(path.read_text())
         token = _token(key)
-    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+    # out of reach, not JSON, not an object of strings, or nothing openssl signs with
+    except (OSError, ValueError, TypeError, AttributeError, subprocess.CalledProcessError) as exc:
         raise Unavailable(f"cannot use {config.tilde(path)}: {exc}")
     project = key.get("project_id")
     core, ram = {}, {}
@@ -72,7 +73,7 @@ def offers():
     found = {}
     for zone, listed in _pages(token, _url("compute", f"/compute/v1/projects/{project}/"
                                            "aggregated/machineTypes"),
-                               "items", returnPartialSuccess="true"):
+                               "items", returnPartialSuccess="true"):   # names zones it missed
         region = zone.removeprefix("zones/").rsplit("-", 1)[0]
         for kind in listed.get("machineTypes") or ():
             name, vcpus, mb = kind.get("name", ""), kind.get("guestCpus"), kind.get("memoryMb")
@@ -114,9 +115,12 @@ def _token(key):
 
 
 def _pages(token, url, field, **query):
-    """Each entry of `field` on every page of a listing: a list's items, or a map's pairs."""
+    """Each entry of `field` on every page of a listing: a list's items, or a map's pairs; raises
+    Unavailable for a page missing part of the listing, as the cheapest may be in that part."""
     while True:
         page = _call(f"{url}?{urllib.parse.urlencode(query)}", token)
+        if missed := page.get("unreachables"):
+            raise Unavailable(f"asking Google failed: {', '.join(missed)} unreachable")
         entries = page.get(field) or ()
         yield from entries.items() if isinstance(entries, dict) else entries
         if not page.get("nextPageToken"):
