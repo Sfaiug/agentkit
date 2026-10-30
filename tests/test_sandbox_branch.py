@@ -24,9 +24,13 @@ GH = r'''#!/bin/bash
 echo "$*" >>"$FAKE/gh.log"
 case "$*" in
   "api user --jq .login") echo acme ;;
-  # empty, its HEAD naming the default of an account that calls it `trunk`
+  # empty, its HEAD naming the default of an account that calls it `trunk` until, as on GitHub,
+  # the first branch pushed becomes the default
   "repo create acme/agentkit-smoke --private")
-    [ ! -e "$FAKE/origin.git" ] && git init -q --bare -b trunk "$FAKE/origin.git" ;;
+    hook=$FAKE/origin.git/hooks/post-receive
+    [ ! -e "$FAKE/origin.git" ] && git init -q --bare -b trunk "$FAKE/origin.git" &&
+      echo 'git rev-parse -q --verify HEAD >/dev/null ||
+              { read -r _ _ ref && git symbolic-ref HEAD "$ref"; }' >"$hook" && chmod +x "$hook" ;;
   "repo clone acme/agentkit-smoke "*" -- -q") git clone -q "$FAKE/origin.git" "$4" ;;
   *) exit 97 ;;
 esac
@@ -100,9 +104,10 @@ class SandboxBranch(unittest.TestCase):
         return {f"refs/heads/{suite}", f"refs/heads/ak/fix-{clone}"}
 
     def test_two_suites_at_once_each_remove_only_their_own(self):
-        # made long ago, and its `main` with it: as old as a dead suite's branch, and not the
-        # default either, so nothing but its name keeps it
+        # made long ago by an account calling its default `trunk`: `main` is as old as a dead
+        # suite's branch, and not the default either, so nothing but its name keeps it
         subprocess.run(["gh", *CREATE.split()], env=self.env, check=True)
+        self.branch("trunk", 0)
         self.branch("main", 2 * sandbox_branch.CEILING)
         self.branch("suite-dead-old", sandbox_branch.CEILING + 3600)
         self.branch("suite-dead-young", sandbox_branch.CEILING - 3600)
@@ -116,23 +121,29 @@ class SandboxBranch(unittest.TestCase):
             self.assertEqual(self.git("-C", clone, "ls-files"), "tests/test_hello.py")
         a, b = self.run_from("a"), self.run_from("b")
         heads = self.heads()
-        self.assertEqual(set(heads), {"refs/heads/main", "refs/heads/suite-dead-young", *a, *b})
+        self.assertEqual(set(heads), {"refs/heads/main", "refs/heads/trunk",
+                                      "refs/heads/suite-dead-young", *a, *b})
         for clone, own in (("a", a), ("b", b)):
             seen = len(self.written())
             self.done(self.sandbox("close", clone))
             self.assertEqual(set(self.written()[seen:]), own)
             heads = {ref: sha for ref, sha in heads.items() if ref not in own}
             self.assertEqual(self.heads(), heads)
-        self.assertEqual(heads, {"refs/heads/main": main,
-                                 "refs/heads/suite-dead-young": heads["refs/heads/suite-dead-young"]})
+        self.assertEqual(set(heads), {"refs/heads/main", "refs/heads/trunk",
+                                      "refs/heads/suite-dead-young"})
+        self.assertEqual(heads["refs/heads/main"], main)
         self.assertNotIn("refs/heads/main", self.written())
 
     def test_a_missing_repository_is_made_once_with_its_main(self):
         self.done(self.sandbox("open", "a", "seed"))
         self.done(self.sandbox("open", "b", "seed"))
         self.assertEqual((self.root / "gh.log").read_text().splitlines().count(CREATE), 1)
-        self.assertIn("refs/heads/main", self.heads())
+        # `main` went first, alone, so it is the default
+        origin = ("-C", "origin.git")
+        self.assertEqual(self.git(*origin, "symbolic-ref", "HEAD"), "refs/heads/main")
+        self.assertEqual(self.git(*origin, "ls-tree", "--name-only", "main"), "README.md")
         self.assertEqual(len(self.heads()), 3)
+        self.assertEqual(self.git("-C", "b", "ls-files"), "tests/test_hello.py")
 
     def test_the_ceiling_outlasts_every_suite_ak_runs(self):
         self.assertGreater(sandbox_branch.CEILING,

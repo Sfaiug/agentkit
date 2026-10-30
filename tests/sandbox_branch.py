@@ -12,6 +12,7 @@ suite's branch, so suites never wait for one another, and none needs a scope bey
     python3 tests/sandbox_branch.py close <clone>
 """
 
+from pathlib import Path
 import secrets
 import shutil
 import subprocess
@@ -64,9 +65,11 @@ def open_branch(clone, seed):
         # Just made, and `main` written here alone: pushed before any suite's branch, it is the
         # default GitHub makes, whatever the account names its own.  Another suite making it at
         # once may push its `main` first, and either serves.
-        tree = git(clone, "hash-object", "-w", "-t", "tree", "/dev/null")
-        git(clone, "push", "-q", "origin", git(clone, "commit-tree", tree, "-m", NAME) +
-            ":refs/heads/main", check=False)
+        Path(clone, "README.md").write_text(f"# {NAME}\n\nEach agentkit gate suite's branch, "
+                                            "removed after it by tests/sandbox_branch.py.\n")
+        git(clone, "add", "README.md")
+        git(clone, "commit", "-qm", NAME)
+        git(clone, "push", "-q", "origin", "HEAD:refs/heads/main", check=False)
         git(clone, "ls-remote", "--exit-code", "origin", "refs/heads/main")
     old = time.time() - CEILING
     # Another suite may delete one first: its lease then fails that one alone, and nothing is lost.
