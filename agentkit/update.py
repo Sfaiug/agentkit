@@ -788,13 +788,15 @@ def margin(key):
 
 
 def _waits_for_login(key, what, seconds, log, now):
-    """Whether `what` waits for a later tick: a login lent to it lapses within `seconds` of `now`,
-    failing all that needs it for no fault of the code, until it is renewed (by its harness on use,
-    the tick's usage probes or `auth seat`) or lapsed and lends none.  The log hears it once: `key`
-    names the record of what it heard, gone when `what` starts."""
-    said, asked = config.STATE / f"{key}-check-held", time.time()
+    """Whether `what` waits for a later tick: a login lent to it lapses within `seconds` of when
+    it would start, failing all that needs it for no fault of the code, until it is renewed (by its
+    harness on use, the tick's usage probes or `auth seat`) or lapsed and lends none.  The log hears
+    it once: `key` names the record of what it heard, gone when `what` starts."""
+    said = config.STATE / f"{key}-check-held"
     first = lend.first_lapse()
-    now += time.time() - asked      # `auth seat` and lending can take minutes of a login's life
+    # it starts once all asking ends, never before the tick's `now`: a release's lookup, `auth
+    # seat` and lending can each take minutes of a login's life
+    now = max(now, time.time())
     if first is None or first[0] >= now + seconds:
         said.unlink(missing_ok=True)
         return False
@@ -962,7 +964,8 @@ def live_tick(log, now, fetched):
             worker.kill_marked(str(check), grace=2 * worker.MARK_KILL_GRACE)
             alive = _alive(check, started, now)
         if not alive and _live_passed(check, started):
-            # before the pruning below takes a pass the install has already
+            # before the pruning below takes a pass the install has already; one `baseline` makes
+            # is kept where that is written
             _note_pass("live", started, _live_ended(check, _exit(check, started)))
         if alive:
             running = True
@@ -998,6 +1001,7 @@ def live_tick(log, now, fetched):
                 same = False
             if same and failed <= _live_failed(other):
                 _put(check / "baseline", other.name + "\n")
+                _note_pass("live", started, _live_ended(check, code))
     episode = None      # a pass ends what was red before it; one typed or told stands until then
     reds = 0            # red checks in a row since the last pass, whichever commits they checked
     for started, commit, check, code in done:

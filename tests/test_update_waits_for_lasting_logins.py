@@ -20,7 +20,7 @@ from agentkit import config, lend, orch, update
 
 T = 1_000_000.0     # the first tick's clock
 TICK = 180
-TIP, OLD = "a" * 40, "c" * 40
+TIP, HEAD, OLD = "a" * 40, "b" * 40, "c" * 40
 MANIFEST = """version = 1
 [worker]
 logins = ["~/.acme/login"]
@@ -81,7 +81,7 @@ class WaitsForLastingLogins(unittest.TestCase):
         # of the commits named here, only OLD is in HEAD
         stack.enter_context(patch.object(update, "_git", side_effect=lambda *args, **_kw: (
             (int(OLD not in args), "") if args[0] == "merge-base"
-            else (0, "b" * 40 if args[-1] == "HEAD" else TIP))))
+            else (0, HEAD if args[-1] == "HEAD" else TIP))))
         stack.enter_context(patch.object(update.gitcall, "no_auto_gc"))
         self.now = T
         stack.enter_context(patch.object(update, "time", Mock(wraps=time, time=lambda: self.now)))
@@ -106,6 +106,14 @@ class WaitsForLastingLogins(unittest.TestCase):
         update.keep_current(said.append, now=now)
         return said
 
+    def check(self, commit, began, ended, code):
+        """A check of tests/live.sh, ended as its runner leaves one."""
+        check = config.STATE / update.LIVE / f"{commit}-{int(began)}"
+        check.mkdir(parents=True)
+        (check / "exit").write_text(f"{code}\n")
+        os.utime(check / "exit", (ended, ended))
+        return check
+
     def test_a_live_check_waits_while_a_lent_login_lapses_within_its_margin(self):
         update._note_pass("live", T - 110, T - 10)          # so its margin is 200
         self.write(ends=int(T + 199))
@@ -120,18 +128,16 @@ class WaitsForLastingLogins(unittest.TestCase):
         self.assertEqual(list(config.TMP.glob("lend-*")), [])                   # and gone again
 
     def test_the_margin_counts_from_when_asking_ends(self):
-        update._note_pass("live", T - 110, T - 10)
-        self.write(ends=int(T + 201))
-        asking = lend.first_lapse
-
-        def slow():
-            self.now += 120     # the tick's clock, two minutes on once `auth seat` and lending end
-            return asking()
-
-        with patch.object(lend, "first_lapse", slow):
-            self.assertEqual(self.live_tick(T), [waits("tests/live.sh", T + 201)])
-            self.write(ends=int(T + TICK + 320))
-            self.assertEqual(self.live_tick(T + TICK), [CHECKING])
+        update._note_pass("live", T - 110, T - 10)          # 200, and 400 for the fresh check
+        update._note_pass("fresh", T - 210, T - 10)
+        self.write(ends=int(T + 601))
+        # the tick's clock, a minute on once the release's lookup, or `auth seat` and lending, end
+        slow = lambda ask: lambda *args: setattr(self, "now", self.now + 60) or ask(*args)
+        with patch.object(update, "latest", slow(update.latest)):
+            self.assertEqual(self.upgrade_tick(T), [waits("acme's upgrade", T + 601)])
+        with patch.object(lend, "first_lapse", slow(lend.first_lapse)):
+            self.assertEqual(self.live_tick(T + 400), [waits("tests/live.sh", T + 601)])
+        self.assertEqual(self.live_tick(T + 400), [CHECKING])
 
     def test_a_login_auth_seat_renews_is_lent_fresh(self):
         self.write(ends=int(T + 60), renewed=int(T + 8 * 3600))
@@ -162,14 +168,19 @@ class WaitsForLastingLogins(unittest.TestCase):
         self.assertEqual(update.margin("live"), 200)
 
     def test_the_tick_keeps_a_passing_live_check_and_no_other_even_one_it_prunes(self):
-        for commit, began, ended, code in ((OLD, T, T + 100, 0), (TIP, T + 200, T + 500, 1)):
-            check = config.STATE / update.LIVE / f"{commit}-{int(began)}"
-            check.mkdir(parents=True)
-            (check / "exit").write_text(f"{code}\n")
-            os.utime(check / "exit", (ended, ended))
+        self.check(OLD, T, T + 100, 0)
+        self.check(TIP, T + 200, T + 500, 1)
         self.live_tick(T + 600)
         self.assertEqual(update.margin("live"), 200)
         self.assertEqual([commit for _, commit, _ in update.live_checks()], [TIP])
+
+    def test_the_tick_keeps_a_pass_it_finds_failing_only_what_head_fails(self):
+        update._note_pass("live", T - 110, T - 10)
+        for commit, began, ended in ((TIP, T, T + 300), (HEAD, T + 400, T + 500)):
+            (self.check(commit, began, ended, 1) / "failed").write_text("3 acme\n")
+        with patch.object(update, "live_hand_back"):    # its standing faults, told no seat here
+            self.live_tick(T + 600)
+        self.assertEqual(update.margin("live"), 600)
 
     def test_an_older_pass_never_replaces_one_kept_meanwhile(self):
         looked, kept, put = threading.Event(), threading.Event(), update._put
