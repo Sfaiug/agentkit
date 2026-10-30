@@ -201,7 +201,7 @@ func HandbackWaiting(record *Object) string {
 // GateTurnNote says a running run waits for a heavy suite turn.
 func GateTurnNote(record *Object) string {
 	turn := record.Dict("gate_turn")
-	if record.Str("state") != "running" || turn == nil || !equal(turn.Get("pid"), record.Get("pid")) {
+	if record.Str("state") != "running" || turn == nil || !Equal(turn.Get("pid"), record.Get("pid")) {
 		return ""
 	}
 	return "waiting for a heavy suite turn"
@@ -334,7 +334,7 @@ func lineageCap(record *Object, dir string, now time.Time) int {
 		}
 		state, _ := Read(other)
 		if state != nil && (wanted != "" && (prKey(state.Get("pr")) == wanted || prKey(state.Get("review_pr")) == wanted) ||
-			change != nil && equal(changeOf(state), change)) {
+			change != nil && Equal(changeOf(state), change)) {
 			spent += roundsSpent(state, now)
 		}
 	}

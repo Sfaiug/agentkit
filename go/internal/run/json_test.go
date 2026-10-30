@@ -80,6 +80,32 @@ func TestUnreadableJSONIsRefused(t *testing.T) {
 	}
 }
 
+// A refusal says what Python 3.13's json.loads says of the same text, at the same place.
+func TestRefusalsSayWhatPythonSays(t *testing.T) {
+	for text, want := range map[string]string{
+		`{bad`:              "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
+		`{"a" 1}`:           "Expecting ':' delimiter: line 1 column 6 (char 5)",
+		`{"a": 1 "b": 2}`:   "Expecting ',' delimiter: line 1 column 9 (char 8)",
+		"[1,\n]":            "Illegal trailing comma before end of array: line 1 column 3 (char 2)",
+		`{"a": 1, }`:        "Illegal trailing comma before end of object: line 1 column 8 (char 7)",
+		`{"a":}`:            "Expecting value: line 1 column 6 (char 5)",
+		"  ":                "Expecting value: line 1 column 3 (char 2)",
+		"{\"a\": \"x\ny\"}": "Invalid control character at: line 1 column 9 (char 8)",
+		`"ab\`:              "Unterminated string starting at: line 1 column 1 (char 0)",
+		`"\x"`:              `Invalid \escape: line 1 column 2 (char 1)`,
+		`"\u0041`:           `Invalid \uXXXX escape: line 1 column 3 (char 2)`,
+		`"\ud83d\uZZZZ"`:    `Invalid \uXXXX escape: line 1 column 9 (char 8)`,
+		`{} x`:              "Extra data: line 1 column 4 (char 3)",
+		"\ufeff{}":          "Unexpected UTF-8 BOM (decode using utf-8-sig): line 1 column 1 (char 0)",
+		"{\n  \"\u00e9\U0001d11e\": 1\n  \"b\": 2}": "Expecting ',' delimiter: line 3 column 3 (char 14)",
+		strings.Repeat("1", maxDigits+1):            "Exceeds the limit (4300 digits) for integer string conversion: value has 4301 digits; use sys.set_int_max_str_digits() to increase the limit",
+	} {
+		if _, err := Decode([]byte(text)); err == nil || err.Error() != want {
+			t.Errorf("%.40q: %v", text, err)
+		}
+	}
+}
+
 // A limited read leaves to Python what the limits it runs under decide.
 func TestLimitedReadsLeavePythonsLimitsToIt(t *testing.T) {
 	deep := func(n int) string { return strings.Repeat("[", n) + "0" + strings.Repeat("]", n) }

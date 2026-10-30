@@ -1,8 +1,8 @@
 """A check failing on a merged commit is handed back to its seat, once per repository.
 
-A main broken by a merge would otherwise be noticed only by the owner.  Once `gh api user`
-answers, each `ak watch` tick reads the latest check runs of every merge commit younger than
-three hours and types one line into the seat that launched the run, at its prompt:
+A main broken by a merge would otherwise be noticed only by the owner.  Each `ak watch` tick
+reads the latest check runs of every merge commit younger than three hours and types one line
+into the seat that launched the run, at its prompt:
 `<check> failed on <target> after this merge: <url>. Fix the target.`, the URL the pull
 request's where the check names no page of its own.  Only the newest failing merge of a
 repository is told, and only once: a break already told holds back a later failing merge
@@ -145,9 +145,10 @@ class GitHubDown(Merges):
     @classmethod
     def stage(cls):
         cls.merge("app", "acme", 7, "ci", "failure")
-        cls.gh.reply("api user", err=OFFLINE, code=1, times=1)
+        cls.gh.reply("", err=OFFLINE, code=1)
         tick(cls.home)
         cls.first = cls.seats["acme"].lines()
+        cls.gh.restore()
         tick(cls.home)
 
     def test_a_tick_github_does_not_answer_tells_nothing_and_the_next_tells_it(self):
