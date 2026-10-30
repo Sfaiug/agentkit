@@ -5,7 +5,8 @@ launch execs into this script (`run.pickup_while_queued`), run as `python3 -I -S
 nothing of agentkit, so the waiting process holds a few megabytes instead of a whole `ak run`.
 It counts its wait in history as it polls, as `gate.count_wait` does, and execs the same launch
 back, keeping the pid and so the receipt and its place in line, once it may be first or the
-installed agentkit moved.  What both need to know lives here, for ak to import.
+installed agentkit moved.  What both need to know lives here, for ak to import: how history.db
+is written (`writing`, `connect`) among it.
 
     AK_SLOT_WAIT="<began> <monotonic since>" python3 -I -S waiter.py \
         QUEUE DATABASE RUN_ID POLL REPO VERSION LAUNCH...
@@ -13,6 +14,7 @@ installed agentkit moved.  What both need to know lives here, for ak to import.
 
 import contextlib
 import fcntl
+import functools
 import json
 import os
 from pathlib import Path
@@ -23,6 +25,9 @@ import time
 
 # The wait counted up to the exec into the waiter, and back: "<began> <monotonic since>".
 SLOT_WAIT_ENV = "AK_SLOT_WAIT"
+# How far history.db's WAL grows before the tick moves it into the database (`checkpoint`), and
+# what a commit beginning it anew cuts its file back to: a file past it holds that much unmoved.
+WAL_MAX = 4 * 1024 * 1024
 
 
 def stale_after(place, poll):
@@ -82,6 +87,58 @@ def writing(database, wait=True):
         yield
 
 
+def connect(database):
+    """A connection to history.db for one write under `writing`, every other writer on the host
+    waiting behind it: no sync SQLite could leave for later is made there.  A write took a median
+    1.29 s on a busy disk, a dozen processes queued on the lock, the tick 96% of its time there,
+    all syncing: each commit the WAL, every 1000 pages a checkpoint, each close the host's last,
+    checkpointing and removing the WAL (30 Oct 2026).
+
+    A commit runs at `synchronous=NORMAL` and never checkpoints: the tick alone does
+    (`checkpoint`).  Readers take no lock of ours, and in the default journal mode a read held
+    past sqlite's wait made a write give up; in WAL a reader never blocks the writer.  WAL mode
+    persists in the file, so setting it is a no-op after the first write.
+
+    Still synced under the lock: what SQLite syncs when a commit begins the WAL anew, about once
+    per WAL_MAX written -- the WAL's header, and on a handle that has not synced yet its folder.
+    Its ticket ff5be73dee needs it against a power cut, and only `synchronous=OFF` drops it.  A
+    power cut or host crash can lose the last commits, never the database; a process dying
+    loses nothing.  A process's exit can be the host's last close (`_kept`), which SQLite then
+    checkpoints holding no lock of ak's: a writer in those moments waits as far as its sqlite
+    timeout allows, as any write can.
+    """
+    connection = sqlite3.connect(database, timeout=2)
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA synchronous=NORMAL")
+    connection.execute("PRAGMA wal_autocheckpoint=0")
+    connection.execute(f"PRAGMA journal_size_limit={WAL_MAX}")
+    _kept(os.fspath(database))
+    return connection
+
+
+@functools.lru_cache(maxsize=1)
+def _kept(database):
+    """This process's connection to the history.db it writes, open for its life and, having read,
+    never used again: in WAL mode a connection that has read holds the file's shared lock until it
+    closes, so no write's close is the host's last, which would checkpoint and remove the WAL.
+    One per process, as each lives under one HOME; another database's replaces it."""
+    connection = sqlite3.connect(database, timeout=2)
+    connection.execute("SELECT 1 FROM sqlite_master").fetchall()
+    return connection
+
+
+def checkpoint(database):
+    """The tick's pass: move history.db's WAL into the database once it holds more than WAL_MAX.
+    Passive, it neither waits on a reader or writer nor holds one through its syncs, so it takes
+    no lock of ak's; one it cannot finish waits for the next tick."""
+    try:
+        if os.path.getsize(f"{database}-wal") > WAL_MAX:
+            with contextlib.closing(connect(database)) as connection:
+                connection.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchall()
+    except (OSError, sqlite3.Error):
+        pass
+
+
 def add_wait(connection, run_id, wait, seconds, began, at):
     """Add a wait's seconds to its column and end its phase row, the one begun at `began`, at
     `at`."""
@@ -107,8 +164,7 @@ def count(database, run_id, began, since):
     never ends the wait."""
     now = time.monotonic()
     try:
-        with writing(database, wait=False), contextlib.closing(
-                sqlite3.connect(database, timeout=2)) as connection:
+        with writing(database, wait=False), contextlib.closing(connect(database)) as connection:
             add_wait(connection, run_id, "slot", max(0.0, now - since), began, time.time())
             connection.commit()
     except BlockingIOError:
