@@ -69,7 +69,7 @@ func Main(dryRun bool, out, errOut io.Writer) (int, error) {
 		if before[each.name], err = version(each, env); err != nil {
 			return 0, err
 		}
-		if before[each.name] == "" && config.HarnessBinary(each.version[0]) == "" {
+		if before[each.name] == "" && harness.Binary(each.version[0]) == "" {
 			absent = append(absent, each.name)
 		}
 	}
@@ -198,7 +198,7 @@ func words(name string, facts map[string]any, key string) ([]string, error) {
 // version is a harness's full release and build, as Python's update.version reads it: "" where
 // its command fails or names no release.
 func version(each plan, env []string) (string, error) {
-	program := cmp.Or(config.HarnessBinary(each.version[0]), each.version[0])
+	program := cmp.Or(harness.Binary(each.version[0]), each.version[0])
 	stdout, stderr, ok := output(env, 2*time.Minute, append([]string{program}, each.version[1:]...)...)
 	if !ok {
 		return "", nil
