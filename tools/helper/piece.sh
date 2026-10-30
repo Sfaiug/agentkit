@@ -1,5 +1,5 @@
 #!/bin/bash
-# piece.sh SHARD BRANCH DEFAULT PROGRAMS COMMAND, one suite piece in the helper's VM (mac.sh):
+# piece.sh SHARD BRANCH DEFAULT PROGRAMS COMMAND, one suite piece on the helper (mac.sh):
 # the host checkout's tree and origin branch (/in/heads), its harness programs as stand-ins,
 # then offline the command. The repository's history is /mirror's, borrowed, not copied.
 shard=$1 branch=$2 default=$3 programs=$4 command=$5
@@ -25,11 +25,16 @@ offline() {
     'ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' - "$@"
 }
 offline sh -c '[ -z "$(ip -o link show | grep -v ": lo:")" ]' || fail "could not go offline"
-oom() { awk '$1 == "oom_kill" {print $2}' /proc/vmstat; }
+# Kills for memory: of the piece's own cgroup where it has one, as a container on a kernel other
+# pieces share does, else of its VM's kernel.
+oom() {
+  { cat /sys/fs/cgroup/memory.events 2>/dev/null || cat /proc/vmstat; } |
+    awk '$1 == "oom_kill" {print $2}'
+}
 before=$(oom)
 offline bash -c "$command"
 code=$?
-# The kernel killed a process for memory: the VM was too small for the piece, which ak then
-# runs here and gives a larger VM next time (helper.short).
+# The kernel killed a process for memory: the VM or container was too small for the piece, which
+# ak then runs here and gives a larger one next time (helper.short).
 [ "$(oom)" = "$before" ] || { echo "ak helper: the VM ran out of memory" >&2; exit 254; }
 exit "$code"
