@@ -23,7 +23,8 @@ from fixtures.akbin import boxable, Home
 
 # Started in the workspace as `holder.py NAME [saves]`: it locks NAME.lock, with `saves` makes
 # TERM write NAME.saved and end it, as a harness saves its session, then writes its pid in
-# NAME.pid and sleeps.
+# NAME.pid and sleeps until its Home is gone: one a failing build leaves, with no HOME left
+# (`env -i`) for the Home's cleanup to find it by, still ends with the Home.
 HOLDER = """import fcntl, os, signal, sys, time
 from pathlib import Path
 name = sys.argv[1]
@@ -36,7 +37,8 @@ if sys.argv[2:] == ["saves"]:
     signal.signal(signal.SIGTERM, save)
 Path(f"{name}.part").write_text(str(os.getpid()))
 Path(f"{name}.part").rename(f"{name}.pid")
-time.sleep(600)
+while Path(__file__).exists():
+    time.sleep(0.1)
 """
 
 
