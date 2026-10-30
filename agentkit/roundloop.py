@@ -1407,7 +1407,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     # The round is read off `dir`, which is what free_dir writes through.
     rd = lp.dir("reviewer").parent
     name = turns.open_review(rd)[0] or "reviewer"
-    exec_for_rule = (lp.state.get("own_orchestrator") if lp.state.get("own_pr") else None) or lp.executor
+    orchestrator = lp.state.get("own_orchestrator") if lp.state.get("own_pr") else None
+    exec_for_rule = orchestrator or lp.executor     # a seat's own PR's writer is its orchestrator
 
     def ready_reviewers():
         """The run's marked reviewers with room, as the meters read now, in pick order; only
@@ -1421,6 +1422,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         return [n for n in staffing.ready_order(lp.cfg, providers, staffing.run_reviewers(lp.cfg, lp.state),
                                                 lp.log, role="reviewer", repo=lp.state.get("repo"))
                 if n not in failed]
+
     named = (lp.state.get("launch_opts") or {}).get("--review")
     if lp.reviewer != named and staffing.same_model(lp.cfg, exec_for_rule, lp.reviewer):
         # the writer reviews its own work only while no other marked reviewer has room: a
