@@ -157,6 +157,25 @@ class RulebookNews(Sandbox):
                          {"conversation": OWN,
                           "sha": config.rulebook_digest(config.seat_rulebook("acme-new"))})
 
+    def test_a_change_is_told_against_any_copy_left_of_the_rulebook_held(self):
+        # a rename can land between a hand-over's record and its `held` file, and a seat that
+        # said it read its rulebook before prompts carried it may keep it only in `rules`
+        rules = config.HOME / "rules.md"
+        for kind in ("held", "rules"):
+            with self.subTest(kind=kind):
+                old, new = f"acme-{kind}", f"acme-{kind}-renamed"
+                config.save_session(self.cfg, old, "opus", ["astra"],
+                                    {"cwd": str(self.root), **OWNED})
+                rules.write_text("Rule one.\n")
+                held = config.seat_rulebook(old)
+                config.update_session(old, rulebook_read={
+                    "conversation": OWN, "sha": config.rulebook_digest(held)})
+                config.rename_session(old, new)
+                config.seat_file(kind, old).write_text(held)     # left under the old name
+                rules.write_text("Rule two.\n")
+                told = json.loads(self.prompt(session=new))["hookSpecificOutput"]
+                self.assertIn("\n-Rule one.\n+Rule two.\n", told["additionalContext"])
+
     def test_a_codex_seat_is_told_through_the_conversation_its_receipt_proves(self):
         thread, cwd = "acme-thread", str(self.root)
         rollout = self.root / ".codex/rollout.jsonl"

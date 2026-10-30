@@ -26,7 +26,7 @@ class TypedLineHasNoControlCode(unittest.TestCase):
         self.typed, self.compared, self.entered = [], [], False
 
         @contextmanager
-        def held(name):
+        def held(name, **_kw):
             yield name
 
         def send_line(session, text, log, typed=lambda: None, **_kw):
