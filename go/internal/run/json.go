@@ -262,6 +262,12 @@ func DecodeLimited(data []byte) (any, error) {
 	return decode(&parser{data: data, limited: true})
 }
 
+// DecodeShown reads one JSON value as DecodeLimited does, for what Go only reads and shows: a
+// lone surrogate, which Python reads and its print cannot write, is U+FFFD.
+func DecodeShown(data []byte) (any, error) {
+	return decode(&parser{data: data, limited: true, shown: true})
+}
+
 func decode(p *parser) (any, error) {
 	if !utf8.Valid(p.data) {
 		return nil, fmt.Errorf("not UTF-8")
@@ -283,6 +289,7 @@ type parser struct {
 	data    []byte
 	at      int
 	limited bool // ErrLimit where Python's limits decide
+	shown   bool // a lone surrogate as U+FFFD
 }
 
 var numberRe = regexp.MustCompile(`^(-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][-+]?[0-9]+)?|NaN|-?Infinity)`)
@@ -447,7 +454,7 @@ func (p *parser) text() (string, error) {
 					p.at = next
 				}
 			}
-			if utf16.IsSurrogate(r) {
+			if utf16.IsSurrogate(r) && !p.shown {
 				return "", ErrLoneSurrogate
 			}
 			out = utf8.AppendRune(out, r)
