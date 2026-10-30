@@ -48,7 +48,9 @@ class AsWritten(Sandbox):
                               timeout=10).stdout
 
     def screen(self, wanted):
-        """The attached client's two bar lines once they show `wanted`, or as they last were."""
+        """The attached client's two bar lines once they show `wanted`, or as they last were.
+        `wanted` is what no earlier write drew: until the client draws the last one, the screen
+        is the one before."""
         for _ in range(50):
             orch.tmux_out("refresh-client", "-S")
             lines = self.view("capture-pane", "-p", "-t", "=view:").rstrip("\n").split("\n")[-2:]
@@ -61,7 +63,7 @@ class AsWritten(Sandbox):
         for word in ("needs you", "done"):
             line_two = statusbar.whys({"crew": ([SAID], []), "tasks": []})
             statusbar._write("fix-api", SAID, word, None, self.cfg, line_two)
-            top, bottom = self.screen(SAID + " ⚒")
+            top, bottom = self.screen(word)
             self.assertIn("   " + SAID, top, word)
             self.assertIn("  " + SAID + " ⚒", bottom, word)
 
@@ -74,8 +76,9 @@ class AsWritten(Sandbox):
                 cells = re.sub(r"#\[[^\]]*\]", "", bar)
                 self.assertEqual(len(cells), statusbar.CELLS)
                 statusbar._write("fix-api", "fable", "working", bars, self.cfg)
-                line = self.screen(" 4 of 8")[0].rstrip()
-                self.assertTrue(line.endswith("Fable 5.1   " + cells.rstrip()), line)
+                drawn = "Fable 5.1   " + cells.rstrip()
+                line = self.screen(drawn)[0].rstrip()
+                self.assertTrue(line.endswith(drawn), line)
 
     def test_c_a_seat_s_window_title_keeps_its_name_as_it_is(self):
         # a seat made by hand on ak's server keeps whatever name it was given
@@ -126,7 +129,7 @@ class AsWritten(Sandbox):
                 self.assertTrue(bottom.rstrip().endswith("Ctrl-b m  menu"), bottom)
                 notify.answered("fix-api", at=10001)
                 self.assertEqual(watch.announce_state(seat, cfg=self.cfg)["word"], "working")
-                top, bottom = self.screen("GPT-6-Astra")
+                top, bottom = self.screen("working")
                 self.assertIn("working", top)
                 self.assertIn("■□□", bottom)
                 self.assertNotIn(question, bottom)
