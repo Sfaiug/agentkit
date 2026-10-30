@@ -1034,8 +1034,9 @@ def settle_delivered_line(state, log):
     """A run that delivered -- merged, or found its fix not needed -- runs its seat's plan
     checks once, as it ends.  A fix run runs its own line's check alone (`plan.delivery`): the
     line ticks where its fix is on the default branch, and is the seat's own where its check
-    still fails or could not run.  Any other run runs every open line's (`plan.verify`), so a
-    line its merge proved ticks before the seat hears of it, and a plan it finished reads done
+    still fails or could not run.  Any other run runs every open line's, unless verifications
+    begun after it delivered checked each meanwhile (`plan.verify_delivered`), so a line its merge
+    proved ticks before the seat hears of it, and a plan it finished reads done
     (`plan.finished`) with nobody declaring it."""
     check, session = (state.get("followup") or {}).get("check"), transitions.launched_session(state)
     if not (session and transitions.delivered(state)):
@@ -1044,7 +1045,7 @@ def settle_delivered_line(state, log):
         if check:
             plan.delivery(session, check)
         else:
-            plan.verify(session)
+            plan.verify_delivered(session)
     except (config.Error, OSError) as exc:
         log(f"WARN could not check {session}'s plan: {exc}")
 
