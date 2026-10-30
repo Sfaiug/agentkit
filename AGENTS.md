@@ -22,7 +22,7 @@ This section changes only with the owner's yes. Every other line has one home, a
 
 - Python 3.11 standard library and bash. Python takes no dependency, ever.
 - One test file per behaviour: `python3 tests/test_<name>.py`, run straight, no runner.
-- The `tests:` gate (`tests/landing.py`) runs `bash tests/smoke.sh` beside `tests/every_file.py` (remaining `tests/test_*.py`; see its docstring). It refuses Python 3.11 cannot parse, f-strings aside, so `python3.11 -m py_compile` what you touch holding one like `f"{data["key"]}"`. `AGENTKIT_ACCEPTANCE_REQUIRED=1` makes skips fail.
+- The `tests:` gate (`tests/landing.py`) refuses Python 3.11 cannot parse, f-strings aside, so `python3.11 -m py_compile` what you touch holding one like `f"{data["key"]}"`. `AGENTKIT_ACCEPTANCE_REQUIRED=1` makes skips fail.
 - Match the file's style.
 - `README.md` holds only what ak is, installation and starting.
 - `orchestrator.md` instructs agentkit sessions, not work here.
@@ -31,9 +31,9 @@ This section changes only with the owner's yes. Every other line has one home, a
 
 Mistakes no check catches and no one area of the code holds; one that becomes a check or a comment at its code leaves.
 
-- Never start the landing suite. When wording changes, grep tests/ and fix assertions pinning it.
-- Comments say why. Listing screens go through `agentkit/terminal.py` (`docs/cli-design.md`).
-- Each run has a memory cap (exit 137). Commit before a test sweep; run only the files your change touches, three at most at once.
+- When wording changes, grep tests/ and fix assertions pinning it.
+- Comments say why. Listing screens go through `agentkit/terminal.py`.
+- Each run has a memory cap (exit 137). Commit before a test sweep; run three files at most at once.
 - Tests never touch real processes, units, seats, transcripts or state: fake process tables and tmux, injected kill/systemctl (`_proc_table()`, `AK_HOST_READINGS`), a temporary HOME. A test calling `run.review`, `run.execute` or a sweep in-process sets the run variables `tests/fixtures/seats.py` sets, or a refusal SIGTERMs your own run.
 - Commands call `bin/ak`, never bare `ak`. A changed signature: update every mock and fake of it in tests/; a fake takes `**_kw` for what it ignores.
 - agentkit is public: tests, docs and commits use invented names (`acme`, `fix-api`), never a real checkout, product or seat.
@@ -41,7 +41,8 @@ Mistakes no check catches and no one area of the code holds; one that becomes a 
 - Decide from exit codes and files, never another program's output text, except the stop hook's `?` at a turn's end.
 - A test never asserts a plain word is absent from output that prints paths (worktree paths carry the run's title), nor a wall-clock duration (host load breaks it at landing). Inject the clock (`tests/fixtures/sandbox.py`, `tests/fixtures/clock.py`).
 - When review keeps finding races or recovery paths, delete state or simplify the design.
-- Refuse an input nobody uses (a linked AGENTS.md) plainly, never re-creating another system's semantics; a task or PR promises only what its code decides, in the code's own terms ("has read or write access", not "can open"; a Go milestone, its keys, not "as Python does"): a reviewer measures every word, and each wider one costs findings.
+- Refuse an input nobody uses (a linked AGENTS.md) plainly, never re-creating another system's semantics; a task or PR promises only what its code decides, in the code's own terms ("has read or write access", not "can open"): a reviewer measures every word.
+- A Go milestone answers to the keys its task names: exit 3 fails it only where they reach, a difference from Python only on input real homes hold; its PR names the rest for the shadow run.
 - A module removed from agentkit breaks every run of the old install at its next lazy import (`ImportError`): keep it until no such run is left.
 
 ## Owner rules
