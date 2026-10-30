@@ -44,9 +44,9 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, host, notify,
-               orch, parsed, questions, refusals, seat_tokens, staffing, statusbar, transitions,
-               turns, update, usage, worker)
+from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, host,
+               login_refusals, notify, orch, parsed, questions, seat_tokens, staffing, statusbar,
+               transitions, turns, update, usage, worker)
 from . import record as run_record
 from . import sleep
 from . import terminal as terminal_mod
@@ -2782,13 +2782,13 @@ def owed_login(run_dir, state):
     """The login a run waits on its owner for, else None.
 
     One it parked on that the tick has not found back yet, and, while it has not ended, one
-    that refused it twice or more since that login last answered (`refusals`): a key `auth`
-    passes can still be refused at every turn, and the tick resumes the run straight back into
-    that refusal.
+    that refused it twice or more since that login last answered (`login_refusals`): a key
+    `auth` passes can still be refused at every turn, and the tick resumes the run straight
+    back into that refusal.
     """
     if state.get("state") == "waiting_login" and not state.get("login_back_at"):
         return state.get("waiting_for")
-    return refusals.owed(run_dir) if state.get("state") in run_record.GOING else None
+    return login_refusals.owed(run_dir) if state.get("state") in run_record.GOING else None
 
 
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,

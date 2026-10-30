@@ -19,8 +19,8 @@ from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 
-from . import (config, gitcall, hand_in, history, host, orch, record as run_record, refusals,
-               update, worker)
+from . import (config, gitcall, hand_in, history, host, login_refusals, orch,
+               record as run_record, update, worker)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
 
@@ -1026,7 +1026,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             log(f"{role} {name} cannot authenticate: {expired.why}; the run waits for that "
                 "login rather than retrying into it")
             expired.session = expired.session or session
-            refusals.refused(expired.harness, run_dir)
+            login_refusals.refused(expired.harness, run_dir)
             raise
         else:
             span = (began, time.time())
@@ -1183,7 +1183,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         if not why:
             # a quota word left only in the model's answer is the answer talking, not the
             # provider: it parks no account and hands nothing over
-            refusals.answered(entry["harness"])
+            login_refusals.answered(entry["harness"])
             return code, text, session, False
         if handover is not None and attempt == 2 and not handover_tried:
             handover_tried = True
