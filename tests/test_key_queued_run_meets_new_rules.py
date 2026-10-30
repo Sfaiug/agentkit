@@ -99,7 +99,8 @@ class QueuedRunMeetsNewRules(unittest.TestCase):
              "the gadget's launcher gone")
         done = home.ak("run", "resume", cls.refused[1].name, "--bg")
         assert done.code == 0, done.out + done.err
-        wait(lambda: cls.queue()[-1:] == [cls.refused[1].name], "the gadget back in line")
+        wait(lambda: cls.state(cls.refused[1]).get("pid") not in (pid, None)
+             and cls.refused[1].name in cls.queue(), "the gadget back in line")
         cls.before = {run: cls.state(run) for run in cls.kept}
         for branch in ("fix-api", "fix-gadget"):
             cls.rig.git("branch", "-q", "-D", branch)
