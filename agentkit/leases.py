@@ -305,6 +305,35 @@ def collide(repo, older, younger, trees):
     return merged(repo, base, trees["older"], trees["younger"])[1]
 
 
+def diff_paths(repo, base, tree):
+    """(the paths a run's diff changes, a rename as its two; the directories above them; the
+    directories it deleted a file from), for `may_clash`."""
+    from . import run
+    words = run.git(repo, "diff-tree", "-r", "-z", "--no-renames", "--name-status", base,
+                    tree).split("\0")
+    paths = [Path(path) for path in words[1::2]]
+    return ({str(path) for path in paths},
+            {str(parent) for path in paths for parent in path.parents} - {"."},
+            {str(path.parent) for status, path in zip(words[::2], paths) if status == "D"})
+
+
+def may_clash(one, other):
+    """Whether git's merge of two diffs (`diff_paths`) has anything to decide, as most pairs of 64
+    live runs have not, which spares each a `collide`: a path both change, a file where the other
+    has a directory, or a directory one deleted a file from, so perhaps moved, the other changes."""
+    return bool(one[0] & (other[0] | other[1]) or other[0] & one[1] or
+                one[2] & other[1] or other[2] & one[1])
+
+
+@functools.lru_cache(maxsize=1024)      # commits never change
+def renamed_between(repo, base, other):
+    """Whether main renamed a file between two bases: `collide` follows it, so diffs of
+    different paths may meet."""
+    from . import run
+    return base != other and bool(run.git(repo, "diff-tree", "-r", "-M", "--name-only",
+                                          "--diff-filter=R", base, other))
+
+
 def scan(repo, log=lambda _: None, now=None):
     """One repository's pass: each younger run that collides with an older one is written
     down as waiting on the oldest such holder, with the paths and since when; the rest of
@@ -316,10 +345,13 @@ def scan(repo, log=lambda _: None, now=None):
     before = read(repo)
     runs = live(repo)
     trees = {each["run"]: tree(each["worktree"], each["artifacts"], log) for each in runs}   # each read once
+    diffs = {each["run"]: diff_paths(repo, each["base"], trees[each["run"]]) for each in runs}
     waits = {}
     for at, younger in enumerate(runs):
         for older in runs[:at]:
-            files = collide(repo, older, younger, trees)
+            files = (collide(repo, older, younger, trees)
+                     if may_clash(diffs[older["run"]], diffs[younger["run"]])
+                     or renamed_between(repo, older["base"], younger["base"]) else [])
             # Markdown-only conflicts can be settled at landing without rebuilding.
             if not files or all(path.endswith(".md") for path in files):
                 continue

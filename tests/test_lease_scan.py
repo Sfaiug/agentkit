@@ -111,6 +111,46 @@ class LeaseScan(LiveRuns):
         with patch.dict(os.environ, {"PATH": f"{shim}{os.pathsep}{os.environ['PATH']}"}):
             self.clash_with_main()
 
+    def test_only_a_pair_git_has_something_to_decide_on_is_merged(self):
+        (self.repo / "pkg").mkdir()
+        for name in ("a.py", "b.py"):
+            (self.repo / "pkg" / name).write_text(f"{name}\n" * 9)
+        self.git(self.repo, "add", ".")
+        self.git(self.repo, "commit", "-qm", "A package")
+        base = self.git(self.repo, "rev-parse", "HEAD")
+        older = self.run_on("20260101-0900-older", 900, base=base)
+        younger = self.run_on("20260101-1000-younger", 1000, base=base)
+        self.edit(older, "api.py", 5, "older's line 5")
+        self.edit(younger, "other.py", 1, "younger's line")
+        with patch.object(leases, "merged", wraps=leases.merged) as merge:
+            self.assertEqual(leases.scan(self.repo, now=2000), {})
+        merge.assert_not_called()
+        # no path in common, yet git's own conflicts: a directory moved under a file added to it,
+        self.git(older, "mv", "pkg", "moved")
+        (younger / "pkg" / "new.py").write_text("new\n")
+        self.assertEqual(leases.scan(self.repo, now=2100)["20260101-1000-younger"]["files"],
+                         ["moved/new.py"])
+        # a file where the other has a directory,
+        self.git(older, "mv", "moved", "pkg")
+        (younger / "pkg" / "new.py").unlink()
+        (older / "shared").write_text("a file\n")
+        (younger / "shared").mkdir()
+        (younger / "shared" / "x.py").write_text("x\n")
+        self.assertIn("shared", " ".join(leases.scan(self.repo, now=2200)["20260101-1000-younger"]["files"]))
+        # and a run behind a rename on main, its edit followed to a line the other changes
+        (younger / "shared" / "x.py").unlink()
+        (older / "shared").unlink()
+        self.edit(older, "api.py", 5, "line 5")
+        self.edit(younger, "other.py", 1, "other")
+        self.git(self.repo, "mv", "api.py", "renamed.py")
+        self.git(self.repo, "commit", "-qm", "Renamed")
+        moved = self.git(self.repo, "rev-parse", "HEAD")
+        third = self.run_on("20260101-1100-third", 1100, base=moved)
+        self.edit(older, "api.py", 5, "older's line 5")
+        self.edit(third, "renamed.py", 5, "third's line 5")
+        self.assertEqual(leases.scan(self.repo, now=2300)["20260101-1100-third"]["waits_on"],
+                         "20260101-0900-older")
+
     def test_a_run_launched_from_a_linked_worktree_is_of_the_repository_it_was_added_from(self):
         seat = self.root / "seat-checkout"
         self.git(self.repo, "worktree", "add", "-q", "--detach", str(seat), "main")
