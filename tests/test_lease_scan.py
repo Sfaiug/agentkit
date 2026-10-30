@@ -111,6 +111,17 @@ class LeaseScan(LiveRuns):
         with patch.dict(os.environ, {"PATH": f"{shim}{os.pathsep}{os.environ['PATH']}"}):
             self.clash_with_main()
 
+    def test_a_scan_reads_no_file_the_checkouts_own_index_knows_is_unchanged(self):
+        checkout = self.run_on("20260101-0900-older", 900)
+        self.git(checkout, "config", "core.trustctime", "false")   # the chmod changes its ctime alone
+        os.utime(checkout / "other.py", (1, 1))
+        self.git(checkout, "status")
+        (checkout / "other.py").chmod(0)
+        self.addCleanup((checkout / "other.py").chmod, 0o644)
+        self.assertEqual(leases.tree(checkout, (), self.logs.append),
+                         self.git(checkout, "rev-parse", "HEAD^{tree}"))
+        self.assertEqual(self.logs, [])
+
     def test_a_run_launched_from_a_linked_worktree_is_of_the_repository_it_was_added_from(self):
         seat = self.root / "seat-checkout"
         self.git(self.repo, "worktree", "add", "-q", "--detach", str(seat), "main")

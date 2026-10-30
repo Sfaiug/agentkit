@@ -175,8 +175,12 @@ def tree(worktree, artifacts, log=lambda _: None):
     pair its record."""
     from . import run
     with tempfile.NamedTemporaryFile(dir=config.TMP, prefix="lease-index-") as index:
-        env = {**os.environ, "GIT_INDEX_FILE": index.name}
-        run.git(worktree, "read-tree", "HEAD", env=env)
+        env = {**gitcall.tool_env(), "GIT_INDEX_FILE": index.name}
+        own = Path(worktree) / run.git(worktree, "rev-parse", "--git-path", "index")
+        if own.is_file():   # its stat data spares hashing every file; its moment, git's racy check
+            shutil.copy2(own, index.name)
+        if run.git_out(worktree, "read-tree", "-m", "HEAD", env=env)[0]:    # unmerged paths refuse
+            run.git(worktree, "read-tree", "HEAD", env=env)
         real, _ = gitcall.committable_paths(worktree, artifacts, env=env)
         if real:
             staged(worktree, real, env, log)
@@ -225,7 +229,7 @@ def merged(repo, base, ours, theirs, ours_wins=False):
     (bare trees only from 2.45) and finds their base itself.  With `ours_wins` a hunk the two
     sides clash on is `ours` (`favour_ours`), and nothing is left unmerged."""
     from . import run
-    env = {**os.environ, **STAMP}
+    env = {**gitcall.tool_env(), **STAMP}
     sides = [run.git(repo, "commit-tree", each, "-p", base, "-m", "lease", env=env)
              for each in (ours, theirs)]
     code, out = run.git_out(repo, "merge-tree", "--write-tree", "--name-only", "-z", *sides)
