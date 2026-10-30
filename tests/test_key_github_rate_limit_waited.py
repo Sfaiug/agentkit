@@ -6,9 +6,9 @@ rate_limit`, which spends none of it, and when `core` or `graphql` has `remainin
 until the reset, says so once in the run's log, and asks again.  A failure with both left fails
 as before; the tick never waits for it, since its passes ask again next tick.  Black-box
 against the GitHub of tests/fixtures/fakegh.py, with a scripted reviewer from fakeadapter.py.
-There is no seam to shorten ak's wait, so the reset is a minute and a half away and waited
-out, and the wait is judged by when the run asked GitHub again, never by when it ended: a run
-that asked early and only then sat out the rest would have posted before the reset.
+Today's ak sleeps until the reset (there is no seam to shorten it), so this file takes a little
+over a minute and a half.  The wait is judged by when the run asked GitHub again, never by when
+it ended: a run that asked early and sat out the rest only after would end just as late.
 """
 
 from datetime import datetime, timezone
@@ -46,7 +46,7 @@ def record(run_dir):
 def reviewed(case, script):
     """A review run of another author's PR, the reviewer passing it, gh first answering what
     `script(slug, reset, pr)` says (`GitHub.reply`'s words), `pr` the REST API's read of the
-    PR, the reset a minute and a half away; the run's record as it first carried a wait."""
+    PR; `waiting` is the run's record as it first carried a wait."""
     case.home = Home()
     case.addClassCleanup(case.home.close)
     rig = Rig(case.home, "widget")
@@ -56,6 +56,7 @@ def reviewed(case, script):
     pr = case.home.run("gh", "api", f"repos/{rig.slug}/pulls/1").out
     akconfig.write(case.home, ["opus"])
     fakeadapter.install(case.home, claude="pass")
+    # far enough past ak's least wait, a minute, that the run waits for the reset, not that
     case.reset = int(time.time()) + 90
     for prefix, reply in script(rig.slug, case.reset, pr):
         case.gh.reply(prefix, **reply)
@@ -69,10 +70,10 @@ def reviewed(case, script):
         time.sleep(0.1)
     case.code = proc.poll()
     case.out = "".join(case.home.log(f"spawn-1.{kind}").read_text() for kind in ("out", "err"))
-    case.run_dir = taskfile.only_run(case.home)
-    case.state = record(case.run_dir)
+    run_dir = taskfile.only_run(case.home)
+    case.state = record(run_dir)
     case.asked = case.gh.asked()
-    case.log = (case.run_dir / "log.txt").read_text().splitlines()
+    case.log = (run_dir / "log.txt").read_text().splitlines()
     case.said = [line for line in case.log if "waiting for GitHub's API allowance" in line]
 
 
@@ -94,11 +95,11 @@ class SpentAllowance(unittest.TestCase):
         reviews = self.gh.pr(1)["reviews"]
         self.assertEqual([(review["state"], review["commit"]["oid"]) for review in reviews],
                          [("COMMENTED", self.head)])
-        argvs = [argv for _at, argv in self.asked]
-        self.assertEqual(argvs.count(RATE_LIMIT), 1, argvs)
-        after = self.asked[argvs.index(RATE_LIMIT) + 1:]
-        self.assertTrue(after, "the run never asked GitHub again")
-        self.assertGreaterEqual(min(at for at, _argv in after), self.reset, after)
+        asked = [argv for _at, argv in self.asked]
+        self.assertIn(RATE_LIMIT, asked)
+        again = self.asked[asked.index(RATE_LIMIT) + 1:]
+        self.assertTrue(again, "the run never asked GitHub again")
+        self.assertGreaterEqual(min(at for at, _argv in again), self.reset, again)
 
     def test_while_it_waits_its_record_says_whose_wait_it_is_and_until_the_reset(self):
         self.assertIsNotNone(self.waiting, "run.json never carried transient_wait")
