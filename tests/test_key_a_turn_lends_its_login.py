@@ -65,7 +65,7 @@ class ATurnLendsItsLogin(unittest.TestCase):
         GitHub(home).grant(rig.slug, "WRITE")
         akconfig.write(home, ["opus", "astra"],
                        providers={"anthropic": {"mode": "subscription", "accounts": ["second"]}},
-                       settings={"suite_helper": "acme-linux", "machine_turns": True})
+                       settings={"suite_helper": "acme-linux", "turns_on_machines": True})
         fakes = fakeadapter.install(home, claude=EXECUTE, codex=REVIEW)
         for fake in fakes.values():
             if lend:
@@ -120,7 +120,7 @@ class ATurnLendsItsLogin(unittest.TestCase):
         # gone at each `collect` and `finish`, the failed container's too, a model's own file there
         self.assertTrue((machine / "refused").exists())
         seen = {Path(line).name for line in (machine / "seen.log").read_text().splitlines()}
-        self.assertEqual(seen, {".gitconfig", "own.txt"})
+        self.assertEqual(seen, {".gitconfig", ".profile", "own.txt"})
         self.assertEqual([*machine.rglob(Path(fakeadapter.LENT).name)], [])
         # `finish` removed every parcel, which no directory made as root would survive
         tree = machine / "home/.agentkit-helper"
