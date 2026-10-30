@@ -8,7 +8,6 @@ import io
 import json
 import os
 from pathlib import Path
-import shlex
 import shutil
 import subprocess
 import sys
@@ -101,9 +100,8 @@ class SuitePiecesByMeasuredTime(unittest.TestCase):
         self.assertEqual(gate.suite_env(None, times)["AK_TIMES"], times)
         # The helper hands its pieces no environment: they get the same record in the command.
         seen = self.sandbox / "seen"
-        subprocess.run(["bash", "-c", gate.PINNED_PIECE.format(
-            shlex.quote(times), shlex.quote(f'printf %s "$AK_TIMES" >{seen}'))],
-            cwd=box, check=True)
+        subprocess.run(["bash", "-c", gate.pinned(f'printf %s "$AK_TIMES" >{seen}', times)],
+                       cwd=box, check=True)
         self.assertEqual(seen.read_text(), times)
 
     def test_a_newer_time_replaces_the_older_and_no_record_stops_no_check(self):

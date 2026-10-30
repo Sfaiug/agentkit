@@ -129,13 +129,11 @@ class SuiteHelper(unittest.TestCase):
                                  if thread.name == gate.ASKING])
 
     def turn(self, *args, **_kw):
-        if not _kw.get("wait", True):
-            return None
         # A turn here comes after longer than the suite's ceiling, which no wait is charged to.
         self.turns.append(args)
         self.waited += 60
 
-    def check(self, codes, suite=SUITE):
+    def check(self, codes, suite=SUITE, **kwargs):
         for path in [*self.fake.glob("code-*"), self.fake / "calls"]:
             path.unlink(missing_ok=True)
         for piece, code in codes.items():
@@ -144,7 +142,7 @@ class SuiteHelper(unittest.TestCase):
         self.logs = logs = []
         code, text, _ = gate.run_suite(suite, 30, cwd=self.repo, activity=self.root / "live.log",
                                        output=io.BytesIO(), log=logs.append,
-                                       stderr=subprocess.STDOUT)
+                                       stderr=subprocess.STDOUT, **kwargs)
         self.assertEqual(code, 0, text)
         return text, [line for line in logs if "WARN" in line]
 
@@ -219,7 +217,7 @@ class SuiteHelper(unittest.TestCase):
                          ["1640\n"])
 
     def test_suites_that_ran_out_of_memory_at_once_never_lower_the_floor(self):
-        away = helper.Away("acme-mac", "k", "acme", "img", 3, 2, 1000, "", "", "")
+        away = helper.Away("acme-mac", "k", "acme", "img", 3, 2, 1000, 3, "", "", "")
         read, newer = helper._least, threading.Thread(
             target=helper.short, args=(away._replace(memory_mb=2000),))
 
@@ -293,6 +291,20 @@ class SuiteHelper(unittest.TestCase):
                 self.assertEqual([line[:46] for line in warned],
                                  ["WARN the suite helper cannot build suite_image"])
 
+    def test_a_list_of_paths_one_argument_cannot_hold_keeps_the_suite_here(self):
+        changed = self.root / "changed"
+        self.stack.enter_context(patch.dict(os.environ, {"TMPDIR": str(self.root)}))
+        # the paths alone fit in one argument the second time; with the rest of the line, not
+        for lines, there in ((4096, True), (helper.MAX_ARG_STRLEN // 16, False)):
+            with self.subTest(lines=lines):
+                changed.write_text("acme/widget.py\n" * lines)
+                text = self.check({}, SUITE + '; wc -l <"$AK_CHANGED"', changed=changed)[0]
+                self.assertEqual(("helper ran" in text, f"\n{lines}" in text,
+                                  (self.fake / "calls").exists()), (there, True, there), text)
+                said = "suite runs here: a piece's line to the suite helper would take"
+                self.assertEqual(any(line.startswith(said) for line in self.logs), not there,
+                                 self.logs)
+
     def test_no_helper_named_runs_here(self):
         for text in ("", 'suite_helper = "acme-mac\n'):
             with self.subTest(config=text):
@@ -346,14 +358,14 @@ class HelperMac(unittest.TestCase):
         return code, needs
 
     def test_probe_leaves_load_half_the_free_memory_and_battery(self):
-        # 10 CPUs less a load of 1; half of 8 GiB free; each VM twice its piece's memory
-        self.assertEqual(helper.room("acme-mac", 1.0, 500), ((4, 2, 1000), ""))
+        # 10 CPUs less a load of 1, 5 VMs empty; half of 8 GiB free; each VM twice its memory
+        self.assertEqual(helper.room("acme-mac", 1.0, 500), ((4, 2, 1000, 5), ""))
         # a small piece still gets two CPUs: 9 spare make 4 VMs, not 9 of one CPU
-        self.assertEqual(helper.room("acme-mac", 1.0, 100), ((4, 2, 200), ""))
+        self.assertEqual(helper.room("acme-mac", 1.0, 100), ((4, 2, 200, 5), ""))
         self.assertEqual(helper.room("acme-mac", 1.0, 2100),
                          (None, "has no room (9 spare CPUs and 4096 MiB)"))
         # VMs a suite of the repository ran out of memory in: fewer, larger ones
-        self.assertEqual(helper.room("acme-mac", 1.0, 500, 1500), ((2, 4, 1500), ""))
+        self.assertEqual(helper.room("acme-mac", 1.0, 500, 1500), ((2, 4, 1500, 5), ""))
         (self.fake / "system-broken").touch()
         self.assertEqual(helper._remote("acme-mac", "probe", text=True).returncode, helper.BROKEN)
         (self.fake / "system-broken").unlink()
@@ -381,10 +393,10 @@ class HelperMac(unittest.TestCase):
                          "ak-helper:old\ndocker.io/library/debian:trixie-slim\n")
         self.assertEqual(prepare("second"), 0)
         for key in ("first", "second"):
-            helper.finish(helper.Away("acme-mac", key, *[None] * 8))
+            helper.finish(helper.Away("acme-mac", key, *[None] * 9))
         self.assertEqual(prepare("third"), 0)
         # a base the owner had before the build stays
-        helper.finish(helper.Away("acme-mac", "third", *[None] * 8))
+        helper.finish(helper.Away("acme-mac", "third", *[None] * 9))
         (self.fake / "has-ak-helper:new").unlink()
         (self.fake / "has-debian:trixie-slim").touch()
         (self.fake / "deleted").unlink()
@@ -422,7 +434,7 @@ class HelperMac(unittest.TestCase):
 
         def suite(key, known=None):
             code, needs = self.prepare(key, known=known)
-            helper.finish(helper.Away("acme-mac", key, *[None] * 8))
+            helper.finish(helper.Away("acme-mac", key, *[None] * 9))
             self.assertEqual(code, 0)
             # it has the tree under test, and history up to the origin branch it compares against
             self.git("-C", str(mirror), "cat-file", "-e",
@@ -440,12 +452,12 @@ class HelperMac(unittest.TestCase):
         # Another repository's history unused for a week goes, its image with it, at a third
         # one's suite; this one's stays from the moment a suite asks what it has.
         self.assertEqual(self.prepare("lost", "other")[0], 0)
-        helper.finish(helper.Away("acme-mac", "lost", *[None] * 8))
+        helper.finish(helper.Away("acme-mac", "lost", *[None] * 9))
         for path in (mirror, other):
             os.utime(path, (time.time() - 9 * 86400,) * 2)
         known = helper._known("acme-mac", "acme")
         self.assertEqual(self.prepare("between", "new")[0], 0)
-        helper.finish(helper.Away("acme-mac", "between", *[None] * 8))
+        helper.finish(helper.Away("acme-mac", "between", *[None] * 9))
         self.assertIsNone(suite("fourth", known))
         self.assertEqual(sorted(path.name for path in mirror.parent.iterdir() if path.is_dir()),
                          ["acme", "new"])
@@ -461,7 +473,7 @@ class HelperMac(unittest.TestCase):
         self.assertEqual(self.prepare("fifth")[0], 0)
         self.git("-C", str(mirror), "gc", "-q", "--prune=now")
         self.git("-C", str(mirror), "cat-file", "-e", tested)
-        helper.finish(helper.Away("acme-mac", "fifth", *[None] * 8))
+        helper.finish(helper.Away("acme-mac", "fifth", *[None] * 9))
         self.git("-C", str(self.repo), "checkout", "-q", "rewritten")
         suite("sixth")
         self.git("-C", str(mirror), "gc", "-q", "--prune=now")
@@ -483,11 +495,11 @@ class HelperMac(unittest.TestCase):
             return answer
 
         with patch.object(helper.config, "suite_helper", return_value="acme-mac"), \
-                patch.object(helper, "room", return_value=((1, 2, 512), "")), \
+                patch.object(helper, "room", return_value=((1, 2, 512, 1), "")), \
                 patch.object(helper.orch, "agent_programs", return_value=[]), \
                 patch.object(helper, "_known", side_effect=gone):
             for _ in range(2):
-                away, reason = helper.start(1, 512, self.repo, logs.append)
+                away, reason = helper.start(1, 512, self.repo, logs.append, "true")
                 self.assertIsNotNone(away, logs)
                 self.assertEqual(reason, "")
                 helper.finish(away)

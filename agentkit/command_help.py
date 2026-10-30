@@ -177,7 +177,8 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                         "ak browser install"),
     "doctor": ("usage: ak doctor",
                "Show the agents' slice, the tick's state, each machine ak may use, and any\n"
-               "model set to an effort it does not take, which it names and never changes.\n"
+               "model set to an effort it does not take, which it names and never changes,\n"
+               "then the best machine to rent from Google Cloud now, or why there is none.\n"
                "Says `no slice` where the machine has no user systemd manager.",
                "ak doctor"),
     "attach": ("usage: ak attach [--client] [--overlay] [--dry-run]",

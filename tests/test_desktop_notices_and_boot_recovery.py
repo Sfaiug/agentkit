@@ -32,6 +32,7 @@ class DesktopAndBoot(Sandbox):
             "AGENTKIT_DISCORD_USER_ID": "42", "TMUX_TMPDIR": str(self.root / "sockets")}))
         (self.root / "sockets").mkdir(mode=0o700)
         self.clients = self.root / "clients"
+        self.slaves = {}
         self.clients.write_text("")
         binaries = self.root / "bin"
         binaries.mkdir()
@@ -60,12 +61,19 @@ class DesktopAndBoot(Sandbox):
         master, slave = pty.openpty()
         self.addCleanup(os.close, master)
         self.addCleanup(os.close, slave)
+        self.slaves[master] = slave
         with self.clients.open("a") as fh:
             fh.write(f"{os.ttyname(slave)}\t{seat}\t\t\n")
         return master
 
     def output(self, fd):
-        return os.read(fd, 8192) if select.select([fd], [], [], 0)[0] else b""
+        # A pty hands its bytes over later, on a kernel worker: a host under load has not yet when a
+        # look comes right after the write. A byte written now comes back after all written before it.
+        os.write(self.slaves[fd], b"\0")
+        out = b""
+        while not out.endswith(b"\0"):
+            out += os.read(fd, 8192)
+        return out[:-1]
 
     def transition(self, answer, now):
         with patch.object(watch, "session_state", return_value=answer):

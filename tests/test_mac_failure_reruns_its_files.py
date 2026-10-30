@@ -85,7 +85,7 @@ class MacHandsBackTheNames(unittest.TestCase):
     setUp, git = fixture.HelperMac.setUp, fixture.HelperMac.git
 
     def test_failed_reads_what_the_piece_named_never_through_a_link(self):
-        away = helper.Away("acme-mac", "key", "acme", "ak-helper:new", 1, 2, 512, "", "", "")
+        away = helper.Away("acme-mac", "key", "acme", "ak-helper:new", 1, 2, 512, 1, "", "", "")
         named = self.root / "key" / "ak-key-1-1.out" / "failed"
         named.parent.mkdir(parents=True)
         named.write_text("tests/test_a.py\n\ntests/test_a.py\n")
@@ -97,7 +97,7 @@ class MacHandsBackTheNames(unittest.TestCase):
         self.assertEqual(helper.failed(away, "1/1"), [])
 
     def test_each_piece_starts_with_no_names_and_a_folder_the_vm_writes(self):
-        away = helper.Away("acme-mac", "key", "acme", "ak-helper:new", 1, 2, 512, "", "", "")
+        away = helper.Away("acme-mac", "key", "acme", "ak-helper:new", 1, 2, 512, 1, "", "", "")
         (self.root / "mirrors" / "acme").mkdir(parents=True)
         named = self.root / "key" / "ak-key-1-1.out" / "failed"
         named.parent.mkdir(parents=True)

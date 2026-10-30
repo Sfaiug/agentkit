@@ -92,7 +92,14 @@ case $5 in''')
             with self.subTest(reply=reply):
                 self.response("probe", 0, reply)
                 self.assert_here(self.check(), "helper acme-mac did not answer (asleep or away)")
-        with patch.object(helper, "_remote", side_effect=subprocess.TimeoutExpired("ssh", 30)):
+        real = helper._remote
+
+        def times_out(*args, **kwargs):    # a call without kwargs only builds a piece's line
+            if kwargs:
+                raise subprocess.TimeoutExpired("ssh", 30)
+            return real(*args)
+
+        with patch.object(helper, "_remote", side_effect=times_out):
             self.assert_here(self.check(), "helper acme-mac did not answer (asleep or away)")
 
     def test_helper_success_names_the_mac_and_each_piece(self):
