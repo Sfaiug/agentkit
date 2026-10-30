@@ -28,6 +28,14 @@ func (t *table) put(key string, value any) {
 	t.values[key] = value
 }
 
+// get is the value under the key, nil where there is none or no table.
+func (t *table) get(key string) any {
+	if t == nil {
+		return nil
+	}
+	return t.values[key]
+}
+
 func (t *table) child(key string, dotted bool) (*table, bool) {
 	if t.frozen {
 		return nil, false

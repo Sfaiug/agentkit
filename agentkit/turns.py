@@ -451,7 +451,7 @@ KILLED = {-15: "SIGTERM", -9: "SIGKILL"}   # worker exits by signal, as `subproc
 # time with no date is not read: on its own it could be minutes ago or a week off, and the
 # meters answer that better than a guess would.
 TRY_AGAIN_ISO = re.compile(r"try again (?:at|on)\s+"
-                           r"(\d{4}-\d\d-\d\d[T ]\d\d:\d\d(?::\d\d)?"
+                           r"(\d{4}-\d\d-\d\d[T ]\d\d:\d\d(?::\d\d(?:\.\d+)?)?"
                            r"(?:Z|[+-]\d\d:?\d\d)?)", re.I)
 
 

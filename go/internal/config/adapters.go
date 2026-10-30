@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -70,6 +71,48 @@ func Programs() ([]string, error) {
 		names = append(names, words(root, "launch", "programs")...)
 	}
 	return names, err
+}
+
+// A HookTable is a manifest's `[hooks.install]`: the settings file its harness reads hooks
+// from, and what of ak's hooks/ runs there, event by event in the table's order.
+type HookTable struct {
+	Settings string
+	Events   []HookEvent
+	// Names is each script's own name, then those it went by before: an entry naming one is
+	// that script's.
+	Names map[string][]string
+}
+
+// A HookEvent is one event's scripts, the tools it is matched to ("" for all), and whether it
+// is only heard, run in the background.
+type HookEvent struct {
+	Name, Matcher string
+	Scripts       []string
+	Heard         bool
+}
+
+// Hooks is the harness's `[hooks.install]` table, false where its manifest has none.
+func Hooks(harness string) (HookTable, bool, error) {
+	manifests, err := manifests()
+	hooks, _ := manifests[harness].get("hooks").(*table)
+	install, _ := hooks.get("install").(*table)
+	settings, _ := install.get("settings").(string)
+	events, _ := install.get("events").(*table)
+	if err != nil || settings == "" || events == nil {
+		return HookTable{}, false, err
+	}
+	found := HookTable{Settings: Expand(settings), Names: map[string][]string{}}
+	matchers, _ := install.get("matchers").(*table)
+	heard := words(hooks, "install", "heard")
+	for _, name := range events.keys {
+		matcher, _ := matchers.get(name).(string)
+		scripts := words(install, "events", name)
+		found.Events = append(found.Events, HookEvent{name, matcher, scripts, slices.Contains(heard, name)})
+		for _, script := range scripts {
+			found.Names[script] = append([]string{script}, words(install, "formerly", script)...)
+		}
+	}
+	return found, true, nil
 }
 
 // words is the strings a manifest lists under one key of one section.

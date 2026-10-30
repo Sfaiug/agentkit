@@ -121,6 +121,11 @@ class GitHub:
             state["replies"].append({"prefix": prefix, "out": out, "err": err, "code": code,
                                      "times": times})
 
+    def restore(self):
+        """Forget every `reply`: GitHub answers for itself again."""
+        with _locked(self.file) as state:
+            state["replies"] = []
+
 
 @contextmanager
 def _locked(file):

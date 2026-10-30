@@ -7749,6 +7749,10 @@ def local_passes(state, dry_run, log):
                      else usage.collect(config.load(), refresh=True))
 
     return (
+        # First, and outside the `gh api user` gate: a merged change's `health:` needs no GitHub,
+        # and the seats' passes below read its `live_at` this tick (`awaiting_live`).  The pass's
+        # own gh calls fail on their own, and the next tick asks again.
+        ("merged runs were not followed", lambda: after_merge_checks(state, dry_run, log), True),
         ("the boot resume pass did not run",
          lambda: resume_after_boot(config.load(), dry_run=dry_run, log=log), True),
         ("the held-line Enter pass did not run",
@@ -7756,8 +7760,9 @@ def local_passes(state, dry_run, log):
         ("the set-aside text pass did not run", lambda: drafts_back(config.load()), False),
         ("the mid-turn continue pass did not run",
          lambda: continue_turns(config.load(), log), False),
-        # the seats first, and never behind GitHub: a stalled seat is the one thing on this tick
-        # that nothing else will ever get to, and a gh that is down is no reason to leave it stuck
+        # the seats early, and never behind the `gh api user` gate: a stalled seat is the one
+        # thing on this tick that nothing else will ever get to, and a gh that is down is no
+        # reason to leave it stuck
         ("the session health pass did not run",
          lambda: health(config.load(), state, dry_run, log), True),
         ("the mid-turn continue pass did not run",
@@ -7912,7 +7917,6 @@ def main(argv):
             state.pop("gh_out", None)
         incoming(state, me, dry_run, log)
         outgoing(state, me, dry_run, log)
-        after_merge_checks(state, dry_run, log)
         if not dry_run:
             save_state(state)
         return 0
