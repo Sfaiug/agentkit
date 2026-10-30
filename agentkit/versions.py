@@ -8,7 +8,9 @@ rename(2) exchanges the two directories: a move cut off anywhere before that lea
 as it was, and nothing after it matters to what runs.  Every path stays what it was -- the cron
 line, hooks, links and the project all name ~/agentkit -- and the version swapped out waits
 under `VERSIONS` until no process uses it.  ~/agentkit is ak's own, never edited: what git
-finds changed or added in a version swapped out keeps it there all the same.
+finds changed or added in a version swapped out keeps it there all the same.  Each version's
+record in the repository is locked: a `git worktree prune` that could not see ~/agentkit would
+take it, and without it no git works there and nothing moves it again.
 
 A clone at ~/agentkit is adopted at its first move, once it is main as origin left it
 (`update.left_as_is`): its repository goes to `REPOSITORY`, a link left in its place, and each
@@ -116,6 +118,7 @@ def remove(path):
     if git(repository(), "worktree", "remove", "--force", "--force", str(path))[0]:
         if retention.safe(path):        # never through a link
             shutil.rmtree(path, ignore_errors=True)
+        git(repository(), "worktree", "unlock", str(path))
         git(repository(), "worktree", "prune")
 
 
@@ -162,7 +165,8 @@ def switch(live, commit):
     tidy(live)
     (config.HOME / VERSIONS).mkdir(parents=True, exist_ok=True)
     new = Path(tempfile.mkdtemp(prefix=f"{commit[:12]}.", dir=config.HOME / VERSIONS))
-    code, said = git(repository(), "worktree", "add", "--quiet", "--detach", str(new), commit)
+    code, said = git(repository(), "worktree", "add", "--quiet", "--detach", "--lock",
+                     "--reason", "a version of ak's", str(new), commit)
     if code:
         remove(new)
         return f"{commit[:12]} could not be checked out in {new}: {said}"

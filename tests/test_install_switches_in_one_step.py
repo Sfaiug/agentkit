@@ -156,5 +156,31 @@ class InstallSwitchesInOneStep(unittest.TestCase):
         self.live(sixth)
         self.assertEqual(self.swapped_out(), sorted([self.new, third, fourth, fifth]))
 
+    def test_no_prune_takes_the_record_of_the_version_live(self):
+        self.go_live()
+        # a prune by whatever cannot see ~/agentkit, from a run's worktree of the same repository
+        away = self.root / "away"
+        self.clone.rename(away)
+        git(self.wt, "worktree", "prune")
+        away.rename(self.clone)
+        self.live(self.new)
+
+    def test_a_version_git_will_not_remove_leaves_no_record(self):
+        self.go_live()
+        third = self.push("third")
+        self.go_live()
+        real = versions.git
+
+        def refusing(where, *args):
+            return (1, "refused") if args[:2] == ("worktree", "remove") else real(where, *args)
+        swapped = next(path for path in (config.HOME / versions.VERSIONS).iterdir()
+                       if git(path, "rev-parse", "HEAD") == self.new)
+        with patch.object(versions, "git", refusing):
+            versions.remove(swapped)
+        self.assertFalse(swapped.exists())
+        self.assertNotIn(self.new, git(self.clone, "worktree", "list", "--porcelain"))
+        self.live(third)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
