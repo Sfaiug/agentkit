@@ -3,7 +3,8 @@
 `install` puts `<harness>.sh` and `<harness>.toml` in `<root>/adapters` and names that directory
 in the Home's AGENTKIT_ADAPTER_DIR, so every ak the test runs from then on calls these and no
 real harness.  The toml is the shipped manifest with the directory as its `[worker] state`, the
-one place a worker's box lets a turn write beside its workspace.  The script runs this file.
+one place a worker's box lets a turn write beside its workspace, and of the shipped `[worker]`
+only its `sessions`.  The script runs this file.
 
 A harness's script is a list of steps, one per `run` call in order, the last repeated.  A step
 is a word, which acts by the turn's role as its prompt's first line names it:
@@ -28,7 +29,8 @@ of argument lists for `ak hand-in`), `final` (final.md's text, where `{in N}` is
 seconds after the turn, as a refusal names when to come back), `session` (the id handed back:
 the one resumed, else `sid-<harness>-<n>`), `exit` (0).  A hand-in goes through the ak build
 under test, the one AK_BIN names.  Every other verb answers as `answer` set it, or as a harness
-that is logged in with no meter to read.
+that is logged in with no meter to read, its `lend` the real tools/lend.py fed a login of the
+call's account lasting a day: `lent(account)` at LENT under the home named.
 
 Each harness's Adapter: `n` counts its `run` calls, `runs()` and `calls(verb)` read its log,
 `behave(*steps)` scripts its next turns, `answer(verb, out, code, given)` sets what another verb
@@ -65,6 +67,11 @@ FAIL = {"final": "Found one.", "hand_in": [
      "test ! -f retry.txt"], ["done"]]}
 DISPUTE = {"final": "Disputed.", "hand_in": [
     ["dispute", "retry.txt:1", "not a defect", "--run", "true"], ["done"]]}
+LENT = ".fake/login.json"
+
+
+def lent(account):
+    return {"token": f"fixture-token-for-{account or 'usual'}"}
 
 
 def _every(step):
@@ -155,8 +162,10 @@ def install(home, **harnesses):
         fake.script.chmod(0o755)
         shipped = REPO / "adapters" / f"{harness}.toml"
         text = shipped.read_text() if shipped.exists() else "version = 1\n"
+        sessions = "".join(re.findall(r"(?m)^sessions = .*\n", text))
         text = re.sub(r"(?ms)^\[worker\]\n.*?(?=^\[|\Z)", "", text).rstrip()
-        fake.manifest.write_text(f"{text}\n\n[worker]\nstate = {json.dumps([str(directory)])}\n")
+        fake.manifest.write_text(
+            f"{text}\n\n[worker]\nstate = {json.dumps([str(directory)])}\n{sessions}")
     return fakes
 
 
@@ -164,7 +173,12 @@ def main(directory, harness, ak, verb="", *args):
     fake = Adapter(Path(directory), harness)
     call = {"verb": verb, "argv": list(args), "cwd": os.getcwd(),
             "env": {k: v for k, v in os.environ.items() if k.startswith(("AK_", "AGENTKIT_"))}}
-    if verb != "run":
+    if verb == "lend" and "lend" not in (fake._json("answers") or {}):
+        code = subprocess.run(
+            [sys.executable, "-I", str(REPO / "tools/lend.py"), *args, LENT], text=True,
+            input=json.dumps({"ends": int(time.time()) + 86400,
+                              "login": lent(os.environ.get("AGENTKIT_ACCOUNT"))})).returncode
+    elif verb != "run":
         # the answer set for the most of the arguments this call ends in
         answers = fake._json("answers") or {}
         out, code = next((answers[key] for key in (" ".join([verb, *args[i:]])

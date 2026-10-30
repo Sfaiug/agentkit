@@ -50,7 +50,7 @@ class HeldFixFirst(unittest.TestCase):
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        home.env.update(OFFLINE, AK_MAX_RUNS="1")
+        home.env.update(OFFLINE, AK_MAX_RUNS="3")
         home.write(".agentkit/state/gc.json", {"started_at": time.time()})
         cls.rig = Rig(home, "agentkit")
         cls.gh = GitHub(home)
@@ -67,10 +67,12 @@ class HeldFixFirst(unittest.TestCase):
                      ("-C", str(cls.install), "remote", "set-url", "origin",
                       "https://github.com/acme/agentkit.git")):
             assert home.run("git", *args).code == 0
-        # the one slot is held by this test, so every run of the seat waits queued
-        home.write(".agentkit/runs/20261026-0800-slot/run.json",
-                   {"run_id": "20261026-0800-slot", "state": "running", "started_at": 1,
-                    **run_record.process_owner()})
+        # the seat's own runs, held by this test, take every slot, so each run it launches waits
+        # queued, and it may queue three (`gate.seat_full`)
+        for slot in ("20261026-0800-slot", "20261026-0800-slot-2", "20261026-0800-slot-3"):
+            home.write(f".agentkit/runs/{slot}/run.json",
+                       {"run_id": slot, "state": "running", "started_at": 1,
+                        "launched_session": "acme", **run_record.process_owner()})
         # the seat's merged run is what makes it the one a red of agentkit's main is told to
         home.write(".agentkit/runs/20261026-0801-merged/run.json",
                    {"run_id": "20261026-0801-merged", "state": "pass", "merged": True,

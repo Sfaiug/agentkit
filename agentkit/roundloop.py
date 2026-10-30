@@ -536,6 +536,7 @@ def verify_work(lp, cmds=None):
     if cmds is None:
         cmds = lp.every
     lp.step("done-when")
+    check = gate.run_done_when
     if not lp.scratch and not lp.state.get("review_pr"):
         if lp.state.get("repo"):
             # ak's commit step runs the lease scan itself: a diff that cannot merge with an
@@ -545,13 +546,13 @@ def verify_work(lp, cmds=None):
             leases.scan_safely(Path(lp.state["repo"]), lp.log)
             lp.save()
         gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
+        check = gate.run_round      # the tree at HEAD is the checkout's: the helper may run it
     follow_target(lp)
     checks = (files_scope(lp), rules_check(lp))
     lp.validation = {} if lp.scratch else gitcall.commit_identity(lp.wt)
     clean = lp.scratch or lp.state.get("review_pr") or gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
-    ok, text = gate.run_done_when(cmds, lp.wt, lp.round_dir / "donewhen.log", lp.artifacts,
-                                  lp.done_when_limit, lp.log, silence=lp.turn_limit,
-                                  run_dir=lp.run_dir)
+    ok, text = check(cmds, lp.wt, lp.round_dir / "donewhen.log", lp.artifacts,
+                     lp.done_when_limit, lp.log, silence=lp.turn_limit, run_dir=lp.run_dir)
     suite_ok, suite_text = affected_suite(lp)
     if suite_text:
         ok &= suite_ok

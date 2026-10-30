@@ -150,15 +150,48 @@ def timestamp(stamp):
     return None if seconds is None or nanos >= 1_000_000_000 else seconds + nanos / 1e9
 
 
+def running(record, cwd, conversation):
+    """The model and effort of the generation that made that conversation's latest answer,
+    with that answer's time.  agy keeps one `gen_metadata` row per generation, its execution
+    beside it (4), and only the newest names the model (3 -> 28), by the id it was launched
+    with: `<model>-<effort>`, a model at no effort bare.  An answer step's execution is its
+    metadata's 12, so a newest generation of another execution, a failed one's, ties none;
+    its 8 the moment the answer was done (every finished one read on 30 Oct 2026, 1.4.11)."""
+    from . import rows
+    found = store(conversation)
+    found = found and rows(found, "SELECT (SELECT metadata FROM steps WHERE step_type = ?"
+                                  " ORDER BY idx DESC LIMIT 1),"
+                                  " (SELECT data FROM gen_metadata ORDER BY idx DESC LIMIT 1)",
+                           MODEL)
+    if not found:
+        return None
+    (metadata, generation), = found
+    execution, model = field(generation, 4), field(field(generation, 3), 28)
+    at = timestamp(field(metadata, 8))
+    if not execution or execution != field(metadata, 12) or not model or at is None:
+        return None
+    model = model.decode(errors="replace")
+    # folded as adapters/antigravity.sh's `models` folds `agy models`
+    bare, _, effort = model.rpartition("-")
+    return (bare, effort, at) if bare and effort in config.efforts("antigravity") else (
+        model, "none", at)
+
+
 def steps(conversation, *kinds):
     """(step_type, metadata, step_payload) of each of that conversation's steps of those kinds,
     in order, or None where it has no store to read."""
     from . import rows
+    found = store(conversation)
+    return found and rows(found, "SELECT step_type, metadata, step_payload FROM steps"
+                          f" WHERE step_type IN ({', '.join('?' * len(kinds))}) ORDER BY idx",
+                          *kinds)
+
+
+def store(conversation):
+    """That conversation's database, or None for an id that names no file of its own."""
     if not isinstance(conversation, str) or not re.fullmatch(r"[\w-]+", conversation):
         return None
-    return rows(conversation_stores()[0]["root"] / f"{conversation}.db",
-                "SELECT step_type, metadata, step_payload FROM steps"
-                f" WHERE step_type IN ({', '.join('?' * len(kinds))}) ORDER BY idx", *kinds)
+    return conversation_stores()[0]["root"] / f"{conversation}.db"
 
 
 def words(kind, payload):

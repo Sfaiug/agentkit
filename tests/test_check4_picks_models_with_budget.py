@@ -105,11 +105,11 @@ class Check4PicksModelsWithBudget(unittest.TestCase):
         self.assertEqual(self.pair({"anthropic": reading(10), "openai": refused},
                                    {"openai": reading(10)}), "opus opus\n")
 
-    def test_check_4_names_no_model_and_picks_before_it_takes_a_target(self):
+    def test_check_4_names_no_model_and_picks_before_it_opens_a_branch(self):
         names = tomllib.loads((REPO / "config.default.toml").read_text())["models"]
         source = CHECK4 + (REPO / "tests/check4_pair.py").read_text()
         self.assertEqual([n for n in names if re.search(rf"\b{re.escape(n)}\b", source)], [])
-        self.assertLess(CHECK4.index("check4_pair.py"), CHECK4.index("smoke_lock_hold"))
+        self.assertLess(CHECK4.index("check4_pair.py"), CHECK4.index("sandbox_branch.py\" open"))
         # acceptance.sh counts a skip as the host's absence by these words alone
         self.assertRegex(CHECK4, r'"\$PAIRRC" = 3 \]; then\n  skip_checks 4/4b/4c/4d "[^"]*not on this host')
 

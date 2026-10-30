@@ -26,7 +26,7 @@ class EveryFileOrder(unittest.TestCase):
         self.home.mkdir()
         (self.root / "tests").mkdir(parents=True)
         (self.root / "tests/smoke.sh").write_text("#!/bin/bash\n")
-        for name in ("landing.py", "suite_shares.py"):
+        for name in ("landing.py", "affected.py", "suite_shares.py"):
             (self.root / "tests" / name).write_text((REPO / "tests" / name).read_text())
         for name in suite_shares.STATIC_CHECKS:
             (self.root / "tests" / f"{name}.py").write_text("")

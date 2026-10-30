@@ -13,6 +13,9 @@ effort = "low"
 [worker]
 state = ["~/.codex", "$CODEX_HOME", "~/.codex-$AGENTKIT_ACCOUNT"]
 logins = ["~/.codex/auth.json", "$CODEX_HOME/auth.json", "~/.codex-$AGENTKIT_ACCOUNT/auth.json"]
+# where a turn's conversation lives, `{id}` its id: what travels with a turn on a machine
+# (agentkit/machine_turn.py); a harness without this takes no turns there
+sessions = ["~/.codex/sessions/*/*/*/*{id}*"]
 
 # Codex reads at most `project_doc_max_bytes` of a project's AGENTS.md (32 KiB in 0.160) and
 # drops the rest without a word, so no project's file may grow past it.
@@ -37,6 +40,11 @@ version = ["codex", "--version"]
 upgrade = ["npm", "i", "-g", "@openai/codex@latest"]
 revert = ["npm", "i", "-g", "@openai/codex@{version}"]
 latest = ["npm", "view", "@openai/codex", "version"]
+
+# Where a rented Linux machine fetches the program a turn needs (`machine_turn._program`).
+[fetch]
+aarch64 = "https://github.com/openai/codex/releases/download/rust-v{version}/codex-aarch64-unknown-linux-musl.tar.gz"
+x86_64 = "https://github.com/openai/codex/releases/download/rust-v{version}/codex-x86_64-unknown-linux-musl.tar.gz"
 
 [usage]
 reset = true

@@ -1,8 +1,8 @@
-"""`ak orch rules CODE` is how a seat's conversation says it read the rulebook its prompt named.
+"""`ak orch rules CODE` is how a seat's conversation says it read the rulebook file its prompt named.
 
 A harness reads its rulebook only when it opens, so a seat left open across a change to its
-rules is told to read them on its next prompt, with a code, and every prompt tells it again
-until that code comes back.  The code is taken only from inside the seat, from the
+rules too long for its prompt is told to read a file on its next prompt, ending with a code, and
+every prompt tells it again until that code comes back.  The code is taken only from inside the seat, from the
 conversation it was given to and for the rules it was given for: a client started in the seat,
 or rules that changed since the prompt, must not say the rules were read.  What is recorded --
 those rules' digest for that conversation, and a copy of them -- is what the next change is

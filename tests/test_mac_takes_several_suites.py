@@ -32,7 +32,7 @@ class SeveralSuites(unittest.TestCase):
         first = self.piece("first", "ak-first-1-1", 2048)
         running = self.up("ak-first-1-1")
         # half of 8 GiB free and the 1 GiB the first's VM holds, less the 2 GiB it was given
-        self.assertEqual(helper.room("acme-mac", 1.0, 500), ((2, 4, 1000), ""))
+        self.assertEqual(helper.room("acme-mac", 1.0, 500), ((2, 4, 1000, 5), ""))
         second = self.piece("second", "ak-second-1-2", 1000)
         self.up("ak-second-1-2").unlink()
         running.unlink()
@@ -57,7 +57,7 @@ class SeveralSuites(unittest.TestCase):
             piece = self.piece(name.split("-")[1], name, 3000)
             self.up(name).unlink()
             self.assertEqual(piece.wait(30), 0)
-        self.assertEqual(helper.room("acme-mac", 1.0, 1500), ((1, 9, 3000), ""))
+        self.assertEqual(helper.room("acme-mac", 1.0, 1500), ((1, 9, 3000, 5), ""))
 
 
 if __name__ == "__main__":

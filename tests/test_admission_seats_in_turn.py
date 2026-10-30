@@ -147,9 +147,8 @@ class AdmissionSeatsInTurn(unittest.TestCase):
         self.queued("fix-api-new-1", 5, "fix-api", **green)
         self.queued("fix-api-new-2", 6, "fix-api", **green)
         self.assert_order(["acme-new", "fix-api-new-1", "fix-api-new-2", "fresh"])
-        self.assertFalse(self.claim("fix-api-new-1"))
-        self.assertEqual(gate.slot_note(self.state("fix-api-new-1")),
-                         "waiting for a slot · 1 ahead")
+        self.assertFalse(self.claim("fresh"))
+        self.assertEqual(gate.slot_note(self.state("fresh")), "waiting for a slot · 3 ahead")
 
     def test_a_seats_new_batch_has_no_debt_while_peers_still_wait(self):
         green = {"waiting_on": {"land": "tree"}}
@@ -250,6 +249,18 @@ class AdmissionSeatsInTurn(unittest.TestCase):
         self.assert_order([green, *expected])
         self.assertTrue(self.claim(green))
         self.assertEqual(gate.slot_queue()[2], expected)
+
+    def test_a_green_delivery_takes_no_place_in_the_queue(self):
+        green = {"waiting_on": {"land": "tree"}}
+        self.queued("fresh", 1, "docs")
+        for number in range(1, 4):
+            self.queued(f"green-{number}", 1 + number, "acme", **green)
+        self.assert_order(["green-1", "green-2", "green-3", "fresh"])
+        self.assertTrue(self.claim("green-3"))      # behind two others, past the count
+        self.assertEqual(gate.slot_queue()[2], ["green-1", "green-2", "fresh"])
+        self.assertTrue(self.claim("green-2"))
+        self.assertFalse(self.claim("fresh"))       # what the queue paces still waits its turn
+        self.assertIn("· 1 ahead", gate.slot_note(self.state("fresh")))
 
 
 if __name__ == "__main__":
