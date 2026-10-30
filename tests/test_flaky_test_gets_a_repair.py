@@ -1,7 +1,8 @@
 """A test that failed, then passed, on two trees of the landing line within a week -- named so
 by the checks, or confirmed red by one and passing on the same tree later -- gets one repair
 run naming it, owned by the run whose check saw it the second time; one tree gets none, and
-no second starts until a merged change edits the test or the week has passed.
+no second starts until a merged change edits the test or the week has passed.  A test is
+kept toward its file, its name up to its first `::` or `#`, as a ledger's full names are.
 
 Offline: real Git and the lander's own check, the suite faked to say what it found, sandbox
 records, an injected clock and the repair's launch caught, leaving the record it would.
@@ -126,6 +127,73 @@ class FlakyTestGetsARepair(test_lander.LanderFixture, unittest.TestCase):
         self.assertEqual(self.launch.call_count, 2)
         self.assertIn("2 times", (self.launch.call_args.args[0] / "task.md").read_text())
 
+    def test_a_released_hold_stays_released_once_its_edit_is_reverted(self):
+        self.seen("one")
+        self.seen("two")
+        self.merge(TEST)
+        self.now += 1
+        self.seen("three")
+        run.git(self.repo, "revert", "--no-edit", "HEAD")
+        run.git(self.repo, "push", "-q", "origin", "main")
+        self.seen("four")
+        self.assertEqual(self.launch.call_count, 2)
+
+    def kept(self, **tests):
+        """A ledger from before files, keeping `tests` (`a` for `TEST::test_a`) by full name."""
+        self.turn.with_suffix(".flakes").write_text(json.dumps(
+            {"tests": {f"{TEST}::test_{name}": entry for name, entry in tests.items()}}))
+
+    def held(self, at):
+        """A repair held from `at` on the target's tip."""
+        return {"repair": {"run": "fix-old", "at": at,
+                           "sha": run.git(self.repo, "rev-parse", "origin/main")}}
+
+    def test_what_a_ledger_keeps_under_a_test_s_full_name_counts_toward_its_file(self):
+        self.kept(a={"seen": [{"tree": "elsewhere", "at": self.now, "logs": ["elsewhere.log"]}]})
+        self.seen("one", flaky=[f"{TEST}::test_b"])
+        (directory, _, origin, *_), = (call.args for call in self.launch.call_args_list)
+        self.assertEqual(origin["repair"]["command"], TEST)
+        task = (directory / "task.md").read_text()
+        self.assertIn(f"`{TEST}::test_a`:\n- elsewhere.log", task)
+        self.assertIn(f"`{TEST}::test_b`", task)
+        self.kept(a=self.held(self.now))
+        self.seen("two", flaky=[f"{TEST}::test_b"])
+        self.seen("three", flaky=[f"{TEST}::test_b"])
+        self.assertEqual(self.launch.call_count, 1)
+
+    def test_a_ledger_s_newest_hold_holds_the_file(self):
+        self.kept(a=self.held(self.now), b=self.held(self.now - land.FLAKY + 1))
+        self.seen("other", flaky=["tests/test_other.py"])
+        self.now += 1
+        self.seen("one", flaky=[f"{TEST}::test_c"])
+        self.seen("two", flaky=[f"{TEST}::test_c"])
+        self.launch.assert_not_called()
+
+    def test_a_ledger_s_released_hold_leaves_the_sightings_after_it(self):
+        self.kept(a=self.held(self.now),
+                  b={"seen": [{"tree": "elsewhere", "at": self.now, "logs": ["elsewhere.log"]}]})
+        self.merge(TEST)
+        self.seen("one", flaky=[f"{TEST}::test_c"])
+        self.assertEqual(self.launch.call_count, 1)
+
+    def test_what_a_ledger_saw_under_a_hold_still_holding_is_the_repair_s(self):
+        self.kept(held=self.held(self.now),
+                  a={"seen": [{"tree": "elsewhere", "at": self.now, "logs": ["elsewhere.log"]}]})
+        self.seen("one", flaky=[f"{TEST}::test_held"])
+        self.merge(TEST)
+        self.seen("two", flaky=[f"{TEST}::test_b"])
+        self.launch.assert_not_called()
+        self.seen("three", flaky=[f"{TEST}::test_b"])
+        self.assertEqual(self.launch.call_count, 1)
+
+    def test_each_sighting_of_a_ledger_ages_alone(self):
+        self.kept(a={"seen": [{"tree": "elsewhere", "at": at, "logs": ["elsewhere.log"]}
+                              for at in (self.now - land.FLAKY + 1, self.now)]},
+                  b={"seen": [{"tree": "gone", "at": self.now - land.FLAKY + 1, "logs": []}]})
+        self.seen("other", flaky=["tests/test_other.py"])
+        self.now += 1
+        self.seen("one", flaky=[f"{TEST}::test_a"])
+        self.assertEqual(self.launch.call_count, 1)
 
 if __name__ == "__main__":
     unittest.main()

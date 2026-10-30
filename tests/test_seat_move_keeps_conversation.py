@@ -1,5 +1,6 @@
 """A seat moved to another model of its harness goes on with its conversation, and its bar names
-the new model from the moment the new harness is up.
+the new model from the moment the new harness is up; moved `in_place`, its running harness is
+typed the move (orch.switch_lines), and nothing restarts.
 
 Offline: a temporary HOME and an invented seat, with tmux, the adapters and orch's clock faked;
 no real seat, process or transcript is touched.
@@ -65,7 +66,7 @@ class SeatMove(Sandbox):
                             {"cwd": str(self.root), "conversation": OWN,
                              "id_source": "launcher", "resumable": True})
         self.seat = {"name": SEAT, "path": str(self.root), "exited": False, "legacy": False}
-        self.respawned, self.bar, self.refused = [], [], None
+        self.respawned, self.bar, self.refused, self.ended = [], [], None, False
         self.pane = capture("claude-prompt-pane.txt")
 
         def adapter(cfg, model, conversation=None, fresh=False, **_kw):
@@ -77,6 +78,8 @@ class SeatMove(Sandbox):
         def tmux(*args, **_kw):
             if args[0] == "show-options":
                 return 0, "%7"
+            if args[-1] == "#{pane_dead}":               # its harness's pane
+                return 0, str(int(self.ended))
             if args[0] == "display-message":
                 return 0, SEAT
             if args[0] == "capture-pane":
@@ -102,8 +105,11 @@ class SeatMove(Sandbox):
             side_effect=lambda _name, model, *_a, every=False, **_kw: self.bar.append(
                 (model, "dress" if every else "redress"))))
 
-    def move(self, model):
-        return orch.switch_orchestrator(self.cfg, SEAT, model, providers={})
+    def move(self, model, in_place=False):
+        return orch.switch_orchestrator(self.cfg, SEAT, model, providers={}, in_place=in_place)
+
+    def owed(self):
+        return [owed["line"] for owed in watch.seat_read(SEAT).get("owed_lines") or ()]
 
     def record(self):
         return config.session_records()[SEAT]
@@ -127,6 +133,52 @@ class SeatMove(Sandbox):
         self.assertEqual((self.record()["orchestrator"], self.record()["conversation"]),
                          ("fable", OWN))
         self.assertIsNone(watch.seat_read(SEAT).get("midturn"))         # no handover typed
+
+    def test_a_running_claude_seat_moved_in_place_is_typed_the_move(self):
+        watch.owe_line(SEAT, None, {"line": "a run of yours ended"})
+        judged, lines = [], orch.switch_lines
+        with patch.object(orch, "switch_lines",
+                          side_effect=lambda *a, **kw: judged.append(locked()) or lines(*a, **kw)):
+            self.assertEqual(self.move("fable", in_place=True), "")
+        self.assertEqual(judged, [True])      # where no other move can change the seat meanwhile
+        self.assertEqual(self.respawned, [])          # nothing cut: its lines wait for its prompt
+        # ahead of the line it was owed, which the model it moved to answers
+        self.assertEqual(self.owed(), ["/model claude-fable-5-1", "/effort xhigh",
+                                       "a run of yours ended"])
+        self.assertEqual((self.record()["orchestrator"], self.record()["conversation"]),
+                         ("fable", OWN))
+        self.assertEqual(self.move("opus", in_place=True), "")    # a later move comes after
+        self.assertEqual(self.move("fable", in_place=True), "")
+        first = watch.seat_read(SEAT)["owed_lines"][0]
+        for _ in range(2):        # retired by the teller that told it, then by one late to
+            watch.owe_line(SEAT, first)
+        self.assertEqual(self.owed(), ["/effort xhigh", "/model claude-opus-5-5", "/effort xhigh",
+                                       "/model claude-fable-5-1", "/effort xhigh",
+                                       "a run of yours ended"])
+
+    def test_a_move_in_place_refused_by_either_write_leaves_the_seat_to_move_again(self):
+        for refusing in ((config, "update_session"), (watch, "owe_line")):
+            with patch.object(*refusing, side_effect=OSError("disk full")):
+                self.assertIn("disk full", self.move("fable", in_place=True))
+            self.assertEqual((self.owed(), self.record()["orchestrator"]), ([], "opus"))
+        self.assertEqual(self.move("fable", in_place=True), "")
+        self.assertEqual(self.owed(), ["/model claude-fable-5-1", "/effort xhigh"])
+
+    def test_a_turn_its_usage_cut_off_goes_on_after_a_move_in_place(self):
+        watch.seat_write(SEAT, state="at_prompt", usage_wait={
+            "reason": "anthropic out of usage until 2026-10-20 19:20", "until": NOW + 3600,
+            "since": NOW - 60, "continue": True})
+        self.assertEqual(self.move("fable", in_place=True), "")
+        self.assertEqual(self.owed(), ["/model claude-fable-5-1", "/effort xhigh",
+                                       watch.ACCOUNT_LINE])
+        self.assertIsNone(watch.seat_read(SEAT).get("usage_wait"))
+
+    def test_a_seat_whose_harness_ended_moved_in_place_resumes_it(self):
+        watch.owe_line(SEAT, None, {"line": "/model claude-sonnet-5-5", "switch": True})
+        self.ended = True                 # its pane alone: another window of the seat lives on
+        self.assertEqual(self.move("fable", in_place=True), "")
+        self.assertEqual(self.respawned, [["acme-tui", "fable", OWN]])
+        self.assertEqual(self.owed(), [])     # launched on fable: no move's line is left for it
 
     def test_moved_to_another_harness_it_opens_fresh_with_the_handover(self):
         self.spoken()
@@ -259,6 +311,20 @@ class SeatMove(Sandbox):
             self.assertEqual(self.move("fable"), "")
         meanwhile.join()
         self.assertEqual((seen, self.record()["orchestrator"]), (["fable"], "fable"))
+
+    def test_only_an_answer_after_a_move_in_place_went_in_is_followed(self):
+        self.ends_on("opus", NOW - 60)
+        self.assertEqual(self.move("fable", in_place=True), "")
+        self.ends_on("opus", NOW - 30)           # its turn went on while the lines were owed
+        self.assertEqual(self.looked(), "fable")
+        self.assertIsNone(watch.news_owed(SEAT, [], read=False))   # a move's lines tell it nothing
+        with patch.object(watch, "time", Stopped(time.sleep)), \
+                patch.object(watch, "type_at_prompt", return_value=True):
+            watch.tell_owed(SEAT, lambda _: None)        # both go in at its prompt, at NOW
+        self.assertEqual(self.owed(), [])
+        self.assertEqual(self.looked(), "fable")
+        self.ends_on("opus", NOW + 60)           # its harness refused them
+        self.assertEqual(self.looked(), "opus")
 
     def test_back_to_the_old_model_inside_the_seat_after_a_move_is_followed(self):
         self.ends_on("opus", NOW - 60)

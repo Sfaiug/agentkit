@@ -3,12 +3,14 @@ package config
 
 import (
 	"cmp"
+	"context"
 	_ "embed"
 	"errors"
 	"fmt"
 	"math"
 	"math/big"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -17,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"agentkit/internal/commandhelp"
 )
@@ -31,6 +34,25 @@ var defaultConfig string
 func Home() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".agentkit")
+}
+
+// Repo is the checkout ak runs from, Python's config.REPO: the top of the git checkout its
+// resolved executable sits in, else the folder above the executable's bin/, as in a copied tree.
+func Repo() string {
+	executable, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
+		executable = resolved
+	}
+	bin := filepath.Dir(executable)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if top, err := exec.CommandContext(ctx, "git", "-C", bin, "rev-parse", "--show-toplevel").Output(); err == nil {
+		return filepath.Clean(strings.TrimSuffix(string(top), "\n"))
+	}
+	return filepath.Dir(bin)
 }
 
 // places are the folders ak keeps under Home, in Python's config.PLACES order.
@@ -359,6 +381,24 @@ func CheckModel(name string) error {
 	}
 	_, err = resolve(root, name)
 	return err
+}
+
+// Harnesses is each harness the config's models run on, once, in the order the file names them.
+func Harnesses() ([]string, error) {
+	root, err := load()
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	models := root.values["models"].(*table)
+	for _, name := range models.keys {
+		if entry, ok := models.values[name].(*table); ok {
+			if harness, ok := entry.values["harness"].(string); ok && !slices.Contains(names, harness) {
+				names = append(names, harness)
+			}
+		}
+	}
+	return names, nil
 }
 
 // A Model is what a [models.*] entry runs on: its provider and the provider's model id.
