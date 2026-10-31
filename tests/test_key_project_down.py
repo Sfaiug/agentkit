@@ -66,6 +66,20 @@ class ProjectDown(unittest.TestCase):
                                             f"🔴 acme-meter {down} CAUSE: db refused <@42>",
                                             f"🔴 acme-padded {down} CAUSE: db refused <@42>"])
 
+    def test_a_card_reads_malformed_bytes_as_replacement_characters(self):
+        # At the output's end, its start, or filling a last line longer than what is read.
+        cut = self.project("acme", "printf 'probing\\nCAUSE: db refused \\342'; false")
+        lead = self.project("acme-lead", "printf '\\200CAUSE: db refused\\n'; false")
+        long = self.project("acme-long",
+                            "printf '%05000d\\n' 0; printf '%05000d' 0 | tr 0 '\\200'; false")
+        since = int(time.time()) - 300
+        self.home.write(".agentkit/state/alive.json",
+                        {str(repo): since for repo in (cut, lead, long)})
+        down, bad = f"is down since <t:{since}:t> ·", "\ufffd"
+        self.assertCountEqual(self.tick(), [f"🔴 acme {down} CAUSE: db refused {bad} <@42>",
+                                            f"🔴 acme-lead {down} {bad}CAUSE: db refused <@42>",
+                                            f"🔴 acme-long {down} {bad * 200} <@42>"])
+
     def test_no_seat(self):
         self.project("acme", "true")
         unfiled = self.project("acme-old", DOWN, seat=False)
