@@ -10,16 +10,16 @@ that lock file is the one every tick takes, whichever build runs it.  Black-box:
 """
 
 import fcntl
+import re
 import sys
 from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import AK, Home
+from fixtures.akbin import AK, CRON, Home
+from test_key_tick_time_is_visible import STAMP
 
 LIMIT = 5 * 1024 * 1024
-# cron's own line: both streams appended to the log
-TICK = '"$0" watch "$@" >>"$HOME/.agentkit/tmp/watch.log" 2>&1'
 OVERLAP = "tick already running"
 
 
@@ -38,7 +38,7 @@ class TickLogRoll(unittest.TestCase):
         self.kept.unlink(missing_ok=True)
 
     def tick(self, *args):
-        done = self.home.run("sh", "-c", TICK, AK, *args)
+        done = self.home.run("sh", "-c", CRON, AK, *args)
         self.assertEqual(done.code, 0, self.log.read_text()[-2000:])
         return done
 
@@ -49,7 +49,7 @@ class TickLogRoll(unittest.TestCase):
         self.assertEqual(self.kept.stat().st_size, LIMIT + 10)
         self.assertEqual(self.kept.read_bytes(), b"x" * (LIMIT + 10))
         fresh = self.log.read_text()
-        self.assertTrue(fresh.startswith(OVERLAP), fresh[:200])
+        self.assertRegex(fresh[:200], f"^{STAMP} {OVERLAP}")
         self.assertLess(len(fresh), 1024 * 1024)
 
     def test_a_log_of_exactly_5_mb_is_not_rolled(self):
@@ -58,7 +58,7 @@ class TickLogRoll(unittest.TestCase):
         self.assertFalse(self.kept.exists())
         grown = self.log.read_bytes()
         self.assertEqual(grown[:LIMIT], b"x" * LIMIT)
-        self.assertTrue(grown[LIMIT:].startswith(OVERLAP.encode()), grown[LIMIT:])
+        self.assertRegex(grown[LIMIT:].decode(), f"^{STAMP} {OVERLAP}")
 
     def test_a_tick_printing_elsewhere_leaves_a_big_log_alone(self):
         self.home.write(".agentkit/tmp/watch.log", "x" * (LIMIT + 10))

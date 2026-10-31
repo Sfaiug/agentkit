@@ -10,6 +10,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -23,8 +24,14 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, job as jobs, orch, record, run, watch
 from fixtures.tick import only_passes
+from test_key_tick_time_is_visible import STAMP
 
 LOGGED_OUT = "GitHub is logged out: run `gh auth login -p https -w`"     # every seat's reason
+
+
+def logged(path):
+    """The log at `path`, each line the tick wrote there led by `@` for its date and time."""
+    return re.sub(f"^{STAMP} ", "@ ", path.read_text(), flags=re.M)
 
 
 class TickHealth(unittest.TestCase):
@@ -182,20 +189,20 @@ class TickHealth(unittest.TestCase):
             self.assertFalse(kept.exists())
             self.assertTrue(log.exists())
             watch.tick_log("after the roll")        # the file is past the limit now
-            self.assertEqual(watch.log_path().read_text(), "after the roll\n")
+            self.assertEqual(logged(watch.log_path()), "@ after the roll\n")
             print("and the reason it died", file=sys.stderr, flush=True)
         # the lines written before the roll went with the generation they belong to, and both
         # streams followed the rename: nothing lands in a file the next tick will not find
         self.assertTrue(kept.read_bytes().startswith(b"x"))
-        self.assertTrue(kept.read_bytes().endswith(b"under the limit\n"))
-        self.assertEqual(log.read_text(), "after the roll\nand the reason it died\n")
+        self.assertRegex(kept.read_text()[-100:], f"x{STAMP} under the limit\n$")
+        self.assertEqual(logged(log), "@ after the roll\nand the reason it died\n")
         # one generation and no more, and a log under the limit is left where it is
         log.write_bytes(b"z" * (watch.LOG_MAX + 1))
         with self.as_cron():
             watch.tick_log("rolled again")
             watch.tick_log("and not again")
         self.assertTrue(kept.read_bytes().startswith(b"z"))
-        self.assertEqual(log.read_text(), "rolled again\nand not again\n")
+        self.assertEqual(logged(log), "@ rolled again\n@ and not again\n")
         self.assertEqual(sorted(p.name for p in log.parent.iterdir()),
                          [watch.LOG_NAME, watch.LOG_KEPT])
 
@@ -231,7 +238,7 @@ class TickHealth(unittest.TestCase):
         with self.as_cron():
             self.assertEqual(watch.main([]), 0)
         self.assertEqual(log.with_name(watch.LOG_KEPT).stat().st_size, watch.LOG_MAX + 1)
-        self.assertEqual(log.read_text(), "tick already running (pid 5, for 1 min)\n")
+        self.assertEqual(logged(log), "@ tick already running (pid 5, for 1 min)\n")
 
     def test_a_writer_rejoins_the_live_log_after_another_tick_rolls_it(self):
         log, kept = watch.log_path(), watch.log_path().with_name(watch.LOG_KEPT)
@@ -242,14 +249,14 @@ class TickHealth(unittest.TestCase):
             log.write_text("the other tick's fresh log\n")
             watch.tick_log("mine, written after somebody else rolled it")
             print("and mine on stderr", file=sys.stderr, flush=True)
-            self.assertEqual(log.read_text(), "the other tick's fresh log\n"
-                             "mine, written after somebody else rolled it\nand mine on stderr\n")
+            self.assertEqual(logged(log), "the other tick's fresh log\n"
+                             "@ mine, written after somebody else rolled it\nand mine on stderr\n")
             self.assertEqual(kept.stat().st_size, watch.LOG_MAX + 1)   # not a byte more
             # and this writer is bounding the live log again, not the generation behind it
             log.write_bytes(b"y" * (watch.LOG_MAX + 1))
             watch.tick_log("rolled by me this time")
         self.assertTrue(kept.read_bytes().startswith(b"y"))
-        self.assertEqual(log.read_text(), "rolled by me this time\n")
+        self.assertEqual(logged(log), "@ rolled by me this time\n")
 
     def test_a_writer_left_on_an_unlinked_generation_still_rejoins_the_live_log(self):
         log, kept = watch.log_path(), watch.log_path().with_name(watch.LOG_KEPT)
@@ -263,8 +270,8 @@ class TickHealth(unittest.TestCase):
                 log.write_text(f"the {generation} roll's fresh log\n")
             watch.tick_log("mine, from an inode nobody can name")
             print("and mine on stderr", file=sys.stderr, flush=True)
-        self.assertEqual(log.read_text(), "the third roll's fresh log\n"
-                         "mine, from an inode nobody can name\nand mine on stderr\n")
+        self.assertEqual(logged(log), "the third roll's fresh log\n"
+                         "@ mine, from an inode nobody can name\nand mine on stderr\n")
 
     def test_two_writers_that_both_saw_it_oversized_roll_it_only_once(self):
         # The interleaving the lock is for: one writer is already past the size check when
@@ -287,8 +294,8 @@ class TickHealth(unittest.TestCase):
             self.assertEqual(rolled, [False])       # it looked again and left the log alone
             watch.tick_log("mine, after waiting for the lock")
         self.assertEqual(kept.stat().st_size, watch.LOG_MAX + 1)    # the generation survived
-        self.assertEqual(log.read_text(), "the other writer's fresh log\n"
-                                          "mine, after waiting for the lock\n")
+        self.assertEqual(logged(log), "the other writer's fresh log\n"
+                                      "@ mine, after waiting for the lock\n")
 
     # --- a reinstall owns its line -------------------------------------------
 
