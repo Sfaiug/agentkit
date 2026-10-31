@@ -34,6 +34,12 @@ func orchWhy(args []string, out, errOut io.Writer) int {
 	for _, line := range lines {
 		fmt.Fprintln(out, line)
 	}
-	fmt.Fprintln(out, "  slice:     "+host.SeatSliceLine())
+	// where there is no manager the seat's tmux server was started the way it always was, and
+	// this is the one place that says so
+	plainly := ""
+	if !host.UserManager() {
+		plainly = "; this seat's tmux server was started plainly"
+	}
+	fmt.Fprintln(out, "  slice:     "+host.SliceLine()+plainly)
 	return 0
 }
