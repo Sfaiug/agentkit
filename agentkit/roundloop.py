@@ -28,7 +28,9 @@ from . import (config, gitcall, hand_in, handback, history, prompts, record as r
 # `content:` names, as space-separated path prefixes, the project's own product text (its pages,
 # its knowledge base): words that are the product, not notes about the code.
 # `setup:` names the file that makes the machine ak runs on ready for the project (`machine_setup`).
-FRONT_KEYS = ("tests", "health", "cleanup", "users", "features", "suite_image", "content", "setup")
+# `alive:` names the command that tells ak, from its own machine, the product is up (`alive`).
+FRONT_KEYS = ("tests", "health", "cleanup", "users", "features", "suite_image", "content", "setup",
+              "alive")
 
 
 # The words an AGENTS.md body may grow to: what the project is, and the few facts no code can
