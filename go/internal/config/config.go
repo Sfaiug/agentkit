@@ -408,6 +408,9 @@ func Harnesses() ([]string, error) {
 type Model struct {
 	Provider, ID, Harness string
 	Efforts               map[string]string
+	// Meter is the one meter of its provider the entry is gated on (`meter`), and Mode how it
+	// is paid (`mode`), "" where it names none.
+	Meter, Mode string
 }
 
 // RoleEfforts are the keys an entry's efforts go under, a seat's first (config.ROLE_EFFORTS).
@@ -433,6 +436,10 @@ func Offered() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return offered(root), nil
+}
+
+func offered(root *table) []string {
 	var harnesses []string
 	under := map[string][]string{}
 	models := root.values["models"].(*table)
@@ -454,7 +461,7 @@ func Offered() ([]string, error) {
 	for _, harness := range harnesses {
 		names = append(names, under[harness]...)
 	}
-	return names, nil
+	return names
 }
 
 // Models is every entry `resolve` runs.
@@ -496,7 +503,6 @@ func Bind() (Binding, error) {
 		return Binding{}, errUnbound
 	}
 	bound := Binding{Efforts: map[string][][2]string{}}
-	var offered []any // a model naming a harness, and a provider with a table
 	for _, name := range models.keys {
 		entry, ok := models.values[name].(*table)
 		if !ok {
@@ -512,36 +518,61 @@ func Bind() (Binding, error) {
 				bound.Efforts[name] = append(bound.Efforts[name], [2]string{key, effort})
 			}
 		}
-		_, harness := entry.values["harness"].(string)
-		provider, named := entry.values["provider"].(string)
-		if _, listed := root.values["providers"].(*table).values[provider]; harness && named && listed {
-			offered = append(offered, name)
-		}
 	}
-	if len(offered) == 0 {
+	workers, reviewers := groups(root)
+	if workers == nil {
 		return Binding{}, errUnbound
 	}
-	// load() passes over a model no longer offered, the first offered taking a list it empties;
-	// executors written empty beside reviewers stay empty
-	kept := func(key string) (kept []any) {
+	for _, name := range workers {
+		bound.Workers = append(bound.Workers, name)
+	}
+	for _, name := range reviewers {
+		bound.Reviewers = append(bound.Reviewers, name)
+	}
+	return bound, nil
+}
+
+// Groups is [defaults]' workers, and its reviewers, nil where it names none, as Python's load()
+// keeps them to the models offered.
+func Groups() (workers, reviewers []string, err error) {
+	root, err := load()
+	if err != nil {
+		return nil, nil, err
+	}
+	workers, reviewers = groups(root)
+	return workers, reviewers, nil
+}
+
+// groups is Groups of the config read, workers nil where no model is offered: load() passes
+// over a model no longer offered, the first offered taking a list it empties, and executors
+// written empty beside reviewers stay empty.
+func groups(root *table) (workers, reviewers []string) {
+	defaults, offered := root.values["defaults"].(*table), offered(root)
+	if len(offered) == 0 {
+		return nil, nil
+	}
+	kept := func(key string) (kept []string) {
 		listed, _ := defaults.values[key].([]any)
 		for _, name := range listed {
-			if slices.Contains(offered, name) {
+			if name, ok := name.(string); ok && slices.Contains(offered, name) {
 				kept = append(kept, name)
 			}
 		}
 		return kept
 	}
-	workers, _ := defaults.values["workers"].([]any)
+	listed, _ := defaults.values["workers"].([]any)
 	_, written := defaults.values["workers"]
 	_, reviews := defaults.values["reviewers"]
-	if bound.Workers = kept("workers"); bound.Workers == nil && (len(workers) > 0 || !written || !reviews) {
-		bound.Workers = offered[:1]
+	if workers = kept("workers"); workers == nil && (len(listed) > 0 || !written || !reviews) {
+		workers = offered[:1]
 	}
-	if bound.Reviewers = kept("reviewers"); reviews && bound.Reviewers == nil {
-		bound.Reviewers = offered[:1]
+	if workers == nil {
+		workers = []string{} // written empty: still a group
 	}
-	return bound, nil
+	if reviewers = kept("reviewers"); reviews && reviewers == nil {
+		reviewers = offered[:1]
+	}
+	return workers, reviewers
 }
 
 // resolve is the [models.*] entry `config.model` runs, or why it runs none.
@@ -570,7 +601,9 @@ func resolve(root *table, name string) (Model, error) {
 			efforts[key] = word
 		}
 	}
-	return Model{provider, fmt.Sprint(entry.values["model"]), harness, efforts}, nil
+	meter, _ := entry.values["meter"].(string)
+	mode, _ := entry.values["mode"].(string)
+	return Model{provider, fmt.Sprint(entry.values["model"]), harness, efforts, meter, mode}, nil
 }
 
 func valueRepr(value any) string {

@@ -123,9 +123,19 @@ func Turn(name, role, body, workspace, out, session string) (int, string, error)
 	return code, left, nil
 }
 
-// expired says the harness's login expired where the adapter's `auth` verb says why there is
-// none in one line, exiting 1.  Any other answer is no answer, which lets a turn run.
+// expired says the harness's login expired where the adapter's `auth` verb says no.  Any other
+// answer is no answer, which lets a turn run.
 func expired(harness, adapter string, env []string) error {
+	if answered, yes, line := Login(adapter, env); answered && !yes {
+		return fmt.Errorf("%s login expired: %s", harness, line)
+	}
+	return nil
+}
+
+// Login is what the adapter's `auth` verb says of the login env names, as Python's
+// worker.auth_ok reads it: answered where it said one line exiting 0 or 1, yes for 0, and that
+// line.
+func Login(adapter string, env []string) (answered, yes bool, line string) {
 	ctx, cancel := context.WithTimeout(context.Background(), authCap)
 	defer cancel()
 	var stdout, stderr bytes.Buffer
@@ -133,7 +143,7 @@ func expired(harness, adapter string, env []string) error {
 	// A stdin closed at once: asking opens no file of its own on a machine watching for that.
 	cmd.Env, cmd.Stdin, cmd.Stdout, cmd.Stderr, cmd.WaitDelay = env, strings.NewReader(""), &stdout, &stderr, time.Second
 	if err := cmd.Run(); err != nil && !errors.As(err, new(*exec.ExitError)) {
-		return nil
+		return false, false, ""
 	}
 	var lines []string
 	for _, line := range config.SplitLines(stdout.String() + stderr.String()) {
@@ -141,10 +151,10 @@ func expired(harness, adapter string, env []string) error {
 			lines = append(lines, line)
 		}
 	}
-	if len(lines) != 1 || cmd.ProcessState.ExitCode() != 1 {
-		return nil
+	if code := cmd.ProcessState.ExitCode(); len(lines) == 1 && (code == 0 || code == 1) {
+		return true, code == 0, lines[0]
 	}
-	return fmt.Errorf("%s login expired: %s", harness, lines[0])
+	return false, false, ""
 }
 
 // conversation is the one the turn leaves: the id its adapter wrote, else the last its events
