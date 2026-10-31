@@ -248,7 +248,8 @@ func hasTables(root *table) bool {
 // the most `within` can be: past ten points under the best, a point says nothing
 const points = 10
 
-var accountName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+// harnessName is a name that is one path component, as a harness's or an account's is.
+var harnessName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 func stringList(value any, nonempty bool) bool {
 	list, ok := value.([]any)
@@ -365,7 +366,7 @@ func validate(root *table) error {
 		valid := stringList(value, false)
 		if valid {
 			for _, name := range value.([]any) {
-				valid = valid && accountName.MatchString(name.(string))
+				valid = valid && harnessName.MatchString(name.(string))
 			}
 		}
 		if !valid {
