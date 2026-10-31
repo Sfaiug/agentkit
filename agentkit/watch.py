@@ -7784,7 +7784,7 @@ def local_passes(state, dry_run, log):
     Each pass re-derives placement or state from what it finds: a finding remembered from one
     tick to the next loses its race.
     """
-    from . import google_cloud, job as jobs, leases, logins, machines, retire, run
+    from . import google_cloud, history, job as jobs, leases, logins, machines, retire, run, waiter
     providers = {}
 
     def read_usage():
@@ -7867,6 +7867,9 @@ def local_passes(state, dry_run, log):
         ("the switch retirement pass did not run", lambda: retire.hand(log), False),
         ("the seat token pass did not run", lambda: seat_tokens.read(0, 0), False),
         ("history was not brought up to date", lambda: transitions.history_agree(log), False),
+        # The tick alone moves history's WAL into the database, holding no lock of ak's but its
+        # own, so no writer holds the others through those syncs (`waiter.connect`).
+        ("history's WAL was not checkpointed", lambda: waiter.checkpoint(history.path()), False),
         # The first tick of a week writes the board with its largest loss, and the `audit`
         # seat, opened with `[audit]`'s models, is told it at its quiet prompt.
         ("the weekly audit pass did not run", lambda: tell_audit(config.load(), log), False),
