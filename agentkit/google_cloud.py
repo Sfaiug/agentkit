@@ -94,10 +94,9 @@ class Offer(NamedTuple):
     cores: float      # physical: an arm64 vCPU is one, two x86 vCPUs share one
     memory_mb: int
     hourly: float     # euros: its cores, memory, boot disk and address, as the bill will
-    zones: list = ()
+    zones: list = ()  # none in a list kept before ak rented, which is then listed anew
     image: str = ""
     disk: str = ""    # its boot disk's type
-    vcpus: int = 0    # as quotas count them; none in a list kept before, which is listed anew
 
     @property
     def cpus(self):     # the vCPUs its machine counts, as a suite's VMs are given them
@@ -155,10 +154,10 @@ def watch():
     listed, now = rented(), time.time()
     try:
         kept = json.loads((config.STATE / OFFERS).read_text())
-        at, offered = kept["at"], [Offer(*one) for one in kept["offers"]]
-        limits = kept.get("limits") or {}
+        at, limits = kept["at"], kept.get("limits")
+        offered = [Offer(*one) for one in kept["offers"]]
     except (OSError, ValueError, TypeError, KeyError):
-        at, offered, limits = 0, [], {}
+        at, offered, limits = 0, [], None
     prices = {(one.name, one.region): one.hourly for one in offered if _amount(one.hourly)}
     ledger, late = (read := _ledger()) and _moved(read, listed, now, prices), []
     try:
@@ -181,7 +180,8 @@ def watch():
     config._write_json(config.STATE / LATE, late)
     if ledger:
         config._write_json(config.STATE / LEDGER, ledger)
-    if not _amount(at) or now - at >= FRESH_FOR or not all(one.vcpus for one in offered):
+    # no limits in a list kept before ak read quotas, which is then listed anew
+    if not _amount(at) or now - at >= FRESH_FOR or limits is None:
         offered = offers()
         limits = _limits({one.region for one in offered})
         config._write_json(config.STATE / OFFERS, {"at": now, "offers": offered, "limits": limits})
@@ -271,7 +271,7 @@ def offers():
             hourly = vcpus * a_vcpu + mb / 1024 * a_gb + DISK_GB * a_disk_gb + address
             found.setdefault((name, region), Offer(name, region, vcpus if arm else vcpus / 2, mb,
                                                    hourly, [], IMAGE + "-arm64" * arm,
-                                                   DISK_TYPES[product], vcpus)).zones.append(zone)
+                                                   DISK_TYPES[product])).zones.append(zone)
     return list(found.values())
 
 
@@ -316,19 +316,19 @@ def _rent(ledger, wanted, cap, now, offered, limits, taken):
     # the public half of the key `_idle` made, or OSError before any machine is on the meter
     (compute, token), key = _login(), (config.SECRETS / f"{SSH_KEY}.pub").read_text().strip()
     said, tries, used, full = [f"nothing offered with {wanted} MiB a vCPU"], TRIES, Counter(), {}
-    vcpus = {one.name: one.vcpus for one in offered}   # a type's, offered in any region
+    cpus = {one.name: one.cpus for one in offered}    # a type's, offered in any region
     for zone, listed in _pages(token, f"{compute}/aggregated/instances", "items"):
         region = zone.removeprefix("zones/").rsplit("-", 1)[0]
         for one in listed.get("instances") or ():    # ak's or not: a quota counts both
             kind = one["machineType"].split("/")[-1]
-            used.update(dict.fromkeys(_quotas(kind, region, limits), vcpus.get(kind, 0)))
+            used.update(dict.fromkeys(_quotas(kind, region, limits), cpus.get(kind, 0)))
     for offer in best(wanted, offered):
         if (life := int(min(LIFE, left * 3600 / offer.hourly))) < READY:
             said = [f"rents nothing: €{cap - left:.2f} of €{cap:.2f} spent this month or held "
                     f"to the machines' ends leaves less than {READY // 60} minutes of {offer.name}"]
             continue
         if out := [one for one in _quotas(offer.name, offer.region, limits)
-                   if used[one] + offer.vcpus > limits[one]]:
+                   if used[one] + offer.cpus > limits[one]]:
             full.update(dict.fromkeys(out))
             said = ["too little quota left: " + "; ".join(
                 f"{one}: {used[one]:g} of {limits[one]:g} vCPUs in use" for one in full)]
