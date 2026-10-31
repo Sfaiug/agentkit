@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 
+	"agentkit/internal/box"
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/job"
@@ -95,6 +96,9 @@ func validateRun(args []string) string {
 				}
 			}
 		}
+	}
+	if err := box.Check(); err != nil {
+		return err.Error()
 	}
 	if err := config.Check(); err != nil {
 		return err.Error()

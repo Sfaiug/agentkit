@@ -155,15 +155,14 @@ func Task(path string, values map[string]string, flags map[string]bool, out io.W
 // python is whether Python ak makes this launch otherwise than Go would, or reads what Go
 // cannot read as it does: a pull request's review, a queued run's start, a seat's launch, one
 // that history records, one the gate does not admit outright, one Python's rival check may
-// refuse, a config Python refuses before its run, a test rig's adapters, a home HOME does not
-// name, a local time Go reads otherwise, or a string for the record Python would write with a
-// lone surrogate.
+// refuse, a config Python refuses before its run, a home HOME does not name, a local time Go
+// reads otherwise, or a string for the record Python would write with a lone surrogate.
 func python(path string, values map[string]string, flags map[string]bool, bound config.Binding) bool {
 	depth, known := runDepth()
 	_, capped := config.MaxRuns()
 	_, review := values["--review-pr"]
 	if review || os.Getenv("AGENTKIT_RUN_DIR") != "" || os.Getenv("AGENTKIT_SESSION") != "" || sink() == "" ||
-		os.Getenv("AGENTKIT_ADAPTER_DIR") != "" || os.Getenv("HOME") == "" || !localTime() ||
+		os.Getenv("HOME") == "" || !localTime() ||
 		!known || os.Getenv("AK_MAX_RUNS") != "0" && depth == 0 || capped != nil || config.RunMemoryRefused() ||
 		len(bound.Workers) == 0 ||
 		!readable(path, run.Runs(), os.Getenv("AK_PARENT_RUN"), os.Getenv("AK_NOTIFY_SINK")) ||
