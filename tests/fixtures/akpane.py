@@ -2,10 +2,12 @@
 
     python3 akpane.py SCREEN TYPED [COMPOSER]
 
-It draws the text of the file SCREEN, again whenever that file changes or a key comes, and
-appends each byte it reads to TYPED as it comes.  As a harness's own composer does, the last
-line starting with COMPOSER (`❯` unless given) shows what has been typed since the last Enter,
-a paste and its line breaks included; each line entered goes to TYPED.lines as one JSON string.
+It draws the text of the file SCREEN, again whenever that file changes, a key comes or its
+terminal is resized, and appends each byte it reads to TYPED as it comes.  As a harness's own
+composer does, the last line starting with COMPOSER (`❯` unless given) shows, after its first
+character, what has been typed since the last Enter, a paste and its line breaks included -- a
+COMPOSER running on to a placeholder picks that row of a box (`┃  Ask anything…`); each line
+entered goes to TYPED.lines as one JSON string.
 Each frame ends by setting the pane's title to the `stamp` of what it drew: tmux reads a pane's
 output in order, so once the title reads it the frame is on the screen, however tmux laid it
 out.  It takes the terminal in raw mode with bracketed paste on, as the harnesses do, and runs
@@ -53,15 +55,23 @@ def stamp(screen, typed):
     return f"akpane {zlib.crc32(screen):08x} {typed}"
 
 
-def drawn(screen, draft, composer):
+def drawn(screen, draft, composer, height):
+    """A frame of `screen` in a terminal `height` rows tall, its composer showing `draft` and
+    holding the cursor, as a harness's own composer does: OpenCode is typed into only while the
+    cursor sits in its box.  Rows past the terminal's scroll its top away."""
     lines = screen.split("\n")
     at = max((i for i, line in enumerate(lines) if line.lstrip().startswith(composer)),
              default=None)
     # Untouched until something is typed: a chooser's selected line starts with `❯` too.
     if at is not None and draft:
         indent = lines[at][:lines[at].index(composer)]
-        lines[at:at + 1] = f"{indent}{composer} {draft}".split("\n")
-    return "\x1b[H\x1b[2J" + "\r\n".join(lines).rstrip("\r\n")
+        rows = f"{indent}{composer[0]} {draft}".split("\n")
+        lines[at:at + 1] = rows
+        at += len(rows) - 1
+    frame = "\r\n".join(lines).rstrip("\r\n")
+    row = None if at is None else at - max(0, frame.count("\n") + 1 - height)
+    return ("\x1b[H\x1b[2J" + frame
+            + (f"\x1b[{row + 1};{len(lines[at]) + 1}H" if row is not None and row >= 0 else ""))
 
 
 def main(screen_path, typed_path, composer="❯"):
@@ -69,7 +79,7 @@ def main(screen_path, typed_path, composer="❯"):
     lines_path = typed_path.with_name(typed_path.name + ".lines")
     tty.setraw(0)
     os.write(1, b"\x1b[?2004h")
-    stamp_seen, typed, written = None, b"", 0
+    stamp_seen, typed, written, size = None, b"", 0, None
     while True:
         now = screen_path.stat().st_mtime_ns
         got = os.read(0, 4096) if select.select([0], [], [], 0.05)[0] else None
@@ -84,10 +94,13 @@ def main(screen_path, typed_path, composer="❯"):
             with lines_path.open("a", encoding="utf-8") as lines:
                 lines.writelines(json.dumps(line) + "\n" for line in entered[written:])
             written = len(entered)
-        if now != stamp_seen or got:
-            stamp_seen = now
+        # a resize redraws, as a harness does: tmux drops the rows under a cursor when a pane
+        # shrinks, and this cursor sits on the composer's
+        shape = os.get_terminal_size(0)
+        if now != stamp_seen or got or shape != size:
+            stamp_seen, size = now, shape
             screen = screen_path.read_bytes()
-            frame = drawn(screen.decode("utf-8"), draft, composer)
+            frame = drawn(screen.decode("utf-8"), draft, composer, size.lines)
             os.write(1, f"{frame}\x1b]2;{stamp(screen, len(typed))}\x1b\\".encode())
 
 

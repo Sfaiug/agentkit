@@ -93,7 +93,7 @@ out = pathlib.Path(sys.argv[6])
 
     def test_no_summary_reaches_a_reviewer_and_a_dispute_does(self):
         finding = ["finding", "api.py:1", "feature on by default", "task wants it off",
-                   "--quote", "enabled = True"]
+                   "--run", "grep -qF 'enabled = False' api.py"]
         self.plan.write_text(json.dumps([
             {"edits": {"api.py": "enabled = True\n"},
              "says": f"## Summary\nExecutor {CLAIM}: the feature works."},

@@ -32,6 +32,11 @@ turn = ["env", "{off}", "claude", "-p", "{resume}", "--model", "{model}", "--eff
         "--verbose"]
 resume = ["--resume", "{id}"]
 new = ["--session-id", "{id}"]
+# the smallest turn Claude Code runs, `hi` down its stdin, which renews a lapsed login ([login]):
+# on the login's own directory, never a token standing in for it, and as a worker, which keeps
+# a calling seat's hooks quiet
+renew = ["env", "-u", "CLAUDE_CODE_OAUTH_TOKEN", "AK_RUN_ROLE=worker", "claude", "-p", "--model",
+         "haiku", "--tools", "", "--no-session-persistence", "--settings", "{pins}"]
 
 # The lines its prompt takes to move its conversation to another model or effort, `{model}` the
 # id `interactive` passes as --model (`orch.switch_lines`); Claude Code 2.1.314 takes both.
@@ -416,3 +421,16 @@ projects."{folder}".hasTrustDialogAccepted = true
 
 [prep.defaults]
 theme = "dark"
+
+# How the Go build's `auth` reads the logins, as adapters/claude.sh does until Go takes over: the
+# seat's own in `credentials`, on a Mac the usual one's in the Keychain entry first, whose it is
+# in `who`, where Claude Code writes that down; the worker token ([worker_token]) lives
+# `token_days` from its file's date.  A lapsed login holding a refresh token gets the [launch]
+# `renew` turn under `lock`, claude.sh's lock, so the two never renew one login at once.  Of two
+# paths, the second, naming the account, is a named login's.
+[login]
+credentials = ["${CLAUDE_CONFIG_DIR:-~/.claude}/.credentials.json"]
+keychain = "Claude Code-credentials"
+who = ["${CLAUDE_CONFIG_DIR:-~}/.claude.json"]
+token_days = 365
+lock = ["~/.agentkit/tmp/claude-login.lock", "~/.agentkit/tmp/claude-login.$AGENTKIT_ACCOUNT.lock"]

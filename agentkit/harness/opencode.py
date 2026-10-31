@@ -71,6 +71,22 @@ def forget(record):
 retire = forget   # the receipt is all a seat's launch keeps
 
 
+def switchable(model, effort):
+    """Whether the running TUI can move to `model` at `effort` by `/ak-model`: not where the
+    variant a launch would run -- the id's own `#variant`, else the effort -- is one a launch
+    defines itself (adapters/opencode.sh `variants`), which OpenCode reads only as it starts.
+    An answer that cannot be read restarts too: a launch defines whatever it needs."""
+    try:
+        done = config.run_adapter([str(config.adapter("opencode")), "variants", model], 10,
+                                  env=config.child_env())
+        defined = {variant for provider in json.loads(done.stdout)["provider"].values()
+                   for entry in provider["models"].values() for variant in entry["variants"]}
+    except (config.Error, OSError, subprocess.TimeoutExpired, ValueError, TypeError,
+            KeyError, AttributeError):
+        return False
+    return done.returncode == 0 and (model.partition("#")[2] or effort) not in defined
+
+
 def launched(name, cwd, conversation):
     """A receipt of this launch's own, for the seat plugin to write its session into.
 

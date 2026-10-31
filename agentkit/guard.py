@@ -9,7 +9,7 @@ refuses a kill (`kill-server`, `kill-session`, `kill-window`, `kill-pane`) that 
 seat, and a type (`send-keys`, `paste-buffer`, `send-prefix`, `pipe-pane -I`) into one; otherwise
 it execs the real tmux.
 Each new-session also gets its creator's name in its session environment, for the tick's
-cleanup of finished auxiliary sessions (`orch.sweep_finished`).
+cleanup of its auxiliary sessions (`orch.sweep_finished`).
 
 What a seat starts in tmux speaks for that seat, as what it runs in its own shell does: tmux starts
 a pane's process in its server's environment, not the caller's, so a `tmux new-session` the seat

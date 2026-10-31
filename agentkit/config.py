@@ -1094,7 +1094,7 @@ def _read_json(path, shared=False):
         return None
     except OSError as exc:
         raise Error(f"cannot read {path}: {exc}")
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+    except (ValueError, RecursionError) as exc:     # no JSON, or none a parser here can hold
         raise Error(f"{path}: {exc}")
 
 

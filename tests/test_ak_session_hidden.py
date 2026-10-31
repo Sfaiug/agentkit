@@ -99,7 +99,7 @@ class ControlSessionHidden(Sandbox):
         self.assertEqual(orch.dead(None), {"_akx"})
         orch.sweep_finished({}, print)
         asked = [call[2] for call in self.calls if call[0] == "show-environment"]
-        self.assertEqual(asked, ["$1"])   # `_akx` is asked whose it is; `_ak` is never touched
+        self.assertEqual(asked, ["$1", "$2"])   # each other is asked whose it is; `_ak` never
 
     def test_no_seat_takes_its_name(self):
         for raw in ("_ak", " _AK "):

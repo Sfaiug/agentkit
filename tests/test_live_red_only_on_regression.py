@@ -147,7 +147,8 @@ class LiveRedOnlyOnRegression(Sandbox):
                "AGENTKIT_ACCEPTANCE_REQUIRED": "1"}
         with patch.dict(os.environ, env), patch.object(contract, "unavailable",
                                                      return_value=("refused", True)):
-            contract.check({}, self.root, None, self.root, harness="acme")
+            contract.check({"models": {}, "providers": {}}, self.root, None, self.root,
+                           harness="acme")
         self.assertFalse(failed.exists())
         script = ('. "$1"; no "4/4b ak run: refused"; skip "6: no coverage"; '
                   'skip_spent_checks 5/7 refused; finish')

@@ -92,25 +92,29 @@ func validateOrch(args []string) string {
 }
 
 // orchOpen refuses an open nobody typed, as Python's main does: only a person opens a seat.  It
-// answers only where Python's maintenance finds nothing to tidy on the way in; a dry run, a
-// person's open and pane-died's `ended` are Python's.
-func orchOpen(args []string, _, errOut io.Writer) int {
-	name, dryRun := "", false
+// answers only where Python's maintenance finds nothing to tidy on the way in; a person's open
+// and pane-died's `ended` are Python's, and a dry run orchPreview's.
+func orchOpen(args []string, out, errOut io.Writer) int {
+	name, dryRun, flags := "", false, map[string]string{}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--dry-run":
 			dryRun = true
 		case "--model", "--workers":
+			flags[args[i]] = args[i+1]
 			i++
 		default:
 			name = config.SessionName(args[i])
 		}
 	}
+	if dryRun && args[0] != "ended" {
+		return orchPreview(name, flags, out, errOut)
+	}
 	// a terminal a seat made is not a person's; a person's open is Python's, as is a seat name
 	// CurrentSession refuses
 	seat, _, err := config.CurrentSession()
 	typed := terminal.TypedHere()
-	if err != nil || typed && seat == "" || dryRun || len(args) > 0 && args[0] == "ended" || !tidy() || config.EnsureDirs() != nil {
+	if err != nil || typed && seat == "" || len(args) > 0 && args[0] == "ended" || !tidy() || config.EnsureDirs() != nil {
 		return notImplemented(errOut, "orch")
 	}
 	how := "a new seat opens only from a terminal (the menu's n, or `ak orch NAME` typed there)"

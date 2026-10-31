@@ -15,6 +15,9 @@ sys.path.insert(0, str(REPO))
 from fixtures.hand_in import stateful
 from agentkit import config, deliver, gitcall, hand_in, run, staffing, transitions, turns, update, worker
 
+# A blocking finding: its command fails in the checkout, saying what it found.
+FINDING = ["finding", "api.py:2", "wrong result", "breaks callers", "--run", "grep -n 'wrong answer' api.py; exit 7"]
+
 
 class HandIn(unittest.TestCase):
     def setUp(self):
@@ -255,7 +258,7 @@ sys.exit(row.get("code", 0))
         return verdict, lp, calls, logs
 
     def test_records_override_a_contradictory_pass_in_the_harness_text(self):
-        finding = ["finding", "api.py:2", "wrong result", "breaks callers", "--quote", "wrong answer"]
+        finding = FINDING
         verdict, lp, calls, _ = self.review({"commands": [finding, ["done"]], "text": "VERDICT: PASS"})
         self.assertEqual(verdict, "FAIL")
         self.assertEqual(lp.state["round_summaries"][0]["finding_count"], 1)
@@ -270,7 +273,7 @@ sys.exit(row.get("code", 0))
         self.assertEqual(lp.state["round_summaries"][0]["finding_count"], 0)
 
     def test_a_missing_done_is_reasked_in_the_same_session_and_keeps_earlier_findings(self):
-        finding = ["finding", "api.py:2", "wrong result", "breaks callers", "--quote", "wrong answer"]
+        finding = FINDING
         verdict, lp, calls, _ = self.review({"commands": [finding], "text": "VERDICT: PASS"},
                                            {"commands": [["done"]]})
         self.assertEqual(verdict, "FAIL")
@@ -334,7 +337,7 @@ sys.exit(row.get("code", 0))
                     self.assertIn("rate limit", said)
 
     def test_a_plain_closing_keeps_the_finding_without_parking_its_provider(self):
-        finding = ["finding", "api.py:2", "wrong result", "breaks callers", "--quote", "wrong answer"]
+        finding = FINDING
         text = "Handed in one finding about the rate limit parsing, then ran ak hand-in done."
         with patch.object(run.usage, "mark_exhausted", return_value=1) as parked, \
                 patch.object(run.usage, "replenish", return_value=(False, 0)):
@@ -375,7 +378,7 @@ sys.exit(row.get("code", 0))
         parked.assert_not_called()
 
     def test_same_session_retries_keep_findings_and_followups(self):
-        finding = ["finding", "api.py:2", "wrong result", "breaks callers", "--quote", "wrong answer"]
+        finding = FINDING
         followup = ["follow-up", "api.py:1", "old defect", "breaks callers", "--quote", "first line",
                     "--before", "base abc123"]
         for reason in ("transient", "account", "swap", "signal", "foreground"):
@@ -410,7 +413,7 @@ sys.exit(row.get("code", 0))
                     self.root = original
 
     def test_a_host_ended_resume_keeps_the_records_of_its_session(self):
-        finding = ["finding", "api.py:2", "wrong result", "breaks callers", "--quote", "wrong answer"]
+        finding = FINDING
         for suffix in ("", "-retry2", "-retry2-retry-foreground"):
             with self.subTest(suffix=suffix):
                 case = self.root / (suffix or "initial")
@@ -427,7 +430,7 @@ sys.exit(row.get("code", 0))
                     self.root = original
 
     def test_a_plain_closing_without_done_is_reasked_without_losing_records(self):
-        finding = ["finding", "api.py:2", "wrong result", "breaks callers", "--quote", "wrong answer"]
+        finding = FINDING
         text = "Handed in one finding about the rate limit parsing."
         verdict, _, calls, logs = self.review(
             {"commands": [finding], "text": text, "events": [{"type": "result", "result": text}]},
@@ -437,7 +440,7 @@ sys.exit(row.get("code", 0))
         self.assertTrue(any("asking once more" in line for line in logs), logs)
 
     def test_an_abandoned_resume_starts_with_no_records(self):
-        finding = ["finding", "api.py:2", "wrong result", "breaks callers", "--quote", "wrong answer"]
+        finding = FINDING
         verdict, _, calls, logs = self.review({"text": "", "code": 1, "events": []},
                                             {"commands": [["done"]]}, prior=[finding])
         self.assertEqual(verdict, "PASS")

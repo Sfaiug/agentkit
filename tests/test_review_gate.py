@@ -143,23 +143,24 @@ sys.exit(1)
         directory = (set(record.run_dirs()) - before).pop()
         return code, directory, record.read_state(directory)
 
-    def test_preamble_names_the_four_blocking_classes_and_hand_in(self):
+    def test_preamble_blocks_only_what_a_command_shows_and_names_hand_in(self):
         for role in ("reviewer", "reviewer-pr", "reviewer-scratch"):
             with self.subTest(role=role):
                 text = worker.PREAMBLES[role].format(workspace=self.root)
-                for words in ("a correctness defect in the task's outcome",
+                for words in ("finding only for what a command can show fails",
+                              "a correctness defect in the task's outcome, asked-for work missing among them",
                               "a safety or data-loss risk",
                               "a check the executor weakened or skipped",
-                              "a scope violation (work the task did not ask for, "
-                              "or asked-for work missing)",
-                              "complexity the diff adds: a second home for a piece of knowledge, "
-                              "a special case inside general code, work pushed onto callers that "
-                              "the module could do, or a function that only forwards to another",
-                              "complexity already on main is neither blocking nor a follow-up",
+                              "A check line the change removed or weakened is proven like any "
+                              "defect, at its changed line: `grep -qF '<the line>' tests/x.py` "
+                              "fails while the line is gone and passes on base.",
+                              "scope and naming are what a note is for",
+                              "--run 'command'` for a blocking finding and "
+                              "`--quote 'lines from that file'` for a note",
+                              "as a note, in every round and at every line: it never blocks",
                               "ak hand-in follow-up", 'path:line "what" "why it matters"',
                               "never a reason to fail",
                               "however long the follow-ups list is",
-                              "for blocking findings only",
                               "ak refuses malformed or evidence-free findings",
                               "finding commands that exit 0",
                               "checkout of the commit and on the base",

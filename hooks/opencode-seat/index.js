@@ -31,6 +31,10 @@
 // named in $AGENTKIT_OPENCODE_RECEIPT.  A subagent's session is never the seat's: OpenCode's
 // own record of it names its parent, and nothing of it is written.
 //
+// And `/ak-model <provider/model[#variant]> <effort>`, the line the adapter's [switch] types to
+// move the seat: its session switches to that model at the id's own variant, else the effort,
+// as a launch runs it, and no turn starts (2.2.4).
+//
 // Every failure is silent: a hook that fails loudly is a harness that stops.
 import { spawnSync } from "node:child_process";
 import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -251,6 +255,13 @@ export function seatFact(event) {
   return null;
 }
 
+// The model `/ak-model`'s text names, in switchModel's shape, or null for any other text.
+function modelNamed(text) {
+  const [ref, effort, ...rest] = typeof text === "string" ? text.trim().split(/\s+/) : [];
+  const [, providerID, id, own] = /^([^/#]+)\/([^#]+)(?:#(.+))?$/.exec(ref ?? "") ?? [];
+  return id && effort && !rest.length ? { providerID, id, variant: own ?? effort } : null;
+}
+
 export default {
   id: "agentkit.seat",
   async setup(ctx) {
@@ -263,6 +274,19 @@ export default {
         const reason = refusal();
         if (reason) throw new Error(reason);
       }))
+      .catch(() => null);
+    // A version whose plugins add no commands adds none.
+    const command = Promise.resolve()
+      .then(() => ctx.command.transform((commands) => commands.add({
+        name: "ak-model", description: "Switch this session to a model and variant (agentkit)",
+        execute: async ({ sessionID, prompt }) => {
+          const model = modelNamed(prompt?.text);
+          try {
+            if (model) await ctx.session.switchModel({ sessionID, model });
+          } catch {
+            // Refused: the seat's next answer names the model it stayed on (watch.follow_model).
+          }
+        } })))
       .catch(() => null);
     const syncTitle = titleSync(ctx);
     const timer = setInterval(syncTitle, 1000);
@@ -305,7 +329,7 @@ export default {
     return () => {
       clearInterval(timer);
       controller.abort();
-      gate.then((hook) => hook?.dispose?.()).catch(() => {});
+      for (const added of [gate, command]) added.then((hook) => hook?.dispose?.()).catch(() => {});
     };
   },
 };
