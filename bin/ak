@@ -31,7 +31,7 @@ def main():
         return 0
     mod_name, entry = ENTRY.get(sub, (sub, "main"))
     module = __import__(f"agentkit.{mod_name}", fromlist=[entry])
-    owner.mark(sub)
+    owner.mark(f"ak {sub}")
     try:
         if sub == "run" and rest[:1] == ["gc"]:
             from agentkit import gc

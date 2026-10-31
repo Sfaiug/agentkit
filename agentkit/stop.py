@@ -17,20 +17,19 @@ from . import record as run_record
 
 def _ending_work(name, records):
     """The run census and this seat's records, keeping native reads and supplied reads apart;
-    a census read here is every reader's (`record.read_state`), so only read."""
+    a census read here is every reader's (`record.runs`), so only read."""
     supplied = records
     if records is None:
         try:
-            records = [(directory, run_record.read_state(directory, shared=True) or {})
-                       for directory in run_record.run_dirs()]
+            records = run_record.runs()
         except OSError:
             records = []
-    mine = []
+    mine, resolved = [], {}
     for directory, state in records:
         owner = state.get("launched_session") or state.get("session")
         if supplied is not None or owner != name:
             try:
-                owner = transitions.launched_session(state)
+                owner = transitions.launched_session(state, resolved)
             except config.Error:
                 continue
         if owner == name:

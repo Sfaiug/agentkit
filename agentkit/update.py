@@ -1155,8 +1155,7 @@ def first_place(state):
         mine, resolved = (transitions.first_started(state), state.get("run_id") or ""), {}
     except (config.Error, OSError, TypeError):
         return False
-    for directory in run_record.run_dirs():
-        other = run_record.read_state(directory) or {}
+    for _, other in run_record.runs():
         try:
             if ((transitions.first_started(other), other.get("run_id") or "") < mine
                     and _contender(other, seat, since, resolved)):
@@ -1664,4 +1663,7 @@ def upgrade(plan, before):
 
 
 if __name__ == "__main__":
-    sys.exit(startup() if sys.argv[1:] == ["--agentkit"] else background(sys.argv[1]))
+    agentkit = sys.argv[1:] == ["--agentkit"]
+    # `start` and the menu's `update_first` start it unmarked: the mark is its own
+    owner.mark("agentkit update" if agentkit else "harness update")
+    sys.exit(startup() if agentkit else background(sys.argv[1]))

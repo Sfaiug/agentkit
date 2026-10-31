@@ -1,7 +1,7 @@
 """Every `ak` command marks what it starts, and nothing meant to outlive it carries the mark.
 
 `bin/ak` sets `owner.MARK` just before it runs a command: this process's pid namespace, pid,
-start and session and the command, inherited by all it starts.  `--help` and an unknown command
+start and session and `ak` with the command, inherited by all it starts.  `--help` and an unknown command
 set none and read nothing.  A unit, a tmux server, a seat's pane, the warm server, each detached
 start and a sign-in are started unmarked; the menu's install keeps the mark.
 
@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import REPO, Sandbox  # noqa: E402
 from agentkit import config, gc, menu, orch, owner, update, warm, watch  # noqa: E402
 
-MARKED = "4026531836 4242 777 4200 watch"
+MARKED = "4026531836 4242 777 4200 ak watch"
 # `ak usage` through bin/ak, its body a stand-in reporting what it runs under
 PROBE = r"""
 import json, os, runpy, subprocess, sys
@@ -78,7 +78,7 @@ class AkMarksWhatItStarts(Sandbox):
     def test_a_command_runs_under_a_mark_naming_its_own_ak(self):
         seen = self.ak("usage")["seen"]
         self.assertEqual(seen["mark"], f"{seen['namespace']} {seen['pid']} {seen['start']} "
-                                       f"{seen['session']} usage")
+                                       f"{seen['session']} ak usage")
         self.assertEqual(seen["child"], seen["mark"])     # what it starts inherits it
 
     def test_help_and_an_unknown_command_set_none_and_read_nothing(self):

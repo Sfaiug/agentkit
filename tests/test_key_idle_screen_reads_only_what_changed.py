@@ -117,12 +117,14 @@ class OpenScreen(unittest.TestCase):
         return (sum(path.stat().st_size for path in state.iterdir() if seat.match(path.name))
                 + sum(path.stat().st_size for path in runs.rglob("*") if path.is_file()))
 
-    def line_up(self):
-        """Every seat's run waits in one landing line, and a seat owing work has a merge of
-        today's whose ending nobody has told it; acme-29's run goes last, so its row working
-        is a refresh that read them all."""
+    def line_up(self, seats=SEATS):
+        """Those seats' runs wait in one landing line, and one owing work has a merge of today's
+        whose ending nobody has told it; acme-29's run goes last, so its row working is a
+        refresh that read them all."""
         now, runs = time.time(), self.home.path / ".agentkit/runs"
         for n, seat in enumerate(SEATS):
+            if seat not in seats:
+                continue
             waiting = ended(RUNS + 2 + n, seat, now)
             self.home.write(runs / waiting["run_id"] / "run.json", {
                 **waiting, "state": "waiting", "merged": False,

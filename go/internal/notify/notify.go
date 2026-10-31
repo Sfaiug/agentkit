@@ -2,8 +2,10 @@
 // title, the owner's mention, where its id and the webhook come from ($AGENTKIT_DISCORD_USER_ID
 // and $AGENTKIT_DISCORD_WEBHOOK, else the secrets file), how the webhook is asked whether it is
 // live, the terminal notice's text, the rule that a question asks first, and a worker's
-// suppression: a run's worker asks the owner nothing.  Sending, cards and the outbox join it
-// later.
+// suppression: a run's worker asks the owner nothing.  It also hides a seat's question once
+// asked: its notice, its card, which pages the owner once an episode, the outbox each page waits
+// in until the webhook takes it, how a page is posted and its receipt kept, and the terminal
+// notice's delivery, each file in Python's format under Python's locks.
 package notify
 
 import (
@@ -126,29 +128,17 @@ func Check(out, errOut io.Writer) (bool, error) {
 	return true, nil
 }
 
-// get is url's status, asked as Python's urllib asks: its User-Agent, one connection a request
-// (net/http logs what a server sends on an idle one, which may echo the URL), no Referer on a
-// redirect (it would carry the URL), its ten redirects, and giving up after 15 seconds.  A
-// success counts once its whole answer has come, read as sent.
+// userAgent is who ak says it is to a webhook.
+const userAgent = "agentkit/1 (+https://github.com)"
+
+// get is url's status.  A success counts once its whole answer has come, read as sent.
 func get(url string) (int, error) {
 	request, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return 0, err
 	}
-	request.Header.Set("User-Agent", "agentkit/1 (+https://github.com)")
-	client := &http.Client{
-		Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, DisableKeepAlives: true,
-			DisableCompression: true},
-		CheckRedirect: func(next *http.Request, via []*http.Request) error {
-			next.Header.Del("Referer")
-			if len(via) >= 10 {
-				return http.ErrUseLastResponse // a redirect not followed is the status
-			}
-			return nil
-		},
-		Timeout: 15 * time.Second,
-	}
-	answer, err := client.Do(request)
+	request.Header.Set("User-Agent", userAgent)
+	answer, err := client().Do(request)
 	if err != nil {
 		return 0, err
 	}
@@ -157,6 +147,24 @@ func get(url string) (int, error) {
 		_, err = io.Copy(io.Discard, answer.Body)
 	}
 	return answer.StatusCode, err
+}
+
+// client asks as Python's urllib asks: one connection a request (net/http logs what a server
+// sends on an idle one, which may echo the URL), no Referer on a redirect (it would carry the
+// URL), its ten redirects, a POST's 307 or 308 not followed, and giving up after 15 seconds.
+func client() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, DisableKeepAlives: true,
+			DisableCompression: true},
+		CheckRedirect: func(next *http.Request, via []*http.Request) error {
+			next.Header.Del("Referer")
+			if len(via) >= 10 || next.Method == "POST" {
+				return http.ErrUseLastResponse // a redirect not followed is the status
+			}
+			return nil
+		},
+		Timeout: 15 * time.Second,
+	}
 }
 
 // why is why the webhook did not answer, in words Go writes itself, never the error's text: the
