@@ -38,7 +38,7 @@ class AStoppedRebaseTurnsHere(unittest.TestCase):
         # a git directory whose name holds a newline and ends in a space, as git's answers split
         # into lines or trimmed would lose them; the checkout's own lies inside it
         git(self.root, "init", "-q", "-b", "main", "--separate-git-dir",
-            str(self.root / "acme\nrepo "), str(self.repo))
+            str(self.root / "acme-git\nrepo "), str(self.repo))
         for where, text in ((self.repo, "v1\n"), (None, "fix\n"), (self.repo, "main\n")):
             if where is None:
                 git(self.repo, "worktree", "add", "-q", "-b", "fix-api", str(self.checkout))
