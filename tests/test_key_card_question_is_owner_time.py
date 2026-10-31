@@ -56,11 +56,14 @@ class CardQuestionIsOwnerTime(unittest.TestCase):
         self.hooks = hookdrive.Hooks(self.home)
 
     def rows(self):
-        """The owner table, `{kind: [(at, waited), ...]}`, oldest first."""
+        """The owner table, `{kind: [(at, waited), ...]}`, oldest first: none before ak has made
+        it, which a look in the background may be doing as this reads."""
         path = self.home.path / ".agentkit" / "history.db"
         if not path.exists():
             return {}
         with sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True) as db:
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE name = 'owner'").fetchone():
+                return {}
             found = db.execute("SELECT at, kind, waited FROM owner ORDER BY at").fetchall()
         rows = {}
         for at, kind, waited in found:
