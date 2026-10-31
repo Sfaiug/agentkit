@@ -2,7 +2,7 @@
 `said`) and renting (`need`), behind names another provider can be one more module of.  This
 module alone knows Google: the service-account key `KEY`, the token its JWT buys (signed by the
 openssl CLI: the standard library has no RSA), Compute Engine's Spot price list and machine types;
-and which machines it rents serve, and how ssh reaches them (`serving`, `ssh_config`).
+and which machines it rents serve, till when, and how ssh reaches them (`serving`, `ssh_config`).
 """
 
 import base64
@@ -196,9 +196,11 @@ def rented():
 
 
 def serving():
-    """The machines ak rents that serve, as the tick last found them ready, while ak may rent."""
-    lines = (config.STATE / SSH_CONFIG).read_text().splitlines() if ssh_config() else []
-    return [line[5:] for line in lines if line.startswith("Host ") and line != "Host *"]
+    """{name: its end} of the machines ak rents that serve, as the tick last found them ready,
+    while ak may rent."""
+    text = (config.STATE / SSH_CONFIG).read_text() if ssh_config() else ""
+    return {name: int(until) for name, until in re.findall(r"^Host (.+)\n  # until (\d+)$",
+                                                             text, re.M)}
 
 
 def ssh_config():
@@ -425,10 +427,11 @@ def _reach(machine):
 
 
 def _serve(machines):
-    """The ssh config, written whole: `machines` as ssh reaches each, then every other as ever."""
+    """The ssh config, written whole: `machines` with their ends and as ssh reaches each, then
+    every other as ever."""
     path = config.STATE / SSH_CONFIG
     temp = path.with_suffix(".tmp")
-    temp.write_text("".join(f"Host {one.name}\n" + "".join(
+    temp.write_text("".join(f"Host {one.name}\n  # until {int(one.until)}\n" + "".join(
         '  %s "%s"\n' % option for option in _reach(one).items()) for one in machines)
         + "Host *\n  Include ~/.ssh/config\n")
     temp.replace(path)
