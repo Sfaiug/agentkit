@@ -1,13 +1,16 @@
 """A seat moved in place is typed the model and effort its harness's own launch is handed for
 the same entry, so a switch and a restart land it alike: each `[switch]` in adapters/*.toml,
-read by orch.switch_lines, against the line that harness's `interactive` prints.  OpenCode,
-whose TUI takes a model only in its dialogs, has none and restarts, as does a move to a model
+read by orch.switch_lines, against the line that harness's `interactive` prints.  OpenCode's
+launch hands its TUI `<model>#<effort>` in a config document, the run its seat plugin's
+`/ak-model` makes of the two (tests/test_opencode_seat_switches_model.py), and defines a few
+variants itself, which only a launch can run: a move to one restarts, as does a move to a model
 whose launch names none (`default`), which no line can name.
 
 Offline: the real adapters, run against a temporary HOME with a fake harness binary on PATH,
 and the seat's pane faked live.
 """
 
+import json
 import os
 from pathlib import Path
 import shlex
@@ -74,20 +77,29 @@ class SwitchLinesAreTheLaunchS(unittest.TestCase):
         cfg = {"providers": {"acme": {}}, "models": {
             name: {"harness": harness, "model": own, "effort": "low", "provider": "acme"}
             for name, own in (("was", "old-model"), ("to", model))}}
-        with patch.object(config, "session_records", return_value={"atoll": {
-                "orchestrator": "was"}}), patch.object(orch, "find", return_value=None), \
+        with patch.dict(os.environ, {config.ADAPTER_DIR_ENV: ""}), \
+                patch.object(config, "session_records", return_value={"atoll": {
+                    "orchestrator": "was"}}), patch.object(orch, "find", return_value=None), \
                 patch.object(orch, "harness_pane", return_value="%7"), \
                 patch.object(orch, "tmux_out", return_value=(0, "0")):
             return [owed["line"] for owed in orch.switch_lines(cfg, "atoll", "to", effort) or ()]
 
     def test_each_harness_s_switch_is_what_its_launch_is_handed(self):
-        self.assertEqual({harness for harness, _ in SWITCH},
+        self.assertEqual({harness for harness, _ in SWITCH} | {"opencode"},
                          {harness for harness, data in config.manifests() if "switch" in data})
         for (harness, effort), (lines, run) in SWITCH.items():
             with self.subTest(harness=harness, effort=effort):
                 self.assertEqual(self.switch(harness, effort), lines)
                 words = self.launch(harness, effort)
                 self.assertTrue(holds(words, run), words)
+
+    def test_opencode_s_names_the_run_its_launch_is_handed_but_a_variant_it_defines(self):
+        [content] = [word.partition("=")[2] for word in self.launch("opencode", "high", "acme/m")
+                     if word.startswith("OPENCODE_CONFIG_CONTENT=")]
+        self.assertEqual(json.loads(content)["model"], "acme/m#high")
+        self.assertEqual(self.switch("opencode", "high", "acme/m"), ["/ak-model acme/m high"])
+        self.assertEqual(self.switch("opencode", "none", "acme/m"), [])
+        self.assertEqual(self.switch("opencode", "high", "mimo/m"), [])
 
     def test_a_model_its_harness_picks_itself_restarts(self):
         self.assertNotIn("-m", self.launch("codex", "high", model=config.DEFAULT_MODEL))
