@@ -1,4 +1,9 @@
-"""Smoke's live Claude assertion. Model calls are launched only by tests/smoke.sh."""
+"""Smoke's live Claude assertion, check 3a: its turn streams before it ends.
+
+    python3 tests/check_claude_stream.py <out-dir> <workspace>
+
+Model calls are launched only by tests/smoke.sh.
+"""
 
 import json
 import os
@@ -7,6 +12,7 @@ import subprocess
 import signal
 import sys
 import time
+from unittest.mock import patch
 
 
 def read_events(path):
@@ -60,5 +66,23 @@ def check(out, command):
     print(f"Claude streamed {len(events)} real events; output was visible before exit")
 
 
+def turn(workspace, out):
+    """Check 3a's turn: Claude's [check] model, no instructions, on the login the check runs."""
+    from check4_pair import login
+    from agentkit import config, worker
+    cfg = config.load()
+    entry = config.model(cfg, "opus")
+    entry.update(config.manifest(entry["harness"])["check"])
+    with patch.dict(worker.PREAMBLES, {"executor-scratch": ""}):
+        code, *_ = worker.turn(cfg, "opus",
+                               "Say STREAM_READY, then run pwd, then reply DONE. Do not edit files.\n",
+                               workspace, out, role="executor-scratch",
+                               env=config.account_env(login(cfg, entry["provider"])))
+    return code
+
+
 if __name__ == "__main__":
-    check(Path(sys.argv[1]).resolve(), sys.argv[2:])
+    if sys.argv[1] == "--turn":
+        sys.exit(turn(*sys.argv[2:]))
+    out = Path(sys.argv[1]).resolve()
+    check(out, [sys.executable, __file__, "--turn", sys.argv[2], str(out)])

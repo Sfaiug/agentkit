@@ -237,8 +237,9 @@ smoke_source() {   # smoke_source <caller's file>: 0 to borrow it, 1 when nothin
   [ "$dir" != "$1" ] && [ -e "$dir" ] && { [ ! -d "$dir" ] || [ -x "$dir" ]; } && return 1
   echo "smoke: cannot read $1" >&2; exit 1
 }
-# A bounded way to refresh the real Claude fixture without running the GitHub merge check.
-# The caller supplies an isolated HOME and output directory when outside writes are forbidden.
+# A bounded way to refresh the real Claude fixture without running the GitHub merge check:
+# check 3a alone.  The caller supplies an isolated HOME and output directory when outside writes
+# are forbidden.
 if [ "${1:-}" = --claude-stream ]; then
   [ $# = 2 ] || { echo "usage: tests/smoke.sh --claude-stream <out-dir>" >&2; exit 2; }
   STREAM=$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$2")
@@ -246,10 +247,7 @@ if [ "${1:-}" = --claude-stream ]; then
   trap 'rc=$?; rm -rf -- "$STREAM_HOME"; exit "$rc"' EXIT
   WORK="$STREAM_HOME" smoke_home
   mkdir -p -- "$STREAM/workspace"
-  printf 'Say STREAM_READY, then use Bash to run pwd, then reply DONE. Do not edit files.\n' >"$STREAM/prompt.txt"
-  python3 "$REPO/tests/check_claude_stream.py" "$STREAM/out" \
-    ak worker opus "$STREAM/prompt.txt" --workspace "$STREAM/workspace" \
-    --role executor-scratch --out "$STREAM/out"
+  python3 "$REPO/tests/check_claude_stream.py" "$STREAM/out" "$STREAM/workspace"
   exit $?
 fi
 usage_fresh_check() {
@@ -1389,12 +1387,9 @@ model_unavailable() {   # missing binary/login, or nothing; a broken saved login
 import sys
 from agentkit import config
 sys.path.insert(0, str(config.REPO / "tests"))
-from check4_pair import login
 from check_harness_contract import unavailable
-cfg = config.load()
-entry = config.model(cfg, sys.argv[1])
-why, broken = unavailable(entry["harness"], seat="seat" in sys.argv[2:],
-                          account=login(cfg, entry["provider"]))
+why, broken = unavailable(config.model(config.load(), sys.argv[1])["harness"],
+                          seat="seat" in sys.argv[2:])
 if why:
     print(why)
 sys.exit(int(broken))
@@ -1600,20 +1595,8 @@ if skip_spent 3a opus; then
   :
 else
   R="$WORK/claude-stream-workspace"; mkdir -p -- "$R"
-  PYTHONPATH="$REPO/tests:$REPO" python3 "$REPO/tests/check_claude_stream.py" "$WORK/o-claude-stream" \
-    python3 -c 'import sys
-from unittest.mock import patch
-from agentkit import config, worker
-from check4_pair import login
-cfg = config.load()
-entry = config.model(cfg, "opus")
-entry.update(config.manifest(entry["harness"])["check"])
-with patch.dict(worker.PREAMBLES, {"executor-scratch": ""}):
-    code, *_ = worker.turn(cfg, "opus",
-        "Say STREAM_READY, then run pwd, then reply DONE. Do not edit files.\n",
-        sys.argv[1], sys.argv[2], role="executor-scratch",
-        env=config.account_env(login(cfg, entry["provider"])))
-sys.exit(code)' "$R" "$WORK/o-claude-stream" >"$WORK/claude-stream.log" 2>&1
+  python3 "$REPO/tests/check_claude_stream.py" "$WORK/o-claude-stream" "$R" \
+    >"$WORK/claude-stream.log" 2>&1
   STREAMRC=$?
   if skip_refused 3a opus "$STREAMRC" "$WORK/o-claude-stream"; then
     :

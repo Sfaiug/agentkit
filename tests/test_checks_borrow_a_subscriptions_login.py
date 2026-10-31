@@ -96,7 +96,7 @@ class ChecksBorrowASubscriptionsLogin(LentLogins):
     def test_a_usual_login_beside_a_listed_one_is_lent_and_counted_as_ever(self):
         self.assert_counted(self.smoke("google", place(""), place("acme"), keep=True), "")
 
-    def test_check_3_spends_the_listed_account_not_the_usual_tokens(self):
+    def test_checks_3_and_3a_spend_the_listed_account_not_the_usual_tokens(self):
         token = self.caller / ".agentkit/secrets/claude_oauth_token"
         token.parent.mkdir(parents=True)
         token.write_text("fixture-worker-token")
@@ -104,14 +104,18 @@ class ChecksBorrowASubscriptionsLogin(LentLogins):
                           CLAUDE_CODE_OAUTH_TOKEN="fixture-exported-token")
         claude, spent = self.root / "bin/claude", self.root / "spent"
         claude.write_text(CLAUDE)
-        result = subprocess.run([sys.executable, str(REPO / "tests/check_harness_contract.py"),
-                                 "claude"], cwd=self.root, text=True, capture_output=True,
-                                env={**self.env, "HOME": str(home), "SPENT": str(spent),
-                                     "SMOKE_CALLER_HOME": str(self.caller),
-                                     "PYTHONPATH": unboxed_worker(self.root)}, timeout=120)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("PASS  3 claude:", result.stdout)
-        self.assertEqual(spent.read_text().split(), ["fixture-access"] * 2)
+        env = {**self.env, "HOME": str(home), "SPENT": str(spent),
+               "SMOKE_CALLER_HOME": str(self.caller), "PYTHONPATH": unboxed_worker(self.root)}
+        # Check 3's two turns, then check 3a's, as tests/check_claude_stream.py runs it.
+        for check, said in ((["check_harness_contract.py", "claude"], "PASS  3 claude:"),
+                            (["check_claude_stream.py", "--turn", str(self.root),
+                              str(self.root / "3a")], "")):
+            result = subprocess.run([sys.executable, str(REPO / "tests" / check[0]), *check[1:]],
+                                    cwd=self.root, text=True, capture_output=True, env=env,
+                                    timeout=120)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn(said, result.stdout)
+        self.assertEqual(spent.read_text().split(), ["fixture-access"] * 3)
 
     def test_muses_readings_are_the_listed_accounts(self):
         state = self.caller / ".agentkit/state"
