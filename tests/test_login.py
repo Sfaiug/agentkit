@@ -238,6 +238,27 @@ class Login(unittest.TestCase):
             (path / "security").chmod(0o755)
         return {"PATH": f"{path}:{os.environ['PATH']}"}
 
+    def waits(self):
+        """Every timed wait the process asks for from now on, by what it asked; each still waits.
+
+        `At once` without a wall clock: what the code asked to wait is its own bounds -- a poll,
+        a stop's grace, the verb's cap -- however long a loaded host makes each one take.
+        """
+        asked, sleep, wait = [], time.sleep, threading.Event.wait
+
+        def sleeping(seconds):
+            asked.append(seconds)
+            sleep(seconds)
+
+        def waiting(event, timeout=None):
+            if timeout is not None:     # untimed: a thread starting, or a hang the suite names
+                asked.append(timeout)
+            return wait(event, timeout)
+
+        self.stack.enter_context(patch.object(time, "sleep", sleeping))
+        self.stack.enter_context(patch.object(threading.Event, "wait", waiting))
+        return asked
+
     def adopted(self, run_dir, argv, expected=None, park_as=False):
         """What `spawn_bg` leaves on disk: the receipt queued for the child it started."""
         state = record.read_state(run_dir)
@@ -278,14 +299,16 @@ class Login(unittest.TestCase):
         # minutes on.  The `auth` verb is asked and the turn stops on the answer.
         self.log_out()
         directory = self.root / "out"
+        waited = self.waits()
         with self.assertRaises(worker.LoginExpired) as caught:
             worker.call(self.cfg, "opus", "do the thing", self.root, directory)
         self.assertEqual(caught.exception.harness, "claude")
         self.assertIn("the token expired", caught.exception.why)
         # the verb refused before the launch, so no turn was ever started and no silence
-        # window ever opened
+        # window ever opened -- and nothing was waited for but the verb, under its own cap
         self.assertEqual(self.turns(), [])
         self.assertEqual(self.backoffs, [])
+        self.assertLessEqual(sum(waited), worker.AUTH_CAP)
 
     def test_a_stderr_auth_signature_ends_the_turn_at_once(self):
         # The token is fine as far as the verb can see; the harness says otherwise in its own
@@ -324,19 +347,24 @@ class Login(unittest.TestCase):
         mark = watch.auth_expiry("claude")[2][0]
         for harness in self.harnesses:
             self.adapter(harness, HANGING.replace("__MARK__", mark))
-        stops, limited = [], worker.limited
+        waited, stops, limited = self.waits(), [], worker.limited
 
         def watched(*args, **kwargs):
-            """The turn's watchdog, saying why it stopped the turn."""
-            return limited(*args, on_timeout=lambda why, _pid: stops.append(why), **kwargs)
+            """The turn's watchdog, saying why it stopped the turn and how much it waited first."""
+            return limited(*args, on_timeout=lambda why, _pid: stops.append((why, len(waited))),
+                           **kwargs)
 
         with patch.object(worker, "limited", watched), \
                 self.assertRaises(worker.LoginExpired) as caught:
             worker.call(self.cfg, "opus", "do it", self.root, self.root / "hanging",
                         limit=20 * 60)
         self.assertEqual(caught.exception.why, mark)
-        # stopped on that line while it ran, never on the twenty-minute silence window
-        self.assertEqual(stops, ["abort"])
+        # stopped on that line while it ran, never on the twenty-minute silence window: looked
+        # for at least once a poll, and once seen, waited for no longer than the stop's grace
+        [(why, at)] = stops
+        self.assertEqual(why, "abort")
+        self.assertLessEqual(max(waited[:at], default=0), worker.ACTIVITY_POLL)
+        self.assertLessEqual(sum(waited[at:]), worker.KILL_GRACE)
         # and nothing it spawned outlived it: the box waits out its namespace's teardown
         self.assertEqual(subprocess.run(["pgrep", "-f", str(self.adapters / "claude.sh")],
                                         capture_output=True).returncode, 1)
