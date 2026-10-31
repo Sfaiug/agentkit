@@ -6,9 +6,10 @@ rate_limit`, which spends none of it, and when `core` or `graphql` has `remainin
 until the reset, says so once in the run's log, and asks again.  A failure with both left fails
 as before; the tick never waits for it, since its passes ask again next tick.  Black-box
 against the GitHub of tests/fixtures/fakegh.py, with a scripted reviewer from fakeadapter.py.
-Today's ak sleeps until the reset (there is no seam to shorten it), so this file takes a little
-over a minute and a half.  The wait is judged by when the run asked GitHub again, never by when
-it ended: a run that asked early and sat out the rest only after would end just as late.
+GitHub names the reset as the run asks for it, and today's ak sleeps until then (there is no
+seam to shorten it), so this file takes a little over a minute.  The wait is judged by when the
+run asked GitHub again, never by when it ended: a run that asked early and sat out the rest
+only after would end just as late.
 """
 
 from datetime import datetime, timezone
@@ -26,13 +27,18 @@ from fixtures.gitrig import Rig
 
 SPENT = "gh: API rate limit exceeded for user ID 1. (HTTP 403)\n"
 RATE_LIMIT = ["api", "rate_limit"]
+# Seconds after the run asks that its allowance comes back: past ak's least wait, a minute, by
+# more than a slow host takes to start waiting, so the run waits for the reset, not that.
+AFTER = 70
 
 
-def allowance(core, graphql, reset):
-    """`gh api rate_limit`'s answer: each resource's calls left, both coming back at `reset`."""
-    return json.dumps({"resources": {name: {"limit": 5000, "used": 5000 - left, "remaining": left,
-                                            "reset": reset}
-                                     for name, left in (("core", core), ("graphql", graphql))}})
+def allowance(core, graphql, after):
+    """`gh api rate_limit`'s answer: each resource's calls left, both coming back `after` seconds
+    after it is asked."""
+    resources = {name: {"limit": 5000, "used": 5000 - left, "remaining": left, "reset": 0}
+                 for name, left in (("core", core), ("graphql", graphql))}
+    # GitHub's reset is a number, which fakegh's `{in N}` stands for unquoted
+    return json.dumps({"resources": resources}).replace('"reset": 0', f'"reset": {{in {after}}}')
 
 
 def record(run_dir):
@@ -45,8 +51,8 @@ def record(run_dir):
 
 def reviewed(case, script):
     """A review run of another author's PR, the reviewer passing it, gh first answering what
-    `script(slug, reset, pr)` says (`GitHub.reply`'s words), `pr` the REST API's read of the
-    PR; `waiting` is the run's record as it first carried a wait."""
+    `script(slug, pr)` says (`GitHub.reply`'s words), `pr` the REST API's read of the PR;
+    `waiting` is the run's record as it first carried a wait, `reset` the one GitHub named."""
     case.home = Home()
     case.addClassCleanup(case.home.close)
     rig = Rig(case.home, "widget")
@@ -56,9 +62,7 @@ def reviewed(case, script):
     pr = case.home.run("gh", "api", f"repos/{rig.slug}/pulls/1").out
     akconfig.write(case.home, ["opus"])
     fakeadapter.install(case.home, claude="pass")
-    # far enough past ak's least wait, a minute, that the run waits for the reset, not that
-    case.reset = int(time.time()) + 90
-    for prefix, reply in script(rig.slug, case.reset, pr):
+    for prefix, reply in script(rig.slug, pr):
         case.gh.reply(prefix, **reply)
     proc = case.home.spawn("run", "--review-pr", case.url)
     case.waiting, deadline = None, time.monotonic() + 300
@@ -73,6 +77,7 @@ def reviewed(case, script):
     run_dir = taskfile.only_run(case.home)
     case.state = record(run_dir)
     case.asked = case.gh.asked()
+    case.reset = next((int(at) + AFTER for at, argv in case.asked if argv == RATE_LIMIT), None)
     case.log = (run_dir / "log.txt").read_text().splitlines()
     case.said = [line for line in case.log if "waiting for GitHub's API allowance" in line]
 
@@ -82,8 +87,8 @@ class SpentAllowance(unittest.TestCase):
     def setUpClass(cls):
         # the launch's read and the round's pass; the read before the post is refused, as on
         # 26 Oct
-        reviewed(cls, lambda slug, reset, pr: [
-            ("api rate_limit", {"out": allowance(0, 4000, reset)}),
+        reviewed(cls, lambda slug, pr: [
+            ("api rate_limit", {"out": allowance(0, 4000, AFTER)}),
             (f"api repos/{slug}/pulls/1", {"out": pr, "times": 2}),
             (f"api repos/{slug}/pulls/1", {"err": SPENT, "code": 1, "times": 1})])
 
@@ -117,8 +122,8 @@ class SpentAllowance(unittest.TestCase):
 class AllowanceLeft(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        reviewed(cls, lambda slug, reset, _pr: [
-            ("api rate_limit", {"out": allowance(4999, 4999, reset)}),
+        reviewed(cls, lambda slug, _pr: [
+            ("api rate_limit", {"out": allowance(4999, 4999, AFTER)}),
             (f"api repos/{slug}/pulls/1/reviews", {"err": SPENT, "code": 1})])
 
     def test_a_failure_with_calls_left_ends_the_run_as_before_with_no_wait(self):
@@ -138,8 +143,8 @@ class Tick(unittest.TestCase):
         self.addCleanup(home.close)
         akconfig.write(home, ["opus"])
         gh = GitHub(home)
-        reset = int(time.time()) + 3600     # a tick waiting for it would outlast its bound
-        gh.reply("api rate_limit", allowance(0, 0, reset))
+        # a tick waiting for it would outlast its bound
+        gh.reply("api rate_limit", allowance(0, 0, 3600))
         gh.reply("", err=SPENT, code=1)
         done = home.tick()
         self.assertEqual(done.code, 0, done.out + done.err)

@@ -126,7 +126,8 @@ class GitHub:
 
     def reply(self, prefix, out="", *, err="", code=0, times=None):
         """Answer the calls whose space-joined argv starts with `prefix` so, `times` times or
-        for good, ahead of everything else; "" is every call."""
+        for good, ahead of everything else; "" is every call.  `{in N}` in `out` is the epoch
+        second N seconds after the call, as GitHub names a reset."""
         with _locked(self.file) as state:
             state["replies"].append({"prefix": prefix, "out": out, "err": err, "code": code,
                                      "times": times})
@@ -486,16 +487,18 @@ def _one(opts, *names):
 
 
 def main(file, log, *argv):
+    now = time.time()
     with open(log, "a") as calls:
         calls.write(json.dumps(list(argv)) + "\n")
     with Path(file).with_suffix(".calls").open("a") as calls:
-        calls.write(json.dumps([time.time(), list(argv)]) + "\n")
+        calls.write(json.dumps([now, list(argv)]) + "\n")
     out, err, code = "", "", 0
     with _locked(Path(file)) as state:
         for reply in state["replies"]:
             if " ".join(argv).startswith(reply["prefix"]) and reply["times"] != 0:
                 reply["times"] = None if reply["times"] is None else reply["times"] - 1
-                out, err, code = reply["out"], reply["err"], reply["code"]
+                out = re.sub(r"\{in (\d+)\}", lambda m: str(int(now) + int(m[1])), reply["out"])
+                err, code = reply["err"], reply["code"]
                 break
         else:
             try:
