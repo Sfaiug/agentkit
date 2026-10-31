@@ -4,6 +4,7 @@ import contextlib
 import json
 import math
 import os
+import socket
 import sqlite3
 import threading
 import time
@@ -80,6 +81,10 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("landing_breaks", "INTEGER"), ("broke_after_merge", "TEXT"),
               ("own_orchestrator", "TEXT"), ("executor_effort", "TEXT"),
               ("own_orchestrator_effort", "TEXT"))
+# Columns of runs an older agentkit made for a suite's measures and nothing wrote, dropped where a
+# history still holds them: each check is a `checks` row now.  `suite_wait_seconds` stays, the
+# heavy-suite turn waits `WAITS` counts, which the board's compute row reads.
+DROPPED = ("suite_cpu_seconds", "suite_wall_seconds", "suite_peak_mb", "suite_repo")
 
 # One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`) and each wait
 # it counted (`WAITS`, named `<wait> wait`), its end moved by each checkpoint or poll and
@@ -92,6 +97,28 @@ CREATE TABLE IF NOT EXISTS phases (
     started_at REAL,
     ended_at REAL,
     PRIMARY KEY (run_id, phase, started_at)
+)
+"""
+
+# One row per check a round runs, written where it runs (`check`): `kind` is `done-when`, `rules`,
+# `base-proof` or `replay`, `command` the text ak ran (a list a helper ran as one shell, a command
+# a line; a suite's piece its `AK_SHARD=` share before it), `tree` the commit checked (the base's
+# for a base proof; NULL for a scratch run's one workspace), `place` the host or helper, `exit`
+# NULL where it never returned.  Its wait and wall are differences of its moments, and `rerun` is
+# 1 where the command, or a list holding it, already ran on this tree in this run.
+CHECKS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS checks (
+    run_id TEXT,
+    round INTEGER,
+    kind TEXT,
+    command TEXT,
+    tree TEXT,
+    place TEXT,
+    exit INTEGER,
+    requested_at REAL,
+    started_at REAL,
+    finished_at REAL,
+    rerun INTEGER
 )
 """
 
@@ -167,6 +194,7 @@ def _connect(*, readonly=False):
         connection.commit()
     connection.execute(SCHEMA)
     connection.execute(PHASES_SCHEMA)
+    connection.execute(CHECKS_SCHEMA)
     connection.execute(REVIEWS_SCHEMA)
     connection.execute(OWNER_SCHEMA)
     connection.execute(DONES_SCHEMA)
@@ -177,6 +205,10 @@ def _connect(*, readonly=False):
         for name, kind in migrations:
             if name not in have:
                 connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+    # SQLite drops a column from 3.35 on: an older one keeps them, which nothing reads or writes
+    if sqlite3.sqlite_version_info >= (3, 35):
+        for name in set(DROPPED) & {row[1] for row in connection.execute("PRAGMA table_info(runs)")}:
+            connection.execute(f"ALTER TABLE runs DROP COLUMN {name}")
     if connection.execute("PRAGMA user_version").fetchone()[0] < 2:
         _apply_token_recounts(connection, _recount_tokens(connection))
     return connection
@@ -400,6 +432,39 @@ def add_wait(run_id, wait, seconds, at=None, *, began=None, log=None):
     at = time.time() if at is None else at
     began = at - seconds if began is None else began
     _write(lambda connection: waiter.add_wait(connection, run_id, wait, seconds, began, at), log)
+
+
+@contextlib.contextmanager
+def check(run_dir, checked, command, requested_at, place=None):
+    """The row of one check a round runs (`CHECKS_SCHEMA`), written as it starts, so a check
+    that never returns -- killed, interrupted, its process gone -- keeps one: the caller appends
+    the exit it returned to the list this yields, and its end is written however the block ends.
+    `checked` is its `(round, kind, tree)`, None for a check no round runs, which leaves none, and
+    `place` this host unless named.  A run with no row keeps no checks."""
+    ended, row = [], None
+    if checked is not None and run_dir is not None:
+        values = (Path(run_dir).name, *checked, command, place or socket.gethostname(),
+                  requested_at, time.time())
+        row = _write(lambda connection: _started(connection, values))
+    try:
+        yield ended
+    finally:
+        if row:
+            _write(lambda connection: connection.execute(
+                "UPDATE checks SET exit=?, finished_at=? WHERE rowid=?",
+                (ended[0] if ended else None, time.time(), row)))
+
+
+def _started(connection, values):
+    """The new row's id, or None for a run with no row."""
+    cursor = connection.execute(
+        "INSERT INTO checks (run_id, round, kind, tree, command, place, requested_at, started_at, "
+        "rerun) SELECT run_id, ?2, ?3, ?4, ?5, ?6, ?7, ?8, EXISTS (SELECT 1 FROM checks "
+        "WHERE run_id=?1 AND tree IS ?4 AND "
+        "instr(char(10) || command || char(10), char(10) || ?5 || char(10))) "
+        "FROM runs WHERE run_id=?1", values)
+    # an insert of no row leaves the connection's last rowid, another table's
+    return cursor.lastrowid if cursor.rowcount else None
 
 
 phase = waiter.phase
