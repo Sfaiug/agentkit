@@ -44,21 +44,21 @@ func TestOnlyTheRunningLaunchsTurnCountsAReachOfTheLiveHost(t *testing.T) {
 	}
 	put("session-acme.json", `{}`)
 	put("stop-acme.json", `{"turn": 100}`)
-	if reachedLive("acme") {
+	if ReachedLive("acme") {
 		t.Fatal("no reach is no reach")
 	}
 	put("live-acme.txt", "101.5\n")
-	if !reachedLive("acme") {
+	if !ReachedLive("acme") {
 		t.Fatal("a reach since the turn began counts")
 	}
 	// renamed into acme, its harness still writes under the old name, whose turn is the newer
 	put("session-old.json", `{"renamed": "acme"}`)
 	put("stop-old.json", `{"turn": 200}`)
-	if reachedLive("acme") {
+	if ReachedLive("acme") {
 		t.Fatal("a reach before the running launch's turn counts not")
 	}
 	put("live-old.txt", "200")
-	if !reachedLive("acme") {
+	if !ReachedLive("acme") {
 		t.Fatal("the running launch's reach counts")
 	}
 }

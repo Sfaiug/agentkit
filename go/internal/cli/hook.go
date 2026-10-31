@@ -2,10 +2,8 @@ package cli
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,12 +15,17 @@ import (
 
 // hook carries out what a hook stub under go/hooks hands over: `ak hook <stem>`, the event's
 // JSON on stdin.  A hook that fails loudly is a harness that stops, so it reads all its stdin,
-// prints nothing and exits 0, whatever it was handed and whatever fails.
-func hook(args []string) (code int) {
+// prints nothing but its harness's answer on out and exits 0, whatever it was handed and
+// whatever fails.
+func hook(args []string, out io.Writer) (code int) {
 	defer func() { recover() }()
-	payload, _ := io.ReadAll(os.Stdin)
-	if len(args) == 1 && args[0] == "seat-state" {
+	payload, err := io.ReadAll(os.Stdin)
+	switch {
+	case len(args) != 1:
+	case args[0] == "seat-state":
 		seatState(payload)
+	case args[0] == "orchestrator-stop" && err == nil:
+		orchestratorStop(payload, out)
 	}
 	return 0
 }
@@ -49,23 +52,13 @@ func seatState(payload []byte) {
 	}
 	at := float64(time.Now().UnixNano()) / 1e9
 	if name == "UserPromptSubmit" {
-		dir := filepath.Join(config.Home(), "state")
-		if os.MkdirAll(dir, 0o700) != nil {
-			return
-		}
-		latch := filepath.Join(dir, "stop-"+seat+".json")
-		tmp := fmt.Sprintf("%s.tmp.%d", latch, os.Getpid())
 		data, _ := json.Marshal(struct {
 			Session string  `json:"session"`
 			Turn    float64 `json:"turn"`
 			Blocks  int     `json:"blocks"`
 		}{seat, at, 0})
-		if os.WriteFile(tmp, append(data, '\n'), 0o600) != nil {
-			os.Remove(tmp)
+		if relatch(seat, string(data)) != nil {
 			return
-		}
-		if os.Rename(tmp, latch) != nil {
-			os.Remove(tmp)
 		}
 	}
 	// `ak orch rename` leaves a pointer at the old name, and the harness carries its launch
@@ -98,7 +91,7 @@ func seatState(payload []byte) {
 		if nudged, err := lifecycle.Nudged(harness); err != nil || !nudged {
 			return
 		}
-		fact = lifecycle.StopFact(seat, event, at)
+		fact = lifecycle.StopFact(seat, event, at, false)
 	}
 	hookfact.Record(row, fact, lifecycle.Keeps(harness, fact))
 }

@@ -164,11 +164,11 @@ func names(current string) []string {
 	return every
 }
 
-// reachedLive is whether the seat's own ssh reached the live host this turn: since the turn's
+// ReachedLive is whether the seat's own ssh reached the live host this turn: since the turn's
 // start hooks/seat-state.sh writes in its stop file.  Both are under the name its harness was
 // launched with, which a rename leaves behind: of every name the seat had, the one holding the
 // newest turn is its running launch's, so an earlier launch's reach never counts.
-func reachedLive(current string) bool {
+func ReachedLive(current string) bool {
 	launched, turn := "", 0.0
 	for _, each := range names(current) {
 		var stop map[string]any
@@ -342,7 +342,7 @@ func Add(ctx context.Context, name, repo, what, check string) (string, error) {
 			// The owner, 26 Oct 2026: in a turn whose own ssh reached the live host, work done
 			// there proves itself, so a check already passing is written done on that commit
 			// and a job finished in that one turn reads `done`.
-			if !reachedLive(current) {
+			if !ReachedLive(current) {
 				return fmt.Errorf("this check already passes on %s's default branch, so it proves nothing; "+
 					"write one that fails until the work is done", filepath.Base(repo))
 			}

@@ -23,7 +23,7 @@ func Main(args []string, out, errOut io.Writer) int {
 		return adapter(rest, out, errOut)
 	}
 	if command == "hook" { // unlisted too
-		return hook(rest)
+		return hook(rest, out)
 	}
 	if !contains(commandhelp.Verbs, command) {
 		fmt.Fprintf(errOut, "ak: unknown subcommand %s; expected one of %s\n", commandhelp.Quote(command), strings.Join(commandhelp.Verbs, ", "))
