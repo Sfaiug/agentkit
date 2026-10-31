@@ -27,9 +27,9 @@
 # refuses the question of a seat whose plan is done with nothing from the owner since
 # (`stop.question_refused`): it would block nothing but the owner, so its last message says it,
 # and a turn ending on it in prose stands.  Letting it through, it keeps each question the card
-# asks back for the turn's end, as a Codex seat's are kept (`watch.keep`): the owner's answer on
-# the card drops it as their time (`watch.answered_kept`), and a card that answered nothing has
-# it asked when the turn ends.
+# asks back for the turn's end, as every seat's own question is kept (`watch.keep`): the owner's
+# answer on the card drops it as their time (`watch.answered_kept`), and a card that answered
+# nothing has it asked when the turn ends.
 #
 # A worker is silent here as it is everywhere: no $AGENTKIT_SESSION, or AK_RUN_ROLE=worker,
 # and this decides nothing and exits 0.
