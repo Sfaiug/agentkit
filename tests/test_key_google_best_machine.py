@@ -1,7 +1,7 @@
 """`ak doctor` names the machine Google Cloud rents for the least money per core right now: an
 arm64 vCPU is a core, two x86 vCPUs one; a type costs its cores, memory, boot disk and address, so
-among sizes of a family the most cores win; one with less memory a core than a test piece is
-estimated to need is passed over, and bare metal, never Spot.
+among sizes of a family the most cores win; one with less memory a vCPU than a test piece's VM
+is estimated to need of each is passed over, and bare metal, never Spot.
 Black-box: `AK_BIN` asks a fake Google on the loopback (`AK_GOOGLE_URL`).
 """
 
@@ -50,6 +50,16 @@ class GoogleBestMachine(unittest.TestCase):
         skus = [path for path in self.google.asked if "/skus?" in path]
         self.assertEqual(len(skus), 2, "every page of the price list")
         self.assertTrue(all("currencyCode=EUR" in path for path in skus), skus)
+
+    def test_each_vcpu_holds_its_share_of_a_piece_s_vm(self):
+        # a VM of 2 vCPUs and twice a piece's 410 MiB: 410 MiB a vCPU, two of them an x86 core
+        self.google.key()
+        for gb, name in ((4, "c4a-highcpu-8"), (2, "n2d-standard-8")):
+            self.google.zones = [{"zones/europe-west4-a": {"machineTypes": [
+                kind("c4a-highcpu-8", 8, gb), kind("n2d-highcpu-8", 8, 2, "X86_64"),
+                kind("n2d-standard-8", 8, 32, "X86_64")]}}]
+            [line] = self.google.rented()
+            self.assertTrue(line.startswith(f"rented machines: best now {name} in "), line)
 
     def test_a_zone_google_could_not_reach_leaves_no_best(self):
         self.google.key()

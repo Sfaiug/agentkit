@@ -22,7 +22,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.clock import Clock
 from fixtures.sandbox import account_home
-from agentkit import config, gate, helper, worker
+from agentkit import config, gate, google_cloud, helper, worker
 
 SUITE = 'printf "piece %s\\n" "${AK_SHARD:-all}"'
 
@@ -311,6 +311,13 @@ class SuiteHelper(unittest.TestCase):
                 (config.HOME / config.CONFIG_NAME).write_text(text)
                 self.assertNotIn("helper ran", self.check({})[0])
                 self.assertFalse((self.fake / "calls").exists())
+
+    def test_a_suite_no_machine_takes_asks_to_rent_what_a_cpu_of_its_vms_holds(self):
+        # VMs of 2 CPUs and twice a piece's 2620 MiB: a C4A machine of 4 GB a vCPU fits them
+        (config.HOME / config.CONFIG_NAME).write_text("")
+        with patch.object(google_cloud, "renting", return_value=True):
+            self.assertIsNone(helper.start(1, 2620, self.repo, lambda line: None, "true")[0])
+        self.assertEqual((config.STATE / google_cloud.NEED).read_text(), "2620\n")
 
 
 class HelperMac(unittest.TestCase):

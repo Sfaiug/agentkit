@@ -7742,7 +7742,7 @@ def doctor(argv):
     print("\n".join(wrong) or "effort  every model takes the effort it is set to", flush=True)
     from . import gate, google_cloud, helper   # here, not at the top: the gate imports this module
     try:
-        lines = google_cloud.said(helper.each_mb(gate.HEAVY_MEM_MB, 0))
+        lines = google_cloud.said(helper.cpu_mb(gate.HEAVY_CPUS, gate.HEAVY_MEM_MB, 0))
     except config.Error as exc:
         lines = [str(exc)]
     print("\n".join(f"rented machines: {line}" for line in lines))
