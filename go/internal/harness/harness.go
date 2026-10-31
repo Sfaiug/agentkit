@@ -29,6 +29,9 @@ type plugin struct {
 	// conversation id alone (the default `launched`), and titled whether its TUI takes a title
 	// line (`title_command`).
 	opens, titled bool
+	// paysItsOwnWay is whether its own config says how a model of it is paid, over config.toml's
+	// `mode`, as Python's plugin `mode` reads it.
+	paysItsOwnWay bool
 }
 
 var plugins = map[string]plugin{}
@@ -68,6 +71,12 @@ func LastAnswer(name, conversation, cwd string) (model, effort any, found bool) 
 		return hook(conversation, cwd)
 	}
 	return nil, nil, false
+}
+
+// PaysItsOwnWay is whether that harness's own config says how a model of it is paid, which Go
+// does not read yet.
+func PaysItsOwnWay(name string) bool {
+	return plugins[name].paysItsOwnWay
 }
 
 // TurnEnv is what a worker turn of that harness is told beyond what every turn is, none by

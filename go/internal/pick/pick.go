@@ -11,6 +11,7 @@ import (
 	"slices"
 
 	"agentkit/internal/config"
+	"agentkit/internal/harness"
 	"agentkit/internal/run"
 )
 
@@ -31,7 +32,7 @@ type Rules struct {
 }
 
 // Load is the home's Rules, false where Python ak picks there: a seat's own groups, a payg
-// provider, a pace_margin Python refuses, a model a group names that config.model refuses, a
+// provider or model, one whose harness says how it is paid, a pace_margin Python refuses, a model a group names that config.model refuses, a
 // matrix lineup from state/matrix.json that ranks the models, are not yet Go's.
 func Load() (*Rules, bool) {
 	if _, seat, err := config.CurrentSession(); err != nil || seat != nil {
@@ -58,7 +59,7 @@ func Load() (*Rules, bool) {
 		reviewers = executors
 	}
 	for _, name := range append(slices.Clone(executors), reviewers...) {
-		if model, ok := models[name]; !ok || model.Mode == "payg" {
+		if model, ok := models[name]; !ok || model.Mode == "payg" || harness.PaysItsOwnWay(model.Harness) {
 			return nil, false
 		}
 	}
