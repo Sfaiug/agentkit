@@ -92,6 +92,17 @@ def process_identity(pid):
         return None
 
 
+def process_age(pid):
+    """Seconds since that process started, or None where it is gone or a zombie.
+
+    Read on the boot clock its start is counted on: a birth on the wall clock goes through
+    btime, which is whole seconds, and makes the process up to a second older than it is."""
+    stat = proc_stat(pid)
+    if stat is None or stat.exited:
+        return None
+    return time.clock_gettime(time.CLOCK_BOOTTIME) - stat.start / os.sysconf("SC_CLK_TCK")
+
+
 def _cgroup_text(pid="self", cgroup_file=None):
     if cgroup_file is None:
         cgroup_file = (os.environ.get("AK_CGROUP_FILE") or OWN_CGROUP

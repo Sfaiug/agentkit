@@ -492,8 +492,7 @@ def within_declared_timeout(pid):
         except OSError:
             continue
         seconds = timeout_seconds(argv)
-        birth = seconds and host.process_identity(child)
-        if birth and birth["started_at"] + seconds > time.time():
+        if seconds and (age := host.process_age(child)) is not None and age < seconds:
             return True
     return False
 
