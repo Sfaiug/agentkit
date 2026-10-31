@@ -72,11 +72,12 @@ class SwitchLinesAreTheLaunchS(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, f"{harness}: {proc.stderr}")
         return shlex.split(proc.stdout)
 
-    def switch(self, harness, effort, model="test-model"):
-        """The lines a live seat on another model of `harness` is owed for `model`."""
-        cfg = {"providers": {"acme": {}}, "models": {
-            name: {"harness": harness, "model": own, "effort": "low", "provider": "acme"}
-            for name, own in (("was", "old-model"), ("to", model))}}
+    def switch(self, harness, effort, model="test-model", provider="acme"):
+        """The lines a live seat on another model of `harness`, on provider `acme`, is owed for
+        `model` on `provider`."""
+        cfg = {"providers": {"acme": {}, provider: {}}, "models": {
+            name: {"harness": harness, "model": own, "effort": "low", "provider": on}
+            for name, own, on in (("was", "old-model", "acme"), ("to", model, provider))}}
         with patch.dict(os.environ, {config.ADAPTER_DIR_ENV: ""}), \
                 patch.object(config, "session_records", return_value={"atoll": {
                     "orchestrator": "was"}}), patch.object(orch, "find", return_value=None), \
@@ -100,6 +101,11 @@ class SwitchLinesAreTheLaunchS(unittest.TestCase):
         self.assertEqual(self.switch("opencode", "high", "acme/m"), ["/ak-model acme/m high"])
         self.assertEqual(self.switch("opencode", "none", "acme/m"), [])
         self.assertEqual(self.switch("opencode", "high", "mimo/m"), [])
+        # one opencode.db holds every provider's login, so another provider's model is the same
+        # process's to run; Codex launches each subscription on its own
+        self.assertEqual(self.switch("opencode", "high", "beta/m", provider="beta"),
+                         ["/ak-model beta/m high"])
+        self.assertEqual(self.switch("codex", "high", provider="beta"), [])
 
     def test_a_model_its_harness_picks_itself_restarts(self):
         self.assertNotIn("-m", self.launch("codex", "high", model=config.DEFAULT_MODEL))
