@@ -69,7 +69,7 @@ class ATurnOnAMachineKeepsItsDeclaredTimeout(unittest.TestCase):
         self.assertEqual([path.read_text() for path in run.rglob("where")], ["docker\n"])
 
     def test_silent_commands_one_after_another_each_under_its_timeout_run_to_their_end(self):
-        state, _ = self.resume("timeout 5 sleep 4; timeout 30 sleep 6")
+        state, _ = self.resume("timeout 7 sleep 6; timeout 30 sleep 6")
         self.assertEqual(state["state"], "blocked", state)
 
     def test_a_silent_command_with_no_declared_bound_is_stopped_at_the_limit(self):
