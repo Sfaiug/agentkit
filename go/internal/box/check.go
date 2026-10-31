@@ -35,18 +35,23 @@ func Check() error {
 		return err
 	}
 	defer os.RemoveAll(probe)
-	inner, done, err := command([]string{"true"}, env, probe, probe, nil, nil, nil)
+	inner, done, err := command([]string{"true"}, env, "", probe, nil, nil, nil)
 	if err != nil {
 		return err
 	}
 	defer done()
-	outer, done, err := command(inner.Args, env, probe, probe, nil, nil, nil)
+	outer, done, err := command(inner.Args, env, "", probe, nil, nil, nil)
 	if err != nil {
 		return err
 	}
 	defer done()
-	var said strings.Builder
-	outer.Stderr = &said
+	// A file, not a pipe: a child the probe leaves holding its stderr holds up no wait.
+	said, err := os.Create(filepath.Join(probe, "stderr"))
+	if err != nil {
+		return err
+	}
+	defer said.Close()
+	outer.Stderr = said
 	if err := outer.Start(); err != nil {
 		return err
 	}
@@ -56,7 +61,11 @@ func Check() error {
 	if !late.Stop() || !errors.As(err, &exit) {
 		return nil
 	}
-	why := cmp.Or(strings.TrimFunc(said.String(), config.Space), fmt.Sprintf("exit %d", status(exit.Sys().(syscall.WaitStatus))))
+	words, err := os.ReadFile(said.Name())
+	if err != nil {
+		return err
+	}
+	why := cmp.Or(strings.TrimFunc(string(words), config.Space), fmt.Sprintf("exit %d", status(exit.Sys().(syscall.WaitStatus))))
 	return fmt.Errorf("worker box cannot start: %s; run `%s`; the host must allow nested unprivileged user and PID namespaces", why, remedy())
 }
 

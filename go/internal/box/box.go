@@ -95,7 +95,9 @@ func Run(argv []string, env map[string]string, workspace, out string, state, log
 }
 
 // command is bubblewrap's command putting argv in the box Run describes, and what removes the
-// folder in out holding the box's own places once the box has ended.
+// folder in out holding the box's own places once the box has ended.  With no workspace, as a
+// launch has none yet, what env names relative is read from the current folder, and nothing is
+// written there.
 func command(argv []string, env map[string]string, workspace, out string, state, logins, hidden []string) (*exec.Cmd, func(), error) {
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		return nil, nil, errors.New("worker box needs bubblewrap; run `" + install + "`")
@@ -111,11 +113,15 @@ func command(argv []string, env map[string]string, workspace, out string, state,
 		delete(env, key)
 	}
 	out = config.Resolve(out)
-	places, err := writable(env, workspace, out, state, logins)
+	dir, err := filepath.Abs(workspace)
 	if err != nil {
 		return nil, nil, err
 	}
-	hidden, err = masked(env, workspace, agent, hidden)
+	places, err := writable(env, dir, workspace, out, state, logins)
+	if err != nil {
+		return nil, nil, err
+	}
+	hidden, err = masked(env, dir, agent, hidden)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -125,7 +131,7 @@ func command(argv []string, env map[string]string, workspace, out string, state,
 		return nil, nil, err
 	}
 	done := func() { os.RemoveAll(scratch) }
-	empty, err := own(scratch, env, workspace, places, hidden)
+	empty, err := own(scratch, env, dir, places, hidden)
 	if err != nil {
 		done()
 		return nil, nil, err
@@ -222,10 +228,10 @@ func walls() []string {
 	return append(args, "--remount-ro", "/dev")
 }
 
-// writable is every place the box writes through to.
-func writable(env map[string]string, workspace, out string, state, logins []string) ([]string, error) {
+// writable is every place the box writes through to, its relative manifest paths under dir.
+func writable(env map[string]string, dir, workspace, out string, state, logins []string) ([]string, error) {
 	var places []string
-	for _, path := range config.ManifestPaths(state, env, workspace) {
+	for _, path := range config.ManifestPaths(state, env, dir) {
 		path = config.Resolve(path)
 		if err := os.MkdirAll(path, 0o777); err != nil {
 			return nil, err
@@ -234,7 +240,7 @@ func writable(env map[string]string, workspace, out string, state, logins []stri
 	}
 	// A login lent as a link is refreshed in place where it leads, and a shared refresh lock
 	// lent before its first use is made there, its folder staying read-only.
-	for _, path := range config.ManifestPaths(logins, env, workspace) {
+	for _, path := range config.ManifestPaths(logins, env, dir) {
 		if info, err := os.Lstat(path); err != nil || info.Mode()&fs.ModeSymlink == 0 {
 			continue
 		}
@@ -251,7 +257,11 @@ func writable(env map[string]string, workspace, out string, state, logins []stri
 		}
 		places = append(places, target)
 	}
-	places = append(places, workspace, out)
+	places = append(places, out)
+	if workspace == "" {
+		return places, nil
+	}
+	places = append(places, workspace)
 	if _, err := os.Stat(filepath.Join(workspace, ".git")); err != nil {
 		return places, nil
 	}
