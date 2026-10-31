@@ -60,8 +60,11 @@ model = "/ak-model {model} {effort}"
 # usage-shaped path with 404 and sends no rate-limit headers.  Once a provider key is
 # configured and no source answers, `adapters/opencode.sh usage` says so with the
 # reason and no error, so the provider is neutral; a missing key stays a failed probe.
+# Every ask boots OpenCode servers of its own (`--standalone`, 2.2.5), some six seconds of CPU:
+# a tenth of a core while an open screen asked each minute.  Fifteen minutes, as Claude's.
 [usage]
 none = true
+probe_every = 900
 
 # An OpenCode seat owns only the session its own server opened, and the launcher cannot hand
 # one out: the TUI takes `--session` for a conversation that already exists and has no flag
