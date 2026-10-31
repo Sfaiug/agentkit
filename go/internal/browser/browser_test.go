@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -107,5 +108,47 @@ func TestAProxyPythonSendsDevToolsThroughIsPythons(t *testing.T) {
 		if _, err := Status(&out); errors.Is(err, ErrPython) != left {
 			t.Errorf("no_proxy=%q: %v, printed %q", bypass, err, out.String())
 		}
+	}
+}
+
+// Login reads the password as Python's plaintext does: a blank file under ak's name gives way to
+// the installer's.  With none stored, or one Python's read_text raises on, it is Python's.
+func TestLoginShowsTheStoredPasswordOrIsPythons(t *testing.T) {
+	machine(t)
+	unit := "[Service]\nExecStart=/usr/bin/websockify 100.64.0.7:6080 127.0.0.1:5900\n"
+	if err := os.WriteFile(filepath.Join(unitDir, novncUnit), []byte(unit), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	secrets := filepath.Join(os.Getenv("HOME"), ".agentkit", "secrets")
+	if err := os.MkdirAll(secrets, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, example := range []struct{ text, installers, shown string }{
+		{"", "", ""}, {" \n", "Kq7\r\n", "Kq7"}, {"\xff", "Kq7", ""},
+	} {
+		for i, content := range []string{example.text, example.installers} {
+			if err := os.WriteFile(filepath.Join(secrets, passwords[i]), []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var out bytes.Buffer
+		_, err := Login(&out)
+		if example.shown == "" && (!errors.Is(err, ErrPython) || out.Len() != 0) ||
+			example.shown != "" && (err != nil || !strings.Contains(out.String(), "\npassword  "+example.shown+"\n")) {
+			t.Errorf("%q then %q: %v, printed %q", example.text, example.installers, err, out.String())
+		}
+	}
+}
+
+// In the account's own home, however HOME spells it, install is Python's.
+func TestInstallInTheAccountsHomeIsPythons(t *testing.T) {
+	account, err := user.Current()
+	if err != nil {
+		t.Skip("no account to read:", err)
+	}
+	t.Setenv("HOME", account.HomeDir+"/.")
+	var out bytes.Buffer
+	if _, err := Install(&out); !errors.Is(err, ErrPython) || out.Len() != 0 {
+		t.Fatalf("%v, printed %q", err, out.String())
 	}
 }

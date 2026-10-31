@@ -32,8 +32,7 @@ import (
 var defaultConfig string
 
 func Home() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".agentkit")
+	return filepath.Join(UserHome(), ".agentkit")
 }
 
 // Repo is the checkout ak runs from, Python's config.REPO: the top of the git checkout its
@@ -117,8 +116,7 @@ func tilde(path string) string {
 	if path != "~" && !strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, "~"+string(filepath.Separator)) {
 		return path
 	}
-	home, _ := os.UserHomeDir()
-	return cmp.Or(strings.TrimRight(home, "/"+string(filepath.Separator))+path[1:], "/")
+	return cmp.Or(strings.TrimRight(UserHome(), "/"+string(filepath.Separator))+path[1:], "/")
 }
 
 // Resolve is path made absolute with its links followed, as far as they exist, and a leading

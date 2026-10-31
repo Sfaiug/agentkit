@@ -3,7 +3,9 @@
 // the Chromium whose profile is the owner's logins, x11vnc, noVNC and the MCP server every seat
 // shares; the DevTools and MCP addresses, and noVNC's, read from the unit websockify runs in; and
 // how systemd and DevTools are read: `systemctl show` and `is-active`, and DevTools' HTTP JSON as
-// Python's urllib and json read it.  `login`, `install` and `mcp-register` join it later.
+// Python's urllib and json read it; the two names the VNC password is kept under; and whose home
+// may install the stack.  Minting a password, the rest of `install` and `mcp-register` are
+// still Python's.
 package browser
 
 import (
@@ -19,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -29,10 +32,11 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/run"
+	"agentkit/internal/task"
 )
 
-// ErrPython leaves a status to Python ak before Go has printed anything: what Go cannot read as
-// Python reads it, or where Python's own reading ends in a traceback.
+// ErrPython leaves a command to Python ak before Go has printed anything: what Go cannot read or
+// do as Python does, or where Python's own reading ends in a traceback.
 var ErrPython = errors.New("left to Python")
 
 const (
@@ -46,6 +50,10 @@ const (
 
 var units = []string{"browser-bridge-xvfb.service", "browser-bridge-openbox.service",
 	"browser-bridge-chromium.service", "browser-bridge-x11vnc.service", novncUnit}
+
+// passwords are the names in ak's secrets the VNC password is kept under as text: the one ak
+// writes, then the one the stack's installer wrote.
+var passwords = []string{"browser-bridge-vnc.txt", "browser-bridge-vnc"}
 
 // Where the stack answers; a test points them at its own.
 var (
@@ -62,23 +70,70 @@ var client = &http.Client{Timeout: 4 * time.Second, Transport: &http.Transport{D
 
 // Status prints `ak browser status` as Python's browser.status does and is its exit code: 1 when
 // a part that is installed is down.  Its lines wait until every reading is in, so a status left
-// to Python prints nothing; a systemctl that fails ends it after the lines before it.  A reader
-// that stops reading ends it with 0, as Python's BrokenPipeError handling does.
+// to Python prints nothing; a systemctl that fails ends it after the lines before it.
 func Status(out io.Writer) (int, error) {
 	lines, healthy, err := status()
 	if errors.Is(err, ErrPython) {
 		return 0, err
 	}
-	signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE) // a closed pipe is a write error, not death
-	for _, line := range lines {
-		if _, failed := io.WriteString(out, line+"\n"); failed != nil {
-			return 0, nil
-		}
+	if !show(out, lines...) {
+		return 0, nil
 	}
 	if healthy {
 		return 0, err
 	}
 	return 1, err
+}
+
+// Login prints `ak browser login` as Python's browser.login does where a password is stored,
+// read as its browser.plaintext reads it: the noVNC address, the password and how to sign a site
+// in.  With none stored it is Python's, which mints one through libvncserver, a library Go
+// cannot load without cgo.
+func Login(out io.Writer) (int, error) {
+	address, err := novnc()
+	if err == nil && address == "" {
+		err = errors.New("no noVNC address on this machine; run `ak browser install` on the server, or read it there with `ak browser status`")
+	}
+	if err != nil {
+		return 0, err
+	}
+	for _, name := range passwords {
+		data, err := os.ReadFile(filepath.Join(config.Home(), "secrets", name))
+		if err != nil {
+			continue
+		} else if !utf8.Valid(data) {
+			break // Python's read_text raises
+		}
+		if password := strings.TrimFunc(task.Text(data), config.Space); password != "" {
+			show(out, "open      "+address, "password  "+password, "Sign the site in inside that window, finishing any 2FA or bot check yourself.  The session stays in the shared profile and every agent then sees it.  Only Tailscale reaches this address.")
+			return 0, nil
+		}
+	}
+	return 0, ErrPython
+}
+
+// Install refuses where HOME is not the account's home, as Python's browser.setup_refusal
+// first checks: a machine-wide unit would point into a throwaway directory.  Everywhere else
+// it is Python's, before Go asks anything of the machine.
+func Install(out io.Writer) (int, error) {
+	account, err := user.LookupId(strconv.Itoa(os.Getuid()))
+	if err != nil || config.Resolve(config.UserHome()) == config.Resolve(account.HomeDir) {
+		return 0, ErrPython
+	}
+	show(out, "setup     sandbox HOME cannot install system units")
+	return 0, nil
+}
+
+// show writes the lines as Python's say prints them, and is false once the reader stops reading,
+// which ends the command with 0, as Python's BrokenPipeError handling does.
+func show(out io.Writer, lines ...string) bool {
+	signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE) // a closed pipe is a write error, not death
+	for _, line := range lines {
+		if _, err := io.WriteString(out, line+"\n"); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func status() ([]string, bool, error) {
