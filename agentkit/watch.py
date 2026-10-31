@@ -32,6 +32,7 @@ import fcntl
 import io
 import json
 import math
+import mmap
 import os
 import re
 import signal
@@ -7150,9 +7151,15 @@ def health_command(repo, sha, command, checked=None, timeout=HEALTH_TIMEOUT):
                     proc.wait(timeout=1)
                 except subprocess.TimeoutExpired:
                     pass
-            output.seek(0, os.SEEK_END)
-            output.seek(max(0, output.tell() - 4096))
-            tail = "\n".join(output.read(4096).decode("utf-8", errors="replace").splitlines()[-10:])
+            start = max(0, output.seek(0, os.SEEK_END) - 4096)
+            output.seek(start)
+            window = output.read(4096)
+            if start and b"\n" not in window.rstrip():
+                # The last line began before the window: its beginning says why, its end rarely.
+                with mmap.mmap(output.fileno(), 0, access=mmap.ACCESS_READ) as whole:
+                    output.seek(whole.rfind(b"\n", 0, start) + 1)
+                window = output.read(4096)
+            tail = "\n".join(window.decode("utf-8", errors="replace").splitlines()[-10:])
             if timed_out:
                 tail += f"\ntimed out after {timeout}s"
             return not timed_out and proc.returncode == 0, tail.strip()
