@@ -101,7 +101,7 @@ func Turn(name, role, body, workspace, out, session string) (int, string, error)
 		return 0, "", err
 	}
 	began := time.Now()
-	code, err := box.Run(argv, env, workspace, out, state, logins, said)
+	code, err := box.Run(argv, env, workspace, out, state, logins, config.Unswitched(model.Harness, env), said)
 	said.Close()
 	if data, err := os.ReadFile(own); err == nil && os.Remove(own) == nil && len(data) > 0 {
 		if log, err := os.OpenFile(filepath.Join(out, "stderr.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666); err == nil {

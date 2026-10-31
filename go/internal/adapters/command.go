@@ -59,16 +59,13 @@ func Command(model config.Model, env []string) ([]string, string, bool) {
 	line = append([]string{"env", "AGENTKIT_ACCOUNT=", "VISUAL=" + editor, "EDITOR=" + editor, "AK_OWNER_EDITOR=" + owner}, line...)
 	// looked for as the line sets the harness's home, and, on the usual login, in the usual homes
 	// too, where an adapter drops an account's home a seat handed down (config.unswitched_files)
-	names, _ := config.Words(model.Harness, "instructions", "unswitched")
-	names = slices.DeleteFunc(names, func(name string) bool { return !strings.Contains("~$", name[:min(len(name), 1)]) })
 	_, seated := environ(line, os.Environ())
 	values := map[string]string{}
 	for _, pair := range seated {
 		key, value, _ := strings.Cut(pair, "=")
 		values[key] = value
 	}
-	cwd, _ := os.Getwd()
-	for _, path := range append(config.ManifestPaths(names, values, cwd), config.ManifestPaths(names, map[string]string{"HOME": values["HOME"]}, cwd)...) {
+	for _, path := range config.Unswitched(model.Harness, values) {
 		if _, err := os.Stat(path); err == nil {
 			return nil, "", false
 		}
