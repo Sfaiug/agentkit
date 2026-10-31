@@ -298,11 +298,11 @@ STOPS = {"rebase": ("rebase-merge", "rebase-apply"), "merge": ("MERGE_HEAD",),
 
 
 def in_progress(wt, *hows):
-    """Is a `git <how>` of `hows` still sitting in the worktree, unfinished? `--git-path` finds
-    its state in a linked worktree's own git directory too."""
-    paths = git(wt, "rev-parse", *(arg for how in hows for name in STOPS[how]
-                                   for arg in ("--git-path", name)))
-    return any(Path(wt, path).exists() for path in paths.splitlines())
+    """Is a `git <how>` of `hows` still sitting in the worktree, unfinished? Its own git directory's
+    name is kept byte for byte: split into lines or trimmed, a newline or a trailing space in it
+    would hide the state."""
+    own = Path(git_bytes(wt, "rev-parse", "--absolute-git-dir").removesuffix("\n"))
+    return any((own / name).exists() for how in hows for name in STOPS[how])
 
 
 def gh(cwd, *args, timeout=None):

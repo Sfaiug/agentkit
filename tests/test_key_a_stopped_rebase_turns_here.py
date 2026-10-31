@@ -2,7 +2,10 @@
 the run's other turns to a machine with room.
 
 git keeps a stopped rebase in the checkout's own git directory, which no parcel carries: the turn
-sent to finish one would find none in the machine's fresh clone.  Black-box, as
+sent to finish one would find none in the machine's fresh clone.  ak reads that directory's path
+whole: read line by line, a newline in it hid the rebase.  No key holds such a path: every review
+checkout is git's own `clone --shared`, whose alternates file a newline splits, so no run reaches
+the fixer; tests/test_a_stopped_rebase_turns_here.py pins it instead.  Black-box, as
 tests/test_key_a_turn_runs_on_a_machine.py is, on its machine: a seat's own PR under `ak run
 --review-pr`, as in tests/test_key_own_pr_fix_and_land.py, whose rebase onto main conflicts and
 goes to a fixer.  Each harness stand-in writes where it ran to `where` in its out dir.
