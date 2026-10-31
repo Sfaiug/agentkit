@@ -10,10 +10,10 @@ import (
 	"time"
 )
 
-// userManager is whether a running `systemd --user` answers on its control socket in this PID
+// UserManager is whether a running `systemd --user` answers on its control socket in this PID
 // namespace: a bus address may name anybody's socket, and a gone manager's refuses the connection.
 // Without systemd-run no seat starts in the slice, so there is none to report.
-func userManager() bool {
+func UserManager() bool {
 	if _, err := exec.LookPath("systemd-run"); err != nil {
 		return false
 	}
