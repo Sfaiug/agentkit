@@ -4,12 +4,16 @@
 // bubblewrap's arguments: the root read-only, the devices the account may use, a /proc of the
 // box's own, the places a command may write, and /run, /tmp, /var/tmp, /dev/shm and the runtime
 // directory kept the box's own, empty but for a copy of the host's /run with no socket in it.
+// It hides the host's credentials: no GitHub token variable or SSH agent address reaches the
+// command, and every credential file and folder of the account reads empty, as does each place
+// the caller hides, each through a link too, and none gains another name in /run's copy.
 // And it hides the box's first process, this program started again inside, with its report of
 // how the command ended: an exit of n is n, a death by a signal keeps that signal, and a command
 // that cannot start keeps the shell's 127 or 126.
 package box
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,13 +23,16 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 )
 
@@ -44,10 +51,20 @@ const (
 // a command leaves there reaches neither the host nor the next box.
 var transient = []string{"/run", "/tmp", "/var/tmp", "/dev/shm"}
 
+// tokens are the variables a box never passes on: GitHub's tokens, and the SSH agent's address.
+var tokens = []string{"GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SSH_AUTH_SOCK"}
+
+// credentials are where the account's tools keep theirs, under each home and where env moves
+// them: GitHub's logins, Git's stores and caches, and SSH's keys, as a worker reaches no server.
+var credentials = []string{"~/.config/gh/hosts.yml", "$XDG_CONFIG_HOME/gh/hosts.yml", "$GH_CONFIG_DIR/hosts.yml",
+	"~/.git-credentials", "~/.config/git/credentials", "$XDG_CONFIG_HOME/git/credentials",
+	"~/.git-credential-cache", "~/.cache/git/credential", "$XDG_CACHE_HOME/git/credential", "~/.ssh"}
+
 // Run runs argv in a box, its stderr into stderr, and is how it ended (First).
 // The box writes only the manifest paths of state for env, made where missing, the targets of
-// the links among the manifest paths of logins, the workspace and its git directories, and out.
-func Run(argv []string, env map[string]string, workspace, out string, state, logins []string, stderr *os.File) (int, error) {
+// the links among the manifest paths of logins, the workspace and its git directories, and out;
+// the files and folders hidden read empty there, as the account's credentials do.
+func Run(argv []string, env map[string]string, workspace, out string, state, logins, hidden []string, stderr *os.File) (int, error) {
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		return 0, errors.New("worker box needs bubblewrap; run `sudo apt-get install -y bubblewrap`")
 	}
@@ -56,8 +73,17 @@ func Run(argv []string, env map[string]string, workspace, out string, state, log
 			return 0, fmt.Errorf("worker box needs %s: the host directory is missing", path)
 		}
 	}
+	env = maps.Clone(env)
+	agent := env["SSH_AUTH_SOCK"]
+	for _, key := range tokens {
+		delete(env, key)
+	}
 	out = config.Resolve(out)
 	places, err := writable(env, workspace, out, state, logins)
+	if err != nil {
+		return 0, err
+	}
+	hidden, err = masked(env, workspace, agent, hidden)
 	if err != nil {
 		return 0, err
 	}
@@ -67,8 +93,7 @@ func Run(argv []string, env map[string]string, workspace, out string, state, log
 		return 0, err
 	}
 	defer os.RemoveAll(scratch)
-	env = maps.Clone(env)
-	empty, err := own(scratch, env, workspace, places)
+	empty, err := own(scratch, env, workspace, places, hidden)
 	if err != nil {
 		return 0, err
 	}
@@ -85,7 +110,7 @@ func Run(argv []string, env map[string]string, workspace, out string, state, log
 	report := filepath.Join(out, "box-processes.json")
 	os.Remove(report)
 	args := append([]string{"--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent", "--new-session"}, walls()...)
-	args = append(append(args, mounts...), "--", exe, report)
+	args = append(append(append(args, mounts...), masks(hidden)...), "--", exe, report)
 	env["TMPDIR"] = "/var/tmp"
 	cmd := exec.Command("bwrap", append(args, argv...)...)
 	for key, value := range env {
@@ -216,32 +241,15 @@ func writable(env map[string]string, workspace, out string, state, logins []stri
 	if _, err := os.Stat(filepath.Join(workspace, ".git")); err != nil {
 		return places, nil
 	}
-	// Asked of ak's own git, the first in a folder ak's own PATH names in full, never one the
-	// workspace puts on the PATH: its answer opens places for writing.
-	git := ""
-	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
-		if filepath.IsAbs(dir) && git == "" {
-			git, _ = exec.LookPath(filepath.Join(dir, "git"))
-		}
-	}
-	if git == "" {
-		return nil, errors.New("worker box needs git in a directory PATH names in full")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, git, "rev-parse", "--absolute-git-dir", "--git-common-dir")
-	cmd.Dir = workspace
-	for key, value := range env {
-		if key != "GIT_DIR" && key != "GIT_COMMON_DIR" && key != "GIT_WORK_TREE" {
-			cmd.Env = append(cmd.Env, key+"="+value)
-		}
-	}
-	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=0", "GH_PROMPT_DISABLED=1")
-	dirs, err := cmd.Output()
+	env = maps.Clone(env)
+	delete(env, "GIT_DIR")
+	delete(env, "GIT_COMMON_DIR")
+	delete(env, "GIT_WORK_TREE")
+	dirs, err := git(env, workspace, "rev-parse", "--absolute-git-dir", "--git-common-dir")
 	if err != nil {
 		return nil, fmt.Errorf("git rev-parse in %s: %w", workspace, err)
 	}
-	for _, dir := range config.SplitLines(string(dirs)) {
+	for _, dir := range config.SplitLines(dirs) {
 		if !filepath.IsAbs(dir) {
 			dir = workspace + "/" + dir
 		}
@@ -250,10 +258,172 @@ func writable(env map[string]string, workspace, out string, state, logins []stri
 	return places, nil
 }
 
+// masked is each place the box shows empty, resolved: the account's credentials, the stores
+// Git's helpers name, the agent's socket, an address relative to ak's own folder, and hidden,
+// each with all it holds through links too, so a file or folder lent from elsewhere hides too.
+func masked(env map[string]string, workspace, agent string, hidden []string) ([]string, error) {
+	places, err := stores(env, workspace)
+	if err != nil {
+		return nil, err
+	}
+	places = append(places, hidden...)
+	homes := []string{cmp.Or(env["HOME"], config.UserHome())}
+	if account, err := user.Current(); err == nil {
+		homes = append(homes, account.HomeDir)
+	}
+	for _, home := range homes {
+		named := maps.Clone(env)
+		named["HOME"] = home
+		places = append(places, config.ManifestPaths(credentials, named, workspace)...)
+	}
+	if agent != "" {
+		places = append(places, config.Resolve(agent))
+	}
+	found := map[string]bool{}
+	for _, place := range places {
+		if err := contents(place, found); err != nil {
+			return nil, err
+		}
+	}
+	return slices.Sorted(maps.Keys(found)), nil
+}
+
+// contents adds to found the real path of root and of all it holds, through linked folders too,
+// each folder listed once; what is missing, loops or lies under a file has none.  A folder the
+// account cannot open on the way is a refusal: the command could open one it owns, so what it
+// holds stays unknown.
+func contents(root string, found map[string]bool) error {
+	for pending := []string{root}; len(pending) > 0; {
+		path := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		real, err := filepath.EvalSymlinks(path)
+		var entries []fs.DirEntry
+		if err == nil && !found[real] {
+			found[real] = true
+			if info, _ := os.Stat(real); info != nil && info.IsDir() {
+				entries, err = os.ReadDir(real)
+			}
+		}
+		failed := &fs.PathError{}
+		if errors.Is(err, fs.ErrPermission) && errors.As(err, &failed) {
+			shut := config.Resolve(failed.Path)
+			for folder := shut; folder != filepath.Dir(folder); {
+				folder = filepath.Dir(folder)
+				if syscall.Access(folder, 4|1) != nil { // access(2)'s R_OK|X_OK
+					shut = folder
+				}
+			}
+			return fmt.Errorf("%s is closed to you, so the worker box cannot see what it must hide there; run `chmod u+rx %s`",
+				shut, commandhelp.ShellJoin([]string{shut}))
+		}
+		for _, entry := range entries {
+			pending = append(pending, filepath.Join(real, entry.Name()))
+		}
+	}
+	return nil
+}
+
+// variable is a placeholder of Python's string.Template.
+var variable = regexp.MustCompile(`(?i)\$(?:(\$)|([_a-z][_a-z0-9]*)|\{([_a-z][_a-z0-9]*)\})`)
+
+// stores are the files and sockets Git's credential helpers keep logins in, asked of Git so its
+// includes and a repository's own settings count as Git counts them.  A value its helper line
+// quotes whole is taken as it stands; any other has the variables env sets and a leading `~/`
+// expanded, as the helper's shell would.
+func stores(env map[string]string, workspace string) ([]string, error) {
+	helpers, err := git(env, workspace, "config", "--get-regexp", `^credential(\..*)?\.helper$`)
+	if err != nil && !errors.As(err, new(*exec.ExitError)) {
+		return nil, err
+	}
+	var places []string
+	for _, line := range config.SplitLines(helpers) {
+		_, helper, _ := strings.Cut(line, " ")
+		words, ok := commandhelp.ShellSplit(helper)
+		if !ok || len(words) == 0 || !slices.Contains([]string{"store", "git-credential-store", "cache", "git-credential-cache"}, filepath.Base(words[0])) {
+			continue
+		}
+		flag := "--file"
+		if strings.Contains(words[0], "cache") {
+			flag = "--socket"
+		}
+		for i, word := range words[1:] {
+			value, named := strings.CutPrefix(word, flag+"=")
+			if word == flag && i+2 < len(words) {
+				value, named = words[i+2], true
+			}
+			if !named || value == "" {
+				continue
+			}
+			if !strings.Contains(helper, "'"+value+"'") && !strings.Contains(helper, "'"+flag+"="+value+"'") {
+				value = variable.ReplaceAllStringFunc(value, func(match string) string {
+					parts := variable.FindStringSubmatch(match)
+					if set, ok := env[parts[2]+parts[3]]; ok {
+						return set
+					} else if parts[1] != "" {
+						return "$"
+					}
+					return match
+				})
+				if rest, ok := strings.CutPrefix(value, "~/"); ok {
+					value = cmp.Or(env["HOME"], config.UserHome()) + "/" + rest
+				}
+			}
+			if !filepath.IsAbs(value) {
+				value = workspace + "/" + value
+			}
+			places = append(places, value)
+		}
+	}
+	return places, nil
+}
+
+// masks are bubblewrap's words showing each of the sorted hidden places empty: a folder as an
+// empty read-only one, anything else as /dev/null.  One inside a hidden folder is gone already,
+// and no mount point can be made there.
+func masks(hidden []string) []string {
+	var folders, args []string
+	for _, path := range hidden {
+		if inside(filepath.Dir(path), folders) {
+			continue
+		} else if info, err := os.Stat(path); err == nil && info.IsDir() {
+			folders = append(folders, path)
+			args = append(args, "--tmpfs", path, "--remount-ro", path)
+		} else {
+			args = append(args, "--dev-bind", "/dev/null", path)
+		}
+	}
+	return args
+}
+
+// git is what ak's own Git, the first in a folder ak's own PATH names in full, never one the
+// workspace puts on the PATH, answers in workspace: its answers open places for writing and say
+// what to hide.
+func git(env map[string]string, workspace string, args ...string) (string, error) {
+	found := ""
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if filepath.IsAbs(dir) && found == "" {
+			found, _ = exec.LookPath(filepath.Join(dir, "git"))
+		}
+	}
+	if found == "" {
+		return "", errors.New("worker box needs git in a directory PATH names in full")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, found, args...)
+	cmd.Dir = workspace
+	for key, value := range env {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
+	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=0", "GH_PROMPT_DISABLED=1")
+	answer, err := cmd.Output()
+	return string(answer), cmp.Or(ctx.Err(), err)
+}
+
 // own is each place the box keeps its own, by its path inside, and its folder in scratch: the
 // transient places, /run a copy of the host's, and the runtime directory env names, which env
-// then names in that copy.
-func own(scratch string, env map[string]string, workspace string, writable []string) (map[string]string, error) {
+// then names in that copy, holding nothing hidden.
+func own(scratch string, env map[string]string, workspace string, writable, hidden []string) (map[string]string, error) {
 	var places []string
 	for _, path := range transient {
 		places = append(places, config.Resolve(path))
@@ -276,7 +446,7 @@ func own(scratch string, env map[string]string, workspace string, writable []str
 		}
 	}
 	run := config.Resolve("/run")
-	if err := copyRun(run, folders[run], scratch); err != nil {
+	if err := copyRun(run, folders[run], scratch, hidden); err != nil {
 		return nil, err
 	}
 	runtime := filepath.Join("user", strconv.Itoa(os.Getuid()))
@@ -304,14 +474,23 @@ func inside(path string, places []string) bool {
 // copyRun copies the host's /run into its folder without what listens or waits there: folders,
 // links and regular files only, and nothing of its `user`, every account's runtime directory.  A
 // folder the account cannot read is copied empty, and scratch, where /run holds out, not at all.
-func copyRun(source, destination, scratch string) error {
+// Nor is anything hidden, by its path or by its device and inode, read as the copy starts: a
+// credential replaced by rename since its mask was made gains no other name here either.
+func copyRun(source, destination, scratch string, hidden []string) error {
+	ids := map[[2]uint64]bool{}
+	for _, path := range hidden {
+		if info, err := os.Stat(path); err == nil {
+			ids[inode(info)] = true
+		}
+	}
 	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		target := filepath.Join(destination, strings.TrimPrefix(path, source))
+		info, err := entry.Info()
 		switch {
-		case path == scratch || path == filepath.Join(source, "user"):
+		case err != nil || ids[inode(info)] || inside(path, hidden) || path == scratch || path == filepath.Join(source, "user"):
 			if entry.IsDir() {
 				return fs.SkipDir
 			}
@@ -322,21 +501,28 @@ func copyRun(source, destination, scratch string) error {
 				return os.Symlink(link, target)
 			}
 		case entry.Type().IsRegular():
-			return copyFile(path, target)
+			return copyFile(path, target, ids)
 		}
 		return nil
 	})
 }
 
+// inode is a file's device and inode.
+func inode(info fs.FileInfo) [2]uint64 {
+	stat := info.Sys().(*syscall.Stat_t)
+	return [2]uint64{uint64(stat.Dev), uint64(stat.Ino)}
+}
+
 // copyFile copies a regular file, following no link and waiting on no pipe that a service may
-// have put in its place meanwhile; one it cannot read through is left out.
-func copyFile(path, target string) error {
+// have put in its place meanwhile; one it cannot read through, or that is one of hidden, is
+// left out.
+func copyFile(path, target string, hidden map[[2]uint64]bool) error {
 	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil
 	}
 	defer file.Close()
-	if info, err := file.Stat(); err != nil || !info.Mode().IsRegular() {
+	if info, err := file.Stat(); err != nil || !info.Mode().IsRegular() || hidden[inode(info)] {
 		return nil
 	}
 	copied, err := os.Create(target)

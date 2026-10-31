@@ -191,6 +191,20 @@ func ManifestPaths(names []string, env map[string]string, cwd string) []string {
 	return paths
 }
 
+// Unswitched is each file and folder a harness reads on its own, with no switch its adapter can
+// turn, as Python's config.unswitched_files: `[instructions] unswitched` resolved for env as
+// ManifestPaths does, a relative one under cwd, where the harness runs, and, where env names no
+// account, for its HOME alone too, where an adapter drops an account's home a seat handed down.
+func Unswitched(harness string, env map[string]string, cwd string) []string {
+	names, _ := Words(harness, "instructions", "unswitched")
+	names = slices.DeleteFunc(names, func(name string) bool { return !strings.Contains("~$", name[:min(len(name), 1)]) })
+	paths := ManifestPaths(names, env, cwd)
+	if env["AGENTKIT_ACCOUNT"] == "" {
+		paths = append(paths, ManifestPaths(names, map[string]string{"HOME": env["HOME"]}, cwd)...)
+	}
+	return paths
+}
+
 // SeatEnv is the variables a launch sets for its seat alone, as the manifests' `[launch]
 // seat_env` declare them: nothing the seat starts may be told them, or a check would run
 // to the orchestrator's rules.
