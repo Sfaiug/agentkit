@@ -298,9 +298,10 @@ STOPS = {"rebase": ("rebase-merge", "rebase-apply"), "merge": ("MERGE_HEAD",),
 
 
 def in_progress(wt, *hows):
-    """Is a `git <how>` of `hows` still sitting in the worktree, unfinished? One directory read
-    whole, as git's line-per-path output would split one whose name holds a newline."""
-    own = Path(git(wt, "rev-parse", "--absolute-git-dir"))
+    """Is a `git <how>` of `hows` still sitting in the worktree, unfinished? Its own git directory's
+    name is kept byte for byte: split into lines or trimmed, a newline or a trailing space in it
+    would hide the state."""
+    own = Path(git_bytes(wt, "rev-parse", "--absolute-git-dir").removesuffix("\n"))
     return any((own / name).exists() for how in hows for name in STOPS[how])
 
 
