@@ -2144,10 +2144,11 @@ def seat_command(name, cmd, socket=None):
 
 def seat_env(name, server):
     """A seat gets the caller's state and delivery boundary, not its server's old one, and no
-    `ak`'s mark (`owner`), whatever its server holds: it outlives the `ak` that opens it."""
+    `ak`'s mark (`owner`) or seat's tag, whatever its server holds: it outlives the `ak` that
+    opens it, and is no seat's side session."""
     from . import notify
     values = {"HOME": str(Path.home()), config.SESSION_ENV: name, SOCKET_ENV: server,
-              owner.MARK: None}
+              owner.MARK: None, guard.TMUX_OWNER: None}
     for key in sorted(config.state_env_names() | set(notify.ENV_NAMES)):
         if key not in values:
             values[key] = os.environ.get(key)
@@ -3018,8 +3019,19 @@ def retire_exited(name):
 def session_absent(name):
     """A failed tmux probe is not proof of absence (permissions and transport can fail too)."""
     rc, out = tmux_out("has-session", "-t", f"={name}")
-    return rc == 1 and ("can't find session:" in out or "no server running on" in out or
-                        ("error connecting to" in out and "(No such file or directory)" in out))
+    return rc == 1 and ("can't find session:" in out or no_server(out))
+
+
+def server_exited():
+    """Whether agentkit's own tmux server has exited, on tmux's own word: no other failure is."""
+    rc, out = tmux_out("list-sessions")
+    return rc == 1 and no_server(out)
+
+
+def no_server(said):
+    """Whether tmux's refusal says no server listens on its socket."""
+    return "no server running on" in said or (
+        "error connecting to" in said and "(No such file or directory)" in said)
 
 
 def seatless(name):
@@ -3050,8 +3062,9 @@ def unread_question(name):
 def forgotten(tag, found):
     """ak holds nothing of the seat a side session's tag names: no record or rename pointer and
     no session in tmux, under the tag or where its renames lead.  Asked afresh each time, as a
-    seat may open under the name while the session's screens are saved.  A record it cannot read,
-    a rename chain it cannot follow or a failed tmux probe is no proof the seat is gone."""
+    seat may open under the name while the session's screens are saved or its processes end.
+    A record it cannot read, a rename chain it cannot follow or a failed tmux probe is no proof
+    the seat is gone.  `found` names the seats tmux holds (`sessions`)."""
     try:
         names = {tag, config.resolve_session(tag)}
     except (config.Error, OSError):
@@ -3059,10 +3072,10 @@ def forgotten(tag, found):
     if not names.isdisjoint(found) or any(retention.present(config.session_path(name))
                                           for name in names):
         return False
-    # By name as tmux lists it: a target reads `$1` as an id.  The listing holds the side
-    # session itself, so an empty one is a probe that failed.
+    # By name as tmux lists it: a target reads `$1` as an id.  A server with no session exits,
+    # so an empty listing is a probe that failed, unless the server has exited.
     held = held_names()
-    return bool(held) and names.isdisjoint(held)
+    return names.isdisjoint(held) if held else server_exited()
 
 
 def sweep_finished(found, log):

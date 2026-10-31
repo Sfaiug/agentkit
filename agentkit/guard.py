@@ -9,7 +9,8 @@ refuses a kill (`kill-server`, `kill-session`, `kill-window`, `kill-pane`) that 
 seat, and a type (`send-keys`, `paste-buffer`, `send-prefix`, `pipe-pane -I`) into one; otherwise
 it execs the real tmux.
 Each new-session also gets its creator's name in its session environment, for the tick's
-cleanup of its auxiliary sessions (`orch.sweep_finished`).
+cleanup of its auxiliary sessions (`orch.sweep_finished`) and of what runs on from them
+(`owner.leftovers`).
 
 What a seat starts in tmux speaks for that seat, as what it runs in its own shell does: tmux starts
 a pane's process in its server's environment, not the caller's, so a `tmux new-session` the seat
@@ -79,6 +80,7 @@ import sys
 import time
 
 from . import config
+from .warm import TMUX_OWNER   # its home there, as the warm client imports no agentkit
 
 ENDS = ("kill-server", "kill-session", "kill-window", "kill-pane")
 TYPES = ("send-keys", "paste-buffer", "send-prefix", "pipe-pane")
@@ -90,7 +92,6 @@ ALIASES = {"killp": "kill-pane", "killw": "kill-window", "send": "send-keys",
            "neww": "new-window", "splitw": "split-window", "respawnp": "respawn-pane",
            "respawnw": "respawn-window"}
 SERVER_VALUED = set("fLScT")                            # tmux server options that take a value
-TMUX_OWNER = "AK_TMUX_OWNER"        # session environment: the seat that created it, not a seat mark
 
 
 def tmux_owned(args):

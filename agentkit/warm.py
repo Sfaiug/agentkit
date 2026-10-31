@@ -37,6 +37,7 @@ NICE = 10       # ... and it gives way to the rest of the host meanwhile
 FORWARDED = ("SIGWINCH", "SIGHUP", "SIGTERM", "SIGINT", "SIGQUIT", "SIGTSTP", "SIGCONT")
 _PRIMED = None  # in a forked menu: the reader's last read, for its first frame
 MARK = "AK_OWNER"   # what an `ak` command marks all it starts with (`owner`): the client's too
+TMUX_OWNER = "AK_TMUX_OWNER"   # the seat that tagged a side session (`guard`), no start of ak's
 
 
 def place(repo):
@@ -114,7 +115,8 @@ def _start(repo):
     try:
         os.posix_spawn(sys.executable,
                        [sys.executable, os.path.join(repo, "agentkit", "warm.py"), "serve"],
-                       {key: value for key, value in os.environ.items() if key != MARK},
+                       {key: value for key, value in os.environ.items()
+                        if key not in (MARK, TMUX_OWNER)},
                        setsid=True,
                        file_actions=[(os.POSIX_SPAWN_OPEN, fd, os.devnull, os.O_RDWR, 0)
                                      for fd in (0, 1, 2)])

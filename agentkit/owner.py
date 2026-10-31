@@ -9,6 +9,11 @@ warm server, a detached start, a sign-in whose browser is the owner's -- is star
 it is no command's leftover.  A helper ak starts so, its own process -- a harness update, the
 background cleanup, a seat's look, the menu's seat stop and reader --, marks itself as it
 starts, under its own name.  What one leaves in its session, the tick ends once it is gone.
+
+What a seat starts by hand in a side session carries the seat's tag (`TMUX_OWNER`) instead, as
+does all it starts, however far from the pane; an `ak` drops the tag as it marks itself, and an
+unmarked start carries neither, so no start of ak's is the seat's.  Once ak has forgotten that
+seat (`orch.forgotten`), the tick ends what carries its tag, wherever it runs.
 """
 
 import os
@@ -18,63 +23,80 @@ import signal
 import time
 
 from . import host
-from .warm import MARK   # its home there, as the warm client imports no agentkit
+from .warm import MARK, TMUX_OWNER   # their home there, as the warm client imports no agentkit
 
 GRACE = 5   # seconds a leftover sent TERM has to end before the sweep's second look KILLs it
+SERVER = "tmux: server\n"   # what tmux names its server process, in its comm
 
 
 def mark(name):
-    """Mark this process, and so everything it starts, as `name`'s: `ak <command>` or a helper.
+    """Mark this process, and so everything it starts, as `name`'s: `ak <command>` or a helper,
+    and no seat's that tagged a side session it runs in.
 
     The value is `<pid namespace> <pid> <start> <session> <name>`: the namespace's inode,
     the pid and the start in clock ticks name this process alone, as no process given its pid
     later starts at the same tick, and its POSIX session tells what it left there from what left
     for a session of its own.  Where /proc cannot say, the mark inherited, if any, stays.
     """
+    os.environ.pop(TMUX_OWNER, None)
     namespace, stat = _namespace(), host.proc_stat("self")
     if namespace is not None and stat is not None:
         os.environ[MARK] = f"{namespace} {os.getpid()} {stat.start} {stat.session} {name}"
 
 
 def unmarked(env=None):
-    """`env`, this process's own where none is given, without the mark."""
+    """`env`, this process's own where none is given, without the mark or a seat's tag."""
     return {key: value for key, value in (os.environ if env is None else env).items()
-            if key != MARK}
+            if key not in (MARK, TMUX_OWNER)}
 
 
 def leftovers():
-    """Each process a gone `ak` or helper left in its session, by a look of its own at /proc:
-    (pid, start, its command's words, that one's pid, its name).  Gone: the mark's pid names no
-    process, an exited one, or one with another start.  Never one in another session: a service
-    someone started on purpose, as is all of its session.  Nor one of a run, a tmux server or
-    anything below it, another HOME's, or one marked in another pid namespace, whose pids are
-    not ours.
+    """Each process the sweep ends, by a look of its own at /proc: (pid, start, its command's
+    words, whose it is).  One a gone `ak` or helper left in its session: the mark's pid names no
+    process, an exited one, or one with another start; never one in another session, a service
+    someone started on purpose, as is all of its session, nor one below a tmux server or marked
+    in another pid namespace, whose pids are not ours.  And one tagged with a seat ak has
+    forgotten, wherever it runs.  Never one of a run, a tmux server, or another HOME's.
     """
-    from .worker import RUN_MARKER   # here, not at the top: every `ak` imports this module
+    from . import orch   # here, not at the top: every `ak` imports this module
+    from .worker import RUN_MARKER
     namespace, home = _namespace(), os.environ.get("HOME")
     try:
         stats = {pid: stat for pid in map(int, filter(str.isdigit, os.listdir(host.PROC)))
                  if (stat := host.proc_stat(pid)) is not None}
     except OSError:
         return []
-    found = []
+    found, tagged = [], []
     for pid, stat in stats.items():
         env = dict(pair.split("=", 1) for pair in _proc(pid, "environ").split("\0") if "=" in pair)
         marked = re.fullmatch(r"(\d+) (\d+) (\d+) (\d+) (.+)", env.get(MARK, ""))
-        if not marked or stat.exited or RUN_MARKER in env or env.get("HOME") != home:
+        tag = env.get(TMUX_OWNER)
+        if (not (marked or tag) or stat.exited or RUN_MARKER in env or env.get("HOME") != home
+                or _proc(pid, "comm") == SERVER):
             continue
-        inode, ak, start, session = map(int, marked.groups()[:4])
-        if (inode == namespace and stat.session == session and not _under_tmux(pid, stats)
-                and ((was := stats.get(ak)) is None or was.exited or was.start != start)):
-            words = [word for word in _proc(pid, "cmdline").split("\0") if word]
-            found.append((pid, stat.start, words, ak, marked[5]))
+        words = [word for word in _proc(pid, "cmdline").split("\0") if word]
+        if marked:
+            inode, ak, start, session = map(int, marked.groups()[:4])
+            if (inode == namespace and stat.session == session and not _under_tmux(pid, stats)
+                    and ((was := stats.get(ak)) is None or was.exited or was.start != start)):
+                found.append((pid, stat.start, words, f"which a gone `{marked[5]}` (pid {ak}) "
+                                                      f"left running"))
+                continue
+        if tag:
+            tagged.append((pid, stat.start, words, tag))
+    if tagged:      # tmux asked only where a tag is there to ask about
+        seats = {session["name"] for session in orch.sessions()}
+        gone = {tag for tag in {row[3] for row in tagged} if orch.forgotten(tag, seats)}
+        found += [(pid, start, words, f"which a forgotten seat `{tag}` left running")
+                  for pid, start, words, tag in tagged if tag in gone]
     return found
 
 
 def sweep(log):
-    """End what gone `ak`s and helpers left in their sessions: TERM to each process a look finds
-    and, only where one went, KILL GRACE later to each a second look finds.  Each look starts
-    from scratch, so one that has become a process the sweep never ends meanwhile gets no KILL."""
+    """End what gone `ak`s and helpers left in their sessions, and forgotten seats anywhere
+    (`leftovers`): TERM to each process a look finds and, only where one went, KILL GRACE later
+    to each a second look finds.  Each look starts from scratch, so one that has become a
+    process the sweep never ends meanwhile, or whose seat is back, gets no KILL."""
     if _signal(signal.SIGTERM, log):
         time.sleep(GRACE)
         _signal(signal.SIGKILL, log)
@@ -83,9 +105,8 @@ def sweep(log):
 def _signal(number, log):
     """That signal to each process a look finds, each logged; whether any got it."""
     sent = [found for found in leftovers() if _send(*found[:2], number)]
-    for pid, _, words, ak, name in sent:
-        log(f"{number.name.removeprefix('SIG')} to {shlex.join(words)} (pid {pid}), "
-            f"which a gone `{name}` (pid {ak}) left running")
+    for pid, _, words, whose in sent:
+        log(f"{number.name.removeprefix('SIG')} to {shlex.join(words)} (pid {pid}), {whose}")
     return bool(sent)
 
 
@@ -120,7 +141,7 @@ def _under_tmux(pid, stats):
     parents: the walk ends where it would come back."""
     seen = set()
     while pid in stats and pid not in seen:
-        if _proc(pid, "comm") == "tmux: server\n":
+        if _proc(pid, "comm") == SERVER:
             return True
         seen.add(pid)
         pid = stats[pid].ppid
