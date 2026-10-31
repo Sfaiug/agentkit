@@ -313,11 +313,12 @@ class SuiteHelper(unittest.TestCase):
                 self.assertFalse((self.fake / "calls").exists())
 
     def test_a_suite_no_machine_takes_asks_to_rent_what_a_cpu_of_its_vms_holds(self):
-        # VMs of 2 CPUs and twice a piece's 2620 MiB: a C4A machine of 4 GB a vCPU fits them
+        # VMs of 2 CPUs and twice a piece's 2620 MiB, beside the tenth a machine's system keeps: a
+        # C4A machine of 4 GB a vCPU fits them
         (config.HOME / config.CONFIG_NAME).write_text("")
         with patch.object(google_cloud, "renting", return_value=True):
             self.assertIsNone(helper.start(1, 2620, self.repo, lambda line: None, "true")[0])
-        self.assertEqual((config.STATE / google_cloud.NEED).read_text(), "2620\n")
+        self.assertEqual((config.STATE / google_cloud.NEED).read_text(), "2912\n")
 
 
 class HelperMac(unittest.TestCase):

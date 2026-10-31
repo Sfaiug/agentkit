@@ -1,7 +1,8 @@
 """`ak doctor` names the machine Google Cloud rents for the least money per core right now: an
 arm64 vCPU is a core, two x86 vCPUs one; a type costs its cores, memory, boot disk and address, so
 among sizes of a family the most cores win; one with less memory a vCPU than a test piece's VM
-is estimated to need of each is passed over, and bare metal, never Spot.
+is estimated to need of each, beside the tenth its system keeps, is passed over, and bare metal,
+never Spot.
 Black-box: `AK_BIN` asks a fake Google on the loopback (`AK_GOOGLE_URL`).
 """
 
@@ -52,7 +53,8 @@ class GoogleBestMachine(unittest.TestCase):
         self.assertTrue(all("currencyCode=EUR" in path for path in skus), skus)
 
     def test_each_vcpu_holds_its_share_of_a_piece_s_vm(self):
-        # a VM of 2 vCPUs and twice a piece's 410 MiB: 410 MiB a vCPU, two of them an x86 core
+        # a VM of 2 vCPUs and twice a piece's 410 MiB, beside the system's tenth: 456 MiB a vCPU,
+        # two of them an x86 core
         self.google.key()
         for gb, name in ((4, "c4a-highcpu-8"), (2, "n2d-standard-8")):
             self.google.zones = [{"zones/europe-west4-a": {"machineTypes": [

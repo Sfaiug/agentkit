@@ -56,7 +56,7 @@ class GoogleRentsUnderACap(unittest.TestCase):
 
     @classmethod
     def needs(cls, when, cap=50):
-        cls.home.write(".agentkit/state/google-cloud-need", "410\n")    # as the line's suite
+        cls.home.write(".agentkit/state/google-cloud-need", "456\n")    # as the line's suite
         return cls.google.at(when, cap)
 
     def test_the_type_the_suite_needs_cheapest_a_core_until_googles_own_end(self):
