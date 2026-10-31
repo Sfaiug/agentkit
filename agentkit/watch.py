@@ -7121,6 +7121,8 @@ def say(dry_run, log, text, url, session, merged=False):
 AFTER_MERGE_WINDOW = 3 * 3600  # seconds a merge commit's checks are followed
 AFTER_MERGE_PASS = ("success", "neutral", "skipped")  # the conclusions that mean green
 HEALTH_TIMEOUT = 30  # a project's live probe must leave time for the rest of the tick
+# Everything up to the last place str.splitlines, which reads a probe's output, ends a line.
+UP_TO_LAST_BREAK = re.compile(rb"(?s).*(?:[\n\r\v\f\x1c-\x1e]|\xc2\x85|\xe2\x80[\xa8\xa9])")
 
 
 def health_command(repo, sha, command, checked=None, timeout=HEALTH_TIMEOUT):
@@ -7154,12 +7156,16 @@ def health_command(repo, sha, command, checked=None, timeout=HEALTH_TIMEOUT):
             start = max(0, output.seek(0, os.SEEK_END) - 4096)
             output.seek(start)
             window = output.read(4096)
-            if start and b"\n" not in window.rstrip():
+            text = window.decode("utf-8", errors="replace")
+            if start and len(text.rstrip().splitlines()) == 1:
                 # The last line began before the window: its beginning says why, its end rarely.
+                # Bytes continuing a character begun before the window may end its break.
+                lead = len(window) - len(window.lstrip(bytes(range(0x80, 0xc0))))
                 with mmap.mmap(output.fileno(), 0, access=mmap.ACCESS_READ) as whole:
-                    output.seek(whole.rfind(b"\n", 0, start) + 1)
-                window = output.read(4096)
-            tail = "\n".join(window.decode("utf-8", errors="replace").splitlines()[-10:])
+                    found = UP_TO_LAST_BREAK.match(whole, 0, start + lead)
+                output.seek(found.end() if found else 0)
+                text = output.read(4096).decode("utf-8", errors="replace")
+            tail = "\n".join(text.splitlines()[-10:])
             if timed_out:
                 tail += f"\ntimed out after {timeout}s"
             return not timed_out and proc.returncode == 0, tail.strip()
