@@ -88,10 +88,13 @@ func Programs() ([]string, error) {
 }
 
 // A HookTable is a manifest's `[hooks.install]`: the settings file its harness reads hooks
-// from, and what of ak's hooks/ runs there, event by event in the table's order.
+// from, under the login's home where it names `{home}`, and what of ak's hooks/ runs there,
+// event by event in the table's order.
 type HookTable struct {
 	Settings string
-	Events   []HookEvent
+	// File is whether that file is ak's own (`form = "file"`), written whole, not merged into.
+	File   bool
+	Events []HookEvent
 	// Names is each script's own name, then those it went by before: an entry naming one is
 	// that script's.
 	Names map[string][]string
@@ -115,7 +118,8 @@ func Hooks(harness string) (HookTable, bool, error) {
 	if err != nil || settings == "" || events == nil {
 		return HookTable{}, false, err
 	}
-	found := HookTable{Settings: Expand(settings), Names: map[string][]string{}}
+	settings = strings.ReplaceAll(Expand(settings), "{home}", loginHome(manifests[harness]))
+	found := HookTable{Settings: settings, File: install.get("form") == "file", Names: map[string][]string{}}
 	matchers, _ := install.get("matchers").(*table)
 	heard := words(hooks, "install", "heard")
 	for _, name := range events.keys {

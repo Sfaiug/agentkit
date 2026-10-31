@@ -135,7 +135,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, plan, quality, staffing, terminal, transitions, update, usage, worker
+from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
 from . import record
 from . import warm
 
@@ -1991,7 +1991,8 @@ def stop_behind(name, dry_run):
     """Stop the popup's own seat behind it, in a process of its own (`teardown`), so the popup
     going ends nothing halfway."""
     try:
-        subprocess.Popen(teardown(name, dry_run), cwd=config.REPO, env=config.owner_env(),
+        subprocess.Popen(teardown(name, dry_run), cwd=config.REPO,
+                         env=owner.unmarked(config.owner_env()),
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, start_new_session=True)
     except OSError as exc:
@@ -2978,6 +2979,7 @@ MODELS_KEYS = {"answer": ("↑↓ move   ←→ points   ⏎ why   p pick   r ta
                "pick": ("↑↓ move   ␣ mark   type to find   esc done",
                         "up/down move   space mark   type to find   esc done")}
 NEAR = 2                          # the line's rows shown past those within `within` of the best
+MARK = 7                          # a row's mark's column, as wide as `r takes`
 LEGEND = (("as good", "{} within {} points of the best, then the cheapest"),
           ("left out", "a row no better than a cheaper one, yours compared with yours"))
 KNOB = ("legend", "within")
@@ -3001,15 +3003,17 @@ def pointed(role, row):
 
 
 def models_said(answer, lineup, within):
-    """What the models screen says of `answer` (matrix.answer) per role: (its head and best,
-    `none` with no front, its lines): each row of the front within `within` of the best, so the
-    pick and what `r` takes among them, and up to NEAR rows more, each (where the pointer is on it, name, its effort's cells out of the efforts its
-    release has in `lineup`, a row naming none one of them (terminal.effort_cells), its effort
-    or "" for none, how near the role's best it is from 0, config.POINTS behind or more, to 1,
-    quality, cost, notes), and under a pick not yours what `r` takes.  With no pick, no priced
+    """What the models screen says of `answer` (matrix.answer) per role: (its head, its lines,
+    the rows past them `within` = config.POINTS shows, which with them hold every row any
+    `within` shows).  Its head is its name, with its best where its first row is not that,
+    `none` with no front.  Its lines are each row of the front within `within` of the best, so
+    the pick and what `r` takes among them, and up to NEAR rows more, each (where the pointer is
+    on it, its mark: `★ pick`, `r takes` on what `r` takes where that is not the pick, else "",
+    name, its effort's cells out of the efforts its release has in `lineup`, a row naming none
+    one of them (terminal.effort_cells), its effort or "" for none, how near the role's best it
+    is from 0, config.POINTS behind or more, to 1, quality, cost, notes), and under a pick where
+    `r` takes nothing that no harness of yours runs a model this good.  With no pick, no priced
     row being within `within` of the best, the front from its best, said so."""
-    def effort(row):
-        return f" {row['effort']}" if row["effort"] else ""
     levels = {}     # each release's efforts on the boards, weakest first, a row naming none one
     for row in lineup:
         levels.setdefault(row["release"], []).append(row["effort"])
@@ -3017,23 +3021,27 @@ def models_said(answer, lineup, within):
     for role, head in zip(quality.ROLES, orch.ROLE_HEADS):
         found = answer[role]
         front, pick, take = found["front"], found["pick"], found["take"]
-        near = sum(row["quality"] >= found["best"] - within for row in front)
-        lines = [] if pick or not front else ["no row with a cost is as good"]
-        for row in front[:near + NEAR]:
+        shown, sized = (NEAR + sum(row["quality"] >= found["best"] - points for row in front)
+                        for points in (within, config.POINTS))
+        lines, more = [] if pick or not front else ["no row with a cost is as good"], []
+        for number, row in enumerate(front[:sized]):
             missing = sum(one["how"] == "missing" for one in row["measures"].values())
-            notes = (terminal.styled("★ pick", "accent") if row is pick else "",
-                     f"{missing} missing" if missing else "",
-                     "" if row["yours"] else "no harness")
+            notes = [terminal.styled(note, "dim") for note in (
+                f"{missing} missing" if missing else "", "" if row["yours"] else "no harness")
+                if note]
+            mark = (terminal.styled("★ pick", "accent") if row is pick else
+                    "r takes" if row is take else "")
             taken = levels[row["release"]]
-            lines.append((pointed(role, row), row["name"], terminal.effort_cells(
-                len(taken), taken.index(row["effort"]) + 1),
+            (lines if number < shown else more).append((
+                pointed(role, row), mark, row["name"], terminal.effort_cells(
+                    len(taken), taken.index(row["effort"]) + 1),
                 row["effort"] or "", max(0, 1 - (found["best"] - row["quality"]) / config.POINTS),
-                f"{row['quality']:.1f}", f"${row['cost']:.2f}", " · ".join(filter(None, notes))))
-            if row is pick and not row["yours"]:
-                lines.append(f"r takes {take['name']}{effort(take)}, {take['quality']:.1f}, "
-                             f"${take['cost']:.2f}" if take
-                             else "no harness of yours runs a model this good")
-        said.append((f"{head} · best {found['best']:.1f}" if front else f"{head} · none", lines))
+                f"{row['quality']:.1f}", f"${row['cost']:.2f}", notes))
+            if row is pick and not take:
+                lines.append("no harness of yours runs a model this good")
+        # the first row is the best but where the best has no cost, so the head says it then
+        said.append((f"{head} · none" if not front else f"{head} · best {found['best']:.1f}"
+                     if front[0]["quality"] < found["best"] else head, lines, more))
     return said
 
 
@@ -3041,34 +3049,40 @@ def models_body(said, within, compared, total, fetched, at=None, moves=None):
     """The models screen's lines, and the row each says, the row `at` marked, or the legend
     (KNOB): {line: (row, [])}.
 
-    Per role (models_said) its head over the columns, then its lines: a row's name, its effort
-    as `c` draws one -- its cells, then its word, in one column after the most cells any row
-    has -- its line (terminal.share_line), taking the room the other columns leave, then its
-    quality, cost and notes.  Where that leaves the line under 8 cells, or a role's head wider
-    than the columns before the numbers, from 40 cells up, each row's name and effort take a
-    line and its line, numbers and notes the next, the name alone cut; the notes that do not
-    fit beside the numbers go under them, broken only between two.
+    Per role (models_said), a blank line between two, its head, beside the first with rows the
+    columns' heads, then its lines: a row's mark in MARK cells, its name, its effort as `c` draws
+    one -- its cells, then its word, in one column after the most cells any row has -- its line
+    (terminal.share_line), taking the room the other columns leave, then its quality, cost and
+    notes, these one under another in a column as wide as the widest.  Every column fits the
+    rows `within` = config.POINTS shows, so a step of `within` moves none.  Where that leaves the
+    line under 8 cells, from 40 cells up, each row's mark, then its name and effort, take a line
+    and its line, numbers and notes the next, the name alone cut; the notes that do not fit
+    beside the numbers then go under the row, broken only between two.
     `moves`, a list, is handed each row's line, LINES and how it grows in as the screen opens,
     row after row (motion.growing).  Then the legend, opening on `within`'s knob (points_knob),
     never broken, and how many of the `total` models are `compared` (matrix.compared) and when
     the boards were read, broken only at ` · `."""
     room = terminal.layout_width()
-    rows = [line for _, lines in said for line in lines if isinstance(line, tuple)]
-    tall = max((len(cells) for _, _, cells, *_ in rows), default=0)
+    rows = [line for _, lines, _ in said for line in lines if isinstance(line, tuple)]
+    sized = [*rows, *(row for *_, more in said for row in more)]
+    tall = max((len(cells) for _, _, _, cells, *_ in sized), default=0)
 
     def effort(cells, word):
-        lead = "".join(cells) + " " * (tall - len(cells) + 1) if tall else ""
+        lead = "".join(cells) + " " * (tall - len(cells) + 2) if tall else ""
         return lead + word if word else ""
-    label = max((terminal.cells(name) for _, name, *_ in rows), default=0)
-    levelled = max((terminal.cells(effort(cells, word)) for _, _, cells, word, *_ in rows),
+    label = max((terminal.cells(name) for _, _, name, *_ in sized), default=0)
+    levelled = max((terminal.cells(effort(cells, word)) for _, _, _, cells, word, *_ in sized),
                    default=0)
-    widths = [max(terminal.cells(text) for text in [head, *(row[n] for row in rows)])
-              for n, head in ((5, "quality"), (6, "a task"), (7, ""))]
+    widths = [*(max(terminal.cells(text) for text in [head, *(row[n] for row in sized)])
+                for n, head in ((6, "quality"), (7, "a task"))),
+              max((terminal.cells(note) for *_, notes in sized for note in notes), default=0)]
     after = 2 + widths[0] + 2 + widths[1] + 2 + widths[2]     # the columns after the line
-    size = room - 4 - label - 2 - levelled - 2 - after
-    heads = max((terminal.cells(head) for head, _ in said), default=0)
-    wide = size >= max(8, heads - label - levelled - 6)     # a line of 8 or more, no head cut
-    size = size if wide else max(8, room - 4 - after)
+    before = 2 + MARK + 2 + label + 2 + levelled + 2          # the cells before a row's line
+    wide = room - before - after >= 8
+    before = before if wide else 4                            # folded, the line under the name
+    size = max(8, room - before - after)
+    under = 2 + MARK + 2 + 2 if wide else 6                   # 2 cells in from a row's name
+    first = next((number for number, (_, lines, _) in enumerate(said) if lines), None)
     lines, places = [], {}
 
     def put(line, here=None):
@@ -3085,38 +3099,43 @@ def models_body(said, within, compared, total, fetched, at=None, moves=None):
         moves.append((len(lines) - 1, LINES, None, lambda clock, row, since, _: grow_line(
             clock, row, drawn, slice(start, start + size), lambda cells: motion.growing(
                 cells, since + above * motion.STAGGER))))
-    for head, said_lines in said:
-        here, columns = None, ["quality", "a task"]
-        if wide and said_lines:
-            put(terminal.table_row([head, *columns], [label + levelled + size + 6, *widths[:2]],
-                                   indent="  ", kinds=(None, "dim", "dim"), right=(1, 2)))
-        else:
+    for number, (head, said_lines, _) in enumerate(said):
+        here = None
+        if number:
+            put("")
+        if number != first or not wide:
             put("  " + head)
-            if said_lines:
-                put(terminal.table_row(columns, widths[:2], indent=" " * (6 + size),
-                                       kinds=("dim", "dim"), right=(0, 1)))
+        if number == first:
+            put(terminal.table_row([head if wide else "", "quality", "a task"],
+                                   [before + size - 2, *widths[:2]], indent="  ",
+                                   kinds=(None, "dim", "dim"), right=(1, 2)))
         for line in said_lines:
             if isinstance(line, str):     # the words under the pick, wrapped at words, are its row's
-                for part in terminal.wrap(line, room - 6):
-                    put("      " + part, here)
+                for part in terminal.wrap(line, room - under):
+                    put(" " * under + part, here)
                 continue
-            here, name, cells, word, near, *numbers, notes = line
+            here, mark, name, cells, word, near, *numbers, notes = line
             text = effort(cells, word)
             name = terminal.pad(name, label if wide else min(label, room - 6 - levelled))
-            lead = f"    {name}  {text}{' ' * (levelled - terminal.cells(text))}  "
-            if not wide:
-                put(lead, here)
+            lead = f"{name}  {text}{' ' * (levelled - terminal.cells(text))}  "
+            if wide:
+                lead = f"  {mark}{' ' * (MARK - terminal.cells(mark))}  {lead}"
+            else:
+                if mark:
+                    put("    " + mark, here)
+                put("    " + lead, here)
                 lead = "    "
             tail = (f"{lead}{terminal.share_line(near, size)}  {numbers[0]:>{widths[0]}}  "
                     f"{numbers[1]:>{widths[1]}}  ")
-            parts = notes.split(" · ") if notes else []
-            fit = max((n for n in range(len(parts) + 1)      # the notes that fit, the rest under
-                       if terminal.cells(tail + " · ".join(parts[:n])) <= room), default=0)
-            put(tail + " · ".join(parts[:fit]), here)
+            fit = max((n for n in range(len(notes) + 1)      # the notes that fit, the rest under
+                       if terminal.cells(tail + " · ".join(notes[:n])) <= room), default=0)
+            put(tail + " · ".join(notes[:fit]), here)
             if moves is not None:
                 grows(lead, rows.index(line))
-            for part in packed(parts[fit:], " · ", room - 6):
-                put("      " + part, here)
+            column = terminal.cells(tail)     # the notes', one under another where it fits
+            column = column if column + widths[2] <= room else under
+            for part in packed(notes[fit:], " · ", room - column):
+                put(" " * column + part, here)
     put("", KNOB)
     knob = points_knob(within)
     word = "_" * (terminal.cells(knob) + 1)   # one word, so the knob never breaks, and its gap
@@ -3248,7 +3267,7 @@ def models_screen(cfg, session, selected, providers):
             compared = matrix.compared(cfg, current)
             answer = matrix.answer(lineup, matrix.within(cfg), compared)
             said = models_said(answer, lineup, matrix.within(cfg))
-            rows = [line[0] for _, lines in said for line in lines if isinstance(line, tuple)]
+            rows = [line[0] for _, lines, _ in said for line in lines if isinstance(line, tuple)]
             if here not in rows:
                 role = here[1] if here else next(iter(quality.ROLES))
                 pick = answer[role]["pick"]
@@ -4215,8 +4234,12 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
         # SIG_IGN, is not inherited by the harness.
         interrupt = signal.signal(signal.SIGINT, lambda *_: None)
         try:
+            # an install is the menu's own and ends with it; a browser a sign-in opens is the
+            # owner's, and outlives it (`owner`)
+            env = config.child_env()
             code = subprocess.run([str(config.adapter(harness)), *verb.split()],
-                                  env={**config.child_env(), **config.account_env(account),
+                                  env={**(owner.unmarked(env) if verb.startswith("login") else env),
+                                       **config.account_env(account),
                                        **config.provider_env([provider] if provider else [])}
                                   ).returncode
             # a sign-in cut short can still exit 0 (codex 0.163's on ^C): it finished unless the
@@ -5912,7 +5935,8 @@ def update_first(live=None, updates=None):
         return result()
     try:
         proc = subprocess.Popen([sys.executable, "-m", "agentkit.update", "--agentkit"],
-                                cwd=config.REPO, env=config.child_env(), stdin=subprocess.DEVNULL,
+                                cwd=config.REPO, env=owner.unmarked(config.child_env()),
+                                stdin=subprocess.DEVNULL,
                                 stdout=subprocess.PIPE if live else subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL, text=True, encoding="utf-8",
                                 start_new_session=True)

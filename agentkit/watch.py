@@ -45,8 +45,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, host,
-               login_refusals, notify, orch, parsed, questions, seat_tokens, staffing, statusbar,
-               transitions, turns, update, usage, worker)
+               login_refusals, notify, orch, owner, parsed, questions, seat_tokens, staffing,
+               statusbar, transitions, turns, update, usage, worker)
 from . import record as run_record
 from . import sleep
 from . import terminal as terminal_mod
@@ -2679,7 +2679,7 @@ def start_look(launched):
              "from agentkit import watch; watch.hook_look(sys.argv[2])",
              str(Path(__file__).resolve().parents[1]), launched],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True)
+            start_new_session=True, env=owner.unmarked())
     except OSError:
         return None
 

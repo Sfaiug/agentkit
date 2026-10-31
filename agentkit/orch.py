@@ -50,7 +50,7 @@ from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, 
 from datetime import datetime
 from pathlib import Path
 
-from . import aside_editor, command_help, config, gitcall, guard, host, plan, retention, staffing, terminal, transitions, update, usage
+from . import aside_editor, command_help, config, gitcall, guard, host, owner, plan, retention, staffing, terminal, transitions, update, usage
 from . import record as run_record
 from .harness import LAUNCHER, load as harness_plugin
 
@@ -731,6 +731,7 @@ def _start_in_slice(argv, unit, env, output, log, target_slice, properties=(), n
     a run's reaper, which reads there whether the memory cap ended it, then stops it.
     """
     target_slice = seat_slice_name() if target_slice is None else target_slice
+    env = owner.unmarked(env)     # a unit outlives the command that starts it
 
     def set_scope(value, reason=None):
         if placement is not None:
@@ -937,7 +938,7 @@ def stop_scope(scope, log=lambda _: None, wait=True):
             # Do not wait on a stop that waits on this process to exit.
             subprocess.Popen([*command, *units, "--no-block"], stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             start_new_session=True, env=bus_env())
+                             start_new_session=True, env=bus_env(owner.unmarked()))
             return True
         # one unit at a time: for several, systemctl answers with the first one's error, and
         # the scope's "not loaded" would hide the service's refusal to stop
@@ -1099,13 +1100,15 @@ def tmux_argv(socket, *args):
 
 
 def tmux_env(client=False):
-    """The environment a tmux command runs with: $TMUX dropped unless a client is wanted.
+    """The environment a tmux command runs with: unmarked, $TMUX dropped unless a client is wanted.
 
     Inside somebody else's tmux, $TMUX is what a bare tmux command would follow -- so it goes,
     and the server named on the command line is the only one that can be reached.  Only
-    `switch-client` keeps it, because without it there is no client to switch.
+    `switch-client` keeps it, because without it there is no client to switch.  The mark goes
+    from every one (`owner`): any may start a server, whose global environment is the starting
+    client's, and the server outlives it.
     """
-    return dict(os.environ) if client else {k: v for k, v in os.environ.items() if k != "TMUX"}
+    return {k: v for k, v in owner.unmarked().items() if client or k != "TMUX"}
 
 
 def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shim=False,
@@ -2140,9 +2143,11 @@ def seat_command(name, cmd, socket=None):
 
 
 def seat_env(name, server):
-    """A seat gets the caller's state and delivery boundary, not its server's old one."""
+    """A seat gets the caller's state and delivery boundary, not its server's old one, and no
+    `ak`'s mark (`owner`), whatever its server holds: it outlives the `ak` that opens it."""
     from . import notify
-    values = {"HOME": str(Path.home()), config.SESSION_ENV: name, SOCKET_ENV: server}
+    values = {"HOME": str(Path.home()), config.SESSION_ENV: name, SOCKET_ENV: server,
+              owner.MARK: None}
     for key in sorted(config.state_env_names() | set(notify.ENV_NAMES)):
         if key not in values:
             values[key] = os.environ.get(key)
