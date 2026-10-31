@@ -95,6 +95,11 @@ func Read(now time.Time) (Home, bool) {
 		}
 		kind, rest, _ := strings.Cut(entry.Name(), "-")
 		name, suffix, _ := strings.Cut(rest, ".")
+		// a seat removed leaves its locks, which writers hold or wait on, and its stop mark, which
+		// no listing reads (forget)
+		if !slices.Contains(names, name) && entry.Type().IsRegular() && (suffix == "lock" || kind == "seat" && suffix == "json") {
+			continue
+		}
 		if entry.IsDir() || !slices.Contains(names, name) || name == "" || config.SessionName(name) != name || !slices.Contains(kinds[kind], suffix) {
 			return Home{}, false
 		}
@@ -207,8 +212,10 @@ func recorded(state, name string, record *run.Object, models map[string]config.M
 	restart, known := harness.Reopens(models[record.Str("orchestrator")].Harness)
 	workers, complaint, crewed := crew(record.Get("workers"), models)
 	created, dated := number(record.Get("created"))
+	// as launched, or as reconcile leaves a record whose harness proves no conversation it names
+	resumable := record.Get("resumable") == true || restart != "" && record.Get("resumable") == false
 	if !only(record, recordFields) || !known || !crewed || !dated || !text(record.Get("cwd")) || !text(record.Get("repo")) ||
-		!text(record.Get("conversation")) || record.Str("id_source") != "launcher" || record.Get("resumable") != true {
+		!text(record.Get("conversation")) || record.Str("id_source") != "launcher" || !resumable {
 		return Seat{}, false
 	}
 	seat := Seat{Name: name, Word: "idle", Tally: "no runs yet", Orchestrator: record.Str("orchestrator"), Workers: workers,

@@ -5,9 +5,9 @@ import (
 	"strings"
 )
 
-// seatKinds are the kinds of file a seat owns under state/ as `<kind>-<seat>.<ext>`, the keys
-// of Python's config.SEAT_FILES, where each says what it holds: a rename moves them, and a stop
-// and the daily collector find them by this table.
+// seatKinds are the kinds of file a seat owns under state/ as `<kind>-<seat>.<ext>`: the keys of
+// Python's config.SEAT_FILES, where each says what it holds and its test holds this copy to.  A
+// rename moves them, and a stop and the daily collector find them by this table.
 var seatKinds = []string{"log", "session", "notify", "card", "seat", "hook", "plan", "stop", "live", "title",
 	"input", "rulebook", "verify", "verified", "rules", "change", "held", "launch", "refused", "handover", "tell"}
 

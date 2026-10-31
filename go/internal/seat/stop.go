@@ -134,8 +134,8 @@ func look(state, name string, now time.Time) (seen, bool) {
 
 // plain is whether nothing the seat owns is Python's to end with it: no run it launched
 // (stop.release_session), no browser tab it opened (browser.close_owned), no question it asked
-// still unseen (notify.clear), and no card of a question, which an outbox may hold, nor one
-// Python could not read (notify.forget_card).
+// still unseen (notify.clear), and no card a webhook took or a question's, which an outbox may
+// hold, nor one Python could not read (notify.forget_card).
 func plain(state, name string) bool {
 	if asked, _ := run.ReadJSON(filepath.Join(state, "notify-"+name+".json")); asked != nil {
 		if _, text := asked.Get("text").(string); asked.Get("kind") == "needs" && text && !asked.Truthy("seen") {
@@ -143,7 +143,7 @@ func plain(state, name string) bool {
 		}
 	}
 	card, err := run.ReadJSON(filepath.Join(state, "card-"+name+".json"))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) || card != nil && card.Get("word") == "needs you" {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) || card != nil && (card.Truthy("sent") || card.Get("word") == "needs you") {
 		return false
 	}
 	if tabs, _ := run.ReadJSON(filepath.Join(state, "browser-tabs.json")); tabs != nil {
