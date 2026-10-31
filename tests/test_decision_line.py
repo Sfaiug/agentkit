@@ -69,7 +69,9 @@ class DecisionLine(Sandbox):
         self.assertEqual(line, "run acme-live NOT LIVE (3 of 3): health: probe failed on main after this merge. "
                                f"Next: {handback.RESULT_NAMES}. Result: {config.tilde(directory / 'result.md')}")
         self.assertIn(told, (directory / "result.md").read_text())
-        self.assertEqual(handback.not_live_line(told, directory.with_name("acme-gone")), told)   # no result to lead to
+        gone = directory.with_name("acme-gone")     # a run cleaned up since: its result comes back
+        self.assertIn(f"Result: {config.tilde(gone / 'result.md')}", handback.not_live_line(told, gone))
+        self.assertIn(told, (gone / "result.md").read_text())
 
     def test_what_the_line_cannot_hold_is_whole_in_its_result(self):
         cause = "a process stopped during a remote write " * 30 + "and nothing ended it"
@@ -78,8 +80,12 @@ class DecisionLine(Sandbox):
         (directory / "result.md").write_text("# FAIL\n")     # written before its cause was
         self.assertIn(handback.UNSAID, handback.handback_line(state, directory, self.cfg))
         self.assertIn(cause, (directory / "result.md").read_text())
-        directory, _ = self.ending("acme-many", state="fail", verdict="FAIL", findings=f"{FINDING}\n", findings_file="/acme/final.md")
+        with patch.object(watch, "longest", return_value=100):     # no room for a reason: refused
+            self.assertRaises(config.Error, handback.handback_line, state, directory, self.cfg)
+        directory, _ = self.ending("acme-many", state="fail", verdict="FAIL", findings=f"{FINDING}\n", findings_file="/acme/final.md",
+                                   final_check={"outcome": "failed", "sha": "a" * 40, "line": "acme-check " * 80})
         self.assertIn("Every one in full: /acme/final.md", (directory / "result.md").read_text())
+        self.assertIn("acme-check " * 79, (directory / "result.md").read_text())
 
     def test_an_ending_nothing_decides_about_has_no_decision_line(self):
         for name, extra in (("acme-merged", {"merged": True, "pr": "https://github.com/a/b/pull/1"}),

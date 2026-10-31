@@ -128,12 +128,12 @@ class RunNotice(Sandbox):
 
     def test_the_same_byte_bound_as_tell_is_applied(self):
         directory, state = self.result()
-        state.update(state="not_needed", not_needed="é" * 250)
-        with patch.object(watch, "MAX_BYTES", 600):
+        state["merge_note"] = "é" * 250
+        with patch.object(watch, "MAX_BYTES", 500):
             line = handback.handback_line(state, directory, self.cfg)
             self.assertIsNone(watch.too_long(line))
             self.assertLessEqual(len(line.encode("utf-8")), watch.MAX_BYTES)
-            self.assertNotIn(state["not_needed"], line)
+            self.assertNotIn(state["merge_note"], line)
 
     def test_a_maintainer_decision_uses_the_same_followup_bound(self):
         directory, state = self.followups(2, pr=PR)

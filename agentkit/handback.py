@@ -289,8 +289,9 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
             entry["done_when"], "done-when not run")
         parts += [f"## Round {entry['round']} ({entry['verdict']}, {dw})", "",
                   entry["summary"], ""]
-    if state.get("error"):
-        parts += ["## Why this run stopped", "", state["error"], ""]
+    why = state.get("error") or state.get("interruption_reason") or (state["verdict"] != "PASS" and failed_check(state))
+    if why:
+        parts += ["## Why this run stopped", "", why, ""]
     if state["verdict"] != "PASS" and prompts.overridden_section(state):
         parts += [prompts.overridden_section(state)]
     if state["verdict"] != "PASS" and state["findings"]:
@@ -1416,31 +1417,31 @@ def live_line(state, run_dir):
 
 
 def decision(run_dir, state, word, why, move, save=True):
-    """`run <id> <WORD> (<round> of <budget>): <why> Next: <move>. Result: <path>`, within DECISION_MOST
-    and every harness's fold (`watch.longest`): `why` in whole sentences, else UNSAID, the move's detail
-    (`next_move`) dropped first.  A cut `why` is saved whole with its follow-ups, as an older result
-    may lack them; without `save` the caller leaves that to whoever holds the delivery lock (`look_line`)."""
+    """`run <id> <WORD> (<round> of <budget>): <why> Next: <move>. Result: <path>` within DECISION_MOST and
+    a typed line's bound (`watch.too_long`): `why` in whole sentences, the move's detail dropped first, then
+    UNSAID for `why`, else refused as `seat_notice` refuses.  A line cut short saves its whole, an older
+    result maybe lacking it; without `save` the caller leaves that to whoever holds the delivery lock."""
     from . import watch  # here, not at the top: it reaches run
     most = min(DECISION_MOST, watch.longest())
     head = f"run {run_dir.name} {word} ({len(state.get('round_summaries') or [])} of {state.get('rounds') or 0}):"
-    for step in dict.fromkeys(("".join(move), move[0])):
-        tail = f"Next: {step}. Result: {config.tilde(run_dir / 'result.md')}"
-        said = terminal.sentences(why, most - len(head) - len(tail) - 2)
-        said = said or terminal.sentences(UNSAID, most - len(head) - len(tail) - 2)
-        if said:
+    end = f". Result: {config.tilde(run_dir / 'result.md')}"
+    whole = f"{head} {terminal.sentences(why, len(why) + 1)} Next: {''.join(move)}{end}"
+    for step, said in (("".join(move), why), (move[0], why), (move[0], UNSAID)):
+        tail = f"Next: {step}{end}"
+        said = terminal.sentences(said, most - len(head) - len(tail) - 2)
+        line = f"{head} {said} {tail}"
+        if said and not watch.too_long(line):
             break
-    line = " ".join(filter(None, (head, said, tail)))
-    if len(line) > most:
-        raise config.Error(f"{len(line):,} characters is more than a decision line holds ({most:,})")
-    if save and said != terminal.sentences(why, len(why) + 1):
-        save_result(run_dir, notices=(why, followup_report(state)))
+    else:
+        raise config.Error(f"run {run_dir.name}'s decision line has no room for a reason in {most:,} characters")
+    if save and line != whole:
+        save_result(run_dir, notices=(whole, followup_report(state)))
     return line
 
 
 def decision_line(state, run_dir, cfg=None, save=True):
-    """The one line a run's ending its seat decides about is told in; None for any other.  What
-    it delivered or was stopped on purpose leaves nothing to decide; a run going, or parked on a
-    merge upstream, has not ended, unless only its provider holds it."""
+    """The line an ending its seat decides about is told in, else None: one delivered or stopped on
+    purpose leaves nothing to decide, and one going or parked upstream has not ended, but for a provider."""
     word = handback_verdict(state, cfg)
     if (word.startswith(("PASS", "DONE")) or transitions.delivered(state) or state.get("state") in ("waiting", "stopped")
             or transitions.going(state) and not transitions.exhausted_wait(state)):
@@ -1449,9 +1450,8 @@ def decision_line(state, run_dir, cfg=None, save=True):
 
 
 def next_move(state, run_dir):
-    """The seat's next step, decided from the ending, and its detail the result names too.  Spent
-    reviews say split: the task was too big, not the worker.  A block or a failing check says
-    rewrite: more rounds would not pass."""
+    """The seat's next step from the ending, and its detail the result names too.  Spent reviews say split:
+    the task was too big, not the worker; a block or a failing check, rewrite: more rounds would not pass."""
     if transitions.exhausted_wait(state):
         return "wait for the provider", ""
     named = transitions.continue_line(state, run_dir).removeprefix("continue: ") or retry_command(state)
@@ -1467,17 +1467,15 @@ def next_move(state, run_dir):
 
 def not_live_line(told, run_dir):
     """The decision line of a merge its target's checks or `health:` broke, its result keeping `told`
-    whole; `told` itself once its run is cleaned up, with no result to lead to."""
-    if not run_dir.is_dir():
-        return told
+    whole: a run cleaned up since gets back the directory that result is in."""
+    run_dir.mkdir(parents=True, exist_ok=True)
     save_result(run_dir, notices=(told,))
-    return decision(run_dir, run_record.read_state(run_dir) or {}, "NOT LIVE", told, (RESULT_NAMES, ""))
+    return decision(run_dir, run_record.read_state(run_dir) or {}, "NOT LIVE", told, (RESULT_NAMES, ""), save=False)
 
 
 def handback_line(state, run_dir, cfg=None, save=True, live=False):
-    """The one line a finished run types into the seat that launched it: its decision line, or
-    `run <id> finished <verdict>: <why>. Result: <path>. Decide the next step.`, a scratch run's
-    naming the workspace holding what it delivered, `live` adding its change gone live (`carries_live`)."""
+    """The one line a finished run types into the seat that launched it: its `decision_line`, else `run <id>
+    finished <verdict>: <why>. Result: <path>. Decide the next step.`, a scratch run naming its workspace."""
     decided = decision_line(state, run_dir, cfg, save)
     if decided:
         return decided
