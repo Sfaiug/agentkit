@@ -4,7 +4,7 @@ import "strings"
 
 // ShellSplit is a command line's words as Python's shlex.split reads them: whitespace apart,
 // quotes and backslashes as a POSIX shell takes them, but that inside double quotes a backslash
-// escapes only `"` and itself.  False where shlex refuses the line: a quotation left open, or a
+// escapes only `"` and itself.  False where shlex refuses the line: a quote left open, or a
 // backslash ending it.
 func ShellSplit(line string) ([]string, bool) {
 	var words []string
