@@ -3,6 +3,7 @@
 package box
 
 import (
+	"context"
 	"errors"
 	"os"
 )
@@ -11,8 +12,8 @@ import (
 const Supported = false
 
 // Run refuses, as there is no box to run argv in.
-func Run(argv []string, env map[string]string, workspace, out string, state, logins, hidden []string, stderr *os.File) (int, error) {
-	return 0, errors.ErrUnsupported
+func Run(ctx context.Context, argv []string, env map[string]string, workspace, out string, state, logins, hidden []string, stderr *os.File) (int, map[int]string, error) {
+	return 0, nil, errors.ErrUnsupported
 }
 
 // First is false: nothing starts this program as a box's first process here.

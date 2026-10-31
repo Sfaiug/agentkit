@@ -66,9 +66,12 @@ func oneTurn(args []string, out, errOut io.Writer) int {
 		return notImplemented(errOut, "worker") // what Python reads in its runtime's own words
 	}
 	workspace := config.Absolute(cmp.Or(parsed.values["--workspace"], "."))
-	code, _, err := worker.Turn(model, cmp.Or(parsed.values["--role"], "executor"), task.Text(body), workspace, into, parsed.values["--session"])
+	code, _, err := worker.Turn(model, cmp.Or(parsed.values["--role"], "executor"), task.Text(body), workspace, into, parsed.values["--session"], errOut)
 	if errors.Is(err, worker.ErrPython) {
 		return notImplemented(errOut, "worker")
+	} else if errors.Is(err, worker.ErrInterrupted) {
+		fmt.Fprintf(errOut, "\nak worker: %s\n", err)
+		return 130
 	} else if err != nil {
 		fmt.Fprintf(errOut, "ak worker: %s\n", err)
 		return 2

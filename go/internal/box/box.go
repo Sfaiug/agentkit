@@ -10,7 +10,10 @@
 // the caller hides, each through a link too, and none gains another name in /run's copy.
 // And it hides the box's first process, this program started again inside, with its report of
 // how the command ended: an exit of n is n, a death by a signal keeps that signal, and a command
-// that cannot start keeps the shell's 127 or 126.
+// that cannot start keeps the shell's 127 or 126.  The first process is what sees every process
+// in the box, so it ends them and names them: ak stopping the box gives the command TERM, as a
+// harness saves its session, and what is left of it after a grace ends; and what still runs
+// beside the command as it ends, however it left, is in the report, and ends as the box does.
 package box
 
 import (
@@ -61,37 +64,48 @@ var credentials = []string{"~/.config/gh/hosts.yml", "$XDG_CONFIG_HOME/gh/hosts.
 	"~/.git-credentials", "~/.config/git/credentials", "$XDG_CONFIG_HOME/git/credentials",
 	"~/.git-credential-cache", "~/.cache/git/credential", "$XDG_CACHE_HOME/git/credential", "~/.ssh"}
 
-// Run runs argv in a box, its stderr into stderr, and is how it ended (First).
+// Run runs argv in a box, its stderr into stderr, until it ends, or ctx ends and the box's first
+// process with it (supervise): how it ended (First), and what the box's end stopped, by pid.
 // The box writes only the manifest paths of state for env, made where missing, the targets of
 // the links among the manifest paths of logins, the workspace and its git directories, and out;
 // the files and folders hidden read empty there, as the account's credentials do.
-func Run(argv []string, env map[string]string, workspace, out string, state, logins, hidden []string, stderr *os.File) (int, error) {
+func Run(ctx context.Context, argv []string, env map[string]string, workspace, out string, state, logins, hidden []string, stderr *os.File) (int, map[int]string, error) {
 	report := filepath.Join(config.Resolve(out), "box-processes.json")
 	cmd, done, err := command(append([]string{exe, report}, argv...), env, workspace, out, state, logins, hidden)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	defer done()
 	// The running image, not the file at its path, which a build may since have replaced.
 	self, err := os.Open("/proc/self/exe")
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	defer self.Close()
+	stop, stopping, err := os.Pipe()
+	if err != nil {
+		return 0, nil, err
+	}
+	defer stop.Close()
+	defer stopping.Close()
+	defer context.AfterFunc(ctx, func() { stopping.Close() })()
 	os.Remove(report)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, stderr
-	cmd.ExtraFiles = []*os.File{self} // exeFD
+	cmd.ExtraFiles = []*os.File{self, stop} // exeFD, stopFD
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Run(); err != nil && !errors.As(err, new(*exec.ExitError)) {
-		return 0, err
+		return 0, nil, err
 	}
 	// Bubblewrap's own status where the first process wrote none: the box never ran the command.
 	ended := status(cmd.ProcessState.Sys().(syscall.WaitStatus))
-	var written struct{ Returncode *int }
+	var written struct {
+		Returncode *int
+		Processes  map[int]string
+	}
 	if data, err := os.ReadFile(report); err == nil && json.Unmarshal(data, &written) == nil && written.Returncode != nil {
 		ended = *written.Returncode
 	}
-	return ended, nil
+	return ended, written.Processes, nil
 }
 
 // command is bubblewrap's command putting argv in the box Run describes, and what removes the
@@ -152,18 +166,17 @@ func command(argv []string, env map[string]string, workspace, out string, state,
 }
 
 // First is the box's first process, where this program was started as one, and false otherwise:
-// it runs the command, writes how it ended to the report, and is the status bubblewrap exits
-// with.  As PID 1 its exit ends every process left in the box.
+// it runs the command, writes how it ended and what it left running to the report, and is the
+// status bubblewrap exits with.  As PID 1 its exit ends every process left in the box.
 func First() (int, bool) {
 	if len(os.Args) < 3 || os.Args[0] != exe {
 		return 0, false
 	}
 	syscall.CloseOnExec(exeFD)
-	code, err := run(os.Args[2:])
-	if err == nil {
-		err = os.WriteFile(os.Args[1], fmt.Appendf(nil, `{"returncode": %d}`, code), 0o666)
-	}
-	if err != nil {
+	syscall.CloseOnExec(stopFD)
+	code, left := run(os.Args[2:])
+	data, _ := json.Marshal(map[string]any{"returncode": code, "processes": left})
+	if err := os.WriteFile(os.Args[1], data, 0o666); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1, true
 	}
@@ -173,9 +186,9 @@ func First() (int, bool) {
 	return code, true
 }
 
-// run starts the command in a session of its own and waits for it, reaping meanwhile the orphans
-// a PID 1 inherits: its status, or the shell's 127 or 126 where it could not start.
-func run(argv []string) (int, error) {
+// run starts the command in a session of its own and supervises it: its status and what it left
+// running, or the shell's 127 or 126 where it could not start.
+func run(argv []string) (int, map[int]string) {
 	command, err := os.StartProcess(argv[0], argv, &os.ProcAttr{
 		Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
 		Sys:   &syscall.SysProcAttr{Setsid: true},
@@ -187,15 +200,7 @@ func run(argv []string) (int, error) {
 		}
 		return 126, nil
 	}
-	for {
-		var ended syscall.WaitStatus
-		pid, err := syscall.Wait4(-1, &ended, 0, nil)
-		if pid == command.Pid {
-			return status(ended), nil
-		} else if err != nil && !errors.Is(err, syscall.EINTR) {
-			return 0, err
-		}
-	}
+	return supervise(command.Pid)
 }
 
 // status is a process's exit status, or its killing signal's number negated.

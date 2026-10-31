@@ -1,8 +1,9 @@
 // Package worker runs one turn of a model's harness, as Python's agentkit/worker.py does.  It
 // hides the turn's out directory with its hand-in file and its prompt, the role's opening and then
 // the task; the adapter's `auth` verb, asked before the turn and again after a quick turn that
-// streamed nothing; the adapter's `run` in the worker box with its environment; and the
-// conversation the turn leaves.
+// streamed nothing; the harness's own logout words in the turn's log; the adapter's `run` in the
+// worker box with its environment, stopped on ^C or on those words; and the conversation the turn
+// leaves.
 package worker
 
 import (
@@ -12,10 +13,13 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -32,6 +36,9 @@ import (
 // $AGENTKIT_ADAPTER_DIR, and a box on any system but Linux, are not yet Go's.
 var ErrPython = errors.New("left to Python")
 
+// ErrInterrupted is a turn ^C ended, once the box it ran in has.
+var ErrInterrupted = errors.New("interrupted")
+
 const (
 	authCap   = 20 * time.Second // the `auth` verb reads a file; one still silent after this is not answering
 	authGrace = 60 * time.Second // a turn over this fast that streamed nothing never reached the model
@@ -39,8 +46,9 @@ const (
 
 // Turn runs one turn of the model name in role on the task's text, from the resolved workspace
 // into out, resuming session where one is given: its exit status as the box reports it, and the
-// conversation it leaves.  A harness whose login has expired is an error saying so.
-func Turn(name, role, body, workspace, out, session string) (int, string, error) {
+// conversation it leaves.  A harness whose login has expired is an error saying so.  Each process
+// the turn's end stopped is a line in errOut.
+func Turn(name, role, body, workspace, out, session string, errOut io.Writer) (int, string, error) {
 	model, err := config.ModelNamed(name)
 	if err != nil {
 		return 0, "", err
@@ -69,8 +77,8 @@ func Turn(name, role, body, workspace, out, session string) (int, string, error)
 	rand.Read(id[:])
 	marker := fmt.Sprintf("%s=%s/turn-%x", host.Marker, cmp.Or(os.Getenv(host.Marker), filepath.Join(config.Home(), "runs", "worker")), id)
 	probe := append(seated, marker, "AGENTKIT_PROVIDER="+model.Provider)
-	if err := expired(model.Harness, adapter, probe); err != nil {
-		return 0, "", err
+	if why := refused(adapter, probe); why != "" {
+		return 0, "", expired(model.Harness, why)
 	}
 	if err := os.MkdirAll(out, 0o777); err != nil {
 		return 0, "", err
@@ -101,7 +109,13 @@ func Turn(name, role, body, workspace, out, session string) (int, string, error)
 		return 0, "", err
 	}
 	began := time.Now()
-	code, err := box.Run(argv, env, workspace, out, state, logins, config.Unswitched(model.Harness, env, workspace), said)
+	words := loggedOut(model.Harness, out)
+	interrupt, restore := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, unwatch := words.watch(interrupt)
+	code, left, err := box.Run(ctx, argv, env, workspace, out, state, logins, config.Unswitched(model.Harness, env, workspace), said)
+	unwatch()
+	interrupted := interrupt.Err() != nil
+	restore()
 	said.Close()
 	if data, err := os.ReadFile(own); err == nil && os.Remove(own) == nil && len(data) > 0 {
 		if log, err := os.OpenFile(filepath.Join(out, "stderr.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666); err == nil {
@@ -109,27 +123,40 @@ func Turn(name, role, body, workspace, out, session string) (int, string, error)
 			log.Close()
 		}
 	}
+	for _, pid := range slices.Sorted(maps.Keys(left)) {
+		fmt.Fprintf(errOut, "%s %s left process %d: %s; stopping it\n", role, name, pid, left[pid])
+	}
 	if err != nil {
 		return 0, "", err
 	}
-	left := conversation(out)
+	session = conversation(out)
+	if interrupted {
+		return code, session, ErrInterrupted
+	}
+	why := words.seen()
 	// Nothing streamed and over at once: ask why before taking a silence for the turn's result.
 	events, _ := os.ReadFile(filepath.Join(out, "events.jsonl"))
-	if strings.TrimFunc(string(events), config.Space) == "" && time.Since(began) < authGrace {
-		if err := expired(model.Harness, adapter, probe); err != nil {
-			return code, left, err
-		}
+	if why == "" && strings.TrimFunc(string(events), config.Space) == "" && time.Since(began) < authGrace {
+		why = refused(adapter, probe)
 	}
-	return code, left, nil
+	if why != "" {
+		return code, session, expired(model.Harness, why)
+	}
+	return code, session, nil
 }
 
-// expired says the harness's login expired where the adapter's `auth` verb says no.  Any other
-// answer is no answer, which lets a turn run.
-func expired(harness, adapter string, env []string) error {
+// expired is the error a harness's login that cannot authenticate is, why being what said so.
+func expired(harness, why string) error {
+	return fmt.Errorf("%s login expired: %s", harness, why)
+}
+
+// refused is the line the adapter's `auth` verb says no with, else "": any other answer is no
+// answer, which lets a turn run.
+func refused(adapter string, env []string) string {
 	if answered, yes, line := Login(adapter, env); answered && !yes {
-		return fmt.Errorf("%s login expired: %s", harness, line)
+		return line
 	}
-	return nil
+	return ""
 }
 
 // Login is what the adapter's `auth` verb says of the login env names, as Python's
