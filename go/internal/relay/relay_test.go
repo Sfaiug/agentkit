@@ -87,7 +87,9 @@ func TestAProcessHoldingTheTerminalPastTheProgramsExitHoldsNoRelay(t *testing.T)
 func TestARelayThatFailsHangsUpItsProgramAndKillsOneThatStays(t *testing.T) {
 	if script := os.Getenv("AK_RELAY_SCRIPT"); script != "" {
 		code, err := Run(exec.Command("sh", "-c", script), named)
-		fmt.Fprint(os.Stderr, err)
+		if err != nil { // why the relay failed, which the adapter says: nothing where Run has none
+			fmt.Fprint(os.Stderr, err)
+		}
 		os.Exit(code)
 	}
 	folder := t.TempDir()
