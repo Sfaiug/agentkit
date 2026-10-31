@@ -1,6 +1,6 @@
 """A model turn on a rented machine keeps the timeouts its commands declared: a command there that
 prints nothing goes on past the silence limit while it is inside its `timeout N`, as one here
-does; one with no bound is stopped at the limit.
+does, and so does the next under a bound of its own; one with no bound is stopped at the limit.
 
 Black-box, on the machine tests/test_key_a_turn_runs_on_a_machine.py runs turns on, whose
 containers run outside the process tree of the ssh that started them, as a real machine's do. A
@@ -67,6 +67,10 @@ class ATurnOnAMachineKeepsItsDeclaredTimeout(unittest.TestCase):
         state, run = self.resume("timeout 30 sleep 6")
         self.assertEqual(state["state"], "blocked", state)
         self.assertEqual([path.read_text() for path in run.rglob("where")], ["docker\n"])
+
+    def test_silent_commands_one_after_another_each_under_its_timeout_run_to_their_end(self):
+        state, _ = self.resume("timeout 5 sleep 4; timeout 30 sleep 6")
+        self.assertEqual(state["state"], "blocked", state)
 
     def test_a_silent_command_with_no_declared_bound_is_stopped_at_the_limit(self):
         state, run = self.resume("sleep 6")

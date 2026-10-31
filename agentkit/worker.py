@@ -665,7 +665,9 @@ def limited(cmd, limit, *, silence=None, activity=None, heartbeats=(), output=No
                       "ceiling" if limit is not None and now - started >= limit else
                       "silence" if silence is not None and now - max(last, held) >= silence
                       else None)
-            if reason:
+            # a check that takes a while (a machine asked over ssh) can outlast the command: one
+            # that ended meanwhile is not stopped
+            if reason and not finished.is_set():
                 expired.set()
                 try:
                     if on_timeout is not None:

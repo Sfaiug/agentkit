@@ -28,8 +28,9 @@ AK = ("adapters", "agentkit", "bin", "tools")    # ak itself, read-only there, `
 # Seconds a lent login must last, else the turn runs here: a longer turn would end on an expired
 # login and page the owner.
 LENT_FOR = 3600
-# Seconds an answer of what runs in a turn's container is kept: past the silence limit the watchdog
-# asks on every poll, and a command ending before its bound holds the turn at most this long more.
+# Seconds at most a bound found in a turn's container holds it before the machine is asked again:
+# past the silence limit the watchdog asks on every poll, and a command ending before its bound
+# holds the turn at most this long more.
 KEPT = 60
 
 
@@ -102,28 +103,29 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
 
 def _declared(away):
     """The watchdog's check of a declared bound (worker.limited) for the turn on the machine: is a
-    command in its container inside the timeout it declared? Each answer is kept KEPT seconds; a
-    machine that does not answer holds nothing. The argv it sends are read and dropped, never
-    logged: a command line may hold what the turn was given."""
+    command in its container inside the timeout it declared? The machine is asked again once the
+    bound it last named ends, or KEPT seconds on; one that does not answer holds nothing. The argv
+    it sends are read and dropped, never logged: a command line may hold what the turn was given."""
     from .worker import timeout_seconds    # here, not at the top: the worker calls this module
-    asked = until = -math.inf
+    until = -math.inf
 
     def within(_pid):
-        nonlocal asked, until
-        now = time.monotonic()
-        if now - asked >= KEPT:
-            asked = until = now
+        nonlocal until
+        if time.monotonic() >= until:
             try:
                 reply = helper._remote(away.alias, "processes", away.key, text=True,
                                        errors="replace", timeout=30).stdout
             except (OSError, subprocess.TimeoutExpired):
                 reply = ""
+            # from its arrival: the seconds each process has run were read as it was sent
+            now, left = time.monotonic(), 0
             for line in reply.splitlines():
                 seconds, *argv = line.split() or [""]
                 bound = seconds.isdecimal() and timeout_seconds(argv)
                 if bound:
-                    until = max(until, now + bound - int(seconds))
-        return now < until
+                    left = max(left, bound - int(seconds))
+            until = now + min(left, KEPT)
+        return time.monotonic() < until
     return within
 
 
