@@ -77,7 +77,8 @@ class Looks:
         threading.Thread(target=self.follow, daemon=True).start()
 
     def start(self, wait=True):
-        process = watch.start_look(self.seat)
+        """A look, waited for; or, as this wrapper ends, one that waits for that end instead."""
+        process = watch.start_look(self.seat, ending=not wait)
         if process and wait:
             process.wait()
 
