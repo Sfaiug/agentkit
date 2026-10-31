@@ -86,8 +86,8 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultra")   # the effort word
 POINTS = 10                    # the most `within` can be: past ten, a point says nothing
 CATALOG_TTL = 60               # seconds a harness's model list is reused before it is asked again
 CATALOG_NOW = 0.05             # seconds catalog_now waits on catalog() before the answer it has
-# What a change may spend, each config.toml's top-level key (`policy`): ak's default, the
-# floor, and what the number means.
+# What a change may spend, each a top-level key of config.toml (`policy`): ak's default, the
+# floor and what the number means.
 # Owner, 21 Oct 2026: larger first reviews merged less often and broke landing more often,
 # with no saving in tokens per merged line (14-21 Oct); seats failed all rounds about twice
 # as often as workers from the handoff size up, with mostly unrelated context (14 days).

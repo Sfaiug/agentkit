@@ -492,8 +492,8 @@ def failed_at_budget(state):
     Deliberately not part of `needs_recovery`: nothing was interrupted here, so this is no
     recovery decision for the menu to raise, for the seat to be told about or for `announce`
     to swallow the finished-run notice over.  An explicit `--rounds` above the saved budget,
-    and no higher than the host's `rounds` (`config.policy`), continues it and nothing else does -- see
-    `cmd_resume`.
+    and no higher than the host's `rounds` (`config.policy`), continues it and nothing else
+    does -- see `cmd_resume`.
     """
     return (state.get("state") == "fail" and not state.get("review_pr")
             and bool(state.get("worktree")) and Path(state["worktree"]).is_dir()
