@@ -24,8 +24,8 @@ import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
-SLEEP = time.sleep                  # the real one, kept where a fixture needs to wait
 sys.path.insert(0, str(REPO))
+from fixtures.clock import Clock
 from fixtures.hand_in import scripted, stateful
 from agentkit import config, gc, host, job as jobs, menu, notify, orch, run, staffing, status, stop, terminal, turns, usage, watch, worker
 from agentkit import record
@@ -198,7 +198,9 @@ class Login(unittest.TestCase):
         self.stack.enter_context(patch.object(worker, "kill_marked", return_value=True))
         self.stack.enter_context(patch.object(stop, "marker_pids", return_value=[]))
         self.stack.enter_context(patch.object(orch, "stop_scope"))
-        self.sleep = self.stack.enter_context(patch.object(run.time, "sleep"))
+        # the loop's own waits between attempts, and no other wait in the process (Clock)
+        self.backoffs = []
+        self.stack.enter_context(patch.object(turns, "time", Clock(self.backoffs.append)))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
@@ -243,16 +245,6 @@ class Login(unittest.TestCase):
                                  "resume_from": state["state"]})
         return 0
 
-    def backoffs(self):
-        """The transient waits, out of every sleep the process made.
-
-        `run.time` is the one `time` module, so a `subprocess` waiting on a child polls
-        through the same patched `sleep` with a few milliseconds of its own.  Those are
-        not a wait, and only the transient delays are being counted here.
-        """
-        return [call.args[0] for call in self.sleep.call_args_list
-                if call.args and call.args[0] in turns.TRANSIENT_BACKOFF]
-
     def repo(self):
         work = self.root / "repo"
         run.git(self.root, "init", "--initial-branch=main", str(work))
@@ -286,15 +278,14 @@ class Login(unittest.TestCase):
         # minutes on.  The `auth` verb is asked and the turn stops on the answer.
         self.log_out()
         directory = self.root / "out"
-        began = time.monotonic()
         with self.assertRaises(worker.LoginExpired) as caught:
             worker.call(self.cfg, "opus", "do the thing", self.root, directory)
-        self.assertLess(time.monotonic() - began, 30)
         self.assertEqual(caught.exception.harness, "claude")
         self.assertIn("the token expired", caught.exception.why)
-        # the verb refused before the launch, so no turn was ever started
+        # the verb refused before the launch, so no turn was ever started and no silence
+        # window ever opened
         self.assertEqual(self.turns(), [])
-        self.assertEqual(self.backoffs(), [])
+        self.assertEqual(self.backoffs, [])
 
     def test_a_stderr_auth_signature_ends_the_turn_at_once(self):
         # The token is fine as far as the verb can see; the harness says otherwise in its own
@@ -307,7 +298,7 @@ class Login(unittest.TestCase):
         self.assertEqual(caught.exception.harness, "claude")
         self.assertEqual(caught.exception.why, mark)
         self.assertEqual(len(self.turns()), 1)      # the turn ran, and stopped on what it said
-        self.assertEqual(self.backoffs(), [])
+        self.assertEqual(self.backoffs, [])
 
     def test_a_stderr_signature_is_found_however_much_the_harness_said_after_it(self):
         # A harness that said it was logged out and then printed a page of its own unwinding
@@ -318,8 +309,11 @@ class Login(unittest.TestCase):
                     "x" * (worker.STDERR_CHUNK - len(mark) // 2) + mark + "\ntrailing\n"):
             with self.subTest(length=len(pad)):
                 (self.fixture / "stderr-says").write_text(pad)
+                # each turn in a directory of its own, as `turns.free_dir` gives every real one:
+                # in the last turn's, its watchdog could stop it on the last turn's line
                 with self.assertRaises(worker.LoginExpired) as caught:
-                    worker.call(self.cfg, "opus", "do it", self.root, self.root / "far-out")
+                    worker.call(self.cfg, "opus", "do it", self.root,
+                                self.root / f"far-out-{len(pad)}")
                 self.assertEqual(caught.exception.why, mark)
 
     def test_a_harness_that_says_it_and_then_never_stops_is_ended_on_that_line(self):
@@ -330,15 +324,20 @@ class Login(unittest.TestCase):
         mark = watch.auth_expiry("claude")[2][0]
         for harness in self.harnesses:
             self.adapter(harness, HANGING.replace("__MARK__", mark))
-        began = time.monotonic()
-        with self.assertRaises(worker.LoginExpired) as caught:
+        stops, limited = [], worker.limited
+
+        def watched(*args, **kwargs):
+            """The turn's watchdog, saying why it stopped the turn."""
+            return limited(*args, on_timeout=lambda why, _pid: stops.append(why), **kwargs)
+
+        with patch.object(worker, "limited", watched), \
+                self.assertRaises(worker.LoginExpired) as caught:
             worker.call(self.cfg, "opus", "do it", self.root, self.root / "hanging",
                         limit=20 * 60)
-        spent = time.monotonic() - began
         self.assertEqual(caught.exception.why, mark)
-        self.assertLess(spent, 30, f"took {spent:.0f}s; the silence window is 20 minutes")
-        # and nothing it spawned outlived it: the adapter's own loop is gone with its group
-        SLEEP(0.5)
+        # stopped on that line while it ran, never on the twenty-minute silence window
+        self.assertEqual(stops, ["abort"])
+        # and nothing it spawned outlived it: the box waits out its namespace's teardown
         self.assertEqual(subprocess.run(["pgrep", "-f", str(self.adapters / "claude.sh")],
                                         capture_output=True).returncode, 1)
 
@@ -350,7 +349,7 @@ class Login(unittest.TestCase):
             self.adapter(harness, EXPIRING)
         code, directory, state = self.launch()
         self.assertEqual(len(self.turns()), 1)          # one turn, not three
-        self.assertEqual(self.backoffs(), [])           # and no twenty-minute ladder
+        self.assertEqual(self.backoffs, [])             # and no twenty-minute ladder
         self.assertEqual((state["state"], state["waiting_for"]), ("waiting_login", "claude"))
         self.assertEqual(code, 1)
 
@@ -362,7 +361,7 @@ class Login(unittest.TestCase):
         self.adapter("claude", FLAKY)
         code, directory, state = self.launch()
         self.assertEqual(len(self.turns()), 4)
-        self.assertEqual(self.backoffs(), [60, 300])
+        self.assertEqual(self.backoffs, [60, 300])
         self.assertEqual(state["state"], "pass")
         self.assertNotIn("waiting_for", state)
         self.assertEqual(code, 0)
@@ -378,7 +377,7 @@ class Login(unittest.TestCase):
         self.assertEqual(code, 1)
         # no transport ladder was spent on it, and no window was waited out
         self.assertEqual(self.turns(), [])
-        self.assertEqual(self.backoffs(), [])
+        self.assertEqual(self.backoffs, [])
         # it resumes itself, so nobody is told and no row offers its number -- and the state
         # column says what it waits for, under the open circle that means nobody must act
         self.assertTrue(run.needs_recovery(state))
