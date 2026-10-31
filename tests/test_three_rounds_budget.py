@@ -500,9 +500,10 @@ sys.exit(1)
                     return 0, ""
 
                 # resolve_conflicts calls git through run's names; the integration helpers it
-                # reaches on roundloop call gitcall's
+                # reaches on roundloop call gitcall's; the fixer leaves the rebase stopped
                 with patch.object(gitcall, "git", return_value=""), \
-                        patch.object(gitcall, "git_out", side_effect=git_out):
+                        patch.object(gitcall, "git_out", side_effect=git_out), \
+                        patch.object(gitcall, "in_progress", return_value=True):
                     self.assertFalse(roundloop.resolve_conflicts(lp, "origin/main", "conflicted", "rebase"))
                 self.assertIn(("rebase", "--abort"), calls)
                 after = record.read_state(directory)

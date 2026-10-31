@@ -77,11 +77,11 @@ class TargetLinesFirst(unittest.TestCase):
         with ExitStack() as opened:
             scratch, text = self.stacked(tip, opened)
             self.assertIn("ERROR: merge of origin/main failed", text)
-            self.assertTrue(roundloop.in_progress(scratch, "merge"))
+            self.assertTrue(gitcall.in_progress(scratch, "merge"))
         seen = []
 
         def resolve(lp, upstream, out, how, pinned):
-            seen.append((how, pinned, roundloop.in_progress(self.wt, "merge")))
+            seen.append((how, pinned, gitcall.in_progress(self.wt, "merge")))
             return False
 
         with patch.object(roundloop, "resolve_conflicts", side_effect=resolve):

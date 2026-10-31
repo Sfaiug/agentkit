@@ -45,8 +45,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, host,
-               login_refusals, notify, orch, parsed, questions, seat_tokens, staffing, statusbar,
-               transitions, turns, update, usage, worker)
+               login_refusals, notify, orch, owner, parsed, questions, seat_tokens, staffing,
+               statusbar, transitions, turns, update, usage, worker)
 from . import record as run_record
 from . import sleep
 from . import terminal as terminal_mod
@@ -2679,7 +2679,7 @@ def start_look(launched):
              "from agentkit import watch; watch.hook_look(sys.argv[2])",
              str(Path(__file__).resolve().parents[1]), launched],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True)
+            start_new_session=True, env=owner.unmarked())
     except OSError:
         return None
 
@@ -7782,7 +7782,7 @@ def local_passes(state, dry_run, log):
     Each pass re-derives placement or state from what it finds: a finding remembered from one
     tick to the next loses its race.
     """
-    from . import google_cloud, job as jobs, leases, logins, machines, retire, run
+    from . import google_cloud, history, job as jobs, leases, logins, machines, retire, run, waiter
     providers = {}
 
     def read_usage():
@@ -7865,6 +7865,9 @@ def local_passes(state, dry_run, log):
         ("the switch retirement pass did not run", lambda: retire.hand(log), False),
         ("the seat token pass did not run", lambda: seat_tokens.read(0, 0), False),
         ("history was not brought up to date", lambda: transitions.history_agree(log), False),
+        # The tick alone moves history's WAL into the database, holding no lock of ak's but its
+        # own, so no writer holds the others through those syncs (`waiter.connect`).
+        ("history's WAL was not checkpointed", lambda: waiter.checkpoint(history.path()), False),
         # The first tick of a week writes the board with its largest loss, and the `audit`
         # seat, opened with `[audit]`'s models, is told it at its quiet prompt.
         ("the weekly audit pass did not run", lambda: tell_audit(config.load(), log), False),
@@ -7893,11 +7896,12 @@ def local_passes(state, dry_run, log):
         # The shared browser's idle tabs are reaped: a machine with no browser on CDP costs one
         # refused connection and nothing else.
         ("browser tidy did not finish", lambda: browser.tidy(log), False),
-        # Each machine ak may use is asked what it is; one that does not answer holds the tick
-        # no longer than its ssh timeout.
-        ("the machines were not checked", machines.check, False),
-        # ... and Google for what ak rents, given back past its time or the month's cap
+        # Google is asked what ak rents, given back past its time, the month's cap or idle, the
+        # rest serving once ready ...
         ("the rented machines were not watched", google_cloud.watch, False),
+        # ... and each machine ak may use what it is; one that does not answer holds the tick no
+        # longer than its ssh timeout.
+        ("the machines were not checked", machines.check, False),
         # A merge to a project reaches its seats' rulebooks: their next prompts name it.
         ("the projects' rules were not fetched", orch.fetch_projects, False),
         # Merged agentkit goes live after every local pass, so as little of this tick's old

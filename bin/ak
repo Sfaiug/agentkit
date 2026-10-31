@@ -6,10 +6,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agentkit import command_help, config  # noqa: E402
+from agentkit import command_help, config, owner  # noqa: E402
 
 SUBS = ("usage", "models", "worker", "run", "notify", "wait", "orch", "attach", "update",
-        "watch", "browser", "fetch", "macbridge", "doctor", "hand-in", "plan")
+        "watch", "browser", "fetch", "macbridge", "doctor", "hand-in", "plan", "move")
 # `ak attach` is the menu under the name the phone key uses; a bare `ak` is the menu too, and
 # `ak doctor` is the tick's own check-up, which is where the tick lives, and so is `ak wait`,
 # beside the ladder that reads it
@@ -31,6 +31,7 @@ def main():
         return 0
     mod_name, entry = ENTRY.get(sub, (sub, "main"))
     module = __import__(f"agentkit.{mod_name}", fromlist=[entry])
+    owner.mark(sub)
     try:
         if sub == "run" and rest[:1] == ["gc"]:
             from agentkit import gc

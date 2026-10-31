@@ -1,6 +1,6 @@
 """A seat's build or review effort step and `r` on its `c` set their keys on its record as it
 stands, so a key saved since the screen opened is kept; a step of its orchestrator's effort
-writes nothing itself, handing the level to the seat's restart; the open screen then holds what
+writes nothing itself, handing the level to the seat's move; the open screen then holds what
 was saved.
 
 In-process, in a throwaway HOME (tests/fixtures/sandbox.py): seat `fix-api` on the shipped
@@ -37,8 +37,8 @@ class SeatEffortSteps(Sandbox):
                          {"effort": "xhigh", "review_effort": "high", "exec_effort": "low"})
         self.assertEqual(self.selected["efforts"], self.held())
 
-    def test_an_orchestrator_step_writes_nothing_itself_and_restarts_the_seat_at_it(self):
-        # the restart, faked, writes the record as the real one does; the screen then holds it
+    def test_an_orchestrator_step_writes_nothing_itself_and_moves_the_seat_to_it(self):
+        # the move, faked, writes the record as the real one does; the screen then holds it
         handed = []
 
         def restart(cfg, name, model, effort=None, asked=None, **_kw):

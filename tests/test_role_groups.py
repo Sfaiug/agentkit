@@ -107,12 +107,12 @@ class RoleGroups(unittest.TestCase):
         # The executor's own model is the one reviewer that comes last: alpha reviews beta.
         self.wide["reviewers"] = ["beta", "alpha"]
         self.assertEqual(self.pick(), ("beta", "alpha"))
-        # A reviewer from the executor's company counts as any other: beta, with the higher
-        # budget, executes and gamma reviews it, same company or not.
+        # A reviewer on another provider beats the executor's budget: alpha executes, though
+        # beta has more left, so gamma, on beta's provider, reviews another provider's work.
         self.wide["reviewers"] = ["gamma"]
-        self.assertEqual(self.pick(), ("beta", "gamma"))
+        self.assertEqual(self.pick(), ("alpha", "gamma"))
         self.cfg["models"]["gamma"]["reviews_own_provider"] = False
-        self.assertEqual(self.pick(), ("beta", "gamma"))
+        self.assertEqual(self.pick(), ("alpha", "gamma"))
 
     def test_overlapping_groups_prefer_another_company_over_self_review(self):
         self.groups(workers=("beta", "alpha"), reviewers=("beta",))

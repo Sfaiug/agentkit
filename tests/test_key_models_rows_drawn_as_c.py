@@ -2,8 +2,8 @@
 one, its cells out of the efforts its release has on the boards and then its word, blank for a
 row with none; and before its quality a line, full at its role's best and empty 10 points behind
 it or more, every row's as long.  On 40 cells a row's line, numbers and notes take a line under
-its name and effort, and a row too wide beside a role's head folds so, nothing but a name cut
-and its notes broken only between two.
+its name and effort, and its mark a line above them, nothing but a name cut and its notes broken
+only between two.
 
 Black-box, as tests/test_key_models_answer.py: the program `AK_BIN` names in a terminal, its
 harness a fake listing an invented model, the boards held as just asked with invented rows;
@@ -32,8 +32,10 @@ ROWS = [("acme-max-5", "Acme Max 5", "low", 30, 6.0),
         ("crux-2", "Crux 2", None, 0, 1.0), ("crux-2", "Crux 2", "high", 5, 2.0)]
 # what review shows: the best, the pick 3 behind, a row 5 behind and one 11 behind, the last of
 # two rows of its release
-REVIEWS = [("Acme Max 5  ▰▰▰▰ max", "100.0", "$20.00"), ("Acme Max 5  ▰▰▰▱ high", "97.0", "$10.00"),
-           ("Acme Max 5  ▰▰▱▱ medium", "95.0", "$5.00"), ("Crux 2      ▰▰   high", "89.0", "$2.00")]
+REVIEWS = [("Acme Max 5  ▰▰▰▰  max", "100.0", "$20.00"),
+           ("Acme Max 5  ▰▰▰▱  high", "97.0", "$10.00"),
+           ("Acme Max 5  ▰▰▱▱  medium", "95.0", "$5.00"),
+           ("Crux 2      ▰▰    high", "89.0", "$2.00")]
 
 
 def boards(releases=ROWS):
@@ -52,9 +54,10 @@ def boards(releases=ROWS):
 
 
 def drawn(line):
-    """(name and effort, line, quality, cost, notes) of a row drawn on one line, or None."""
-    found = re.fullmatch(r"[ ›]   (\S.*?) +([━╸─]{8,}) +(\d+\.\d) +(\$\d+\.\d\d)(?:  (.+))?", line)
-    return found and found.groups()
+    """(mark, name and effort, line, quality, cost, notes) of a row drawn on one line, or None."""
+    found = re.fullmatch(r"[ ›] (.{7})  (\S.*?) +([━╸─]{8,}) +(\d+\.\d) +(\$\d+\.\d\d)(?:  (.+))?",
+                         line)
+    return found and (found[1].rstrip(), *found.groups()[1:])
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -85,11 +88,11 @@ class ModelsRowsDrawnAsC(unittest.TestCase):
 
     def test_a_rows_effort_is_its_cells_and_word_and_its_quality_a_line(self):
         shown = self.models(100)
-        at = next(n for n, line in enumerate(shown) if line.startswith("  reviews · best 100.0"))
+        at = shown.index("  reviews")
         rows = [drawn(line) for line in shown[at + 1:at + 1 + len(REVIEWS)]]
-        self.assertEqual([(head, quality, cost) for head, _, quality, cost, _ in rows], REVIEWS)
-        (_, best, *_), (_, pick, *_, notes), (_, half, *_), (_, empty, *_, crux) = rows
-        self.assertEqual(notes, "★ pick")
+        self.assertEqual([(head, quality, cost) for _, head, _, quality, cost, _ in rows], REVIEWS)
+        (_, _, best, *_), (mark, _, pick, *_), (_, _, half, *_), (*_, empty, _, _, crux) = rows
+        self.assertEqual(mark, "★ pick")
         self.assertIn("no harness", crux)
         self.assertEqual(len({len(best), len(pick), len(half), len(empty)}), 1)
         self.assertEqual(best, "━" * len(best))
@@ -97,7 +100,7 @@ class ModelsRowsDrawnAsC(unittest.TestCase):
         self.assertEqual(2 * half.count("━") + half.count("╸"), len(half))
         self.assertEqual(empty, "─" * len(empty))
         self.assertRegex(pick, "^━+╸?─+$")
-        self.assertIn("Crux 2", [row[0] for row in map(drawn, shown) if row])    # no effort
+        self.assertIn("Crux 2", [row[1] for row in map(drawn, shown) if row])    # no effort
 
     def test_every_row_within_the_points_shows_then_two_more(self):
         # review's qualities: 100 99 98 97, Bolt 2 96.4 the pick, Acme Max 5 medium 96 what `r` takes
@@ -111,25 +114,20 @@ class ModelsRowsDrawnAsC(unittest.TestCase):
             ("acme-max-5", "Acme Max 5", "low", 40, 0.5), ("crux-2", "Crux 2", None, 30, 0.4),
             ("dune-1", "Dune 1", None, 20, 0.3)]))
         shown = self.models(100, "comparing all 6 models")
-        at = next(n for n, line in enumerate(shown) if line.startswith("  reviews · best 100.0"))
-        self.assertEqual([" ".join(row[0].split()) for row in map(drawn, shown[at + 1:]) if row],
+        at = shown.index("  reviews")
+        self.assertEqual([" ".join(row[1].split()) for row in map(drawn, shown[at + 1:]) if row],
                          ["Apex 5 ▰▰▰▰ max", "Apex 5 ▰▰▰▱ high", "Apex 5 ▰▰▱▱ medium",
                           "Apex 5 ▰▱▱▱ low", "Bolt 2", "Acme Max 5 ▰▰▱ medium", "Acme Max 5 ▰▱▱ low",
                           "Crux 2"])
-
-    def test_a_roles_head_is_never_cut_beside_a_short_name(self):
-        # A 1's row would fit one line, its line 9 cells, but not under its role's head
-        self.home.write(".agentkit/state/boards.json", boards([("a-1", "A 1", None, 50, 1.0)]))
-        shown = self.models(58, "comparing all 1 models")
-        for role in ("orch", "builds", "reviews"):
-            self.assertIn(f"  {role} · best 100.0", shown)
 
     def test_on_40_cells_a_rows_line_numbers_and_notes_go_under_its_name_and_effort(self):
         rows = [row for row in map(drawn, self.models(100)) if row]
         shown, at = self.models(40), 0
         self.assertGreaterEqual(len(rows), len(REVIEWS))
-        for head, _, quality, cost, notes in rows:
+        for mark, head, _, quality, cost, notes in rows:
             at = next(n for n in range(at, len(shown)) if shown[n][4:] == head)
+            if mark:        # on a line of its own above the name
+                self.assertEqual(shown[at - 1][4:], mark)
             under = re.fullmatch(r"    ([━╸─]{8,}) +(\d+\.\d) +(\$\d+\.\d\d)(?:  (.+))?",
                                  shown[at + 1])
             self.assertIsNotNone(under, shown[at + 1])

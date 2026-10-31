@@ -5,7 +5,8 @@ The owner (24 Oct): "when pressing a different orch, it should ask me to confirm
 restarts the session. for exec and review should be instant."  Space on that mark asks on the
 card `x` asks on (terminal.confirm), nothing moved yet; Esc keeps the seat, and `Move` moves
 it (menu.session_mark, orch.switch_orchestrator).  A move ak refuses (orch._switch_plan) is
-said with no question.
+said with no question, and one its running harness takes in place (orch.switch_lines) is made
+with none: tests/test_key_seat_switches_in_place.py.
 
 Offline: a throwaway HOME, the keys fed in, the question card the real one with each ask
 recorded, and the switch real from its plan on: the plan, the new harness's command and its

@@ -2,9 +2,10 @@
 
 Its heading says how many features are hidden (off for everyone); Enter on the heading opens
 `agentkit · <project>`, one row a feature with a mark under `you` and under `everyone` and
-nothing else, and Space flips the mark the keys are on by calling the project's own `set`.  A
-person reads production's switches here, and the project's command is the one thing that changes
-them: a switch is only ever you or everyone, never a user picked by id.  Black-box: ak runs in a
+nothing else, and Space flips the mark the keys are on by calling the project's own `set`: the
+rule under the header glides until it answers, and is still once its mark is drawn.  A person
+reads production's switches here, and the project's command is the one thing that changes them:
+a switch is only ever you or everyone, never a user picked by id.  Black-box: ak runs in a
 terminal of its own beside a seat filed under ~/code/ACME, and the features command is a script
 of the test's that answers from a JSON file and logs every call.
 """
@@ -22,9 +23,10 @@ from fixtures.akterm import SERVER, Terminal
 ROWS = [{"id": "dark", "name": "Dark mode", "you": False, "everyone": False},
         {"id": "beta", "name": "Beta search", "you": True, "everyone": False},
         {"id": "fixed", "name": "Locked", "you_switchable": False, "everyone": False}]
-# `list` prints every row; `set <id> you|everyone on|off` the row as it now stands.
+# `list` prints every row; `set <id> you|everyone on|off` the row as it now stands, once no
+# `hold` file stands.
 FAKE = """#!{python}
-import json, sys
+import json, sys, time
 from pathlib import Path
 here = Path(__file__).parent
 with open(here / "calls.log", "a") as log:
@@ -33,6 +35,8 @@ rows = json.loads((here / "features.json").read_text())
 if sys.argv[1] == "list":
     print(json.dumps(rows))
 else:
+    while (here / "hold").exists():
+        time.sleep(0.01)
     feature, who, value = sys.argv[2:]
     row = next(row for row in rows if row["id"] == feature)
     row[who] = value == "on"
@@ -80,7 +84,8 @@ class FeaturesScreen(unittest.TestCase):
 
     def setUp(self):
         self.home.write("acme-features/features.json", ROWS)
-        self.home.path.joinpath("acme-features", "calls.log").unlink(missing_ok=True)
+        for name in ("calls.log", "hold"):
+            self.home.path.joinpath("acme-features", name).unlink(missing_ok=True)
 
     def calls(self):
         log = self.home.path / "acme-features" / "calls.log"
@@ -143,6 +148,18 @@ class FeaturesScreen(unittest.TestCase):
         self.assertEqual([call for call in calls if call != ["list"]],
                          [["set", "dark", "you", "on"]])
         self.leave(term, "3 hidden features")      # on for you is still hidden from everyone
+
+    def test_a_set_glides_the_rule_until_it_answers(self):
+        term, _ = self.switches()
+        hold = self.home.write("acme-features/hold", "")
+        term.keys("Space")
+        term.wait(lambda screen: "━" in screen.split("\n")[1]
+                  and row(screen, "Dark mode") == "› Dark mode     ○      ○")
+        hold.unlink()
+        screen = steady(term, lambda screen: row(screen, "Dark mode")
+                        == "› Dark mode     ●      ○")
+        self.assertEqual(screen.split("\n")[1], "─" * 100)
+        self.leave(term, "3 hidden features")
 
     def test_the_only_switches_are_you_and_everyone(self):
         term, screen = self.switches()

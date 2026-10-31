@@ -10,12 +10,12 @@ type entry struct {
 	usage, description, example string
 }
 
-var Verbs = []string{"usage", "models", "worker", "run", "notify", "wait", "orch", "attach", "update", "watch", "browser", "fetch", "macbridge", "doctor", "hand-in", "plan"}
+var Verbs = []string{"usage", "models", "worker", "run", "notify", "wait", "orch", "attach", "update", "watch", "browser", "fetch", "macbridge", "doctor", "hand-in", "plan", "move"}
 var public = []string{"run", "plan", "notify", "wait", "usage", "models", "browser", "fetch"}
 
-// `adapter`, what the stubs under go/adapters run, joins the internal line when Go takes over:
-// until then the listing stays Python's, and cli.Main runs it unlisted.
-var internal = []string{"orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor"}
+// `adapter` and `hook`, what the stubs under go/adapters and go/hooks run, join the internal line
+// when Go takes over: until then the listing stays Python's, and cli.Main runs them unlisted.
+var internal = []string{"orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor", "move"}
 
 // Keep the shadow command's text in step with agentkit/command_help.py until the switch.
 var entries = map[string]entry{
@@ -214,6 +214,11 @@ var entries = map[string]entry{
 		"macOS only: forward requested files to the server over SSH.\n--reader starts a detached reader under this terminal app for dropped files.",
 		"ak macbridge",
 	},
+	"move": {
+		"usage: ak move ALIAS",
+		"Copy this home to the same path on the machine `ssh ALIAS` reaches; run again, it\nsends only what changed and deletes there what was deleted here.  Each machine keeps\nits own of ak's tmp folder, ~/.ssh/authorized_keys and the browser profile's locks.\nRefused if ALIAS is this machine, its home has another path, its crontab holds ak's\ntick or fails, or one of those kept is a link or under one on either machine.",
+		"ak move acme-mini",
+	},
 }
 
 var purposes = map[string]string{
@@ -233,6 +238,7 @@ var purposes = map[string]string{
 	"wait":      "end this turn waiting on a pull request or run",
 	"fetch":     "copy requested Mac files to this host",
 	"macbridge": "macOS only: forward requested files to the server over SSH",
+	"move":      "copy this home to the same path on another machine",
 }
 
 func Known(command string) bool {

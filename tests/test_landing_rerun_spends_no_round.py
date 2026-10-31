@@ -239,7 +239,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
 
                 def unfinished(lp, role, text, name, **_kw):
                     self.assertEqual((role, name), ("fixer", f"{how}-fixer"))
-                    self.assertTrue(roundloop.in_progress(lp.wt, how))
+                    self.assertTrue(gitcall.in_progress(lp.wt, how))
                     self.events.append(("conflict-fixer", lp.rnd))
                     if abort == "exhausted":
                         raise run.Exhausted("conflict fixer interrupted")
@@ -253,7 +253,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                 self.assertEqual(self.events[before:], [("conflict-fixer", spent)] * attempts)
                 self.assertEqual(state["round_summaries"], self.history)
                 self.assertEqual(run.git(self.wt, "rev-parse", "HEAD"), head)
-                self.assertFalse(roundloop.in_progress(self.wt, how))
+                self.assertFalse(gitcall.in_progress(self.wt, how))
                 self.commit(self.owner, "base.txt", "1\n2\n3\n4\ngreen\n")
                 run.git(self.owner, "push", "origin", "main")
                 tip = run.git(self.owner, "rev-parse", "HEAD")

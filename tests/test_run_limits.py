@@ -908,7 +908,7 @@ class Limits(unittest.TestCase):
         self.assertIn("aborted the stopped rebase", text)
         # the worktree is back on the branch head: no rebase state, the work intact
         wt = Path(state["worktree"])
-        self.assertFalse(roundloop.in_progress(wt, "rebase"))
+        self.assertFalse(gitcall.in_progress(wt, "rebase"))
         self.assertEqual((wt / "work.txt").read_text(), "executor call 1\n")
         result = (directory / "result.md").read_text()
         self.assertIn("was killed after 2s", result)        # and in result.md
@@ -940,7 +940,7 @@ class Limits(unittest.TestCase):
         tip = run.git(conflict, "rev-parse", "HEAD")
         code, _ = run.git_out(conflict, "rebase", "main")
         self.assertNotEqual(code, 0)                        # genuinely conflicted
-        self.assertTrue(roundloop.in_progress(conflict, "rebase"))
+        self.assertTrue(gitcall.in_progress(conflict, "rebase"))
         logged = []
 
         class LP:
@@ -948,7 +948,7 @@ class Limits(unittest.TestCase):
         lp = LP()
         lp.wt, lp.state, lp.log = conflict, {"branch": "side"}, logged.append
         roundloop.abort_stopped_integration(lp, "rebase")
-        self.assertFalse(roundloop.in_progress(conflict, "rebase"))
+        self.assertFalse(gitcall.in_progress(conflict, "rebase"))
         self.assertEqual(run.git(conflict, "rev-parse", "HEAD"), tip)
         self.assertTrue(any("aborted the stopped rebase" in line for line in logged))
 
@@ -981,7 +981,7 @@ class Limits(unittest.TestCase):
                         calls.append(cmd)
                         if len(calls) == 1:
                             # Real Git leaves its operation unfinished; the missing answer is fake.
-                            self.assertTrue(roundloop.in_progress(self.work, how))
+                            self.assertTrue(gitcall.in_progress(self.work, how))
                             raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
                     return proc
 
@@ -992,7 +992,7 @@ class Limits(unittest.TestCase):
                         with self.assertRaisesRegex(run.Stopped, "was killed after"):
                             run.integrate(lp, "origin/main")
                     self.assertEqual(len(calls), 1)
-                    self.assertFalse(roundloop.in_progress(self.work, how))
+                    self.assertFalse(gitcall.in_progress(self.work, how))
                     self.assertEqual(run.git(self.work, "rev-parse", "HEAD"), head)
                     self.assertEqual((self.work / "README.md").read_text(), "branch intent\n")
                     self.assertTrue(any(f"aborted the stopped {how}" in line for line in logged))
@@ -1156,7 +1156,7 @@ class Limits(unittest.TestCase):
         run.git(conflict, "checkout", "side")
         code, _ = run.git_out(conflict, "rebase", "main")
         self.assertNotEqual(code, 0)                        # genuinely conflicted
-        self.assertTrue(roundloop.in_progress(conflict, "rebase"))
+        self.assertTrue(gitcall.in_progress(conflict, "rebase"))
         # what SIGKILL leaves when it kills a git mid-index-write: the abort exits non-zero
         (conflict / ".git" / "index.lock").write_text("")
 
@@ -1167,14 +1167,14 @@ class Limits(unittest.TestCase):
         lp.wt, lp.state, lp.log = conflict, {"branch": "side"}, logged.append
         roundloop.abort_stopped_integration(lp, "rebase")
         # the abort failed: the state survives, and the log says so instead of claiming clean
-        self.assertTrue(roundloop.in_progress(conflict, "rebase"))
+        self.assertTrue(gitcall.in_progress(conflict, "rebase"))
         self.assertTrue(any("WARN could not abort the stopped rebase" in line for line in logged),
                         logged)
         self.assertFalse(any("back on its head" in line for line in logged), logged)
         # once the lock is gone the same abort really puts the branch back
         (conflict / ".git" / "index.lock").unlink()
         roundloop.abort_stopped_integration(lp, "rebase")
-        self.assertFalse(roundloop.in_progress(conflict, "rebase"))
+        self.assertFalse(gitcall.in_progress(conflict, "rebase"))
         self.assertTrue(any("back on its head" in line for line in logged), logged)
 
     def test_v5f_a_merge_confirmed_by_pr_state_after_a_stopped_call(self):

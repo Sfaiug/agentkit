@@ -192,13 +192,20 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
     "macbridge": ("usage: ak macbridge [--reader]", "macOS only: forward requested files to the server over SSH.\n"
                   "--reader starts a detached reader under this terminal app for dropped files.",
                   "ak macbridge"),
+    "move": ("usage: ak move ALIAS",
+             "Copy this home to the same path on the machine `ssh ALIAS` reaches; run again, it\n"
+             "sends only what changed and deletes there what was deleted here.  Each machine keeps\n"
+             "its own of ak's tmp folder, ~/.ssh/authorized_keys and the browser profile's locks.\n"
+             "Refused if ALIAS is this machine, its home has another path, its crontab holds ak's\n"
+             "tick or fails, or one of those kept is a link or under one on either machine.",
+             "ak move acme-mini"),
 }
 
 
 # `ak --help` is one screen: the menu, then the commands an orchestrator uses, one line
 # each, and under one dim `internal:` line the ones the toolkit runs for itself.
 ORCHESTRATOR = ("run", "plan", "notify", "wait", "usage", "models", "browser", "fetch")
-INTERNAL = ("orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor")
+INTERNAL = ("orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor", "move")
 
 PURPOSES = {
     "run": "execute a task file to a merged PR",
@@ -217,6 +224,7 @@ PURPOSES = {
     "wait": "end this turn waiting on a pull request or run",
     "fetch": "copy requested Mac files to this host",
     "macbridge": "macOS only: forward requested files to the server over SSH",
+    "move": "copy this home to the same path on another machine",
 }
 
 

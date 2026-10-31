@@ -2,18 +2,21 @@
 `agentkit · updating`, one step at a time, with no bar of its own; a screen whose content is
 still being fetched after 150 ms has a bright segment glide along it until it lands, and one
 fetched sooner shows nothing -- a list asked again under rows already drawn, and a `set`, as
-much as a first list; Esc during a glide goes back within 100 ms, and a `set` it leaves behind
-never draws over a later one.  A screen waiting on a fetch draws itself again on a resize, moves
-its rule on the clock's frames however fast keys come, and goes back on a click on `esc back`;
-a `Models` list, waiting on a catalog at 80 columns, is laid out again at 40: every line fits,
-and a click on the `esc back` drawn goes back.
+much as a first list, and one landing as the screen is drawn is drawn at once; Esc during a glide
+goes back within 100 ms, and a `set` it leaves behind never draws over a later one.  A screen
+waiting on a fetch draws itself again on a resize, moves its rule on the clock's frames however
+fast keys come, and goes back on a click on `esc back`; a `Models` list, waiting on a catalog at
+80 columns, is laid out again at 40: every line fits, and a click on the `esc back` drawn goes
+back.
 
 The update's progress callback runs against a temporary HOME, every command answered by a
 fake `subprocess.run`, so no checkout moves.  The glide runs a project's feature switches screen
-in a child process on a pty of its own, the project's `list` and `set` a fake that sleeps as
-long as the test says, and so do the wait and a catalog, over a config built in the child;
-nothing reaches a real project, seat or the owner's ~/.agentkit, and the only process signalled
-is the test's own child.
+in a child process on a pty of its own, the project's `list` and `set` a fake that takes as
+long as the test says, and so do the wait and a catalog, over a config built in the child.  The
+child's clock moves only by what it waits -- a sleep, or a wait for a key that runs out -- and
+it says so, so what a test measures
+is what the screen did however the host runs it; nothing reaches a real project, seat or the
+owner's ~/.agentkit, and the only process signalled is the test's own child.
 """
 
 from contextlib import redirect_stdout
@@ -37,36 +40,119 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, motion, terminal, update  # noqa: E402
 
+# Both children's time: the real screens, clock and key reader over a clock that moves only by
+# what they wait -- a sleep, or a wait of the key reader's that runs out -- each saying where it
+# stands now, and a clock's every frame said too; with RULE_HOLD no wait runs out from the first
+# lit cell until a key comes.  A list due by then has landed before the clock goes on, one that
+# takes no time as the first draw is out.
+CLOCK = r"""
+import os, select, sys, threading, time, types
+sys.path.insert(0, os.environ["RULE_REPO"])
+from agentkit import menu, motion, terminal
+
+
+class Waited:
+    now = time.monotonic()
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        time.sleep(seconds)
+        passed(seconds)
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+
+menu.time = motion.time = terminal.time = waited = Waited()
+print(f"<now {waited.now}>", flush=True)
+LIST, hold, held = float(os.environ["RULE_LIST"]), bool(os.environ["RULE_HOLD"]), False
+drawn = threading.Event()
+
+
+def passed(seconds):
+    waited.now += seconds
+    print(f"<now {waited.now}>", flush=True)
+    landed()
+
+
+def until(due):
+    while waited.now < due:
+        time.sleep(0.001)
+
+
+def landed():
+    while any(entry["going"] and waited.now >= entry["asked"] + LIST
+              for entry in menu._SWITCHES.values()):
+        time.sleep(0.001)
+
+
+def waiting(reads, writes, errors, timeout=None):
+    global held
+    ready = select.select(reads, writes, errors, None if held else timeout)
+    held = held and not ready[0]
+    if not ready[0] and timeout:
+        passed(timeout)             # it ran out: no key, no news
+    return ready
+
+
+def frame(*args, draw=terminal.frame, **more):
+    spots = draw(*args, **more)
+    drawn.set()
+    landed()
+    return spots
+
+
+def clock_frame(clock, write=motion.Clock.frame):
+    global held
+    out = write(clock)
+    held = held or hold and "━" in out
+    return "<frame>" + out
+
+
+terminal.select = types.SimpleNamespace(select=waiting)
+terminal.frame, motion.Clock.frame = frame, clock_frame
+"""
 # The child: the real feature switches screen and key reader, opened RULE_OPENS times, over a
 # `list` that takes RULE_LIST seconds, asked again every RULE_TICK, and `set`s that take each of
-# RULE_SET in turn, answering the row as each left it; it says when the screen has gone back.
-# With RULE_WAIT it is a screen waiting that long on a fetch instead.
-CHILD = r"""
-import os, sys, time
+# RULE_SET in turn and land last asked first, answering the row as each left it; it says when
+# each has landed and when the screen has gone back.  With RULE_WAIT it is a screen
+# waiting on a fetch that never lands instead.
+CHILD = CLOCK + r"""
 from pathlib import Path
-sys.path.insert(0, os.environ["RULE_REPO"])
-from agentkit import menu, terminal
 
 server = {"id": "dark", "name": "Dark mode", "you": False, "everyone": False}
 sets = [float(seconds) for seconds in os.environ["RULE_SET"].split(",")]
+flipping, landings = threading.local(), []      # each `set` asked: set once it has landed
 
 def features_run(checkout, *words):
     if words[0] == "list":
-        time.sleep(float(os.environ["RULE_LIST"]))
+        drawn.wait()
+        until(menu._SWITCHES[str(checkout)]["asked"] + LIST)
         return [dict(server)], ""
     server[words[2]] = words[3] == "on"
-    row = dict(server)
-    time.sleep(sets.pop(0) if sets else 0)
-    print(f"<set {words[2]} {words[3]} answered>", flush=True)
+    row, flipping.landed = dict(server), threading.Event()
+    landings.append(flipping.landed)      # before its seconds go: once `sets` is empty, all are in
+    until(waited.now + (sets.pop(0) if sets else 0))
+    while sets or not all(landed.is_set() for landed in
+                          landings[landings.index(flipping.landed) + 1:]):
+        time.sleep(0.001)
     return row, ""
 
-menu.features_run, menu.TICK = features_run, float(os.environ["RULE_TICK"])
+def features_flip(checkout, feature, column, flip=menu.features_flip):
+    note = flip(checkout, feature, column)
+    print(f"<{menu.FEATURES_HEADS[column]} landed>", flush=True)
+    flipping.landed.set()
+    return note
+
+menu.features_run, menu.features_flip = features_run, features_flip
+menu.TICK = float(os.environ["RULE_TICK"])
 keyboard = terminal.Keyboard()
 keyboard.take()
 if os.environ["RULE_WAIT"]:
     try:
-        menu.waited(lambda: time.sleep(float(os.environ["RULE_WAIT"])), "config · acme",
-                    lambda: ["", "  a line"])
+        menu.waited(threading.Event().wait, "config · acme", lambda: ["", "  a line"])
     except menu.Back:
         print("<went back>", flush=True)
 for _ in range(int(os.environ["RULE_OPENS"])):
@@ -75,21 +161,12 @@ for _ in range(int(os.environ["RULE_OPENS"])):
 keyboard.give()
 """
 # The child for a catalog wait: `Models`, over a config whose one model runs an id 59
-# characters long, the only one a catalog lists that answers after each of RULE_CATALOG's
-# seconds in turn; it says when it has gone back.
-CATALOG = r"""
-import os, sys, time
-sys.path.insert(0, os.environ["RULE_REPO"])
-from agentkit import config, menu, terminal
+# characters long, and a catalog that never answers; it says when it has gone back.
+CATALOG = CLOCK + r"""
+from agentkit import config
 
 ID = "acme-model-" + "x" * 48
-sleeps = [float(seconds) for seconds in os.environ["RULE_CATALOG"].split(",")]
-
-def catalog(harness, cfg=None):
-    time.sleep(sleeps.pop(0))
-    return [{"id": ID, "label": ID, "efforts": ["low", "high"]}]
-
-config.catalog = catalog
+config.catalog = lambda harness, cfg=None: threading.Event().wait()
 cfg = {"defaults": {"orchestrator": "acme", "workers": ["acme"]},
        "models": {"acme": {"harness": "claude", "model": ID, "effort": "high",
                            "provider": "anthropic"}},
@@ -104,12 +181,19 @@ keyboard.give()
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
              "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLUMNS", "LINES")
 GLIDE = re.compile(r"\x1b\[2;\d+H\x1b\[[0-9;]*m━")   # a lit cell written on the rule's row
+HUNG = 120      # seconds with no answer: a child importing cold on a loaded host takes tens of them
+
+
+def clock_at(text):
+    """What the child's clock read as it wrote the end of `text`, all it had written by then."""
+    return float(re.findall(r"<now ([\d.]+)>", text)[-1])
 
 
 class Screen:
-    """The child on an 80x24 pty: what it wrote, and when each part of it arrived."""
+    """The child on an 80x24 pty, and what it wrote."""
 
-    def __init__(self, case, seconds=0, tick=10, flip=0, opens=1, wait="", child=CHILD, **more):
+    def __init__(self, case, seconds=0, tick=10, flip=0, opens=1, wait=False, child=CHILD,
+                 hold=False):
         home = tempfile.TemporaryDirectory(prefix="rule-progress-")
         case.addCleanup(home.cleanup)
         self.master, self.slave = os.openpty()
@@ -119,9 +203,8 @@ class Screen:
                     "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "AK_RUN_DEPTH": "0",
                     "AK_MAX_RUNS": "0", "RULE_REPO": str(REPO), "RULE_LIST": str(seconds),
                     "RULE_TICK": str(tick), "RULE_SET": str(flip), "RULE_OPENS": str(opens),
-                    "RULE_WAIT": str(wait), **more})
-        self.case, self.output, self.arrived = case, b"", []
-        self.lock = threading.Lock()
+                    "RULE_WAIT": "1" if wait else "", "RULE_HOLD": "1" if hold else ""})
+        self.case, self.output = case, b""
         self.proc = subprocess.Popen([sys.executable, "-c", child], stdin=self.slave,
                                      stdout=self.slave, stderr=self.slave, env=env,
                                      start_new_session=True)
@@ -137,14 +220,12 @@ class Screen:
                 return
             if not chunk:
                 return
-            with self.lock:
-                self.output += chunk
-                self.arrived.append((time.monotonic(), len(self.output)))
+            self.output += chunk
 
     def close(self):
         if self.proc.poll() is None:
             self.proc.kill()          # this test's own child, and nothing else
-        self.proc.wait(10)
+        self.proc.wait(HUNG)
         for fd in (self.master, self.slave):
             try:
                 os.close(fd)
@@ -153,22 +234,30 @@ class Screen:
         self.reader.join(5)
 
     def text(self):
-        with self.lock:
-            return self.output.decode("utf-8", "replace")
+        return self.output.decode("utf-8", "replace")
 
-    def when(self, pattern, after=0, timeout=15):
-        """When what `pattern` matches first reached the pty past `after` characters, waiting
-        for it."""
-        deadline = time.monotonic() + timeout
+    def when(self, pattern, after=0):
+        """What the child's clock read as what `pattern` matches was first written past `after`
+        characters, waiting for it."""
+        deadline = time.monotonic() + HUNG
         while True:
-            with self.lock:
-                found = re.compile(pattern).search(self.output.decode("utf-8", "replace"), after)
-                if found:
-                    end = len(self.output.decode("utf-8", "replace")[:found.end()].encode())
-                    return next(at for at, size in self.arrived if size >= end)
+            text = self.text()
+            found = re.compile(pattern).search(text, after)
+            if found:
+                return clock_at(text[:found.end()])
             self.case.assertLess(time.monotonic(), deadline,
                                  f"timed out waiting for {pattern!r}:\n{self.text()[-2000:]!r}")
             time.sleep(0.01)
+
+    def draw(self, after=0):
+        """Where the next whole draw past `after` characters starts and its lines, waiting for
+        it."""
+        self.when(r"\x1b\[H\x1b\[K", after)
+        start = self.text().index("\x1b[H\x1b[K", after)
+        self.when(r"\x1b\[J", start)
+        text = self.text()
+        lines = terminal.ANSI.sub("", text[start:text.index("\x1b[J", start)]).split("\r\n")
+        return start, lines[:-1]
 
 
 def click_back_at_forty(case, screen):
@@ -177,11 +266,7 @@ def click_back_at_forty(case, screen):
     after = len(screen.text())
     fcntl.ioctl(screen.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 40, 0, 0))
     os.kill(screen.proc.pid, signal.SIGWINCH)      # the test's own child
-    screen.when(r"\x1b\[H\x1b\[K", after)
-    start = screen.text().index("\x1b[H\x1b[K", after)
-    screen.when(r"\x1b\[J", start)
-    text = screen.text()
-    lines = terminal.ANSI.sub("", text[start:text.index("\x1b[J", start)]).split("\r\n")[:-1]
+    _, lines = screen.draw(after)
     for line in lines:
         case.assertLessEqual(terminal.cells(line), 40, lines)
     row, line = next((row, line) for row, line in enumerate(lines, 1) if "esc back" in line)
@@ -226,7 +311,7 @@ class RuleProgress(unittest.TestCase):
         screen = Screen(self, 2)
         opened = screen.when("asking for its features")
         glided = screen.when(GLIDE.pattern)
-        self.assertGreater(glided - opened, 0.1)            # nothing for the first 150 ms
+        self.assertGreaterEqual(glided - opened, 0.15)      # nothing for the first 150 ms
         screen.when("Dark mode")
         text = screen.text()
         landed = text.rindex("\x1b[H", 0, text.index("Dark mode"))
@@ -241,18 +326,25 @@ class RuleProgress(unittest.TestCase):
         opened = screen.when("asking for its features")
         landed = screen.when("Dark mode")
         self.assertLess(landed - opened, 0.5)                # within a frame, not a second
-        time.sleep(0.3)
+        screen.when(r"\x1b\[H", screen.text().index("Dark mode"))    # the draw a second on
+        self.assertNotIn("━", screen.text())
+        os.write(screen.master, b"\x1b")
+        screen.when("<back>")
+
+    def test_a_list_landing_as_the_screen_is_drawn_is_drawn_at_once(self):
+        screen = Screen(self, 0)
+        opened = screen.when("asking for its features")
+        self.assertLess(screen.when("Dark mode") - opened, 0.5)
         self.assertNotIn("━", screen.text())
         os.write(screen.master, b"\x1b")
         screen.when("<back>")
 
     def test_esc_during_a_glide_goes_back_within_100_ms(self):
-        screen = Screen(self, 2)
-        screen.when(GLIDE.pattern)
-        pressed = time.monotonic()
+        screen = Screen(self, 2, hold=True)
+        pressed = screen.when(GLIDE.pattern)
         os.write(screen.master, b"\x1b")
         self.assertLess(screen.when("<back>") - pressed, 0.1)
-        self.assertEqual(screen.proc.wait(10), 0, screen.text()[-2000:])
+        self.assertEqual(screen.proc.wait(HUNG), 0, screen.text()[-2000:])
         self.assertNotIn("Dark mode", screen.text())         # the list had not landed
 
     def test_a_list_asked_again_under_its_rows_glides_too(self):
@@ -264,47 +356,45 @@ class RuleProgress(unittest.TestCase):
         screen.when("<back>")
 
     def test_a_slow_set_glides_and_esc_goes_back_from_it(self):
-        screen = Screen(self, 0, flip=2)
+        screen = Screen(self, 0, flip=2, hold=True)
         screen.when("Dark mode")
-        after, entered = len(screen.text()), time.monotonic()
+        before = screen.text()
         os.write(screen.master, b" ")
-        self.assertGreater(screen.when(GLIDE.pattern, after) - entered, 0.1)
-        pressed = time.monotonic()
+        pressed = screen.when(GLIDE.pattern, len(before))
+        self.assertGreaterEqual(pressed - clock_at(before), 0.15)
         os.write(screen.master, b"\x1b")
         self.assertLess(screen.when("<back>") - pressed, 0.1)
-        self.assertEqual(screen.proc.wait(10), 0, screen.text()[-2000:])
+        self.assertEqual(screen.proc.wait(HUNG), 0, screen.text()[-2000:])
 
     def test_a_set_left_behind_by_esc_never_draws_over_a_later_one(self):
         screen = Screen(self, 0, flip="2,0", opens=2)
         screen.when("Dark mode")
-        os.write(screen.master, b" ")                  # `you on`, answered in two seconds
+        os.write(screen.master, b" ")                  # `you on`: two seconds, and after `everyone`
         screen.when(GLIDE.pattern)
         os.write(screen.master, b"\x1b")
         screen.when("<back>")
         screen.when("Dark mode", after=screen.text().index("<back>"))    # open again
         os.write(screen.master, b"\x1b[C ")            # `everyone on`, answered at once
-        screen.when("<set everyone on answered>")
-        screen.when("<set you on answered>")            # with `everyone` still off in its row
-        time.sleep(1.5)                                  # a draw since, a second at a time
-        text = terminal.ANSI.sub("", screen.text().split("\x1b[H")[-1].split("\x1b[J")[0])
-        line = next(line for line in text.splitlines() if "Dark mode" in line)
+        screen.when("<you landed>")                     # with `everyone` still off in its row
+        # the draw under way as it landed may have read the rows before it, the next did not
+        under_way, _ = screen.draw(screen.text().index("<you landed>"))
+        _, lines = screen.draw(under_way + 1)
+        line = next(line for line in lines if "Dark mode" in line)
         self.assertEqual([mark for mark in line.split() if mark in "●○"], ["●", "●"], line)
         os.write(screen.master, b"\x1b")
-        self.assertEqual(screen.proc.wait(10), 0, screen.text()[-2000:])
+        self.assertEqual(screen.proc.wait(HUNG), 0, screen.text()[-2000:])
 
     def test_a_wait_keeps_to_the_clock_redraws_on_a_resize_and_a_click_goes_back(self):
-        screen = Screen(self, wait=30, opens=0)
+        screen = Screen(self, wait=True, opens=0)
         screen.when(GLIDE.pattern)
-        began = time.monotonic()
+        before = screen.text()
         for _ in range(100):                             # keys the wait lets go, every 5 ms
             os.write(screen.master, b"x")
             time.sleep(0.005)
-        with screen.lock:
-            sizes = [0] + [size for _, size in screen.arrived]
-            frames = sum(b"\x1b[2;" in screen.output[before:size]
-                         for (at, size), before in zip(screen.arrived, sizes) if at >= began)
-        self.assertLessEqual(frames, 2 + (time.monotonic() - began) / motion.FRAME)
-        after = len(screen.text())
+        text = screen.text()
+        self.assertLessEqual(text[len(before):].count("<frame>"),
+                             2 + (clock_at(text) - clock_at(before)) / motion.FRAME)
+        after = len(text)
         fcntl.ioctl(screen.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 40, 0, 0))
         os.kill(screen.proc.pid, signal.SIGWINCH)      # the test's own child
         screen.when(r"\x1b\[H\x1b\[Kagentkit · config · acme", after)
@@ -315,10 +405,10 @@ class RuleProgress(unittest.TestCase):
         self.assertLessEqual(max(map(int, columns)), 40)
         os.write(screen.master, b"\x1b[<0;4;6M\x1b[<0;4;6m")   # a click on `esc back`
         screen.when("<went back>")
-        self.assertEqual(screen.proc.wait(10), 0, screen.text()[-2000:])
+        self.assertEqual(screen.proc.wait(HUNG), 0, screen.text()[-2000:])
 
     def test_a_models_list_waited_on_is_laid_out_again_at_forty_columns(self):
-        screen = Screen(self, opens=0, child=CATALOG, RULE_CATALOG="30")
+        screen = Screen(self, opens=0, child=CATALOG)
         screen.when("Claude Code")
         os.write(screen.master, b"\r")                  # claude's list: its catalog is asked
         screen.when(GLIDE.pattern)
@@ -329,7 +419,7 @@ class RuleProgress(unittest.TestCase):
         screen.when(r"\x1b\[J", after)
         os.write(screen.master, b"\x1b")
         screen.when("<went back>")
-        self.assertEqual(screen.proc.wait(10), 0, screen.text()[-2000:])
+        self.assertEqual(screen.proc.wait(HUNG), 0, screen.text()[-2000:])
 
 
 if __name__ == "__main__":

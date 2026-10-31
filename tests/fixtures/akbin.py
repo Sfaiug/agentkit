@@ -266,7 +266,7 @@ class Home:
             except subprocess.TimeoutExpired:
                 _end(proc)
                 raise AssertionError(f"still running after {timeout} s: "
-                                     f"{shlex.join(argv)}") from None
+                                     f"{shlex.join(map(str, argv))}") from None
         finally:
             for fd in (typist, terminal):
                 if fd is not None:
@@ -285,8 +285,9 @@ class Home:
         listener = socket.create_server(str(way), family=socket.AF_UNIX)
         relay = _relay(listener, socket.AF_INET, ("127.0.0.1", port))
         try:
+            # a run the tick resumes goes on in the box to its end: as long as an `ak run`
             return self.run(*self.box(_BOX), sys.executable, "-I", Path(__file__).resolve(),
-                            "tick", str(port or ""), str(way), AK, "watch", env=env)
+                            "tick", str(port or ""), str(way), AK, "watch", env=env, timeout=300)
         finally:
             listener.shutdown(socket.SHUT_RDWR)     # wakes its `accept`, as `close` would not
             listener.close()
@@ -446,16 +447,13 @@ def _relay(listener, family, address):
 
 def _last(port, way, *program):
     """A tick's last breath in its box: the sink's port carried in from the socket at `way`, and
-    what the program detached waited out before the box goes."""
+    what the program detached waited out before the box goes, as long as `Home.tick` gives it."""
     if port:
         _relay(socket.create_server(("127.0.0.1", int(port))), socket.AF_UNIX, way)
     code = subprocess.call(program)
-    deadline = time.monotonic() + 60
-    while time.monotonic() < deadline:
-        if not [p for p in os.listdir("/proc") if p.isdigit() and int(p) not in (1, os.getpid())]:
-            sys.exit(code)
+    while [p for p in os.listdir("/proc") if p.isdigit() and int(p) not in (1, os.getpid())]:
         time.sleep(0.1)
-    sys.exit("the tick left processes running")
+    sys.exit(code)
 
 
 if __name__ == "__main__":

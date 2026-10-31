@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The Go build's hook: it takes what its event hands it and does nothing yet, until a later
-# milestone gives it the Go program's behaviour.
-cat >/dev/null
-exit 0
+# The Go build's hook: the event its harness hands it goes to the Go program's own `ak hook`,
+# under this file's name.
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+exec "$root/bin/ak" hook "$(basename -- "${BASH_SOURCE[0]}" .sh)"
