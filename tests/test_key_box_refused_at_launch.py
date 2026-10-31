@@ -1,10 +1,10 @@
 """A launch whose worker box cannot start is refused before it makes anything, saying why.
 
 `ak run` with one task file, with several and with `--review-pr` each first check that this
-host can start a worker's box: bubblewrap on PATH, a probe of it that does not fail, Git in a
-directory PATH names in full, and every credential folder open to the user, as the box must see
-what it hides.  A refusal exits 2 with `ak run: <reason>` and nothing else: no run or job
-directory, no harness turn, no call to GitHub, no branch or worktree.  A probe still silent
+host can start a worker's box: bubblewrap on PATH, a probe of it that starts and does not fail,
+Git in a directory PATH names in full, and every credential folder open to the user, as the box
+must see what it hides.  A refusal exits 2 with `ak run: <reason>` and nothing else: no run or
+job directory, no harness turn, no call to GitHub, no branch or worktree.  A probe still silent
 after its 10 seconds is a loaded host rather than one that cannot nest a box, so the launch
 goes on.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, on a project from gitrig.py, a config from akconfig.py, tasks from
@@ -15,6 +15,7 @@ and takes whatever arguments it is given.
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import sys
@@ -78,10 +79,16 @@ class RefusedAtLaunch(unittest.TestCase):
         return os.pathsep.join([fakes, *ahead, str(tools)])
 
     def assertRefused(self, reason, env=None):
+        self.assertRefusedMatching(re.escape(reason), env)
+
+    def assertRefusedMatching(self, reason, env=None):
+        """Every launch exits 2 printing only `ak run: ` and words the pattern `reason` matches
+        whole, and nothing is made."""
         for launch, args in self.launches.items():
             with self.subTest(launch):
                 done = self.home.ak("run", *args, env=env)
-                self.assertEqual((done.code, done.out, done.err), (2, "", f"ak run: {reason}\n"))
+                self.assertEqual((done.code, done.out), (2, ""), done.err)
+                self.assertRegex(done.err, rf"\Aak run: {reason}\n\Z")
         for place in ("runs", "jobs"):
             self.assertEqual(list((self.home.path / ".agentkit" / place).glob("*")), [], place)
         self.assertEqual((self.fakes["claude"].n, self.fakes["codex"].n), (0, 0))
@@ -101,6 +108,13 @@ class RefusedAtLaunch(unittest.TestCase):
             with self.subTest(said):
                 self.bwrap(f"printf %s {shlex.quote(words)} >&2\nexit 1")
                 self.assertRefused(f"worker box cannot start: {said}; run `{remedy()}`; {NESTING}")
+
+    def test_a_probe_bubblewrap_cannot_start_is_refused_with_why_and_the_kernel_s_remedy(self):
+        # Its interpreter is missing, and no other bwrap on PATH stands in: each build words why
+        # starting it failed its own way.
+        self.home.fake("bwrap", f"#!{self.home.root / 'missing'}\n")
+        self.assertRefusedMatching(f"worker box cannot start: .+; run `{re.escape(remedy())}`; "
+                                   f"{re.escape(NESTING)}", {"PATH": self.without("bwrap")})
 
     def test_git_only_in_a_relative_path_entry_is_refused(self):
         self.bwrap("exit 0")
