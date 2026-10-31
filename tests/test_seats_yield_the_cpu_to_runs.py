@@ -114,7 +114,6 @@ class SeatsYieldCpu(unittest.TestCase):
     def test_busy_seats_do_not_hold_a_queued_run(self):
         self.readings_by_slice(CALM)
         state = {"run_id": "acme", "state": "queued"}
-        self.assertFalse(gate.claim_slot(state, 1))  # first steady poll
         self.assertTrue(gate.claim_slot(state, 1), state)
 
     def test_heavy_room_reads_runs_cpu(self):

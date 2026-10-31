@@ -171,7 +171,7 @@ func sliceCgroup() string {
 // SliceLine is the one line the screens say about where the agents run. `no slice` is no
 // warning: a host with no user systemd manager starts its seats plainly.
 func SliceLine() string {
-	if !userManager() {
+	if !UserManager() {
 		return "no slice (no user systemd manager)"
 	}
 	return sliceLine(sliceCgroup(), sliceCeiling())

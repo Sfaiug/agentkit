@@ -7,8 +7,9 @@ another run on its PR has not ended takes nothing; once the place's run is stopp
 fails, the seat's next run has it, and a run started again after a park keeps it.  An
 unreadable record or session gives no place, and once the install moves there is none.
 Black-box: the seat `acme` launches through `bin/ak run` in a Home of tests/fixtures/akbin.py,
-on the agentkit of gitrig.py and the GitHub of fakegh.py, with no slot free so each run waits
-queued; ak's own code, run in that Home, hands the red back and reads the order.
+on the agentkit of gitrig.py and the GitHub of fakegh.py, with no slot free and the host short of
+memory (AK_HOST_READINGS), which a first place does not skip, so each run waits queued; ak's own
+code, run in that Home, hands the red back and reads the order.
 """
 
 import json
@@ -50,7 +51,8 @@ class HeldFixFirst(unittest.TestCase):
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        home.env.update(OFFLINE, AK_MAX_RUNS="3")
+        home.env.update(OFFLINE, AK_MAX_RUNS="3",
+                        AK_HOST_READINGS=json.dumps({"free_mb": 1024, "mem_total_mb": 16384}))
         home.write(".agentkit/state/gc.json", {"started_at": time.time()})
         cls.rig = Rig(home, "agentkit")
         cls.gh = GitHub(home)

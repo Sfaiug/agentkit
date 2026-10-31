@@ -37,6 +37,8 @@ class WokenMemberAdmission(unittest.TestCase):
         self.stack.enter_context(patch.object(host, "host_readings", return_value=READINGS))
         self.stack.enter_context(patch.object(run, "redress_seat"))
         self.stack.enter_context(patch.object(handback, "redress_seat"))
+        # order, not pace: no poll's pause after each start
+        self.stack.enter_context(patch.object(gate, "SLOT_POLL", 0))
 
     def receipt(self, name, queued_at, verdict=None, word="queued"):
         directory = config.RUNS / name
@@ -97,7 +99,6 @@ class WokenMemberAdmission(unittest.TestCase):
         self.assertFalse(self.claim(fix))
         self.assertEqual(record.read_state(fix)["slot_wait_kind"], "count")
         self.assertTrue(self.claim(green))
-        self.assertFalse(self.claim(fix))
         self.assertTrue(self.claim(fix))
 
     def test_a_failed_pr_check_keeping_its_land_verdict_waits_behind_a_green_delivery(self):
@@ -118,7 +119,6 @@ class WokenMemberAdmission(unittest.TestCase):
             for readings, kind in zip(short, ("memory", "unit memory", "unit memory")):
                 self.assertFalse(self.claim(fix, readings=readings))
                 self.assertEqual(record.read_state(fix)["slot_wait_kind"], kind)
-            self.assertFalse(self.claim(fix))
             self.assertTrue(self.claim(fix))
             # A green delivery merges a tree the line checked: in at its first look, short or not.
             for index, readings in enumerate(short):

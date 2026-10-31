@@ -175,7 +175,6 @@ class GateLanders(unittest.TestCase):
         self.assertFalse(gate.claim_slot(new, 0, readings))
         self.assertEqual(new["slot_wait_kind"], "landing")
         repair = {"run_id": "repair", "run_depth": 0, "first": True}
-        self.assertFalse(gate.claim_slot(repair, 0, readings))   # its first steady poll
         self.assertTrue(gate.claim_slot(repair, 0, readings))
         fcntl.flock(holder, fcntl.LOCK_UN)
         checker.join(20)
@@ -183,8 +182,8 @@ class GateLanders(unittest.TestCase):
         self.assertIsNone(plain.error, plain.error)
         self.assertEqual(self.marks.read_text(), "lander\nround\n")
         self.assertFalse(gate.landing_waits())
-        self.assertFalse(gate.claim_slot(new, 0, readings))   # its first steady poll
-        self.assertTrue(gate.claim_slot(new, 0, readings))
+        self.assertFalse(gate.claim_slot(new, 0, readings))   # a poll behind the repair let in
+        self.assertIn("steady readings", new["slot_wait_reason"])
 
     def test_a_round_check_asks_the_helper_past_a_line_check_waiting_here(self):
         # The line's wait decides this host's turns; a suite on a machine takes nothing from it.
@@ -324,7 +323,6 @@ class GateLanders(unittest.TestCase):
         self.until(lambda: not gate.landing_waits(), "the checker to stop holding others back")
         readings = {"free_mb": 8000, "mem_total_mb": 16000, "slice_cpu_pressure": 0}
         new = {"run_id": "new-run", "run_depth": 0}
-        self.assertFalse(gate.claim_slot(new, 0, readings))   # its first steady poll
         self.assertTrue(gate.claim_slot(new, 0, readings))
         repo = gitcall.main_checkout(ACME)
         self.assertFalse(gate._gate_waiter_before(repo, "round", time.time() - 60))

@@ -139,13 +139,11 @@ class QueueHeadReadsGate(unittest.TestCase):
         self.assertEqual(self.note("fix-db"),
                          "waiting for a slot · limit full (1 running) · 2 ahead")
 
-        # Each freed slot goes to the next in line after two steady polls, as it always has.
+        # Each freed slot goes to the next in line at its next poll.
         for name, behind, before in (("fix-api", ["fix-ui", "fix-db"], "holder"),
                                      ("fix-ui", ["fix-db"], "fix-api"),
                                      ("fix-db", [], "fix-ui")):
             self.end(before)
-            self.poll(name, *behind)
-            self.assertFalse(self.admitted(name), "admitted on its first steady poll")
             opened = self.poll(name, *behind)
             self.assertTrue(self.admitted(name))
             expected = {name: full, **{other: [] for other in behind}}
@@ -176,24 +174,8 @@ class QueueHeadReadsGate(unittest.TestCase):
                          "waiting for a slot · limit full (1 running) · 1 ahead")
         self.end("holder")
         self.poll("fix-ui", "fix-db")
-        self.poll("fix-ui", "fix-db")
         self.assertTrue(self.admitted("fix-ui"))
         self.assertFalse(self.admitted("fix-db"))
-
-    def test_a_first_overtaken_owes_two_steady_polls_again(self):
-        with patch.dict(os.environ, {"AK_MAX_RUNS": "2"}):
-            self.queue("fix-api", 10)            # its first steady poll is banked
-            self.queue("repair", 20, first=True)  # and a `--first` run goes ahead of it
-            self.assertEqual(self.poll("fix-api", "repair"),
-                             {"fix-api": [], "repair": [".slots.lock", "run.json"]})
-            self.assertTrue(self.admitted("repair"))
-            # Its skipped poll was a count wait: steadiness starts over, as it did when it read.
-            self.poll("fix-api")
-            self.assertFalse(self.admitted("fix-api"))
-            self.poll("fix-api")
-            self.assertTrue(self.admitted("fix-api"))
-            self.assertRegex((config.RUNS / "fix-api" / "log.txt").read_text(),
-                             r"^waited \d+ min for a slot \(count\)\nlaunch\n$")
 
 
 if __name__ == "__main__":

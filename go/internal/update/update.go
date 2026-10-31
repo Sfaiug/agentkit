@@ -1,8 +1,12 @@
-// Package update is `ak update` where Go carries it out, as Python's agentkit/update.py says it:
-// a dry run, and an update with no harness here to move.  It hides how such an update moves
-// ~/agentkit (agentkit.go): forward on main to a commit whose live check let it through, swapped
-// in whole as Python's agentkit/versions.py swaps it (versions.go), then its install.sh, owed
-// until it passes, all under Python's lock.  Moving a harness is Python's.
+// Package update is `ak update` where Go carries it out, as Python's agentkit/update.py says it.
+// It hides how such an update moves each harness here (harness.go): its `[update] upgrade`, then
+// the acceptance gates (gates.go), the new release kept only once they pass, else the old one put
+// back by its `[update] revert` or, with none, from the snapshot taken before (snapshot.go), its
+// red kept for the tick to hand back; and how it then moves ~/agentkit (agentkit.go): forward on
+// main to a commit whose live check let it through, swapped in whole as Python's
+// agentkit/versions.py swaps it (versions.go), then its install.sh, owed until it passes, all
+// under Python's locks.  Moving a harness while a seat is on record, or where a user systemd
+// manager would place the gates, is Python's (movable).
 package update
 
 import (
@@ -16,7 +20,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -28,7 +31,8 @@ import (
 )
 
 // ErrPython leaves an update to Python ak before Go has written anything: one that would move a
-// harness, or ~/agentkit where Go swaps no version in, or output Go cannot read as Python does.
+// harness where movable says not, or ~/agentkit where Go swaps no version in, or output Go cannot
+// read as Python does.
 var ErrPython = errors.New("left to Python")
 
 // pins keep each harness from upgrading itself while it is asked its release.
@@ -38,12 +42,14 @@ var pins = []string{"DISABLE_AUTOUPDATER=1", "MUSE_NO_AUTO_UPDATE=1", "MUSE_LAUN
 // Unicode's; what VERSION takes after the number cannot change whether it finds one.
 var release = regexp.MustCompile(`\p{Nd}+\.\p{Nd}+\.\p{Nd}+`)
 
-// A plan is one harness `ak update` moves, as its manifest's `[update]` says.
+// A plan is one harness `ak update` moves, as its manifest's `[update]` says, and its
+// `[snapshot]` where nothing else puts it back.
 type plan struct {
-	name             string
-	version, upgrade []string
-	revert           bool
-	cannot           string
+	name                     string
+	version, upgrade, revert []string
+	env                      []string // KEY=value each
+	cannot                   string
+	snapshot                 *recipe
 }
 
 // Main is `ak update` from the checkout at repo where Go carries it out, in Python's update.main
@@ -66,21 +72,24 @@ func Main(repo string, dryRun bool, out, errOut io.Writer) (int, error) {
 		return 0, ErrPython
 	}
 	env = append(env, pins...)
-	before, absent := map[string]string{}, []string{}
+	before, absent, present := map[string]string{}, []string{}, []plan{}
 	for _, each := range plans {
 		if before[each.name], err = version(each, env); err != nil {
 			return 0, err
 		}
 		if before[each.name] == "" && harness.Binary(each.version[0]) == "" {
 			absent = append(absent, each.name)
+		} else {
+			present = append(present, each)
 		}
 	}
 	home, _ := os.UserHomeDir()
 	checkout := filepath.Join(home, "agentkit")
 	_, err = os.Stat(filepath.Join(checkout, ".git"))
 	held := err == nil
-	if !dryRun && (len(absent) < len(plans) || held && exchange == nil) {
-		return 0, ErrPython // a harness to move, or ~/agentkit where Go swaps no version in
+	moves := !dryRun && len(present) > 0
+	if !dryRun && held && exchange == nil || moves && !movable(present) {
+		return 0, ErrPython
 	}
 	agentkit := "update: agentkit: skipped: no checkout at " + checkout
 	if held && dryRun {
@@ -97,6 +106,16 @@ func Main(repo string, dryRun bool, out, errOut io.Writer) (int, error) {
 	for _, name := range absent {
 		fmt.Fprintf(out, "update: %s: skipped: not installed here\n", name)
 	}
+	if moves {
+		if code := upgradeAll(env, repo, present, before, out, errOut); code != 0 {
+			return code, nil
+		}
+		if held {
+			return updateSelf(env, checkout, out), nil
+		}
+		fmt.Fprintln(out, agentkit)
+		return 0, nil
+	}
 	if !dryRun {
 		fmt.Fprintln(out, "update: no harness installed here; nothing to upgrade")
 		if held {
@@ -108,9 +127,9 @@ func Main(repo string, dryRun bool, out, errOut io.Writer) (int, error) {
 	}
 	for _, each := range plans {
 		note := "cannot be reverted: " + cmp.Or(each.cannot, "it offers no versioned reinstall")
-		if each.revert {
+		if each.revert != nil {
 			note = "versioned reinstall available"
-		} else if harness.Snapshots(each.name) {
+		} else if each.snapshot != nil {
 			note = "frozen installed release, not a reproducible versioned install; cannot be " +
 				"reverted by its channel installer; requires a complete local snapshot for " +
 				"rollback, checked before upgrading"
@@ -120,18 +139,10 @@ func Main(repo string, dryRun bool, out, errOut io.Writer) (int, error) {
 	}
 	fmt.Fprintln(out, "update: dry run, nothing changed; each gate below says whether it would run")
 	fmt.Fprintf(out, "update: gate live: run (`bash %s`)\n", live)
-	fresh := filepath.Join(repo, "tests", "e2e-fresh.sh")
-	platform := runtime.GOOS
-	if platform == "windows" {
-		platform = "win32" // as Python's sys.platform calls it
-	}
-	switch {
-	case !regular(fresh):
-		fmt.Fprintf(out, "update: gate fresh: skipped: no %s\n", fresh)
-	case platform != "linux":
-		fmt.Fprintf(out, "update: gate fresh: skipped: Linux only (this is %s)\n", platform)
-	default:
-		fmt.Fprintf(out, "update: gate fresh: run (`bash %s`)\n", fresh)
+	if why := freshUnavailable(repo); why != "" {
+		fmt.Fprintf(out, "update: gate fresh: skipped: %s\n", why)
+	} else {
+		fmt.Fprintf(out, "update: gate fresh: run (`bash %s`)\n", filepath.Join(repo, "tests", "e2e-fresh.sh"))
 	}
 	fmt.Fprintln(out, agentkit)
 	return 0, nil
@@ -177,7 +188,11 @@ func harnesses() ([]plan, error) {
 			return nil, err
 		}
 		cannot, _ := facts["cannot"].(string)
-		plans = append(plans, plan{name, version, upgrade, revert != nil, cannot})
+		env, ok := config.Pairs(facts["env"])
+		if !ok {
+			return nil, ErrPython // a value Python's str() writes as Go does not
+		}
+		plans = append(plans, plan{name, version, upgrade, revert, env, cannot, snapshotted(name)})
 	}
 	return plans, nil
 }
@@ -262,12 +277,17 @@ func output(env []string, limit time.Duration, argv ...string) (stdout, stderr [
 	case err != nil && ctx.Err() != nil:
 		err = ctx.Err()
 	case errors.As(err, &exited):
-		code, err = exited.ExitCode(), nil
-		if status, ok := exited.Sys().(syscall.WaitStatus); ok && status.Signaled() {
-			code = -int(status.Signal())
-		}
+		code, err = returncode(exited), nil
 	}
 	return out.Bytes(), errOut.Bytes(), code, err
+}
+
+// returncode is how a command exited as Python's returncode says it: a signal's negated.
+func returncode(exited *exec.ExitError) int {
+	if status, ok := exited.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+		return -int(status.Signal())
+	}
+	return exited.ExitCode()
 }
 
 func regular(path string) bool {

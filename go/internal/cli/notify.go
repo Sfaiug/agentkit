@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"unicode/utf8"
 
 	"agentkit/internal/config"
@@ -33,8 +34,9 @@ func notifyCheck(_ []string, out, errOut io.Writer) int {
 }
 
 // notifyNeeds decides in notify.main's order: the arguments (validateNotify), the worker, the
-// question's shape, then the seat.  It carries out a dry run; a real ask, and a seat's ask for
-// itself, whose turn decides it, come in a later milestone.
+// question's shape, then the seat.  It carries out a dry run, and an ask for another seat where
+// notify.Ask knows its word; a seat's ask for itself, whose turn decides it, comes in a later
+// milestone.
 func notifyNeeds(args []string, out, errOut io.Writer) int {
 	asked, _ := parseNeeds(args) // validateNotify refused what it cannot read
 	if notify.Suppressed(asked.dryRun, out) {
@@ -56,9 +58,9 @@ func notifyNeeds(args []string, out, errOut io.Writer) int {
 		return notImplemented(errOut, "notify needs")
 	}
 	current, _, err := config.CurrentSession()
-	seat := ""
+	seat, record := "", map[string]any(nil)
 	if err == nil && (asked.session != "" || current != "") {
-		seat, _, err = config.ResolveSession(asked.session)
+		seat, record, err = config.ResolveSession(asked.session)
 	}
 	if err != nil {
 		fmt.Fprintf(errOut, "ak notify: %s\n", err)
@@ -72,7 +74,11 @@ func notifyNeeds(args []string, out, errOut io.Writer) int {
 		return 2
 	}
 	if !asked.dryRun {
-		return notImplemented(errOut, "notify needs")
+		code, decided := notify.Ask(seat, record, strings.TrimFunc(asked.question, config.Space), out, errOut)
+		if !decided {
+			return notImplemented(errOut, "notify needs")
+		}
+		return code
 	}
 	if err := notify.DryRun(seat, asked.question, out, errOut); err != nil {
 		return notImplemented(errOut, "notify needs")

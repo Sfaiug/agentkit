@@ -84,10 +84,10 @@ RULES = [
      "pattern": r"\.heavy-|landing_since|AK_HEAVY_TURN",
      "home": ("agentkit/gate.py", "go/internal/host/lines.go"),
      "max": 0},
-    # Run admission owns its lock, steady-poll counter and polling knob.
+    # Run admission owns its lock and polling knob.
     {"name": "run admission",
      "flags": (),
-     "pattern": r"\.slots\.lock|slot_healthy_polls|AK_SLOT_POLL",
+     "pattern": r"\.slots\.lock|AK_SLOT_POLL",
      "home": ("agentkit/gate.py", "go/internal/launch/launch.go"),
      "max": 0},
     # A harness is its adapter pair and its plugin, and a model is bound to its harness and
@@ -110,13 +110,15 @@ RULES = [
     # quota (`cpu_quota`, systemd's `CPUQuota`, the user unit's `unit_quota`), the
     # usage-limit reset and its credits as the name of a feature, and what a subscription's
     # week holds in tokens (`capacity.json`, `ak usage --json`'s `capacity_tokens` and
-    # `capacity_pairs`).
+    # `capacity_pairs`).  Google Compute's refusal codes are agentkit/google_cloud.py's, the one
+    # module that knows Google.
     {"name": "provider failure words",
      "flags": ("-i",),
      "pattern": "rate[ _-]?limit|quota|capacity|overload|usage[ _-]?limit",
      "names": r"quota[_-]?dry|run-quota|(cpu|unit)[ _]?quota|usage[ -]limit (reset|credit)"
               r"|capacity[._](json|tokens|pairs)",
-     "home": ("adapters/", "agentkit/harness/", "go/internal/config/adapters/"),
+     "home": ("adapters/", "agentkit/harness/", "go/internal/config/adapters/",
+              "agentkit/google_cloud.py"),
      "max": 59},
     # The run loop, admission and a stop write run.json through its one writer.
     # Called through the module (`record.save_state`); watch.py's own `save_state` writes the

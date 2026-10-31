@@ -275,9 +275,7 @@ class Quota(unittest.TestCase):
         clock = Clock(sleeps.append)     # run's slot poll and turns' retries share it
         opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
-        # This assertion needs the slot poll even when the caller sets AK_MAX_RUNS=0.
-        with patch.dict(os.environ, {"AK_MAX_RUNS": "1"}), \
-                patch.object(run.worker, "call", side_effect=submitting(turn)), \
+        with patch.object(run.worker, "call", side_effect=submitting(turn)), \
                 patch.object(usage, "collect", return_value=providers), \
                 patch.object(turns, "time", clock), patch.object(run, "time", clock), \
                 patch.object(gate, "time", clock), \
@@ -291,7 +289,7 @@ class Quota(unittest.TestCase):
         self.assertEqual(saved["state"], "pass")
         self.assertNotIn("quota_dry", saved)
         self.assertEqual(sent, [])
-        self.assertEqual(sleeps, [gate.SLOT_POLL])
+        self.assertEqual(sleeps, [])
 
     def test_quota_merge_retry_on_a_marked_pass_stops_clean(self):
         # the reviewer's repro: a PASS carrying a leftover mark whose gh call stops
@@ -456,6 +454,8 @@ class QuotaDry(unittest.TestCase):
         clock = Clock(self.sleep)
         for module in (turns, run, gate):
             self.stack.enter_context(patch.object(module, "time", clock))
+        # quota, not pace: these sleeps move no clock, so a poll's pause after a start never ends
+        self.stack.enter_context(patch.object(gate, "SLOT_POLL", 0))
         self.now = time.mktime(time.strptime("2026-09-15 07:00", "%Y-%m-%d %H:%M"))
         self.stack.enter_context(patch.object(usage.time, "time", side_effect=lambda: self.now))
 
