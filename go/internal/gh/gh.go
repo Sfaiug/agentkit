@@ -28,7 +28,7 @@ const limit = 2 * time.Minute
 
 // loggedOut is what gh says when the credentials are the problem rather than the network: its
 // advice with no login at all, and the API's words for a rejected token. A 403 is not among
-// them: a rate limit answers with credentials that are perfectly good.
+// them: GitHub answers one to perfectly good credentials that asked too often.
 var loggedOut = regexp.MustCompile(`(?i)gh auth login|not logged in|bad credentials|HTTP 401`)
 
 // LoggedOut is whether gh's reason is a login for the owner to fix.
