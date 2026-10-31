@@ -33,9 +33,10 @@ class AStoppedRebaseTurnsHere(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix="stopped-rebase-")
         self.addCleanup(tmp.cleanup)
-        self.root, repo = Path(tmp.name), Path(tmp.name, "acme")
+        # a newline in the repository's path, which git's line-per-path answers would split
+        self.root, repo = Path(tmp.name), Path(tmp.name, "acme\nrepo")
         self.checkout = self.root / "fix-api"
-        git(self.root, "init", "-q", "-b", "main", "acme")
+        git(self.root, "init", "-q", "-b", "main", str(repo))
         for where, text in ((repo, "v1\n"), (None, "fix\n"), (repo, "main\n")):
             if where is None:
                 git(repo, "worktree", "add", "-q", "-b", "fix-api", str(self.checkout))
