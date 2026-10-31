@@ -909,8 +909,10 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     answers[tree, checks] = green_answer(tree, green[tree]["tested"])
                 elif red.get(tree, {}).get("checks") == list(checks):
                     answers[tree, checks] = cached_red(tree)
-            batched = len({(tree, checks) for _, _, _, tree, checks in stacks
-                           if (tree, checks) not in answers}) > limit
+            unanswered = {index: stack[3:] for index, stack in enumerate(stacks)
+                          if stack[3:] not in answers}
+            # However many fit, the stack below a culprit goes first, covering those under it.
+            batched = below in unanswered or len(set(unanswered.values())) > limit
 
             def cover(index, checks, tested, at=None, code=None):
                 covered = stacks[:index + 1] if batched else [stacks[index]]
@@ -1007,7 +1009,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         unchecked = [index for index, (_, _, _, tree, checks) in enumerate(stacks)
                                      if (tree, checks) not in answers]
                         narrowing, command, owner = None, None, 0
-                        if batched and below in unchecked:
+                        if below in unchecked:
                             # It waits on no culprit above it: its whole check comes before the
                             # new top's, named tests passing there being no evidence, and green
                             # lands every stack under it (40 members waited, 30 Oct 2026).
