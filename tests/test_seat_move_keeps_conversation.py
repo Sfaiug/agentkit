@@ -161,6 +161,13 @@ class SeatMove(Sandbox):
         self.assertEqual(self.move("fable"), "")
         self.assertEqual(self.owed(), ["/model claude-fable-5-1", "/effort xhigh"])
 
+    def test_a_move_in_place_keeps_the_account_its_record_holds_then(self):
+        config.update_session(SEAT, account="second")   # a recovery since the move read it
+        with patch.object(orch, "_switch_plan", return_value=("", "default")):
+            self.assertEqual(self.move("fable"), "")
+        self.assertEqual((self.record()["orchestrator"], self.record()["account"]),
+                         ("fable", "second"))
+
     def test_an_effort_move_in_place_refused_keeps_a_build_effort_saved_meanwhile(self):
         def saved_then_refused(*_a, **_kw):
             config.change_efforts(SEAT, lambda data: {

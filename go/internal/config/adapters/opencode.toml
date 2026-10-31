@@ -44,6 +44,14 @@ seat_env = ["OPENCODE_CONFIG_CONTENT", "AGENTKIT_OPENCODE_RECEIPT"]
 # `interactive` hands $AGENTKIT_FIRST_PROMPT to the TUI as its first prompt, fresh or resumed
 first_prompt = true
 
+# The line its prompt takes to move its conversation to another model or effort, `{model}` the
+# id `interactive` runs (`orch.switch_lines`): OpenCode 2.2.4 has no typed command that takes a
+# model, so the seat plugin adds this one (hooks/opencode-seat), running the id's own `#variant`,
+# else the effort, as a launch does.  A variant a launch defines itself restarts the seat
+# instead (`switchable` in agentkit/harness/opencode.py).
+[switch]
+model = "/ak-model {model} {effort}"
+
 # MiMo's plan meter is the console page's own API, replayed as the page's own fetch
 # through a shared-browser tab (GET tokenPlan/usage and tokenPlan/detail): the login
 # stays the browser's, and no cookie of it is ever read out.  Behind it stand the mimo
