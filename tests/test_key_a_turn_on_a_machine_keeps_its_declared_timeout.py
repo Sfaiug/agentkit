@@ -32,9 +32,10 @@ def record(run):
 
 
 class ATurnOnAMachineKeepsItsDeclaredTimeout(unittest.TestCase):
-    def parked(self, command):
-        """(Home, run) of a run parked before its third turn, which runs `command` on the
-        machine with a silence limit of three seconds."""
+    def resume(self, command):
+        """(record, directory) of a run whose third turn runs `command` on the machine with a
+        silence limit of three seconds, once the run ended or that turn, stopped, waits to be
+        tried again."""
         home = Home()
         self.addCleanup(home.close)
         rig = Rig(home, "widgets", files={
@@ -55,23 +56,21 @@ class ATurnOnAMachineKeepsItsDeclaredTimeout(unittest.TestCase):
         self.assertEqual(state["state"], "interrupted", state)
         (run / "run.json").write_text(json.dumps({**state, "silence_minutes": SILENCE_MINUTES}))
         akconfig.write(home, ["opus", "astra"], settings={**settings, "turns_on_machines": True})
-        return home, run
+        resumed = home.spawn("run", "resume", run.name)
+        deadline = time.monotonic() + 120
+        while resumed.poll() is None and not record(run).get("transient_wait"):
+            self.assertLess(time.monotonic(), deadline, record(run))
+            time.sleep(0.2)
+        return record(run), run
 
     def test_a_silent_command_under_a_declared_timeout_runs_to_its_end(self):
-        home, run = self.parked("timeout 30 sleep 6")
-        home.ak("run", "resume", run.name, timeout=300)
-        self.assertEqual(record(run)["state"], "blocked", record(run))
+        state, run = self.resume("timeout 30 sleep 6")
+        self.assertEqual(state["state"], "blocked", state)
         self.assertEqual([path.read_text() for path in run.rglob("where")], ["docker\n"])
 
     def test_a_silent_command_with_no_declared_bound_is_stopped_at_the_limit(self):
-        home, run = self.parked("sleep 6")
-        resumed = home.spawn("run", "resume", run.name)
-        deadline = time.monotonic() + 120
-        # stopped, the turn waits to be tried again
-        while not record(run).get("transient_wait"):
-            self.assertLess(time.monotonic(), deadline, "the turn was never stopped")
-            self.assertIsNone(resumed.poll(), record(run))
-            time.sleep(0.2)
+        state, run = self.resume("sleep 6")
+        self.assertIn("transient_wait", state)
         self.assertIn("emitted no event for 3s", (run / "log.txt").read_text())
         self.assertEqual([*run.rglob("where")], [])
 
