@@ -14,10 +14,9 @@ import (
 	"time"
 )
 
-// relayed runs script under Run with typed on its stdin, then its end, and shown reading its
-// stdout; closed shuts that reader first, so every write to stdout fails.  It answers Run's
-// answer and what reached stdout.
-func relayed(t *testing.T, script, typed string, closed bool, name func(string) error) (int, error, string) {
+// relayed runs script under Run with typed on its stdin, then its end, and answers Run's answer
+// and what reached its stdout.
+func relayed(t *testing.T, script, typed string, name func(string) error) (int, error, string) {
 	t.Helper()
 	stdin, keys, _ := os.Pipe()
 	shown, stdout, _ := os.Pipe()
@@ -28,9 +27,6 @@ func relayed(t *testing.T, script, typed string, closed bool, name func(string) 
 		keys.WriteString(typed)
 		keys.Close()
 	}()
-	if closed {
-		shown.Close()
-	}
 	out := make(chan string)
 	go func() {
 		all, _ := io.ReadAll(shown)
@@ -38,9 +34,6 @@ func relayed(t *testing.T, script, typed string, closed bool, name func(string) 
 	}()
 	code, err := Run(exec.Command("sh", "-c", script), name)
 	stdout.Close()
-	if closed {
-		return code, err, ""
-	}
 	return code, err, <-out
 }
 
@@ -48,18 +41,18 @@ func named(string) error { return nil }
 
 func TestTheProgramsOutputInputAndExitAreTheRelays(t *testing.T) {
 	// cat ends only at the end of its input: the ^D the relay passes
-	code, err, shown := relayed(t, "cat; echo cat ended; exit 7", "fix the api\n", false, named)
+	code, err, shown := relayed(t, "cat; echo cat ended; exit 7", "fix the api\n", named)
 	if code != 7 || err != nil || strings.Count(shown, "fix the api") != 2 || !strings.Contains(shown, "cat ended") {
 		t.Fatalf("answered %d %v, showed %q", code, err, shown)
 	}
-	if code, err, _ := relayed(t, "kill -KILL $$", "", false, named); code != 137 || err != nil {
+	if code, err, _ := relayed(t, "kill -KILL $$", "", named); code != 137 || err != nil {
 		t.Fatalf("a program a KILL ended answered %d %v", code, err)
 	}
 }
 
 func TestAProgramWhoseTerminalCannotBeNamedNeverStarts(t *testing.T) {
 	started, path := filepath.Join(t.TempDir(), "started"), ""
-	code, err, _ := relayed(t, "touch "+started, "", false, func(tty string) error {
+	code, err, _ := relayed(t, "touch "+started, "", func(tty string) error {
 		path = tty
 		return errors.New("no pane")
 	})
@@ -76,7 +69,7 @@ func TestAProcessHoldingTheTerminalPastTheProgramsExitHoldsNoRelay(t *testing.T)
 	go func() {
 		// deaf from its start to the HUP its terminal's leader leaves it as it exits
 		holder := "trap '' HUP; (while [ -e " + held + " ]; do sleep 0.05; done) & "
-		code, _, shown := relayed(t, holder+"echo bye; exit 3", "", false, named)
+		code, _, shown := relayed(t, holder+"echo bye; exit 3", "", named)
 		done <- fmt.Sprintf("%s %d", strings.TrimSpace(shown), code)
 	}()
 	select {
@@ -89,12 +82,28 @@ func TestAProcessHoldingTheTerminalPastTheProgramsExitHoldsNoRelay(t *testing.T)
 	}
 }
 
+// The relay runs in a copy of this test whose own stdout is a pipe nobody reads, so every write
+// to it fails, as on a seat's terminal that is gone.
 func TestARelayThatFailsHangsUpItsProgramAndKillsOneThatStays(t *testing.T) {
-	heard := filepath.Join(t.TempDir(), "heard")
+	if script := os.Getenv("AK_RELAY_SCRIPT"); script != "" {
+		code, err := Run(exec.Command("sh", "-c", script), named)
+		fmt.Fprint(os.Stderr, err)
+		os.Exit(code)
+	}
+	folder := t.TempDir()
+	heard := filepath.Join(folder, "heard")
 	for _, trap := range []string{"echo HUP >" + heard + "; exit 0", ""} {
-		code, err, _ := relayed(t, "trap '"+trap+"' HUP; while :; do echo busy; sleep 0.01; done", "", true, named)
-		if code != 1 || err == nil {
-			t.Fatalf("trap %q: answered %d %v", trap, code, err)
+		// busy until the test's folder goes, whatever the relay does
+		script := "trap '" + trap + "' HUP; while [ -d " + folder + " ]; do echo busy; sleep 0.01; done"
+		wrapper, said := exec.Command(os.Args[0], "-test.run=^"+t.Name()+"$"), &strings.Builder{}
+		wrapper.Env, wrapper.Stderr = append(os.Environ(), "AK_RELAY_SCRIPT="+script), said
+		shown, stdout, _ := os.Pipe()
+		shown.Close()
+		wrapper.Stdout = stdout
+		wrapper.Run()
+		stdout.Close()
+		if code := wrapper.ProcessState.ExitCode(); code != 1 || said.Len() == 0 {
+			t.Fatalf("trap %q: answered %d, saying %q", trap, code, said)
 		}
 	}
 	if said, _ := os.ReadFile(heard); string(said) != "HUP\n" {

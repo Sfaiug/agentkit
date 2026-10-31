@@ -63,6 +63,11 @@ func Run(cmd *exec.Cmd, name func(path string) error) (int, error) {
 	signals := make(chan os.Signal, 8)
 	signal.Notify(signals, append(forwarded, syscall.SIGWINCH)...)
 	defer signal.Stop(signals)
+	// caught, so a write to a closed pipe on stdout fails as any write does, instead of Go
+	// ending this process with the program still running
+	broken := make(chan os.Signal, 1)
+	signal.Notify(broken, syscall.SIGPIPE)
+	defer signal.Stop(broken)
 	if saved, err := attributes(os.Stdin); err == nil {
 		raw := saved
 		raw.Iflag &^= syscall.BRKINT | syscall.ICRNL | syscall.INPCK | syscall.ISTRIP | syscall.IXON
