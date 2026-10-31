@@ -42,6 +42,8 @@ class MemoryAdmissionByRoom(unittest.TestCase):
         self.stack.enter_context(patch.object(gate, "slot_counts", return_value=(7, 0, [])))
         self.stack.enter_context(patch.object(gate, "landing_waits", return_value=False))
         self.stack.enter_context(patch.object(record, "process_owner", return_value={"pid": 1}))
+        # room, not pace: no poll's pause after each start, on a clock that stands still
+        self.stack.enter_context(patch.object(gate, "SLOT_POLL", 0))
         with closing(sqlite3.connect(history.path())) as db, db:
             db.execute(history.SCHEMA)
 
@@ -55,11 +57,9 @@ class MemoryAdmissionByRoom(unittest.TestCase):
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps({**READINGS, **readings})}):
             return gate.claim_slot(state, 8)
 
-    def test_measured_run_fits_above_old_share_after_two_steady_polls(self):
+    def test_measured_run_fits_above_old_share(self):
         self.measured()
         state = {"run_id": "queued"}
-        self.assertFalse(self.claim(state))
-        self.assertNotIn("slot_wait_kind", state)
         self.assertTrue(self.claim(state))
         self.assertEqual(state["state"], "running")
 
@@ -73,14 +73,12 @@ class MemoryAdmissionByRoom(unittest.TestCase):
                 self.assertEqual(gate.slot_note(state),
                                  "waiting for the unit's memory · 0.4 G left, a run needs 0.6 G")
                 self.assertEqual(state["slot_wait_kind"], "unit memory")
-                self.assertFalse(self.claim(state))
                 self.assertTrue(self.claim(state))
 
     def test_room_equal_to_peak_admits(self):
         self.measured(512)
         state = {"run_id": "queued"}
         readings = {"slice_memory_used_mb": 512, "slice_memory_high_mb": 1024}
-        self.assertFalse(self.claim(state, **readings))
         self.assertTrue(self.claim(state, **readings))
 
     def test_admission_and_suites_use_the_same_memory_limit(self):
@@ -118,7 +116,6 @@ class MemoryAdmissionByRoom(unittest.TestCase):
         for pressure in (.01, 1.2, 10):
             with self.subTest(pressure=pressure):
                 state = {"run_id": "queued"}
-                self.assertFalse(self.claim(state, slice_memory_pressure=pressure))
                 self.assertTrue(self.claim(state, slice_memory_pressure=pressure))
 
     def test_no_measurements_keep_old_share(self):
@@ -127,7 +124,6 @@ class MemoryAdmissionByRoom(unittest.TestCase):
         self.assertEqual(state["slot_wait_kind"], "unit memory")
         self.assertEqual(gate.slot_note(state), "waiting for the unit's memory · 7.1 of 9.4 G")
         readings = {"slice_memory_used_mb": 9.4 * 1024 * .75}
-        self.assertFalse(self.claim(state, **readings))
         self.assertTrue(self.claim(state, **readings))
 
     def test_recent_finished_positive_peaks_supply_the_median(self):
@@ -144,7 +140,6 @@ class MemoryAdmissionByRoom(unittest.TestCase):
         self.assertEqual(history.recent_peak_rss_mb(), PEAK)
         self.assertEqual(history.path().read_bytes(), before)
         state = {"run_id": "queued"}
-        self.assertFalse(self.claim(state))
         self.assertTrue(self.claim(state))
 
     def test_missing_unreadable_or_unmeasured_history_keeps_old_share(self):

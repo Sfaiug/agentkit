@@ -9,13 +9,13 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import landing
-from agentkit import config, gate, gitcall, host, notify, run, staffing, turns, usage, worktrees
+from agentkit import config, gitcall, host, notify, run, staffing, turns, usage, worktrees
 from agentkit import record
 
 
@@ -41,7 +41,7 @@ class ReviewContract(unittest.TestCase):
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "TMUX_TMPDIR": str(sockets), "PYTHONDONTWRITEBYTECODE": "1",
             # a top-level launch, whoever runs this: a run's own done-when is depth 1, which
-            # skips the slot gate whose one poll the sleeps below are counted against
+            # skips the slot gate
             "AK_RUN_DEPTH": "0", "REVIEW_FIXTURE": str(self.root)}))
         os.environ.pop("AK_MAX_RUNS", None)
         config.ensure_dirs()
@@ -196,8 +196,7 @@ sys.exit(row["code"])
                          "VERDICT: PASS\npartial review")
         self.assertEqual((directory / "round-1/reviewer/stderr.log").read_text(), "diagnostic for astra")
         # subprocess polls a child's exit through the same patched sleep; only the run's waits count
-        self.assertEqual([c for c in self.sleep.call_args_list if c.args[0] > 0.05],
-                         [call(gate.SLOT_POLL)])
+        self.assertEqual([c for c in self.sleep.call_args_list if c.args[0] > 0.05], [])
 
     def test_bounded_transient_retry_can_succeed_without_losing_diagnostics(self):
         # the outage is what the harness said: a verdict beside it would make it the answer's

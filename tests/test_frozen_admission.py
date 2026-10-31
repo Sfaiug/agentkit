@@ -98,15 +98,12 @@ class FrozenAdmission(unittest.TestCase):
         self.assertEqual(state["slot_wait_kind"], "load")
         for n in range(7):
             self.thaw(f"20250925-120{n}-held")
-        self.assertFalse(gate.claim_slot(state, 32))  # first steady poll
         self.assertTrue(gate.claim_slot(state, 32))
         self.assertEqual(state["state"], "running")
 
     def test_first_ignores_frozen_runs(self):
         self.hold(7)
         state = record.read_state(self.queued("20250925-1300-first", first=True))
-        self.assertFalse(gate.claim_slot(state, 32))  # first steady poll
-        self.assertNotIn("slot_wait_kind", state)
         self.assertTrue(gate.claim_slot(state, 32))
         self.assertEqual(state["state"], "running")
 
