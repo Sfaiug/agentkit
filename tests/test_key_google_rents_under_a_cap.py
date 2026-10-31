@@ -1,6 +1,6 @@
 """A suite no machine takes has the tick rent the type cheapest a core with its memory a core, in
 a zone where ak has none first, on to the next zone where a zone's stock is out and to another
-region where a region's quota of that family's cores is, a smaller type of it there first, until
+region where a region's quota of that family's cores is, a smaller type of it there next, until
 Google's own end; none while one comes up or `[google_cloud]` is off, nor past the month's cap,
 which one whose reply was cut short counts against.  Black-box: `AK_BIN` lands a line beside a
 helper with no room, then runs `ak watch` in `home.tick()`'s box and `ak doctor` on a fake
@@ -18,10 +18,10 @@ from fixtures.akbin import Home, boxable
 from fixtures.akline import Line
 from fixtures.google import IOWA, SKUS, SPOT, Google, kind, sku
 
-# An hour: c4a-small-8, 512 MiB a core, €5.6545; c4a-highcpu-8 €5.8045, c4a-highcpu-4 €2.9045,
-# c4a-standard-8 €6.0045; in Iowa a core costs €0.05 more
+# An hour: c4a-small-8, 512 MiB a core, €5.6545; c4a-highcpu-16 €11.6045, c4a-highcpu-8
+# €5.8045, c4a-standard-8 €6.0045; in Iowa a core costs €0.05 more
 ZONES = {f"zones/{zone}": {"machineTypes": [
-    kind("c4a-small-8", 8, 4), kind("c4a-highcpu-8", 8, 16), kind("c4a-highcpu-4", 4, 8),
+    kind("c4a-small-8", 8, 4), kind("c4a-highcpu-16", 16, 32), kind("c4a-highcpu-8", 8, 16),
     kind("c4a-standard-8", 8, 32)]} for zone in (
     "europe-west4-a", "europe-west4-b", "us-central1-a")}
 IOWA_SKUS = [sku(f"{SPOT} C4A Arm Instance Core running in Americas", IOWA, 750_000_000),
@@ -71,14 +71,14 @@ class GoogleRentsUnderACap(unittest.TestCase):
         self.assertEqual(self.landed.code, 0, self.landed.out + self.landed.err)
         (_, _, lines), made = self.rent
         self.assertEqual([one["machineType"].split("/")[1::2] for one in made], [
-            ["europe-west4-a", "c4a-highcpu-8"], ["europe-west4-b", "c4a-highcpu-8"],
-            ["europe-west4-a", "c4a-highcpu-4"], ["us-central1-a", "c4a-highcpu-8"]])
+            ["europe-west4-a", "c4a-highcpu-16"], ["europe-west4-b", "c4a-highcpu-16"],
+            ["us-central1-a", "c4a-highcpu-16"], ["europe-west4-a", "c4a-highcpu-8"]])
         # what €50 buys of it, under 12 hours
         self.assertEqual((made[-1]["labels"], made[-1]["scheduling"], lines[1:]), ({"ak": "rented"}, {
             "provisioningModel": "SPOT", "instanceTerminationAction": "DELETE",
-            "maxRunDuration": {"seconds": "29011"}, "automaticRestart": False,
+            "maxRunDuration": {"seconds": "31010"}, "automaticRestart": False,
             "onHostMaintenance": "TERMINATE"}, [f"{made[-1]['name']} rented: c4a-highcpu-8 in "
-                                                "us-central1-a"]))
+                                                "europe-west4-a"]))
 
     def test_none_while_one_comes_up_or_off_or_past_the_cap_where_one_cut_short_counts(self):
         for asked, _, lines in [*self.coming, self.off, self.dropped]:
@@ -86,7 +86,7 @@ class GoogleRentsUnderACap(unittest.TestCase):
         self.assertEqual((self.off[0], self.dropped[2][1:]), ([], []))  # a need while off dropped
         self.assertEqual(self.capped[2][1:], [CAPPED.format(50)])   # the first held to its end
         (_, _, lines), made = self.cut
-        self.assertEqual(made["machineType"], "zones/europe-west4-b/machineTypes/c4a-highcpu-8")
+        self.assertEqual(made["machineType"], "zones/europe-west4-b/machineTypes/c4a-highcpu-16")
         self.assertTrue(lines[1].startswith(f"{made['name']} asked for in europe-west4-b, kept on "
                                             "the meter: asking Google failed: "), lines)
         self.assertEqual(self.counted[2][1:], [CAPPED.format(100)])
