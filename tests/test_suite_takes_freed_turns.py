@@ -22,7 +22,8 @@ from fixtures.sandbox import account_home
 from agentkit import config, gate, gitcall, host, worker
 from agentkit import record
 
-# 4 cores and 1.7 GB: four pieces at 0.7 core and 0.41 GB each.
+# 4 cores and 1.7 GB: four pieces at 0.7 core and 0.41 GB each.  It reads idle, as the gate counts
+# held turns itself: a use read just before a turn frees would split the next suite into fewer.
 ROOM = {"cpus": 4, "load": 0, "free_mb": 1700, "slice_cpu_quota": 4, "slice_cpu_used": 0,
         "slice_memory_high_mb": 1700, "slice_memory_used_mb": 0}
 SUITE = 'echo "${AK_SHARD}"'
@@ -48,18 +49,12 @@ class SuiteTakesFreedTurns(unittest.TestCase):
         self.stack.enter_context(patch.object(worker, "kill_marked"))
         self.stack.enter_context(patch.object(gate, "_running_commands", return_value=["fixture"]))
         self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.01))
-        self.stack.enter_context(patch.object(gate, "_run_readings", self.readings))
         self.stack.enter_context(patch.object(worker, "boxed", side_effect=self.boxed))
         self.on_start, self.together = {}, 1
         self.lock = threading.Lock()
         self.running, self.peak, self.held, self.shards = 0, 0, [], []
         self.started = threading.Condition(self.lock)
         self.holders = []
-
-    def readings(self):
-        """The fake host: each held turn's piece uses its share of the room."""
-        held = gate._heavy_running()
-        return {**ROOM, "slice_cpu_used": 0.7 * held, "slice_memory_used_mb": 410 * held}
 
     def hold_others(self, count):
         """The fake host's other suites: turns locked on files this test opened itself."""
@@ -120,9 +115,13 @@ class SuiteTakesFreedTurns(unittest.TestCase):
 
     def test_turns_held_never_exceed_the_limit_while_two_suites_pieces_wait(self):
         self.hold_others(3)
-        first = threading.Event()
+        first, go = threading.Event(), threading.Event()
         results = {}
-        self.on_start["acme"] = first.set
+
+        def first_holds():    # acme keeps pieces waiting until both waits are read
+            first.set()
+            go.wait(10)
+        self.on_start["acme"] = first_holds
         acme = threading.Thread(target=lambda: results.update(acme=self.suite("acme")))
         acme.start()
         self.assertTrue(first.wait(10))
@@ -139,6 +138,7 @@ class SuiteTakesFreedTurns(unittest.TestCase):
         self.assertLess(waits["acme"]["since"], waits["widget"]["since"])
         self.assertTrue(gate._gate_waiter_before(None, "widget", waits["widget"]["since"]))
         self.free_others()
+        go.set()
         acme.join(30)
         widget.join(30)
         self.assertEqual({name: ok for name, (ok, _) in results.items()},
