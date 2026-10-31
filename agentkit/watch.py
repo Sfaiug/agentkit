@@ -2690,18 +2690,36 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None):
     return answer
 
 
-def start_look(launched):
+def pane_reads(form):
+    """What tmux expands that format to for this pane, or None where it cannot say."""
+    here, pane = os.environ.get("TMUX", "").partition(",")[0], os.environ.get("TMUX_PANE", "")
+    rc, out = orch.tmux_out("-S", here, "display-message", "-p", "-t", pane, form, socket="",
+                            timeout=5)
+    return out if rc == 0 else None
+
+
+def pane_left(pid):
+    """Return once this pane no longer runs that process, as tmux has it: ended, or the pane
+    given another.  At once for no process, or where tmux cannot say."""
+    while pid and pane_reads("#{pane_dead} #{pane_pid}") == f"0 {pid}":
+        time.sleep(0.05)
+
+
+def start_look(launched, ending=False):
     """`hook_look` for that seat in a process of its own session, as hooks/seat-state.sh starts
-    it: whoever starts it -- the stop hook, the seat's wrapper -- ends none of it by ending.  The
-    process, or None outside a tmux pane, which is where every seat's harness runs, or where
-    none could start."""
+    it: whoever starts it -- the stop hook, the seat's wrapper -- ends none of it by ending.  One
+    `ending`, the wrapper's as it ends, waits until the process its pane runs now has ended too
+    (`pane_left`): only then does tmux have the seat closed.  The process, or None outside a
+    tmux pane, which is where every seat's harness runs, or where none could start."""
     if not (os.environ.get("TMUX") and os.environ.get("TMUX_PANE")):
         return None
+    pid = pane_reads("#{pane_pid}") if ending else None
     try:
         return subprocess.Popen(
             [sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
-             "from agentkit import watch; watch.hook_look(sys.argv[2])",
-             str(Path(__file__).resolve().parents[1]), launched],
+             "from agentkit import watch; watch.pane_left(sys.argv[3]); "
+             "watch.hook_look(sys.argv[2])",
+             str(Path(__file__).resolve().parents[1]), launched, pid or ""],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True, env=owner.unmarked())
     except OSError:
