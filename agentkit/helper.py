@@ -37,6 +37,7 @@ SSH = ("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAli
 # Linux's MAX_ARG_STRLEN, the most one argument holds, its closing NUL counted: ssh is given a
 # piece's whole line as one, and the machine's shell gets it as one, the piece's command in it.
 MAX_ARG_STRLEN = 128 * 1024
+VM_CPUS = 2     # the least a piece's VM gets (`room`)
 
 
 # A suite on the helper: `key` names its directory there and its VMs, `repo` the history it
@@ -115,7 +116,7 @@ def room(alias, piece_cpus, piece_mem_mb, least_mb=0, turns=False):
         if turns and readings.get("turns") != 1:
             return None, "takes no model turns"
         cpus, room_mb = readings["cpus"], readings["room_mb"]
-        spare, each_cpus = cpus - readings["load"], max(piece_cpus, 2)
+        spare, each_cpus = cpus - readings["load"], max(piece_cpus, VM_CPUS)
         mb = each_mb(piece_mem_mb, least_mb)
         count = min(int(spare // each_cpus), int(room_mb // mb))
     except (OSError, subprocess.TimeoutExpired, KeyError, ValueError, OverflowError):
@@ -129,6 +130,12 @@ def each_mb(piece_mem_mb, least_mb):
     """The MiB a piece's VM gets: twice the piece's, as it holds its own kernel, page cache and
     clone too, or `least_mb` where that is more."""
     return int(max(2 * piece_mem_mb, least_mb))
+
+
+def cpu_mb(piece_cpus, piece_mem_mb, least_mb):
+    """The MiB each CPU of a machine to rent must hold, rounded up: a CPU's share of a piece's
+    VM, beside the tenth of its memory the machine's system keeps (linux.sh's `left`)."""
+    return -(-each_mb(piece_mem_mb, least_mb) * 10 // (9 * int(max(piece_cpus, VM_CPUS))))
 
 
 def failure(code):
@@ -233,7 +240,7 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None):
             return away, ""
         finish(away)
         why[alias] = failure(sent)
-    google_cloud.need(each_mb(piece_mem_mb, _least(repo)))
+    google_cloud.need(cpu_mb(piece_cpus, piece_mem_mb, _least(repo)))
     return None, " · ".join(f"helper {alias} {reason}" for alias, reason in why.items()) or (
         "no suite helper set up")
 
