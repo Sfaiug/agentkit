@@ -40,9 +40,24 @@ type turn struct {
 	records   []*run.Object
 }
 
+// variable names a turn's record file to the turn.
+const variable = "AK_HAND_IN"
+
+// Start opens a turn's record file in its out directory with the turn's row, the workspace and
+// role and the blocking findings handed to it, none: the variable naming that file to the turn.
+func Start(out, workspace, role string) (string, error) {
+	path := filepath.Join(config.Resolve(out), "hand-in.jsonl")
+	row := run.NewObject()
+	row.Set("kind", "turn")
+	row.Set("workspace", config.Resolve(workspace))
+	row.Set("role", role)
+	row.Set("findings", []any{})
+	return variable + "=" + path, os.WriteFile(path, []byte(run.Line(row)+"\n"), 0o666)
+}
+
 // Hand checks what args hand in against the turn's record file and appends its row.
 func Hand(args []string) error {
-	path := os.Getenv("AK_HAND_IN")
+	path := os.Getenv(variable)
 	if path == "" || !regular(path) {
 		return errors.New("hand-in needs an active worker turn; use it from the worker's shell")
 	}

@@ -7,7 +7,7 @@ on PATH that is not the shim.  `menu.run_records` keeps what it read in one file
 state, each row under its run.json's stat, and reads a record again only when that changed.
 
 Offline: a sandbox HOME, fake tmux binaries that write down which of them ran, and runs written
-there; what was parsed is counted at `record.read_state`.
+there; what was parsed is counted at its run.json's read.
 """
 
 import os
@@ -19,8 +19,8 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.sandbox import Sandbox
-from agentkit import config, guard, menu, orch, record
+from fixtures.sandbox import Sandbox, parses
+from agentkit import config, guard, menu, orch, parsed, record
 
 TMUX = '#!/bin/sh\necho "{who} $*" >>"{log}"\nexit "${{ACME_TMUX_EXIT:-0}}"\n'
 
@@ -67,6 +67,11 @@ class OwnTmux(Sandbox):
 
 
 class RunRecords(Sandbox):
+    def setUp(self):
+        super().setUp()
+        # every run here was written long before: a pass keeps what it parses (`parsed`)
+        self.stack.enter_context(patch.object(parsed, "FRESH", 0))
+
     def write(self, name, **extra):
         directory = config.RUNS / name
         directory.mkdir(parents=True, exist_ok=True)
@@ -81,10 +86,10 @@ class RunRecords(Sandbox):
 
     def parsed(self):
         expected = self.today()
-        with patch.object(record, "read_state", wraps=record.read_state) as read:
+        with parses() as names:
             found = menu.run_records()
         self.assertEqual(found, expected)
-        return sorted(call.args[0].name for call in read.call_args_list)
+        return sorted(names)
 
     def test_only_a_changed_or_new_run_is_parsed_again(self):
         acme = self.write("20260101-0900-acme")

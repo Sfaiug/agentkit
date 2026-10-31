@@ -291,7 +291,7 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     again = None
     if tests:
         ok, probe, red = _check(directory, state, scratch, [suite], path, log, suite=suite,
-                                shard=piece or None, only=tests)
+                                shard=piece or None, only=tests, kind="tip")
         again = red.get("tests")
         if ok:
             log(f"{upstream} at {tip[:12]} passes the tests that failed {directory.name}'s "
@@ -299,7 +299,8 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
             return True
         _put_back(scratch, tip)
     if not again:       # a repeat needs no piece to say the tip is red
-        ok, probe, _ = _check(directory, state, scratch, [suite], path, log, shard=piece or None)
+        ok, probe, _ = _check(directory, state, scratch, [suite], path, log, shard=piece or None,
+                              kind="tip")
     if ok:
         # the pass is the piece's, named so it covers no stack's own checks
         note(turn, [tree], directory.name, checks=[f"{suite} (AK_SHARD={piece})" if piece else suite],
@@ -620,12 +621,13 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok):
 
 
 def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=None,
-           only=None, artifacts=None, line=None):
+           only=None, artifacts=None, line=None, kind="landing"):
     """(whether the checks passed, their output, what they found red as `red_part` reads it,
     `suite` standing for a red no command showed); with `shard` every command runs as that
     one piece alone, on one turn, and with `only` just those tests, on none.  A run checking
     before it joins names the `line` it joins: a flake it sees counts there as one the line's
-    check sees."""
+    check sees.  Each command, or piece of one, leaves its `kind` row in history under the
+    member's run, on the commit checked: `landing`, or `tip` for a probe of the target's."""
     from . import gate, run
     identity = gitcall.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
@@ -645,7 +647,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
             3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
             silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True,
             marks=marks, shard=shard, pieces=pieces, only=only, confirmed=confirmed,
-            run_dir=run_dir, flaky=flaky)
+            run_dir=run_dir, flaky=flaky, checked=(directory, None, kind, identity["head_sha"]))
     moved = (not clean or gitcall.commit_identity(scratch) != identity
              or run.git_out(scratch, "diff", "--quiet", "HEAD")[0])
     if moved:
@@ -804,6 +806,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
     tip_green = set(tip_green or ())   # the pieces the target's tip passed on this pass, the
                                        # pass's own re-probe of a paused piece included
     limit = None
+    below = -1      # the stack just below the last culprit, unchanged by the rebuild without it
 
     def ahead(index):
         """The runs under the stack at `index`, by name, with the tree each was checked as."""
@@ -908,8 +911,10 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     answers[tree, checks] = green_answer(tree, green[tree]["tested"])
                 elif red.get(tree, {}).get("checks") == list(checks):
                     answers[tree, checks] = cached_red(tree)
-            batched = len({(tree, checks) for _, _, _, tree, checks in stacks
-                           if (tree, checks) not in answers}) > limit
+            unanswered = {index: stack[3:] for index, stack in enumerate(stacks)
+                          if stack[3:] not in answers}
+            # However many fit, the stack below a culprit goes first, covering those under it.
+            batched = below in unanswered or len(set(unanswered.values())) > limit
 
             def cover(index, checks, tested, at=None, code=None):
                 covered = stacks[:index + 1] if batched else [stacks[index]]
@@ -958,7 +963,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 return stale
 
             def decide():
-                nonlocal pending, rebuild, target_red
+                nonlocal pending, rebuild, target_red, below
                 if target_red:
                     return
                 green_prefix = bool(prefix)
@@ -995,7 +1000,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         # Later stacks need new checks on trees without this member.
                         pending = [(m, s) for m, s in pending
                                    if m not in verdicts or "land" in verdicts[m]]
-                        rebuild = True
+                        rebuild, below = True, index - 1
                         return
 
             with ThreadPoolExecutor(max_workers=max(1, limit)) as pool:
@@ -1006,7 +1011,12 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         unchecked = [index for index, (_, _, _, tree, checks) in enumerate(stacks)
                                      if (tree, checks) not in answers]
                         narrowing, command, owner = None, None, 0
-                        if batched and unchecked:
+                        if below in unchecked:
+                            # It waits on no culprit above it: its whole check comes before the
+                            # new top's, named tests passing there being no evidence, and green
+                            # lands every stack under it (40 members waited, 30 Oct 2026).
+                            unchecked = [below]
+                        elif batched and unchecked:
                             # Narrow the first unresolved red between the last green and it.
                             red_index = next((index for index in range(unchecked[0], len(stacks))
                                               if "fix" in answers.get(tuple(stacks[index][3:]), {})), None)
@@ -1035,7 +1045,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                     ready({member: verdicts[member]})
                                 pending = [(m, s) for m, s in pending
                                            if m not in verdicts or "land" in verdicts[m]]
-                                rebuild = True
+                                rebuild, below = True, red_index - 1
                                 break
                             # No stack below the command's first runs it: the search starts
                             # just ahead of that one, and it reaches lower only on evidence.

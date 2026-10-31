@@ -44,7 +44,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, host,
+from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, history, host,
                login_refusals, notify, orch, owner, parsed, questions, seat_tokens, staffing,
                statusbar, transitions, turns, update, usage, worker)
 from . import record as run_record
@@ -2319,18 +2319,35 @@ def kept_asked(name, kept):
 
 def answered_kept(name, replies, at):
     """A native card reply answers only its questions, including before the turn ends: its own
-    card's copy, and every copy of a question whose latest card it is."""
+    card's copy, and every copy of a question whose latest card it is.  Each question it answers
+    is the owner's time, asked when first kept and answered at `at`, unless the reply naming it
+    also answers a question the seat's notice asks (`notify.card_answered`), whose answer
+    records it.  The caller holds the notice lock."""
     with seat_lock(name):
         data = seat_read(name)
         kept = questions_kept(data.get("unasked"))
         latest = {notify.question_key(q["text"]): q.get("id") for q in kept}
-        remaining = [q for q in kept if not (q.get("at", at) < at and any(
-                     notify.replied(replies, q["text"], card)
-                     for card in (q.get("id"), latest[notify.question_key(q["text"])])))]
-        if remaining != kept:
-            _seat_put(name, data, {"unasked": _kept(remaining)})
-            return True
-    return False
+
+        def answers(reply, q):
+            return q.get("at", at) < at and any(
+                notify.replied([reply], q["text"], card)
+                for card in (q.get("id"), latest[notify.question_key(q["text"])]))
+        answered = [q for q in kept if any(answers(reply, q) for reply in replies)]
+        if not answered:
+            return False
+        _seat_put(name, data, {"unasked": _kept([q for q in kept if q not in answered])})
+    notice = notify.last(name)
+    noticed = [reply for reply in replies
+               if notice and notify.card_answered(notice, [reply], at, latest)]
+    asked = {}
+    for q in answered:
+        key = notify.question_key(q["text"])
+        if not any(answers(reply, q) for reply in noticed):
+            asked[key] = min(q["at"], asked.get(key, math.inf))
+    for moment in asked.values():
+        history.owner_time("asked", moment)
+    notify.waited({"asked_at": asked}, at)
+    return True
 
 
 def ask_kept_back(name, harness, found, held=False):
@@ -4975,13 +4992,19 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                    key=lambda a: (not window(a), a != current))
     target = next((a for a in order if a == current
                    or orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
+
+    def said(text):
+        # The words and whose they are: a harness may keep redrawing a box's shading, while a
+        # dim suggestion the owner accepts says the same words as their draft.
+        return strip_sgr(text), screen_state(harness, pane_tail(text))
+
     with state_lock():
         # Slow meters must not undo a stop, rename, manual open or another launch.
         current_seat = orch.find(name)
         if (seat_closed_by_owner(name) or config.session_records().get(name) != record
                 or seat_read(name).get("opened_at") != live.get("opened_at")
                 or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)
-                or pane_text(current_seat) != pane):
+                or said(pane_text(current_seat)) != said(pane)):
             return True
         if refusal and not waiting and not spent(current):
             # The host may have slept through the deadline. Never replace that old
@@ -7094,10 +7117,13 @@ AFTER_MERGE_PASS = ("success", "neutral", "skipped")  # the conclusions that mea
 HEALTH_TIMEOUT = 30  # a project's live probe must leave time for the rest of the tick
 
 
-def health_command(repo, sha, command):
-    """A bounded live probe and its last output, without inherited pipes holding the tick."""
+def health_command(repo, sha, command, checked=None):
+    """A bounded live probe and its last output, without inherited pipes holding the tick,
+    leaving its row in history as `gate.run_done_when` does with `checked`: no exit where it
+    timed out."""
     try:
-        with tempfile.TemporaryFile() as output:
+        with tempfile.TemporaryFile() as output, \
+                history.check(checked, command, time.time()) as ended:
             proc = subprocess.Popen(["bash", "-c", command], cwd=repo,
                                     env={**os.environ, "AK_MERGE_SHA": sha},
                                     stdin=subprocess.DEVNULL, stdout=output,
@@ -7113,6 +7139,7 @@ def health_command(repo, sha, command):
                     os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
+            ended.append(None if timed_out else proc.returncode)
             if timed_out:
                 try:
                     proc.wait(timeout=1)
@@ -7203,7 +7230,8 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes,
                 return "pending", None, None
             probe = (key, sha)
             if probe not in probes:
-                probes[probe] = health_command(st["repo"], sha, command)
+                probes[probe] = health_command(st["repo"], sha, command,
+                                               checked=(run_dir, None, "health", sha))
             passed, output = probes[probe]
             with run_record.record(run_dir) as current:
                 if passed:
@@ -7893,6 +7921,7 @@ def local_passes(state, dry_run, log):
         ("retention pass did not finish", orch.stamp, False),
         ("retention pass did not finish", lambda: orch.sweep(log), False),
         ("the ended-login pass did not run", lambda: gc.stop_ended_logins(log), False),
+        ("the gone-ak sweep did not run", lambda: owner.sweep(log), False),
         # The shared browser's idle tabs are reaped: a machine with no browser on CDP costs one
         # refused connection and nothing else.
         ("browser tidy did not finish", lambda: browser.tidy(log), False),

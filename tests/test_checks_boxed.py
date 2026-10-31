@@ -46,7 +46,7 @@ class ChecksBoxed(unittest.TestCase):
         self.credential = self.root / ".config/gh/hosts.yml"
         self.credential.parent.mkdir(parents=True)
         self.credential.write_text("fixture-login")
-        self.lp = SimpleNamespace(scratch=True, wt=self.root, run_dir=self.root,
+        self.lp = SimpleNamespace(scratch=True, wt=self.root, run_dir=self.root, rnd=1,
                                   done_when_limit=10, turn_limit=10, log=lambda _: None)
 
     def command(self, source):
@@ -436,7 +436,7 @@ class ChecksBoxed(unittest.TestCase):
             "sys.path.insert(0, sys.argv[1])\nfrom agentkit import box, gate, prompts\n"
             "Path(box.__file__).write_text('raise SystemExit(99)\\n')\n"
             "root = Path(sys.argv[2])\n"
-            "lp = SimpleNamespace(scratch=True, wt=root, run_dir=root, done_when_limit=10,\n"
+            "lp = SimpleNamespace(scratch=True, wt=root, run_dir=root, rnd=1, done_when_limit=10,\n"
             "                     turn_limit=10, log=lambda _: None)\n"
             "print(prompts.proof_on(lp, 'printf started; exit 7', root / 'proof.log'))\n"
             "print(gate.run_done_when(['printf started; exit 7'], root, root / 'check.log', set(),\n"

@@ -12,8 +12,15 @@ import (
 	"agentkit/internal/run"
 )
 
-// A Claude seat resumes the conversation its record names (claude.py `resumable`).
-func init() { plugins["claude"] = plugin{seats: true, answer: claudeAnswer} }
+// A Claude seat resumes the conversation its record names (claude.py `resumable`).  Its turn's
+// shell takes the done-when ceiling as its default and its most, so its own default need not
+// send a command to the background; the heartbeats Claude streams while a tool blocks are still
+// no activity to the silence watchdog.
+func init() {
+	ceiling := strconv.Itoa(run.CeilingHours * 3600 * 1000)
+	plugins["claude"] = plugin{seats: true, answer: claudeAnswer, auth: claudeAuth, turnEnv: map[string]string{
+		"BASH_DEFAULT_TIMEOUT_MS": ceiling, "BASH_MAX_TIMEOUT_MS": ceiling}}
+}
 
 // projectCut is where Claude Code ends a project folder's name with a hash of the path.
 const projectCut = 200

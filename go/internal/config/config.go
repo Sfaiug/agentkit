@@ -372,13 +372,13 @@ func validate(root *table) error {
 	return nil
 }
 
-func CheckModel(name string) error {
+// ModelNamed is the [models.*] entry name, or why there is none, Python's config.model.
+func ModelNamed(name string) (Model, error) {
 	root, err := load()
 	if err != nil {
-		return err
+		return Model{}, err
 	}
-	_, err = resolve(root, name)
-	return err
+	return resolve(root, name)
 }
 
 // Harnesses is each harness the config's models run on, once, in the order the file names them.
@@ -408,6 +408,19 @@ type Model struct {
 
 // RoleEfforts are the keys an entry's efforts go under, a seat's first (config.ROLE_EFFORTS).
 var RoleEfforts = []string{"effort", "exec_effort", "review_effort"}
+
+// TurnEffort is the effort a worker turn runs at, a review's review_effort and any other's
+// exec_effort, else effort, as Python's config.role_effort reads them.
+func (m Model) TurnEffort(review bool) string {
+	key := "exec_effort"
+	if review {
+		key = "review_effort"
+	}
+	if effort, set := m.Efforts[key]; set {
+		return effort
+	}
+	return m.Efforts["effort"]
+}
 
 // Offered is every model the config offers, in config.offered's order: a harness where its
 // first model is in the file, its models in file order under it.

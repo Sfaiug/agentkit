@@ -13,6 +13,30 @@ effort = "none"
 [launch]
 # `interactive` hands $AGENTKIT_FIRST_PROMPT to the TUI as its first prompt, fresh or resumed
 first_prompt = true
+# The rest is what the Go build's `interactive` prints and its `run` runs, as adapters/claude.sh
+# does until Go takes over: a seat's line is `env`'s words, Go's wrapper, then `seat`'s; a turn
+# runs `turn`'s, the prompt down its stdin.  `{name}` is the call's words or this table's `name`
+# (`config.Words` in go/).  CLAUDE_CODE_DISABLE_AGENT_VIEW keeps a seat's conversation in the
+# seat: `/background` moved it into a daemon that spoke for whichever seat had started it.
+env = ["-u", "CLAUDE_CODE_OAUTH_TOKEN", "-u", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_DISABLE_AGENT_VIEW=1",
+       "{off}"]
+# its own rules off: no CLAUDE.md, .claude/rules or auto-memory, the user's or the repository's
+off = ["CLAUDE_CODE_DISABLE_CLAUDE_MDS=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"]
+# what every session ak starts runs with, outranking the login's settings file
+pins = '{"permissions":{"defaultMode":"bypassPermissions"},"crossSessionInbound":"refuse","switchModelsOnFlag":true}'
+seat = ["claude", "{conversation}", "--append-system-prompt-file", "{rulebook}", "--model", "{model}",
+        "--effort", "{effort}", "--dangerously-skip-permissions", "--settings", "{pins}",
+        "--remote-control", "{session}"]
+turn = ["env", "{off}", "claude", "-p", "{resume}", "--model", "{model}", "--effort", "{effort}",
+        "--dangerously-skip-permissions", "--settings", "{pins}", "--output-format", "stream-json",
+        "--verbose"]
+resume = ["--resume", "{id}"]
+new = ["--session-id", "{id}"]
+# the smallest turn Claude Code runs, `hi` down its stdin, which renews a lapsed login ([login]):
+# on the login's own directory, never a token standing in for it, and as a worker, which keeps
+# a calling seat's hooks quiet
+renew = ["env", "-u", "CLAUDE_CODE_OAUTH_TOKEN", "AK_RUN_ROLE=worker", "claude", "-p", "--model",
+         "haiku", "--tools", "", "--no-session-persistence", "--settings", "{pins}"]
 
 # The lines its prompt takes to move its conversation to another model or effort, `{model}` the
 # id `interactive` passes as --model (`orch.switch_lines`); Claude Code 2.1.314 takes both.
@@ -141,6 +165,18 @@ kinds = ["manual"]
 name = "PostCompact"
 state = "at_prompt"
 kinds = ["manual"]
+
+# The login's home, Claude Code's config directory, and what a named login shares, as
+# grokbuild.toml's [account] says; its own settings file gives way to the usual one's, no value
+# carried.  No `line`: Go's wrapper picks an account's login from $AGENTKIT_ACCOUNT.
+[account]
+env = "CLAUDE_CONFIG_DIR"
+usual = "~/.claude"
+home = "~/.claude-{account}"
+drop = "~/.claude-*"
+unset = ["CLAUDE_CODE_OAUTH_TOKEN"]
+conversations = "projects"
+settings = ["settings.json"]
 
 # What the Go build's `hooks` merges into the settings file (`~` is HOME), as adapters/claude.sh
 # does until Go takes over: which of ak's hooks/ scripts each event runs, in this order.  A
@@ -361,4 +397,40 @@ claude-haiku-4-5 = { label = "Haiku 4.5", efforts = ["none"] }
 # has no worker token, and nothing is asked about one.
 [worker_token]
 file = "claude_oauth_token"
+# the variable the Go build's `run` hands a turn the file's text in
+env = "CLAUDE_CODE_OAUTH_TOKEN"
 remedy = "run claude setup-token and replace ~/.agentkit/secrets/claude_oauth_token"
+
+# What the Go build's wrapper has Claude Code find answered before it starts, as
+# agentkit/harness/claude.py does until Go takes over: it asks a new login to pick a theme, finish
+# onboarding and take auto mode, and asks whether to trust the folder, with "No, exit" as its
+# default.  `file` holds the answers on the usual login and `account` on a named one, which also
+# takes the `true`s of the usual login's file and links `links` from its home.  A seat does not
+# open on a `file`, `account` or `reads` that cannot be read.  `answers` go in whatever the file
+# holds there, `defaults` only where it holds nothing, `{folder}` being the seat's resolved folder.
+[prep]
+file = "~/.claude.json"
+account = "{home}/.claude.json"
+reads = ["~/.claude/settings.json"]
+links = ["CLAUDE.md", "agents", "skills", "commands", "plugins"]
+
+[prep.answers]
+hasSeenAutoDefaultNudge = true
+hasCompletedOnboarding = true
+projects."{folder}".hasTrustDialogAccepted = true
+
+[prep.defaults]
+theme = "dark"
+
+# How the Go build's `auth` reads the logins, as adapters/claude.sh does until Go takes over: the
+# seat's own in `credentials`, on a Mac the usual one's in the Keychain entry first, whose it is
+# in `who`, where Claude Code writes that down; the worker token ([worker_token]) lives
+# `token_days` from its file's date.  A lapsed login holding a refresh token gets the [launch]
+# `renew` turn under `lock`, claude.sh's lock, so the two never renew one login at once.  Of two
+# paths, the second, naming the account, is a named login's.
+[login]
+credentials = ["${CLAUDE_CONFIG_DIR:-~/.claude}/.credentials.json"]
+keychain = "Claude Code-credentials"
+who = ["${CLAUDE_CONFIG_DIR:-~}/.claude.json"]
+token_days = 365
+lock = ["~/.agentkit/tmp/claude-login.lock", "~/.agentkit/tmp/claude-login.$AGENTKIT_ACCOUNT.lock"]

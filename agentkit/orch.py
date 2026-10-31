@@ -3046,8 +3046,27 @@ def unread_question(name):
     return not isinstance(notice, dict) or (notice.get("kind") == "needs" and not notice.get("seen"))
 
 
+def forgotten(tag, found):
+    """ak holds nothing of the seat a side session's tag names: no record or rename pointer and
+    no session in tmux, under the tag or where its renames lead.  Asked afresh each time, as a
+    seat may open under the name while the session's screens are saved.  A record it cannot read,
+    a rename chain it cannot follow or a failed tmux probe is no proof the seat is gone."""
+    try:
+        names = {tag, config.resolve_session(tag)}
+    except (config.Error, OSError):
+        return False
+    if not names.isdisjoint(found) or any(retention.present(config.session_path(name))
+                                          for name in names):
+        return False
+    # By name as tmux lists it: a target reads `$1` as an id.  The listing holds the side
+    # session itself, so an empty one is a probe that failed.
+    held = held_names()
+    return bool(held) and names.isdisjoint(held)
+
+
 def sweep_finished(found, log):
-    """Save and close a seat's auxiliary sessions after every pane has been dead for a day."""
+    """Save and close a seat's auxiliary sessions after every pane has been dead for a day, or
+    at once, live panes and all, when ak has forgotten the seat: nothing else ever ends them."""
     rc, out = tmux_out("list-panes", "-a", "-F",
                        f"#{{session_id}}\t#{{session_name}}\t"
                        f"#{{{MARK}}}\t#{{pane_id}}\t#{{pane_dead}}\t#{{pane_dead_time}}\t.")
@@ -3062,16 +3081,16 @@ def sweep_finished(found, log):
     cutoff = time.time() - 86400
     for sid, panes in grouped.items():
         name, mark = panes[0][:2]
-        if mark == "1" or name in (CONTROL, *found) or guard.seat(name):
+        if (mark == "1" or name in (CONTROL, *found) or guard.seat(name)
+                or any(not re.fullmatch(r"%[0-9]+", p[2]) for p in panes)):
             continue
-        if any(not re.fullmatch(r"%[0-9]+", p[2]) or p[3] != "1"
-               or not p[4].isdigit() or not 0 < int(p[4]) <= cutoff for p in panes):
-            continue
+        finished = all(p[3] == "1" and p[4].isdigit() and 0 < int(p[4]) <= cutoff
+                       for p in panes)
         # The session's own environment: a format's #{} falls back to the server's, which holds
         # the tag whenever a process in a tagged pane started this server.
         rc, tag = tmux_out("show-environment", "-t", sid, guard.TMUX_OWNER)
         owner = tag.removeprefix(f"{guard.TMUX_OWNER}=")
-        if rc or owner in (tag, ""):
+        if rc or owner in (tag, "") or not (finished or forgotten(owner, found)):
             continue
         try:
             config.TMP.mkdir(parents=True, exist_ok=True)
@@ -3095,7 +3114,7 @@ def sweep_finished(found, log):
             finally:
                 os.close(directory)
         except (OSError, subprocess.TimeoutExpired) as exc:
-            log(f"WARN could not save the finished session {name}: {exc}")
+            log(f"WARN could not save the side session {name}: {exc}")
             continue
         # Recheck every window and pane inside tmux's kill command: a pane respawned, added
         # or moved during capture must survive, as must a session renamed into a seat or whose
@@ -3107,9 +3126,13 @@ def sweep_finished(found, log):
                      f"#{{==:#{{{guard.TMUX_OWNER}}}/#{{session_name}}/"
                      f"#{{W:#{{P:#{{pane_id}}/#{{pane_dead}}/#{{pane_dead_time}};}}}},"
                      f"{snapshot}}}}}")
-        if not guard.seat(name):
+        # A seat opened under the owner's name during capture takes its sessions back.
+        if not guard.seat(name) and (finished or forgotten(owner, found)):
             tmux_out("show-environment", "-t", sid, guard.TMUX_OWNER, ";",
                      "if-shell", "-F", "-t", sid, condition, f"kill-session -t '{sid}'")
+            if session_absent(sid):     # tmux reads `=$1` as session $1, renamed or not
+                log(f"closed {name}, a side session {owner} started; its screens are in "
+                    f"{config.TMP / filename}")
 
 
 def sweep(log):
@@ -4239,8 +4262,11 @@ def switch_lines(cfg, name, model, effort=None):
     prompt takes to run `model` at `effort`, else at the seat's own: `[switch]`'s `model` then
     `effort`, an effort of `none` typing none, and a step of effort on the model it runs only
     `effort` where that is a line of its own.  None where the move restarts the seat: another
-    harness or provider (a login is the process's), that pane ended or gone, no `model` line, or
-    a model with no id of its own (`default`: its launch names none, so the harness picks)."""
+    harness, another provider unless its harness keeps one login a provider (a login is the
+    process's, and only such a harness launches every seat on the same: `config.one_login`),
+    that pane ended or gone, no `model` line, a model with no id of its own (`default`: its
+    launch names none, so the harness picks), or a move its harness takes only from a launch
+    (`switchable`)."""
     record = config.session_records().get(name) or {}
     try:
         was, entry = config.model(cfg, record.get("orchestrator")), config.model(cfg, model)
@@ -4249,13 +4275,16 @@ def switch_lines(cfg, name, model, effort=None):
     block = config.manifest(entry["harness"]).get("switch") or {}
     server = seat_socket(find(name))
     pane = harness_pane(name, server)   # no id once it is gone, whatever other window lives on
-    if ((was["harness"], was["provider"]) != (entry["harness"], entry["provider"])
+    if (was["harness"] != entry["harness"]
+            or was["provider"] != entry["provider"] and not config.one_login(entry["harness"])
             or "model" not in block or entry["model"] in ("", config.DEFAULT_MODEL)
             or not pane.startswith("%") or tmux_out(
                 "display-message", "-p", "-t", pane, "#{pane_dead}", socket=server) != (0, "0")):
         return None
     at = effort or config.role_effort(config.at_efforts(cfg, record)["models"][model],
                                       "orchestrator")
+    if not harness_plugin(entry["harness"]).switchable(entry["model"], at):
+        return None
     keys = [key for key in ("model", "effort") if key in block and (key, at) != ("effort", "none")]
     if keys == ["model", "effort"] and was["model"] == entry["model"]:
         keys = ["effort"]   # a harness may save each `/model` as its default for new sessions
@@ -4275,15 +4304,17 @@ def effort_back(name, model, effort, was):
     config.change_efforts(name, back)
 
 
-def switch_in_place(cfg, name, model, effort):
-    """Move that seat to `model`, at `effort` where given, by owing its harness the lines
+def switch_in_place(cfg, name, chosen, effort):
+    """Move that seat to the record fields `chosen` name -- its orchestrator, and the account
+    of another provider -- at `effort` where given, by owing its harness the lines
     `switch_lines` gives (`watch.owe_line`), a turn its usage cut off told to go on after them:
-    nothing restarts, so nothing is cut or asked.  The record takes the move first, model and
-    effort, put back where it or the lines cannot be written, so a refused move is left to make
-    again; the harness's next answer puts it back where it refused a line (`watch.follow_model`).
-    What to say under the rows, or ""; None where the seat, as it stands under its lock, must
-    restart for the move."""
+    nothing restarts, so nothing is cut or asked.  The record takes the move first, those fields and the effort, put
+    back where it or the lines cannot be written, so a refused move is left to make again; the
+    harness's next answer puts it back where it refused a line (`watch.follow_model`).  What to
+    say under the rows, or ""; None where the seat, as it stands under its lock, must restart
+    for the move."""
     from . import notify, watch   # here, not at the top: both import this module
+    model = chosen["orchestrator"]
     try:    # in one hold, so no look follows the old model's last answer back meanwhile
         with notify.session_lock(name), watch.announcing(name):
             lines = switch_lines(cfg, name, model, effort)
@@ -4296,13 +4327,13 @@ def switch_in_place(cfg, name, model, effort):
                 if effort is not None:
                     config.change_efforts(name, lambda data: config.orchestrating_at(
                         cfg["models"], data, model, effort))
-                config.update_session(name, orchestrator=model)
+                config.update_session(name, **chosen)
                 watch.owe_line(name, None, *lines)
             except (config.Error, OSError):
                 if effort is not None:
                     effort_back(name, model, effort,
                                 config.at_efforts(cfg, record)["models"][model]["effort"])
-                config.update_session(name, orchestrator=record["orchestrator"])
+                config.update_session(name, **{key: record.get(key) for key in chosen})
                 raise
             watch.seat_write(name, usage_wait=None)
     except (config.Error, OSError) as exc:
@@ -4370,7 +4401,15 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     old_model = record["orchestrator"]
     if old_model == model and effort is None:
         return ""
-    note = switch_in_place(cfg, name, model, effort)
+    # A seat moved to another provider makes the account it moved on its home.  Within its
+    # provider a running process keeps the login it has, as its record holds it under the lock:
+    # a recovery made since `_switch_plan` read it is not undone by a move in place.
+    try:
+        moved = config.model(cfg, model)["provider"] != config.model(cfg, old_model)["provider"]
+    except config.Error:
+        moved = True          # its model is gone: no provider to stay home on
+    homed = {"account": account, "home_account": account} if moved else {}
+    note = switch_in_place(cfg, name, {"orchestrator": model, **homed}, effort)
     if note is not None:
         return note
     new_harness = config.model(cfg, model)["harness"]
@@ -4412,13 +4451,7 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     except (config.Error, OSError) as exc:
         unhanded(handed, before)
         return _one_line(exc)
-    # Another provider's seat opens anew, and its home is the account it opened on.
-    try:
-        moved = config.model(cfg, model)["provider"] != config.model(cfg, old_model)["provider"]
-    except config.Error:
-        moved = True          # its model is gone: no provider to stay home on
-    chosen = {"orchestrator": model, "account": account,
-              **({"home_account": account} if moved else {})}
+    chosen = {"orchestrator": model, "account": account, **homed}
     from . import notify
     # the owner's text lifted, the harness respawned and any line it is owed marked in one hold
     # of the seat's lock, so no tick hands the text back to the harness going or before that line

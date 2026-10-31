@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import history, notify, scoreboard, terminal
+from agentkit import history, notify, scoreboard, terminal, watch
 
 SEAT = "fix-api"
 NOW = 1_800_000_000
@@ -68,6 +68,17 @@ class OwnerRow(Sandbox):
         notify.answered(SEAT, 400.0)      # nothing stands: no answer
         self.assertCountEqual(self.moments(), [*asked, (350.0, "answered", 180.0),
                                                (350.0, "answered", 190.0)])
+
+    def test_a_card_answered_before_its_question_is_asked_again_keeps_its_own_time(self):
+        with patch.object(watch.time, "time", return_value=100.0):
+            watch.keep(SEAT, "Which schema?")
+        # the card's answer at 110 waits on the notice lock while a notice asks it again at 120,
+        # which that answer predates and so leaves standing
+        self.said("needs", "Which schema? Options: json, yaml.", 120.0)
+        notify.answered(SEAT, 110.0, replies=[["Which schema?", "json", "yaml"]])
+        self.assertCountEqual(self.moments(), [(100.0, "asked", None), (110.0, "answered", 10.0),
+                                               (120.0, "asked", None)])
+        self.assertIsNotNone(notify.last(SEAT))
 
     def test_output_after_an_open_answers_where_nothing_reports_or_reads_one(self):
         self.said("needs", "Which schema?", 100.0)

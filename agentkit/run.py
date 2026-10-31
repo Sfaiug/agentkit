@@ -514,8 +514,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     state.pop("error_retries", None)
     for key in ("waiting_for", "login_resume_at", "login_back_at"):
         state.pop(key, None)
-    state["finished_at"] = (None if state.get("state") == "waiting"
-                            and (state.get("waiting_on") or {}).get("line") else time.time())
+    state["finished_at"] = ended_at(state)
     run_record.save_state(run_dir, state)
     write_result(run_dir, state, cmds, log, cfg)
     worktrees.settle_run(state, run_dir, log)
@@ -1436,6 +1435,14 @@ def update_scope_line(run_dir, state):
         pass
 
 
+def ended_at(state):
+    """When a run that stops here ended: never while a landing line holds it, which is the
+    lander's until it ends; now for any other, one parked off the line included, which the tick
+    retries from then (`transitions.tick_admission`)."""
+    return (None if state.get("state") == "waiting"
+            and (state.get("waiting_on") or {}).get("line") else time.time())
+
+
 def finish(state, run_dir, log, cfg=None):
     settle_delivered_line(state, log)
     try:
@@ -1612,8 +1619,7 @@ def cmd_merge(argv):
         sampler.stop()
         sampler.join(timeout=2)
         history.close_step(run_dir.name, log=log)
-    state["finished_at"] = (None if state.get("state") == "waiting"
-                            and (state.get("waiting_on") or {}).get("line") else time.time())
+    state["finished_at"] = ended_at(state)
     run_record.save_state(run_dir, state)
     write_result(run_dir, state, cmds, log, cfg)
     if state.get("state") == "waiting" and (state.get("waiting_on") or {}).get("line"):
@@ -2441,7 +2447,9 @@ def review_pr(cfg, run_dir, url, opts, log):
             merge_own_pr(lp, url)
             if state.get("state") != "waiting":
                 state.pop("own_pr_round_pending", None)
-            if state.get("state") != "waiting" and not state.get("own_pr_wait"):
+            if state.get("state") == "waiting":
+                state["finished_at"] = ended_at(state)
+            elif not state.get("own_pr_wait"):
                 state.pop("waiting_on", None)
                 state.update(state="pass" if state["verdict"] == "PASS" else "fail",
                              finished_at=time.time())
@@ -2724,7 +2732,9 @@ def settle_pr_round(lp, url, info):
             merge_own_pr(lp, url)
             if state.get("state") != "waiting":
                 state.pop("own_pr_round_pending", None)
-            if state.get("state") != "waiting" and not state.get("own_pr_wait"):
+            if state.get("state") == "waiting":
+                state["finished_at"] = ended_at(state)
+            elif not state.get("own_pr_wait"):
                 state.pop("waiting_on", None)
                 state.update(state="pass" if state["verdict"] == "PASS" else "fail",
                              finished_at=time.time())

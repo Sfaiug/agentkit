@@ -2,13 +2,18 @@ package config
 
 import (
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
+
+	"agentkit/internal/commandhelp"
 )
 
 // The adapter manifests ship inside the single binary; the test pins these copies to
@@ -18,6 +23,30 @@ import (
 //go:embed adapters/*.toml
 var adapters embed.FS
 
+// adapterDir names another directory of adapters, how the offline suites run with no model.
+const adapterDir = "AGENTKIT_ADAPTER_DIR"
+
+// ErrNoAdapterDir is a home naming no $AGENTKIT_ADAPTER_DIR, as every real home: where Python
+// ak's adapter scripts live is not yet Go's to know.
+var ErrNoAdapterDir = errors.New("no adapter directory named")
+
+// Adapter is the script that runs a harness, <harness>.sh in $AGENTKIT_ADAPTER_DIR, as Python's
+// config.adapter finds it there, or why it cannot be run.
+func Adapter(harness string) (string, error) {
+	dir := os.Getenv(adapterDir)
+	if dir == "" {
+		return "", ErrNoAdapterDir
+	}
+	script := filepath.Join(Expand(dir), harness+".sh")
+	if _, err := os.Stat(script); err != nil {
+		return "", fmt.Errorf("no adapter for harness %s: %s does not exist", commandhelp.Quote(harness), script)
+	}
+	if _, err := exec.LookPath(script); err != nil {
+		return "", fmt.Errorf("adapter %s is not executable; chmod +x it", script)
+	}
+	return script, nil
+}
+
 // manifests is every adapter's manifest by its name, $AGENTKIT_ADAPTER_DIR's of a harness first.
 func manifests() (map[string]*table, error) {
 	manifests := map[string][]byte{}
@@ -25,7 +54,7 @@ func manifests() (map[string]*table, error) {
 	for _, each := range shipped {
 		manifests[path.Base(each)], _ = adapters.ReadFile(each)
 	}
-	if dir := os.Getenv("AGENTKIT_ADAPTER_DIR"); dir != "" {
+	if dir := os.Getenv(adapterDir); dir != "" {
 		for _, each := range Glob(Expand(dir), "*.toml") {
 			data, err := os.ReadFile(each)
 			if err != nil {
@@ -57,6 +86,64 @@ func Section(harness, name string) (map[string]any, error) {
 		}
 	}
 	return nil, nil
+}
+
+// Words is the strings a harness's manifest lists under one key of one section.
+func Words(harness, section, key string) ([]string, error) {
+	manifests, err := manifests()
+	return words(manifests[harness], section, key), err
+}
+
+var (
+	defaulted   = regexp.MustCompile(`\$\{(\w+):-([^}]*)\}`)
+	placeholder = regexp.MustCompile(`(?i)\$(?:(\$)|([_a-z][_a-z0-9]*)|\{([_a-z][_a-z0-9]*)\}|)`)
+)
+
+// ManifestPaths is each of a manifest's paths resolved for env, the environment the harness
+// runs in, as Python's config.manifest_paths: `~/` is its home, `$VARIABLE` and
+// `${VARIABLE:-default}` its variables, and a relative path is under cwd.  A path naming a
+// variable that is unset or empty, with no default, is left out.
+func ManifestPaths(names []string, env map[string]string, cwd string) []string {
+	values := map[string]string{}
+	for key, value := range env {
+		if value != "" {
+			values[key] = value
+		}
+	}
+	if values["HOME"] == "" {
+		values["HOME"], _ = os.UserHomeDir()
+	}
+	var paths []string
+	for _, name := range names {
+		name = defaulted.ReplaceAllStringFunc(name, func(match string) string {
+			parts := defaulted.FindStringSubmatch(match)
+			if value := values[parts[1]]; value != "" {
+				return value
+			}
+			return parts[2]
+		})
+		if rest, ok := strings.CutPrefix(name, "~/"); ok {
+			name = "$HOME/" + rest
+		}
+		named := true
+		name = placeholder.ReplaceAllStringFunc(name, func(match string) string {
+			parts := placeholder.FindStringSubmatch(match)
+			value, ok := values[parts[2]+parts[3]]
+			if parts[1] != "" {
+				value, ok = "$", true
+			}
+			named = named && ok
+			return value
+		})
+		if !named {
+			continue
+		}
+		if !filepath.IsAbs(name) {
+			name = cwd + string(filepath.Separator) + name // its `..` left for Resolve to take after links
+		}
+		paths = append(paths, name)
+	}
+	return paths
 }
 
 // SeatEnv is the variables a launch sets for its seat alone, as the manifests' `[launch]
@@ -93,7 +180,9 @@ func Programs() ([]string, error) {
 type HookTable struct {
 	Settings string
 	// File is whether that file is ak's own (`form = "file"`), written whole, not merged into.
-	File   bool
+	File bool
+	// Login is whether it is under the login's home (`{home}`): each login has its own.
+	Login  bool
 	Events []HookEvent
 	// Names is each script's own name, then those it went by before: an entry naming one is
 	// that script's.
@@ -118,8 +207,9 @@ func Hooks(harness string) (HookTable, bool, error) {
 	if err != nil || settings == "" || events == nil {
 		return HookTable{}, false, err
 	}
-	settings = strings.ReplaceAll(Expand(settings), "{home}", loginHome(manifests[harness]))
-	found := HookTable{Settings: settings, File: install.get("form") == "file", Names: map[string][]string{}}
+	found := HookTable{File: install.get("form") == "file", Login: strings.Contains(settings, "{home}"),
+		Names: map[string][]string{}}
+	found.Settings = strings.ReplaceAll(Expand(settings), "{home}", loginHome(manifests[harness]))
 	matchers, _ := install.get("matchers").(*table)
 	heard := words(hooks, "install", "heard")
 	for _, name := range events.keys {
@@ -159,7 +249,7 @@ func Efforts(harness, model string) ([]string, error) {
 
 // words is the strings a manifest lists under one key of one section.
 func words(root *table, section, key string) (found []string) {
-	if block, ok := root.values[section].(*table); ok {
+	if block, ok := root.get(section).(*table); ok {
 		listed, _ := block.values[key].([]any)
 		for _, each := range listed {
 			if each, ok := each.(string); ok {

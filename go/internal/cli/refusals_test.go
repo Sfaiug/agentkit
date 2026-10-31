@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"agentkit/internal/box"
 )
 
 const testConfig = "[models.acme]\nharness='echo'\nmodel='echo-1'\neffort='low'\nprovider='test'\n[providers.test]\nmode='subscription'\n"
@@ -115,7 +117,19 @@ func TestConfigurationRefusals(t *testing.T) {
 func TestWorkerModelRefusals(t *testing.T) {
 	home := sandbox(t)
 	assertCall(t, []string{"worker", "nosuch", filepath.Join(home, "task.md")}, 2, "", "ak worker: unknown model 'nosuch'; ~/.agentkit/config.toml defines: acme\n")
+	// a home naming no folder of adapters, as every real one, leaves its turn to Python
+	t.Setenv("AGENTKIT_ADAPTER_DIR", "")
 	assertCall(t, []string{"worker", "acme", filepath.Join(home, "task.md")}, 3, "", "ak worker: not implemented in Go yet\n")
+	adapters := t.TempDir()
+	t.Setenv("AGENTKIT_ADAPTER_DIR", adapters)
+	code, said := 2, "ak worker: no adapter for harness 'echo': "+filepath.Join(adapters, "echo.sh")+" does not exist\n"
+	if !box.Supported {
+		code, said = 3, "ak worker: not implemented in Go yet\n"
+	}
+	var out, errOut bytes.Buffer
+	if got := Main([]string{"worker", "acme", filepath.Join(home, "task.md")}, &out, &errOut); got != code || out.Len() != 0 || errOut.String() != said {
+		t.Fatalf("got (%d, %q, %q), want (%d, \"\", %q)", got, out.String(), errOut.String(), code, said)
+	}
 }
 
 func TestNotifyNeeds(t *testing.T) {

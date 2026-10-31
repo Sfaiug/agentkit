@@ -57,7 +57,9 @@ def row(name, word=""):
 
 
 @unittest.skipUnless(REAL_TMUX and Path("/proc/self/io").exists(), "no tmux, or no /proc io")
-class IdleScreenReadsOnlyWhatChanged(unittest.TestCase):
+class OpenScreen(unittest.TestCase):
+    """A screen open over SEATS and RUNS, once it has settled."""
+
     @classmethod
     def setUpClass(cls):
         cls.home = home = Home(tmux_log=False)
@@ -115,6 +117,26 @@ class IdleScreenReadsOnlyWhatChanged(unittest.TestCase):
         return (sum(path.stat().st_size for path in state.iterdir() if seat.match(path.name))
                 + sum(path.stat().st_size for path in runs.rglob("*") if path.is_file()))
 
+    def line_up(self):
+        """Every seat's run waits in one landing line, and a seat owing work has a merge of
+        today's whose ending nobody has told it; acme-29's run goes last, so its row working
+        is a refresh that read them all."""
+        now, runs = time.time(), self.home.path / ".agentkit/runs"
+        for n, seat in enumerate(SEATS):
+            waiting = ended(RUNS + 2 + n, seat, now)
+            self.home.write(runs / waiting["run_id"] / "run.json", {
+                **waiting, "state": "waiting", "merged": False,
+                "waiting_on": {"line": ".merge-acme.lock", "joined": now}})
+            if n % 2 == 0:
+                merged = ended(RUNS + 2 + len(SEATS) + n, seat, now)
+                self.home.write(runs / merged["run_id"] / "run.json", {
+                    **merged, "started_at": now - 3600, "finished_at": now - 2700,
+                    "handed_back": None, "reported": False})
+        (self.home.path / ".agentkit/state/runs-moved").touch()
+        self.menu.wait(row(SEATS[-1], "● working"), bound=BOUND)
+
+
+class IdleScreenReadsOnlyWhatChanged(OpenScreen):
     def test_1_an_idle_minute_reads_less_than_the_files_hold(self):
         start = self.read()
         time.sleep(MINUTE)
@@ -146,22 +168,7 @@ class IdleScreenReadsOnlyWhatChanged(unittest.TestCase):
         self.assertTrue(row("acme-03", "● working")(screen))
 
     def test_3_runs_waiting_to_land_and_endings_owed_read_less_than_they_hold(self):
-        # Every seat's run waits in one landing line, and a seat owing work has a merge of
-        # today's whose ending nobody has told it; acme-29's run goes last, so its row working
-        # is a refresh that read them all.
-        now, runs = time.time(), self.home.path / ".agentkit/runs"
-        for n, seat in enumerate(SEATS):
-            waiting = ended(RUNS + 2 + n, seat, now)
-            self.home.write(runs / waiting["run_id"] / "run.json", {
-                **waiting, "state": "waiting", "merged": False,
-                "waiting_on": {"line": ".merge-acme.lock", "joined": now}})
-            if n % 2 == 0:
-                merged = ended(RUNS + 2 + len(SEATS) + n, seat, now)
-                self.home.write(runs / merged["run_id"] / "run.json", {
-                    **merged, "started_at": now - 3600, "finished_at": now - 2700,
-                    "handed_back": None, "reported": False})
-        (self.home.path / ".agentkit/state/runs-moved").touch()
-        self.menu.wait(row(SEATS[-1], "● working"), bound=BOUND)
+        self.line_up()
         budget = self.held()
         self.quiet(budget)
         start = self.read()

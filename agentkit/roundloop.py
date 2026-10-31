@@ -475,7 +475,8 @@ def fails_on_base(lp):
             marks = []
             _, text = gate.run_done_when(cmds, checkout, log_path, set(), lp.done_when_limit,
                                          lp.log, silence=lp.turn_limit, run_dir=lp.run_dir,
-                                         marks=marks)
+                                         marks=marks,
+                                         checked=(lp.run_dir, lp.rnd, "base-proof", base))
         laid = f", with {len(paths)} files of {head} laid over" if paths else ""
         log_path.write_text(f"Commit: {base}{laid}\n\n{text}")
         return marks + [None] * (len(cmds) - len(marks))      # none past a kill ran
@@ -590,11 +591,16 @@ def verify_work(lp, cmds=None):
         gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
         check = gate.run_round      # the tree at HEAD is the checkout's: the helper may run it
     follow_target(lp)
-    checks = (files_scope(lp), rules_check(lp))
     lp.validation = {} if lp.scratch else gitcall.commit_identity(lp.wt)
+    head = lp.validation.get("head_sha")
+    with history.check((lp.run_dir, lp.rnd, "rules", head), "files_scope, rules_check",
+                       time.time()) as ended:
+        checks = (files_scope(lp), rules_check(lp))
+        ended.append(int(any(checks)))
     clean = lp.scratch or lp.state.get("review_pr") or gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
     ok, text = check(cmds, lp.wt, lp.round_dir / "donewhen.log", lp.artifacts,
-                     lp.done_when_limit, lp.log, silence=lp.turn_limit, run_dir=lp.run_dir)
+                     lp.done_when_limit, lp.log, silence=lp.turn_limit, run_dir=lp.run_dir,
+                     checked=(lp.run_dir, lp.rnd, "done-when", head))
     suite_ok, suite_text = affected_suite(lp)
     if suite_text:
         ok &= suite_ok
@@ -691,7 +697,8 @@ def affected_suite(lp):
         ok, text = gate.run_done_when([suite], checkout, lp.round_dir / "suite.log", set(),
                                       lp.done_when_limit, lp.log, silence=lp.turn_limit,
                                       run_dir=lp.run_dir, heavy=True, pieces=pieces,
-                                      confirmed=confirmed, changed=changed)
+                                      confirmed=confirmed, changed=changed,
+                                      checked=(lp.run_dir, lp.rnd, "done-when", merged))
         text = f"The `tests:` suite on {where}, AK_CHANGED listing its {len(paths)} paths:\n\n{text}"
         if moved(merged):
             return False, f"{text}\n\nCheckout changed during the suite; it does not verify {where}."
@@ -705,7 +712,8 @@ def affected_suite(lp):
         again = {}
         gate.run_done_when([suite], checkout, lp.round_dir / "suite-target.log", set(),
                            lp.done_when_limit, lp.log, silence=lp.turn_limit, run_dir=lp.run_dir,
-                           heavy=True, shard="1/1", only=failed, confirmed=again)
+                           heavy=True, shard="1/1", only=failed, confirmed=again,
+                           checked=(lp.run_dir, lp.rnd, "done-when", tip))
         if moved(tip):
             return False, text
     theirs = [test for test in failed if test in (again.get(suite) or {}).get("1/1", ())]
@@ -1381,15 +1389,13 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         delta = prompts.reviewed_before(lp, delta_from, at) if record and earlier else None
         if record and delta_from and earlier:
             # a later round, on a new commit or the same again: ak re-proves the earlier findings.
-            # One at a site the fixer disputed (a dispute names a site) is the reviewer's to weigh,
-            # and a quote is no failing proof: both are listed, not replayed
+            # One at a site the fixer disputed (a dispute names a site) is the reviewer's to weigh:
+            # listed, not replayed
             disputed = {(row["path"], row["line"]) for row in prompts.dispute_rows(lp)}
             proven = [row for row in earlier if "run" in (row.get("evidence") or {})
                       and (row["path"], row["line"]) not in disputed]
-            left = [(row, "disputed by the fixer: hand it in again to uphold it"
-                     if (row["path"], row["line"]) in disputed
-                     else "a quote, which ak cannot re-prove: hand it in again if it still stands")
-                    for row in earlier if row not in proven]
+            left = [(row, "disputed by the fixer: hand it in again to uphold it")
+                    for row in earlier if (row["path"], row["line"]) in disputed]
             replayed = prompts.replay_findings(lp, proven, at)
             # each earlier finding is listed, and handed to the reviewer's turn, where it
             # stands on this commit (`placed`): the one site a hand-in upholds it at

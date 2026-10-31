@@ -456,7 +456,7 @@ class WorkerList(unittest.TestCase):
             with patch.dict(os.environ, {hand_in.ENV: channel}):
                 if len(turns) == 1:
                     hand_in.main(["finding", "api.py:1", "wrong result", "breaks callers",
-                                  "--quote", "wrong answer"])
+                                  "--run", "grep -n 'wrong answer' api.py; exit 7"])
                 elif len(turns) > 2 or closed:
                     hand_in.main(["done"])
             code, text = (1, "usage limit reached") if len(turns) == 2 else (0, "Handed in.")
@@ -524,7 +524,7 @@ class WorkerList(unittest.TestCase):
             with patch.dict(os.environ, {hand_in.ENV: channel}):
                 if len(turns) == 1:
                     hand_in.main(["finding", "api.py:1", "wrong result", "breaks callers",
-                                  "--quote", "wrong answer"])
+                                  "--run", "grep -n 'wrong answer' api.py; exit 7"])
                 hand_in.main(["done"])
             (out / "final.md").write_text("Handed in.")
             (out / "session_id").write_text("review-session")

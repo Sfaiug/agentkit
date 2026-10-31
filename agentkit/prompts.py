@@ -11,13 +11,12 @@ import difflib
 import io
 import json
 import re
-import shutil
 import subprocess
 import tempfile
-from contextlib import ExitStack
+import time
 from pathlib import Path
 
-from . import config, gitcall, hand_in, record as run_record, turns, worker
+from . import gitcall, hand_in, history, record as run_record, turns, worker
 
 
 DIFF_CAP = 300 * 1024
@@ -358,8 +357,10 @@ def capped(lp, diff):
 
 
 def proof_on(lp, command, log_path, revision=None, tests_from=None):
-    """Replay evidence with the regression probe's overlay and crash-safe checkout recovery."""
+    """Replay evidence with the regression probe's overlay and crash-safe checkout recovery,
+    leaving the round's `replay` row in history."""
     from . import gate  # here, not at the top: gate reaches run
+    asked = time.time()
     run_record.stop_check(lp.run_dir)
     if not lp.scratch:
         head = gitcall.git(lp.wt, "rev-parse", "HEAD")
@@ -385,14 +386,16 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
             progress.write(f"$ {command} (on {revision or 'workspace'})\n".encode())
             progress.flush()
             start = progress.tell()
-            try:
-                code, _, killed = worker.boxed(
-                    ["bash", "-c", command], lp.done_when_limit, silence=lp.turn_limit,
-                    activity=log_path, output=progress, stderr=subprocess.STDOUT,
-                    stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=env)
-            except (FileNotFoundError, PermissionError) as exc:
-                code, killed = (127 if isinstance(exc, FileNotFoundError) else 126), False
-                progress.write(str(exc).encode())
+            with history.check((lp.run_dir, lp.rnd, "replay", revision), command, asked) as ended:
+                try:
+                    code, _, killed = worker.boxed(
+                        ["bash", "-c", command], lp.done_when_limit, silence=lp.turn_limit,
+                        activity=log_path, output=progress, stderr=subprocess.STDOUT,
+                        stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=env)
+                except (FileNotFoundError, PermissionError) as exc:
+                    code, killed = (127 if isinstance(exc, FileNotFoundError) else 126), False
+                    progress.write(str(exc).encode())
+                ended.append(None if killed else code)
             output = hand_in.output_excerpt(progress, start)
             progress.write(f"\n[{'did not finish' if killed or code < 0 else f'exit {code}'}]\n".encode())
         turns.memory_cap_note(lp.run_dir, lp.log)
@@ -403,31 +406,6 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
         finally:
             if not lp.scratch:
                 gitcall.restore_probe_checkout(lp, head, branch, before, f"proof on {revision}")
-
-
-def quoted_sites(lp, submitted, head):
-    quotes = {index: row for index, row in enumerate(submitted.records, 1)
-              if row["kind"] == "finding" and "quote" in row["evidence"]}
-    if not quotes:
-        return {}
-    with ExitStack() as stack:
-        checkout = lp.wt
-        if not lp.scratch:
-            # Reuse hand-in's filesystem rules without trusting the reviewer's files or refs.
-            checkout = Path(stack.enter_context(tempfile.TemporaryDirectory(dir=lp.run_dir)))
-            gitcall.git(lp.wt, "clone", "--quiet", "--shared", "--no-checkout", str(lp.wt), str(checkout))
-            gitcall.git(checkout, "checkout", "--quiet", "--detach", head)
-            # Clone metadata is not part of the reviewed commit.
-            shutil.rmtree(checkout / ".git")
-        sites = {}
-        for index, row in quotes.items():
-            try:
-                root, path, line = hand_in.checked_site(
-                    f"{row['path']}:{row['line']}", checkout, row["evidence"]["quote"])
-                sites[index] = {"path": str(path.relative_to(root)), "line": line}
-            except (config.Error, OSError, ValueError, RuntimeError):
-                sites[index] = None
-        return sites
 
 
 def before_at_base(lp, row):
@@ -569,11 +547,11 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
     an earlier finding's site upholds it (a dispute the reviewer rejects) and is weighed as
     ever.  ak's own replay of the earlier findings (`replayed`) is weighed with the
     reviewer's, each where the fix left its line (`placed`): one still failing blocks
-    whether or not the reviewer handed it in again; one fixed or unable to run is a note."""
+    whether or not the reviewer handed it in again; one fixed or unable to run is a note.
+    A finding handed in with a quote is a note, in every round and at every line."""
     if not any(row["kind"] in ("finding", "follow-up") for row in submitted.records) and not replayed:
         return submitted
     head = None if lp.scratch else head or gitcall.git(lp.wt, "rev-parse", "HEAD")
-    sites = quoted_sites(lp, submitted, head)
     earlier = earlier_sites(lp, head, since)
     records = []
     for index, row in enumerate(submitted.records, 1):
@@ -595,9 +573,10 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
                         lp, command, lp.round_dir / f"proof-{index}-commit.log", head),
                         "base": {"sha": lp.base_sha, **base}}
                     deferred = not (hand_in.proof_failed(evidence) and hand_in.proof_failed(base))
-        elif index in sites and sites[index] is None:
+        elif "quote" in evidence:
+            # a quote shows where to look; only a failing command decides what must be fixed
             kind = "note"
-        elif "run" in evidence:
+        else:
             command = evidence["run"]
             evidence = {"run": command, "commit": head or "workspace",
                         **proof_on(lp, command, lp.round_dir / f"proof-{index}-commit.log", head)}
@@ -612,16 +591,12 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
                     kind = "follow-up"
                 elif base["returncode"] != 0 or base["killed"]:
                     kind = "note"
-        else:
-            row = {**row, **sites[index]}
-            if not lp.scratch and not changed_line(lp, row, head):
-                kind = "follow-up"
         # a defect from before the task is a follow-up above, whichever round finds it: only
         # what would still block is held to the fix delta, and a proof passing on the commit
         # the last review judged shows the fix broke that line, wherever it is
         outside = (kind == "finding" and since and (row["path"], row["line"]) not in earlier
                    and not changed_line(lp, row, head, since))
-        if outside and "run" in evidence:
+        if outside:
             # a proof that cannot run or finish there shows no break, as on base above
             on_since = proof_on(lp, evidence["run"], lp.round_dir / f"proof-{index}-since.log",
                                 since, head)
@@ -632,9 +607,7 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
             lp.log(f"Kept as a note {row['path']}:{row['line']}: outside the fix delta")
         if kind == "follow-up":
             if "before" not in row and not deferred:
-                row["before"] = f"base {lp.base_sha}: " + (
-                    "the proof fails there too" if "run" in evidence
-                    else "quoted lines outside the change")
+                row["before"] = f"base {lp.base_sha}: the proof fails there too"
             reason = ("no base commit" if lp.scratch else
                       "needs a --run proof" + ("" if deferred else " that fails on base")
                       if "run" not in evidence else

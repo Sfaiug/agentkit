@@ -54,6 +54,20 @@ func ChildEnv() ([]string, error) {
 	return env, nil
 }
 
+// SeatlessEnv is ChildEnv without the seat's name, saying it is unattended, Python's
+// config.seatless_env: nothing below the loop speaks for a seat, and what starts there is
+// machinery, on no menu.
+func SeatlessEnv() ([]string, error) {
+	child, err := ChildEnv()
+	var env []string
+	for _, pair := range child {
+		if !strings.HasPrefix(pair, "AGENTKIT_SESSION=") {
+			env = append(env, pair)
+		}
+	}
+	return append(env, "AGENTKIT_UNATTENDED=1"), err
+}
+
 // Digits is whether text is one or more of the ASCII digits 0 to 9.
 func Digits(text string) bool {
 	for _, r := range text {
@@ -73,8 +87,8 @@ const (
 )
 
 // Int is the number Python's int() reads in stripped text, or nil: a sign, then decimal
-// digits of any script, with single underscores between them, so `1_0` is ten, and no more
-// digits than PYTHONINTMAXSTRDIGITS lets it read, leading zeros among them.
+// digits of any script Python knows, with single underscores between them, so `1_0` is ten, and
+// no more digits than PYTHONINTMAXSTRDIGITS lets it read, leading zeros among them.
 func Int(text string) *big.Int {
 	digits := strings.TrimLeft(text, "+-")
 	sign := text[:len(text)-len(digits)]
@@ -87,15 +101,11 @@ func Int(text string) *big.Int {
 			return nil
 		}
 		for _, r := range part {
-			if !unicode.IsDigit(r) {
+			digit := decimal(r)
+			if digit < 0 {
 				return nil
 			}
-			// Unicode keeps each script's digits in a run from 0 to 9
-			zero := r
-			for unicode.IsDigit(zero - 1) {
-				zero--
-			}
-			number.WriteRune('0' + (r-zero)%10)
+			number.WriteRune('0' + digit)
 		}
 	}
 	if limit := intDigits(); limit > 0 && number.Len() > limit {
@@ -103,6 +113,30 @@ func Int(text string) *big.Int {
 	}
 	value, _ := new(big.Int).SetString(sign+number.String(), 10)
 	return value
+}
+
+// pythonZeros is the zero of each run of ten decimal digits Python 3.13's int() reads, Unicode
+// 15.1's: Go's unicode tables follow a later release, whose new digits Python refuses.
+var pythonZeros = []rune{
+	0x30, 0x660, 0x6F0, 0x7C0, 0x966, 0x9E6, 0xA66, 0xAE6, 0xB66, 0xBE6, 0xC66, 0xCE6, 0xD66,
+	0xDE6, 0xE50, 0xED0, 0xF20, 0x1040, 0x1090, 0x17E0, 0x1810, 0x1946, 0x19D0, 0x1A80, 0x1A90,
+	0x1B50, 0x1BB0, 0x1C40, 0x1C50, 0xA620, 0xA8D0, 0xA900, 0xA9D0, 0xA9F0, 0xAA50, 0xABF0,
+	0xFF10, 0x104A0, 0x10D30, 0x11066, 0x110F0, 0x11136, 0x111D0, 0x112F0, 0x11450, 0x114D0,
+	0x11650, 0x116C0, 0x11730, 0x118E0, 0x11950, 0x11C50, 0x11D50, 0x11DA0, 0x11F50, 0x16A60,
+	0x16AC0, 0x16B50, 0x1D7CE, 0x1D7D8, 0x1D7E2, 0x1D7EC, 0x1D7F6, 0x1E140, 0x1E2F0, 0x1E4F0,
+	0x1E950, 0x1FBF0,
+}
+
+// decimal is the value of a digit Python's int() reads, or -1 for any other character.
+func decimal(r rune) rune {
+	i, found := slices.BinarySearch(pythonZeros, r)
+	if !found {
+		i--
+	}
+	if i < 0 || r-pythonZeros[i] > 9 {
+		return -1
+	}
+	return r - pythonZeros[i]
 }
 
 // intDigits is the most digits Python's int() reads, 0 for any number: PYTHONINTMAXSTRDIGITS

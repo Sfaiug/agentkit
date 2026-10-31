@@ -16,9 +16,9 @@ import time
 from unittest.mock import patch
 import unittest
 
-from fixtures.sandbox import REPO, Sandbox
+from fixtures.sandbox import REPO, Sandbox, parses
 from test_seat_status_bar import offline
-from agentkit import config, handback, menu, orch, run, terminal, watch
+from agentkit import config, handback, menu, orch, parsed, run, terminal, watch
 from agentkit import record
 
 NOW = 1_800_000_000      # what every draw and tally reads as the time
@@ -278,6 +278,7 @@ class Tallies(Sandbox):
         self.assertRegex(lines[1], r"^atoll-fix\s+atoll\s+○ idle\s+0 running")
 
     def test_v5g_h_three_hundred_records_draw_in_under_a_second_reading_each_once(self):
+        self.stack.enter_context(patch.object(parsed, "FRESH", 0))   # each written long before
         for n in range(300):
             owner = self.seats[n % 4]["name"]
             if n % 3 == 0:
@@ -294,7 +295,7 @@ class Tallies(Sandbox):
         before = {path: path.read_bytes() for directory in (config.RUNS, config.STATE)
                   for path in directory.rglob("*") if path.is_file()}
         # every draw, of any size, goes back to git for nothing and starts no process
-        with patch.object(record, "read_state", wraps=record.read_state) as read, \
+        with parses() as reads, \
                 patch.object(run, "reap", side_effect=AssertionError("draw reconciled a run")), patch.object(handback, "reap", side_effect=AssertionError("draw reconciled a run")), \
                 patch.object(record, "save_state", side_effect=AssertionError("draw wrote a record")), \
                 patch.object(subprocess, "run", side_effect=self.no_git), \
@@ -302,9 +303,9 @@ class Tallies(Sandbox):
             started = time.perf_counter()
             screen, pages = self.draw(100, 30)
             elapsed = time.perf_counter() - started
-            self.assertEqual(read.call_count, 0)    # the first draw read each; none changed since
+            self.assertEqual(reads, [])    # the first draw read each; none changed since
             self.draw(40, 24)
-            self.assertEqual(read.call_count, 0)    # nor before the next
+            self.assertEqual(reads, [])    # nor before the next
         self.assertLess(elapsed, 1.0, elapsed)
         self.assertTrue(screen.startswith("agentkit"), screen[:60])
         self.assertIn("14:02", screen.splitlines()[0])

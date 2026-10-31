@@ -2,8 +2,8 @@
 // config.record_hook_fact, and every fact Go writes goes through it.  It hides the fact's file,
 // `hook-<name>.json` under the seat's folded name; its lock, `.hook-<name>.lock`, which Python's
 // writers flock too, so one reads, judges and replaces the fact at a time; newest-wins, since an
-// event its harness does not wait on can finish after a newer one and is never put back over it;
-// and what a fact carries over: the background work the standing one holds, which no event but
+// event its harness does not wait on can finish after a newer one and is never put back over it,
+// nor over one the caller's rule says keeps it; and what a fact carries over: the background work the standing one holds, which no event but
 // the next Stop, listing that work again, ends.
 package hookfact
 
@@ -28,8 +28,9 @@ type Fact struct {
 	Holds   []string `json:"holds,omitempty"`
 }
 
-// Record puts the fact in place of the seat's standing one, unless that one was heard later.
-func Record(name string, fact Fact) error {
+// Record puts the fact in place of the seat's standing one, unless that one was heard later or
+// keep, judging it under the lock, keeps it.
+func Record(name string, fact Fact, keep func(standing Fact) bool) error {
 	session, err := config.SessionPath(name)
 	if err != nil {
 		return err
@@ -45,20 +46,12 @@ func Record(name string, fact Fact) error {
 	defer held.Close()
 	path := filepath.Join(dir, stem+".json")
 	data, _ := os.ReadFile(path) // a fact unread, or no object, is none standing
-	read, _ := run.Decode(data)
-	standing, ok := read.(*run.Object)
-	if !ok {
-		standing = run.NewObject()
-	}
-	if at, ok := run.Num(standing.Get("at")); ok && at > fact.At {
+	standing := read(data)
+	if standing.At > fact.At || keep(standing) {
 		return nil
 	}
 	if fact.Event != "Stop" {
-		for _, task := range standing.List("holds") {
-			if task, ok := task.(string); ok { // each writer puts a task's type down as a string
-				fact.Holds = append(fact.Holds, task)
-			}
-		}
+		fact.Holds = append(fact.Holds, standing.Holds...)
 	}
 	data, err = json.Marshal(fact)
 	if err != nil {
@@ -69,4 +62,21 @@ func Record(name string, fact Fact) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// read is the fact a file holds, each of its fields none where it holds no such value.
+func read(data []byte) (fact Fact) {
+	read, _ := run.Decode(data)
+	standing, ok := read.(*run.Object)
+	if !ok {
+		return fact
+	}
+	fact.At, _ = standing.Num("at")
+	fact.Session, fact.Event, fact.Kind, fact.Text = standing.Str("session"), standing.Str("event"), standing.Str("kind"), standing.Str("text")
+	for _, task := range standing.List("holds") {
+		if task, ok := task.(string); ok { // each writer puts a task's type down as a string
+			fact.Holds = append(fact.Holds, task)
+		}
+	}
+	return fact
 }

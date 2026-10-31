@@ -2,8 +2,8 @@
 
 Before the reviewer runs, ak replays each earlier blocking finding's proof on the commit under
 review, a new one or the same again: one still failing blocks whatever the reviewer hands in,
-one fixed or unable to run or finish is a note; disputed or quoted ones are left to the reviewer. The
-reviewer is given the diff since the commit the last review judged, and a new finding that
+one fixed or unable to run or finish is a note; disputed ones are left to the reviewer, and a
+quote, a note in every round, is no earlier finding at all. The reviewer is given the diff since the commit the last review judged, and a new finding that
 would block outside that delta is kept as a note, unless its proof passes on that commit: the
 fix broke it.  A review of the same commit again (a fixer turn that left no commit) judges the
 whole change.  A replayed proof still failing blocks where the fix left its line, even on one
@@ -305,15 +305,19 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.records("finding"), [("api.py", 2, "")])
         self.assertNotIn("disputes", self.lp.state)
 
-    def test_a_quoted_or_disputed_finding_is_the_reviewers_to_weigh(self):
-        # by quote: ak cannot re-prove it, so it is listed, and handed in again it stands
-        self.assertEqual(self.review(quoted("api.py:2", "flag is wrong", 'flag = "branch"')), "FAIL")
+    def test_a_quote_is_a_note_in_every_round_and_a_disputed_finding_the_reviewers_to_weigh(self):
+        # by quote: a note on a changed line, in the round after a FAIL too, and nothing to list
+        self.assertEqual(self.review(finding("api.py:1", "mode is wrong", self.mode_fixed),
+                                     quoted("api.py:2", "flag is wrong", 'flag = "branch"')), "FAIL")
+        self.assertEqual(self.records("note"), [("api.py", 2, "")])
         self.write('mode = "fixed"\nflag = "branch"\nextra = 1\n', "Fix the mode")
-        self.assertEqual(self.review(quoted("api.py:2", "flag is wrong", 'flag = "branch"')), "FAIL")
-        self.assertEqual(self.records("finding"), [("api.py", 2, "")])
+        self.assertEqual(self.review(quoted("api.py:2", "flag is wrong", 'flag = "branch"')), "PASS")
+        self.assertEqual(self.records("finding"), [])
+        self.assertEqual(self.records("note"), [("api.py", 2, ""), ("api.py", 1, "fixed; its proof passes now")])
         prompt = self.prompt()
-        self.assertIn("## Earlier findings left to you", prompt)
-        self.assertIn("api.py:2 - flag is wrong - a quote, which ak cannot re-prove", prompt)
+        self.assertIn("api.py:1 - mode is wrong - fixed", prompt)
+        self.assertNotIn("api.py:2 - flag is wrong", prompt)
+        self.assertNotIn("## Earlier findings left to you", prompt)
         # ... and after a dispute: the --run finding is the reviewer's to weigh, not ak's
         self.setUp()
         self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed)), "FAIL")
@@ -399,16 +403,7 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.records("follow-up"), [("api.py", 2, "")])
 
     def test_a_finding_handed_in_again_at_its_moved_line_upholds_it(self):
-        # by quote: the fix mends line 1 and adds a line above the flag, which moves untouched
-        self.assertEqual(self.review(quoted("api.py:2", "flag is wrong", 'flag = "branch"')), "FAIL")
-        self.write('mode = "fixed"\nimport os\nflag = "branch"\nextra = 1\n', "Fix the mode, add an import")
-        self.assertEqual(self.review(quoted("api.py:3", "flag is wrong", 'flag = "branch"')), "FAIL")
-        self.assertEqual(self.records("finding"), [("api.py", 3, "")])
-        prompt = self.prompt()
-        self.assertIn("## Earlier findings left to you", prompt)
-        self.assertIn("api.py:3 - flag is wrong - a quote, which ak cannot re-prove", prompt)   # listed where it stands
-        # ... and after a dispute: the --run finding is the reviewer's to weigh, not ak's
-        self.setUp()
+        # after a dispute: the --run finding is the reviewer's to weigh, not ak's
         self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed)), "FAIL")
         self.write('mode = "fixed"\nimport os\nflag = "branch"\nextra = 1\n', "Fix the mode, add an import")
         self.dispute("api.py", 2, "flag is wrong", probe("True"))

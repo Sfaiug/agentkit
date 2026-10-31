@@ -22,6 +22,21 @@ workspace = ["AGENTS.md", "CLAUDE.md"]
 [launch]
 # `interactive` hands $AGENTKIT_FIRST_PROMPT to the TUI as its first prompt, fresh or resumed
 first_prompt = true
+# The rest is what the Go build's `interactive` prints and its `run` runs, as claude.toml's: a
+# seat's line is Go's wrapper, then `seat`'s words; a turn runs `turn`'s.  `--rules` hands it the
+# rulebook's text, appended to its system prompt; `--trust` opens it on the prompt, not on "do you
+# trust this directory?", whose default is "No, quit".
+# its own rules off: the instruction files it reads for Claude and Cursor (`grok inspect`)
+off = ["GROK_CLAUDE_AGENTS_ENABLED=false", "GROK_CLAUDE_RULES_ENABLED=false",
+       "GROK_CLAUDE_SKILLS_ENABLED=false", "GROK_CURSOR_RULES_ENABLED=false",
+       "GROK_CURSOR_SKILLS_ENABLED=false"]
+seat = ["env", "{off}", "grok", "{conversation}", "--rules", "{rules}", "--trust", "--always-approve",
+        "--model", "{model}", "--reasoning-effort", "{effort}"]
+turn = ["env", "{off}", "grok", "--prompt-file", "{prompt}", "--model", "{model}",
+        "--reasoning-effort", "{effort}", "--always-approve", "--output-format",
+        "streaming-messages-json", "{conversation}"]
+resume = ["--resume", "{id}"]
+new = ["--session-id", "{id}"]
 
 # The lines its prompt takes to move its conversation to another model or effort, `{model}` the
 # id `interactive` passes as --model (`orch.switch_lines`); Grok Build 1.0.46 takes both.
@@ -133,6 +148,15 @@ env = "GROK_HOME"
 usual = "~/.grok"
 home = "~/.grok-{account}"
 drop = "~/.grok-*"
+# The rest is the Go build's.  A call on an account unsets the usual login's key, and a first
+# launch there shares the usual login's conversations and settings (`carry`: what the usual TOML
+# files lack of its own is carried into them first).  A seat's line names the account's login
+# (`line`), where `ak orch` looks for files the harness reads on its own ([instructions]).
+unset = ["XAI_API_KEY"]
+conversations = "sessions"
+settings = ["config.toml", "pager.toml"]
+carry = true
+line = true
 
 # What the Go build's `hooks` writes, as grokbuild.sh does until Go takes over.  The TUI reads
 # hooks only from its home's hooks/, so ak's are a file of its own there (`form`), written whole:
@@ -300,3 +324,11 @@ levels = ["low", "medium", "high", "xhigh"]
 "grok-4.7-build-fast" = { label = "Grok 4.7 Fast", efforts = ["low", "medium", "high", "xhigh"] }
 "grok-4.6" = { label = "Grok 4.6", efforts = ["low", "medium", "high", "xhigh"] }
 "grok-4.5" = { label = "Grok 4.5", efforts = ["low", "medium", "high"] }
+
+# How the Go build's `auth` reads the login, as adapters/grokbuild.sh does until Go takes over:
+# its `credentials`, and the digest `usage` writes down in `refused` of a key grok renewed that
+# the billing endpoint still refused.  Of two paths, the second, naming the account, is a named
+# login's.
+[login]
+credentials = ["${GROK_HOME:-~/.grok}/auth.json"]
+refused = ["~/.agentkit/state/grok-refused", "~/.agentkit/state/grok-refused-$AGENTKIT_ACCOUNT"]

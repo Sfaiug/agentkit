@@ -500,11 +500,7 @@ def answered(session, at, typed=None, replies=None):
         if previous and previous.get("watcher") is True:
             return
         if replies is not None and previous:
-            ids = {**(previous.get("question_ids") or {}), **renewed}
-            dates = previous.get("question_times") or previous.get("asked_at") or {}
-            matched = [q for q in questions(previous)
-                       if replied(replies, q, ids.get(question_key(q)))
-                       and dates.get(question_key(q), previous["time"]) < (typed or at)]
+            matched = card_answered(previous, replies, typed or at, renewed)
             if not matched:
                 return partial
             remaining = [q for q in questions(previous) if q not in matched]
@@ -555,6 +551,15 @@ def replied(replies, question, card):
         f"{title} Options: {sep.join(shown)}{end}" for title, *shown in cards if shown
         for sep in (", ", "; ", " · ") for end in ("", ".")}
     return words(question).casefold() in {words(text).casefold() for text in said}
+
+
+def card_answered(notice, replies, at, renewed):
+    """The questions that notice asks which a native card's `replies` answer, each said before
+    `at`: by its own card, or the newer card of its words kept back since (`renewed`)."""
+    ids = {**(notice.get("question_ids") or {}), **renewed}
+    dates = notice.get("question_times") or notice.get("asked_at") or {}
+    return [q for q in questions(notice) if replied(replies, q, ids.get(question_key(q)))
+            and dates.get(question_key(q), notice["time"]) < at]
 
 
 def spoken_at(notice):

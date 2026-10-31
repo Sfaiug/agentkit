@@ -136,7 +136,7 @@ from contextlib import closing
 from pathlib import Path
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import record
+from . import parsed, record
 from . import warm
 
 KEYS = "n new   c config   esc leave"
@@ -2259,8 +2259,11 @@ def looped(path):
 
 
 class _RunRecords:
+    """The census a starting screen reads in place of every run.json: what `parsed` keeps of
+    each run's record, a row per run under the stat it keeps it by."""
+
     def __init__(self, root, *, cache=True):
-        self.root, self.known, self.db = root, {}, None
+        self.root, self.saved, self.db = root, {}, None
         if not cache:
             return
         # The cache before RUN_RECORDS: nothing reads it, and a run still on that install that
@@ -2276,9 +2279,10 @@ class _RunRecords:
             self.db.execute("CREATE TABLE IF NOT EXISTS records (name TEXT PRIMARY KEY, value TEXT)")
             for name, value in self.db.execute("SELECT name, value FROM records"):
                 try:
-                    key, state = json.loads(value)
-                    if isinstance(key, list) and isinstance(state, dict):
-                        self.known[name] = key, state
+                    stamp, state = json.loads(value)
+                    if isinstance(stamp, list) and isinstance(state, dict):
+                        self.saved[name] = stamp = tuple(stamp)
+                        parsed.keep(config.RUNS / name / "run.json", record._state, stamp, state)
                 except (ValueError, TypeError, RecursionError):
                     continue
         except sqlite3.Error:
@@ -2289,26 +2293,21 @@ class _RunRecords:
             self.db.close()
             self.db = None
 
-    def read(self):
-        found, fresh, changed, resolved = [], {}, [], {}
-        for run_dir in record.run_dirs():
-            try:
-                info = (run_dir / "run.json").stat()
-            except OSError:
+    def save(self, run_dirs):
+        """Write down what `parsed` keeps that the census does not hold; a run gone since takes
+        its record out of both, since nothing reads its path again for `parsed` to forget it."""
+        saved, changed = {}, []
+        for run_dir in run_dirs:
+            stamp, state = parsed.kept(run_dir / "run.json", record._state) or (None, None)
+            if state is None:
                 continue
-            key = [info.st_dev, info.st_ino, info.st_mtime_ns, info.st_ctime_ns, info.st_size]
-            if run_dir.name in self.known and self.known[run_dir.name][0] == key:
-                state = self.known[run_dir.name][1]
-            else:
-                state = record.read_state(run_dir)
-                if state is None:
-                    continue
-                changed.append((run_dir.name, json.dumps([key, state])))
-            fresh[run_dir.name] = key, state
-            if not state.get("unattended") and not smoke_run(state, resolved):
-                found.append((run_dir, state))
-        removed = self.known.keys() - fresh.keys()
-        self.known = fresh
+            saved[run_dir.name] = stamp
+            if self.db is not None and self.saved.get(run_dir.name) != stamp:
+                changed.append((run_dir.name, json.dumps([stamp, state])))
+        removed = self.saved.keys() - saved.keys()
+        for name in removed:
+            parsed.forget(config.RUNS / name / "run.json", record._state)
+        self.saved = saved
         if self.db is not None and (changed or removed):
             try:
                 with self.db:
@@ -2318,17 +2317,16 @@ class _RunRecords:
                                         ((name,) for name in removed))
             except sqlite3.Error:
                 pass           # another process can fill the cache; this one keeps its reads
-        return found
 
 
 def run_records(*, cache=True):
-    """Every run's record, loading the shared cache only once per process.
+    """Every run's record, each every reader's (`record.read_state`), so only read.
 
-    Only a changed run.json is opened again, with its stat taken before the read so a racing
-    write can cause another read, never hide one. SQLite commits only changed rows and keeps
-    other processes' reads whole. Cache failures leave the run files authoritative. Returned
-    records are shared read-only snapshots, replaced only when their run.json changes.
-    With cache=False, snapshots stay in memory without touching persistent caches.
+    A process's first pass hands `parsed` the census saved in SQLite, so it opens only a run.json
+    changed since; each pass saves what `parsed` keeps anew.  SQLite commits only changed rows
+    and keeps other processes' reads whole.  Cache failures leave the run files authoritative.
+    With cache=False, no persistent cache is read or written.  Either way a run gone leaves
+    memory at the next pass.
 
     Unattended runs and tasks or repos resolving under ~/.agentkit/tmp/smoke-* are left out.
     Paths are resolved on every pass: a symlink can move without a run.json changing. Bad run
@@ -2341,7 +2339,14 @@ def run_records(*, cache=True):
             if _RUN_RECORDS is not None:
                 _RUN_RECORDS.close()
             _RUN_RECORDS = _RunRecords(root, cache=cache)
-        return _RUN_RECORDS.read()
+        found, resolved, run_dirs = [], {}, record.run_dirs()
+        for run_dir in run_dirs:
+            state = record.read_state(run_dir, shared=True)
+            if state is None or state.get("unattended") or smoke_run(state, resolved):
+                continue
+            found.append((run_dir, state))
+        _RUN_RECORDS.save(run_dirs)
+        return found
 
 
 def unread(prov, weekly, readable, now):
@@ -2501,6 +2506,15 @@ def colour(cfg, name):
     if isinstance(own, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", own):
         return own
     return COLOURS.get(name, "accent")
+
+
+def company(cfg, maker):
+    """The provider a board's `maker` makes the models of, as COLOURS names it: the one whose
+    `maker` names it, the config's own table before the shipped one, else its name in lower
+    case: `Acme`, acme."""
+    tables = [*cfg["providers"].items(), *(config.shipped().get("providers") or {}).items()]
+    return next((name for name, entry in tables
+                 if isinstance(entry, dict) and entry.get("maker") == maker), maker.lower())
 
 
 def hue(kind):
@@ -2984,6 +2998,7 @@ LEGEND = (("as good", "{} within {} points of the best, then the cheapest"),
           ("left out", "a row no better than a cheaper one, yours compared with yours"))
 KNOB = ("legend", "within")
 LINES = ("lines",)                # the rows' lines, which grow in as they first show
+QUIET = "#a6adc8"                 # ... drawn while no company lights: Mocha's subtext0
 NAMED = 13                        # the cells before a legend line's words: its name's column
 # the why's words: what a row does in each role, and each measure's evaluation by its name
 DOES = {"orchestrate": "orchestrates", "execute": "builds", "review": "reviews"}
@@ -3011,9 +3026,9 @@ def models_said(answer, lineup, within):
     on it, its mark: `★ pick`, `r takes` on what `r` takes where that is not the pick, else "",
     name, its effort's cells out of the efforts its release has in `lineup`, a row naming none
     one of them (terminal.effort_cells), its effort or "" for none, how near the role's best it
-    is from 0, config.POINTS behind or more, to 1, quality, cost, notes), and under a pick where
-    `r` takes nothing that no harness of yours runs a model this good.  With no pick, no priced
-    row being within `within` of the best, the front from its best, said so."""
+    is from 0, config.POINTS behind or more, to 1, quality, cost, notes, its maker), and under a
+    pick where `r` takes nothing that no harness of yours runs a model this good.  With no pick,
+    no priced row being within `within` of the best, the front from its best, said so."""
     levels = {}     # each release's efforts on the boards, weakest first, a row naming none one
     for row in lineup:
         levels.setdefault(row["release"], []).append(row["effort"])
@@ -3036,7 +3051,7 @@ def models_said(answer, lineup, within):
                 pointed(role, row), mark, row["name"], terminal.effort_cells(
                     len(taken), taken.index(row["effort"]) + 1),
                 row["effort"] or "", max(0, 1 - (found["best"] - row["quality"]) / config.POINTS),
-                f"{row['quality']:.1f}", f"${row['cost']:.2f}", notes))
+                f"{row['quality']:.1f}", f"${row['cost']:.2f}", notes, row["maker"]))
             if row is pick and not take:
                 lines.append("no harness of yours runs a model this good")
         # the first row is the best but where the best has no cost, so the head says it then
@@ -3045,7 +3060,7 @@ def models_said(answer, lineup, within):
     return said
 
 
-def models_body(said, within, compared, total, fetched, at=None, moves=None):
+def models_body(said, within, compared, total, fetched, at=None, moves=None, lit=None):
     """The models screen's lines, and the row each says, the row `at` marked, or the legend
     (KNOB): {line: (row, [])}.
 
@@ -3053,12 +3068,14 @@ def models_body(said, within, compared, total, fetched, at=None, moves=None):
     columns' heads, then its lines: a row's mark in MARK cells, its name, its effort as `c` draws
     one -- its cells, then its word, in one column after the most cells any row has -- its line
     (terminal.share_line), taking the room the other columns leave, then its quality, cost and
-    notes, these one under another in a column as wide as the widest.  Every column fits the
-    rows `within` = config.POINTS shows, so a step of `within` moves none.  Where that leaves the
-    line under 8 cells, the notes' column gives way first, each row's notes going under it; where
-    the line is still under 8 cells, from 40 cells up, each row's mark, then its name and effort,
-    take a line and its line, numbers and notes the next, the name alone cut; the notes that do
-    not fit beside the numbers then go under the row, broken only between two.
+    notes, these one under another in a column as wide as the widest.  Every line is QUIET and
+    every name plain but a row of the maker `lit`, (maker, colour): its line in the colour, its
+    name lifted from it toward the foreground.  Every column fits the rows `within` =
+    config.POINTS shows, so a step of `within` moves none.  Where that leaves the line under 8
+    cells, the notes' column gives way first, each row's notes going under it; where the line is
+    still under 8 cells, from 40 cells up, each row's mark, then its name and effort, take a line
+    and its line, numbers and notes the next, the name alone cut; the notes that do not fit
+    beside the numbers then go under the row, broken only between two.
     `moves`, a list, is handed each row's line, LINES and how it grows in as the screen opens,
     row after row (motion.growing).  Then the legend, opening on `within`'s knob (points_knob),
     never broken, and how many of the `total` models are `compared` (matrix.compared) and when
@@ -3076,7 +3093,7 @@ def models_body(said, within, compared, total, fetched, at=None, moves=None):
                    default=0)
     widths = [*(max(terminal.cells(text) for text in [head, *(row[n] for row in sized)])
                 for n, head in ((6, "quality"), (7, "a task"))),
-              max((terminal.cells(note) for *_, notes in sized for note in notes), default=0)]
+              max((terminal.cells(note) for *_, notes, _ in sized for note in notes), default=0)]
     after = 2 + widths[0] + 2 + widths[1] + 2 + widths[2]     # the columns after the line
     before = 2 + MARK + 2 + label + 2 + levelled + 2          # the cells before a row's line
     if room - before - after < 8 <= room - before - after + 2 + widths[2]:
@@ -3117,9 +3134,12 @@ def models_body(said, within, compared, total, fetched, at=None, moves=None):
                 for part in terminal.wrap(line, room - under):
                     put(" " * under + part, here)
                 continue
-            here, mark, name, cells, word, near, *numbers, notes = line
+            here, mark, name, cells, word, near, *numbers, notes, maker = line
             text = effort(cells, word)
             name = terminal.pad(name, label if wide else min(label, room - 6 - levelled))
+            ink = lit[1] if lit and lit[0] == maker else None
+            # lifted, as a dark company's colour -- Google's -- reads on no dark background
+            name = terminal.styled(name, terminal.faded(ink, -0.25)) if ink else name
             lead = f"{name}  {text}{' ' * (levelled - terminal.cells(text))}  "
             if wide:
                 lead = f"  {mark}{' ' * (MARK - terminal.cells(mark))}  {lead}"
@@ -3128,8 +3148,8 @@ def models_body(said, within, compared, total, fetched, at=None, moves=None):
                     put("    " + mark, here)
                 put("    " + lead, here)
                 lead = "    "
-            tail = (f"{lead}{terminal.share_line(near, size)}  {numbers[0]:>{widths[0]}}  "
-                    f"{numbers[1]:>{widths[1]}}  ")
+            tail = (f"{lead}{terminal.share_line(near, size, ink or QUIET)}  "
+                    f"{numbers[0]:>{widths[0]}}  {numbers[1]:>{widths[1]}}  ")
             fit = max((n for n in range(len(notes) + 1)      # the notes that fit, the rest under
                        if terminal.cells(tail + " · ".join(notes[:n])) <= room), default=0)
             put(tail + " · ".join(notes[:fit]), here)
@@ -3242,17 +3262,18 @@ def models_screen(cfg, session, selected, providers):
     (matrix.refresh), the rule gliding until they land and what was stored standing meanwhile, a
     failed reading said under the rows; the answer is computed once per landing and per knob
     step, never per draw.  ←/→ step `within`, saved at once (config_within), the knob nudging
-    at either end.  ↑/↓ move the
-    pointer over the rows shown, from the first role's pick; one whose row a step leaves
-    unshown goes to its role's pick.  ⏎ or a click opens the pointed row's why (models_why)
-    until Esc, ↑/↓ turning its pages where it is taller than the screen.  `p` picks the
-    releases the answer compares (compare_screen), answered again once it is left.  `r` takes
-    each role's take (takes, take_advice): the seat's executors and
+    at either end.  ↑/↓ move the pointer over the rows shown, from the first role's pick; one
+    whose row a step leaves unshown goes to its role's pick.  From the first ↑/↓ or move of the
+    mouse's pointer or the keys', the row pointed at lights its maker: every row of it in its
+    company's colour (models_body); none while the pointer is on no row.  ⏎ or a click opens the
+    pointed row's why (models_why) until Esc, ↑/↓ turning its pages where it is taller than the
+    screen.  `p` picks the releases the answer compares (compare_screen), answered again once it
+    is left.  `r` takes each role's take (takes, take_advice): the seat's executors and
     reviewers, the orchestrator only said; without a seat new seats' three roles.
     """
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
     here, top, note, title = None, 0, "", f"config · recommended · {session or NEW_SEATS}"
-    clock, lineup = motion.Clock(page=True), []
+    clock, lineup, pointing = motion.Clock(page=True), [], False
     while True:
         if fetch is not None and not fetch.is_alive():
             try:                      # a board that failed answers with its error, kept a day
@@ -3270,28 +3291,35 @@ def models_screen(cfg, session, selected, providers):
             compared = matrix.compared(cfg, current)
             answer = matrix.answer(lineup, matrix.within(cfg), compared)
             said = models_said(answer, lineup, matrix.within(cfg))
-            rows = [line[0] for _, lines, _ in said for line in lines if isinstance(line, tuple)]
+            makers = {line[0]: line[-1] for _, lines, _ in said for line in lines
+                      if isinstance(line, tuple)}
+            rows = list(makers)
             if here not in rows:
                 role = here[1] if here else next(iter(quality.ROLES))
                 pick = answer[role]["pick"]
                 here = pointed(role, pick) if pick else next(
                     (row for row in rows if row[1] == role), rows[0] if rows else None)
-        moves = []
+        moves, lit = [], pointing and not terminal.away() and makers.get(here)
         body, places = models_body(said, matrix.within(cfg), compared, len(current),
                                    held.get("fetched_at"), None if terminal.away() else here,
-                                   moves)
+                                   moves, lit and (lit, colour(cfg, company(cfg, lit))))
         # the legend stands under the rows whatever the height: the pointer never reaches it
         fold = next(line for line, (row, _) in places.items() if row == KNOB)
         places = {line: place for line, place in places.items() if line < fold}
         # the knob opens the legend's first line, under the blank one at the fold
         knob = motion.refused(points_knob(matrix.within(cfg)), matrix.within(cfg), NAMED + 1)
-        act, here, _, top = matrix_key(title, body[:fold], places, rows, here, top, note,
-                                       MODELS_KEYS["answer"][not terminal.utf8()], marks=0,
-                                       under=body[fold:],
-                                       moves=[*moves, (fold + 1, KNOB, matrix.within(cfg),
-                                                       knob)],
-                                       clock=clock, began=fetch and fetch.began,
-                                       going=fetch and fetch.is_alive)
+        act, moved, _, top = matrix_key(title, body[:fold], places, rows, here, top, note,
+                                        MODELS_KEYS["answer"][not terminal.utf8()], marks=0,
+                                        under=body[fold:],
+                                        moves=[*moves, (fold + 1, KNOB, matrix.within(cfg),
+                                                        knob)],
+                                        clock=clock, began=fetch and fetch.began,
+                                        going=fetch and fetch.is_alive)
+        # pointed at once the pointer or the keys move the highlight, or ↑/↓ is pressed where it
+        # cannot move: its first place lights nothing
+        pointing = (pointing or terminal.pointer() is not None or moved != here
+                    or act in ("up", "down"))
+        here = moved
         if act is None:
             continue                  # a resize, the pointer or the boards landing: drawn again
         note = ""
