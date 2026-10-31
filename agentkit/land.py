@@ -804,6 +804,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
     tip_green = set(tip_green or ())   # the pieces the target's tip passed on this pass, the
                                        # pass's own re-probe of a paused piece included
     limit = None
+    below = -1      # the stack just below the last culprit, unchanged by the rebuild without it
 
     def ahead(index):
         """The runs under the stack at `index`, by name, with the tree each was checked as."""
@@ -958,7 +959,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 return stale
 
             def decide():
-                nonlocal pending, rebuild, target_red
+                nonlocal pending, rebuild, target_red, below
                 if target_red:
                     return
                 green_prefix = bool(prefix)
@@ -995,7 +996,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         # Later stacks need new checks on trees without this member.
                         pending = [(m, s) for m, s in pending
                                    if m not in verdicts or "land" in verdicts[m]]
-                        rebuild = True
+                        rebuild, below = True, index - 1
                         return
 
             with ThreadPoolExecutor(max_workers=max(1, limit)) as pool:
@@ -1006,7 +1007,12 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         unchecked = [index for index, (_, _, _, tree, checks) in enumerate(stacks)
                                      if (tree, checks) not in answers]
                         narrowing, command, owner = None, None, 0
-                        if batched and unchecked:
+                        if batched and below in unchecked:
+                            # It waits on no culprit above it: its whole check comes before the
+                            # new top's, named tests passing there being no evidence, and green
+                            # lands every stack under it (40 members waited, 30 Oct 2026).
+                            unchecked = [below]
+                        elif batched and unchecked:
                             # Narrow the first unresolved red between the last green and it.
                             red_index = next((index for index in range(unchecked[0], len(stacks))
                                               if "fix" in answers.get(tuple(stacks[index][3:]), {})), None)
@@ -1035,7 +1041,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                     ready({member: verdicts[member]})
                                 pending = [(m, s) for m, s in pending
                                            if m not in verdicts or "land" in verdicts[m]]
-                                rebuild = True
+                                rebuild, below = True, red_index - 1
                                 break
                             # No stack below the command's first runs it: the search starts
                             # just ahead of that one, and it reaches lower only on evidence.

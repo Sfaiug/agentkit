@@ -2,10 +2,11 @@
 failed again alone, or with none named its red piece, whichever command failed, and starts just
 ahead of the first stack running that command.  A member whose rewritten `tests:` line fails one
 test on every tree holding it goes to its fixer and the others land, the suite run whole only on
-the deepest stack and on the one rebuilt without it; a red only the target's suite shows narrows
-as before.  Blame still needs the stack just ahead green on what failed: a member breaking a test
-both lines run is the one blamed, not the member whose line runs it.  Black-box: the program
-`AK_BIN` names checks the line from outside through tests/fixtures/akline.py.
+the deepest stack, the one just below it and the one rebuilt without it; a red only the target's
+suite shows narrows as before.  Blame still needs the stack just ahead green on what failed: a
+member breaking a test both lines run is the one blamed, not the member whose line runs it.
+Black-box: the program `AK_BIN` names checks the line from outside through
+tests/fixtures/akline.py.
 """
 
 from pathlib import Path
@@ -37,12 +38,12 @@ class RedStackNarrowsByWhatFailed(unittest.TestCase):
 
     def test_a_rewritten_tests_line_failing_one_test_narrows_by_that_test_alone(self):
         line = self.narrow(2, {2: {"AGENTS.md": rules(f"{SUITE} strict")}})
-        self.assertLessEqual(line.whole(), 2, line.runs())
+        self.assertLessEqual(line.whole(), 3, line.runs())
         self.assertEqual(line.verdict(2)["fix"]["tests"], ["t3.sh"])
 
     def test_a_red_only_the_targets_suite_shows_narrows_by_its_tests_alone(self):
         line = self.narrow(3, {3: {"bad.txt": "bad\n"}})
-        self.assertLessEqual(line.whole(), 2, line.runs())
+        self.assertLessEqual(line.whole(), 3, line.runs())
         self.assertEqual(line.verdict(3)["fix"]["tests"], ["t2.sh"])
 
     def test_a_red_piece_naming_no_test_narrows_by_that_piece_alone(self):
