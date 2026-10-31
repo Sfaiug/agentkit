@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.clock import Clock
 from fixtures.sandbox import account_home
 from agentkit import gate as suite_gate, config, gitcall, history, run, status, worker
 from agentkit import record as run_record
@@ -158,21 +159,29 @@ class GateTurns(unittest.TestCase):
         self.assertTrue(first.result[0] and other.result[0])
 
     def test_a_wait_past_the_silence_window_costs_neither_the_gate_nor_its_ceiling(self):
+        # The window and the ceiling run on this clock, which jumps ten minutes while the second
+        # gate waits: on the real clock, a window short enough for a test's wait to outlast was
+        # spent by a loaded host on starting the command's box.
+        skew = []
+        clock = Clock(time.sleep)
+        clock.monotonic = lambda: time.monotonic() + sum(skew)
+        self.stack.enter_context(patch.object(suite_gate, "time", clock))
+        self.stack.enter_context(patch.object(worker, "time", clock))
         first = Gate(self, "one", ACME, [self.hold("start")])
         chatty = (f"{shlex.quote(sys.executable)} -u -c "
                   "'import time\nfor i in range(8): print(i); time.sleep(0.2)'")
-        # a silence window the wait outlasts, and a ceiling the wait plus the command would
-        # spend, were either charged with the wait
-        second = Gate(self, "two", ACME, [chatty], silence=1, limit=3.5)
+        # a silence window the wait outlasts, and a ceiling the wait would spend, were either
+        # charged with the wait
+        second = Gate(self, "two", ACME, [chatty], silence=60, limit=120)
         self.started(first)
-        began = time.monotonic()
+        began = clock.monotonic()
         second.start()
         self.until(second.waited, "the second gate to wait")
-        time.sleep(2)       # past the silence window, and with the command's 1.6s past the ceiling
+        skew.append(600)
         self.release()
         first.join(20)
         second.join(20)
-        self.assertGreater(time.monotonic() - began, 3.5)
+        self.assertGreater(clock.monotonic() - began, 120)
         self.assertTrue(second.result[0], second.result[1])
         self.assertNotIn("stopped after", second.result[1])
         self.assertIn("[exit 0]\n0\n1\n", second.result[1])
