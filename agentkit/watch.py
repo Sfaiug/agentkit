@@ -44,7 +44,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, host,
+from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, history, host,
                login_refusals, notify, orch, owner, parsed, questions, seat_tokens, staffing,
                statusbar, transitions, turns, update, usage, worker)
 from . import record as run_record
@@ -2319,18 +2319,35 @@ def kept_asked(name, kept):
 
 def answered_kept(name, replies, at):
     """A native card reply answers only its questions, including before the turn ends: its own
-    card's copy, and every copy of a question whose latest card it is."""
+    card's copy, and every copy of a question whose latest card it is.  Each question it answers
+    is the owner's time, asked when first kept and answered at `at`, unless the reply naming it
+    also answers a question the seat's notice asks (`notify.card_answered`), whose answer
+    records it.  The caller holds the notice lock."""
     with seat_lock(name):
         data = seat_read(name)
         kept = questions_kept(data.get("unasked"))
         latest = {notify.question_key(q["text"]): q.get("id") for q in kept}
-        remaining = [q for q in kept if not (q.get("at", at) < at and any(
-                     notify.replied(replies, q["text"], card)
-                     for card in (q.get("id"), latest[notify.question_key(q["text"])])))]
-        if remaining != kept:
-            _seat_put(name, data, {"unasked": _kept(remaining)})
-            return True
-    return False
+
+        def answers(reply, q):
+            return q.get("at", at) < at and any(
+                notify.replied([reply], q["text"], card)
+                for card in (q.get("id"), latest[notify.question_key(q["text"])]))
+        answered = [q for q in kept if any(answers(reply, q) for reply in replies)]
+        if not answered:
+            return False
+        _seat_put(name, data, {"unasked": _kept([q for q in kept if q not in answered])})
+    notice = notify.last(name)
+    noticed = [reply for reply in replies
+               if notice and notify.card_answered(notice, [reply], at, latest)]
+    asked = {}
+    for q in answered:
+        key = notify.question_key(q["text"])
+        if not any(answers(reply, q) for reply in noticed):
+            asked[key] = min(q["at"], asked.get(key, math.inf))
+    for moment in asked.values():
+        history.owner_time("asked", moment)
+    notify.waited({"asked_at": asked}, at)
+    return True
 
 
 def ask_kept_back(name, harness, found, held=False):
