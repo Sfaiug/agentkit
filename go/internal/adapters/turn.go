@@ -78,20 +78,13 @@ func Turn(name string, args []string, errOut io.Writer) int {
 	return code
 }
 
-// token is env with the worker token ak holds for the login, where it holds one, as its
-// manifest's `[worker_token]` names it: the file under ~/.agentkit/secrets, an account's beside
-// it under its name, and the variable it goes in.
+// token is env with the worker token ak holds for the login, where it holds one, in its variable.
 func token(name string, login config.Login, env []string) []string {
-	table, _ := config.Section(name, "worker_token")
-	file, _ := table["file"].(string)
-	variable, _ := table["env"].(string)
-	if file == "" || variable == "" {
+	file, variable := config.WorkerToken(name, login)
+	if file == "" {
 		return env
 	}
-	if login.Account != "" {
-		file += "." + login.Account
-	}
-	data, _ := os.ReadFile(filepath.Join(config.Home(), "secrets", file))
+	data, _ := os.ReadFile(file)
 	if value := strings.TrimRight(string(data), "\n"); value != "" {
 		_, env = environ([]string{"env", variable + "=" + value}, env)
 	}

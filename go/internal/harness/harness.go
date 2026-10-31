@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"agentkit/internal/config"
 )
 
 // A plugin is one harness's own answers; a hook it leaves nil takes the default.
@@ -22,6 +24,7 @@ type plugin struct {
 	fresh   string
 	answer  func(conversation, cwd string) (model, effort any, found bool)
 	turnEnv map[string]string
+	auth    func(login config.Login, seat bool) Answer
 }
 
 var plugins = map[string]plugin{}

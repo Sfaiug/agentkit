@@ -32,7 +32,7 @@ const (
 // False, with nothing written, while nobody holds the lock or ak's folders cannot be made, and
 // on Windows, where no Python tick runs to hold it.
 func Overlap(out, errOut io.Writer) bool {
-	path := filepath.Join(config.Home(), "state", "watch.tick.lock")
+	path := lockPath()
 	if runtime.GOOS == "windows" || !lock.Held(path) || config.EnsureDirs() != nil {
 		return false
 	}
@@ -46,6 +46,10 @@ func Overlap(out, errOut io.Writer) bool {
 	}
 	return true
 }
+
+func lockPath() string { return filepath.Join(config.Home(), "state", "watch.tick.lock") }
+
+func logPath() string { return filepath.Join(config.Home(), "tmp", logName) }
 
 // holder is who holds the lock and for how long, off the file it wrote: its pid, as Python's
 // int() reads the file's stripped text and 0 for what it cannot read, and its mtime, when that
@@ -91,7 +95,7 @@ func (l *log) line(text string) {
 // it, so two ticks that both saw it oversized do not both rename and lose the kept generation.
 // Whoever rolled, the streams the log owns rejoin its live file.
 func (l *log) roll() {
-	path := filepath.Join(config.Home(), "tmp", logName)
+	path := logPath()
 	kept := filepath.Join(config.Home(), "tmp", logKept)
 	found := []os.FileInfo{}
 	for _, name := range []string{path, kept} {

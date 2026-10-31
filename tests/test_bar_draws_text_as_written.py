@@ -38,10 +38,15 @@ class AsWritten(Sandbox):
         # the mark ak's own start leaves on a seat: without it a session with no agent in it is
         # nobody's, and no bar's right end is written on it
         self.assertEqual(orch.tmux_out("set-option", "-t", "=fix-api:", orch.MARK, "1")[0], 0)
+        # the client attaches from its pane in its own time: each test waits until it has, or a
+        # seat renamed first leaves it no session to attach to; tmux keeps a signal no one waits on
+        self.assertEqual(orch.tmux_out("set-hook", "-g", "client-attached",
+                                       "wait-for -S attached")[0], 0)
         attach = f"env -u TMUX tmux -L {orch.socket_name()} attach-session -t =fix-api:"
         self.view("-f", "/dev/null", "new-session", "-d", "-s", "view", "-x", "120", "-y", "8",
                   attach)
         self.view("set-option", "-t", "=view:", "status", "off")
+        self.assertEqual(orch.tmux_out("wait-for", "attached")[0], 0)
 
     def view(self, *args):
         return subprocess.run(["tmux", "-L", "view", *args], capture_output=True, text=True,
