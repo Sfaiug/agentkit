@@ -52,6 +52,20 @@ class ProjectDown(unittest.TestCase):
         self.assertEqual(self.tick(), [card])
         self.assertEqual(self.tick(), [card])
 
+    def test_a_card_carries_the_beginning_of_the_last_line(self):
+        # Long, padded, or after a progress meter's carriage return, it shows from its start.
+        long = self.project("acme", "printf 'probing\\rCAUSE: db refused %05000d\\n\\n' 0; false")
+        meter = self.project("acme-meter", "printf '%05000d\\rCAUSE: db refused\\n' 0; false")
+        padded = self.project("acme-padded",
+                              "printf 'probing\\nCAUSE: db refused%5000s\\n' ''; false")
+        since = int(time.time()) - 300
+        self.home.write(".agentkit/state/alive.json",
+                        {str(repo): since for repo in (long, meter, padded)})
+        down = f"is down since <t:{since}:t> ·"
+        self.assertCountEqual(self.tick(), [f"🔴 acme {down} CAUSE: db refused {'0' * 182} <@42>",
+                                            f"🔴 acme-meter {down} CAUSE: db refused <@42>",
+                                            f"🔴 acme-padded {down} CAUSE: db refused <@42>"])
+
     def test_no_seat(self):
         self.project("acme", "true")
         unfiled = self.project("acme-old", DOWN, seat=False)
