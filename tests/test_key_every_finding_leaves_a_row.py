@@ -58,14 +58,20 @@ class EveryFindingLeavesARow(unittest.TestCase):
         akconfig.write(cls.home, ["opus", "astra"])
         cls.fakes = fakeadapter.install(cls.home, claude=[WORK, FIX], codex=[REVIEW, "pass"])
         cls.two = cls.launch("Add retry file", OWNERS)
+        # a fix that puts base back, disputing the second finding: the next round reviews base
+        cls.fakes["claude"].behave(WORK, {"sh": f"git reset -q --hard {cls.rig.head()}",
+                                          "final": "## Summary\nput base back",
+                                          "hand_in": FIX["hand_in"]})
+        cls.fakes["codex"].behave(REVIEW, "pass")
+        cls.reset = cls.launch("Put base back", OWNERS, done_when=("true",))
         cls.fakes["claude"].behave("work")
         cls.fakes["codex"].behave("fail")
-        cls.budget = cls.launch("Add spent file", OWNERS, rounds=1)
-        cls.suite = cls.launch("Add suite file", rounds=1)
+        cls.budget = cls.launch("Add spent file", OWNERS, {"rounds": 1})
+        cls.suite = cls.launch("Add suite file", front={"rounds": 1})
 
     @classmethod
-    def launch(cls, title, env=None, **front):
-        task = taskfile.write(cls.home, cls.rig.path, title, front=front)
+    def launch(cls, title, env=None, front=None, **task):
+        task = taskfile.write(cls.home, cls.rig.path, title, front=front, **task)
         cls.home.ak("run", str(task), "--no-merge", env=env, timeout=300)
         run_dir, = (path for path in taskfile.runs(cls.home)
                     if path.name.endswith(taskfile.slug(title)))
@@ -112,6 +118,12 @@ class EveryFindingLeavesARow(unittest.TestCase):
         self.assertEqual((dispute["path"], dispute["line"], dispute["handed"], dispute["kind"],
                           dispute["proof"], dispute["commit_exit"], dispute["outcome"]),
                          ("words.txt", 2, "dispute", "dispute", "true", 0, "dropped"))
+
+    def test_a_proof_on_reviewed_work_that_is_base_s_own_is_its_exit_there_alone(self):
+        self.assertEqual(self.reset["round_summaries"][-1]["head_sha"], self.rig.head())
+        self.assertEqual([(row["kind"], row["commit_exit"], row["base_exit"])
+                          for row in self.rows(self.reset, 2)],
+                         [("note", 0, None), ("dispute", 0, None)])
 
     def test_each_row_names_its_round_s_review(self):
         reviews = {row["round"]: row["review_id"] for row in self.query(

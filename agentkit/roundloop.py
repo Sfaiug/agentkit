@@ -1694,8 +1694,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                           blocking=len(own.findings), followup=len(own.preexisting),
                           note=len(own.notes), round=lp.rnd, verdict=verdict,
                           effort=config.role_effort(reviewed, "reviewer"),
-                          records=submitted.records + disputes.disputes,
-                          base=lp.state.get("base_sha"), log=lp.log)
+                          records=submitted.records + disputes.disputes, log=lp.log)
     return verdict
 
 

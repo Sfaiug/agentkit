@@ -528,11 +528,10 @@ def add_tokens(run_id, role, tokens, *, log=None):
 
 
 def record_review(run_id, review_id, *, harness, model, blocking, followup, note, round, verdict,
-                  effort=None, records=(), base=None, log=None):
+                  effort=None, records=(), log=None):
     """Keep one finished review's weighed counts, its round, the round's verdict (the review's,
     after ak's overrides) and the effort it ran at, including landing reviews in the same round,
-    and a `findings` row for each of `records` but its closing (`FINDINGS_SCHEMA`), `base` the
-    commit a proof ran on as base.
+    and a `findings` row for each of `records` but its closing (`FINDINGS_SCHEMA`).
 
     Its output directory identifies it, so recording it again cannot count it twice; only
     runs already recorded in history can contribute.
@@ -549,18 +548,20 @@ def record_review(run_id, review_id, *, harness, model, blocking, followup, note
                 "INSERT INTO findings (run_id, review_id, round, path, line, handed, kind, proof, "
                 "commit_exit, base_exit, replayed, reason, outcome, at) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                [(run_id, review_id, round, *_finding(row, base), at)
+                [(run_id, review_id, round, *_finding(row), at)
                  for row in records if row["kind"] not in hand_in.CLOSING])
 
     _write(insert, log)
 
 
-def _finding(row, base):
+def _finding(row):
     """A record's `findings` columns from `path` to `outcome`.  Its exit on base is its proof's
-    `base` part, or the proof itself where it ran on base alone (a follow-up from before the
-    task); a record whose kind weighing left alone was handed in as that kind."""
+    `base` part, or the proof itself where ak ran it on base alone: a follow-up handed in from
+    before the task (`before`) and proven with no base part (`prompts.weigh_review`), never one
+    on a reviewed commit that is base's own.  A record whose kind weighing left alone was handed
+    in as that kind."""
     evidence = row["evidence"]
-    on_base = evidence.get("base") or (evidence if base and evidence.get("commit") == base else {})
+    on_base = evidence.get("base") or (evidence if "before" in row and "commit" in evidence else {})
     return (row["path"], row["line"], row.get("handed", row["kind"]), row["kind"],
             evidence.get("run", evidence.get("quote")),
             None if on_base is evidence else evidence.get("returncode"), on_base.get("returncode"),
