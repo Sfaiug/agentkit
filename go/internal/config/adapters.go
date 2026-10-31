@@ -81,8 +81,7 @@ func manifests() (map[string]*table, error) {
 	return found, nil
 }
 
-// Section is one table of a harness's manifest, each table in it a map and each array of
-// tables a list of them, nil where it has none.
+// Section is one table of a harness's manifest, nil where it has none.
 func Section(harness, name string) (map[string]any, error) {
 	manifests, err := manifests()
 	if err != nil {
@@ -90,18 +89,31 @@ func Section(harness, name string) (map[string]any, error) {
 	}
 	if root, ok := manifests[harness]; ok {
 		if block, ok := root.values[name].(*table); ok {
-			return plain(block).(map[string]any), nil
+			return block.values, nil
 		}
 	}
 	return nil, nil
 }
 
-// plain is a manifest's value as Section hands it out.
+// Tree is one table of a harness's manifest whole, each table in it a map and each array of
+// tables a list of them, for a reader that walks it; nil where it has none.  Section keeps its
+// tables as they were written, in order, for Pairs.
+func Tree(harness, name string) (map[string]any, error) {
+	section, err := Section(harness, name)
+	if section == nil {
+		return nil, err
+	}
+	return plain(section).(map[string]any), nil
+}
+
+// plain is a manifest's value as Tree hands it out.
 func plain(value any) any {
 	switch value := value.(type) {
 	case *table:
-		values := make(map[string]any, len(value.values))
-		for key, each := range value.values {
+		return plain(value.values)
+	case map[string]any:
+		values := make(map[string]any, len(value))
+		for key, each := range value {
 			values[key] = plain(each)
 		}
 		return values

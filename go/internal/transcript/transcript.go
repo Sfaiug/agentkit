@@ -38,7 +38,7 @@ type kind struct {
 // Read is the end of the conversation at path, a harness's that its manifest reads; nothing
 // where it has no `[transcript]` table or the file cannot be opened.
 func Read(harness, path string) (end End) {
-	table, _ := config.Section(harness, "transcript")
+	table, _ := config.Tree(harness, "transcript")
 	file, err := os.Open(path)
 	if table == nil || err != nil {
 		return end
