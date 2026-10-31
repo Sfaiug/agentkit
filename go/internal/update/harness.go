@@ -46,9 +46,8 @@ type upgrade struct {
 	before      map[string]string
 	log         *os.File
 	out, errOut io.Writer
-	snapshotted plan // the harness put back from a snapshot, the first whose manifest has one
-	snapshot    *snapshot
-	attempted   bool // its upgrade began, so a revert restores it
+	snapshotted plan      // the harness put back from a snapshot, the first whose manifest has one
+	snapshot    *snapshot // until a restore uses it up
 }
 
 // movable is whether Go moves these harnesses as Python's update.main would, asked before
@@ -130,7 +129,7 @@ func (u *upgrade) run() int {
 		}
 		note := ""
 		if each.name == u.snapshotted.name {
-			note, u.attempted = " (local rollback snapshot: "+u.snapshot.path+")", true
+			note = " (local rollback snapshot: " + u.snapshot.path + ")"
 		}
 		fmt.Fprintf(u.out, "update: upgrading %s from %s%s\n", each.name, before[each.name], note)
 		if u.swap(each, each.upgrade) {
@@ -297,7 +296,7 @@ func (u *upgrade) revert(plans []plan, now map[string]string) map[string][2]stri
 	landed := kept(u.plans, u.before, now)
 	for _, each := range plans {
 		name, old := each.name, u.before[each.name]
-		if u.snapshot != nil && u.attempted && name == u.snapshotted.name {
+		if u.snapshot != nil && name == u.snapshotted.name {
 			// a failed installer can replace bytes and still report the old release label
 			fmt.Fprintf(u.out, "update: restoring %s from %s\n", name, u.snapshot.path)
 			var err error
@@ -305,6 +304,8 @@ func (u *upgrade) revert(plans []plan, now map[string]string) map[string][2]stri
 			landed[name] = [2]string{"reverted", "back on " + old}
 			if err != nil {
 				landed[name] = [2]string{"cannot revert", pyError(err) + "; snapshot retained at " + u.snapshot.path}
+			} else {
+				u.snapshot = nil // what it saved is installed again, and an upgrade after takes another
 			}
 			continue
 		}
