@@ -17,6 +17,7 @@ test_key_help_internal_line
 test_key_help_listing
 test_key_hook_fact_order
 test_key_hook_outside_seat
+test_key_lend_copy
 test_key_manifest_errors BrokenManifest
 test_key_notice_hook
 test_key_notify_dry_run
