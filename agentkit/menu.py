@@ -3287,10 +3287,8 @@ def models_screen(cfg, session, selected, providers):
                                        under=body[fold:],
                                        moves=[*moves, (fold + 1, KNOB, matrix.within(cfg),
                                                        knob)],
-                                       clock=clock, fetched=lambda: fetch.began
-                                       if fetch is not None and fetch.is_alive() else None,
-                                       # one landed since the look above is taken at once
-                                       timeout=None if fetch is None else 0)
+                                       clock=clock, began=fetch and fetch.began,
+                                       going=fetch and fetch.is_alive)
         if act is None:
             continue                  # a resize, the pointer or the boards landing: drawn again
         note = ""
@@ -3741,8 +3739,8 @@ def note_lines(note):
 
 
 def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, marks=2,
-               fetched=None, clock=None, moves=(), under=(), over=(), over_places=None,
-               lead=None):
+               began=None, going=None, clock=None, moves=(), under=(), over=(),
+               over_places=None, lead=None):
     """One draw of a matrix screen and the key read on it: (act, here, column, top).
 
     The `c` screen and a project's feature switches are read this way: rows the highlight moves
@@ -3760,8 +3758,9 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     resize, the pointer, or `timeout` seconds with no key -- a character key's character, its
     key-line item's too (`r recommended`), and any other key's name, `enter` a click on `⏎`'s
     and `space` one on `␣`'s, `left` and `right` one on an arrow of `lead`, a page mark.
-    `fetched()` says since when the screen's content is being fetched, or None: while it is, the
-    rule under the header glides (`motion.fetching`) and the read ends, None, once it lands.
+    `began` says since when what `body` was read from was being fetched, or None, looked at
+    before reading it, so one landing since is never missed; while `going()`, the rule under the
+    header glides (`motion.fetching`) and the read ends, None, once it lands.
     `clock` moves what `moves` -- (line, key, value, start) -- says is news (`motion.Clock.look`)
     on the lines shown, `over`'s counted back from the page's first, -1 its last, each by `start(clock, row, since, before)`, its frames drawn while the
     key is waited for; a key, not the pointer, ends them on their last frames.
@@ -3777,14 +3776,12 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
                                              if top <= line < top + room else
                                              first + len(shown) + line - len(body)
                                              if line >= len(body) else None)))
-    began = fetched and fetched()
     if began is not None:     # on the screen's own clock, so what else moves goes on with it
         clock = motion.fetching(clock or motion.Clock(), began)
     if clock is None or clock.wait() is None and began is None:    # nothing moves or lands
         key = terminal.read_key(timeout)
     else:
-        key = moving(clock, timeout=timeout or TICK,
-                     going=None if began is None else lambda: fetched() == began)
+        key = moving(clock, timeout=timeout or TICK, going=going)
     if key is None:
         return None, here, None, top
     if clock is not None and key.name != "point":
@@ -5355,11 +5352,13 @@ def show_features(checkout, dry_run=False):
                 else None)
 
     while True:
+        switches(checkout, TICK)
+        began = fetched()       # looked at before what it lands in is read
         if flip and not flip.is_alive():
             note, flip = flip.answer(), None
             if note:
                 clock.touch(flipped)  # refused: the mark shakes
-        features = switches(checkout, TICK)
+        features = _SWITCHES[str(checkout)]["rows"]
         rows = [("feature", row["id"]) for row in features or ()]
         here = here if here in rows else rows[0] if rows else None
         moves = []
@@ -5376,7 +5375,8 @@ def show_features(checkout, dry_run=False):
                                                   for line in said], "esc back")
             return
         act, here, clicked, top = matrix_key(checkout.name, body, places, rows, here, top,
-                                             "\n".join(said), keys, STIR, fetched=fetched,
+                                             "\n".join(said), keys, STIR, began=began,
+                                             going=lambda: fetched() == began,
                                              clock=clock, moves=moves)
         column = column if clicked is None else clicked
         if act is None:
