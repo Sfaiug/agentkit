@@ -19,7 +19,7 @@ import tomllib
 from pathlib import Path
 from string import Template
 
-from . import host, parsed
+from . import host, look, parsed
 
 REPO = Path(__file__).resolve().parent.parent
 STARTED = time.time()   # when this process read its code: every entry imports this module first
@@ -1419,15 +1419,18 @@ def session_aliases():
     An alias is not a free name while it leads anywhere: the orchestrator renamed under it still
     carries the old name in $AGENTKIT_SESSION and hands it to every `ak` it runs, so a new seat
     taking that name would take those calls with it.  A chain that loops or runs too deep leads
-    to itself here, which is the caller's cue that it is no name to hand out either.
+    to itself here, which is the caller's cue that it is no name to hand out either.  In a pass,
+    they are as its first ask on this thread found them (`look`), so only read.
     """
-    found = {}
-    for name, _ in _session_files(record=False):
-        try:
-            found[name] = resolve_session(name)
-        except Error:
-            found[name] = name
-    return found
+    def follow():
+        found = {}
+        for name, _ in _session_files(record=False):
+            try:
+                found[name] = resolve_session(name)
+            except Error:
+                found[name] = name
+        return found
+    return look.once("session aliases", follow)
 
 
 def load_session(cfg, name, required=True):

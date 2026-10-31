@@ -1,4 +1,4 @@
-"""A pass looks at the runs once (`record.one_look`): every ask on its thread gets what the first
+"""A pass looks at the runs once (`look.one_look`): every ask on its thread gets what the first
 saw, while another thread, as the main one beside the screen's watcher, and the next pass look
 again."""
 
@@ -10,7 +10,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox
-from agentkit import config, record
+from agentkit import config, look, record
 
 
 def write(name):
@@ -25,10 +25,10 @@ def names(runs):
 class APassLooksAtTheRunsOnce(Sandbox):
     def test_a_pass_hands_its_thread_the_first_look_and_the_next_pass_looks_again(self):
         write("fix-api")
-        with record.one_look():
+        with look.one_look():
             first = record.runs()
             write("fix-cli")
-            with record.one_look():
+            with look.one_look():
                 self.assertIs(record.runs(), first)
             beside = []
             reader = threading.Thread(target=lambda: beside.extend(record.runs()))
