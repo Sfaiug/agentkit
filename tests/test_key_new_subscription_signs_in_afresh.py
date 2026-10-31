@@ -47,9 +47,10 @@ def row_at(screen, row, mark="[› ]"):
 
 
 def offered(screen):
-    """The rows the list offers, the highlight's mark off them."""
+    """The rows the list offers, the highlight's mark off them: every line under the rule down
+    to the blank one over its keys, one not drawn yet blank."""
     shown = lines(screen)
-    return [line[2:] for line in shown[2:shown.index(LIST_KEYS)] if line[2:]]
+    return [line[2:] for line in shown[2:shown.index(LIST_KEYS) - 1]]
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -87,18 +88,19 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
             self.term.wait(lambda screen: lines(screen)[now] != shown[now])
         self.fail(f"the highlight never reached {row}")
 
-    def add_list(self):
-        """`+ add a subscription`, and the rows it offers."""
+    def add_list(self, row=None):
+        """`+ add a subscription`, and the rows it offers, `row` among them when one is named."""
         self.to("+ add a subscription")
         self.term.keys("Enter")
-        # its frame is drawn before its rows
+        # every row drawn, and `row` whole: its frame comes first with them blank, then they go
+        # in a line at a time, and the last one read can be half written
         return offered(self.term.wait(lambda screen: title(screen) == ADD
-                                      and LIST_KEYS in lines(screen) and offered(screen)
-                                      and "+ add a subscription" not in offered(screen)))
+                                      and LIST_KEYS in lines(screen) and "" not in offered(screen)
+                                      and "+ add a subscription" not in offered(screen)
+                                      and (row is None or row in offered(screen))))
 
     def pick(self, row):
-        rows = self.add_list()
-        self.assertNotIn("", rows)
+        rows = self.add_list(row)
         self.term.keys(*["Down"] * rows.index(row), "Enter")
 
     def logins(self, harness):
