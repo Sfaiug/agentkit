@@ -3,7 +3,7 @@
 After a FAIL, ak does not start a stranger on the work: the next round's turn resumes the
 session the executor's last turn handed back, in the run's worktree, handed the findings to
 fix, while each review reads a checkout of its own round.  A finding that no longer stands in
-the next round, because the reviewer drops a quoted one or ak's replay of a proven one passes
+the next round, because the reviewer drops a disputed one or ak's replay of a proven one passes
 on the fixed commit, ends the run PASS after two rounds of three.  Black-box: the program
 `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on a project from gitrig.py,
 a config from akconfig.py, a task from taskfile.py and scripted harnesses from fakeadapter.py.
@@ -23,9 +23,6 @@ from fixtures.gitrig import Rig
 # The session a fix turn hands back, unlike the fake's own `sid-claude-<n>`, so the round
 # after it shows which one ak resumed.
 FIX_SESSION = "sid-claude-fix"
-QUOTED = {"final": "Found one.", "hand_in": [
-    ["finding", "retry.txt:1", "fixture defect", "the fixture says so", "--quote", "hello"],
-    ["done"]]}
 # Its proof fails until the fixer adds fixed.txt.
 PROVEN = {"final": "Found one.", "hand_in": [
     ["finding", "retry.txt:1", "fixture defect", "the fixture says so", "--run",
@@ -115,9 +112,9 @@ class FixerContinuesTheExecutorsSession(Run, unittest.TestCase):
                                   for n in (1, 2, 3)])
 
 
-class AQuotedFindingTheReviewerDropsPasses(Run, unittest.TestCase):
-    # The fixer changes nothing: only the reviewer's second word decides.
-    steps = {"claude": "work", "codex": [QUOTED, "pass"]}
+class ADisputedFindingTheReviewerDropsPasses(Run, unittest.TestCase):
+    # The fixer changes nothing and disputes the finding: only the reviewer's second word decides.
+    steps = {"claude": ["work", "dispute"], "codex": [PROVEN, "pass"]}
 
     def test_the_run_passes_in_the_second_round_and_says_so(self):
         self.assert_passed_in_the_second_round()

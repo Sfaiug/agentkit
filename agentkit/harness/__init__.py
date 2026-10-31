@@ -451,6 +451,12 @@ class Harness:
         hook = self._hook("restart_word")
         return hook(record) if hook else None
 
+    def switchable(self, model, effort):
+        """Whether its running seat takes `model` at `effort` from its `[switch]` lines, rather
+        than only from a launch: by default it does."""
+        hook = self._hook("switchable")
+        return hook(model, effort) if hook else True
+
     def reconcile(self, record):
         """The record fields to write down before anything claims this seat is resumable.
 

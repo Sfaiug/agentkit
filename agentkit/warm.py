@@ -246,9 +246,11 @@ def _resident():
 
 
 def _read(out):
-    """The reader, forked from the server: each read framed onto `out` as it lands."""
+    """The reader, forked from the server: each read framed onto `out` as it lands, under a
+    mark of its own, as the server is unmarked."""
     import pickle
-    from . import config, menu
+    from . import config, menu, owner
+    owner.mark("menu reader")
     os.nice(NICE)
     server = os.getppid()
     live = menu.Live(config.load())    # for `recorded`: what a read is news to

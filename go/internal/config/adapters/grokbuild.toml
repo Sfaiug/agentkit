@@ -324,3 +324,11 @@ levels = ["low", "medium", "high", "xhigh"]
 "grok-4.7-build-fast" = { label = "Grok 4.7 Fast", efforts = ["low", "medium", "high", "xhigh"] }
 "grok-4.6" = { label = "Grok 4.6", efforts = ["low", "medium", "high", "xhigh"] }
 "grok-4.5" = { label = "Grok 4.5", efforts = ["low", "medium", "high"] }
+
+# How the Go build's `auth` reads the login, as adapters/grokbuild.sh does until Go takes over:
+# its `credentials`, and the digest `usage` writes down in `refused` of a key grok renewed that
+# the billing endpoint still refused.  Of two paths, the second, naming the account, is a named
+# login's.
+[login]
+credentials = ["${GROK_HOME:-~/.grok}/auth.json"]
+refused = ["~/.agentkit/state/grok-refused", "~/.agentkit/state/grok-refused-$AGENTKIT_ACCOUNT"]

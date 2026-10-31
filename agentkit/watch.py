@@ -2645,7 +2645,10 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None):
     (`notify.answer_written`), which every other look also asks: the owner's message reaches it
     after their prompt hook ran.  An answer on the harness's own question `card` names the
     questions it answers, and answers only those (`notify.answered`).
+
+    Each of its starts starts it unmarked, in a session of its own: it marks itself.
     """
+    owner.mark("seat look")
     name = config.resolve_session(launched)
     number, session = next(((number, session) for number, session
                             in enumerate(orch.listing(reconcile=False), 1)

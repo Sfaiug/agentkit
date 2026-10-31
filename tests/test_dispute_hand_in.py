@@ -17,8 +17,8 @@ from agentkit import config, hand_in, run, stop, transitions, turns, worker
 from fixtures.hand_in import scripted, stateful
 
 FINDING = ["finding", "api.py:1", "feature disabled", "task requires the feature",
-           "--quote", "enabled = True"]
-OTHER = ["finding", "api.py:2", "wrong answer", "breaks callers", "--quote", "answer = 0"]
+           "--run", "grep -qx 'enabled = False' api.py"]
+OTHER = ["finding", "api.py:2", "wrong answer", "breaks callers", "--run", "grep -qx 'answer = 1' api.py"]
 WHY = "The feature is already enabled."
 PROOF = "python3 -c " + shlex.quote(
     'import os, api; print("proof from " + os.environ.get("PROOF_ORIGIN", "loop")); assert api.enabled')

@@ -1664,4 +1664,7 @@ def upgrade(plan, before):
 
 
 if __name__ == "__main__":
-    sys.exit(startup() if sys.argv[1:] == ["--agentkit"] else background(sys.argv[1]))
+    agentkit = sys.argv[1:] == ["--agentkit"]
+    # `start` and the menu's `update_first` start it unmarked: the mark is its own
+    owner.mark("agentkit update" if agentkit else "harness update")
+    sys.exit(startup() if agentkit else background(sys.argv[1]))

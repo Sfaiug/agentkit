@@ -14,7 +14,8 @@ from agentkit import config, hand_in, handback, record, run, staffing, transitio
 
 PROSE = ("VERDICT: PASS\n\n## Findings\n- api.py:1 - prose finding - breaks callers\n\n"
          "## Follow-ups\n- api.py:1 - prose follow-up - existed before\n")
-FINDING = ["finding", "api.py:1", "handed-in defect", "breaks callers", "--quote", "wrong answer"]
+FINDING = ["finding", "api.py:1", "handed-in defect", "breaks callers", "--run",
+           "grep -n 'wrong answer' api.py; exit 7"]
 
 
 class ReviewerTextIgnored(unittest.TestCase):
