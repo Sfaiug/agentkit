@@ -7,17 +7,18 @@ import (
 
 	"agentkit/internal/pick"
 	"agentkit/internal/run"
+	"agentkit/internal/terminal"
 	"agentkit/internal/usage"
 )
 
-func init() { commands["usage"] = usageJSON }
+func init() { commands["usage"] = usageAnswer }
 
-// usageJSON answers `ak usage --json` as Python's usage.main does: every provider's reading,
-// the pick order and the review pair.  The table without --json, and a home whose read or pick
-// is Python's, are left to Python before anything is locked or asked.
-func usageJSON(args []string, out, errOut io.Writer) int {
+// usageAnswer answers `ak usage` as Python's usage.main does: every provider's reading, the pick
+// order and the review pair, as JSON with --json, else drawn (usageText).  A home whose read or
+// pick is Python's is left to Python before anything is locked or asked.
+func usageAnswer(args []string, out, errOut io.Writer) int {
 	rules, ok := pick.Load()
-	if len(args) == 0 || !ok {
+	if !ok {
 		return notImplemented(errOut, "usage")
 	}
 	readings, err := usage.Read()
@@ -28,8 +29,12 @@ func usageJSON(args []string, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "ak usage: %s\n", err)
 		return 1
 	}
+	if len(args) == 0 {
+		fmt.Fprintln(out, usageText(terminal.For(out), readings, rules, rules.Order(readings, false, errOut)))
+		return 0
+	}
 	order := []any{}
-	for _, name := range rules.Order(readings, false) {
+	for _, name := range rules.Order(readings, false, nil) {
 		order = append(order, name)
 	}
 	answer := run.NewObject()

@@ -70,29 +70,33 @@ func Read() (*Readings, error) {
 	return &Readings{providers, sources, models, clock()}, err
 }
 
-// Spent is whether a meter gating that model reads 100% used with no credits left, or its
-// provider refused a worker and is parked, Python's usage.model_exhausted.
-func (r *Readings) Spent(name string) bool {
+// Spent is why nothing is picked on that model, Python's usage.model_exhausted: its provider
+// refused a worker and is parked, or a meter gating it reads 100% used with no credits left; ""
+// where something may be.
+func (r *Readings) Spent(name string) string {
 	meters, prov := r.gating(name)
 	if until, ok := number(prov.Get("exhausted_until")); ok && until > r.now && !freshWindow(prov, prov, r.now) {
-		return true
+		return r.models[name].Provider + " ran dry; nothing is picked on it until " + local(until).Format("2006-01-02 15:04")
 	}
+	var worst *run.Object
 	for _, meter := range meters {
-		if used(meter) >= 100 {
-			return creditsLeft(prov) == 0
+		if used(meter) >= 100 && (worst == nil || used(meter) > used(worst)) {
+			worst = meter
 		}
 	}
-	return false
+	if worst == nil || creditsLeft(prov) > 0 {
+		return ""
+	}
+	return text(worst.Get("name")) + " " + text(worst.Get("used")) + "% used >= 100"
 }
 
-// Budget is that model's budget on the meters gating it, false where it is unknown, Python's
-// usage.model_budget.
-func (r *Readings) Budget(name string) (float64, bool) {
+// Budget is that model's budget on the meters gating it and why its reading cannot tell, ""
+// where it can, Python's usage.model_budget.
+func (r *Readings) Budget(name string) (float64, string) {
 	meters, prov := r.gating(name)
 	gated := prov.Copy()
 	gated.Set("meters", list(meters))
-	budget, why := providerBudget(gated, r.now)
-	return budget, why == ""
+	return providerBudget(gated, r.now)
 }
 
 // OnCredits is whether that model runs on its provider's credits, a meter it watches spent,
