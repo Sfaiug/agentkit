@@ -4,7 +4,8 @@
 in the Home's AGENTKIT_ADAPTER_DIR, so every ak the test runs from then on calls these and no
 real harness.  The toml is the shipped manifest with the directory as its `[worker] state`, the
 one place a worker's box lets a turn write beside its workspace, and of the shipped `[worker]`
-only its `sessions`.  The script runs this file.
+only its `sessions`.  The script runs a copy of this file there, beside one of tools/lend.py:
+a worker's box empties the temporary directories, where a test's copy of the checkout may sit.
 
 A harness's script is a list of steps, one per `run` call in order, the last repeated.  A step
 is a word, which acts by the turn's role as its prompt's first line names it:
@@ -53,6 +54,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -152,6 +154,8 @@ def install(home, **harnesses):
     directory = home.root / "adapters"
     directory.mkdir(exist_ok=True)
     home.env["AGENTKIT_ADAPTER_DIR"] = str(directory)
+    for tool in (Path(__file__), REPO / "tools/lend.py"):
+        shutil.copy(tool, directory)
     fakes = {}
     for harness, steps in harnesses.items():
         fake = fakes[harness] = Adapter(directory, harness)
@@ -159,7 +163,8 @@ def install(home, **harnesses):
             fake._file(kind).unlink(missing_ok=True)
         fake.behave(*(steps if isinstance(steps, list) else [steps]))
         fake.script.write_text("#!/bin/sh\nexec " + shlex.join(
-            [sys.executable, "-I", __file__, str(directory), harness, AK]) + ' "$@"\n')
+            [sys.executable, "-I", str(directory / Path(__file__).name), str(directory), harness,
+             AK]) + ' "$@"\n')
         fake.script.chmod(0o755)
         shipped = REPO / "adapters" / f"{harness}.toml"
         text = shipped.read_text() if shipped.exists() else "version = 1\n"
@@ -176,7 +181,7 @@ def main(directory, harness, ak, verb="", *args):
             "env": {k: v for k, v in os.environ.items() if k.startswith(("AK_", "AGENTKIT_"))}}
     if verb == "lend" and "lend" not in (fake._json("answers") or {}):
         code = subprocess.run(
-            [sys.executable, "-I", str(REPO / "tools/lend.py"), *args, LENT], text=True,
+            [sys.executable, "-I", Path(__file__).with_name("lend.py"), *args, LENT], text=True,
             input=json.dumps({"ends": int(time.time()) + 86400,
                               "login": lent(os.environ.get("AGENTKIT_ACCOUNT"))})).returncode
     elif verb != "run":

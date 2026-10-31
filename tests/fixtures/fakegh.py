@@ -22,7 +22,8 @@ API has it and its reviews, branch rules, and a commit's check runs and statuses
 scripts an answer ahead of all of it: LOGGED_OUT and OFFLINE are what gh says when it cannot
 reach GitHub.
 
-The state is `<root>/github.json`; every call is logged where `home.calls("gh")` reads it.
+The state is `<root>/github.json`; every call is logged where `home.calls("gh")` reads it, and
+with when it came where `asked` does.
 
     from fixtures.akbin import Home
     from fixtures.fakegh import GitHub
@@ -45,6 +46,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 
 LOGGED_OUT = ("To get started with GitHub CLI, please run:  gh auth login\nAlternatively, "
               "populate the GH_TOKEN environment variable with a GitHub API authentication "
@@ -77,6 +79,14 @@ class GitHub:
         `head` merged, the `match` and `body` it was given, and whether its branch was
         `deleted`."""
         return json.loads(self.file.read_text())["prs"]
+
+    def asked(self):
+        """Each call, oldest first, as (when it came in epoch seconds, its argv)."""
+        try:
+            lines = self.file.with_suffix(".calls").read_text().splitlines()
+        except FileNotFoundError:
+            return []
+        return [tuple(json.loads(line)) for line in lines]
 
     def pr(self, number, slug=None):
         return next(pr for pr in self.prs() if pr["number"] == number
@@ -116,7 +126,8 @@ class GitHub:
 
     def reply(self, prefix, out="", *, err="", code=0, times=None):
         """Answer the calls whose space-joined argv starts with `prefix` so, `times` times or
-        for good, ahead of everything else; "" is every call."""
+        for good, ahead of everything else; "" is every call.  `{in N}` in `out` is the epoch
+        second N seconds after the call, as GitHub names a reset."""
         with _locked(self.file) as state:
             state["replies"].append({"prefix": prefix, "out": out, "err": err, "code": code,
                                      "times": times})
@@ -476,14 +487,18 @@ def _one(opts, *names):
 
 
 def main(file, log, *argv):
+    now = time.time()
     with open(log, "a") as calls:
         calls.write(json.dumps(list(argv)) + "\n")
+    with Path(file).with_suffix(".calls").open("a") as calls:
+        calls.write(json.dumps([now, list(argv)]) + "\n")
     out, err, code = "", "", 0
     with _locked(Path(file)) as state:
         for reply in state["replies"]:
             if " ".join(argv).startswith(reply["prefix"]) and reply["times"] != 0:
                 reply["times"] = None if reply["times"] is None else reply["times"] - 1
-                out, err, code = reply["out"], reply["err"], reply["code"]
+                out = re.sub(r"\{in (\d+)\}", lambda m: str(int(now) + int(m[1])), reply["out"])
+                err, code = reply["err"], reply["code"]
                 break
         else:
             try:
