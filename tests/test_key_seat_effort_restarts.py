@@ -69,9 +69,9 @@ class SeatEffortRestarts(unittest.TestCase):
     def launches(self):
         return self.fakes["claude"].calls("interactive")
 
-    def test_a_step_goes_into_its_running_harness_asking_nothing(self):
+    def test_a_step_types_only_its_effort_into_its_running_harness(self):
         self.term.keys("Right", "Space")
-        self.assertEqual(self.seat.wait_lines(2), ["/model claude-opus-5-5", "/effort max"])
+        self.assertEqual(self.seat.wait_lines(1), ["/effort max"])
         self.term.wait(lambda screen: any(line.lstrip("› ").startswith("Opus 5.5")
                                           and line.split()[5] == "max" for line in lines(screen)))
         self.assertNotIn(ASK, lines(self.term.screen()))

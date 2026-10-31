@@ -137,8 +137,7 @@ class DefaultsApplyToAll(unittest.TestCase):
         while len(self.fakes["claude"].calls("interactive")) < len(launched) + len(RESTARTING):
             self.assertLess(time.monotonic(), deadline, "a seat's harness never launched again")
             time.sleep(0.1)
-        self.assertEqual(self.seats["acme-same"].wait_lines(2),
-                         ["/model claude-fable-5-1", "/effort xhigh"])
+        self.assertEqual(self.seats["acme-same"].wait_lines(1), ["/effort xhigh"])
         again = self.fakes["claude"].calls("interactive")[len(launched):]
         self.assertEqual({(call["env"]["AGENTKIT_SESSION"], *call["argv"][:2]) for call in again},
                          {(name, "claude-fable-5-1", "xhigh") for name in RESTARTING})

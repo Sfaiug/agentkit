@@ -4237,7 +4237,8 @@ def _one_line(exc):
 def switch_lines(cfg, name, model, effort=None):
     """The lines owed to that seat's harness (`watch.owe_line`) in its launch's pane, which its
     prompt takes to run `model` at `effort`, else at the seat's own: `[switch]`'s `model` then
-    `effort`, an effort of `none` typing none.  None where the move restarts the seat: another
+    `effort`, an effort of `none` typing none, and a step of effort on the model it runs only
+    `effort` where that is a line of its own.  None where the move restarts the seat: another
     harness or provider (a login is the process's), that pane ended or gone, no `model` line, or
     a model with no id of its own (`default`: its launch names none, so the harness picks)."""
     record = config.session_records().get(name) or {}
@@ -4255,9 +4256,11 @@ def switch_lines(cfg, name, model, effort=None):
         return None
     at = effort or config.role_effort(config.at_efforts(cfg, record)["models"][model],
                                       "orchestrator")
+    keys = [key for key in ("model", "effort") if key in block and (key, at) != ("effort", "none")]
+    if keys == ["model", "effort"] and was["model"] == entry["model"]:
+        keys = ["effort"]   # a harness may save each `/model` as its default for new sessions
     return [{"line": block[key].format(model=entry["model"], effort=at), "switch": True,
-             "pane": pane} for key in ("model", "effort")
-            if key in block and (key, at) != ("effort", "none")]
+             "pane": pane} for key in keys]
 
 
 def effort_back(name, model, effort, was):
