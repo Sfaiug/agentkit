@@ -100,6 +100,17 @@ func TestIntReadsAsManyDigitsAsPython(t *testing.T) {
 	}
 }
 
+// Int reads a digit of any script Python's int() reads, and only those: a script Unicode added
+// after Python's release is no number, though Go's own unicode tables call it a digit.
+func TestIntReadsPythonsDigits(t *testing.T) {
+	for text, want := range map[string]string{"\u0663": "3", "-\U0001D7D7_\uFF11": "-91", "\U0001E4F9": "9",
+		"\U0001CCF4": "", "\U00010D40": "", "\u00B2": "", "\u2167": ""} {
+		if got := Int(text); got == nil && want != "" || got != nil && got.String() != want {
+			t.Errorf("Int(%+q) = %v, want %q", text, got, want)
+		}
+	}
+}
+
 func TestManifestPathsReadTheHarnesssEnvironment(t *testing.T) {
 	names := []string{"~/.acme", "$ACME_HOME", "~/.acme-$AGENTKIT_ACCOUNT", "${ACME_STATE:-~/.acme-state}", "$$ACME_HOME", "relative/dir", "${EMPTY:-fallback}/y", "$UNSET/z"}
 	env := map[string]string{"HOME": "/home/acme", "ACME_HOME": "/opt/acme", "AGENTKIT_ACCOUNT": "", "EMPTY": ""}
