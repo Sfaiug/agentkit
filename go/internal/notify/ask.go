@@ -47,8 +47,8 @@ func Ask(name string, record map[string]any, question string, out, errOut io.Wri
 	var attached bool
 	var held *os.File
 	for {
-		var known bool
-		if attached, known = standing(name, record); !known || config.EnsureDirs() != nil {
+		// read first without the lock, so that an ask left to Python makes no file at all
+		if _, known := standing(name, record); !known || config.EnsureDirs() != nil {
 			return 0, false
 		}
 		var err error
@@ -57,13 +57,18 @@ func Ask(name string, record map[string]any, question string, out, errOut io.Wri
 		}
 		now, renamed, err := config.ResolveSession(name)
 		if err == nil && now == name {
-			break
+			// and again under it: an owner's close, which Python writes holding this lock, or an
+			// attach may have come while this ask waited
+			var known bool
+			if attached, known = standing(name, renamed); known {
+				break
+			}
 		}
-		held.Close() // a rename won while this ask waited for the lock
-		if err != nil {
+		held.Close()
+		if err != nil || now == name {
 			return 0, false
 		}
-		name, record = now, renamed
+		name, record = now, renamed // a rename won while this ask waited for the lock
 	}
 	defer held.Close()
 	previous, err := run.ReadJSON(seatFile("notify", name, "json"))
