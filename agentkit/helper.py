@@ -135,8 +135,9 @@ def each_mb(piece_mem_mb, least_mb):
 
 
 def cpu_mb(piece_cpus, piece_mem_mb, least_mb):
-    """The MiB a CPU of a piece's VM, rounded up: what each CPU of a machine to rent must hold."""
-    return -(-each_mb(piece_mem_mb, least_mb) // int(max(piece_cpus, VM_CPUS)))
+    """The MiB each CPU of a machine to rent must hold, rounded up: a CPU's share of a piece's
+    VM, beside the tenth of its memory the machine's system keeps (linux.sh's `left`)."""
+    return -(-each_mb(piece_mem_mb, least_mb) * 10 // (9 * int(max(piece_cpus, VM_CPUS))))
 
 
 def failure(code):
