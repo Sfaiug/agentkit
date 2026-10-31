@@ -2127,7 +2127,11 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
         return {"state": "at_prompt", "since": None, "began": None, "hooked": None,
                 "hooked_at": None, "hooked_event": None, "authority": "", "rule": "none",
                 "evidence": str(exc)[:160]}
-    fields = dict(found, **stop_marks(harness, pane, found, previous, at))
+    # A blank capture is kept only where a hook decided it: it says nothing of the screen, and
+    # kept as a screen nothing reads it would put a turn in flight from nothing (`cut_off`) in
+    # place of the last one read -- a turn running, or the prompt an Esc left.
+    kept = pane.strip() or found["authority"]
+    fields = dict(found, **stop_marks(harness, pane, found, previous, at)) if kept else {}
     if any(previous.get(key) != value for key, value in fields.items()):
         seat_write(name, **fields)
     return found
@@ -2208,11 +2212,9 @@ def _turn_in_flight(harness, found):
     TUI still draws the composer it drew when the last one ended, which is why the row can
     no longer be talked out of it by a prompt rule.  A harness that keeps `working` on the
     screen instead says so by its at-prompt rule not matching -- a rule that named `working`,
-    or no rule at all, since a screen nothing here can read is not a seat at its prompt --
-    unless the owner interrupted its last turn: that rests it until its next prompt, and a
-    screen read as nothing then, one its process left blank as it died among them, begins
-    none.  A Stop on background work its manifest marks is a wait whose end starts the next
-    turn, on either: its composer is drawn open meanwhile.
+    or no rule at all, since a screen nothing here can read is not a seat at its prompt.  A
+    Stop on background work its manifest marks is a wait whose end starts the next turn, on
+    either: its composer is drawn open meanwhile.
     """
     try:
         authority = config.manifest(harness).get("authority") or {}
@@ -2225,7 +2227,7 @@ def _turn_in_flight(harness, found):
     if found.get("state") == "working":
         return True, found.get("began")
     if (authority.get("working") == "screen" and found.get("state") == "at_prompt"
-            and found.get("rule") == "none" and not found.get("interrupted")):
+            and found.get("rule") == "none"):
         return True, found.get("began")
     return False, None
 
