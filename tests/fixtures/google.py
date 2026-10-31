@@ -4,10 +4,12 @@
 token for any signed JWT, Compute Engine's price list from `skus` and the machine types zones
 offer from `zones`, each a list of pages handed out in order.  `sku` and `kind` make their
 entries, `ADDRESS` is a Spot machine's address.  `missed` joins every page of machine types,
-`{"unreachables": [...]}` naming zones Google could not reach; `asked` is every path asked, oldest
-first, `made` every machine, answered by the next of `answers`, `(body, code, bytes promised
-that never come)`, else made.  `key` writes a service-account key ak can sign with, `rented` runs
-`ak doctor` and gives its rented-machines lines, `at` a tick on the test clock, `close` stops it:
+`{"unreachables": [...]}` naming zones Google could not reach.  `buckets`, {(region, family):
+vCPUs}, are Service Usage's `cpus_per_vm_family`, None refused, and `quotas`, {region or
+project: {metric: vCPUs}}, Compute Engine's.  `asked` is every path asked, oldest first, `made` every machine,
+answered by the next of `answers`, `(body, code, bytes promised that never come)`, else made.
+`key` writes a service-account key ak can sign with, `rented` runs `ak doctor` and gives its
+rented-machines lines, `at` a tick on the test clock, `close` stops it:
 
     from fixtures.akbin import Home
     from fixtures.google import Google, kind
@@ -31,6 +33,7 @@ from fixtures import akconfig
 from fixtures.akbin import AK, REPO
 
 SPOT, NL, IOWA = "Spot Preemptible", ["europe-west4"], ["us-central1"]
+PROJECT = "/compute/v1/projects/acme-build"
 ECHO = {"AGENTKIT_ADAPTER_DIR": str(REPO / "tests/fixtures/adapters")}
 # Every `bin/ak` gives `google_cloud` the test clock, at the time in the file it names.
 CLOCK = """
@@ -68,7 +71,7 @@ class Google(http.server.ThreadingHTTPServer):
         self.home, self.skus, self.zones, self.asked, self.missed = home, skus, zones, [], {}
         # europe-west4-a's machines; by name, those read again as others and refused deletions
         self.machines, self.again, self.refused, self.silent = [], {}, set(), False
-        self.made, self.answers = [], []
+        self.made, self.answers, self.buckets, self.quotas = [], [], {}, {}
         self.env = {**ECHO, "AK_GOOGLE_URL": f"http://127.0.0.1:{self.server_address[1]}"}
         # ak doctor checks the models a config names: one that asks nobody
         akconfig.write(home, {"echo": {"harness": "echo", "model": "echo-1"}})
@@ -142,10 +145,20 @@ class _Answers(http.server.BaseHTTPRequestHandler):
             found = ({one["name"]: one for one in self.server.machines} | self.server.again).get(
                 url.path.rsplit("/", 1)[1])
             return self.answer(found) if found else self.send_error(404)
+        if url.path.endswith("%2Fcpus_per_vm_family"):
+            if self.server.buckets is None:
+                return self.send_error(403)
+            return self.answer({"consumerQuotaLimits": [{"quotaBuckets": [{
+                "effectiveLimit": str(limit), "dimensions": {"region": region, "vm_family": family}}
+                for (region, family), limit in self.server.buckets.items()]}]})
+        if url.path == PROJECT or url.path.startswith(f"{PROJECT}/regions/"):
+            quotas = self.server.quotas.get(url.path.rsplit("/", 1)[1], {})
+            return self.answer({"quotas": [{"metric": metric, "limit": float(limit)}
+                                           for metric, limit in quotas.items()]})
         pages = {"/v1/services/6F81-5844-456A/skus": [{"skus": skus} for skus in self.server.skus],
-                 "/compute/v1/projects/acme-build/aggregated/machineTypes":
+                 f"{PROJECT}/aggregated/machineTypes":
                      [{"items": zones, **self.server.missed} for zones in self.server.zones],
-                 "/compute/v1/projects/acme-build/aggregated/instances":
+                 f"{PROJECT}/aggregated/instances":
                      [{"items": {"zones/europe-west4-a": {"instances": self.server.machines}}}]}
         listing, at = pages[url.path], int(parse_qs(url.query).get("pageToken", ["0"])[0])
         self.answer({**listing[at], **({"nextPageToken": str(at + 1)}

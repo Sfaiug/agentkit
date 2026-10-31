@@ -1,12 +1,13 @@
 """Machines ak rents from Google Cloud: `best`, `rented`, `give_back`, the month's cost (`watch`,
 `said`) and renting (`need`), behind names another provider can be one more module of.  This
 module alone knows Google: the service-account key `KEY`, the token its JWT buys (signed by the
-openssl CLI: the standard library has no RSA), Compute Engine's Spot price list and machine types;
-and which machines it rents serve, till when, and how ssh reaches them (`serving`, `ssh_config`).
+openssl CLI: the standard library has no RSA), Compute Engine's Spot price list, machine types
+and CPU quotas; and which machines it rents serve, till when, and how ssh reaches them
+(`serving`, `ssh_config`).
 """
 
 import base64
-from collections import namedtuple
+from collections import Counter, namedtuple
 import contextlib
 from datetime import datetime, timezone
 import http.client
@@ -43,6 +44,10 @@ BOOT_DISKS = {**dict.fromkeys(["c2", "c2d", "e2", "n1", "n2", "n2d", "t2a", "t2d
               **dict.fromkeys(["c3", "c3d", "h3", "m3", "z3"], PD + HYPERDISK)}
 ADDRESS = "External IP Charge on a Spot Preemptible VM"    # the same in every region: "global"
 OFFERS, FRESH_FOR = "google-cloud-offers.json", 86400    # kept a day: a listing takes a minute
+# Service Usage's limits on a family's vCPUs in each region; FULL lists every region's, not only
+# those changed
+FAMILIES = ("/v1beta1/projects/{}/services/compute.googleapis.com/consumerQuotaMetrics/"
+            "compute.googleapis.com%2Fcpus_per_vm_family?view=FULL")
 LEDGER = "google-cloud-ledger.json"     # this month's meter: Google's billing export is hours late
 LATE = "google-cloud-late.json"         # doctor's lines: apart, so a bad ledger hides no refusal
 PASS = 180                         # seconds between the tick's passes: cron's */3 (install.sh)
@@ -89,9 +94,10 @@ class Offer(NamedTuple):
     cores: float      # physical: an arm64 vCPU is one, two x86 vCPUs share one
     memory_mb: int
     hourly: float     # euros: its cores, memory, boot disk and address, as the bill will
-    zones: list = ()  # none in a list kept before ak rented, which is then listed anew
+    zones: list = ()
     image: str = ""
     disk: str = ""    # its boot disk's type
+    vcpus: int = 0    # as quotas count them; none in a list kept before, which is listed anew
 
     @property
     def cpus(self):     # the vCPUs its machine counts, as a suite's VMs are given them
@@ -141,7 +147,8 @@ def said(mb_per_cpu):
 def watch():
     """The tick's pass while ak may rent: the meter moved on to what Google lists, each machine
     past its end, unpriced, past the cap or idle given back and said, the other ready ones serving;
-    only then a stale price list, and a machine rented for a need noted while none comes up."""
+    only then a stale price list and quotas, and a machine rented for a need noted while none
+    comes up."""
     wanted, (active, cap) = _noted(config.STATE / NEED), _setting()
     if not active:
         return
@@ -149,8 +156,9 @@ def watch():
     try:
         kept = json.loads((config.STATE / OFFERS).read_text())
         at, offered = kept["at"], [Offer(*one) for one in kept["offers"]]
+        limits = kept.get("limits") or {}
     except (OSError, ValueError, TypeError, KeyError):
-        at, offered = 0, []
+        at, offered, limits = 0, [], {}
     prices = {(one.name, one.region): one.hourly for one in offered if _amount(one.hourly)}
     ledger, late = (read := _ledger()) and _moved(read, listed, now, prices), []
     try:
@@ -173,13 +181,15 @@ def watch():
     config._write_json(config.STATE / LATE, late)
     if ledger:
         config._write_json(config.STATE / LEDGER, ledger)
-    if not _amount(at) or now - at >= FRESH_FOR or not all(one.zones for one in offered):
-        config._write_json(config.STATE / OFFERS, {"at": now, "offers": (offered := offers())})
+    if not _amount(at) or now - at >= FRESH_FOR or not all(one.vcpus for one in offered):
+        offered = offers()
+        limits = _limits({one.region for one in offered})
+        config._write_json(config.STATE / OFFERS, {"at": now, "offers": offered, "limits": limits})
     # none coming up: on the meter by name or listed, not ready, since less than READY ago
     if wanted and ledger and all(now - since >= READY for since in [
             *(one.get("from", 0) for one in ledger["machines"].values()),
             *(one.created for one in listed if one.id not in idle)]):
-        late += _rent(ledger, wanted, cap, now, offered, {one.zone for one in listed})
+        late += _rent(ledger, wanted, cap, now, offered, limits, {one.zone for one in listed})
         config._write_json(config.STATE / LATE, late)
 
 
@@ -261,7 +271,7 @@ def offers():
             hourly = vcpus * a_vcpu + mb / 1024 * a_gb + DISK_GB * a_disk_gb + address
             found.setdefault((name, region), Offer(name, region, vcpus if arm else vcpus / 2, mb,
                                                    hourly, [], IMAGE + "-arm64" * arm,
-                                                   DISK_TYPES[product])).zones.append(zone)
+                                                   DISK_TYPES[product], vcpus)).zones.append(zone)
     return list(found.values())
 
 
@@ -296,19 +306,31 @@ def _noted(path):
         return 0
 
 
-def _rent(ledger, wanted, cap, now, offered, taken):
+def _rent(ledger, wanted, cap, now, offered, limits, taken):
     """How renting a machine of `wanted` MiB a vCPU went, in lines: by price per core, zones
     where ak has none (`taken`) first, as Google took both Spot machines of one zone in 6 s on 30
-    Oct 2026; on the meter by name till Google says it made none; living what the cap leaves."""
+    Oct 2026; none past a quota of `limits`, every machine Google lists counted; on the meter by
+    name till Google says it made none; living what the cap leaves."""
     left = cap - ledger["spent"] - sum(one["price"] * max(0, one["until"] - one.get("from", now))
                                        for one in ledger["machines"].values()) / 3600
     # the public half of the key `_idle` made, or OSError before any machine is on the meter
     (compute, token), key = _login(), (config.SECRETS / f"{SSH_KEY}.pub").read_text().strip()
-    said, tries = [f"nothing offered with {wanted} MiB a vCPU"], TRIES
+    said, tries, used, full = [f"nothing offered with {wanted} MiB a vCPU"], TRIES, Counter(), {}
+    types = {(one.name, one.region): one for one in offered}
+    for zone, listed in _pages(token, f"{compute}/aggregated/instances", "items"):
+        region = zone.removeprefix("zones/").rsplit("-", 1)[0]
+        for one in listed.get("instances") or ():    # ak's or not: a quota counts both
+            if kind := types.get((one["machineType"].split("/")[-1], region)):
+                used.update(dict.fromkeys(_quotas(kind, limits), kind.vcpus))
     for offer in best(wanted, offered):
         if (life := int(min(LIFE, left * 3600 / offer.hourly))) < READY:
             said = [f"rents nothing: €{cap - left:.2f} of €{cap:.2f} spent this month or held "
                     f"to the machines' ends leaves less than {READY // 60} minutes of {offer.name}"]
+            continue
+        if out := [one for one in _quotas(offer, limits) if used[one] + offer.vcpus > limits[one]]:
+            full.update(dict.fromkeys(out))
+            said = ["too little quota left: " + "; ".join(
+                f"{one}: {used[one]:g} of {limits[one]:g} vCPUs in use" for one in full)]
             continue
         for zone in sorted(offer.zones, key=taken.__contains__):
             name, asked = f"ak-{secrets.token_hex(6)}", time.time()    # past refusals' polls
@@ -326,6 +348,40 @@ def _rent(ledger, wanted, cap, now, offered, taken):
             if not tries or not codes & REFUSALS:
                 return said
     return said
+
+
+def _limits(regions):
+    """{quota: the vCPUs Google lets the project hold of it}, named as `_quotas` names them, of
+    `regions`; none if any cannot be read, as a less specific one would hold a family instead."""
+    try:
+        compute, token = _login()
+        project, found = compute.rsplit("/", 1)[1], {}
+        for limit in _call(_url("serviceusage", FAMILIES.format(project)), token).get(
+                "consumerQuotaLimits") or ():
+            for bucket in limit.get("quotaBuckets") or ():
+                if {"region", "vm_family"} <= (where := bucket.get("dimensions") or {}).keys():
+                    found[f"{where['vm_family']} in {where['region']}"] = int(
+                        bucket["effectiveLimit"])
+        for region in regions:
+            for quota in _call(f"{compute}/regions/{region}", token).get("quotas") or ():
+                if quota["metric"].endswith("CPUS"):
+                    found[f"{quota['metric']} in {region}"] = quota["limit"]
+        for quota in _call(compute, token).get("quotas") or ():
+            if quota["metric"] == "CPUS_ALL_REGIONS":
+                found[quota["metric"]] = quota["limit"]
+    except (Unavailable, LookupError, TypeError, ValueError, AttributeError):
+        return {}
+    return found
+
+
+def _quotas(offer, limits):
+    """The quotas of `limits` a machine of `offer`'s type counts against: its family's in its
+    region, the most specific Google lists, and all regions'; but none of -1, Google's no limit."""
+    family = offer.name.split("-")[0].upper()
+    region = next((one for one in (f"{family} in {offer.region}",
+                                   f"{family}_CPUS in {offer.region}", f"CPUS in {offer.region}")
+                   if one in limits), None)
+    return [one for one in (region, "CPUS_ALL_REGIONS") if limits.get(one, -1) >= 0]
 
 
 def _create(compute, token, zone, machine):
