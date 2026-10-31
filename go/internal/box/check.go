@@ -19,10 +19,11 @@ import (
 // install puts bubblewrap on a host.
 const install = "sudo apt-get install -y bubblewrap"
 
-// Check is why this host cannot start a worker's box, or nil: what building one refuses, or a
-// box for `true` that fails inside a second box, both built as a turn's is, which bubblewrap's
-// words or exit status and the remedy say.  A probe still running after 10 seconds is a loaded
-// host, as one that cannot nest a box says so at once, and every turn keeps its own limits.
+// Check is why this host cannot start a worker's box, or nil: what building one refuses, else a
+// box for `true` inside a second box, each built by the code a turn's is, failing with
+// bubblewrap's words or exit status, which the remedy follows.  A probe still running after 10
+// seconds is a loaded host, not one that cannot nest a box, which says so at once; every turn
+// keeps its own limits.
 func Check() error {
 	env := map[string]string{}
 	for _, pair := range os.Environ() {

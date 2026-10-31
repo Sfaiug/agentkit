@@ -18,5 +18,5 @@ func Run(argv []string, env map[string]string, workspace, out string, state, log
 // First is false: nothing starts this program as a box's first process here.
 func First() (int, bool) { return 0, false }
 
-// Check is nil: no box starts here, a turn being Python's, which checks its own.
+// Check is nil: there is no box here to start, a turn being Python's.
 func Check() error { return nil }
