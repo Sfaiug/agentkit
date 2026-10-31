@@ -52,6 +52,14 @@ class ProjectDown(unittest.TestCase):
         self.assertEqual(self.tick(), [card])
         self.assertEqual(self.tick(), [card])
 
+    def test_a_last_line_longer_than_the_output_kept_keeps_its_beginning(self):
+        repo = self.project("acme", "printf 'probing\\nCAUSE: db refused %05000d\\n\\n' 0; false")
+        since = int(time.time()) - 300
+        self.home.write(".agentkit/state/alive.json", {str(repo): since})
+        line = "CAUSE: db refused " + "0" * 5000
+        self.assertEqual(self.tick(),
+                         [f"🔴 acme is down since <t:{since}:t> · {line[:200]} <@42>"])
+
     def test_no_seat(self):
         self.project("acme", "true")
         unfiled = self.project("acme-old", DOWN, seat=False)

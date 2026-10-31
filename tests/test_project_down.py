@@ -99,15 +99,6 @@ class ProjectDown(unittest.TestCase):
         self.assertEqual(card["content"],
                          "🔴 acme is down since <t:1000000:t> · db refused <@42>")
 
-    def test_a_last_line_longer_than_the_output_kept_keeps_its_beginning(self):
-        repo = self.project("acme", "cat why; false")
-        line = "CAUSE: db refused " + "x" * 5000
-        (repo / "why").write_text(f"probing\n{line}\n\n")
-        self.tick(0, [repo])
-        card, = self.tick(6, [repo])
-        self.assertEqual(card["content"],
-                         f"🔴 acme is down since <t:1000000:t> · {line[:200]} <@42>")
-
     def test_a_read_is_timed_as_it_starts(self):
         slow, repo = self.project("a-slow", "true"), self.project("acme", DOWN)
         check = alive.watch.health_command
