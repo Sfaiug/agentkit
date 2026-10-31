@@ -227,9 +227,9 @@ def seat_full(seat, launches):
 
 def _save_queue(running, queue, let_in=None, turns=None):
     """Under slot_lock: the queue as this poll decided it, for the waiters behind its first,
-    since when that first has waited there while polled (`first_in_line`), and how long the last
+    since when that first has waited there while polled (`first_in_line`), how long the last
     20 firsts waited there before they were let in (`let_in`, the state this poll lets in), kept
-    across gaps in the polling."""
+    across gaps in the polling, and when the last run went in."""
     path, now = config.RUNS / ".slots.queue", time.time()
     waits, saved = first_in_line(now), slot_queue()
     took = saved[4]
@@ -248,7 +248,7 @@ def _save_queue(running, queue, let_in=None, turns=None):
              for seat, (count, pending) in turns.items()}
     temp = path.with_name(".slots.queue.tmp")
     temp.write_text(json.dumps({"at": now, "running": running, "queue": queue, "since": since,
-                                "took": took,
+                                "took": took, "last_in": now if let_in else saved[6],
                                 "turns": [[*seat, count, pending]
                                           for seat, (count, pending) in turns.items() if pending]}))
     temp.replace(path)
@@ -257,16 +257,17 @@ def _save_queue(running, queue, let_in=None, turns=None):
 def slot_queue():
     """(when, live slot owners, waiting run ids first in line first, since when that first has
     waited there, the waits there of the last firsts let in, admitted turns and remaining
-    waiters by seat) as the last poll left them."""
+    waiters by seat, when the last run went in) as the last poll left them."""
     try:
         saved = json.loads((config.RUNS / ".slots.queue").read_text())
         return (float(saved["at"]), int(saved["running"]),
                 [str(run_id) for run_id in saved["queue"]], float(saved.get("since") or 0),
                 [float(wait) for wait in saved.get("took") or []],
                 {tuple(turn[:-2]): (int(turn[-2]), tuple(turn[-1]))
-                 for turn in saved.get("turns", []) if len(turn) == 7})
+                 for turn in saved.get("turns", []) if len(turn) == 7},
+                float(saved.get("last_in") or 0))
     except (OSError, ValueError, KeyError, TypeError):
-        return 0.0, 0, [], 0.0, [], {}
+        return 0.0, 0, [], 0.0, [], {}, 0.0
 
 
 def first_in_line(now):
@@ -274,7 +275,7 @@ def first_in_line(now):
     it, the waits there of the last firsts let in) while a poll rewrote the queue within three
     of the last in line counting it again (`waiter.stale_after`), for `stuck`; after a gap, a new
     wait.  A poll newer than `now`, one that ran while the caller read, is the same wait."""
-    at, _, queue, since, took, _ = slot_queue()
+    at, _, queue, since, took, *_ = slot_queue()
     if queue and since and now - at < waiter.stale_after(len(queue) - 1, SLOT_POLL) + 3 * SLOT_POLL:
         return queue[0], since, len(queue) - 1, took
     return None
@@ -405,7 +406,8 @@ def memory_tight(readings=None):
 
 
 def _host_admits(state, readings, is_first):
-    """The host gates and two steady polls: False, the wait written on `state`, while one holds.
+    """The host gates and a poll's pause after a start: False, the wait written on `state`, while
+    one holds.
 
     A run stalled first in line (`stuck.slot_stall`) goes past every gate but the host's strain
     (`_strain`), `slot_stall` naming the one it went past: the gates derived from those readings
@@ -426,7 +428,6 @@ def _host_admits(state, readings, is_first):
 def _held(state, reason, kind):
     state["slot_waited"] = True
     state["slot_wait_reason"], state["slot_wait_kind"] = reason, kind
-    state["slot_healthy_polls"] = 0
     return False
 
 
@@ -452,11 +453,10 @@ def _gates_admit(state, readings, is_first):
         reason, kind = "waiting for a landing suite's turn · finished work goes first", "landing"
     if reason:
         return _held(state, reason, kind)
-    polls = state.get("slot_healthy_polls", 0) + 1
-    if polls < 2:
-        state["slot_healthy_polls"] = polls
-        # The gates pass but steadiness is still owed: say that, with the
-        # readings behind it, rather than the count sentence nothing waits on.
+    if 0 <= time.time() - slot_queue()[6] < SLOT_POLL:
+        # Readings lag what a run just let in will use: the next waits a poll for them, so a
+        # burst goes in one a poll (30 Oct 2026: 43 at once hit the process limit).  Say that,
+        # with the readings behind it, rather than the count sentence nothing waits on.
         # The kind stays whatever gate (if any) actually delayed this wait.
         free = host._reading(readings, "free_mb", "mem_available_mb", "mem_available")
         state["slot_wait_reason"] = f"waiting for steady readings · {host._g(free)} G free"
@@ -467,8 +467,9 @@ def _gates_admit(state, readings, is_first):
     return True
 
 
-def claim_slot(state, limit, readings=None):
-    """Called under slot_lock: count, seat turns and two steady host polls decide admission."""
+def claim_slot(state, limit, readings=None, launch=False):
+    """Called under slot_lock: count, seat turns, the host gates and a poll's pause after a start
+    decide admission.  A gated `launch` only records why it waits: its waiter owns the start."""
     # AK_MAX_RUNS=0 is the test-suite escape hatch: it disables count and host gates together.
     ungated = os.environ.get("AK_MAX_RUNS") == "0"
     running, ahead, others = slot_counts(state, remember=not (state.get("run_depth", 0) or ungated))
@@ -487,26 +488,17 @@ def claim_slot(state, limit, readings=None):
         state["slot_waited"] = True
         state["slot_wait_reason"] = slot_line(running, ahead, limit, is_first)
         state["slot_wait_kind"] = "count"
-        state["slot_healthy_polls"] = 0
         return False
     state.pop("slot_stall", None)
-    if not green and not _host_admits(state, readings, is_first):
+    if (not green and not _host_admits(state, readings, is_first)) or launch:
         return False
     _save_queue(running + 1, others, let_in=state)
     state.update(state="running", slot_waiting=False, slot_started_at=time.time(),
                  **run_record.process_owner())
-    for key in ("resume_from", "slot_healthy_polls", "reservation_pending",
+    for key in ("resume_from", "reservation_pending",
                 "slot_wait_reason", "slot_wait_kind"):
         state.pop(key, None)
     return True
-
-
-def reserve_slot(state, limit):
-    claim_slot(state, limit)
-    # Steadiness is counted by the waiter's own polls, not banked here: the
-    # launch check only records an early reason, and admission still needs
-    # two consecutive healthy polls from the waiter itself.
-    state.pop("slot_healthy_polls", None)
 
 
 def count_wait(run_id, wait, counted):
@@ -573,8 +565,8 @@ def wait_for_slot(run_dir, between=None):
                 # what held the launch before this process took it up: its launcher, a pickup
                 wait_kind = state.get("slot_wait_kind")
             if behind:
-                # The polls it skipped were count waits, and steadiness starts over after one.
-                state.update(slot_waited=True, slot_wait_kind="count", slot_healthy_polls=0)
+                # The polls it skipped were count waits.
+                state.update(slot_waited=True, slot_wait_kind="count")
                 behind = False
             first_poll = False
             if claim_slot(state, limit):

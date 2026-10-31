@@ -1145,7 +1145,7 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
         if not bound:
             # A fix run waits for its slot from its first record on: whatever cuts its handoff
             # off before the launch, it is a slot wait, which the tick resumes.
-            gate.reserve_slot(state, limit)
+            gate.claim_slot(state, limit, launch=True)
         run_record.save_state(run_dir, state)
     history_start(state)
     redress_seat(session_at_launch)   # the seat's bar says it from the start
