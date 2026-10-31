@@ -47,12 +47,25 @@ func Adapter(harness string) (string, error) {
 	return script, nil
 }
 
-// manifests is every adapter's manifest by its name, $AGENTKIT_ADAPTER_DIR's of a harness first.
+// manifests is every adapter's manifest by its name, $AGENTKIT_ADAPTER_DIR's of a harness first,
+// else the first in file order that is not TOML, named by its file as Python's config.manifest
+// names it.
 func manifests() (map[string]*table, error) {
-	manifests := map[string][]byte{}
+	found := map[string]*table{}
+	read := func(file string, data []byte) error {
+		root, err := parseDocument(string(data))
+		if err != nil {
+			return fmt.Errorf("%s: %w", file, err)
+		}
+		found[strings.TrimSuffix(filepath.Base(file), ".toml")] = root
+		return nil
+	}
 	shipped, _ := fs.Glob(adapters, "adapters/*.toml")
 	for _, each := range shipped {
-		manifests[path.Base(each)], _ = adapters.ReadFile(each)
+		data, _ := adapters.ReadFile(each)
+		if err := read(each, data); err != nil {
+			return nil, err
+		}
 	}
 	if dir := os.Getenv(adapterDir); dir != "" {
 		for _, each := range Glob(Expand(dir), "*.toml") {
@@ -60,16 +73,10 @@ func manifests() (map[string]*table, error) {
 			if err != nil {
 				return nil, fmt.Errorf("cannot read %s: %w", each, err)
 			}
-			manifests[filepath.Base(each)] = data
+			if err := read(each, data); err != nil {
+				return nil, err
+			}
 		}
-	}
-	found := map[string]*table{}
-	for name, data := range manifests {
-		root, err := parseDocument(string(data))
-		if err != nil {
-			return nil, fmt.Errorf("adapter manifest %s: %w", name, err)
-		}
-		found[strings.TrimSuffix(name, ".toml")] = root
 	}
 	return found, nil
 }
