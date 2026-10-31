@@ -23,6 +23,7 @@ class RedNarrowedBothWays(NarrowFixture, unittest.TestCase):
             (on(1, 2, 3, 4), None),
             (on(1, 2), ["t_tax"]),              # red: move earlier without a whole check
             (on(1), ["t_tax"]),                # green: the second member turned it red
+            (on(1), None),                      # just below it, whole: green
             (on(1, 3, 4), None)])
         self.assertEqual(fix["tests"], ["t_tax"])
         self.assertIn("FAIL t_tax", Path(fix["log"]).read_text())
@@ -44,6 +45,7 @@ class RedNarrowedBothWays(NarrowFixture, unittest.TestCase):
             (on(1, 2), ["t_tax"]),              # inconclusive: its whole check decides
             (on(1, 2), None),
             (on(1), ["t_tax"]),
+            (on(1), None),
             (on(1, 3, 4), None)])
         self.assertEqual(fix["tests"], ["t_tax"])
 
