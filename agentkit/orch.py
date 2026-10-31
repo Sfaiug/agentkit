@@ -2789,8 +2789,9 @@ def write_rulebook(session):
     return path
 
 
-def fetch_projects():
-    """The tick's pass: `fetch_project` for each checkout and each project a seat is filed under.
+def fetch_projects(fetched=None):
+    """The tick's pass: `fetch_project` for each checkout and each project a seat is filed under,
+    each one fetched added to the set `fetched`.
 
     Only a fetch shows a merge there, ak's own or one made anywhere else; the seat's next prompt
     then carries the new rules (`rulebook_news`), and each project, with a seat or none, runs its
@@ -2804,6 +2805,9 @@ def fetch_projects():
             fetch_project(repo)
         except config.Error as exc:
             failed.append(str(exc))
+        else:
+            if fetched is not None:
+                fetched.add(repo)
     if failed:
         raise config.Error("; ".join(failed))
 

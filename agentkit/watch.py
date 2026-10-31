@@ -7122,10 +7122,10 @@ AFTER_MERGE_PASS = ("success", "neutral", "skipped")  # the conclusions that mea
 HEALTH_TIMEOUT = 30  # a project's live probe must leave time for the rest of the tick
 
 
-def health_command(repo, sha, command, checked=None):
-    """A bounded live probe and its last output, without inherited pipes holding the tick,
-    leaving its row in history as `gate.run_done_when` does with `checked`: no exit where it
-    timed out."""
+def health_command(repo, sha, command, checked=None, timeout=HEALTH_TIMEOUT):
+    """A live probe bounded by `timeout` and its last output, without inherited pipes holding
+    the tick, leaving its row in history as `gate.run_done_when` does with `checked`: no exit
+    where it timed out."""
     try:
         with tempfile.TemporaryFile() as output, \
                 history.check(checked, command, time.time()) as ended:
@@ -7135,7 +7135,7 @@ def health_command(repo, sha, command, checked=None):
                                     stderr=subprocess.STDOUT, start_new_session=True)
             timed_out = False
             try:
-                proc.wait(timeout=HEALTH_TIMEOUT)
+                proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
                 timed_out = True
             finally:
@@ -7154,7 +7154,7 @@ def health_command(repo, sha, command, checked=None):
             output.seek(max(0, output.tell() - 4096))
             tail = "\n".join(output.read(4096).decode("utf-8", errors="replace").splitlines()[-10:])
             if timed_out:
-                tail += f"\nhealth command timed out after {HEALTH_TIMEOUT}s"
+                tail += f"\ntimed out after {timeout}s"
             return not timed_out and proc.returncode == 0, tail.strip()
     except OSError as exc:
         return False, str(exc)
@@ -7813,9 +7813,9 @@ def local_passes(state, dry_run, log):
     Each pass re-derives placement or state from what it finds: a finding remembered from one
     tick to the next loses its race.
     """
-    from . import (google_cloud, history, job as jobs, leases, logins, machine_setup, machines,
-                   retire, run, waiter)
-    providers = {}
+    from . import (alive, google_cloud, history, job as jobs, leases, logins, machine_setup,
+                   machines, retire, run, waiter)
+    providers, fetched = {}, set()
 
     def read_usage():
         # Of the snapshot, not of the adapters: a provider is asked at most once per
@@ -7925,10 +7925,12 @@ def local_passes(state, dry_run, log):
         # longer than its ssh timeout.
         ("machine check", machines.check, False),
         # A merge to a project reaches its seats' rulebooks: their next prompts name it.
-        ("project rules", orch.fetch_projects, False),
+        ("project rules", lambda: orch.fetch_projects(fetched), False),
         # ... and what each needs of this machine, made ready in the background: once here for
         # each version of its `setup:`, and again after a try that failed
         ("project setups", machine_setup.tick, False),
+        # ... and whether each seat's product is up, read from this machine, not the product's
+        ("alive checks", lambda: alive.tick(fetched), False),
         # Merged agentkit goes live after every local pass, so as little of this tick's old
         # code as can be is left to run over new files; GitHub imports nothing new.
         ("live update", lambda: update.go_live(log), False),

@@ -235,12 +235,13 @@ def title(kind, session):
             f"{' '.join((session or '').split()) or 'agentkit'}")
 
 
-def card_payload(kind, session):
-    """What a page posts: its title, then the owner's mention, the only one it may ping.  No
-    embed: what was asked or done stays in the seat.  Once out it is never edited: the owner
-    has read it by the time it is answered (owner, 19 Oct 2026)."""
+def card_payload(kind, session, line=None):
+    """What a page posts: its title, or `line` in its place, then the owner's mention, the only
+    one it may ping.  No embed: what was asked or done stays in the seat.  Once out it is never
+    edited: the owner has read it by the time it is answered (owner, 19 Oct 2026)."""
     user_id = _secret(USER_ID_ENV, "discord_user_id")
-    return {"username": "agentkit", "content": title(kind, session) + (f" <@{user_id}>" if user_id else ""),
+    return {"username": "agentkit",
+            "content": (line or title(kind, session)) + (f" <@{user_id}>" if user_id else ""),
             "allowed_mentions": {"users": [user_id]} if user_id else {"parse": []}}
 
 
@@ -1093,14 +1094,16 @@ def _send_card(session, kind, card, answer, completion=None):
         return _attempt(event)
 
 
-def page(key, about, text):
+def page(key, about, text, line=None, owed=False):
     """Page the owner about no seat, once per `key` however often it is asked: the outbox
     keeps the event, so no later tick or restart queues it again. One the webhook did not
     take is tried again on a card's schedule and rules only when asked again, so a caller
     asking while the page is still due never has it sent once it is not: 0 once it is out
-    or never will be, 1 while it waits to be asked again.
-    It reads as a seat's question does, `about` standing where the seat's name would."""
-    payload = card_payload("needs", about)
+    or never will be, 1 while it waits to be asked again.  An install since it was queued
+    drops it unless the caller says it is `owed` still.
+    It reads as a seat's question does, `about` standing where the seat's name would, or as
+    `line` where given."""
+    payload = card_payload("needs", about, line)
     key = hashlib.sha256(json.dumps(["page", key, sink() is not None]).encode()).hexdigest()
     with outbox_lock():
         event = _read_event(key)
@@ -1110,8 +1113,10 @@ def page(key, about, text):
                      "sink": sink() is not None, "status": "pending", "attempts": 0,
                      "next_attempt": 0}
             _write_event(event)
-        elif event["status"] not in ("delivered", "disabled") and _dropped(event, None):
-            return 0
+        elif event["status"] not in ("delivered", "disabled"):
+            if not owed and _dropped(event, None):
+                return 0
+            event.update(text=text, payload=payload, message=text)     # what is true now, until out
         _attempt(event)
         return 0 if event["status"] in ("delivered", "disabled") else 1
 
