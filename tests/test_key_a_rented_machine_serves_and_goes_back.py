@@ -1,6 +1,7 @@
 """A machine ak rents serves suites once ready and goes back once it has held nothing for ten
 minutes; one not ready is left alone; a new machine at a name and address another had is reached;
-with `[google_cloud]` not active, none serves or goes back.
+the host key an earlier install kept by address for one serving still holds; with `[google_cloud]`
+not active, none serves or goes back.
 
 Black-box: `AK_BIN` runs `ak watch` in `home.tick()`'s box, `ak doctor` and a lander against the
 fake Google of tests/fixtures/google.py.  A fake ssh is the machines, each a directory named by its
@@ -99,12 +100,20 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
         google.machines = [listed(n) for n in range(1, 8)]
         cls.first = cls.tick()
         prepare.communicate()   # an empty parcel: the suite goes
+        # an earlier install's host keys, by address in one file, 3 now presenting another
+        secrets = home.path / ".agentkit/secrets"
+        for path in secrets.glob("google-cloud-known-hosts-*"):
+            path.unlink()
+        (secrets / "google-cloud-known-hosts").write_text("".join(
+            f"203.0.113.{n} ssh-ed25519 AAAA{n}\n" for n in (1, 3, 5)))
+        (cls.machines / "203.0.113.3/hostkey").write_text("ssh-ed25519 AAAA3anew")
         # 1 is replaced at its name and address by a new machine
         (cls.machines / "203.0.113.1").rename(cls.machines / "gone")
         cls.machine(1, 300, None, ready=True, key="anew")
-        google.machines = [{**listed(1), "id": "11"}, *(listed(n) for n in (3, 5, 6))]
+        google.machines = [{**listed(1), "id": "11", "creationTimestamp": datetime.now(
+            UTC).isoformat()}, *(google.machines[n - 1] for n in (3, 5, 6))]
         cls.second, cls.keys = cls.tick(), sorted(
-            path.name for path in (home.path / ".agentkit/secrets").glob("google-cloud-known-*"))
+            path.name for path in secrets.glob("google-cloud-known-*"))
         line = Line({"t/a.sh": "true\n", "tools/helper/Containerfile": "FROM acme\n"}, home=home)
         line.member({"api.txt": "x\n"})
         cls.landed, cls.verdict = line.land(), line.verdict(1)
@@ -154,13 +163,17 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
             "this one", "acme-1", "acme-3", "acme-5", "acme-7"], [
             "acme-2 listed idle, given back", "acme-4 listed idle, given back"]))
         # its suite gone, 5 has held nothing 20 minutes
-        self.assertEqual(self.second, (["acme-5"], ["this one", "acme-1", "acme-3"],
+        self.assertEqual(self.second, (["acme-5"], ["this one", "acme-1"],
                                        ["acme-5 listed idle, given back"]))
 
     def test_a_new_machine_at_a_name_and_address_another_had_is_reached(self):
         self.assertIn("acme-1", self.second[1])
         # the host keys of the machines Google lists, and no other
         self.assertEqual(self.keys, [f"google-cloud-known-hosts-{n}" for n in (11, 3, 5, 6)])
+
+    def test_the_host_key_an_earlier_install_kept_for_one_serving_still_holds(self):
+        # 3 presents another key than the one it served with: ssh refuses it, as before
+        self.assertNotIn("acme-3", self.second[1])
 
     def test_a_suite_goes_to_one(self):
         self.assertEqual(self.landed.code, 0, self.landed.out + self.landed.err)

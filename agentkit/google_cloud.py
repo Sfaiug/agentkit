@@ -276,13 +276,22 @@ def _idle(listed):
     listed forgotten."""
     from . import helper, machines    # here, not at the top: both read this module
     key, kept = config.SECRETS / SSH_KEY, {_reach(one)["UserKnownHostsFile"] for one in listed}
+    legacy, was = config.SECRETS / KNOWN_HOSTS, serving()
     if not key.exists():
         subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", USER, "-f", key],
                        capture_output=True, check=True)
+    reached = [one for one in listed if one.address]
+    for one in reached:
+        # an earlier install kept host keys by address in one file: one serving since before the
+        # ssh config was written keeps the key it served with; one created since is another
+        known = _reach(one)["UserKnownHostsFile"]
+        if (one.name in was and legacy.exists() and not known.exists()
+                and one.created < (config.STATE / SSH_CONFIG).stat().st_mtime):
+            known.write_bytes(subprocess.run(["ssh-keygen", "-F", one.address, "-f", legacy],
+                                             capture_output=True).stdout)
     for path in config.SECRETS.glob(f"{KNOWN_HOSTS}*"):
         if path not in kept:
             path.unlink(missing_ok=True)
-    reached = [one for one in listed if one.address]
     line = f"test -e {READY} && {helper._line('idle')}"
     said = machines.ask([[*machines.SSH, *(word for option in _reach(one).items()
                                            for word in ("-o", '%s="%s"' % option)),
