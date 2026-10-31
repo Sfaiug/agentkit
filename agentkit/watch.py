@@ -2127,7 +2127,11 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
         return {"state": "at_prompt", "since": None, "began": None, "hooked": None,
                 "hooked_at": None, "hooked_event": None, "authority": "", "rule": "none",
                 "evidence": str(exc)[:160]}
-    fields = dict(found, **stop_marks(harness, pane, found, previous, at))
+    # A blank capture is kept only where a hook decided it: it says nothing of the screen, and
+    # kept as a screen nothing reads it would put a turn in flight from nothing (`cut_off`) in
+    # place of the last one read -- a turn running, or the prompt an Esc left.
+    kept = pane.strip() or found["authority"]
+    fields = dict(found, **stop_marks(harness, pane, found, previous, at)) if kept else {}
     if any(previous.get(key) != value for key, value in fields.items()):
         seat_write(name, **fields)
     return found
