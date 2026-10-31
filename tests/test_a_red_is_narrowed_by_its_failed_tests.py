@@ -1,8 +1,8 @@
 """A red batch whose suite piece named the tests that failed again alone is narrowed by those
 tests first: each halfway step runs them alone, a pass, each named as run, moving the search
 deeper, and the stack right behind the deepest one they pass in is the member that turned them
-red.  A confirmed failure moves the search earlier.  It fixes; the rest rebuild and land in
-the same pass.  An inconclusive step gets its whole check, as without them -- a test a later
+red.  A confirmed failure moves the search earlier.  It fixes; the stack just below it, checked
+whole, lands, and the rest rebuild and land in the same pass.  An inconclusive step gets its whole check, as without them -- a test a later
 member added is not there yet -- so an empty run there alone blames no one.
 
 Offline: real Git and checks, the suite a shell runner that runs only those asked for and
@@ -88,6 +88,7 @@ class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
             (on(1, 2, 3, 4, 5, 6), None),       # the deepest, whole: red on t_tax
             (on(1, 2, 3), ["t_tax"]),           # halfway: they pass, deeper
             (on(1, 2, 3, 4), ["t_tax"]),        # confirmed red, behind their pass
+            (on(1, 2, 3), None),                # just below it, whole: green
             (on(1, 2, 3, 5, 6), None)])         # rebuilt, whole
         self.assertEqual(fix["tests"], ["t_tax"])
         self.assertIn("FAIL t_tax", Path(fix["log"]).read_text())

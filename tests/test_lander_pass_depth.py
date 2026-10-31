@@ -110,7 +110,8 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
     def test_rebuilding_after_a_red_stack_continues_in_the_same_pass(self):
         members = self.members(red=2)
         land.check_line(self.turn)
-        self.assertEqual(len(self.checks), 4)
+        # the deepest, two halfway steps, the stack just below the red whole, then the rebuilt one
+        self.assertEqual(len(self.checks), 5)
         self.assertIn("land", self.wait(members[0]))
         self.assertIn("fix", self.wait(members[1]))
         self.assertTrue(all("land" in self.wait(member) and "fix" not in self.wait(member)
