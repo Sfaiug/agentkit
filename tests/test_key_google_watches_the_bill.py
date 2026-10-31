@@ -20,7 +20,8 @@ T, DECEMBER = (datetime(2026, *at, tzinfo=UTC).timestamp() for at in ((11, 1, 2)
 def machine(id, created, hours, labels={"ak": "rented"}):
     return {"id": id, "name": f"acme-{id}", "creationTimestamp": created, "labels": labels,
             "machineType": "zones/europe-west4-a/machineTypes/c4a-standard-8",
-            "scheduling": {"maxRunDuration": {"seconds": str(hours * HOUR)}}}
+            "scheduling": {"maxRunDuration": {"seconds": str(hours * HOUR)}},
+            "networkInterfaces": [{"accessConfigs": [{"natIP": f"203.0.113.{id}"}]}]}
 
 
 # acme-1 from 23:00 UTC until 05:00, acme-2 from 00:30, acme-3 from 02:00; acme-9 never ak's
@@ -40,6 +41,7 @@ class WatchesTheBill(unittest.TestCase):
             "machineTypes": [kind("c4a-standard-8", 8, 32)]}}])
         cls.addClassCleanup(google.close)
         google.key()
+        home.fake("ssh", "#!/bin/sh\necho 0\n")    # each machine answers ready, and busy
         google.machines, cls.toml = [ONE, OWN], (home.path / ".agentkit/config.toml").read_text()
         cls.off, cls.unpriced = cls.at(T, 0), cls.at(T)
         # renamed, acme-1 keeps its meter; acme-3 is read again as another machine of its name

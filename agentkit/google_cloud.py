@@ -128,8 +128,11 @@ def watch():
     try:
         kept = json.loads((config.STATE / OFFERS).read_text())
         at, offered = kept["at"], [Offer(*row) for row in kept["offers"]]
-    except (OSError, ValueError, TypeError, KeyError):     # TypeError: one kept before renting
+    except (OSError, ValueError, KeyError):
         at, offered = 0, []
+    except TypeError:   # one kept before renting lacks what it needs: listed anew before pricing
+        at, offered = now, offers()
+        config._write_json(config.STATE / OFFERS, {"at": now, "offers": offered})
     prices = {(one.name, one.region): one.hourly for one in offered if _amount(one.hourly)}
     ledger, late = (read := _ledger()) and _moved(read, listed, now, prices), []
     try:
@@ -144,7 +147,7 @@ def watch():
         if why := ("past its end" if now >= machine.until else "with no price kept" if not prices
                    else "past the cap" if not ledger or ledger["spent"] > cap
                    else "idle" if idle.get(machine.id, 0) >= IDLE_FOR
-                   else "not ready" if unready and not new and machine.address else None):
+                   else "not ready" if unready and not new else None):
             try:
                 give_back(machine)
                 late.append(f"{machine.name} listed {why}, given back")
@@ -350,12 +353,13 @@ def _rent(need, offered, ledger, taken, cap, now):
         if (life := int(min(LIFE, left * 3600 / offer.hourly))) < READY:
             return [*said, f"not rented: €{max(0, left):.2f} left of what "
                            f"{'this month' if month <= day else 'today'} may cost"]
-        if time.monotonic() >= until:
+        if time.monotonic() > until - TIMEOUT:     # a create may wait TIMEOUT, within HOLDS
             break
         # by the pass's second: once Google refused one, it has none of that name
         ledger["machines"][name := f"ak-{int(now)}"] = {
             "price": offer.hourly, "from": now, "until": now + life}
         config._write_json(config.STATE / LEDGER, ledger)
+        done = None
         try:
             done = _call(f"{compute}/zones/{zone}/instances", token, {
                 "name": name, "machineType": f"zones/{zone}/machineTypes/{offer.name}",
@@ -369,13 +373,14 @@ def _rent(need, offered, ledger, taken, cap, now):
                 "networkInterfaces": [{"accessConfigs": [{"type": "ONE_TO_ONE_NAT"}]}],
                 "metadata": {"items": [{"key": "startup-script", "value": STARTUP.format(
                     user=USER, key=key, set_up=SET_UP)}]}})
-            while done.get("status") != "DONE" and time.monotonic() < until:
-                time.sleep(2)
-                done = _call(f"{compute}/zones/{zone}/operations/{done['name']}", token)
+            while done.get("status") != "DONE" and (wait := until - time.monotonic()) > 0:
+                time.sleep(min(2, wait / 2))
+                done = _call(f"{compute}/zones/{zone}/operations/{done['name']}", token,
+                             timeout=until - time.monotonic())
             codes = [str(one.get("code")) for one in (done.get("error") or {}).get("errors") or ()
                      ] if done.get("status") == "DONE" else None
-        except Unavailable as exc:
-            codes = exc.codes
+        except Unavailable as exc:      # a poll's refusal leaves the create Google took in doubt
+            codes = exc.codes if done is None else None
         if codes is None:   # no answer, one cut short, a 5xx, not done: Google may have made it
             return [*said, f"{name} asked of Google, no answer: on the meter to its end"]
         if not codes:
@@ -464,7 +469,7 @@ def _pages(token, url, field, **query):
         query["pageToken"] = page["nextPageToken"]
 
 
-def _call(url, token=None, data=None, method=None, gone=None):
+def _call(url, token=None, data=None, method=None, gone=None, timeout=TIMEOUT):
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     if isinstance(data, dict):
         data, headers["Content-Type"] = json.dumps(data).encode(), "application/json"
@@ -472,7 +477,7 @@ def _call(url, token=None, data=None, method=None, gone=None):
         raise Unavailable(UNANSWERED[0])
     try:
         with urllib.request.urlopen(urllib.request.Request(url, data, headers, method=method),
-                                    timeout=TIMEOUT) as response:
+                                    timeout=timeout) as response:
             return json.load(response)
     except urllib.request.HTTPError as exc:     # Google's answer: 403 Forbidden, 404 Not Found ...
         if exc.code == 404 and gone is not None:

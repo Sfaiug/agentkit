@@ -6,7 +6,8 @@ offer from `zones`, each a list of pages handed out in order.  `sku` and `kind` 
 entries, `ADDRESS` is a Spot machine's address.  `missed` joins every page of machine types,
 `{"unreachables": [...]}` naming zones Google could not reach; `asked` is every path asked, oldest
 first.  Each machine asked for is in `made`, answered by the next of `answers`: the codes its
-operation ends with, none when made, or None for a reply cut short; `at` sets ak's clock.
+operation ends with, none when made, None for a reply cut short, or the HTTP status a poll of
+its operation gets; `at` sets ak's clock.
 `key` writes a service-account key ak can sign with, `rented` runs `ak doctor` and gives
 its rented-machines lines, and `close` stops it:
 
@@ -123,6 +124,9 @@ class _Answers(http.server.BaseHTTPRequestHandler):
             return self.answer({"access_token": "ya29.acme"})
         self.server.made.append(json.loads(sent))
         codes = self.server.answers.pop(0) if self.server.answers else []
+        if isinstance(codes, int):
+            self.server.polled = codes
+            return self.answer({"name": "operation-1", "status": "RUNNING"})
         self.answer({"name": "operation-1", "status": "DONE", "error": {"errors": [
             {"code": code} for code in codes or ()]}}, cut=codes is None)
 
@@ -133,6 +137,8 @@ class _Answers(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         self.server.asked.append(self.path)
         url = urlsplit(self.path)
+        if "/operations/" in url.path:
+            return self.send_error(self.server.polled)
         if "/instances/" in url.path:
             found = ({one["name"]: one for one in self.server.machines} | self.server.again).get(
                 url.path.rsplit("/", 1)[1])

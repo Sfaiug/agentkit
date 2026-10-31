@@ -37,12 +37,13 @@ class GoogleRentsUnderACap(unittest.TestCase):
         line.member({"api.txt": "x\n"})
         cls.landed, google.answers = line.land(), [["ZONE_RESOURCE_POOL_EXHAUSTED"]]
         cls.made, cls.said = cls.step(T, need=False)
-        google.machines = [{**cls.made[1], "id": "1", "creationTimestamp": "2026-11-01T00:00:00Z",
-                            "networkInterfaces": [{"accessConfigs": [{"natIP": "203.0.113.1"}]}]}]
+        google.machines = [{**cls.made[1], "id": "1", "creationTimestamp": "2026-11-01T00:00:00Z"}]
         cls.steps = [cls.step(T + 180), cls.step(T + 360, cap=0), cls.step(T + 600, need=False)]
         google.machines, google.answers = [], [None]
         cls.steps += [cls.step(T + at) for at in (780, 960, 1380)]
         cls.steps.append(cls.step(T + 29.5 * 24 * HOUR, cap=67))
+        google.answers = [404]
+        cls.steps.append(cls.step(T + 29.75 * 24 * HOUR))
 
     @classmethod
     def step(cls, when, cap=1000, need=True):
@@ -70,7 +71,7 @@ class GoogleRentsUnderACap(unittest.TestCase):
             f"{self.made[1]['name']} rented: c4a-highcpu-8 in europe-west4-b for 11.5 hours"])
 
     def test_none_while_one_comes_up_or_ak_may_not_rent_nor_past_either_limit(self):
-        listed, off, not_ready, cut, booked, day, month = self.steps
+        listed, off, not_ready, cut, booked, day, month, polled = self.steps
         running = f"0 running · €{P * 780 / HOUR:.2f} of €1000.00 this month"
         # listed, coming up; the need read while not active is gone; one never ready goes back
         self.assertEqual([listed, off[0], not_ready], [
@@ -83,6 +84,10 @@ class GoogleRentsUnderACap(unittest.TestCase):
             ([], [running]), ([], [running, "not rented: €0.00 left of what today may cost"]),
             ([], [f"0 running · €{P * LIFE / HOUR:.2f} of €67.00 this month",
                   f"not rented: €{67 - P * LIFE / HOUR:.2f} left of what this month may cost"])])
+        # a create Google took whose poll it refuses stays on the meter, and none goes elsewhere
+        [made], said = polled
+        self.assertEqual(said, [f"0 running · €{P * LIFE / HOUR:.2f} of €1000.00 this month",
+                                f"{made['name']} asked of Google, no answer: on the meter to its end"])
 
 
 if __name__ == "__main__":
