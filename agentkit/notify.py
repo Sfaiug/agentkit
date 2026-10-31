@@ -235,11 +235,12 @@ def title(kind, session):
             f"{' '.join((session or '').split()) or 'agentkit'}")
 
 
-def card_payload(kind, session, line=None):
-    """What a page posts: its title, or `line` in its place, then the owner's mention, the only
-    one it may ping.  No embed: what was asked or done stays in the seat.  Once out it is never
-    edited: the owner has read it by the time it is answered (owner, 19 Oct 2026)."""
-    user_id = _secret(USER_ID_ENV, "discord_user_id")
+def card_payload(kind, session, line=None, mention=True):
+    """What a page posts: its title, or `line` in its place, then, if `mention`, the owner's
+    mention, the only one it may ping.  No embed: what was asked or done stays in the seat.
+    Once out it is never edited: the owner has read it by the time it is answered (owner, 19 Oct
+    2026)."""
+    user_id = _secret(USER_ID_ENV, "discord_user_id") if mention else None
     return {"username": "agentkit",
             "content": (line or title(kind, session)) + (f" <@{user_id}>" if user_id else ""),
             "allowed_mentions": {"users": [user_id]} if user_id else {"parse": []}}
@@ -1094,7 +1095,7 @@ def _send_card(session, kind, card, answer, completion=None):
         return _attempt(event)
 
 
-def page(key, about, text, line=None, owed=False):
+def page(key, about, text, line=None, owed=False, mention=True):
     """Page the owner about no seat, once per `key` however often it is asked: the outbox
     keeps the event, so no later tick or restart queues it again. One the webhook did not
     take is tried again on a card's schedule and rules only when asked again, so a caller
@@ -1102,9 +1103,9 @@ def page(key, about, text, line=None, owed=False):
     or never will be, 1 while it waits to be asked again.  An install since it was queued
     drops it unless the caller says it is `owed` still.
     It reads as a seat's question does, `about` standing where the seat's name would, or as
-    `line` where given."""
-    payload = card_payload("needs", about, line)
-    key = hashlib.sha256(json.dumps(["page", key, sink() is not None]).encode()).hexdigest()
+    `line` where given, pinging the owner if `mention`."""
+    payload = card_payload("needs", about, line, mention)
+    key = _page_id(key)
     with outbox_lock():
         event = _read_event(key)
         if event is None:
@@ -1119,6 +1120,17 @@ def page(key, about, text, line=None, owed=False):
             event.update(text=text, payload=payload, message=text)     # what is true now, until out
         _attempt(event)
         return 0 if event["status"] in ("delivered", "disabled") else 1
+
+
+def paged(key):
+    """Whether the page asked for under `key` is out."""
+    event = _read_event(_page_id(key))
+    return bool(event) and event["status"] == "delivered"
+
+
+def _page_id(key):
+    """The outbox id of the page asked for under `key`."""
+    return hashlib.sha256(json.dumps(["page", key, sink() is not None]).encode()).hexdigest()
 
 
 def _history(card):
