@@ -7895,11 +7895,12 @@ def local_passes(state, dry_run, log):
         # The shared browser's idle tabs are reaped: a machine with no browser on CDP costs one
         # refused connection and nothing else.
         ("browser tidy did not finish", lambda: browser.tidy(log), False),
-        # Each machine ak may use is asked what it is; one that does not answer holds the tick
-        # no longer than its ssh timeout.
-        ("the machines were not checked", machines.check, False),
-        # ... and Google for what ak rents, given back past its time or the month's cap
+        # Google is asked what ak rents, given back past its time, the month's cap or idle, the
+        # rest serving once ready ...
         ("the rented machines were not watched", google_cloud.watch, False),
+        # ... and each machine ak may use what it is; one that does not answer holds the tick no
+        # longer than its ssh timeout.
+        ("the machines were not checked", machines.check, False),
         # A merge to a project reaches its seats' rulebooks: their next prompts name it.
         ("the projects' rules were not fetched", orch.fetch_projects, False),
         # Merged agentkit goes live after every local pass, so as little of this tick's old

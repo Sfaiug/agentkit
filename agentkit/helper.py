@@ -24,7 +24,7 @@ import subprocess
 import tarfile
 import tempfile
 
-from . import config, gitcall, machines, orch
+from . import config, gitcall, google_cloud, machines, orch
 
 LOST = 255            # ssh's own failure
 LACKS = 3             # mac.sh's `prepare`: the copy there lacks history the parcel left out
@@ -47,10 +47,14 @@ Away = namedtuple("Away", "alias key repo image count cpus memory_mb most branch
 
 
 def _remote(alias, verb, *args, **kwargs):
+    argv = [*SSH, *google_cloud.ssh_config(), alias, _line(verb, *args)]
+    return subprocess.run(argv, capture_output=True, **kwargs) if kwargs else argv
+
+
+def _line(verb, *args):
     # Every kind of machine is sent every kind's functions, and picks its own by `uname`.
     script = (TOOLS / "linux.sh").read_text() + (TOOLS / "mac.sh").read_text()
-    argv = [*SSH, alias, shlex.join(["bash", "-c", script, "mac.sh", verb, *map(str, args)])]
-    return subprocess.run(argv, capture_output=True, **kwargs) if kwargs else argv
+    return shlex.join(["bash", "-c", script, "mac.sh", verb, *map(str, args)])
 
 
 def _recipe(cwd, repo):
