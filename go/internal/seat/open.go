@@ -47,16 +47,19 @@ func Open(name, orchestrator string, model config.Model, workers []string, cwd s
 	if !known || !unclaimed(state, name, cwd) || unbound != nil || err != nil {
 		return false, nil
 	}
-	// written before its adapter is asked, which may read it
+	// written before its adapter is asked, which may read it, and gone again where no seat comes
+	// of it: unclaimed takes a file left under the name for a gone seat's
 	rulebook := filepath.Join(state, "rulebook-"+name+".md")
 	text, err := Rulebook()
 	if err != nil || os.WriteFile(rulebook, []byte(text), 0o666) != nil {
+		os.Remove(rulebook)
 		return false, nil
 	}
 	created := seconds(time.Now())
 	cmd, conversation, ok := adapters.Command(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO=",
 		"AGENTKIT_RULEBOOK="+rulebook, "AGENTKIT_FIRST_PROMPT="))
 	if !ok {
+		os.Remove(rulebook)
 		return false, nil
 	}
 	fields := []field{{"orchestrator", orchestrator}, {"workers", modelList(workers)}}
