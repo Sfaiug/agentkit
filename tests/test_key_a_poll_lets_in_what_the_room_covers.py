@@ -14,6 +14,7 @@ AK_SLOT_POLL), and a history database holds finished runs that peaked at PEAK.
 from contextlib import closing
 import json
 from pathlib import Path
+import shlex
 import sqlite3
 import sys
 import time
@@ -49,8 +50,10 @@ def state(run):
         return {}
 
 
-def started_together(cls, readings, poll, count):
-    """The records, once all have ended, of `count` runs started one after another."""
+def started_together(cls, readings, poll, count, ready):
+    """The records, once all have ended, of `count` runs, each started once `ready` holds of the
+    records of those before it: a run behind one that has not polled yet waits a poll for it.
+    Each one's turn is held until `ready` holds of them all."""
     home = Home()
     cls.addClassCleanup(home.close)
     del home.env["AK_MAX_RUNS"]     # 0 turns admission off
@@ -64,7 +67,9 @@ def started_together(cls, readings, poll, count):
             [(f"20261030-120{n}-fix-api", now - 7200, now - 3600, PEAK) for n in range(3)])
     rig = Rig(home, "widgets")
     akconfig.write(home, ["opus", "astra"])
-    fakeadapter.install(home, claude="work", codex="pass")
+    release = home.root / "adapters" / "release"
+    hold = f"until [ -e {shlex.quote(str(release))} ]; do sleep 0.1; done"
+    fakeadapter.install(home, claude={**fakeadapter.WORK, "sh": hold}, codex="pass")
     runs = []
     for title in TITLES[:count]:
         known = set(taskfile.runs(home))
@@ -73,6 +78,8 @@ def started_together(cls, readings, poll, count):
                        "--bg", "--anyway")
         assert done.code == 0, done.out + done.err
         runs.append((set(taskfile.runs(home)) - known).pop())
+        wait(lambda: ready([state(run) for run in runs]), f"{runs[-1].name} ready", 300)
+    release.touch()
     wait(lambda: all(state(run).get("state") not in ("queued", "running") for run in runs),
          "every run's end", 300)
     return [state(run) for run in runs]
@@ -85,7 +92,9 @@ class RoomForAll(unittest.TestCase):
     def setUpClass(cls):
         cls.runs = started_together(cls, {"free_mb": 64000, "mem_total_mb": 128000, "cpus": 8,
                                           "load": 0.1, "slice_cpu_pressure": 0,
-                                          "slice_memory_pressure": 0}, cls.POLL, 3)
+                                          "slice_memory_pressure": 0}, cls.POLL, 3,
+                                    lambda runs: all(run.get("state") == "running"
+                                                     for run in runs))
 
     def test_every_run_passes(self):
         self.assertEqual([run.get("verdict") for run in self.runs], ["PASS"] * 3)
@@ -99,10 +108,13 @@ class RoomForOne(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # The gate needs 3.2 G of 16 G: 4.5 G free lets one run past it, and with what that
-        # one may still take counted, not a second.
+        # one may still take counted, not a second.  Each holds its slot until the last has
+        # gone in or says why it waits.
         cls.runs = started_together(cls, {"free_mb": 4500, "mem_total_mb": 16000, "cpus": 8,
                                           "load": 0.1, "slice_cpu_pressure": 0,
-                                          "slice_memory_pressure": 0}, 1, 2)
+                                          "slice_memory_pressure": 0}, 1, 2,
+                                    lambda runs: runs[-1].get("state") != "queued"
+                                    or runs[-1].get("slot_wait_reason"))
 
     def test_every_run_passes(self):
         self.assertEqual([run.get("verdict") for run in self.runs], ["PASS"] * 2)
