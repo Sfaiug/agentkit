@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/lifecycle"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 	"agentkit/internal/tmux"
@@ -133,7 +134,7 @@ func standing(name string, record map[string]any) (attached, known bool) {
 		if err != nil {
 			return false, false
 		}
-		if stop, err := config.Section(model.Harness, "stop"); err != nil || stop["enforce"] == "nudge" {
+		if nudged, err := lifecycle.Nudged(model.Harness); err != nil || nudged {
 			return false, false
 		}
 	}
