@@ -31,9 +31,9 @@
 // named in $AGENTKIT_OPENCODE_RECEIPT.  A subagent's session is never the seat's: OpenCode's
 // own record of it names its parent, and nothing of it is written.
 //
-// And `/ak-model <provider/model[#variant]> <effort>`, the line adapters/opencode.toml's
-// [switch] types to move the seat: its session switches to that model at the id's own variant,
-// else the effort, as a launch runs it, and no turn starts (2.2.4).
+// And `/ak-model <provider/model[#variant]> <effort>`, the line the adapter's [switch] types to
+// move the seat: its session switches to that model at the id's own variant, else the effort,
+// as a launch runs it, and no turn starts (2.2.4).
 //
 // Every failure is silent: a hook that fails loudly is a harness that stops.
 import { spawnSync } from "node:child_process";
