@@ -1,6 +1,6 @@
 """A model turn on a rented machine once config.toml says `turns_on_machines = true`, its results
-back here when it ends. Hidden here: the machine, picked as agentkit/helper.py picks a suite's among
-those that take turns, and the ssh to it; the parcel beside a suite's: the out dir, the checkout's
+back here when it ends. Hidden here: the machine, the busiest taking turns and outliving its login
+(agentkit/helper.py), and the ssh to it; the parcel beside a suite's: the out dir, the checkout's
 uncommitted paths, ak itself, a HOME of the turn's own, holding a copy of its login the adapter
 lends and the conversation it resumes, and the harness program to run, which the machine fetches the
 first time a turn names it (mac.sh's `fetch`), a new version here reaching it at its next turn; the
@@ -26,7 +26,7 @@ from . import config, gitcall, helper
 
 AK = ("adapters", "agentkit", "bin", "tools")    # ak itself, read-only there, `bin` on PATH
 # Seconds a lent login must last, else the turn runs here: a longer turn would end on an expired
-# login and page the owner.
+# login and page the owner. A machine Google ends sooner takes no turn, which it would lose.
 LENT_FOR = 3600
 # Seconds at most a bound found in a turn's container holds it before the machine is asked again:
 # past the silence limit the watchdog asks on every poll, and a command ending before its bound
@@ -79,7 +79,7 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
         # 2048: twice this is 4 GiB, as on 30 Oct 2026 this host's runs peaked at a median of 768
         # MiB and p90 of 1868 MiB, test pieces included, with one at 5438 MiB.
         away = helper.start(2, 2048, cwd, lambda line: None, shlex.join(cmd), lambda tar: _parcel(
-            tar, program, cwd, out_dir, env, home, lent, held))[0]
+            tar, program, cwd, out_dir, env, home, lent, held), lasting=LENT_FOR)[0]
     if away is None:
         return None
     volumes = [f"home:{env['HOME']}", f"work:{cwd}", f"out:{out_dir}",

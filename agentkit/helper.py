@@ -15,6 +15,7 @@ from collections import namedtuple
 import fcntl
 import hashlib
 import io
+import math
 import os
 import posixpath
 import re
@@ -23,6 +24,7 @@ import shlex
 import subprocess
 import tarfile
 import tempfile
+import time
 
 from . import config, gitcall, google_cloud, machines, orch
 
@@ -172,19 +174,21 @@ def _parcel(cwd, default, known, recipe, parcel, turn=None):
             tar.addfile(tar.gettarinfo(arcname="repo.bundle", fileobj=bundle), bundle)
 
 
-def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None):
-    """(the suite sent to the roomiest helper that takes it, reason): an Away, or (None, why it
-    runs here).
+def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0):
+    """(the suite sent to a helper that takes it, reason): an Away, or (None, why it runs here).
     `command` is what each of its pieces runs there (`piece`): one whose line is longer than one
     argument holds keeps the suite here. With `turn`, a model turn's (agentkit/machine_turn.py),
     it goes to a machine that takes turns, holding `piece_cpus` of it until it starts, not half,
-    `turn(tar)` adding its own files to the parcel."""
+    `turn(tar)` adding its own files to the parcel. None goes to a machine Google ends within
+    `lasting` seconds."""
     try:
         aliases = machines.helpers()
     except config.Error:  # a config.toml mid-edit fails no run's suite: it runs here
         aliases = []
     if not aliases and not google_cloud.renting():
         return None, "no suite helper set up"
+    ends = google_cloud.serving()
+    aliases = [alias for alias in aliases if ends.get(alias, math.inf) >= time.time() + lasting]
     # A checkout's repository is the one its main checkout has, wherever the suite runs.
     repo = hashlib.sha256(str(gitcall.main_checkout(cwd)).encode()).hexdigest()[:12]
     try:
@@ -208,10 +212,13 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None):
     rooms = {alias: room(alias, piece_cpus, piece_mem_mb, _least(repo), bool(turn))
              for alias in aliases}
     why = {alias: reason for alias, (_, reason) in rooms.items()}
-    # Most room first, and on to the next where that refuses: its room can go between the probe
-    # and `prepare`, and 40 checks in two hours then ran here on a host out of CPU (30 Oct 2026).
+    # A suite splits into as many pieces as fit, so most room first; a turn takes one place and
+    # is as fast on a busy machine, so least first, and one it leaves empty goes back
+    # (google_cloud.IDLE_FOR): 12 turns kept three 72-core machines a tenth busy at €46 a day
+    # (31 Oct 2026). On to the next where that refuses: its room can go between the probe and
+    # `prepare`, and 40 checks in two hours then ran here on a host out of CPU (30 Oct 2026).
     for alias in sorted(filter(lambda alias: rooms[alias][0], aliases),
-                        key=lambda alias: -rooms[alias][0][0]):
+                        key=lambda alias: rooms[alias][0][0] * (1 if turn else -1)):
         fit = rooms[alias][0]
         away = away._replace(alias=alias, count=fit[0], cpus=fit[1], memory_mb=fit[2], most=fit[3])
         sent, known = LOST, _known(alias, repo)
