@@ -5,6 +5,7 @@ from contextlib import closing
 import json
 import multiprocessing
 from pathlib import Path
+import shutil
 import sqlite3
 import sys
 import unittest
@@ -200,6 +201,17 @@ class RunRecords(Sandbox):
         self.assertEqual(menu.run_records(), full())
         write(live, state="running")
         self.assertEqual(menu.run_records(), full())
+
+    def test_a_removed_run_leaves_memory_with_or_without_the_cache(self):
+        for cache in (True, False):
+            with self.subTest(cache=cache):
+                self.runs(3)
+                menu.run_records(cache=cache)
+                gone = [directory / "run.json" for directory in record.run_dirs()]
+                self.assertTrue(all(parsed.kept(path, record._state) for path in gone))
+                shutil.rmtree(config.RUNS)
+                self.assertEqual(menu.run_records(cache=cache), [])
+                self.assertEqual([path for path in gone if parsed.kept(path, record._state)], [])
 
     def test_the_cache_before_the_database_is_removed(self):
         self.runs(3)

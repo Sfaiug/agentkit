@@ -39,6 +39,11 @@ def kept(path, parse):
     return _KEPT.get((os.fspath(path), parse))
 
 
+def forget(path, parse):
+    """Drop what `parse` made of a file gone, which `read` forgets only once asked for it."""
+    _KEPT.pop((os.fspath(path), parse), None)
+
+
 def keep(path, parse, stamp, value):
     """What another process's `kept` said of `parse(path)`, unless this one keeps its own: a
     file whose stat no longer reads `stamp` is parsed again."""
