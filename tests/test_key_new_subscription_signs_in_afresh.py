@@ -95,7 +95,8 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
         # every row drawn, and `row` whole: its frame comes first with them blank, then they go
         # in a line at a time, and the last one read can be half written
         return offered(self.term.wait(lambda screen: title(screen) == ADD
-                                      and LIST_KEYS in lines(screen) and "" not in offered(screen)
+                                      and LIST_KEYS in lines(screen) and offered(screen)
+                                      and "" not in offered(screen)
                                       and "+ add a subscription" not in offered(screen)
                                       and (row is None or row in offered(screen))))
 
