@@ -306,7 +306,8 @@ class Live:
 
     def _look(self, found, records):
         try:
-            v5o_groups(self.cfg, found, records)
+            with record.one_look():    # a pass of its own, off the read's thread (`rows`)
+                v5o_groups(self.cfg, found, records)
         except (config.Error, OSError, ValueError, TypeError, KeyError):
             pass    # a seat that cannot be looked at keeps what its record says
         finally:
