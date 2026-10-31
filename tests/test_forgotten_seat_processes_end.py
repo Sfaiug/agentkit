@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -55,7 +56,7 @@ class ForgottenSeatProcesses(unittest.TestCase):
     def put(self, pid, tag="gone", *, ppid=1, comm="sleep", deaf=False, **env):
         self.rows[pid] = deaf
         row = self.proc / str(pid)
-        row.mkdir()
+        row.mkdir(exist_ok=True)
         (row / "stat").write_text(f"{pid} ({comm}) S {ppid} {pid} 300{' 0' * 15} 1")
         (row / "comm").write_text(f"{comm}\n")
         (row / "cmdline").write_text(f"sleep\0{pid}\0")
@@ -105,13 +106,17 @@ class ForgottenSeatProcesses(unittest.TestCase):
                 self.sweep()
                 self.assertEqual(self.running(), set())
 
-    def test_once_ak_s_tmux_server_has_exited_a_seat_with_no_record_is_forgotten(self):
-        self.said, self.seats = GONE, [{"name": "legacy"}]   # one on the owner's own server
+    def test_once_ak_s_tmux_server_holds_no_session_a_seat_with_no_record_is_forgotten(self):
+        self.seats = [{"name": "legacy"}]   # one on the owner's own server
         self.record("acme")
-        for pid, tag in enumerate(("gone", "acme", "legacy"), 10):
-            self.put(pid, tag)
-        self.sweep()
-        self.assertEqual(self.running(), {11, 12})
+        # exited, or holding the Go port's control session alone
+        for said, held in ((GONE, set()), (None, {orch.CONTROL})):
+            with self.subTest(said=said, held=held):
+                self.said, self.held = said, held
+                for pid, tag in enumerate(("gone", "acme", "legacy"), 10):
+                    self.put(pid, tag)
+                self.sweep()
+                self.assertEqual(self.running(), {11, 12})
 
     def test_what_is_not_a_forgotten_seat_s_runs_on(self):
         self.put(10, "beta")                            # a seat tmux holds
@@ -140,9 +145,19 @@ class ForgottenSeatProcesses(unittest.TestCase):
         os.environ[guard.TMUX_OWNER] = "gone"
         self.assertNotIn(guard.TMUX_OWNER, owner.unmarked())
         self.assertIsNone(orch.seat_env("acme", "agentkit-test")[guard.TMUX_OWNER])  # -r: panes
+        self.assertIn(f"{guard.TMUX_OWNER}=", orch.job_env())     # blanks what a server holds
         with patch.object(warm.os, "posix_spawn") as spawn:
             warm._start(str(REPO))
         self.assertNotIn(guard.TMUX_OWNER, spawn.call_args.args[2])
+
+    def test_an_ak_typed_in_a_side_session_runs_itself_again_untagged(self):
+        # /proc shows the environment a process started with, which is what the tick reads
+        said = ("import runpy, sys; from agentkit import usage; usage.main = lambda _: print("
+                f"open('/proc/self/environ').read().split('\\0').count('{guard.TMUX_OWNER}=gone'))"
+                "; sys.argv = ['bin/ak', 'usage']; runpy.run_path('bin/ak', run_name='__main__')")
+        done = subprocess.run([sys.executable, "-c", said], cwd=REPO, capture_output=True,
+                              text=True, timeout=60, env={**os.environ, guard.TMUX_OWNER: "gone"})
+        self.assertEqual(done.stdout.split(), ["0"], done.stderr)
 
 
 if __name__ == "__main__":

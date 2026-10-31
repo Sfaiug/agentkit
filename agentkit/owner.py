@@ -20,6 +20,7 @@ import os
 import re
 import shlex
 import signal
+import sys
 import time
 
 from . import host
@@ -37,8 +38,17 @@ def mark(name):
     the pid and the start in clock ticks name this process alone, as no process given its pid
     later starts at the same tick, and its POSIX session tells what it left there from what left
     for a session of its own.  Where /proc cannot say, the mark inherited, if any, stays.
+
+    A seat's tag goes first.  /proc shows a process the environment it was started with, which is
+    what the tick's look reads, so a process started with a tag runs itself again without it: an
+    `ak` typed in a side session is no more the seat's than what it starts.  A fork shows its
+    parent's, and runs on: its parent's command is not its own.
     """
-    os.environ.pop(TMUX_OWNER, None)
+    if os.environ.pop(TMUX_OWNER, None) and _environ("self").get(TMUX_OWNER):
+        try:
+            os.execv(sys.executable, sys.orig_argv)
+        except OSError:
+            pass         # it runs on tagged, as an `ak` from before tags were dropped does
     namespace, stat = _namespace(), host.proc_stat("self")
     if namespace is not None and stat is not None:
         os.environ[MARK] = f"{namespace} {os.getpid()} {stat.start} {stat.session} {name}"
@@ -68,7 +78,7 @@ def leftovers():
         return []
     found, tagged = [], []
     for pid, stat in stats.items():
-        env = dict(pair.split("=", 1) for pair in _proc(pid, "environ").split("\0") if "=" in pair)
+        env = _environ(pid)
         marked = re.fullmatch(r"(\d+) (\d+) (\d+) (\d+) (.+)", env.get(MARK, ""))
         tag = env.get(TMUX_OWNER)
         if (not (marked or tag) or stat.exited or RUN_MARKER in env or env.get("HOME") != home
@@ -146,6 +156,11 @@ def _under_tmux(pid, stats):
         seen.add(pid)
         pid = stats[pid].ppid
     return False
+
+
+def _environ(pid):
+    """That process's environment as it was started, by name; empty where it cannot be read."""
+    return dict(pair.split("=", 1) for pair in _proc(pid, "environ").split("\0") if "=" in pair)
 
 
 def _proc(pid, name):

@@ -91,7 +91,9 @@ class ForgottenSeat(SideSessions):
 
     def test_a_tmux_that_cannot_be_asked_proves_no_seat_gone(self):
         self.add("$1", "dev", LIVE, owner="gone")
-        with patch.object(orch, "held_names", return_value=set()):
+        refused = (1, "error connecting to /tmp/tmux-1000/agentkit-test (Permission denied)")
+        with patch.object(orch, "tmux_out", side_effect=lambda *args, **kw: refused
+                          if args[0] == "list-sessions" else self.tmux(*args, **kw)):
             self.tick()
         self.assertEqual(self.closed, [])
 
