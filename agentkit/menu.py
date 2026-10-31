@@ -2001,9 +2001,10 @@ def stop_behind(name, dry_run):
 
 def teardown(name, dry_run):
     """The process `x` stops the popup's own seat in (`stop_behind`, and the past screen's `x`
-    removes a stopped one in): `close_seat`, leaving a refusal as a job's notice
-    (`orch.job_notices`), since the popup it came from is gone by then."""
-    return [sys.executable, "-c", "import sys; from agentkit import menu, orch; "
+    removes a stopped one in), marked as its own: `close_seat`, leaving a refusal as a job's
+    notice (`orch.job_notices`), since the popup it came from is gone by then."""
+    return [sys.executable, "-c", "import sys; from agentkit import menu, orch, owner; "
+            "owner.mark('seat stop'); "
             "menu.close_seat(sys.argv[1], sys.argv[2] == '1', refused=orch.leave_notice)",
             name, "1" if dry_run else "0"]
 

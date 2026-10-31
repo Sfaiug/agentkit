@@ -1,8 +1,8 @@
 """What an `ak` command runs carries a mark naming that `ak`; a seat it opens carries none.
 
-The mark is AK_OWNER, `<pid namespace> <pid> <start> <session> <command>`: the `ak` process by
-its pid namespace's inode, its pid, its start in clock ticks since boot and its POSIX session,
-then the command it ran.  Everything the command starts inherits it, so what an `ak` leaves
+The mark is AK_OWNER, `<pid namespace> <pid> <start> <session> ak <command>`: the `ak` process
+by its pid namespace's inode, its pid, its start in clock ticks since boot and its POSIX session,
+then `ak` and the command it ran.  Everything the command starts inherits it, so what an `ak` leaves
 running can be told apart once that `ak` is gone; what ak starts to outlive the command -- a
 tmux server, a seat's harness -- is started without it.  Black-box: the program `AK_BIN` names
 runs from outside through tests/fixtures/akbin.py, each in a session of its own, its harness the
@@ -46,13 +46,13 @@ class AkMarksWhatItStarts(unittest.TestCase):
     def test_what_a_command_runs_carries_a_mark_naming_that_ak(self):
         done = self.home.ak("usage")
         self.assertEqual(done.code, 0, done.err)
-        namespace, pid, start, session, command = self.mark("usage").split(" ")
+        namespace, pid, start, session, command = self.mark("usage").split(" ", 4)
         self.assertEqual(int(namespace), os.stat("/proc/self/ns/pid").st_ino)
         self.assertEqual(session, pid)      # the Home starts each ak as its session's leader
         mine, now = started()
         self.assertTrue(mine <= int(start) <= now, (mine, start, now))
         self.assertNotEqual(int(pid), os.getpid())
-        self.assertEqual(command, "usage")
+        self.assertEqual(command, "ak usage")
 
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
     def test_a_seat_and_its_tmux_server_carry_no_mark(self):
