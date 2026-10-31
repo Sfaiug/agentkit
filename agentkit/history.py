@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from statistics import median
 
-from . import config, gitcall, host, record, waiter
+from . import config, gitcall, hand_in, host, record, waiter
 
 _LOCK = threading.Lock()
 SUMMARY_TASKS = 20    # the status line looks back over this many finished runs per repo
@@ -139,6 +139,31 @@ CREATE TABLE IF NOT EXISTS reviews (
 # One finished review per row: the identity that ran it, its weighed counts, and since these
 # columns its round, the round's verdict and the effort it ran at (`record_review`).
 REVIEW_MIGRATIONS = (("round", "INTEGER"), ("verdict", "TEXT"), ("effort", "TEXT"))
+# One row per record of a weighed review (`prompts.weigh_review`: the reviewer's and ak's
+# replays) and per dispute its round answered, written with its `reviews` row: `handed` the
+# kind handed in, `kind` as weighed, `proof` its command (else its quote) and its exits on the
+# reviewed commit and on base (NULL where none ran), `replayed` ak's word on a replay, `reason`
+# why it was weighed down, and a dispute's `outcome`, upheld or dropped.  A finding ends where
+# its last row (same run, path and proof) does: fixed by its replay, or still a finding at the
+# budget.
+FINDINGS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS findings (
+    run_id TEXT,
+    review_id TEXT,
+    round INTEGER,
+    path TEXT,
+    line INTEGER,
+    handed TEXT,
+    kind TEXT,
+    proof TEXT,
+    commit_exit INTEGER,
+    base_exit INTEGER,
+    replayed TEXT,
+    reason TEXT,
+    outcome TEXT,
+    at REAL
+)
+"""
 
 # The owner's time, one row per moment and no seat named: each is whole when written, so no
 # rename, reused name or order of hooks can change it later.
@@ -198,6 +223,7 @@ def _connect(*, readonly=False):
     connection.execute(PHASES_SCHEMA)
     connection.execute(CHECKS_SCHEMA)
     connection.execute(REVIEWS_SCHEMA)
+    connection.execute(FINDINGS_SCHEMA)
     connection.execute(OWNER_SCHEMA)
     connection.execute(DONES_SCHEMA)
     connection.execute(DONE_RUNS_SCHEMA)
@@ -502,18 +528,44 @@ def add_tokens(run_id, role, tokens, *, log=None):
 
 
 def record_review(run_id, review_id, *, harness, model, blocking, followup, note, round, verdict,
-                  effort=None, log=None):
+                  effort=None, records=(), log=None):
     """Keep one finished review's weighed counts, its round, the round's verdict (the review's,
-    after ak's overrides) and the effort it ran at, including landing reviews in the same round.
+    after ak's overrides) and the effort it ran at, including landing reviews in the same round,
+    and a `findings` row for each of `records` but its closing (`FINDINGS_SCHEMA`).
 
     Its output directory identifies it, so recording it again cannot count it twice; only
     runs already recorded in history can contribute.
     """
-    _write(lambda connection: connection.execute(
-        "INSERT INTO reviews (run_id, review_id, harness, model, blocking, followup, note, "
-        "round, verdict, effort) SELECT run_id, ?,?,?,?,?,?,?,?,? FROM runs WHERE run_id=? "
-        "ON CONFLICT(run_id, review_id) DO NOTHING",
-        (review_id, harness, model, blocking, followup, note, round, verdict, effort, run_id)), log)
+    def insert(connection):
+        if connection.execute(
+                "INSERT INTO reviews (run_id, review_id, harness, model, blocking, followup, note, "
+                "round, verdict, effort) SELECT run_id, ?,?,?,?,?,?,?,?,? FROM runs WHERE run_id=? "
+                "ON CONFLICT(run_id, review_id) DO NOTHING",
+                (review_id, harness, model, blocking, followup, note, round, verdict, effort,
+                 run_id)).rowcount:
+            at = time.time()
+            connection.executemany(
+                "INSERT INTO findings (run_id, review_id, round, path, line, handed, kind, proof, "
+                "commit_exit, base_exit, replayed, reason, outcome, at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                [(run_id, review_id, round, *_finding(row), at)
+                 for row in records if row["kind"] not in hand_in.CLOSING])
+
+    _write(insert, log)
+
+
+def _finding(row):
+    """A record's `findings` columns from `path` to `outcome`.  Its exit on base is its proof's
+    `base` part, or the proof itself where ak ran it on base alone: a follow-up handed in from
+    before the task (`before`) and proven with no base part (`prompts.weigh_review`), never one
+    on a reviewed commit that is base's own.  A record whose kind weighing left alone was handed
+    in as that kind."""
+    evidence = row["evidence"]
+    on_base = evidence.get("base") or (evidence if "before" in row and "commit" in evidence else {})
+    return (row["path"], row["line"], row.get("handed", row["kind"]), row["kind"],
+            evidence.get("run", evidence.get("quote")),
+            None if on_base is evidence else evidence.get("returncode"), on_base.get("returncode"),
+            row.get("replayed"), row.get("outside") or row.get("dropped"), row.get("outcome"))
 
 
 def reviewed_runs(harness, model):

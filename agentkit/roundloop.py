@@ -1626,7 +1626,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         # a dispute's finding is upheld wherever the fix left its line: moved, at the anchor
         # of its removal, or among the lines the fix put in its place
         lines = prompts.moved_lines(lp, row["path"], row["line"], delta, identity.get("head_sha"))[0]
-        if not any((row["path"], at) in upheld for at in lines):
+        row["outcome"] = "upheld" if any((row["path"], at) in upheld for at in lines) else "dropped"
+        if row["outcome"] == "dropped":
             dropped = lp.state.setdefault("disputes", [])
             text_dispute = "Dropped: " + hand_in.item_text(row)
             if text_dispute not in dropped:
@@ -1692,7 +1693,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                           harness=review_harness, model=review_model,
                           blocking=len(own.findings), followup=len(own.preexisting),
                           note=len(own.notes), round=lp.rnd, verdict=verdict,
-                          effort=config.role_effort(reviewed, "reviewer"), log=lp.log)
+                          effort=config.role_effort(reviewed, "reviewer"),
+                          records=submitted.records + disputes.disputes, log=lp.log)
     return verdict
 
 

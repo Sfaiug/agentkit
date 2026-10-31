@@ -22,7 +22,7 @@ from fixtures import akconfig, fakeadapter, taskfile
 from fixtures.akbin import Home
 
 DATABASE = ".agentkit/history.db"
-TABLES = {"runs", "phases", "checks", "reviews", "owner", "dones", "kept", "done_runs"}
+TABLES = {"runs", "phases", "checks", "reviews", "findings", "owner", "dones", "kept", "done_runs"}
 # The `runs` table as the first ak to keep a history made it, and nothing else.
 ORIGINAL = (("run_id", "TEXT PRIMARY KEY"), ("repo", "TEXT"), ("executor", "TEXT"),
             ("reviewer", "TEXT"), ("rounds_used", "INTEGER"), ("final_state", "TEXT"),
