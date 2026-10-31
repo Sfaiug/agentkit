@@ -18,7 +18,7 @@ from unittest.mock import patch
 from fixtures.sandbox import REPO, Sandbox
 from types import SimpleNamespace
 
-from agentkit import config, record, run, task as taskfile, transitions
+from agentkit import config, record, run, transitions
 
 URL = "https://github.com/acme/widget/pull/7"
 OTHER = "https://github.com/acme/widget/pull/8"
@@ -147,7 +147,7 @@ class RoundsPerPr(Sandbox):
         left, why = run.round_budget(3, pr=URL, what="PR #7")
         self.assertEqual(left, 0)
         self.assertEqual(why, "3 review rounds spent on PR #7 across 2 runs: "
-                              f"{taskfile.TASK_MAX_ROUNDS} per pull request is the budget; "
+                              f"{config.policy()['rounds']} per pull request is the budget; "
                               "split or redesign it")
 
     def launch(self, name="20260102-0900-review-pr-widget-7"):

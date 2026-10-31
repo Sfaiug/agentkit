@@ -20,6 +20,10 @@ class TaskFile(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix="task-file-")
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
+        # the round budget is the host's: this one's config.toml sets none
+        home = patch.object(config, "HOME", self.root / ".agentkit")
+        home.start()
+        self.addCleanup(home.stop)
 
     def write(self, text, name="fix-api.md"):
         path = self.root / name
@@ -63,7 +67,7 @@ class TaskFile(unittest.TestCase):
 
     def test_a_round_budget_over_the_rule_is_refused(self):
         self.assertIn("over the budget: 3 rounds", task.rounds_refusal(4, "--rounds"))
-        self.assertIsNone(task.rounds_refusal(task.TASK_MAX_ROUNDS, "--rounds"))
+        self.assertIsNone(task.rounds_refusal(config.policy()["rounds"], "--rounds"))
         self.assertIsNone(task.rounds_refusal("many", "--rounds"))
 
     def test_a_heredoc_in_done_when_is_refused(self):

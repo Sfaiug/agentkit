@@ -333,8 +333,9 @@ def budget_failed_reviews(repo, exclude=None):
             key = pr_key(state["review_pr"])
             found.setdefault((key, size_base(state), state["head_sha"]),
                              (state["review_pr"], size_base(state), state["head_sha"]))
+    budget = config.policy()["rounds"]
     return [failed for (key, _, _), failed in found.items()
-            if key not in merged and spent[key] >= taskfile.TASK_MAX_ROUNDS]
+            if key not in merged and spent[key] >= budget]
 
 
 def replacement_refusal(repo, base, head, number, counted, exclude=None):
@@ -364,7 +365,7 @@ def replacement_refusal(repo, base, head, number, counted, exclude=None):
         return None
     url, shared, size = worst
     return (f"PR #{number} re-adds {shared} of its {written} lines holding a letter or digit from {url}, "
-            f"whose review failed after {taskfile.TASK_MAX_ROUNDS} rounds; a replacement inherits them: "
+            f"whose review failed after {config.policy()['rounds']} rounds; a replacement inherits them: "
             f"split it into parts under {size // 2 + 1} lines, or redesign it")
 
 
@@ -482,7 +483,7 @@ def over_lineage(state, run_dir, n_rounds):
     cap = lineage_cap(state, run_dir)
     if n_rounds > cap:
         raise config.Error(f"--rounds {n_rounds} is over this change's budget: {cap} of "
-                           f"{taskfile.TASK_MAX_ROUNDS} rounds across its runs; split or redesign the task")
+                           f"{config.policy()['rounds']} rounds across its runs; split or redesign the task")
 
 
 def failed_at_budget(state):
@@ -491,8 +492,8 @@ def failed_at_budget(state):
     Deliberately not part of `needs_recovery`: nothing was interrupted here, so this is no
     recovery decision for the menu to raise, for the seat to be told about or for `announce`
     to swallow the finished-run notice over.  An explicit `--rounds` above the saved budget,
-    and no higher than `taskfile.TASK_MAX_ROUNDS`, continues it and nothing else does -- see
-    `cmd_resume`.
+    and no higher than the host's `rounds` (`config.policy`), continues it and nothing else
+    does -- see `cmd_resume`.
     """
     return (state.get("state") == "fail" and not state.get("review_pr")
             and bool(state.get("worktree")) and Path(state["worktree"]).is_dir()
@@ -1248,7 +1249,7 @@ def rounds_spent(state):
 def spent_line(spent, runs, what):
     """Why no round is left: the one wording of a spent budget, wherever it is refused."""
     return (f"{spent} review rounds spent on {what} across {runs} run{'s' if runs != 1 else ''}: "
-            f"{taskfile.TASK_MAX_ROUNDS} per pull request is the budget; split or redesign it")
+            f"{config.policy()['rounds']} per pull request is the budget; split or redesign it")
 
 
 def rounds_spent_elsewhere(*, pr=None, change=None, exclude=None):
@@ -1295,11 +1296,11 @@ def change_reviewed(*, pr=None, change=None):
 def round_budget(asked, *, pr=None, change=None, exclude=None, what, own=0):
     """(the rounds this run may still have, None), or (0, why) once the change's budget is
     spent: `asked` less what the other runs (`exclude` names this one) spent on the same pull
-    request or change and less this run's `own`, `taskfile.TASK_MAX_ROUNDS` in all.  The one
+    request or change and less this run's `own`, the host's `rounds` in all.  The one
     reading of the budget: a launch, a resume, the way on from a FAIL and every round as it
     is spent read it here."""
     spent, runs = rounds_spent_elsewhere(pr=pr, change=change, exclude=exclude)
-    left = min(asked, taskfile.TASK_MAX_ROUNDS - spent - own)
+    left = min(asked, config.policy()["rounds"] - spent - own)
     if left < 1:
         return 0, spent_line(spent + own, runs + (1 if own else 0), what)
     return left, None
@@ -1314,7 +1315,7 @@ def change_budget(state, run_dir, asked, own=0):
 
 def lineage_cap(state, run_dir):
     """The rounds that run may have in all: the change's budget less what other runs spent."""
-    return change_budget(state, run_dir, taskfile.TASK_MAX_ROUNDS)[0]
+    return change_budget(state, run_dir, config.policy()["rounds"])[0]
 
 
 def allowed_rounds(lp):

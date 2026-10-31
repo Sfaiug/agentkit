@@ -917,9 +917,9 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
             save_job(job_dir, job)
         log(task["verdict_line"])
         return
-    # a FAIL at its round budget gets no more rounds: three is the budget.  One its reviews
-    # failed goes back to the seat with its findings, as a single run's does, to be split
-    # or re-scoped.  One a check or integration left behind -- or an `exhausted` that is
+    # a FAIL at its round budget gets no more rounds: the host's `rounds` is the budget.  One
+    # its reviews failed goes back to the seat with its findings, as a single run's does, to be
+    # split or re-scoped.  One a check or integration left behind -- or an `exhausted` that is
     # really a spent round budget -- starts once more on the next executor model in
     # worker-list order
     if not task.get("rerun_attempted") and job_classify(run_state, cfg) == "failed" \
