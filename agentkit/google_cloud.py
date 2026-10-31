@@ -93,8 +93,9 @@ def said(mb_per_core):
 
 def watch():
     """The tick's pass while ak may rent: the meter moved on to what Google lists, each machine
-    past its end, unpriced, past the cap or idle given back and said, the other ready ones serving;
-    only then a stale price list."""
+    past its end, unpriced, past the cap or idle given back and said, the other ready ones and
+    those already serving, whose work in flight reaches them by this route, serving; only then a
+    stale price list."""
     active, cap = _setting()
     if not active:
         return
@@ -110,7 +111,7 @@ def watch():
         idle = _idle(listed)
     except (OSError, subprocess.CalledProcessError):    # no ssh here: the meter moves all the same
         idle = {}
-    ready = []
+    ready, was = [], serving()
     for machine in listed:
         if why := ("past its end" if now >= machine.until else "with no price kept" if not prices
                    else "past the cap" if not ledger or ledger["spent"] > cap
@@ -120,7 +121,7 @@ def watch():
                 late.append(f"{machine.name} listed {why}, given back")
             except Unavailable as exc:
                 late.append(f"{machine.name} listed {why}, not given back: {exc}")
-        elif machine.id in idle:
+        elif machine.id in idle or machine.name in was:
             ready.append(machine)
     _serve(ready)
     config._write_json(config.STATE / LATE, late)
