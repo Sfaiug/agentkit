@@ -57,10 +57,6 @@ func Main(args []string, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "ak %s: %s\n", command, problem)
 		return 2
 	}
-	if command == "wait" && os.Getenv("AGENTKIT_SESSION") == "" {
-		fmt.Fprintln(errOut, "ak wait: no seat: run it inside an orchestrator session")
-		return 1
-	}
 	// These commands read configuration before their first operation. Help and
 	// argument refusals above must remain usable even when that file is broken.
 	if command == "usage" || command == "models" {

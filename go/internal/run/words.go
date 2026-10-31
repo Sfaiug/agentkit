@@ -103,11 +103,13 @@ func TickAdmission(record *Object, now time.Time) string {
 }
 
 // Going is whether the run keeps its seat working while it lasts: the states that resume
-// themselves, a run stopped to wait on an older run's change, and an error the tick will
-// retry while it still admits it.
+// themselves, a member of a landing line till its lander ends it, a run stopped to wait on an
+// older run's change, and an error the tick will retry while it still admits it.
 func Going(record *Object, now time.Time) bool {
-	state := record.Str("state")
+	state, line := record.Str("state"), record.Dict("waiting_on")
 	switch {
+	case state == "waiting" && line != nil && line.Truthy("line"):
+		return true
 	case state == "stopped" && record.Dict("lease_wait") != nil && !record.Truthy("lease_restarted"):
 		return true
 	case (state == "error" || state == "waiting") && !tickAdmitted(record, now):
