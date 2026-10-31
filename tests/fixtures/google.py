@@ -111,9 +111,9 @@ class _Answers(http.server.BaseHTTPRequestHandler):
     def answer(self, body, cut=False):
         data = json.dumps(body).encode()
         self.send_response(200)
-        self.send_header("Content-Length", str(len(data) + cut))
+        self.send_header("Content-Length", str(len(data)))
         self.end_headers()
-        self.wfile.write(data)
+        self.wfile.write(data[:len(data) - cut])
 
     def do_POST(self):
         self.server.asked.append(self.path)

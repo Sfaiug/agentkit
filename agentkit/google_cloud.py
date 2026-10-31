@@ -372,11 +372,11 @@ def _rent(need, offered, ledger, taken, cap, now):
                     "diskType": f"zones/{zone}/diskTypes/{offer.disk}"}}],
                 "networkInterfaces": [{"accessConfigs": [{"type": "ONE_TO_ONE_NAT"}]}],
                 "metadata": {"items": [{"key": "startup-script", "value": STARTUP.format(
-                    user=USER, key=key, set_up=SET_UP)}]}})
-            while done.get("status") != "DONE" and (wait := until - time.monotonic()) > 0:
-                time.sleep(min(2, wait / 2))
+                    user=USER, key=key, set_up=SET_UP)}]}}, until=until)
+            while done.get("status") != "DONE" and time.monotonic() < until - TIMEOUT - 2:
+                time.sleep(2)     # then a whole TIMEOUT is left for the poll
                 done = _call(f"{compute}/zones/{zone}/operations/{done['name']}", token,
-                             timeout=until - time.monotonic())
+                             until=until)
             codes = [str(one.get("code")) for one in (done.get("error") or {}).get("errors") or ()
                      ] if done.get("status") == "DONE" else None
         except Unavailable as exc:      # a poll's refusal leaves the create Google took in doubt
@@ -469,7 +469,9 @@ def _pages(token, url, field, **query):
         query["pageToken"] = page["nextPageToken"]
 
 
-def _call(url, token=None, data=None, method=None, gone=None, timeout=TIMEOUT):
+def _call(url, token=None, data=None, method=None, gone=None, until=float("inf")):
+    """Google's JSON answer, each read of its body started only while a whole TIMEOUT is left
+    before the monotonic `until`: one sent in dribs ends there as no answer."""
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     if isinstance(data, dict):
         data, headers["Content-Type"] = json.dumps(data).encode(), "application/json"
@@ -477,8 +479,14 @@ def _call(url, token=None, data=None, method=None, gone=None, timeout=TIMEOUT):
         raise Unavailable(UNANSWERED[0])
     try:
         with urllib.request.urlopen(urllib.request.Request(url, data, headers, method=method),
-                                    timeout=timeout) as response:
-            return json.load(response)
+                                    timeout=TIMEOUT) as response:
+            body = []
+            while True:
+                if time.monotonic() > until - TIMEOUT:
+                    raise TimeoutError("Google's answer is still coming")
+                if not (chunk := response.read1(65536)):    # one read of the socket at most
+                    return json.loads(b"".join(body))       # one cut short is no JSON
+                body.append(chunk)
     except urllib.request.HTTPError as exc:     # Google's answer: 403 Forbidden, 404 Not Found ...
         if exc.code == 404 and gone is not None:
             return gone
