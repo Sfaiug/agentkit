@@ -1387,9 +1387,13 @@ model_unavailable() {   # missing binary/login, or nothing; a broken saved login
 import sys
 from agentkit import config
 sys.path.insert(0, str(config.REPO / "tests"))
+from check4_pair import login
 from check_harness_contract import unavailable
-why, broken = unavailable(config.model(config.load(), sys.argv[1])["harness"],
-                          seat="seat" in sys.argv[2:])
+# Asked about the login the check runs, as check 3 asks: a lent subscription's own, by name.
+cfg = config.load()
+entry = config.model(cfg, sys.argv[1])
+why, broken = unavailable(entry["harness"], seat="seat" in sys.argv[2:],
+                          account=login(cfg, entry["provider"]))
 if why:
     print(why)
 sys.exit(int(broken))
