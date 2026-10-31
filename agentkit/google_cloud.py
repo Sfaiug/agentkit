@@ -276,17 +276,17 @@ def _idle(listed):
     listed forgotten."""
     from . import helper, machines    # here, not at the top: both read this module
     key, kept = config.SECRETS / SSH_KEY, {_reach(one)["UserKnownHostsFile"] for one in listed}
-    legacy, was = config.SECRETS / KNOWN_HOSTS, serving()
+    legacy, was, at = config.SECRETS / KNOWN_HOSTS, serving(), (_ledger() or {}).get("answered", 0)
     if not key.exists():
         subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", USER, "-f", key],
                        capture_output=True, check=True)
     reached = [one for one in listed if one.address]
     for one in reached:
-        # an earlier install kept host keys by address in one file: one serving since before the
-        # ssh config was written keeps the key it served with; one created since is another
+        # an earlier install kept host keys by address in one file: one serving that the tick
+        # writing the ssh config listed keeps the key it answered with; one created since is not
+        # the one that answered, as that tick lists before it asks
         known = _reach(one)["UserKnownHostsFile"]
-        if (one.name in was and legacy.exists() and not known.exists()
-                and one.created < (config.STATE / SSH_CONFIG).stat().st_mtime):
+        if one.name in was and one.created <= at and legacy.exists() and not known.exists():
             known.write_bytes(subprocess.run(["ssh-keygen", "-F", one.address, "-f", legacy],
                                              capture_output=True).stdout)
     for path in config.SECRETS.glob(f"{KNOWN_HOSTS}*"):
