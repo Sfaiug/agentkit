@@ -63,6 +63,17 @@ def until_true(test, bound=120):
         time.sleep(0.1)
 
 
+def running(home, command):
+    """Whether one of the Home's processes runs `command`, as a check runs: `bash -c`."""
+    for pid in _strays(home.path):
+        try:
+            if command.encode() in Path(f"/proc/{pid}/cmdline").read_bytes():
+                return True
+        except OSError:      # ended meanwhile
+            pass
+    return False
+
+
 def record(run_dir):
     try:
         return json.loads((run_dir / "run.json").read_text())
@@ -131,13 +142,17 @@ class ResumeAfterPassedReview(unittest.TestCase):
         first = threading.Thread(target=home.ak, args=(
             "run", str(taskfile.write(home, cls.rig.path))), kwargs={"timeout": 300})
         first.start()
-        until_true(lambda: taskfile.runs(home)
-                   and record(taskfile.only_run(home)).get("step") == "merge")
+        until_true(lambda: running(home, suite))
         cls.run_dir = taskfile.only_run(home)
         cls.landing = record(cls.run_dir)
-        # cut off as a restart cuts a run off: every process the Home runs ends at once
-        for pid in _strays(home.path):
-            os.kill(pid, signal.SIGKILL)
+        # cut off as a restart cuts a run off: every process the Home runs ends at once, one
+        # that ended since the scan found it and one started before its parent was killed too
+        while strays := _strays(home.path):
+            for pid in strays:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
         first.join()
         home.write("cut", "")
         until_true(lambda: time.time() > over + 1)
