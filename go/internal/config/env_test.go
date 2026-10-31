@@ -99,3 +99,13 @@ func TestIntReadsAsManyDigitsAsPython(t *testing.T) {
 		}
 	}
 }
+
+func TestManifestPathsReadTheHarnesssEnvironment(t *testing.T) {
+	names := []string{"~/.acme", "$ACME_HOME", "~/.acme-$AGENTKIT_ACCOUNT", "${ACME_STATE:-~/.acme-state}", "$$ACME_HOME", "relative/dir", "${EMPTY:-fallback}/y", "$UNSET/z"}
+	env := map[string]string{"HOME": "/home/acme", "ACME_HOME": "/opt/acme", "AGENTKIT_ACCOUNT": "", "EMPTY": ""}
+	// as Python's config.manifest_paths reads them: an empty or unset variable with no default skips its path
+	want := []string{"/home/acme/.acme", "/opt/acme", "/home/acme/.acme-state", "/code/widgets/$ACME_HOME", "/code/widgets/relative/dir", "/code/widgets/fallback/y"}
+	if got := ManifestPaths(names, env, "/code/widgets"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q", got)
+	}
+}

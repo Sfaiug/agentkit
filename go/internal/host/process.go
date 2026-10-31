@@ -105,12 +105,16 @@ func Resident(pid int) (int64, bool) {
 	return pages * int64(os.Getpagesize()), err == nil
 }
 
+// Marker is the variable every process of a run carries, its marker: the run's directory, and
+// below it a part of the run, such as one turn.
+const Marker = "AGENTKIT_RUN"
+
 // Marked are the pids whose environment carries the run's marker, or one below it, except
 // this process and its ancestors: found by environment, so a child that left its process
 // group is still one of the run's.
 func Marked(marker string) []int {
-	want := []byte("AGENTKIT_RUN=" + marker)
-	below := []byte("AGENTKIT_RUN=" + marker + "/")
+	want := []byte(Marker + "=" + marker)
+	below := []byte(Marker + "=" + marker + "/")
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return nil
