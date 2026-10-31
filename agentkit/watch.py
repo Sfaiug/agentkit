@@ -7813,7 +7813,8 @@ def local_passes(state, dry_run, log):
     Each pass re-derives placement or state from what it finds: a finding remembered from one
     tick to the next loses its race.
     """
-    from . import google_cloud, history, job as jobs, leases, logins, machines, retire, run, waiter
+    from . import (google_cloud, history, job as jobs, leases, logins, machine_setup, machines,
+                   retire, run, waiter)
     providers = {}
 
     def read_usage():
@@ -7936,6 +7937,9 @@ def local_passes(state, dry_run, log):
         ("the machines were not checked", machines.check, False),
         # A merge to a project reaches its seats' rulebooks: their next prompts name it.
         ("the projects' rules were not fetched", orch.fetch_projects, False),
+        # ... and what each needs of this machine, made ready in the background: once here for
+        # each version of its `setup:`, and again after a try that failed
+        ("the projects' setups were not started", machine_setup.tick, False),
         # Merged agentkit goes live after every local pass, so as little of this tick's old
         # code as can be is left to run over new files; GitHub imports nothing new.
         ("agentkit did not go live", lambda: update.go_live(log), False),

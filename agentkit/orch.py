@@ -2789,17 +2789,18 @@ def write_rulebook(session):
 
 
 def fetch_projects():
-    """The tick's pass: `fetch_project` for each project a seat is filed under.
+    """The tick's pass: `fetch_project` for each checkout and each project a seat is filed under.
 
     Only a fetch shows a merge there, ak's own or one made anywhere else; the seat's next prompt
-    then carries the new rules (`rulebook_news`).  A project that fails is named and waits for the
-    next tick, after every other project is fetched.
+    then carries the new rules (`rulebook_news`), and each project, with a seat or none, runs its
+    new `setup:` (`machine_setup`).  A project that fails is named and waits for the next tick,
+    after every other project is fetched.
     """
     failed = []
-    for repo in sorted({record["repo"] for record in config.session_records().values()
-                        if record.get("repo")}):
+    for repo in sorted({*checkouts(), *(Path(record["repo"]) for record in
+                                        config.session_records().values() if record.get("repo"))}):
         try:
-            fetch_project(Path(repo))
+            fetch_project(repo)
         except config.Error as exc:
             failed.append(str(exc))
     if failed:
