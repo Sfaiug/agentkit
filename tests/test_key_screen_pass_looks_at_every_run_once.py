@@ -19,11 +19,6 @@ from test_key_idle_screen_reads_only_what_changed import MINUTE, SEATS, OpenScre
 
 
 class ScreenPassLooksAtEveryRunOnce(OpenScreen):
-    def cpu(self):
-        """Clock ticks the screen has run, and the children it reaped."""
-        fields = Path(f"/proc/{self.pid}/stat").read_text().rpartition(")")[2].split()
-        return sum(map(int, fields[11:15]))      # utime, stime, cutime, cstime
-
     def busy_minute(self):
         """What the screen runs over a minute in which runs move every second, as on a busy
         host: each move touches the mark every open screen reads again on."""
