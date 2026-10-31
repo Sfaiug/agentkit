@@ -38,6 +38,13 @@ def renamed(long=False):
     return held
 
 
+def stacked(screen, *rows):
+    """Whether `rows` stand one under another on `screen`, from the first line that is the
+    first of them."""
+    shown = lines(screen)
+    return rows[0] in shown and shown[shown.index(rows[0]):][:len(rows)] == list(rows)
+
+
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class ModelsPick(unittest.TestCase):
     @classmethod
@@ -65,7 +72,8 @@ class ModelsPick(unittest.TestCase):
         term.keys("r")
         term.wait("boards read")      # the answer over the boards landed
         term.keys("p")
-        return term, lines(term.wait("type to find"))
+        # whole: a draw writes its key line last, then clears what the answer left under it
+        return term, lines(term.wait(lambda screen: screen.rstrip().endswith("esc done")))
 
     def compare(self):
         return akconfig.read(self.home).get("compare")
@@ -79,9 +87,8 @@ class ModelsPick(unittest.TestCase):
         self.assertEqual(next(line for line in reversed(shown) if line),
                          "  ↑↓ move   ␣ mark   type to find   esc done")
         term.keys("Down", "Space", "Down", "Space")
-        shown = lines(term.wait("2 of 4 marked"))
-        self.assertIn("›   ■ Acme Mid 5", shown)
-        self.assertIn("  □ all 4 models", shown)
+        term.wait(lambda screen: "2 of 4 marked" in screen
+                  and {"›   ■ Acme Mid 5", "  □ all 4 models"} <= set(lines(screen)))
         self.assertEqual(self.compare(), ["acme-max-5", "acme-mid-5"])
         term.keys("Escape")
         shown = lines(term.wait("comparing 2 of 4 models"))
@@ -92,24 +99,20 @@ class ModelsPick(unittest.TestCase):
     def test_find_narrows_the_list(self):
         term, _ = self.pick()
         term.type("MID")
-        shown = lines(term.wait("find  MID"))
-        at = shown.index("  find  MID▏")
-        self.assertEqual(shown[at + 1:at + 5], ["  ■ all 4 models", "  Acme", "›   □ Acme Mid 5", ""])
+        term.wait(lambda screen: stacked(screen, "  find  MID▏", "  ■ all 4 models", "  Acme",
+                                         "›   □ Acme Mid 5", ""))
         term.keys("Space")             # straight after a find, as anywhere, a space marks
         term.wait("■ Acme Mid 5")
         self.assertEqual(self.compare(), ["acme-mid-5"])
         term.keys("BSpace", "BSpace", "BSpace")
         term.wait(lambda screen: "  find  ▏" in screen)
         term.type("acmem")            # letters and digits alone: no find needs a space
-        shown = lines(term.wait("find  acmem▏"))
-        at = shown.index("  find  acmem▏")
-        self.assertEqual(shown[at + 1:at + 6], ["  □ all 4 models", "  Acme", "›   □ Acme Max 5",
-                                                "    ■ Acme Mid 5", ""])
+        term.wait(lambda screen: stacked(screen, "  find  acmem▏", "  □ all 4 models", "  Acme",
+                                         "›   □ Acme Max 5", "    ■ Acme Mid 5", ""))
         term.keys("Up", "Space")
         term.wait("all 4 compared")
         term.keys("BSpace", "BSpace", "BSpace", "BSpace", "BSpace")
-        shown = lines(term.wait(lambda screen: "  find  ▏" in screen))
-        self.assertIn("    □ Crux 2", shown)
+        term.wait(lambda screen: "  find  ▏" in screen and "    □ Crux 2" in lines(screen))
 
     def test_a_mark_on_a_replaced_release_counts_as_its_successor(self):
         term, shown = self.pick(compare=["bolt-2", "gone-1"])
@@ -121,8 +124,8 @@ class ModelsPick(unittest.TestCase):
     def test_space_on_all_compares_every_model_again(self):
         term, _ = self.pick(compare=["acme-mid-5"])
         term.keys("Space")
-        shown = lines(term.wait("all 4 compared"))
-        self.assertIn("› ■ all 4 models", shown)
+        term.wait(lambda screen: "all 4 compared" in screen
+                  and "› ■ all 4 models" in lines(screen))
         self.assertIsNone(self.compare())
         term.keys("Escape")
         term.wait("comparing all 4 models")
@@ -143,7 +146,7 @@ class ModelsPick(unittest.TestCase):
         self.assertEqual(shown[at + 1:at + 3], ["  1 of 4 marked", "  find  ▏"])
         self.assertIn("    □ Bolt 3 Long Context Preview Editi…", shown)
         term.keys("Escape")
-        shown = lines(term.wait("comparing 1 of 4 models"))
+        shown = lines(term.wait(lambda screen: screen.rstrip().endswith("esc back")))    # whole
         at = shown.index("  builds")
         self.assertEqual(shown[at + 1:at + 5], ["    ★ pick", "    Crux 2  low",
                                                 f"    {bar(8, size=8)}     74.0   $1.00  1 missing",
