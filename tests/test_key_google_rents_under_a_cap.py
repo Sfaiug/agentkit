@@ -1,4 +1,4 @@
-"""A suite no machine takes has the tick rent the type cheapest a core with its memory a core, in
+"""A suite no machine takes has the tick rent the type cheapest a core with its memory a vCPU, in
 a zone where ak has none first, on to the next zone and type where Google refuses, until Google's
 own end; none while one comes up or `[google_cloud]` is off, nor past the month's cap, which one
 whose reply was cut short counts against.  Black-box: `AK_BIN` lands a line beside a helper with
@@ -16,8 +16,8 @@ from fixtures.akbin import Home, boxable
 from fixtures.akline import Line
 from fixtures.google import SKUS, Google, kind
 
-# An hour: c4a-small-8, 512 MiB a core, €5.6545; c4a-highcpu-8 €5.8045, c4a-standard-8 €6.0045
-ZONES = {f"zones/europe-west4-{zone}": {"machineTypes": [kind("c4a-small-8", 8, 4), kind(
+# An hour: c4a-small-8, 384 MiB a vCPU, €5.6420; c4a-highcpu-8 €5.8045, c4a-standard-8 €6.0045
+ZONES = {f"zones/europe-west4-{zone}": {"machineTypes": [kind("c4a-small-8", 8, 3), kind(
     "c4a-highcpu-8", 8, 16), kind("c4a-standard-8", 8, 32)]} for zone in "ab"}
 NO_QUOTA = ({"error": {"errors": [{"reason": "quotaExceeded"}]}}, 403)
 NO_STOCK = ({"status": "DONE", "error": {"errors": [{"code": "ZONE_RESOURCE_POOL_EXHAUSTED"}]}},)
@@ -56,7 +56,7 @@ class GoogleRentsUnderACap(unittest.TestCase):
 
     @classmethod
     def needs(cls, when, cap=50):
-        cls.home.write(".agentkit/state/google-cloud-need", "820\n")    # as the line's suite
+        cls.home.write(".agentkit/state/google-cloud-need", "456\n")    # as the line's suite
         return cls.google.at(when, cap)
 
     def test_the_type_the_suite_needs_cheapest_a_core_until_googles_own_end(self):
