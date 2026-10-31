@@ -106,9 +106,9 @@ func TestHomesGoDoesNotKnow(t *testing.T) {
 		"a record not resumable": func(t *testing.T, home string) {
 			record(t, home, "acme", map[string]any{"resumable": false})
 		},
-		"a record's lock beside it": func(t *testing.T, home string) {
+		"a record's write cut short beside it": func(t *testing.T, home string) {
 			record(t, home, "acme", nil)
-			write(t, filepath.Join(home, ".agentkit", "state", ".session-acme.lock"), "")
+			write(t, filepath.Join(home, ".agentkit", "state", "session-acme.tmp"), "")
 		},
 		"a directory where a lock goes": func(t *testing.T, home string) {
 			record(t, home, "acme", nil)

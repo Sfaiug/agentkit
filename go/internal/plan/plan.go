@@ -20,6 +20,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/lock"
+	"agentkit/internal/notify"
 )
 
 // a line as `ak plan add` writes it, eye lines (`your eye`, the owner's to judge live) among them,
@@ -99,31 +100,6 @@ func hold(ctx context.Context, path string) (*os.File, error) {
 	return lock.Wait(ctx, path)
 }
 
-// held runs fn holding the seat's lock, the one Python ak's plan writers take
-// (`notify.session_lock`), with the name the seat goes by now: a rename taken while it waited
-// for the lock is followed.
-func held(ctx context.Context, name string, fn func(current string) error) error {
-	for {
-		current, _, err := config.ResolveSession(name)
-		if err != nil {
-			return err
-		}
-		file, err := hold(ctx, seatFile("notify", current, "lock"))
-		if err != nil {
-			return err
-		}
-		now, _, err := config.ResolveSession(name)
-		if err == nil && now == current {
-			defer file.Close()
-			return fn(current)
-		}
-		file.Close()
-		if err != nil {
-			return err
-		}
-	}
-}
-
 // verifying runs fn as the seat's one verification at a time, so a later one starts from the
 // plan the last one left.  Its lock is a seat file a rename moves, under the seat's lock: the
 // file held must be the one the seat's name reaches then, never one a rename replaced.
@@ -138,7 +114,7 @@ func verifying(ctx context.Context, name string, fn func() error) error {
 			return err
 		}
 		same := false
-		err = held(ctx, name, func(now string) error {
+		err = notify.Held(ctx, name, func(now string) error {
 			reached, err := os.Stat(seatFile("verify", now, "lock"))
 			mine, mineErr := file.Stat()
 			same = err == nil && mineErr == nil && os.SameFile(reached, mine)
@@ -249,7 +225,7 @@ func List(ctx context.Context, name string) ([]string, error) {
 		return nil, err
 	}
 	var box []string
-	err := held(ctx, name, func(current string) error {
+	err := notify.Held(ctx, name, func(current string) error {
 		lines, err := read(current)
 		for _, at := range listed(lines) {
 			box = append(box, strings.TrimFunc(lines[at], config.Space))
@@ -275,7 +251,7 @@ func listed(lines []string) (at []int) {
 // reads after them, each onto its own line, so a line added meanwhile stays.
 func verify(ctx context.Context, name string) error {
 	var snapshot []string
-	if err := held(ctx, name, func(current string) (err error) {
+	if err := notify.Held(ctx, name, func(current string) (err error) {
 		snapshot, err = read(current)
 		return err
 	}); err != nil {
@@ -319,7 +295,7 @@ func verify(ctx context.Context, name string) error {
 			return ctx.Err()
 		}
 	}
-	return held(ctx, name, func(current string) error {
+	return notify.Held(ctx, name, func(current string) error {
 		present, err := read(current)
 		changed := false
 		for i, text := range present {
@@ -361,7 +337,7 @@ func Add(ctx context.Context, name, repo, what, check string) (string, error) {
 	}
 	base, done := strings.Fields(on.commit)[0], ""
 	var line string
-	err = held(ctx, name, func(current string) error {
+	err = notify.Held(ctx, name, func(current string) error {
 		if passed {
 			// The owner, 26 Oct 2026: in a turn whose own ssh reached the live host, work done
 			// there proves itself, so a check already passing is written done on that commit
@@ -408,7 +384,7 @@ var ErrUnread = errors.New("a line Go cannot read as Python does")
 func Check(ctx context.Context, name, number, check string) (string, error) {
 	number, check = cmp.Or(strings.TrimLeft(number, "0"), "0"), strings.TrimFunc(check, config.Space)
 	var line string
-	if err := held(ctx, name, func(current string) error {
+	if err := notify.Held(ctx, name, func(current string) error {
 		lines, err := read(current)
 		if err != nil {
 			return err
@@ -460,7 +436,7 @@ func Check(ctx context.Context, name, number, check string) (string, error) {
 		}
 	}
 	fresh := added(old.What, check, old.Project, old.When, old.Base).ticked("")
-	return fresh, held(ctx, name, func(current string) error {
+	return fresh, notify.Held(ctx, name, func(current string) error {
 		lines, err := read(current)
 		if err != nil {
 			return err
