@@ -96,13 +96,22 @@ class QueuedRunHoldsNoMemory(unittest.TestCase):
             return {}
 
     def stall(self, run):
-        """The run first in line two hours, past half an hour, the stall's floor."""
+        """Whether the run is let in; until it is, the run first in line two hours, past half an
+        hour, the stall's floor, and the queue polled just now.  A poll long after the last
+        starts a new wait (`gate.first_in_line`), and every poll after the stall may come that
+        late on a loaded host at AK_SLOT_POLL=0.5: a whole `ak run`, the first back from its
+        waiter, or the one behind it back from a waiter that found the queue stale.  Under the
+        slot lock, where admission writes the queue and the record together."""
         with (self.runs_dir() / ".slots.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
+            if self.state(run).get("state") != "queued":
+                return True
             path = self.runs_dir() / ".slots.queue"
             queue = json.loads(path.read_text())
             self.assertEqual(queue["queue"][0], run.name)
-            path.write_text(json.dumps({**queue, "since": time.time() - 7200}))
+            now = time.time()
+            path.write_text(json.dumps({**queue, "since": now - 7200, "at": now}))
+            return False
 
     def test_runs_behind_the_first_hold_a_third_of_its_memory_and_go_in_in_order(self):
         first, *behind = [state["pid"] for state in self.held]
@@ -112,10 +121,7 @@ class QueuedRunHoldsNoMemory(unittest.TestCase):
 
         wait(small, "the runs behind the first holding less than a third of its memory", 30)
         for run in self.runs:
-            wait(lambda: self.queue()[:1] == [run.name], f"{run.name} first in line")
-            self.stall(run)
-            wait(lambda: self.state(run).get("state") not in ("queued", None),
-                 f"{run.name} let in")
+            wait(lambda: self.stall(run), f"{run.name} let in on a stall")
         for run, held in zip(self.runs, self.held):
             wait(lambda: self.state(run).get("state") not in ("queued", "running"),
                  f"{run.name} ended")
