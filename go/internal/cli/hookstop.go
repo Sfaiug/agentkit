@@ -30,7 +30,9 @@ const ask = "Your last message ends in a question, but it went through no questi
 // harness outside any seat, a path-like name and a sub-agent's Stop decide nothing, and so for
 // now does the PreToolUse before a question card, whose refusal is not Go's yet.
 func orchestratorStop(payload []byte, out io.Writer) {
-	launched := os.Getenv("AGENTKIT_SESSION")
+	// when the Stop was heard, before anything that may wait on a lock: a prompt heard while this
+	// judges is the newer fact
+	heard, launched := float64(time.Now().UnixNano())/1e9, os.Getenv("AGENTKIT_SESSION")
 	read, _ := run.Decode(payload)
 	event, ok := read.(*run.Object)
 	if !ok {
@@ -50,7 +52,7 @@ func orchestratorStop(payload []byte, out io.Writer) {
 		seat.TurnEnded(name)
 	}
 	if _, listed := lifecycle.HandedOver(event); listed {
-		fact := lifecycle.StopFact(launched, event, float64(time.Now().UnixNano())/1e9, back != "")
+		fact := lifecycle.StopFact(launched, event, heard, back != "")
 		hookfact.Record(name, fact, lifecycle.Keeps(harness, fact))
 	}
 	if back != "" {
@@ -78,11 +80,12 @@ func sentBack(launched, name string, record map[string]any, harness string, even
 		return ""
 	}
 	end := transcript.Read(harness, event.Str("transcript_path"))
-	if end.Said == "" || end.Asking || notify.NeededSince(name, turn) || seat.Kept(name) || record["unnamed"] == true {
+	said := lastSaid(event, end.Said)
+	if said == "" || end.Asking || notify.NeededSince(name, turn) || seat.Kept(name) || record["unnamed"] == true {
 		return ""
 	}
 	owed, done := plan.Owes(name)
-	if owed || !turned.Truthy("live_back") && plan.ReachedLive(name) || !trailsQuestion(end.Said) ||
+	if owed || !turned.Truthy("live_back") && plan.ReachedLive(name) || !trailsQuestion(said) ||
 		!done.IsZero() && end.Prompted <= float64(done.UnixNano())/1e9 {
 		return ""
 	}
@@ -91,6 +94,18 @@ func sentBack(launched, name string, record map[string]any, harness string, even
 		return ""
 	}
 	return ask
+}
+
+// lastSaid is what the model said last: the message the Stop hands over, in either spelling a
+// harness writes it, "" where it holds no text; else the conversation's, read.
+func lastSaid(event *run.Object, read string) string {
+	for _, key := range []string{"last_assistant_message", "lastAssistantMessage"} {
+		if event.Has(key) {
+			said, _ := event.Get(key).(string)
+			return said
+		}
+	}
+	return read
 }
 
 // trailsQuestion is whether the message ends in a question mark, past any closing emphasis,
