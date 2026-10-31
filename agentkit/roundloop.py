@@ -1689,6 +1689,13 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     return verdict
 
 
+def hand_to_writer(lp):
+    """A seat's PR that passed its first review had no fixer yet: what landing finds is its
+    writer's to fix, as a finding is, and the re-review is picked against them."""
+    if lp.state.get("own_pr"):
+        lp.executor = lp.executor or lp.state["own_orchestrator"]
+
+
 def landing_fixer(lp, text, name):
     """Give any landing fixer the line's red output and remember its completed turn."""
     wait = lp.state.get("waiting_on") or {}
@@ -1912,6 +1919,7 @@ def fix_after_failed_review(lp, upstream, how):
             fix += (f"\n\n## The done-when commands failed. Fix the root cause.\n```\n"
                     f"{dw_log}\n```")
         lp.rnd += 1
+        hand_to_writer(lp)
         lp.log(f"--- round {lp.rnd}/{lp.rounds}: fixer {lp.executor} (findings after {what})")
         summary = execute(lp, "fixer", fix, "executor")
         pin_checkout(lp)
@@ -1955,10 +1963,7 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
             + "\n".join(f"- {p}" for p in conflicts)
             + f"\n\n```\n{turns.cut(out, lp.run_dir, f'{how}-conflict')}\n```")
     summary, landed = "", False
-    if lp.state.get("own_pr"):
-        # a seat's PR that passed its first review had no fixer yet: its conflict is its
-        # writer's, as a finding is, and the re-review is picked against them
-        lp.executor = lp.executor or lp.state["own_orchestrator"]
+    hand_to_writer(lp)
     for attempt in range(1, CONFLICT_ROUNDS + 1):
         lp.log(f"--- merge: conflict round {attempt}/{CONFLICT_ROUNDS}: "
                f"fixer {lp.executor} ({how} conflict)")
@@ -2176,6 +2181,7 @@ def integrate(lp, upstream):
                                     lp, f"done-when after the {how} still fails after "
                                         f"{CONFLICT_ROUNDS} fixer rounds: {prompts.first_failure(dw_log)}",
                                     upstream, tip)
+                            hand_to_writer(lp)
                             lp.log(f"--- merge: re-run round {attempt + 1}/{CONFLICT_ROUNDS}: "
                                    f"fixer {lp.executor} (done-when after the {how})")
                             fix = (f"{lp.context}\n\n## The done-when commands failed. "
@@ -2361,6 +2367,7 @@ def final_check(lp, upstream):
                     f"{failing}", upstream,
                 lp.state.get("target_sha"))
         fixed += 1
+        hand_to_writer(lp)
         lp.log(f"--- merge: final check round {fixed}/{CONFLICT_ROUNDS}: "
                f"fixer {lp.executor} (final check)")
         if not fix_final_check(lp, upstream, text) or not integrate(lp, upstream):
