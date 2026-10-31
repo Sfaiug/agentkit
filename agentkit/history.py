@@ -933,6 +933,21 @@ def recent_peak_rss_mb():
     return median(peaks) if peaks else None
 
 
+def peaks_so_far(run_ids):
+    """Each of those runs' peak so far by run id, as its sampler wrote it; none unmeasured."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                return dict(connection.execute(
+                    "SELECT run_id, peak_rss_mb FROM runs WHERE peak_rss_mb IS NOT NULL "
+                    f"AND run_id IN ({', '.join('?' * len(run_ids))})", run_ids))
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return {}
+
+
 def event_paths(run_dir):
     """Kept worker event files in reporting order."""
     paths = []

@@ -1,4 +1,5 @@
-"""Host resource admission is conservative, FIFO, and a poll behind the last run let in."""
+"""Host resource admission is conservative, FIFO, and counts what runs let in may still take;
+with nothing measured, a run waits a poll behind the last let in."""
 
 import os
 import sys
@@ -117,6 +118,24 @@ class Slots(unittest.TestCase):
             with patch.object(gate, "time", Mock(time=lambda: later)):
                 self.assertTrue(gate.claim_slot(state, 1))
         self.assertEqual(state["state"], "running")
+
+    def test_what_runs_let_in_may_still_take_holds_in_place_of_a_poll_and_says_so(self):
+        roomy = {**HEALTHY, "free_mb": 8192, "unit_memory_high_mb": 16384}
+        with patch.object(history, "recent_peak_rss_mb", return_value=2048), \
+                patch.object(history, "peaks_so_far", return_value={"other": 512}), \
+                patch.object(gate, "_holders", return_value=[{"run_id": "other"}]):
+            self.assertTrue(self.claim(roomy, {"run_id": "other"})[0])
+            self.assertTrue(self.claim(roomy)[0])
+            for readings, reason, kind in (
+                    ({**roomy, "free_mb": 4096}, "waiting for memory · 4 G free, 1 starting run "
+                     "may take 1.5 G more, needs 3 G", "memory"),
+                    ({**roomy, "unit_memory_high_mb": 3000}, "waiting for the unit's memory · "
+                     "2.8 G left, 1 starting run may take 1.5 G more, a run needs 2 G",
+                     "unit memory")):
+                admitted, state = self.claim(readings)
+                self.assertFalse(admitted)
+                self.assertEqual((state["slot_wait_reason"], state["slot_wait_kind"]),
+                                 (reason, kind))
 
     def test_admission_clears_wait_reason(self):
         state = {"run_id": "r", "run_depth": 0}

@@ -289,6 +289,14 @@ def behind_first(run_id):
     return waiter.behind_first(config.RUNS / ".slots.queue", run_id, time.time(), SLOT_POLL)
 
 
+def _holders(state):
+    """The records of the other runs holding a slot (`slot_place`)."""
+    for directory in run_record.run_dirs():
+        other = run_record.read_state(directory) or {}
+        if other.get("run_id") != state.get("run_id") and slot_place(other) == "holding":
+            yield other
+
+
 def frozen_runs(state):
     """Admitted runs the host has frozen: slot owners whose process is held.
 
@@ -296,15 +304,23 @@ def frozen_runs(state):
     thaw lands every run at once. The same owners slot_counts counts, asked of the
     process itself, so a dead run and a reused pid count nothing.
     """
-    frozen = 0
-    for directory in run_record.run_dirs():
-        other = run_record.read_state(directory) or {}
-        if other.get("run_id") == state.get("run_id") or other.get("run_depth", 0):
-            continue
-        if (other.get("state") == "running" and run_record.process_active(other)
-                and host.frozen_cgroup(other.get("pid"))):
-            frozen += 1
-    return frozen
+    return sum(1 for other in _holders(state) if host.frozen_cgroup(other.get("pid")))
+
+
+def _starting(state, peak):
+    """(MB, runs): what the runs holding a slot may still grow by, a recent run's median `peak`
+    less each one's own peak so far, never below 0, and how many may still grow."""
+    holders = [other.get("run_id") for other in _holders(state)]
+    so_far = history.peaks_so_far(holders)
+    growth = [peak - (so_far.get(run_id) or 0) for run_id in holders]
+    return sum(mb for mb in growth if mb > 0), sum(mb > 0 for mb in growth)
+
+
+def _still(starting):
+    """`, N starting runs may take M G more` while some may, else ""."""
+    mb, runs = starting
+    return (f", {runs} starting run{'s' if runs != 1 else ''} may take {host._g(mb)} G more"
+            if runs else "")
 
 
 def slot_line(running, ahead, limit, first=False):
@@ -335,10 +351,11 @@ def _in_swap(memory):
     return f" · {host._g(memory[4])} G in swap" if memory and memory[4] else ""
 
 
-def _free_reason(readings, minimum):
+def _free_reason(readings, minimum, starting=(0, 0)):
     free = host._reading(readings, "free_mb", "mem_available_mb", "mem_available")
-    if minimum and free is not None and free < minimum:
-        return f"waiting for memory · {host._g(free)} G free, needs {host._g(minimum)} G", "memory"
+    if minimum and free is not None and free - starting[0] < minimum:
+        return (f"waiting for memory · {host._g(free)} G free{_still(starting)}, "
+                f"needs {host._g(minimum)} G", "memory")
     return None, None
 
 
@@ -359,11 +376,12 @@ def _strain(readings, minimum):
     return None, None
 
 
-def _wait_reason(readings, minimum, maximum, frozen=0):
+def _wait_reason(readings, minimum, maximum, peak=None, frozen=0, starting=(0, 0)):
     # An unreadable gate fails open, as the memory check before it did: a host
     # that cannot answer (no /proc on macOS, no cgroup file in a container)
-    # must not queue every run forever.
-    reason, kind = _free_reason(readings, minimum)
+    # must not queue every run forever.  `starting` is what runs let in may still take
+    # (`_starting`), counted against both memory gates.
+    reason, kind = _free_reason(readings, minimum, starting)
     if reason:
         return reason, kind
     load = host._reading(readings, "load", "load1", "load_1m")
@@ -377,15 +395,14 @@ def _wait_reason(readings, minimum, maximum, frozen=0):
     if reason:
         return reason, kind
     unit = host._slice_or_unit_memory(readings)
-    peak = history.recent_peak_rss_mb() if unit else None
     # The runs' swap past the slice's allowance takes room, as runs paging their test pieces
     # ran away (24 Oct 2026); seats' swap is bounded by their own caps and never holds a run.
     runs_swap = host._reading(readings, "runs_memory_swap_mb") or 0.0
     used = unit[0] + max(0.0, runs_swap - host.swap_allowance_mb(unit[1])) if unit else None
     if unit and peak is not None:
         room = unit[1] - used
-        if room < peak:
-            return (f"waiting for the unit's memory · {host._g(room)} G left, "
+        if room - starting[0] < peak:
+            return (f"waiting for the unit's memory · {host._g(room)} G left{_still(starting)}, "
                     f"a run needs {host._g(peak)} G{_in_swap(unit)}", "unit memory")
     elif unit and used > unit[1] * .75:
         raw = unit[2]
@@ -402,12 +419,12 @@ def memory_tight(readings=None):
     if os.environ.get("AK_MAX_RUNS") == "0":
         return None
     readings = _run_readings() if readings is None else readings
-    return _wait_reason(readings, resource_limits(readings)[0], 0)[0]
+    return _wait_reason(readings, resource_limits(readings)[0], 0,
+                        history.recent_peak_rss_mb())[0]
 
 
 def _host_admits(state, readings, is_first):
-    """The host gates and a poll's pause after a start: False, the wait written on `state`, while
-    one holds.
+    """The host gates (`_gates_admit`): False, the wait written on `state`, while one holds.
 
     A run stalled first in line (`stuck.slot_stall`) goes past every gate but the host's strain
     (`_strain`), `slot_stall` naming the one it went past: the gates derived from those readings
@@ -432,9 +449,14 @@ def _held(state, reason, kind):
 
 
 def _gates_admit(state, readings, is_first):
+    """The host gates, with what runs let in may still take counted against memory: readings
+    lag what a run just let in will use (30 Oct 2026: 43 at once hit the process limit).  With
+    nothing measured to count, a run waits a poll after the last let in instead."""
     minimum, maximum = resource_limits(readings)
     if is_first:
         maximum = 0
+    peak = history.recent_peak_rss_mb()
+    starting = (0, 0) if peak is None else _starting(state, peak)
     pinned = config.max_load_is_set()
     if pinned:
         frozen = 0
@@ -444,19 +466,17 @@ def _gates_admit(state, readings, is_first):
             # counts 1 against the limit. Counted only while the load alone passes:
             # past the limit the wait says so already, and no cgroup is read.
             frozen = frozen_runs(state)
-        reason, kind = _wait_reason(readings, minimum, maximum, frozen)
+        reason, kind = _wait_reason(readings, minimum, maximum, peak, frozen, starting)
     else:
-        reason, kind = _wait_reason(readings, minimum, 0)
+        reason, kind = _wait_reason(readings, minimum, 0, peak, starting=starting)
     if reason is None and not is_first and landing_waits() and not machines.helpers():
         # Finished work goes first: the headroom a new run would take is the suite's, which needs
         # none here with a machine to go to (owner, 30 Oct 2026: nothing waits for compute).
         reason, kind = "waiting for a landing suite's turn · finished work goes first", "landing"
     if reason:
         return _held(state, reason, kind)
-    if 0 <= time.time() - slot_queue()[6] < SLOT_POLL:
-        # Readings lag what a run just let in will use: the next waits a poll for them, so a
-        # burst goes in one a poll (30 Oct 2026: 43 at once hit the process limit).  Say that,
-        # with the readings behind it, rather than the count sentence nothing waits on.
+    if peak is None and 0 <= time.time() - slot_queue()[6] < SLOT_POLL:
+        # Named with the readings behind it, rather than the count sentence nothing waits on.
         # The kind stays whatever gate (if any) actually delayed this wait.
         free = host._reading(readings, "free_mb", "mem_available_mb", "mem_available")
         state["slot_wait_reason"] = f"waiting for steady readings · {host._g(free)} G free"
@@ -468,8 +488,8 @@ def _gates_admit(state, readings, is_first):
 
 
 def claim_slot(state, limit, readings=None, launch=False):
-    """Called under slot_lock: count, seat turns, the host gates and a poll's pause after a start
-    decide admission.  A gated `launch` only records why it waits: its waiter owns the start."""
+    """Called under slot_lock: count, seat turns and the host gates decide admission.  A gated
+    `launch` only records why it waits: its waiter owns the start."""
     # AK_MAX_RUNS=0 is the test-suite escape hatch: it disables count and host gates together.
     ungated = os.environ.get("AK_MAX_RUNS") == "0"
     running, ahead, others = slot_counts(state, remember=not (state.get("run_depth", 0) or ungated))
