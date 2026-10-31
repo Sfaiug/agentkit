@@ -1,8 +1,9 @@
 """The models screen draws no maker's colour when it opens, though the highlight is on the first
 role's pick; once ↓ moves it onto a row, every row of that row's maker, in every role, has its
 company's colour, its provider's `colour`: its line in it, its name in it lifted a quarter of the
-way toward the foreground, a dark background's white.  No row of another maker has it.  A
-provider whose `maker` names the boards' maker is its company, as `mimo`'s names Xiaomi.
+way toward the foreground, a dark background's white.  No row of another maker has it.  ↑ on the
+first row, where the highlight cannot move, lights its maker too.  A provider whose `maker`
+names the boards' maker is its company, as `mimo`'s names Xiaomi.
 
 The owner's ask of 30 Oct 2026, colour only under the pointer.  Black-box, as
 tests/test_key_models_answer.py: the program `AK_BIN` names in a terminal with its colours
@@ -75,9 +76,12 @@ class ModelsColour(unittest.TestCase):
         self.addCleanup(self.home.close)
         fakes = fakeadapter.install(self.home, claude="pass")
         fakes["claude"].answer("models", "acme-mid-5\tAcme Mid 5\tlow medium high xhigh max\n")
-        akconfig.write(self.home, {"mid": {"harness": "claude", "model": "acme-mid-5"}},
-                       providers=PROVIDERS)
         self.home.write(".agentkit/state/boards.json", boards())
+
+    def models(self, **settings):
+        """`r` on `c` in a window of its own, once its answer rests: no maker's colour on it."""
+        akconfig.write(self.home, {"mid": {"harness": "claude", "model": "acme-mid-5"}},
+                       providers=PROVIDERS, settings=settings)
         env = {key: value for key, value in answer.ENV.items() if key != "NO_COLOR"}
         self.term = Terminal(self.home, size=(100, 60), env={**env, "COLORTERM": "truecolor"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
@@ -86,13 +90,19 @@ class ModelsColour(unittest.TestCase):
         self.term.keys("c")
         self.term.wait("r recommended")
         self.term.keys("r")
+        shown = settled(self.term, "comparing all 3 models")
+        self.assertEqual({made for _, made, *_ in rows(shown)}, set(COLOURS))
+        self.assertFalse({sgr(paint(rgb)) for rgb in COLOURS.values()
+                          for paint in (tuple, lifted)} & colours(shown))
+        return shown
 
     def pointed(self, maker):
-        """The screen once the highlight has rested on a row of `maker`'s, each of its rows lit."""
+        """The screen once the highlight rests on a row of `maker`'s, each of its rows lit."""
+        rgb = COLOURS[maker]
+        self.term.wait(lambda _: sgr(lifted(rgb)) in self.term.screen(colours=True))
         shown = settled(self.term, lambda screen: any(
             line.startswith("› ") and f"  {maker} " in line for line in screen.split("\n")))
         found = rows(shown)
-        rgb = COLOURS[maker]
         self.assertEqual({role for role, made, *_ in found if made == maker},
                          {"orch", "builds", "reviews"})
         for role, made, name, tip, line in found:
@@ -103,15 +113,19 @@ class ModelsColour(unittest.TestCase):
                 self.assertFalse({sgr(rgb), sgr(lifted(rgb))} & colours([line]), (role, made))
 
     def test_no_maker_lights_at_rest_and_the_pointed_rows_maker_lights(self):
-        shown = settled(self.term, "comparing all 3 models")
-        self.assertEqual({made for _, made, *_ in rows(shown)}, set(COLOURS))
-        self.assertFalse({sgr(paint(rgb)) for rgb in COLOURS.values()
-                          for paint in (tuple, lifted)} & colours(shown))
+        self.models()
         self.term.keys("Down")
         self.pointed("Acme")
         self.term.keys("Down", "Down", "Down")
         self.pointed("Bolt")
 
+    def test_up_where_the_highlight_cannot_move_lights_its_maker(self):
+        # within no points of the best the first role's pick is its best, the first row
+        shown = self.models(within=0)
+        self.assertTrue(next(plain(line) for line in shown if plain(line).startswith("› "))
+                        .startswith("› ★ pick   Acme"))
+        self.term.keys("Up")
+        self.pointed("Acme")
 
 if __name__ == "__main__":
     unittest.main()

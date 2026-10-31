@@ -3263,13 +3263,13 @@ def models_screen(cfg, session, selected, providers):
     failed reading said under the rows; the answer is computed once per landing and per knob
     step, never per draw.  ←/→ step `within`, saved at once (config_within), the knob nudging
     at either end.  ↑/↓ move the pointer over the rows shown, from the first role's pick; one
-    whose row a step leaves unshown goes to its role's pick.  From the first move of the mouse's
-    pointer or the keys', the row pointed at lights its maker: every row of it in its company's
-    colour (models_body); none while the pointer is on no row.  ⏎ or a click opens the pointed
-    row's why (models_why) until Esc, ↑/↓ turning its pages where it is taller than the screen.
-    `p` picks the releases the answer compares (compare_screen), answered again once it is left.
-    `r` takes each role's take (takes, take_advice): the seat's executors and reviewers, the
-    orchestrator only said; without a seat new seats' three roles.
+    whose row a step leaves unshown goes to its role's pick.  From the first ↑/↓ or move of the
+    mouse's pointer or the keys', the row pointed at lights its maker: every row of it in its
+    company's colour (models_body); none while the pointer is on no row.  ⏎ or a click opens the
+    pointed row's why (models_why) until Esc, ↑/↓ turning its pages where it is taller than the
+    screen.  `p` picks the releases the answer compares (compare_screen), answered again once it
+    is left.  `r` takes each role's take (takes, take_advice): the seat's executors and
+    reviewers, the orchestrator only said; without a seat new seats' three roles.
     """
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
     here, top, note, title = None, 0, "", f"config · recommended · {session or NEW_SEATS}"
@@ -3315,8 +3315,11 @@ def models_screen(cfg, session, selected, providers):
                                                         knob)],
                                         clock=clock, began=fetch and fetch.began,
                                         going=fetch and fetch.is_alive)
-        # pointed at once the pointer or the keys move: the highlight's first place lights nothing
-        pointing, here = pointing or terminal.pointer() is not None or moved != here, moved
+        # pointed at once the pointer or the keys move the highlight, or ↑/↓ is pressed where it
+        # cannot move: its first place lights nothing
+        pointing = (pointing or terminal.pointer() is not None or moved != here
+                    or act in ("up", "down"))
+        here = moved
         if act is None:
             continue                  # a resize, the pointer or the boards landing: drawn again
         note = ""
