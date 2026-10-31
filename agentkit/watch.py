@@ -2320,25 +2320,32 @@ def kept_asked(name, kept):
 def answered_kept(name, replies, at):
     """A native card reply answers only its questions, including before the turn ends: its own
     card's copy, and every copy of a question whose latest card it is.  Each question it answers
-    is the owner's time, asked when first kept and answered at `at`, unless the seat's notice
-    asks it too, whose answer records it (`notify.answered`).  The caller holds the notice
-    lock."""
+    is the owner's time, asked when first kept and answered at `at`, unless the reply naming it
+    also names a question the seat's notice asks, by that question's card as `notify.answered`
+    reads it, with or without the choices shown: that answer records it.  The caller holds the
+    notice lock."""
     with seat_lock(name):
         data = seat_read(name)
         kept = questions_kept(data.get("unasked"))
         latest = {notify.question_key(q["text"]): q.get("id") for q in kept}
-        answered = [q for q in kept if q.get("at", at) < at and any(
-                    notify.replied(replies, q["text"], card)
-                    for card in (q.get("id"), latest[notify.question_key(q["text"])]))]
+
+        def answers(reply, q):
+            return q.get("at", at) < at and any(
+                notify.replied([reply], q["text"], card)
+                for card in (q.get("id"), latest[notify.question_key(q["text"])]))
+        answered = [q for q in kept if any(answers(reply, q) for reply in replies)]
         if not answered:
             return False
         _seat_put(name, data, {"unasked": _kept([q for q in kept if q not in answered])})
     notice = notify.last(name)
-    standing = {notify.question_key(q) for q in notify.questions(notice)} if notice else ()
+    cards = {**((notice or {}).get("question_ids") or {}), **latest}
+    noticed = [reply for reply in replies if notice and any(
+               notify.replied([reply], q, cards.get(notify.question_key(q)))
+               for q in notify.questions(notice))]
     asked = {}
     for q in answered:
         key = notify.question_key(q["text"])
-        if key not in standing:
+        if not any(answers(reply, q) for reply in noticed):
             asked[key] = min(q["at"], asked.get(key, math.inf))
     for moment in asked.values():
         history.owner_time("asked", moment)

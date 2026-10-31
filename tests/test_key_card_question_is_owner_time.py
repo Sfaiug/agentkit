@@ -4,8 +4,8 @@ Before Claude Code draws an AskUserQuestion card it runs its PreToolUse hooks, a
 answer reaches its PostToolUse hook.  Each question the card asks the owner answers there is a
 question `asked` when the card went up and `answered` then, `waited` between, in history.db's
 owner table, which the board reads; the same answer heard again adds nothing.  A question the
-seat's standing notice asks already was asked when the notice went up, and its answer is the
-notice's: the card adds no row of its own.  A card the seat is refused asks nobody.
+seat's standing notice asks already, there with the choices the card shows, was asked when the
+notice went up, and its answer is the notice's: the card adds no row of its own.  A card the seat is refused asks nobody.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, before
 seats of tests/fixtures/akseat.py whose hooks fire as their harness fires them
 (tests/fixtures/hookdrive.py), the rows checked against each other, never the clock.
@@ -28,6 +28,8 @@ LAYOUT = "Which layout should acme use?"
 NAMING = "Which naming should acme use?"
 CHOICES = {LAYOUT: ["Compact (Recommended)", "Wide"], NAMING: ["snake_case (Recommended)", "camelCase"]}
 ANSWERS = {LAYOUT: "Compact (Recommended)", NAMING: "snake_case (Recommended)"}
+# as a seat records its question, its choices in its words, as Claude Code 2.1.305 seats did
+NOTICE = f"{LAYOUT} Options: {', '.join(CHOICES[LAYOUT])}."
 UPDATE = "Run fix-api ended: merged."     # a run update ak types, the owner's words in none
 
 
@@ -106,9 +108,9 @@ class CardQuestionIsOwnerTime(unittest.TestCase):
     def test_a_card_asking_what_the_notice_asks_adds_no_row_of_its_own(self):
         seat = Seat(self.home, "beta", screen="claude-working-pane.txt")
         self.hooks.prompt("go", seat)
-        self.ak(seat, "notify", "needs", LAYOUT)
+        self.ak(seat, "notify", "needs", NOTICE)
         seat.show("claude-prompt-pane.txt")
-        chat = hookdrive.transcript(self.home, seat.name, LAYOUT)
+        chat = hookdrive.transcript(self.home, seat.name, NOTICE)
         fired = self.hooks.fire("Stop", {"background_tasks": [], "stop_hook_active": False,
                                          "transcript_path": chat}, seat=seat.name, pane=seat)
         self.assertEqual(fired.code, 0, fired.err)
