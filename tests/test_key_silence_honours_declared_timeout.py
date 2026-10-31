@@ -45,6 +45,8 @@ class SilenceHonoursDeclaredTimeout(unittest.TestCase):
         self.assertIn(KILLED, verdict["fix"]["line"], verdict)
 
     def test_a_declared_timeout_ends_the_command_by_itself(self):
+        # Its bound ends a second past the silence limit: a start read to the whole second, as
+        # the kernel's boot time gives it, can take all of that second away.
         verdict = self.check("timeout 4 sleep 60\n")
         self.assertEqual(verdict["fix"]["tests"], ["slow.sh"], verdict)
         self.assertNotIn(KILLED, verdict["fix"]["line"], verdict)

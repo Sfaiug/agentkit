@@ -492,11 +492,7 @@ def within_declared_timeout(pid):
         except OSError:
             continue
         seconds = timeout_seconds(argv)
-        stat = seconds and host.proc_stat(child)
-        # /proc counts a start on the boot clock; a wall-clock birth goes through /proc/stat's
-        # whole-second btime and ends the bound up to a second early
-        if (stat and not stat.exited and stat.start / os.sysconf("SC_CLK_TCK") + seconds
-                > time.clock_gettime(time.CLOCK_BOOTTIME)):
+        if seconds and (age := host.process_age(child)) is not None and age < seconds:
             return True
     return False
 
