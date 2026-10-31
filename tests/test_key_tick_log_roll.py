@@ -10,7 +10,6 @@ that lock file is the one every tick takes, whichever build runs it.  Black-box:
 """
 
 import fcntl
-import re
 import sys
 from pathlib import Path
 import unittest
