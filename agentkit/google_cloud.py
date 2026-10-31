@@ -52,7 +52,7 @@ USER, SET_UP = "ak", "/run/ak-ready"    # a machine's user for ak, and what says
 READY = 600     # seconds a machine takes to come up: no rent meanwhile, nor one for a shorter life
 LIFE = 12 * 3600    # a Spot machine is replaced at no cost, and a forgotten one costs no more
 TRIES, POLLS = 4, 30    # a rent's creates, polled 2 s apart each: one ran 40 s on 31 Oct 2026
-NEED = "google-cloud-need"      # MiB a core of each suite no machine took since the last pass
+NEED = "google-cloud-need"      # MiB a vCPU of each suite no machine took since the last pass
 REFUSALS = {"QUOTA_EXCEEDED", "quotaExceeded", "ZONE_RESOURCE_POOL_EXHAUSTED",   # Google's codes:
             "ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS"}    # a zone's quota or stock is out
 # A machine's setup, each line run on those that served suites on 31 Oct 2026: docker's data and
@@ -93,14 +93,18 @@ class Offer(NamedTuple):
     image: str = ""
     disk: str = ""    # its boot disk's type
 
+    @property
+    def cpus(self):     # the vCPUs its machine counts, as a suite's VMs are given them
+        return self.cores if self.image.endswith("-arm64") else 2 * self.cores
+
     def __str__(self):
         return (f"{self.name} in {self.region} · {self.cores:g} cores · "
                 f"{self.memory_mb / 1024:g} GB · €{self.hourly:.3f} an hour")
 
 
-def best(mb_per_core, offered):
-    """The offers with at least `mb_per_core` of memory a core, the lowest price per core first."""
-    return sorted((offer for offer in offered if offer.memory_mb >= mb_per_core * offer.cores),
+def best(mb_per_cpu, offered):
+    """The offers with at least `mb_per_cpu` of memory a vCPU, the lowest price per core first."""
+    return sorted((offer for offer in offered if offer.memory_mb >= mb_per_cpu * offer.cpus),
                   key=lambda offer: (offer.hourly / offer.cores, offer))
 
 
@@ -110,18 +114,18 @@ def renting():
         return _setting()[0]
 
 
-def need(mb_per_core):
-    """A suite no machine took asks a pass for one of `mb_per_core` MiB a core; fails nothing."""
+def need(mb_per_cpu):
+    """A suite no machine took asks a pass for one of `mb_per_cpu` MiB a vCPU; fails nothing."""
     if renting():
         with contextlib.suppress(OSError), (config.STATE / NEED).open("a") as noted:
-            noted.write(f"{mb_per_core}\n")
+            noted.write(f"{mb_per_cpu}\n")
 
 
-def said(mb_per_core):
+def said(mb_per_cpu):
     """`ak doctor`'s lines: the tick's last answer while ak may rent, else `best`'s."""
     active, cap = _setting()
     if not active:
-        fits = best(mb_per_core, offers())
+        fits = best(mb_per_cpu, offers())
         return [f"best now {fits[0]}" if fits else "nothing offered"]
     ledger, late = _ledger(), config._read_json(config.STATE / LATE) or []
     if ledger is None:
@@ -283,7 +287,7 @@ def _amount(value):
 
 
 def _noted(path):
-    """The most MiB a core noted at `path`, 0 for none, taken: a suite noting next notes anew."""
+    """The most MiB a vCPU noted at `path`, 0 for none, taken: a suite noting next notes anew."""
     try:
         return max(map(int, path.replace(path.with_suffix(".taken")).read_text().split()))
     except (OSError, ValueError):
@@ -291,14 +295,14 @@ def _noted(path):
 
 
 def _rent(ledger, wanted, cap, now, offered, taken):
-    """How renting a machine of `wanted` MiB a core went, in lines: by price per core, zones
+    """How renting a machine of `wanted` MiB a vCPU went, in lines: by price per core, zones
     where ak has none (`taken`) first, as Google took both Spot machines of one zone in 6 s on 30
     Oct 2026; on the meter by name till Google says it made none; living what the cap leaves."""
     left = cap - ledger["spent"] - sum(one["price"] * max(0, one["until"] - one.get("from", now))
                                        for one in ledger["machines"].values()) / 3600
     # the public half of the key `_idle` made, or OSError before any machine is on the meter
     (compute, token), key = _login(), (config.SECRETS / f"{SSH_KEY}.pub").read_text().strip()
-    said, tries = [f"nothing offered with {wanted} MiB a core"], TRIES
+    said, tries = [f"nothing offered with {wanted} MiB a vCPU"], TRIES
     for offer in best(wanted, offered):
         if (life := int(min(LIFE, left * 3600 / offer.hourly))) < READY:
             said = [f"rents nothing: €{cap - left:.2f} of €{cap:.2f} spent this month or held "
