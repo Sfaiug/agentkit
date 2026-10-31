@@ -1254,8 +1254,9 @@ def front_value(text, key):
     return None
 
 
-def declared_at(wt, ref, key):
-    """`key`'s value in the front matter of AGENTS.md at `ref`, or None.
+def declared_at(wt, ref, key, env=None):
+    """`key`'s value in the front matter of AGENTS.md at `ref`, or None; git's environment as
+    `env` changes it (`tool_run`).
 
     A read that fails or runs slow is no declaration, never a failed run: the ref may
     not exist yet, the file may not be there, or git may be waiting on a prompt or a
@@ -1263,7 +1264,7 @@ def declared_at(wt, ref, key):
     checkout says.
     """
     try:
-        text = git(wt, "show", f"{ref}:AGENTS.md", check=False)
+        text = git(wt, "show", f"{ref}:AGENTS.md", check=False, env=env)
     except Exception:
         return None
     if not text:

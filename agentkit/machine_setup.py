@@ -85,10 +85,11 @@ def _last(repo):
 def _due(repo):
     """(the setup's version here, the default branch's commit) where it has yet to pass at that
     version on this machine, else None.  A project naming no setup forgets its last one."""
-    env = gitcall.project_env(repo)
+    # the commit as recorded, as the fresh clone reads it: no local replacement of its objects
+    env = {**gitcall.project_env(repo), "GIT_NO_REPLACE_OBJECTS": "1"}
     commit = gitcall.git(repo, "rev-parse", "--verify", "--quiet", config.RULES_REF,
                          check=False, env=env)
-    line = commit and gitcall.declared_at(repo, commit, "setup")
+    line = commit and gitcall.declared_at(repo, commit, "setup", env=env)
     if not line:
         _file(repo, ".json").unlink(missing_ok=True)
         return None

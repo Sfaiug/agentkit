@@ -4,8 +4,9 @@
 (`origin/HEAD`).  The tick runs it in the background, in the project's checkout, once on each
 machine (`/etc/machine-id`) for each version of that line and of that file, and on every tick
 after a try that failed.  What runs is the file as the default branch records it, whatever the
-checkout has checked out or its git and the user's would make of it; a line naming no file of the
-commit's own -- an absolute path, a path through a committed link, a link -- runs nothing.
+checkout has checked out or replaced, the git it inherits or its git and the user's would make
+of it; a line naming no file of the commit's own -- an absolute path, a path through a committed
+link, a link -- runs nothing.
 Black-box: `AK_BIN` runs `ak watch` in `home.tick()`'s box with an `/etc/machine-id` of the
 test's, on projects from gitrig.py whose setup appends a word to `ran` in its working directory;
 judged by `ran` and what `state/setup/<project>.json` says of the last try.
@@ -43,6 +44,8 @@ class Setups(unittest.TestCase):
         own = cls.make("own", "tools/my setup", {"tools/my setup": SAYS.format("main")})
         own.git("checkout", "-q", "-b", "draft")
         cls.change(own, {"tools/my setup": SAYS.format("draft")})
+        own.commit({"AGENTS.md": "# acme\n"})       # naming no setup, in place of main's
+        own.git("replace", "main", "draft")
         for key, value in (("core.autocrlf", "true"), ("filter.evil.smudge", "sed s/main/evil/")):
             own.git("config", key, value)
         (own.path / ".git/info/attributes").write_text("* filter=evil\n")
@@ -88,7 +91,8 @@ class Setups(unittest.TestCase):
     @classmethod
     def tick(cls, machine):
         cls.machine.write_text(f"{machine}\n")
-        done = cls.home.tick(box=("--ro-bind", str(cls.machine), "/etc/machine-id"))
+        done = cls.home.tick(env={"GIT_DIR": str(cls.rigs["absolute"].path / ".git")},
+                             box=("--ro-bind", str(cls.machine), "/etc/machine-id"))
         assert done.code == 0, done.out + done.err
         ran = {name: rig.path / "ran" for name, rig in cls.rigs.items()}
         cls.seen.append({name: path.read_text().split() if path.exists() else []
