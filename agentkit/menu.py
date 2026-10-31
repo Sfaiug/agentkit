@@ -3055,9 +3055,10 @@ def models_body(said, within, compared, total, fetched, at=None, moves=None):
     (terminal.share_line), taking the room the other columns leave, then its quality, cost and
     notes, these one under another in a column as wide as the widest.  Every column fits the
     rows `within` = config.POINTS shows, so a step of `within` moves none.  Where that leaves the
-    line under 8 cells, from 40 cells up, each row's mark, then its name and effort, take a line
-    and its line, numbers and notes the next, the name alone cut; the notes that do not fit
-    beside the numbers then go under the row, broken only between two.
+    line under 8 cells, the notes' column gives way first, each row's notes going under it; where
+    the line is still under 8 cells, from 40 cells up, each row's mark, then its name and effort,
+    take a line and its line, numbers and notes the next, the name alone cut; the notes that do
+    not fit beside the numbers then go under the row, broken only between two.
     `moves`, a list, is handed each row's line, LINES and how it grows in as the screen opens,
     row after row (motion.growing).  Then the legend, opening on `within`'s knob (points_knob),
     never broken, and how many of the `total` models are `compared` (matrix.compared) and when
@@ -3078,6 +3079,8 @@ def models_body(said, within, compared, total, fetched, at=None, moves=None):
               max((terminal.cells(note) for *_, notes in sized for note in notes), default=0)]
     after = 2 + widths[0] + 2 + widths[1] + 2 + widths[2]     # the columns after the line
     before = 2 + MARK + 2 + label + 2 + levelled + 2          # the cells before a row's line
+    if room - before - after < 8 <= room - before - after + 2 + widths[2]:
+        after -= 2 + widths[2]        # notes are rare, so they go under their row before it folds
     wide = room - before - after >= 8
     before = before if wide else 4                            # folded, the line under the name
     size = max(8, room - before - after)

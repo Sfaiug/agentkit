@@ -1647,10 +1647,12 @@ def adapter(harness):
         a link among them but never what it leads to; the usual login refused.
     login-end
         one JSON object: `email`, and `ends`, the epoch second the login stops serving, or null.
-    lend <home>
+    lend <home> [own]
         a copy of that login where a turn run with HOME=<home> reads it, holding nothing whose
         use renews the login (`tools/lend.py` places it); prints the epoch second it stops
-        authenticating, nothing where it never does, or exits 1 with why there is none.
+        authenticating, nothing where it never does, or exits 1 with why there is none.  With
+        `own` and $AGENTKIT_ACCOUNT naming an account, that turn is one naming the account too,
+        so the adapter's own handling of it applies; otherwise one naming none.
     providers
         a harness that runs any provider it can log in to: an `id<TAB>name<TAB>mode` line each,
         those it can run first with `subscription` or `payg`, the rest with no mode.

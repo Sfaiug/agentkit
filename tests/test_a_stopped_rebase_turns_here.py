@@ -33,12 +33,15 @@ class AStoppedRebaseTurnsHere(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix="stopped-rebase-")
         self.addCleanup(tmp.cleanup)
-        self.root, repo = Path(tmp.name), Path(tmp.name, "acme")
+        self.root, self.repo = Path(tmp.name), Path(tmp.name, "acme")
         self.checkout = self.root / "fix-api"
-        git(self.root, "init", "-q", "-b", "main", "acme")
-        for where, text in ((repo, "v1\n"), (None, "fix\n"), (repo, "main\n")):
+        # a git directory whose name holds a newline and ends in a space, as git's answers split
+        # into lines or trimmed would lose them; the checkout's own lies inside it
+        git(self.root, "init", "-q", "-b", "main", "--separate-git-dir",
+            str(self.root / "acme-git\nrepo "), str(self.repo))
+        for where, text in ((self.repo, "v1\n"), (None, "fix\n"), (self.repo, "main\n")):
             if where is None:
-                git(repo, "worktree", "add", "-q", "-b", "fix-api", str(self.checkout))
+                git(self.repo, "worktree", "add", "-q", "-b", "fix-api", str(self.checkout))
                 where = self.checkout
             (where / "widget.txt").write_text(text)
             git(where, "add", "-A")
@@ -54,9 +57,9 @@ class AStoppedRebaseTurnsHere(unittest.TestCase):
         stack.enter_context(patch.object(machine_turn, "_lend", return_value=["login"]))
         self.start = stack.enter_context(patch.object(helper, "start", return_value=(None, "")))
 
-    def asks_a_machine(self):
-        """Was a machine asked for room for a turn in the run's checkout?"""
-        machine_turn.call({"harness": "acme", "provider": "acme"}, ["run"], self.checkout,
+    def asks_a_machine(self, cwd=None):
+        """Was a machine asked for room for a turn in `cwd`, else the run's checkout?"""
+        machine_turn.call({"harness": "acme", "provider": "acme"}, ["run"], cwd or self.checkout,
                           tempfile.mkdtemp(dir=self.root), {"HOME": str(self.root)}, (), None,
                           lambda *_a, **_kw: (0, "", False))
         return self.start.called
@@ -77,6 +80,10 @@ class AStoppedRebaseTurnsHere(unittest.TestCase):
         # git keeps a range's picks in its sequencer; `--no-commit` leaves no CHERRY_PICK_HEAD
         git(self.checkout, "cherry-pick", "--no-commit", "HEAD..main", check=False)
         self.assertFalse(self.asks_a_machine())
+
+    def test_a_repository_whose_merge_stopped_runs_its_turn_here(self):
+        git(self.repo, "merge", "fix-api", check=False)
+        self.assertFalse(self.asks_a_machine(self.repo))
 
     def test_a_checkout_with_nothing_stopped_still_asks_a_machine(self):
         self.assertTrue(self.asks_a_machine())

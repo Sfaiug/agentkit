@@ -25,9 +25,10 @@
 #                     login-end    -> {"email","ends","plan"}: whose the login is, and the plan
 #                                  `usage` last read for it; `ends` is null, since a Google
 #                                  refresh token ends only when revoked
-#                     lend <home>  -> a copy of the login, a refresh token renewing leaves valid,
-#                                  where a turn with HOME=<home> reads it; prints nothing, as
-#                                  it never lapses
+#                     lend <home> [own] -> a copy of the login, a refresh token renewing
+#                                  leaves valid, where a turn with HOME=<home> reads it; prints
+#                                  nothing, as it never lapses; `own` puts a named account's
+#                                  where a turn naming that account reads it
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
 #                                  `seat` is the same login here, and is accepted and ignored
 #                     hooks        -> says why this harness has none installed; writes nothing
@@ -323,8 +324,9 @@ lend)
   lent=$(jq -c 'select(.token.refresh_token | strings | test("[^[:space:]]"))
       | {ends: null, login: .}' "$TOKEN" 2>/dev/null) && [ -n "$lent" ] || {
     echo "agy: no refresh token in $TOKEN to lend; run \`$SIGNIN\` and sign in" >&2; exit 1; }
-  printf '%s' "$lent" | python3 "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" \
-    "$1" .gemini/antigravity-cli/antigravity-oauth-token ;;
+  [ "${2:-}" = own ] && [ -n "$ACCOUNT" ] && at=${TOKEN#"$HOME/"} ||
+    at=.gemini/antigravity-cli/antigravity-oauth-token
+  printf '%s' "$lent" | python3 "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" "$1" "$at" ;;
 auth)
   # Can a headless turn authenticate right now?  Exit 0 and say so, or exit 1 with one line
   # saying why not; anything else is no answer, and the caller carries on as before.  A
@@ -374,6 +376,6 @@ models)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" antigravity ;;
 *)
-  echo "usage: antigravity.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | antigravity.sh usage | antigravity.sh interactive <model> <effort> [session-id [new]] | antigravity.sh install | antigravity.sh login [again] | antigravity.sh logout | antigravity.sh forget | antigravity.sh login-end | antigravity.sh lend <home> | antigravity.sh auth [seat] | antigravity.sh hooks | antigravity.sh models" >&2
+  echo "usage: antigravity.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | antigravity.sh usage | antigravity.sh interactive <model> <effort> [session-id [new]] | antigravity.sh install | antigravity.sh login [again] | antigravity.sh logout | antigravity.sh forget | antigravity.sh login-end | antigravity.sh lend <home> [own] | antigravity.sh auth [seat] | antigravity.sh hooks | antigravity.sh models" >&2
   exit 2 ;;
 esac

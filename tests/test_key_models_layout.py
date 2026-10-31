@@ -2,8 +2,10 @@
 before the name: `★ pick` and `r takes` on their rows, no words under the pick naming the take.
 A blank line parts two roles and the columns' heads stand once.  Every column is sized over the
 rows the widest `within` shows, so a knob step that brings in a row with a longer name and more
-efforts than any other leaves every row's line as long as it was.  On 40 cells a row folds and
-its mark takes a line of its own above its name, the pointer's on the first role's pick.
+efforts than any other leaves every row's line as long as it was.  On 80 cells, where the notes
+leave a line under 8 cells, they go under their row and the row keeps one line.  On 40 cells a
+row folds and its mark takes a line of its own above its name, the pointer's on the first role's
+pick.
 
 Black-box, as tests/test_key_models_rows_drawn_as_c.py: the program `AK_BIN` names in a terminal,
 its harness a fake listing an invented model, the boards held as just asked with invented rows;
@@ -100,6 +102,14 @@ class ModelsLayout(unittest.TestCase):
         self.assertIn("Zephyr Long Context 9", names(after))
         self.assertEqual({len(line) for _, _, line, _ in before + after},
                          {len(before[0][2])})
+
+    def test_on_80_cells_the_notes_go_under_their_row_before_it_folds(self):
+        _, shown = self.models(80)
+        reviews = shown[shown.index("  reviews"):]
+        self.assertEqual([mark.rstrip() for mark, *_ in drawn(reviews)[:3]],
+                         ["", "★ pick", "r takes"])
+        at = next(number for number, line in enumerate(reviews) if "★ pick" in line)
+        self.assertEqual(reviews[at + 1], " " * 13 + "no harness")
 
     def test_on_40_cells_a_mark_takes_a_line_above_its_name(self):
         _, shown = self.models(40)
