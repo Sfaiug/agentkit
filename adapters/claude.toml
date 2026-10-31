@@ -437,3 +437,43 @@ keychain = "Claude Code-credentials"
 who = ["${CLAUDE_CONFIG_DIR:-~}/.claude.json"]
 token_days = 365
 lock = ["~/.agentkit/tmp/claude-login.lock", "~/.agentkit/tmp/claude-login.$AGENTKIT_ACCOUNT.lock"]
+
+# What the Go build's stop hook reads in the conversation a Stop names (`transcript_path`), newest
+# entry first, as hooks/orchestrator-stop.sh does until Go takes over.  Each entry it needs is a
+# `shape`: the keys an entry holds with these values, a table what one holds nested, a list any
+# one of them, and `true` or `false` whether what it holds reads as something.  With `parts` the
+# shape is a part's, among those at that path.  A path is keys a dot apart, `[]` each item of the
+# list one holds; `words` are the strings at those paths, a line apart.  `skip` is a sub-agent's
+# entry, never this seat's, and `at` when an entry was written.
+[transcript]
+skip = { isSidechain = true }
+at = "timestamp"
+
+# what the model said
+[transcript.said]
+shape = { type = "assistant" }
+words = ["message.content[].text"]
+
+# a question card it asked, and an answer to a call, each by the call's `id`: an entry holding an
+# answer is never the owner's prompt
+[transcript.card]
+parts = "message.content[]"
+shape = { type = "tool_use", name = "AskUserQuestion" }
+id = "id"
+
+[transcript.answer]
+parts = "message.content[]"
+shape = { type = "tool_result" }
+id = "tool_use_id"
+
+# The owner's prompt, typed or queued while a turn ran: no bookkeeping, compaction summary or line
+# only on view, and no line Claude writes unmarked (a command's output, an interrupt), whose
+# words open with one of `frames`.
+[[transcript.prompt]]
+shape = { type = "user", isMeta = false, isCompactSummary = false, isVisibleInTranscriptOnly = false, origin = [false, { kind = [false, "human"] }], message = { role = "user" } }
+words = ["message.content", "message.content[].text"]
+frames = ["<command-name>", "<local-command-stdout>", "<local-command-stderr>", "<local-command-caveat>", "<task-notification>", "[Request interrupted by user"]
+
+[[transcript.prompt]]
+shape = { type = "attachment", isMeta = false, isCompactSummary = false, isVisibleInTranscriptOnly = false, attachment = { type = "queued_command", origin = { kind = "human" }, commandMode = [false, "prompt"] } }
+words = ["attachment.prompt", "attachment.prompt[].text"]

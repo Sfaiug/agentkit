@@ -77,12 +77,12 @@ func HandedOver(payload *run.Object) ([]any, bool) {
 	return tasks, listed
 }
 
-// waitsOn is whether the payload hands over work the seat started that has not reported back,
+// WaitsOn is whether the payload hands over work the seat started that has not reported back,
 // each piece waking the seat again as it settles.  A `monitor`, an artifact's comment watch,
 // held a seat working for days; under `background_tasks` neither is a `shell` (a background
 // poll the harness kills under memory pressure: a seat waits through `ak wait`), nor a
 // `terminal` or a plugin's `agent`, whose end starts no turn.
-func waitsOn(payload *run.Object) bool {
+func WaitsOn(payload *run.Object) bool {
 	idle := []string{"monitor"}
 	if payload.Get("background_tasks") != nil {
 		idle = append(idle, "shell", "terminal", "agent")
@@ -97,11 +97,13 @@ func waitsOn(payload *run.Object) bool {
 }
 
 // StopFact is the Stop of a payload handing over background work, heard at, as its one writer
-// puts it down: kind `background` while it waits on work, and `holds` the type of each task
-// still in flight, shells and monitors too.
-func StopFact(session string, payload *run.Object, at float64) hookfact.Fact {
+// puts it down: kind `held` where it was sent back, `background` while it waits on work, and
+// `holds` the type of each task still in flight, shells and monitors too.
+func StopFact(session string, payload *run.Object, at float64, held bool) hookfact.Fact {
 	fact := hookfact.Fact{Session: session, Event: "Stop", At: at}
-	if waitsOn(payload) {
+	if held {
+		fact.Kind = "held"
+	} else if WaitsOn(payload) {
 		fact.Kind = "background"
 	}
 	tasks, _ := HandedOver(payload)

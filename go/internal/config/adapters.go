@@ -81,7 +81,8 @@ func manifests() (map[string]*table, error) {
 	return found, nil
 }
 
-// Section is one table of a harness's manifest, nil where it has none.
+// Section is one table of a harness's manifest, each table in it a map and each array of
+// tables a list of them, nil where it has none.
 func Section(harness, name string) (map[string]any, error) {
 	manifests, err := manifests()
 	if err != nil {
@@ -89,10 +90,35 @@ func Section(harness, name string) (map[string]any, error) {
 	}
 	if root, ok := manifests[harness]; ok {
 		if block, ok := root.values[name].(*table); ok {
-			return block.values, nil
+			return plain(block).(map[string]any), nil
 		}
 	}
 	return nil, nil
+}
+
+// plain is a manifest's value as Section hands it out.
+func plain(value any) any {
+	switch value := value.(type) {
+	case *table:
+		values := make(map[string]any, len(value.values))
+		for key, each := range value.values {
+			values[key] = plain(each)
+		}
+		return values
+	case tableArray:
+		rows := make([]any, len(value))
+		for i, row := range value {
+			rows[i] = plain(row)
+		}
+		return rows
+	case []any:
+		items := make([]any, len(value))
+		for i, item := range value {
+			items[i] = plain(item)
+		}
+		return items
+	}
+	return value
 }
 
 // Words is the strings a harness's manifest lists under one key of one section.

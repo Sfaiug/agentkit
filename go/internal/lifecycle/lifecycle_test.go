@@ -38,14 +38,17 @@ func TestAStopHoldsEachTaskItHandsOverAndWaitsOnlyOnWork(t *testing.T) {
 	for _, each := range []struct {
 		payload, kind string
 		holds         []string
+		held          bool
 	}{
-		{`{"background_tasks": [{"type": "subagent"}, {"type": "shell"}, {}]}`, "background", []string{"subagent", "shell", "task"}},
-		{`{"background_tasks": [{"type": "shell"}, {"type": "monitor"}]}`, "", []string{"shell", "monitor"}},
-		{`{"backgroundTasks": [{"type": "shell"}]}`, "background", []string{"shell"}},
-		{`{"background_tasks": []}`, "", nil},
+		{`{"background_tasks": [{"type": "subagent"}, {"type": "shell"}, {}]}`, "background", []string{"subagent", "shell", "task"}, false},
+		{`{"background_tasks": [{"type": "shell"}, {"type": "monitor"}]}`, "", []string{"shell", "monitor"}, false},
+		{`{"backgroundTasks": [{"type": "shell"}]}`, "background", []string{"shell"}, false},
+		{`{"background_tasks": []}`, "", nil, false},
+		// sent back, the turn goes on whatever it waits on
+		{`{"background_tasks": [{"type": "subagent"}]}`, "held", []string{"subagent"}, true},
 	} {
 		read, _ := run.Decode([]byte(each.payload))
-		fact := StopFact("acme", read.(*run.Object), 5)
+		fact := StopFact("acme", read.(*run.Object), 5, each.held)
 		if fact.Event != "Stop" || fact.Kind != each.kind || !slices.Equal(fact.Holds, each.holds) || fact.At != 5 {
 			t.Errorf("%s is %+v, want kind %q holding %v", each.payload, fact, each.kind, each.holds)
 		}
