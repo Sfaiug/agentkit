@@ -7,8 +7,9 @@ import (
 )
 
 // LoginPath is the login's own of the paths a harness's `[login]` table lists under key, resolved
-// in the login's environment as ManifestPaths resolves them: the last one left, so a path naming
-// $AGENTKIT_ACCOUNT, listed after the usual login's, is a named login's.  "" where none is left.
+// in the login's environment and the caller's directory as ManifestPaths resolves them: the last
+// one left, so a path naming $AGENTKIT_ACCOUNT, listed after the usual login's, is a named
+// login's.  "" where none is left.
 func LoginPath(harness, key string, login Login) string {
 	paths, _ := Words(harness, "login", key)
 	env := map[string]string{}
@@ -16,7 +17,8 @@ func LoginPath(harness, key string, login Login) string {
 		name, value, _ := strings.Cut(pair, "=")
 		env[name] = value
 	}
-	found := ManifestPaths(paths, env, "")
+	cwd, _ := os.Getwd()
+	found := ManifestPaths(paths, env, cwd)
 	if len(found) == 0 {
 		return ""
 	}

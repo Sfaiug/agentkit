@@ -24,27 +24,31 @@ func claudeAuth(login config.Login, seat bool) Answer {
 	if !seat && getenv(login, variable) != "" {
 		return Answer{Yes: true, Line: "claude: " + variable + " is set"}
 	}
-	data, err := os.ReadFile(token)
-	info, gone := os.Stat(token)
-	if !seat && err == nil && gone == nil && !blank(string(data)) {
-		// `claude setup-token` mints a token for a year, so its file's own date is the token's
-		table, _ := config.Section("claude", "login")
-		life := int64(0)
-		if days, ok := table["token_days"].(*big.Int); ok {
-			life = days.Int64() * 86400
+	if !seat {
+		data, err := os.ReadFile(token)
+		info, gone := os.Stat(token)
+		if err == nil && gone == nil && !blank(string(data)) {
+			// `claude setup-token` mints a token for a year, so its file's own date is the token's
+			table, _ := config.Section("claude", "login")
+			life := int64(0)
+			if days, ok := table["token_days"].(*big.Int); ok {
+				life = days.Int64() * 86400
+			}
+			left := info.ModTime().Unix() + life - time.Now().Unix()
+			if left <= 0 {
+				return Answer{Line: "claude: worker token expired; run `claude setup-token` and replace " + token}
+			}
+			return Answer{Yes: true, Line: fmt.Sprintf("claude: long-lived worker token in %s (expires in %d days)%s",
+				token, left/86400, claudeWho(login))}
 		}
-		left := info.ModTime().Unix() + life - time.Now().Unix()
-		if left <= 0 {
-			return Answer{Line: "claude: worker token expired; run `claude setup-token` and replace " + token}
-		}
-		return Answer{Yes: true, Line: fmt.Sprintf("claude: long-lived worker token in %s (expires in %d days)%s",
-			token, left/86400, claudeWho(login))}
 	}
 	file, blob, oauth := claudeLogin(login)
 	ends, dated := claudeEnds(oauth)
 	expired := ends <= time.Now().UnixMilli()
 	lapsed := given(oauth.Get("refreshToken")) && dated && expired
-	no := func(line string) Answer { return Answer{Line: "claude: " + line + "; run /login", Lapsed: lapsed} }
+	auth, _ := config.Section("claude", "auth")
+	remedy, _ := auth["remedy"].(string)
+	no := func(line string) Answer { return Answer{Line: "claude: " + line + "; " + remedy, Lapsed: lapsed} }
 	switch {
 	case !strings.Contains(string(blob), "accessToken"):
 		return no("no OAuth credentials in " + file + " and no " + variable)
