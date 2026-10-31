@@ -134,6 +134,22 @@ class FlawedResolution(LandedMixin, unittest.TestCase):
         self.assertEqual(shown.out, "main\nc\n")
 
 
+class RedAfterCleanRebase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # main's suite, which narrows by AK_CHANGED and so runs right after the rebase, asks
+        # for what the PR never wrote: the rebase is clean and the suite red
+        reviewed(cls, FIX, ["pass", "pass"], main={"AGENTS.md": RULES.replace(
+            "test -f contrib.txt", ': "$AK_CHANGED"; grep -q fixed contrib.txt')})
+
+    def test_the_writer_s_model_fixes_the_red_and_it_lands(self):
+        self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
+        self.assertEqual([turn["role"] for turn in self.fakes["claude"].runs()], ["fixer"])
+        self.assertEqual((self.state["state"], self.state["merged"]), ("pass", True))
+        shown = self.home.run("git", "-C", str(self.rig.bare), "show", "main:contrib.txt")
+        self.assertEqual(shown.out, "fixed\n")
+
+
 class RedCheck(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
