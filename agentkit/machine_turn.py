@@ -12,6 +12,7 @@ here, and the conversation it reported, at its place under this host's HOME.
 import fnmatch
 import glob
 import io
+import math
 import os
 from pathlib import Path
 import re
@@ -27,6 +28,9 @@ AK = ("adapters", "agentkit", "bin", "tools")    # ak itself, read-only there, `
 # Seconds a lent login must last, else the turn runs here: a longer turn would end on an expired
 # login and page the owner.
 LENT_FOR = 3600
+# Seconds an answer of what runs in a turn's container is kept: past the silence limit the watchdog
+# asks on every poll, and a command ending before its bound holds the turn at most this long more.
+KEPT = 60
 
 
 def _sessions(harness):
@@ -48,8 +52,9 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     None: it runs here, as with the switch off, `places`, no program for it (`_program`), a
     checkout where a rebase, merge or cherry-pick stopped (`_stopped`), no login to lend, no
     recipe, no room, a harness with no `sessions`, or a `session` to resume that this host does
-    not hold, as here is where a later resume would look for it too. `watch(argv, **streams)` runs
-    ssh as the worker's watchdog runs a turn, into the out dir's events.jsonl and stderr.log. A
+    not hold, as here is where a later resume would look for it too. `watch(argv, **kwargs)` runs
+    ssh as the worker's watchdog runs a turn, into the out dir's events.jsonl and stderr.log, its
+    silence held while a command in the turn's container is inside its declared timeout. A
     lost machine's turn fails, this host's files as they were, and leaves `session`, the
     conversation it was given: the id it streamed names one that is nowhere. One whose results
     came home leaves the conversation it reported, whatever its exit."""
@@ -83,7 +88,8 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
                 (out_dir / "stderr.log").open("ab") as err:
             code, _, killed = watch(helper._remote(
                 away.alias, "turn", away.key, away.image, away.memory_mb, away.repo, *volumes,
-                "--", cwd, config.REPO, away.branch, away.default, *cmd), stdout=events, stderr=err)
+                "--", cwd, config.REPO, away.branch, away.default, *cmd),
+                declared=_declared(away), stdout=events, stderr=err)
         if code == helper.FULL:    # its room went to another before it started: it runs here
             return None
         if not killed:    # the turn's own exit and conversation come home with its results
@@ -92,6 +98,33 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     finally:
         helper.finish(away)
     return code, killed, session
+
+
+def _declared(away):
+    """The watchdog's check of a declared bound (worker.limited) for the turn on the machine: is a
+    command in its container inside the timeout it declared? Each answer is kept KEPT seconds; a
+    machine that does not answer holds nothing. The argv it sends are read and dropped, never
+    logged: a command line may hold what the turn was given."""
+    from .worker import timeout_seconds    # here, not at the top: the worker calls this module
+    asked = until = -math.inf
+
+    def within(_pid):
+        nonlocal asked, until
+        now = time.monotonic()
+        if now - asked >= KEPT:
+            asked = until = now
+            try:
+                reply = helper._remote(away.alias, "processes", away.key, text=True,
+                                       errors="replace", timeout=30).stdout
+            except (OSError, subprocess.TimeoutExpired):
+                reply = ""
+            for line in reply.splitlines():
+                seconds, *argv = line.split() or [""]
+                bound = seconds.isdecimal() and timeout_seconds(argv)
+                if bound:
+                    until = max(until, now + bound - int(seconds))
+        return now < until
+    return within
 
 
 def _stopped(cwd):

@@ -16,9 +16,11 @@ SSH = '#!/bin/bash\nexec env -i HOME={home} PATH={bin}:/usr/bin:/bin bash -c "${
 # and a container runs only an image a build left. Its root is a directory holding its volumes as
 # links, its home and /tmp, its own cgroup's memory.events and the kernel's /proc/vmstat, shared
 # with every container and counting one more kill at each read; its command runs with the paths it
-# names there. A volume at a path of this host's own, a turn's, is bound there by bubblewrap; one
-# nested in another, its mount point missing there, makes it as docker does, as root: here,
-# read-only.
+# names there, outside this client's process tree, as a real container's runs under the daemon,
+# though in its process group, which a stopped turn's ssh takes down with it. A volume at a path of
+# this host's own, a turn's, is bound there by bubblewrap; one nested in another, its mount point
+# missing there, makes it as docker does, as root: here, read-only. `top` runs ps on this host,
+# keeping its lines of the processes under the command.
 DOCKER = r"""
 import itertools, os, re, shutil, subprocess, sys, threading
 from pathlib import Path
@@ -40,6 +42,20 @@ elif words[0] == "ps":
     print("".join(f"{name}\n" for name in held), end="")
 elif words[0] == "inspect":    # an unknown container fails it, as docker's does
     print("\n".join(held[name] if "Memory" in words[2] else "true" for name in words[3:]))
+elif words[0] == "top":    # top NAME PS-OPTIONS: ps's header, then its lines of NAME's processes
+    if words[1] not in held:
+        sys.exit(1)
+    children = {}
+    for line in subprocess.run(["ps", "-e", "-o", "pid=,ppid="], capture_output=True,
+                               text=True).stdout.splitlines():
+        pid, parent = line.split()
+        children.setdefault(parent, []).append(pid)
+    pids = (state / "roots" / words[1] / "pid").read_text().split()
+    for pid in pids:
+        pids += children.get(pid, [])
+    head, *lines = subprocess.run(["ps", *words[2:]], capture_output=True,
+                                  text=True).stdout.splitlines()
+    print("\n".join([head, *(line for line in lines if line.split()[0] in pids)]))
 elif words[0] == "run":
     flags, links = {}, {}
     words.pop(0)
@@ -83,9 +99,17 @@ elif words[0] == "run":
     text = re.sub(r"(?<![\w.-])/(in|out|mirror|harness|home/ak|sys/fs/cgroup|proc/vmstat)\b",
                   f"{root}/\\1", (root / script[1:]).read_text())
     bwrap = ["bwrap", "--dev-bind", "/", "/", *binds, "--"] if binds else []
-    code = subprocess.run([*bwrap, "bash", "-c", text, script, *args], env={
+    # A shell that exits at once leaves the command to a subshell of its own, which says on a pipe
+    # its pid, then the command's exit.
+    reader, writer = os.pipe()
+    subprocess.run(["bash", "-c", f'(echo $BASHPID >&{writer}; "$@"; echo $? >&{writer}) &',
+                    "bash", *bwrap, "bash", "-c", text, script, *args], pass_fds=[writer], env={
         "PATH": os.environ["PATH"], "HOME": f"{root}/home/ak", "TMPDIR": f"{root}/tmp",
-        "container": "docker"}).returncode
+        "container": "docker"})
+    os.close(writer)
+    with open(reader) as said:
+        (root / "pid").write_text(said.readline())
+        code = int(said.readline())
     (containers / flags["--name"]).unlink()
     sys.exit(code)
 """
