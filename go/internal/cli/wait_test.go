@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bytes"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -23,5 +25,19 @@ func TestAWaitGoCannotDecideIsPythons(t *testing.T) {
 			}
 			assertCall(t, []string{"wait", "r"}, 3, "", "ak wait: not implemented in Go yet\n")
 		})
+	}
+}
+
+// A seat record Python reads and Go cannot keep is left whole: the wait is Python's.
+func TestASeatRecordGoCannotKeepIsLeftWhole(t *testing.T) {
+	home := sandbox(t)
+	t.Setenv("AGENTKIT_SESSION", "acme")
+	write(t, filepath.Join(home, ".agentkit", "runs", "r", "run.json"), `{"state": "running"}`)
+	record, kept := filepath.Join(home, ".agentkit", "state", "seat-acme.json"), `{"session": "acme", "reason": "\ud800"}`
+	write(t, record, kept)
+	var out, errOut bytes.Buffer
+	code := Main([]string{"wait", "r"}, &out, &errOut)
+	if data, _ := os.ReadFile(record); code != 3 || string(data) != kept {
+		t.Fatalf("exit=%d stderr=%q record=%s", code, errOut.String(), data)
 	}
 }

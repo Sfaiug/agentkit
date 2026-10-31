@@ -387,14 +387,18 @@ type field struct {
 
 // put changes the JSON object a file holds under its lock, through a temporary file beside it,
 // only where `change` says it changed it; a file holding none starts from an empty one where
-// `start` says so, as watch.seat_write starts a seat file, and is left as it is otherwise.
+// `start` says so, as watch.seat_write starts a seat file, and is left as it is otherwise.  One
+// Python reads and Go cannot keep is ErrLoneSurrogate, never written over.
 func put(path, held string, encode func(any) string, start bool, change func(data *run.Object) bool) error {
 	file, err := lock.Wait(context.Background(), held)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
-	data, _ := run.ReadJSON(path)
+	data, err := run.ReadJSON(path)
+	if errors.Is(err, run.ErrLoneSurrogate) {
+		return err
+	}
 	if data == nil && start {
 		data = run.NewObject()
 	}

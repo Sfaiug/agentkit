@@ -7,11 +7,18 @@ import (
 	"agentkit/internal/config"
 )
 
+// Python's `\s` and the edge of its `\w`, which Go's regexp reads as ASCII alone: config.Space,
+// and a letter, a number or `_`.
+const (
+	space = `[\t-\r\x1c-\x20\x85\p{Z}]`
+	edge  = `(?:^|$|[^\p{L}\p{N}_])`
+)
+
 var (
 	// a box line, by hand or by `ak plan`, as plan.BOX reads one
-	boxLine = regexp.MustCompile(`^\s*(?:[-*+]|\p{Nd}+[.)])\s*\[[^\]\n]*\]`)
+	boxLine = regexp.MustCompile(`^` + space + `*(?:[-*+]|\p{Nd}+[.)])` + space + `*\[[^\]\n]*\]`)
 	// what marks a line `ak plan` wrote, however its spacing was changed by hand since
-	planned = regexp.MustCompile(`(?i)\bcheck\s*:|·\s*written\b|·\s*your\s+eye\b|·\s*done\b`)
+	planned = regexp.MustCompile(`(?i)` + edge + `check` + space + `*:|·` + space + `*(?:written|your` + space + `+eye|done)` + edge)
 )
 
 // boxed is whether the line is a box line: never a link, `[text](url)`, which Go's regexp

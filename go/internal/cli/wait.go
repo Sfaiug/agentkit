@@ -77,7 +77,9 @@ func wait(args []string, out, errOut io.Writer) int {
 	}
 	record.Set("kind", kind)
 	record.Set("at", seconds(now))
-	if err := seat.Write(name, "wait", record); err != nil {
+	if err := seat.Write(name, "wait", record); errors.Is(err, run.ErrLoneSurrogate) {
+		return notImplemented(errOut, "wait")
+	} else if err != nil {
 		fmt.Fprintf(errOut, "WARN could not record what %s is doing: %s\n", name, err)
 		return 1
 	}
