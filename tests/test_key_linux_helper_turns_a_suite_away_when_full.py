@@ -146,6 +146,7 @@ class LinuxHelperTurnsASuiteAway(unittest.TestCase):
         self.assertEqual(self.prepare("a"), 252)
         (self.machine / "load").write_text("2.00, 3.50, 1.00")
         self.assertEqual(self.prepare("a"), 0)
+        self.assertEqual(self.probe(), (0, 4))    # a holds the 4 the last minute left idle
 
     def test_running_containers_hold_the_cpus_they_were_given(self):
         self.running("ak-other-1-2", 3)
