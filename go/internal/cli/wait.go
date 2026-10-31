@@ -103,7 +103,7 @@ func runFact(on string, now time.Time) (bool, string, error) {
 		switch {
 		case errors.Is(err, run.ErrLoneSurrogate):
 			return false, "", errLeft
-		case record == nil:
+		case record == nil || len(record.Keys()) == 0: // Python's `not state`
 			return true, "run " + on + " is gone", nil
 		case !record.Truthy("lease_restarted"):
 			return endedFact(on, record, now)
