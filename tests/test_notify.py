@@ -21,6 +21,10 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, notify, orch, run, turns, watch
 
+# How long a test waits on a thread or an `ak notify` before calling it stuck. A passing run
+# waits only as long as that takes, which passed 10 s and 30 s on a loaded landing host.
+STUCK = 120
+
 
 class Notifications(unittest.TestCase):
     def setUp(self):
@@ -82,7 +86,7 @@ class Notifications(unittest.TestCase):
     def cli(self, *args, env=None):
         result = subprocess.run([sys.executable, str(REPO / "bin/ak"), "notify", *args],
                                 env={**os.environ, **(env or {})}, cwd=REPO,
-                                capture_output=True, text=True, timeout=30)
+                                capture_output=True, text=True, timeout=STUCK)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result
 
@@ -108,21 +112,18 @@ class Notifications(unittest.TestCase):
         """A newer declaration reaches publication while the older answer waits."""
         old_ready, new_ready, old_finished = (threading.Event() for _ in range(3))
         transition = notify.transition
-        # How long one side waits before calling the other stuck. A passing run waits only as
-        # long as the other side takes, which passed 10 s on a loaded landing host.
-        stuck = 120
 
         def interleave(*args, **kwargs):
             if threading.current_thread().name.startswith("old-decision"):
                 old_ready.set()
-                if not new_ready.wait(stuck):
+                if not new_ready.wait(STUCK):
                     raise RuntimeError("new declaration did not reach publication")
                 try:
                     return transition(*args, **kwargs)
                 finally:
                     old_finished.set()
             new_ready.set()
-            if not old_finished.wait(stuck):
+            if not old_finished.wait(STUCK):
                 raise RuntimeError("old publication did not finish")
             return transition(*args, **kwargs)
 
@@ -131,9 +132,9 @@ class Notifications(unittest.TestCase):
             with ThreadPoolExecutor(max_workers=1, thread_name_prefix="old-decision") as pool:
                 old = pool.submit(notify.shaped, kind, text, session="seat")
                 try:
-                    self.assertTrue(old_ready.wait(stuck))
+                    self.assertTrue(old_ready.wait(STUCK))
                     newer()
-                    self.assertEqual(old.result(stuck), 0)
+                    self.assertEqual(old.result(STUCK), 0)
                 finally:
                     new_ready.set()
 
