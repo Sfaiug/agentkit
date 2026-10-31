@@ -272,18 +272,17 @@ def _moved(ledger, listed, now, prices):
 
 def _idle(listed):
     """{id: seconds it has held nothing} of each of `listed` READY, asked side by side by
-    tools/helper's `idle` with ak's key, made when missing; the address of one not serving yet
-    forgotten first, as Google hands addresses out again and ssh refuses an old host key there."""
+    tools/helper's `idle` with ak's key, made when missing; the host keys of those no longer
+    listed forgotten."""
     from . import helper, machines    # here, not at the top: both read this module
-    key, known, was = config.SECRETS / SSH_KEY, config.SECRETS / KNOWN_HOSTS, serving()
+    key, kept = config.SECRETS / SSH_KEY, {_reach(one)["UserKnownHostsFile"] for one in listed}
     if not key.exists():
         subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", USER, "-f", key],
                        capture_output=True, check=True)
+    for path in config.SECRETS.glob(f"{KNOWN_HOSTS}*"):
+        if path not in kept:
+            path.unlink(missing_ok=True)
     reached = [one for one in listed if one.address]
-    for one in reached:
-        if one.name not in was:
-            subprocess.run(["ssh-keygen", "-R", one.address, "-f", known], capture_output=True)
-    known.with_name(f"{KNOWN_HOSTS}.old").unlink(missing_ok=True)     # ssh-keygen's copy
     line = f"test -e {READY} && {helper._line('idle')}"
     said = machines.ask([[*machines.SSH, *(word for option in _reach(one).items()
                                            for word in ("-o", '%s="%s"' % option)),
@@ -293,10 +292,11 @@ def _idle(listed):
 
 
 def _reach(machine):
-    """How ssh reaches `machine`: at its address as USER by ak's key alone, its host key learned."""
+    """How ssh reaches `machine`: at its address as USER by ak's key alone, its host key learned
+    in a file of its own, as Google hands a name or an address out again, never an id."""
     return {"HostName": machine.address, "User": USER, "IdentityFile": config.SECRETS / SSH_KEY,
-            "IdentitiesOnly": "yes", "UserKnownHostsFile": config.SECRETS / KNOWN_HOSTS,
-            "StrictHostKeyChecking": "accept-new"}
+            "IdentitiesOnly": "yes", "StrictHostKeyChecking": "accept-new",
+            "UserKnownHostsFile": config.SECRETS / f"{KNOWN_HOSTS}-{machine.id}"}
 
 
 def _serve(machines):
