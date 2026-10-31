@@ -11,7 +11,26 @@ import (
 	"agentkit/internal/notify"
 )
 
-func init() { commands["notify needs"] = notifyNeeds }
+func init() {
+	commands["notify needs"] = notifyNeeds
+	commands["notify"] = notifyCheck // validateNotify leaves it only --check
+}
+
+// notifyCheck asks the configured webhook whether it is live: 0 for a 200, 1 for any other
+// answer or no answer, and 2 for no webhook configured.
+func notifyCheck(_ []string, out, errOut io.Writer) int {
+	live, err := notify.Check(out, errOut)
+	switch {
+	case errors.Is(err, notify.ErrUnread):
+		return notImplemented(errOut, "notify --check")
+	case err != nil:
+		fmt.Fprintf(errOut, "ak notify: %s\n", err)
+		return 2
+	case live:
+		return 0
+	}
+	return 1
+}
 
 // notifyNeeds decides in notify.main's order: the arguments (validateNotify), the worker, the
 // question's shape, then the seat.  It carries out a dry run; a real ask, and a seat's ask for

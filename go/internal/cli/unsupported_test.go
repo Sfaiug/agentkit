@@ -52,7 +52,6 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 		{"plan", "check", "²", "a\nb"},
 		{"plan", "check", "1", "true \xff"},
 		{"hand-in", "done"},
-		{"notify", "--check"},
 		{"notify", "needs", "Which branch?"},
 		{"wait", "https://github.com/acme/api/pull/12"},
 		{"watch"},
