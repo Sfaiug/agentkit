@@ -87,8 +87,8 @@ class Reminder(unittest.TestCase):
         passes = {what: run for what, run, _ in watch.local_passes({}, False, print)}
         with patch.object(config, "load", return_value=self.cfg), \
                 patch.object(time, "time", return_value=at):
-            passes["the notification retry did not run"]()
-            passes["the login-end read did not run"]()
+            passes["notification retry"]()
+            passes["login reminder"]()
         return [post["content"] for post in self.posts]
 
     def test_a_one_page_a_local_day_naming_the_subscription_and_nothing_else(self):

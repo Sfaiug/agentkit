@@ -77,7 +77,7 @@ class EndedLoginLeftoversStopped(Sandbox):
 
     def tick(self):
         step = next(step for what, step, _ in watch.local_passes({}, False, self.lines.append)
-                    if what == "the ended-login pass did not run")
+                    if what == "ended logins")
         step()
 
     def stopped(self):

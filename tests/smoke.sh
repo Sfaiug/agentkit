@@ -340,8 +340,8 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
 
     def tick(dry=False):
         # the usage refresh, and of the tick's other passes those it must never delay
-        with only_passes(root, "the usage refresh did not finish", "the ending pass did not run",
-                         "retention pass did not finish"), redirect_stdout(io.StringIO()) as output:
+        with only_passes(root, "usage refresh", "endings", "collection", "exit clocks",
+                         "seat sweep"), redirect_stdout(io.StringIO()) as output:
             assert watch.main(["--dry-run"] if dry else []) == 0
         said = output.getvalue()
         assert "offline fixture" in said, said      # the fake GitHub, skipped and named
@@ -473,7 +473,7 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
                 patch.object(handback, "announce") as announce, \
                 patch.object(config, "inbox", return_value="inbox"), \
                 patch.object(notify, "shaped", return_value=0) as question:
-            assert "WARN the usage refresh did not finish" in tick()
+            assert "WARN usage refresh did not run" in tick()
             announce.assert_called_once()
             question.assert_called_once()
         assert "pending_inbox" not in record.read_state(finished)
@@ -569,9 +569,8 @@ class SessionState(unittest.TestCase):
             self.assertEqual(orch.attach(self.seat["name"], wait=True), 0)
 
     def tick(self, dry=False):
-        with only_passes(self.root, "the notification retry did not run",
-                         "the session health pass did not run", "the typed-answer pass did not run",
-                         "the card transition pass did not run"), \
+        with only_passes(self.root, "notification retry", "seat health", "typed answers",
+                         "card transitions"), \
                 redirect_stdout(io.StringIO()) as said:
             self.assertEqual(watch.main(["--dry-run"] if dry else []), 0)
         self.assertIn("PR checks skipped", said.getvalue())
@@ -4966,7 +4965,7 @@ PY
 STALLWAS=$(md5sum <"$STALLH/.agentkit/state/watch.json")
 STALLTYPEDWAS=$(cat "$STALLTYPED/$STALLSEAT.txt" 2>/dev/null || echo none)
 HOME="$STALLH" TMUX_TMPDIR="$STALLT" AGENTKIT_ADAPTER_DIR="$STALLAD" PATH="$STALLBIN:$PATH" \
-  python3 "$REPO/tests/fixtures/tick.py" --dry-run "the session health pass did not run" \
+  python3 "$REPO/tests/fixtures/tick.py" --dry-run "seat health" \
   >"$WORK/stall-dry.log" 2>&1 || STALL=1
 grep -q "^would resume $STALLSEAT, stalled on API Error, with 'continue'\$" "$WORK/stall-dry.log" || STALL=1
 [ "$(md5sum <"$STALLH/.agentkit/state/watch.json")" = "$STALLWAS" ] || STALL=1

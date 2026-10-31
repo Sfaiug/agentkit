@@ -6090,12 +6090,7 @@ def recover_runs(cfg=None, dry_run=False, log=print, now=None):
     """
     from . import run as run_mod
     now = time.time() if now is None else now
-    if cfg is None:
-        try:
-            cfg = config.load()
-        except config.Error as exc:
-            log(f"WARN the stall pass did not run: {exc}")
-            return
+    cfg = config.load() if cfg is None else cfg
     for run_dir in run_record.run_dirs():
         try:
             state = run_record.read_state(run_dir)
@@ -6360,25 +6355,10 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
     """
     from . import menu as menu_mod, run as run_mod
     now = time.time() if now is None else now
-    if cfg is None:
-        try:
-            cfg = config.load()
-        except config.Error as exc:
-            log(f"WARN the exhausted-resume pass did not run: {exc}")
-            return
-    if providers is None:
-        try:
-            providers = usage.collect(cfg)
-        except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
-            log(f"WARN the exhausted-resume pass did not run: {exc}")
-            return
+    cfg = config.load() if cfg is None else cfg
+    providers = usage.collect(cfg) if providers is None else providers
     asked = False
-    if workers is None:
-        try:
-            workers = config.workers(cfg)
-        except (config.Error, KeyError, TypeError, AttributeError) as exc:
-            log(f"WARN the exhausted-resume pass did not run: {exc}")
-            return
+    workers = config.workers(cfg) if workers is None else workers
     found = [(run_dir, run_record.read_state(run_dir)) for run_dir in run_record.run_dirs()]
     index = transitions.supersession_index(
         state for run_dir, state in found if state and not menu_mod.smoke_run(state))
@@ -7546,11 +7526,7 @@ def after_merge_checks(state, dry_run, log, now=None):
         return (value if isinstance(value, (int, float)) and not isinstance(value, bool)
                 else None)
 
-    try:
-        directories = run_record.run_dirs()
-    except OSError as exc:
-        log(f"WARN merged runs were not followed this tick: {exc}")
-        return
+    directories = run_record.run_dirs()
     grouped = {}
     probes = {}
     # Every run's, one read for every merged run's question about its seat (`handback.rides`):
@@ -7828,7 +7804,9 @@ def offer_endings(log):
 def local_passes(state, dry_run, log):
     """The tick's passes that owe GitHub nothing, in the order they run.
 
-    Each is (what its WARN line says when it raises, the pass, whether a dry run runs it too).
+    Each is (its name, the pass, whether a dry run runs it too).  A name is one to three
+    lowercase words, no other pass's, and all a pass is known by: `main` builds the WARN line
+    of one that raises from it.
     A dry run runs only the passes it can tell `dry_run`, and reads usage off the cache as it
     stands: reading that file probes nothing, and a dry run changes nothing.
 
@@ -7853,121 +7831,110 @@ def local_passes(state, dry_run, log):
         # First, and outside the `gh api user` gate: a merged change's `health:` needs no GitHub,
         # and the seats' passes below read its `live_at` this tick (`awaiting_live`).  The pass's
         # own gh calls fail on their own, and the next tick asks again.
-        ("merged runs were not followed", lambda: after_merge_checks(state, dry_run, log), True),
-        ("the boot resume pass did not run",
-         lambda: resume_after_boot(config.load(), dry_run=dry_run, log=log), True),
-        ("the held-line Enter pass did not run",
-         lambda: finish_own_lines(config.load(), log), False),
-        ("the set-aside text pass did not run", lambda: drafts_back(config.load()), False),
-        ("the mid-turn continue pass did not run",
-         lambda: continue_turns(config.load(), log), False),
+        ("merge checks", lambda: after_merge_checks(state, dry_run, log), True),
+        ("boot resume", lambda: resume_after_boot(config.load(), dry_run=dry_run, log=log), True),
+        ("held lines", lambda: finish_own_lines(config.load(), log), False),
+        ("draft return", lambda: drafts_back(config.load()), False),
+        ("rebooted turns", lambda: continue_turns(config.load(), log), False),
         # A run parked on an expired login is resumed, silently, the moment that harness's
         # `auth` verb passes again: before the seats, so no seat reads a login back as one to fix.
-        ("the login-resume pass did not run",
-         lambda: resume_waiting_login(dry_run=dry_run, log=log), True),
+        ("login resume", lambda: resume_waiting_login(dry_run=dry_run, log=log), True),
         # the seats early, and never behind the `gh api user` gate: a stalled seat is the one
         # thing on this tick that nothing else will ever get to, and a gh that is down is no
         # reason to leave it stuck
-        ("the session health pass did not run",
-         lambda: health(config.load(), state, dry_run, log), True),
-        ("the mid-turn continue pass did not run",
-         lambda: continue_turns(config.load(), log, accounts=True), False),
+        ("seat health", lambda: health(config.load(), state, dry_run, log), True),
+        ("switched turns", lambda: continue_turns(config.load(), log, accounts=True), False),
         # A dead loop is resumed before the stall ladder and before reap, so the same tick
         # continues it and reap does not turn it into an interruption ...
-        ("the dead-loop pass did not run",
-         lambda: resume_dead_loops(config.load(), dry_run, log), True),
+        ("dead loops", lambda: resume_dead_loops(config.load(), dry_run, log), True),
         # ... and a job whose launcher died is relaunched, so its waiting tasks start too.
-        ("the dead-job pass did not run", lambda: resume_dead_jobs(dry_run, log), True),
+        ("dead jobs", lambda: resume_dead_jobs(dry_run, log), True),
         # Silent runs are recovered from outside the loop, whatever it is doing: nothing new
         # has to be started.
-        ("the stall pass did not run", lambda: recover_runs(config.load(), dry_run, log), True),
+        ("stall recovery", lambda: recover_runs(config.load(), dry_run, log), True),
         # which live runs of a repository change the same lines: the younger, before its
         # review, is stopped with its branch kept, and starts again once the older has
         # landed (`leases`); a dry run, which writes nothing, skips both
-        ("the lease scan did not run", lambda: leases.scan_all(log), False),
-        ("the lease restart pass did not run", lambda: leases.restart(log), False),
-        ("the runs did not give way to the seats", lambda: run.give_way(state, log), False),
-        ("the tick's watch.json was not saved", lambda: save_state(state), False),
-        ("the usage refresh did not finish", read_usage, True),
+        ("lease scan", lambda: leases.scan_all(log), False),
+        ("lease restart", lambda: leases.restart(log), False),
+        ("seat headroom", lambda: run.give_way(state, log), False),
+        ("state save", lambda: save_state(state), False),
+        ("usage refresh", read_usage, True),
         # when each subscription's login ends and whose it is, each asked hourly at most; one
         # ending within 3 days pages the owner once a day, and so does a worker token
-        ("the login-end read did not run", lambda: logins.remind(config.load()), False),
-        ("the worker-token reminder did not run",
-         lambda: remind_worker_tokens(state.get("worker_tokens")), False),
+        ("login reminder", lambda: logins.remind(config.load()), False),
+        ("token reminder", lambda: remind_worker_tokens(state.get("worker_tokens")), False),
         # An exhausted run waits for a provider window and resumes itself when one refills, on
         # the usage just read; a run in error, on the loop's transient ladder, hourly at most;
         # one waiting on a rebase conflict, after the next merge to main. All silently, never
         # waiting on the run.
-        ("the exhausted-resume pass did not run",
+        ("exhausted resume",
          lambda: resume_exhausted(config.load(), providers, dry_run=dry_run, log=log), True),
-        ("the error-retry pass did not run", lambda: resume_errored(dry_run=dry_run, log=log), True),
-        ("the waiting-resume pass did not run",
-         lambda: resume_waiting(dry_run=dry_run, log=log), True),
+        ("error retry", lambda: resume_errored(dry_run=dry_run, log=log), True),
+        ("waiting resume", lambda: resume_waiting(dry_run=dry_run, log=log), True),
         # History is never replayed: endings older than an hour are marked here, in one line
         # with the count, before any of them is offered again.
-        ("the pre-existing sweep did not run", lambda: sweep_preexisting(log), False),
-        ("the ending pass did not run", lambda: offer_endings(log), False),
+        ("old endings", lambda: sweep_preexisting(log), False),
+        ("endings", lambda: offer_endings(log), False),
         # A job that finished while its seat was mid-turn hands its line back at the next quiet
         # prompt, the way one of its runs does; a seat whose `ak wait` names a pull request or
         # run that is over is told so, which ends the wait; a seat ak reopened, what it missed.
-        ("a finished job was not handed back", lambda: jobs.deliver_job_handbacks(log), False),
-        ("the wait pass did not run", lambda: wait_over(config.load(), log), False),
-        ("a reopened seat was not told",
-         lambda: [tell_owed(name, log) for name in config.session_records()], False),
+        ("job handbacks", lambda: jobs.deliver_job_handbacks(log), False),
+        ("ended waits", lambda: wait_over(config.load(), log), False),
+        ("owed lines", lambda: [tell_owed(name, log) for name in config.session_records()], False),
         # Every feature switch on for everyone for two weeks becomes a line in the plan of a seat
         # on its project, to take out of the code.
-        ("the switch retirement pass did not run", lambda: retire.hand(log), False),
-        ("the seat token pass did not run", lambda: seat_tokens.read(0, 0), False),
-        ("history was not brought up to date", lambda: transitions.history_agree(log), False),
+        ("switch retirement", lambda: retire.hand(log), False),
+        ("seat tokens", lambda: seat_tokens.read(0, 0), False),
+        ("history sync", lambda: transitions.history_agree(log), False),
         # The tick alone moves history's WAL into the database, holding no lock of ak's but its
         # own, so no writer holds the others through those syncs (`waiter.connect`).
-        ("history's WAL was not checkpointed", lambda: waiter.checkpoint(history.path()), False),
+        ("history checkpoint", lambda: waiter.checkpoint(history.path()), False),
         # The first tick of a week writes the board with its largest loss, and the `audit`
         # seat, opened with `[audit]`'s models, is told it at its quiet prompt.
-        ("the weekly audit pass did not run", lambda: tell_audit(config.load(), log), False),
+        ("weekly audit", lambda: tell_audit(config.load(), log), False),
         # What the owner typed into a seat's turn after it asked answers its question before
         # the cards are read, so no card goes out for a question they answered.
-        ("the typed-answer pass did not run", lambda: notify.answer_typed(log=log), False),
+        ("typed answers", lambda: notify.answer_typed(log=log), False),
         # Cards are derived from every session's current three-state word, including seats
         # whose panes were not available to the health pass.
-        ("the card transition pass did not run", lambda: notify.tick_cards(log=log), False),
+        ("card transitions", lambda: notify.tick_cards(log=log), False),
         # Late cards after it: a question that ended since the last tick has its card retired
         # by then (`notify._retire`), so none goes out late for it.
-        ("the notification retry did not run",
-         lambda: notify.retry_pending(dry_run=dry_run, log=log), True),
+        ("notification retry", lambda: notify.retry_pending(dry_run=dry_run, log=log), True),
         # A seat whose harness ends without ak ending it comes back at once (`orch.cmd_ended`),
         # on a server started before its conf said so too ...
-        ("the seats' end hook was not set", orch.set_ended_options, False),
+        ("end hook", orch.set_ended_options, False),
         # ... and one that died under its running runs, after its endings were announced to it.
-        ("the seat revival pass did not run", lambda: revive_seats(config.load(), log), False),
-        ("the idle-seat sleep pass did not run", lambda: sleep.tick(config.load(), log), False),
-        ("git housekeeping did not finish", lambda: gc.git_housekeeping(log), False),
+        ("seat revival", lambda: revive_seats(config.load(), log), False),
+        ("idle sleep", lambda: sleep.tick(config.load(), log), False),
+        ("git housekeeping", lambda: gc.git_housekeeping(log), False),
         # Expensive collection runs detached; malformed retention metadata cannot stop a tick.
-        ("retention pass did not finish", lambda: gc.schedule_gc(log), False),
-        ("retention pass did not finish", orch.stamp, False),
-        ("retention pass did not finish", lambda: orch.sweep(log), False),
-        ("the ended-login pass did not run", lambda: gc.stop_ended_logins(log), False),
-        ("the gone-ak sweep did not run", lambda: owner.sweep(log), False),
+        ("collection", lambda: gc.schedule_gc(log), False),
+        ("exit clocks", orch.stamp, False),
+        ("seat sweep", lambda: orch.sweep(log), False),
+        ("ended logins", lambda: gc.stop_ended_logins(log), False),
+        ("leftover sweep", lambda: owner.sweep(log), False),
         # The shared browser's idle tabs are reaped: a machine with no browser on CDP costs one
         # refused connection and nothing else.
-        ("browser tidy did not finish", lambda: browser.tidy(log), False),
+        ("browser tidy", lambda: browser.tidy(log), False),
         # Google is asked what ak rents, given back past its time, the month's cap or idle, the
         # rest serving once ready ...
-        ("the rented machines were not watched", google_cloud.watch, False),
+        ("rented machines", google_cloud.watch, False),
         # ... and each machine ak may use what it is; one that does not answer holds the tick no
         # longer than its ssh timeout.
-        ("the machines were not checked", machines.check, False),
+        ("machine check", machines.check, False),
         # A merge to a project reaches its seats' rulebooks: their next prompts name it.
-        ("the projects' rules were not fetched", orch.fetch_projects, False),
+        ("project rules", orch.fetch_projects, False),
         # ... and what each needs of this machine, made ready in the background: once here for
         # each version of its `setup:`, and again after a try that failed
-        ("the projects' setups were not started", machine_setup.tick, False),
+        ("project setups", machine_setup.tick, False),
         # Merged agentkit goes live after every local pass, so as little of this tick's old
         # code as can be is left to run over new files; GitHub imports nothing new.
-        ("agentkit did not go live", lambda: update.go_live(log), False),
+        ("live update", lambda: update.go_live(log), False),
         # ... and then every harness: a newer release is upgraded by a child started on that
         # new code, gated and put back where a gate fails, and no tick waits on it.
-        ("the harness upgrade pass did not run", lambda: update.keep_current(log), False),
+        ("harness upgrade", lambda: update.keep_current(log), False),
     )
 
 
@@ -7998,12 +7965,12 @@ def main(argv):
     # from a watcher loop by the same `ps`
     with held if held is not None else nullcontext(), orch.one_reading():
         state = load_state()
-        for what, step, also_dry in local_passes(state, dry_run, log):
+        for name, step, also_dry in local_passes(state, dry_run, log):
             if also_dry or not dry_run:
                 try:
                     step()
                 except PASS_ERRORS as exc:
-                    log(f"WARN {what}: {exc}")
+                    log(f"WARN {name} did not run: {exc}")
         user, why = gh_json(config.RUNS, "api", "user")
         me = user.get("login") if isinstance(user, dict) else None
         if not isinstance(me, str) or not me:

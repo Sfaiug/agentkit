@@ -375,7 +375,7 @@ class LeaseScan(LiveRuns):
         with patch.object(leases, "scan", side_effect=lambda repo, log, now: scanned.append(Path(repo).name)):
             leases.scan_all(self.logs.append)
         self.assertEqual(scanned, ["acme"])
-        self.assertIn("the lease scan did not run", [what for what, _, _ in watch.local_passes({}, True, self.logs.append)])
+        self.assertIn("lease scan", [what for what, _, _ in watch.local_passes({}, True, self.logs.append)])
 
 
 if __name__ == "__main__":

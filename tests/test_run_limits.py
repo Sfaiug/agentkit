@@ -435,9 +435,8 @@ class Limits(unittest.TestCase):
             watch, "launch_resume",
             side_effect=lambda run_id, log=lambda _: None: resumed.append(run_id) or True))
         # the resume, and the stall ladder and reap after it that would have told someone
-        self.stack.enter_context(only_passes(self.root, "the dead-loop pass did not run",
-                                             "the stall pass did not run",
-                                             "the ending pass did not run"))
+        self.stack.enter_context(only_passes(self.root, "dead loops", "stall recovery",
+                                             "endings"))
         self.stack.enter_context(patch.object(watch, "gh_json", return_value=(None, "offline")))
         self.stack.enter_context(patch.object(orch, "find", return_value=None))
 

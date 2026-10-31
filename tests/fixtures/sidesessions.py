@@ -120,6 +120,6 @@ class SideSessions(unittest.TestCase):
         with patch.object(gc, "schedule_gc"), patch.object(orch, "stamp"), \
                 patch.object(orch.subprocess, "run", side_effect=self.capture):
             for why, call, dry in watch.local_passes({}, False, self.messages.append):
-                if why == "retention pass did not finish":
+                if why in ("collection", "exit clocks", "seat sweep"):
                     self.assertFalse(dry)
                     call()

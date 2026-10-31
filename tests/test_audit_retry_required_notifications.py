@@ -139,8 +139,7 @@ def child():
             if not args.get("dry"):
                 watch.save_state(state)
         elif op == "watch":
-            stack.enter_context(only_passes(root, "the notification retry did not run",
-                                            "the ending pass did not run"))
+            stack.enter_context(only_passes(root, "notification retry", "endings"))
             stack.enter_context(patch.object(watch, "gh_json", return_value=(None, "offline")))
             assert watch.main(["--dry-run"] if args.get("dry") else []) == 0
             assert "PR checks skipped" in output.getvalue()

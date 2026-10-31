@@ -18,7 +18,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, record, watch  # noqa: E402
 from fixtures.tick import only_passes  # noqa: E402
 
-AFTER_MERGE = "merged runs were not followed"
+AFTER_MERGE = "merge checks"
 
 
 class LiveAtWithoutGitHub(unittest.TestCase):
@@ -73,8 +73,8 @@ class LiveAtWithoutGitHub(unittest.TestCase):
             self.tick()
         follow.assert_called_once()
         table = [what for what, _, _ in watch.local_passes({}, False, print)]
-        self.assertEqual(table[:2], [AFTER_MERGE, "the boot resume pass did not run"])
-        self.assertEqual(table[-1], "the harness upgrade pass did not run")
+        self.assertEqual(table[:2], [AFTER_MERGE, "boot resume"])
+        self.assertEqual(table[-1], "harness upgrade")
         self.assertEqual(self.reached, [*table, "gh api user", "incoming", "outgoing"])
 
 

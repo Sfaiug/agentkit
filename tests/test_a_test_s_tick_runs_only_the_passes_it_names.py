@@ -47,15 +47,15 @@ class TickRunsOnlyTheNamedPasses(unittest.TestCase):
             return (*((what, lambda what=what: self.ran.append(what), dry)
                       for what, _step, dry in table(*args)),
                     # where it ran, and which of the caller's logins it could have found
-                    ("the named pass did not run", lambda: self.ran.append(
+                    ("named pass", lambda: self.ran.append(
                         (os.environ["HOME"], sorted(set(self.caller) & set(os.environ)))), False),
-                    ("a pass added later did not run", lambda: self.ran.append("later"), False))
+                    ("later pass", lambda: self.ran.append("later"), False))
 
         self.every_pass = every_pass
         self.stack.enter_context(patch.object(watch, "local_passes", every_pass))
 
     def tick(self):
-        with only_passes(self.root, "the named pass did not run") as reached, \
+        with only_passes(self.root, "named pass") as reached, \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(watch.main([]), 0)
         # nothing else ran: none of ak's own passes, and not the one the test never heard of

@@ -229,8 +229,7 @@ class DesktopAndBoot(Sandbox):
         watch.save_state(state)
         self.save_seat("unowned-claude", conversation="guessed", id_source="discovered")
         before = self.snapshot()
-        with only_passes(self.root, "the boot resume pass did not run",
-                         "the session health pass did not run"), \
+        with only_passes(self.root, "boot resume", "seat health"), \
                 patch.object(watch, "gh_json", return_value=({"login": "fixture"}, "")), \
                 patch.object(watch, "incoming"), patch.object(watch, "outgoing"), \
                 redirect_stdout(io.StringIO()) as out:
