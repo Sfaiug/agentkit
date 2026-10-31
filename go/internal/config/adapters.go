@@ -180,7 +180,9 @@ func Programs() ([]string, error) {
 type HookTable struct {
 	Settings string
 	// File is whether that file is ak's own (`form = "file"`), written whole, not merged into.
-	File   bool
+	File bool
+	// Login is whether it is under the login's home (`{home}`): each login has its own.
+	Login  bool
 	Events []HookEvent
 	// Names is each script's own name, then those it went by before: an entry naming one is
 	// that script's.
@@ -205,8 +207,9 @@ func Hooks(harness string) (HookTable, bool, error) {
 	if err != nil || settings == "" || events == nil {
 		return HookTable{}, false, err
 	}
-	settings = strings.ReplaceAll(Expand(settings), "{home}", loginHome(manifests[harness]))
-	found := HookTable{Settings: settings, File: install.get("form") == "file", Names: map[string][]string{}}
+	found := HookTable{File: install.get("form") == "file", Login: strings.Contains(settings, "{home}"),
+		Names: map[string][]string{}}
+	found.Settings = strings.ReplaceAll(Expand(settings), "{home}", loginHome(manifests[harness]))
 	matchers, _ := install.get("matchers").(*table)
 	heard := words(hooks, "install", "heard")
 	for _, name := range events.keys {

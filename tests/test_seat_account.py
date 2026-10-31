@@ -768,12 +768,16 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.assertEqual(self.commands, [])
         self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
 
-    def test_owner_quitting_or_typing_during_meter_io_wins(self):
+    def test_owner_quitting_typing_or_taking_a_suggestion_during_meter_io_wins(self):
         collect = usage.collect
-        for action in (lambda: self.seat.update(exited=True),
-                       lambda: setattr(self, "pane", "❯ the owner is typing")):
+        suggested = "❯ \x1b[2mFix the acme endpoint\x1b[0m"
+        for start, action in (("❯", lambda: self.seat.update(exited=True)),
+                              ("❯", lambda: setattr(self, "pane", "❯ the owner is typing")),
+                              # the same words, now the owner's draft
+                              (suggested, lambda: setattr(self, "pane",
+                                                          suggested.replace("\x1b[2m", "")))):
             self.seat["exited"] = False
-            self.pane = "❯"
+            self.pane = start
             def readings(cfg):
                 result = collect(cfg)
                 action()

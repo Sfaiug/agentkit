@@ -156,7 +156,8 @@ func (p *parser) space(newlines bool) {
 	}
 }
 
-func syntax(text string) error {
+// TOML is why text is no TOML, nil where it is.
+func TOML(text string) error {
 	_, err := parseDocument(text)
 	return err
 }

@@ -2,7 +2,14 @@
 FROM docker.io/library/debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
       bash python3 python3-pytest git gh tmux bubblewrap jq curl rsync cron systemd libvncserver1 \
-      util-linux iproute2 procps psmisc file sqlite3 ca-certificates openssh-client nodejs golang-go \
+      util-linux iproute2 procps psmisc file sqlite3 ca-certificates openssh-client nodejs \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -m -u 1000 -s /bin/bash ak
+# Go is the release go.mod's toolchain line names, the one tests/test_go.py judges go/ with:
+# Debian's golang-go is another, whose gofmt lays some files out another way.
+COPY go/go.mod /tmp/go.mod
+RUN release=$(sed -n 's/^toolchain //p' /tmp/go.mod) \
+    && curl -fsSLo /tmp/go.tgz "https://go.dev/dl/$release.linux-$(dpkg --print-architecture).tar.gz" \
+    && tar -xzf /tmp/go.tgz -C /usr/local && rm /tmp/go.tgz /tmp/go.mod \
+    && ln -s /usr/local/go/bin/go /usr/local/go/bin/gofmt /usr/local/bin/
 USER ak

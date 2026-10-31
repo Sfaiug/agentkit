@@ -14,10 +14,11 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from contextlib import ExitStack
 from pathlib import Path
 
-from . import config, gitcall, hand_in, record as run_record, turns, worker
+from . import config, gitcall, hand_in, history, record as run_record, turns, worker
 
 
 DIFF_CAP = 300 * 1024
@@ -358,8 +359,10 @@ def capped(lp, diff):
 
 
 def proof_on(lp, command, log_path, revision=None, tests_from=None):
-    """Replay evidence with the regression probe's overlay and crash-safe checkout recovery."""
+    """Replay evidence with the regression probe's overlay and crash-safe checkout recovery,
+    leaving the round's `replay` row in history."""
     from . import gate  # here, not at the top: gate reaches run
+    asked = time.time()
     run_record.stop_check(lp.run_dir)
     if not lp.scratch:
         head = gitcall.git(lp.wt, "rev-parse", "HEAD")
@@ -385,14 +388,16 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
             progress.write(f"$ {command} (on {revision or 'workspace'})\n".encode())
             progress.flush()
             start = progress.tell()
-            try:
-                code, _, killed = worker.boxed(
-                    ["bash", "-c", command], lp.done_when_limit, silence=lp.turn_limit,
-                    activity=log_path, output=progress, stderr=subprocess.STDOUT,
-                    stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=env)
-            except (FileNotFoundError, PermissionError) as exc:
-                code, killed = (127 if isinstance(exc, FileNotFoundError) else 126), False
-                progress.write(str(exc).encode())
+            with history.check((lp.run_dir, lp.rnd, "replay", revision), command, asked) as ended:
+                try:
+                    code, _, killed = worker.boxed(
+                        ["bash", "-c", command], lp.done_when_limit, silence=lp.turn_limit,
+                        activity=log_path, output=progress, stderr=subprocess.STDOUT,
+                        stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=env)
+                except (FileNotFoundError, PermissionError) as exc:
+                    code, killed = (127 if isinstance(exc, FileNotFoundError) else 126), False
+                    progress.write(str(exc).encode())
+                ended.append(None if killed else code)
             output = hand_in.output_excerpt(progress, start)
             progress.write(f"\n[{'did not finish' if killed or code < 0 else f'exit {code}'}]\n".encode())
         turns.memory_cap_note(lp.run_dir, lp.log)

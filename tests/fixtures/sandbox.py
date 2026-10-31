@@ -67,6 +67,20 @@ def in_account_home(argv, home, **kwargs):
 
 
 @contextmanager
+def parses():
+    """The runs whose run.json is parsed meanwhile, by name, in the order parsed."""
+    read, names = Path.read_text, []
+
+    def reading(path, *args, **kwargs):
+        if path.name == "run.json":
+            names.append(path.parent.name)
+        return read(path, *args, **kwargs)
+
+    with patch.object(Path, "read_text", reading):
+        yield names
+
+
+@contextmanager
 def menu_input(*, wait=None, **read_kw):
     """Scripted reads also answer waits; a silent open stdin must never strand the menu."""
     def read_key(prompt, *_args, **_kw):

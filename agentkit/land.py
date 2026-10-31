@@ -291,7 +291,7 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     again = None
     if tests:
         ok, probe, red = _check(directory, state, scratch, [suite], path, log, suite=suite,
-                                shard=piece or None, only=tests)
+                                shard=piece or None, only=tests, kind="tip")
         again = red.get("tests")
         if ok:
             log(f"{upstream} at {tip[:12]} passes the tests that failed {directory.name}'s "
@@ -299,7 +299,8 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
             return True
         _put_back(scratch, tip)
     if not again:       # a repeat needs no piece to say the tip is red
-        ok, probe, _ = _check(directory, state, scratch, [suite], path, log, shard=piece or None)
+        ok, probe, _ = _check(directory, state, scratch, [suite], path, log, shard=piece or None,
+                              kind="tip")
     if ok:
         # the pass is the piece's, named so it covers no stack's own checks
         note(turn, [tree], directory.name, checks=[f"{suite} (AK_SHARD={piece})" if piece else suite],
@@ -620,12 +621,13 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok):
 
 
 def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=None,
-           only=None, artifacts=None, line=None):
+           only=None, artifacts=None, line=None, kind="landing"):
     """(whether the checks passed, their output, what they found red as `red_part` reads it,
     `suite` standing for a red no command showed); with `shard` every command runs as that
     one piece alone, on one turn, and with `only` just those tests, on none.  A run checking
     before it joins names the `line` it joins: a flake it sees counts there as one the line's
-    check sees."""
+    check sees.  Each command, or piece of one, leaves its `kind` row in history under the
+    member's run, on the commit checked: `landing`, or `tip` for a probe of the target's."""
     from . import gate, run
     identity = gitcall.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
@@ -645,7 +647,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
             3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
             silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True,
             marks=marks, shard=shard, pieces=pieces, only=only, confirmed=confirmed,
-            run_dir=run_dir, flaky=flaky)
+            run_dir=run_dir, flaky=flaky, checked=(directory, None, kind, identity["head_sha"]))
     moved = (not clean or gitcall.commit_identity(scratch) != identity
              or run.git_out(scratch, "diff", "--quiet", "HEAD")[0])
     if moved:

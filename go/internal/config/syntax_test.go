@@ -16,7 +16,7 @@ func TestSyntax(t *testing.T) {
 		"a.b.c=1\na.b.d=2\n", "[a]\nb.c=1\nb.d=2\n",
 		"[a.b]\nx=1\n[a.c]\ny=2\n", "[[a]]\nx=1\n[a.b]\ny=2\n",
 	} {
-		if err := syntax(valid); err != nil {
+		if err := TOML(valid); err != nil {
 			t.Errorf("valid TOML %q: %v", valid, err)
 		}
 	}
@@ -29,7 +29,7 @@ func TestSyntax(t *testing.T) {
 		"[a.b]\nx=1\n[a]\nb.c=2\n", "[a.b]\nx=1\n[a]\nb.c.d=2\n",
 		"[[a.b]]\nx=1\n[a]\nb.c=2\n",
 	} {
-		if err := syntax(invalid); err == nil {
+		if err := TOML(invalid); err == nil {
 			t.Errorf("accepted invalid TOML %q", invalid)
 		}
 	}

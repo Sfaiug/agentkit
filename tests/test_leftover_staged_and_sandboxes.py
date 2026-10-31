@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gitcall, run
+from agentkit import config, gitcall, run
 
 # the ways a test names the top of the checkout it runs in
 CHECKOUT = {"REPO", "str(REPO)", "config.REPO"}
@@ -72,6 +72,10 @@ class LeftoverStagedAndSandboxes(unittest.TestCase):
                                       "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"})
         env.start()
         self.addCleanup(env.stop)
+        # config read the HOME it was imported under: the done-when's history goes here
+        home = patch.object(config, "HOME", self.root / ".agentkit")
+        home.start()
+        self.addCleanup(home.stop)
         for key in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG"):
             os.environ.pop(key, None)
         self.logs = []
@@ -96,7 +100,7 @@ class LeftoverStagedAndSandboxes(unittest.TestCase):
         lp = SimpleNamespace(wt=repo, scratch=False, upstream="", state={"title": "fix api"},
                              every=["true"], base_sha=run.git(repo, "rev-parse", "HEAD"),
                              artifacts=set(), log=self.logs.append,
-                             step=lambda *_a, **_kw: None, round_dir=round_dir,
+                             step=lambda *_a, **_kw: None, round_dir=round_dir, rnd=1,
                              done_when_limit=60, turn_limit=60, run_dir=self.root)
         return run.verify_work(lp)
 
