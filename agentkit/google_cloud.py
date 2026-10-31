@@ -94,8 +94,8 @@ def said(mb_per_core):
 def watch():
     """The tick's pass while ak may rent: the meter moved on to what Google lists, each machine
     past its end, unpriced, past the cap or idle given back and said, the other ready ones and
-    those already serving at an address, whose work in flight reaches them by this route, serving;
-    only then a stale price list."""
+    those it served last pass at an address, whose work in flight reaches them by this route,
+    serving; only then a stale price list."""
     active, cap = _setting()
     if not active:
         return
@@ -109,7 +109,7 @@ def watch():
     ledger, late = (read := _ledger()) and _moved(read, listed, now, prices), []
     was, idle = [], {}
     try:
-        was = _served()
+        was = serving()
         idle = _idle(listed)
     except (OSError, subprocess.CalledProcessError):    # no ssh here: the meter moves all the same
         pass
@@ -123,7 +123,9 @@ def watch():
                 late.append(f"{machine.name} listed {why}, given back")
             except Unavailable as exc:
                 late.append(f"{machine.name} listed {why}, not given back: {exc}")
-        elif machine.id in idle or machine.address and machine.id in was:
+        # metered last pass: the name it served under is its own, not a predecessor's
+        elif machine.id in idle or (machine.address and machine.name in was
+                                    and machine.id in read["machines"]):
             ready.append(machine)
     _serve(ready)
     config._write_json(config.STATE / LATE, late)
@@ -251,7 +253,7 @@ def _moved(ledger, listed, now, prices):
     answer, one new since its creation, one gone up to its allowed end, at the dearer of its kept
     price and its type's there, else the dearest kept; only this month's time counts, in UTC."""
     start = datetime(*time.gmtime(now)[:2], 1, tzinfo=timezone.utc).timestamp()
-    since, kept, machines = ledger["answered"], ledger["machines"], {}
+    since, kept, machines = ledger["answered"], dict(ledger["machines"]), {}
     spent = ledger["spent"] if since >= start else 0
     for one in listed:
         old = kept.pop(one.id, None)
@@ -293,17 +295,11 @@ def _reach(machine):
             "StrictHostKeyChecking": "accept-new"}
 
 
-def _served():
-    """The ids `_serve` last wrote: Google hands a name out again, to a machine yet to answer."""
-    path = config.STATE / SSH_CONFIG
-    return re.findall(r"^# (.+)$", path.read_text(), re.M) if path.exists() else []
-
-
 def _serve(machines):
     """The ssh config, written whole: `machines` as ssh reaches each, then every other as ever."""
     path = config.STATE / SSH_CONFIG
     temp = path.with_suffix(".tmp")
-    temp.write_text("".join(f"# {one.id}\nHost {one.name}\n" + "".join(
+    temp.write_text("".join(f"Host {one.name}\n" + "".join(
         '  %s "%s"\n' % option for option in _reach(one).items()) for one in machines)
         + "Host *\n  Include ~/.ssh/config\n")
     temp.replace(path)
