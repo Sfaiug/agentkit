@@ -230,6 +230,9 @@ func load() (*table, error) {
 	if err := validate(root); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	if err := Manifests(); err != nil {
+		return nil, err
+	}
 	return root, nil
 }
 
