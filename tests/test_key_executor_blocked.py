@@ -47,8 +47,9 @@ class ExecutorBlocked(unittest.TestCase):
         cls.gh.grant(cls.rig.slug, "WRITE")      # a pass would be pushed and merged
         akconfig.write(cls.home, ["opus", "astra"])
         cls.fakes = fakeadapter.install(cls.home, claude=BLOCKED, codex="pass")
+        cls.seat = Seat(cls.home, "acme", cwd=cls.rig.path, planned=True) if REAL_TMUX else None
         task = taskfile.write(cls.home, cls.rig.path, "Add retry file")
-        cls.done = cls.home.ak("run", str(task), timeout=300)
+        cls.done = cls.home.ak("run", str(task), env=cls.seat and {"AGENTKIT_SESSION": "acme"}, timeout=300)
         cls.run_dir = taskfile.only_run(cls.home)
         cls.state = state(cls.run_dir)
 
@@ -82,6 +83,11 @@ class ExecutorBlocked(unittest.TestCase):
             self.assertIn(line, lines)
         after = lines[lines.index("## Blocked") + 1:]
         self.assertEqual(next(line for line in after if line.strip()), WHY)
+
+    @unittest.skipUnless(REAL_TMUX, "no tmux installed")
+    def test_its_seat_is_told_in_one_line_to_rewrite_the_task(self):
+        self.assertRegex(self.seat.wait_lines(1)[0], rf"^run {self.run_dir.name} BLOCKED \(0 of 3\): {WHY}\. Next: "
+                         r"rewrite the task and relaunch it with `from: ak/add-retry-file`\. Result: \S+/result\.md$")
 
 
 class NotNeededOutsideAFixRun(unittest.TestCase):

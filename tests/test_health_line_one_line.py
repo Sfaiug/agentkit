@@ -23,12 +23,12 @@ class HealthLineOneLine(Sandbox):
 
     def test_output_lines_become_separators_and_nothing_is_cut(self):
         line = self.line("GET /health 502\n\nupstream down\nretry later")
-        self.assertEqual(line, f"health: probe failed on main after this merge: {PR}; "
+        self.assertEqual(line, f"health: probe failed on main after this merge. {PR}; "
                                "GET /health 502; upstream down; retry later. Fix the target.")
 
     def test_one_line_of_output_reads_as_before(self):
         self.assertEqual(self.line("GET /health 502"),
-                         f"health: probe failed on main after this merge: {PR}; "
+                         f"health: probe failed on main after this merge. {PR}; "
                          "GET /health 502. Fix the target.")
 
 

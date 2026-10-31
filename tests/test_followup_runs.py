@@ -687,7 +687,7 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(ended["state"], "blocked")
         self.assertIn("Should empty input", self.endings[-1])
-        self.assertIn("finished BLOCKED", self.endings[-1])
+        self.assertIn("BLOCKED (0 of 3): ", self.endings[-1])
         self.assertEqual(self.gh_calls, [])
 
     def test_not_needed_with_bullets_or_evidence_ends_quietly(self):

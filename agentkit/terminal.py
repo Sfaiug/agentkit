@@ -284,6 +284,17 @@ def cut(text, room, spaced=False):
     return prefix.rstrip() + "…"
 
 
+def sentences(text, room):
+    """`text`'s leading whole sentences within `room` characters, the unit a typed line's bound
+    counts, its whitespace collapsed: "" when not even the first fits."""
+    text = " ".join(text.split())
+    text += "" if not text or text[-1] in ".!?" else "."
+    if len(text) <= room:
+        return text
+    ends = [found.end() for found in re.finditer(r"[.!?](?= )", text[:max(room, 0) + 1])]
+    return text[:ends[-1]] if ends else ""
+
+
 def pad(text, room, right=False):
     text = cut(text, room)
     space = " " * max(0, room - cells(text))

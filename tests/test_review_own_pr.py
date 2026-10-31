@@ -335,9 +335,9 @@ class OwnPr(unittest.TestCase):
                 world.return_value.__exit__.return_value = False
                 run.announce(record.read_state(run_dir), run_dir, lambda line: None)
         self.assertEqual(len(typed), 1, typed)
-        self.assertIn(f"run {run_dir.name} finished FAIL", typed[0])
+        self.assertIn(f"run {run_dir.name} FAIL (1 of 3): ", typed[0])
         self.assertIn("off-by-one in the gate", typed[0])
-        self.assertIn("Decide the next step.", typed[0])
+        self.assertIn("Next: read the result.", typed[0])
 
     def test_other_pr_fail_posts_request_changes_and_ends_fail(self):
         run_dir = self.launch_dir("20260927-0009-other-fail")

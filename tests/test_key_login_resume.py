@@ -145,7 +145,7 @@ class LoginBack(unittest.TestCase):
         self.assertEqual(pages(self.home), self.pages_before)
         # the boxed tick outlives the run it resumed, so the run's ending is all the seat got
         told, = self.typed_to_seat
-        self.assertTrue(told.startswith(f"run {self.run_dir.name} finished PASS"), told)
+        self.assertTrue(told.startswith(f"run {self.run_dir.name} NOT MERGED ("), told)
 
 
 @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")

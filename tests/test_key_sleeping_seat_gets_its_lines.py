@@ -26,8 +26,9 @@ JOB = "20261028-1200-acme-job"
 
 
 def told(repo, number):
-    return (f"ci failed on main after this merge: https://github.com/acme/{repo}/pull/{number}."
-            " Fix the target.")
+    run = f"20261028-1200-{repo}-{number}"
+    return (f"run {run} NOT LIVE (0 of 0): ci failed on main after this merge. https://github.com/acme/{repo}/pull/"
+            f"{number}. Fix the target. Next: launch the fix the result names. Result: ~/.agentkit/runs/{run}/result.md")
 
 
 @unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")

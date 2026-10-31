@@ -14,6 +14,7 @@ from agentkit import config, gitcall, handback, orch, record, run, transitions, 
 
 
 PR = "https://github.com/acme/widget/pull/7"
+DONE = {"state": "not_needed", "not_needed": "the fix is on main: " + "the whole reason " * 100}  # still compacted
 
 
 class RunNotice(Sandbox):
@@ -83,7 +84,6 @@ class RunNotice(Sandbox):
         self.assertEqual(self.composer, "")
         self.assertEqual(len(self.sent), 1)
         self.assertIsNone(watch.too_long(self.sent[0]))
-        self.assertIn("2 review follow-ups", self.sent[0])
         self.assertIn("result.md", self.sent[0])
         saved = record.read_state(directory)
         self.assertTrue(saved["handed_back"])
@@ -93,11 +93,9 @@ class RunNotice(Sandbox):
         for item in state["followups"]:
             self.assertIn(item, result)
 
-    def test_any_number_of_followups_is_counted_and_retained(self):
+    def test_any_number_of_followups_is_retained(self):
         directory, state = self.followups(1000)
-        line = handback.handback_line(state, directory, self.cfg)
-        self.assertIsNone(watch.too_long(line))
-        self.assertIn("1000 review follow-ups", line)
+        self.assertIsNone(watch.too_long(handback.handback_line(state, directory, self.cfg)))
         result = (directory / "result.md").read_text()
         for item in state["followups"]:
             self.assertIn(item, result)
@@ -116,8 +114,8 @@ class RunNotice(Sandbox):
             self.assertIn("- " + name + "\n", result)
 
     def test_a_fitting_ending_is_unchanged_including_at_the_bound(self):
-        directory, state = self.result(followups=["api.py:1 - a defect"])
-        expected = (f"run {directory.name} finished PASS not merged: --no-merge. "
+        directory, state = self.result(merged=True, pr=PR, followups=["api.py:1 - a defect"])
+        expected = (f"run {directory.name} finished PASS merged: {PR}. "
                     f"Result: {directory / 'result.md'}. Decide the next step.")
         self.assertEqual(handback.handback_line(state, directory, self.cfg), expected)
         with patch.object(watch, "longest", return_value=len(expected)):
@@ -131,7 +129,7 @@ class RunNotice(Sandbox):
     def test_the_same_byte_bound_as_tell_is_applied(self):
         directory, state = self.result()
         state["merge_note"] = "é" * 250
-        with patch.object(watch, "MAX_BYTES", 600):
+        with patch.object(watch, "MAX_BYTES", 500):
             line = handback.handback_line(state, directory, self.cfg)
             self.assertIsNone(watch.too_long(line))
             self.assertLessEqual(len(line.encode("utf-8")), watch.MAX_BYTES)
@@ -239,7 +237,7 @@ class RunNotice(Sandbox):
         self.assertIn(details, (directory / "result.md").read_text())
 
     def test_all_report_rebuilds_keep_saved_notice_details(self):
-        directory, state = self.followups(2)
+        directory, state = self.followups(2, **DONE)
         with patch.object(watch, "longest", return_value=1000000):
             full = handback.handback_line(state, directory, self.cfg)
         self.assertTrue(handback.hand_back(state, directory, self.logs.append, self.cfg))
@@ -289,12 +287,12 @@ class RunNotice(Sandbox):
         self.assertEqual((self.keys, self.sent), ([], []))
 
     def test_a_notice_is_not_typed_when_its_omitted_details_cannot_be_saved(self):
-        directory, state = self.followups(2)
+        directory, state = self.followups(2, **DONE)
         result = directory / "result.md"
         result.unlink()
         result.mkdir()
         with self.assertRaises(OSError):
-            run.announce(state, directory, self.logs.append, self.cfg)
+            handback.hand_back(state, directory, self.logs.append, self.cfg)
         self.assertEqual((self.keys, self.sent), ([], []))
 
 

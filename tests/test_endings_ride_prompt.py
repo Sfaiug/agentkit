@@ -58,11 +58,11 @@ class EndingsRidePrompt(Sandbox):
         first, second = self.waiting("fix-parser"), self.waiting("fix-schema")
         context = self.hook()
         for run_dir in (first, second):
-            self.assertIn(f"run {run_dir.name} finished FAIL", context)
+            self.assertIn(f"run {run_dir.name} FAIL (", context)
             said = record.read_state(run_dir)
             self.assertTrue(handback.already_handed_back(said))
             self.assertNotIn("handback_pending", said)
-        self.assertEqual(context.count("Decide the next step."), 2)
+        self.assertEqual(context.count(" Next: "), 2)
         self.assertEqual(self.hook(), "")
 
     def test_an_ending_being_typed_or_another_seats_stays_waiting(self):
@@ -73,7 +73,7 @@ class EndingsRidePrompt(Sandbox):
             self.assertEqual(self.hook(), "")
         for run_dir in (typing, entered, other):
             self.assertTrue(record.read_state(run_dir)["handback_pending"])
-        self.assertIn("run fix-parser finished FAIL", self.hook())
+        self.assertIn("run fix-parser FAIL (", self.hook())
 
     def test_waiting_live_notices_ride_once_and_a_tick_with_an_old_snapshot_types_none(self):
         config.plan_path(SEAT).write_text("- [ ] the parser is live\n")

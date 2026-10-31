@@ -325,8 +325,8 @@ class HealthAfterMerge(unittest.TestCase):
             self.ci = ("failed", "release-gate", PR + "/checks")
             self.tick()
         self.assertEqual(read.call_count, 1)
-        self.assertEqual(self.lines, [(SEAT, watch.after_merge_line(
-            "release-gate", "main", PR + "/checks"))])
+        self.assertEqual([seat for seat, _ in self.lines], [SEAT])
+        self.assertIn("release-gate failed on main after this merge.", self.lines[0][1])
 
     def test_dry_run_neither_runs_health_nor_records_live(self):
         sha = self.declare("exit 0")

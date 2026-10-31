@@ -119,7 +119,7 @@ class NoReplay(Sandbox):
         self.rows = [self.live()]
         run.announce(record.read_state(directory), directory, self.logs.append)
         self.assertEqual(len(self.typed), 1)
-        self.assertIn("finished PASS", self.typed[0][1])
+        self.assertIn(" NOT MERGED (0 of 0): ", self.typed[0][1])
         state = record.read_state(directory)
         self.assertTrue(state["handed_back"])
         self.assertNotIn("handback_note", state)

@@ -110,7 +110,7 @@ class OwnPrRounds(OwnPr):
         self.assertEqual(self.notices, [])          # no round was handed back
         run.announce(state, self.run_dir, lambda _: None, self.cfg)
         self.assertIn("defect 3", self.notices[-1])
-        self.assertIn("three rounds spent", self.notices[-1])
+        self.assertIn("Next: split the task.", self.notices[-1])
 
     def test_a_pr_closed_during_the_fix_ends_the_run(self):
         fix = self.fix

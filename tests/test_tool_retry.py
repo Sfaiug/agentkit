@@ -146,7 +146,7 @@ class ToolRetry(unittest.TestCase):
                      "executor_provider": "acme", "reviewer_provider": "other",
                      "head_sha": "1" * 40, "tree_sha": "2" * 40}}
             line = handback.handback_line(state, REPO / "acme" / "fix-api", CFG)
-            self.assertIn("PASS not merged", line)
+            self.assertIn("NOT MERGED", line)
             self.assertEqual(handback.retry_command(state), "ak run merge fix-api")
             self.assertIn(handback.retry_command(state), line)
             self.assertNotIn("resume", line.replace(str(REPO), ""))

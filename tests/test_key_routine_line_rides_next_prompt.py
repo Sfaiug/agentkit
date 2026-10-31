@@ -129,7 +129,7 @@ class Rides(Routine):
 
     def test_a_failed_and_a_blocked_ending_are_typed_and_no_merge_is(self):
         lines = self.seat.wait_lines(2)
-        self.assertEqual(sorted(line.split(" finished ")[0] for line in lines),
+        self.assertEqual(sorted(" ".join(line.split()[:2]) for line in lines),
                          [f"run {self.FAILED}", f"run {self.BLOCKED}"], lines)
 
     def test_a_merge_is_typed_where_the_harness_takes_no_prompt_context(self):

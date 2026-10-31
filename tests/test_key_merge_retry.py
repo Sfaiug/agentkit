@@ -17,7 +17,8 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import Home
+from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akseat import Seat
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
@@ -51,8 +52,10 @@ class MergeRetry(unittest.TestCase):
                                         log=shlex.quote(str(home.log("gh")))) + delegate)
         akconfig.write(home, ["opus", "astra"])
         fakeadapter.install(home, claude="work", codex="pass")
+        seat = Seat(home, "acme", cwd=cls.rig.path, planned=True) if REAL_TMUX else None
         task = taskfile.write(home, cls.rig.path, "Add retry file")
-        cls.first = home.ak("run", str(task), timeout=300)
+        cls.first = home.ak("run", str(task), env=seat and {"AGENTKIT_SESSION": "acme"}, timeout=300)
+        cls.told = seat and seat.wait_lines(1)[0]
         cls.run_dir = taskfile.only_run(home)
         cls.failed = cls.record()
         cls.failed_result = cls.result()
@@ -88,6 +91,11 @@ class MergeRetry(unittest.TestCase):
         last = self.first.out.rstrip("\n").splitlines()[-1]
         self.assertIn("PASS, not merged: ", last)
         self.assertTrue(last.endswith(f" -> {self.run_dir / 'result.md'}"), last)
+
+    @unittest.skipUnless(REAL_TMUX, "no tmux installed")
+    def test_its_seat_is_told_in_one_line_naming_that_command(self):
+        self.assertRegex(self.told, rf"^run {self.run_dir.name} NOT MERGED \(1 of 3\): .+[.!?] Next: launch the fix "
+                                    rf"the result names, `ak run merge {self.run_dir.name}`\. Result: \S+/result\.md$")
 
     def test_result_md_says_why_and_names_the_command_that_finishes_the_delivery(self):
         lines = self.failed_result

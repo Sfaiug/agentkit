@@ -26,8 +26,8 @@ RUN = "20261028-0900-fix-the-parser"
 READINGS = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}
 POINTER = f"its ending waits for you: ak run status {RUN}"
-LINE = re.compile(rf"^  run {RUN} finished FAIL: the parser drops the last row\. "
-                  rf"Result: \S+/{RUN}/result\.md\. Decide the next step\.$", re.M)
+LINE = re.compile(rf"^  run {RUN} FAIL \(2 of 2\): the parser drops the last row\. "
+                  rf"Next: read the result\. Result: \S+/{RUN}/result\.md$", re.M)
 
 
 class SeatReadsWaitingEnding(unittest.TestCase):
