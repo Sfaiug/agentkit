@@ -39,7 +39,9 @@ class Claims(unittest.TestCase):
         self.assertFalse(set(asked) - {claim[0] for claim in listed},
                          "go/keys.txt does not list these")
         named = os.environ.get("AK_BIN")
-        with tempfile.TemporaryDirectory(prefix="ak-go-keys-") as tree:
+        # In the checkout, as the suite's other sandboxes are: a key keeping its Home under its
+        # checkout counts on that lying outside the temporary places a worker's box makes its own.
+        with tempfile.TemporaryDirectory(prefix=".ak-test-go-keys-", dir=REPO) as tree:
             shutil.copytree(REPO, tree, ignore=LEFT_OUT, symlinks=True, dirs_exist_ok=True)
             program = REPO / named if named else Path(tree, "go/bin/ak")
             if not named:
