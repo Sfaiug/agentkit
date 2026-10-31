@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, hand_in, run, turns, usage, worker
-from check4_pair import providers
+from check4_pair import login, providers
 
 
 def selected_model(cfg, harness):
@@ -30,13 +30,13 @@ def selected_model(cfg, harness):
                  and cfg["models"][name].get("harness") == harness), None)
 
 
-def unavailable(harness, seat=False, provider=None):
+def unavailable(harness, seat=False, provider=None, account=None):
     """Missing binary/login is not coverage; a broken saved login fails."""
     manifest = config.manifest(harness)
     binary = manifest.get("update", {}).get("version", [harness])[0]
     if not config.harness_binary(binary):
         return f"{binary} is not installed", False
-    authenticated, why = worker.auth_ok(harness, seat=seat, provider=provider)
+    authenticated, why = worker.auth_ok(harness, seat=seat, provider=provider, account=account)
     if authenticated is not False:
         return "", False
     missing = re.match(r"^\S+: no (OAuth credentials in |provider key in )?(.+?)"
@@ -57,14 +57,14 @@ def unavailable(harness, seat=False, provider=None):
 
 def spent_until(cfg, model, snapshot, host_home):
     provider = config.model(cfg, model)["provider"]
-    read = providers(snapshot)
+    read = providers(cfg, snapshot)
     record = read.get(provider, {})
     if not usage.model_exhausted(cfg, model, read)[0]:
         if record.get("meters"):
             return ""
         # An empty sandbox read shares the host's cadence, so borrow only the same login's
         # cache, dropping windows already reset. Another subscription cannot answer for it.
-        read = providers(Path(host_home) / ".agentkit/state/usage.json")
+        read = providers(cfg, Path(host_home) / ".agentkit/state/usage.json")
         record = usage._without_past(read.get(provider, {}), time.time(), "the host cache")
         read[provider] = record
         if not usage.model_exhausted(cfg, model, read)[0]:
@@ -91,7 +91,7 @@ def refused(cfg, model, code, out, snapshot):
     word = turns.ran_dry(code, said, entry["harness"])
     if not word:
         return ""
-    read = providers(snapshot)
+    read = providers(cfg, snapshot)
     record = read.get(entry["provider"], {})
     now, until = time.time(), turns.try_again_at(said)
     if until is None or until <= now:
@@ -105,15 +105,15 @@ def refused(cfg, model, code, out, snapshot):
 
 
 @contextmanager
-def planted(harness, host_home):
+def planted(harness, host_home, told):
     """A word planted, for the turn, in each file the harness reads on its own and cannot be
     told not to (`[instructions] unswitched`), and in a file of each such folder, the one named
     without a suffix: a worker's box hides each from its turn, so the turn must never say it.  Only in smoke.sh's sandbox HOME, never the caller's own, where
     every other turn and seat would read it too; a file already there is left alone, and the
-    planted ones go when the turn is over."""
+    planted ones go when the turn is over.  The files are those of the login `told` names."""
     word = f"nonce-{os.urandom(4).hex()}"
     sandbox = Path(host_home).resolve() != Path.home().resolve()
-    mine = [path for path in config.unswitched_files(harness, os.environ)
+    mine = [path for path in config.unswitched_files(harness, {**os.environ, **told})
             if sandbox and not os.path.lexists(path)]
     try:
         for path in mine:
@@ -158,21 +158,25 @@ def check(cfg, root, snapshot, host_home, harness=None):
     for name in names:
         try:
             selected = selected_model(cfg, name)
-            why, broken = unavailable(name, provider=selected["provider"] if selected else None)
+            block = selected or config.manifest(name).get("check", {})
+            previous = next((e for e in cfg["models"].values() if e.get("harness") == name
+                             and e.get("model") == block.get("model")), None)
+            previous = previous or next((e for e in cfg["models"].values()
+                                         if e.get("harness") == name), {})
+            provider = previous.get("provider", name)
+            # Asked and run on the login the check runs, its account named as ak's own turns do.
+            account = login(cfg, provider)
+            told = config.account_env(account)
+            why, broken = unavailable(name, provider=selected["provider"] if selected else None,
+                                      account=account)
             if why:
                 report("FAIL" if broken else "NOT CHECKED", name, why)
                 failed += int(broken)
                 continue
             installed += 1
-            block = selected or config.manifest(name).get("check", {})
             if any(not isinstance(block.get(k), str) or not block[k].strip()
                    for k in ("model", "effort")) or block["model"] == config.DEFAULT_MODEL:
                 raise config.Error("adapter .toml needs [check] with an explicit model and effort")
-            previous = next((e for e in cfg["models"].values() if e.get("harness") == name
-                             and e.get("model") == block["model"]), None)
-            previous = previous or next((e for e in cfg["models"].values()
-                                         if e.get("harness") == name), {})
-            provider = previous.get("provider", name)
             mine = {**cfg, "models": {**cfg["models"], name: {
                 "harness": name, "model": block["model"], "effort": block["effort"],
                 "provider": provider}}, "providers": {**cfg["providers"],
@@ -191,9 +195,9 @@ def check(cfg, root, snapshot, host_home, harness=None):
             report("CHECK", name, f"{block['model']} at {block['effort']}")
             # No build or review instructions: both turns ask only what this contract proves.
             with patch.dict(worker.PREAMBLES, {"executor-scratch": ""}), \
-                    planted(name, host_home) as word:
+                    planted(name, host_home, told) as word:
                 code, final, sid, _, _ = worker.turn(mine, name, body, workspace, out,
-                                                     role="executor-scratch")
+                                                     role="executor-scratch", env=told)
                 refusal = refused(mine, name, code, out, snapshot)
                 if refusal:
                     report("SKIP", name, f"was refused: {refusal}")
@@ -212,8 +216,9 @@ def check(cfg, root, snapshot, host_home, harness=None):
                 if not read_text(out / "session_id").strip():
                     missing.append("no session_id")
                 if word and word in final:
+                    files = config.unswitched_files(name, {**os.environ, **told})
                     missing.append("read a file of its own beside the prompt: the box let "
-                                   f"{' or '.join(map(str, config.unswitched_files(name, os.environ)))} through")
+                                   f"{' or '.join(map(str, files))} through")
                 if missing:
                     report("FAIL", name, "; ".join(missing))
                     failed += 1
@@ -224,7 +229,7 @@ def check(cfg, root, snapshot, host_home, harness=None):
                 out = root / name / "recall"
                 code, final, _, _, _ = worker.turn(
                     mine, name, "What file did you just create? Reply with the filename only.\n",
-                    workspace, out, role="executor-scratch", session=sid)
+                    workspace, out, role="executor-scratch", session=sid, env=told)
             refusal = refused(mine, name, code, out, snapshot)
             if refusal:
                 report("SKIP", name, f"resume was refused: {refusal}")
@@ -252,7 +257,7 @@ def main():
     parser.add_argument("--snapshot", type=Path, default=config.STATE / "usage.json")
     parser.add_argument("--counts", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
-    host_home = os.environ.get("SMOKE_CALLER_HOME") or Path.home()
+    cfg, host_home = config.load(), os.environ.get("SMOKE_CALLER_HOME") or Path.home()
     with tempfile.TemporaryDirectory(prefix=".ak-test-contract-", dir=REPO) as tmp:
         root = Path(tmp)
         snapshot = args.snapshot
@@ -260,9 +265,9 @@ def main():
             # A standalone check owns its refusal snapshot too.
             snapshot = root / "usage.json"
             read = {name: usage._without_past(record, time.time(), "the host cache")
-                    for name, record in providers(args.snapshot).items()}
+                    for name, record in providers(cfg, args.snapshot).items()}
             snapshot.write_text(json.dumps({"providers": read}))
-        counts = check(config.load(), root, snapshot, host_home, args.harness)
+        counts = check(cfg, root, snapshot, host_home, args.harness)
     passed, failed, skipped, calls = counts
     if args.counts:
         args.counts.write_text(" ".join(map(str, counts)) + "\n")

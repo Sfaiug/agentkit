@@ -2,8 +2,8 @@
 
 tests/smoke.sh asks this before check 4 opens its branch, so its one real `ak run` goes on
 whichever configured models have budget and names none.  The pick is ak's own, `run.pick_models`
-over every model the config offers, on the suite's usage snapshot, each provider on the usual
-login the sandbox borrows and each harness asked whether it can run here.  When this host can
+over every model the config offers, on the suite's usage snapshot, each provider on the login
+the sandbox borrows and each harness asked whether it can run here.  When this host can
 run no model at all, it says why and exits 3: the host lacks them.  A provider that snapshot
 knows nothing of -- the host asked inside the shared probe cadence -- reads as the host's own
 cache, as `spent_until` reads it.
@@ -20,8 +20,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentkit import config, run, usage
 
 
-def providers(path):
-    """The providers a usage snapshot holds, each the usual login's; {} when it says nothing."""
+def login(cfg, provider):
+    """The login the check runs on that provider: the account its config lists, which smoke_home
+    lists only for a subscription it lent by name, else None, the usual one."""
+    return next(iter(config.accounts(cfg, provider)), None)
+
+
+def providers(cfg, path):
+    """The providers a usage snapshot holds, each the reading of the login the check runs on it;
+    {} when it says nothing."""
     try:
         read = json.loads(Path(path).read_text())["providers"]
     except (OSError, ValueError, KeyError, TypeError):
@@ -29,13 +36,14 @@ def providers(path):
     read = read if isinstance(read, dict) else {}
     for name, record in read.items():
         if isinstance(record, dict) and isinstance(record.get("accounts"), dict):
-            read[name] = record["accounts"].get(config.DEFAULT_ACCOUNT)
+            read[name] = record["accounts"].get(login(cfg, name) or config.DEFAULT_ACCOUNT)
     return {name: record for name, record in read.items() if isinstance(record, dict)}
 
 
 def main(suite, host):
-    cfg, read, now = config.load(), providers(suite), time.time()
-    for name, record in providers(host).items():
+    cfg, now = config.load(), time.time()
+    read = providers(cfg, suite)
+    for name, record in providers(cfg, host).items():
         mine = read.get(name, {})
         # The suite's read stands where it measured something or holds a refusal still ahead.
         if not mine.get("meters") and not (usage._number(mine.get("exhausted_until")) or 0) > now:

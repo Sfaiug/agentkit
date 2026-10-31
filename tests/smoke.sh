@@ -96,13 +96,15 @@ smoke_share_probes() {   # link the sandbox probe files at the host's own, per p
   # it, so a link works as-is, even a dangling one for a file the host has yet to write --
   # as long as the host state directory is there for it to resolve in, which it is not on
   # a host that has never run agentkit: without it every ask goes out unheld.
-  # The sandbox asks with the default login, so each sandbox file points at the host file
-  # that tracks that login: its .default file where the host lists accounts for the
-  # provider, else its plain one.  Every provider the sandbox config offers is covered.
-  PYTHONPATH="$REPO" SMOKE_CALLER_HOME="$SMOKE_CALLER_HOME" python3 - <<'PY' || exit 1
+  # The sandbox asks with the login the check runs (check4_pair.login), so each sandbox file
+  # points at the host file that tracks that login: a named account's own, and the usual
+  # login's .default file where the host lists accounts for the provider, else its plain one.
+  # Every provider the sandbox config offers is covered.
+  PYTHONPATH="$REPO/tests:$REPO" SMOKE_CALLER_HOME="$SMOKE_CALLER_HOME" python3 - <<'PY' || exit 1
 import os, tomllib
 from pathlib import Path
-from agentkit import config
+from agentkit import config, usage
+from check4_pair import login
 host = Path(os.environ["SMOKE_CALLER_HOME"]) / ".agentkit"
 for path in (host, host / "state"):
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -113,24 +115,30 @@ try:
 except (OSError, ValueError):
     listed = None
 listed = listed if isinstance(listed, dict) else {}
-for provider in config.load()["providers"]:
+cfg = config.load()
+for provider in cfg["providers"]:
     accounts = listed.get(provider)
     accounts = accounts.get("accounts") if isinstance(accounts, dict) else None
-    tracked = f"{provider}.default" if isinstance(accounts, list) and accounts else provider
-    for suffix in ("-probe.lock", "-probe.retry"):
-        (config.STATE / f"{provider}{suffix}").symlink_to(host / "state" / f"{tracked}{suffix}")
+    mine = login(cfg, provider)
+    tracked = mine or (config.DEFAULT_ACCOUNT if isinstance(accounts, list) and accounts else None)
+    for probe in (usage._lock, usage._retry_file):
+        probe(provider, mine).symlink_to(host / "state" / probe(provider, tracked).name)
 PY
 }
 smoke_home() {
   # Each harness's login is a copy nothing can renew (agentkit/lend.py).  The credentials that
   # never renew are linked, never a directory: hooks, settings, trust and caches are local.
-  local path source target caller_config caller_gh caller_account caller_state
+  # One with no usual login lends instead a subscription the caller's config lists by name,
+  # its last line says which, and the check's config lists it below.  Reading the caller's
+  # config is setup's alone: SMOKE_CALLER_HOME says so.
+  local path source target caller_config caller_gh caller_account caller_state lent
   SMOKE_CALLER_HOME=$HOME
   caller_config=${XDG_CONFIG_HOME:-$HOME/.config}
   caller_state=${XDG_STATE_HOME:-$HOME/.local/state}
   caller_gh=${GH_CONFIG_DIR:-$caller_config/gh}
   caller_account=${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json
-  PYTHONPATH="$REPO" python3 -m agentkit.lend "$WORK/home" >/dev/null || exit 1
+  lent=$(PYTHONPATH="$REPO" SMOKE_CALLER_HOME="$SMOKE_CALLER_HOME" \
+    python3 -m agentkit.lend --subscriptions "$WORK/home") || exit 1
   export HOME="$WORK/home"
   # An inherited override must not send a harness back outside this HOME. Leaving these
   # unset also lets the checks with their own HOME keep their own configs and caches.
@@ -169,23 +177,20 @@ smoke_home() {
   export PATH="$PATH:$SMOKE_CALLER_HOME/.local/bin:$SMOKE_CALLER_HOME/.npm-global/bin:${GROK_BIN_DIR:-$SMOKE_CALLER_HOME/.grok/bin}:$SMOKE_CALLER_HOME/.opencode/bin"
   # Those binaries still belong to the caller; the sandbox must not auto-update them.
   export DISABLE_AUTOUPDATER=1 MUSE_NO_AUTO_UPDATE=1 MUSE_LAUNCHER_INSTALL=0 OPENCODE_DISABLE_AUTOUPDATE=1
-  # Muse's paid probe keeps its own age. Copy its raw readings, not usage.json's
-  # provider selection from the caller's config, and never write back into the host cache.
-  for path in usage-meta.json usage-meta-probe.json; do
-    [ ! -f "$SMOKE_CALLER_HOME/.agentkit/state/$path" ] ||
-      cp -p "$SMOKE_CALLER_HOME/.agentkit/state/$path" "$HOME/.agentkit/state/$path"
-  done
   # A multi-provider harness must use the caller's choice, not require an unused subscription.
-  # Keep the suite's aliases and default login; all config writes stay in this HOME.
-  PYTHONPATH="$REPO/tests:$REPO" SMOKE_CALLER_HOME="$SMOKE_CALLER_HOME" python3 - <<'PY' || exit 1
-import os
+  # Keep the suite's aliases and default login, or the subscription lent by name; all config
+  # writes stay in this HOME.
+  PYTHONPATH="$REPO/tests:$REPO" SMOKE_CALLER_HOME="$SMOKE_CALLER_HOME" SMOKE_LENT="$lent" \
+    python3 - <<'PY' || exit 1
+import json, os, shutil
 from pathlib import Path
 from unittest.mock import patch
 from agentkit import config
+from check4_pair import login
 from check_harness_contract import selected_model
-cfg = config.load()
+cfg, host = config.load(), Path(os.environ["SMOKE_CALLER_HOME"]) / ".agentkit"
 try:
-    with patch.object(config, "HOME", Path(os.environ["SMOKE_CALLER_HOME"]) / ".agentkit"):
+    with patch.object(config, "HOME", host):
         caller = config.load()
 except config.Error:
     caller = cfg   # A broken caller config cannot choose models for the sandbox.
@@ -199,8 +204,19 @@ for name, entry in models.items():
                                if key not in ("accounts", "usage_model", "usage_effort")}
 needed = {entry["provider"] for entry in models.values()}
 providers = {name: entry for name, entry in providers.items() if name in needed}
+for provider, account in json.loads(os.environ["SMOKE_LENT"].splitlines()[-1]).items():
+    if provider in providers:
+        providers[provider] = {**providers[provider], "accounts": [account]}
 if models != cfg["models"] or providers != cfg["providers"]:
     config.save({**cfg, "models": models, "providers": providers})
+# Muse's paid probe keeps its own age. Copy the raw readings of the login the check runs, under
+# the names Muse gives them, not usage.json's provider selection from the caller's config, and
+# never write back into the host cache.
+os.environ.update(config.account_env(login(config.load(), "meta")))
+from agentkit.harness import muse_usage
+for name in (f"{muse_usage.STEM}.json", f"{muse_usage.STEM}-probe.json"):
+    if (host / "state" / name).is_file():
+        shutil.copy2(host / "state" / name, config.STATE / name)
 PY
   # The sandbox runs the caller's harness installs, so the host's install or revert of one is
   # a swap here too: link its record live, one the host may have yet to write.
@@ -1373,9 +1389,12 @@ model_unavailable() {   # missing binary/login, or nothing; a broken saved login
 import sys
 from agentkit import config
 sys.path.insert(0, str(config.REPO / "tests"))
+from check4_pair import login
 from check_harness_contract import unavailable
-why, broken = unavailable(config.model(config.load(), sys.argv[1])["harness"],
-                          seat="seat" in sys.argv[2:])
+cfg = config.load()
+entry = config.model(cfg, sys.argv[1])
+why, broken = unavailable(entry["harness"], seat="seat" in sys.argv[2:],
+                          account=login(cfg, entry["provider"]))
 if why:
     print(why)
 sys.exit(int(broken))
@@ -1413,9 +1432,10 @@ host_held() { # host_held <provider...>: why the shared cadence holds one back, 
   # the host asked inside its cadence, or whose last refusal named a wait still ahead, is
   # not asked again here: _cooling holds it.  Where a check therefore cannot get a fresh
   # answer it skips with this reason, as a 429 skips.
-  PYTHONPATH="$REPO" python3 - "$@" <<'PY' 2>/dev/null
+  PYTHONPATH="$REPO/tests:$REPO" python3 - "$@" <<'PY' 2>/dev/null
 import sys, time
 from agentkit import config, usage
+from check4_pair import login
 try:
     cfg = config.load()
 except Exception:
@@ -1424,7 +1444,7 @@ now = time.time()
 for provider in sys.argv[1:]:
     every = usage._probe_every(cfg, provider)
     try:
-        asked = usage._number(float((config.STATE / f"{provider}-probe.lock").read_text()))
+        asked = usage._number(float(usage._lock(provider, login(cfg, provider)).read_text()))
     except (OSError, ValueError):
         asked = None
     if asked is not None and 0 <= now - asked < every:
@@ -1432,7 +1452,7 @@ for provider in sys.argv[1:]:
         print(f"{provider} asked {int(now - asked)}s ago; next ask in {left}s")
         sys.exit(0)
     try:
-        until = usage._number(float((config.STATE / f"{provider}-probe.retry").read_text()))
+        until = usage._number(float(usage._retry_file(provider, login(cfg, provider)).read_text()))
     except (OSError, ValueError):
         continue
     if until is not None and now < until:
@@ -1580,17 +1600,19 @@ if skip_spent 3a opus; then
   :
 else
   R="$WORK/claude-stream-workspace"; mkdir -p -- "$R"
-  PYTHONPATH="$REPO" python3 "$REPO/tests/check_claude_stream.py" "$WORK/o-claude-stream" \
+  PYTHONPATH="$REPO/tests:$REPO" python3 "$REPO/tests/check_claude_stream.py" "$WORK/o-claude-stream" \
     python3 -c 'import sys
 from unittest.mock import patch
 from agentkit import config, worker
+from check4_pair import login
 cfg = config.load()
 entry = config.model(cfg, "opus")
 entry.update(config.manifest(entry["harness"])["check"])
 with patch.dict(worker.PREAMBLES, {"executor-scratch": ""}):
     code, *_ = worker.turn(cfg, "opus",
         "Say STREAM_READY, then run pwd, then reply DONE. Do not edit files.\n",
-        sys.argv[1], sys.argv[2], role="executor-scratch")
+        sys.argv[1], sys.argv[2], role="executor-scratch",
+        env=config.account_env(login(cfg, entry["provider"])))
 sys.exit(code)' "$R" "$WORK/o-claude-stream" >"$WORK/claude-stream.log" 2>&1
   STREAMRC=$?
   if skip_refused 3a opus "$STREAMRC" "$WORK/o-claude-stream"; then
