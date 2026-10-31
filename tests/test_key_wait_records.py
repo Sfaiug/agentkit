@@ -25,6 +25,7 @@ OWN = "20261031-0902-fix-db"            # going, the seat `owner`'s, landing PR 
 STALLED = "20261031-0903-fix-docs"
 PASSED = "20261031-0904-fix-cli"        # ended PASS, merged
 FAILED = "20261031-0905-fix-ui"         # ended FAIL, not merged
+GONE = "20261031-0906-fix-ci"           # its directory left, its record empty
 # a member of its line is going till its lander ends it, whatever process holds it
 LINE = {"state": "waiting", "waiting_on": {"line": "acme/widgets"}}
 
@@ -54,6 +55,7 @@ class WaitRecordsASeatsWait(unittest.TestCase):
                                          "finished_at": time.time() - 60})):
             home.write(f".agentkit/runs/{run_id}/run.json",
                        {"run_id": run_id, "title": run_id[14:], **fields})
+        home.write(f".agentkit/runs/{GONE}/run.json", {})
 
     def wait(self, seat, on):
         env = {"AGENTKIT_SESSION": seat} if seat else None
@@ -111,6 +113,7 @@ class WaitRecordsASeatsWait(unittest.TestCase):
         self.assert_refused("late", PASSED, "PASS", "merged")
         self.assertNotIn("merged", self.assert_refused("late", FAILED, "FAIL"))
         self.assert_refused("late", STALLED, f"ak run resume {STALLED}")
+        self.assert_refused("late", GONE, f"run {GONE} is gone; nothing is left to wait on")
         self.assert_refused("late", pr(3), "PR #3 merged")
         self.assert_refused("late", pr(4), "PR #4 closed")
         self.assert_refused("late", pr(5), "PR #5 is open with no ak run going on it")
