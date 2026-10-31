@@ -79,7 +79,7 @@ func DryRun(seat, question string, out, errOut io.Writer) error {
 // payload is what a page posts: its title, then the owner's mention, the only one it may ping.
 // What was asked stays in the seat.
 func payload(seat string) (*run.Object, error) {
-	owner, err := ownerID()
+	owner, err := secret("AGENTKIT_DISCORD_USER_ID", "discord_user_id")
 	if err != nil {
 		return nil, err
 	}
@@ -95,11 +95,6 @@ func payload(seat string) (*run.Object, error) {
 	page.Set("content", content)
 	page.Set("allowed_mentions", mentions)
 	return page, nil
-}
-
-// ownerID is the owner's Discord id; "" for none.
-func ownerID() (string, error) {
-	return secret("AGENTKIT_DISCORD_USER_ID", "discord_user_id")
 }
 
 // Check asks the webhook with a GET, which posts nothing, whatever $AK_NOTIFY_SINK says: Discord
@@ -131,20 +126,36 @@ func Check(out, errOut io.Writer) (bool, error) {
 	return true, nil
 }
 
-// get is url's status once its whole answer has come, asked as Python asks: its User-Agent,
-// and giving up after its 15 seconds.
+// get is url's status, asked as Python's urllib asks: its User-Agent, one connection a request
+// (net/http logs what a server sends on an idle one, which may echo the URL), no Referer on a
+// redirect (it would carry the URL), its ten redirects, and giving up after 15 seconds.  A
+// success counts once its whole answer has come, read as sent.
 func get(url string) (int, error) {
 	request, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return 0, err
 	}
 	request.Header.Set("User-Agent", "agentkit/1 (+https://github.com)")
-	answer, err := (&http.Client{Timeout: 15 * time.Second}).Do(request)
+	client := &http.Client{
+		Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, DisableKeepAlives: true,
+			DisableCompression: true},
+		CheckRedirect: func(next *http.Request, via []*http.Request) error {
+			next.Header.Del("Referer")
+			if len(via) >= 10 {
+				return http.ErrUseLastResponse // a redirect not followed is the status
+			}
+			return nil
+		},
+		Timeout: 15 * time.Second,
+	}
+	answer, err := client.Do(request)
 	if err != nil {
 		return 0, err
 	}
 	defer answer.Body.Close()
-	_, err = io.Copy(io.Discard, answer.Body)
+	if answer.StatusCode/100 == 2 {
+		_, err = io.Copy(io.Discard, answer.Body)
+	}
 	return answer.StatusCode, err
 }
 
