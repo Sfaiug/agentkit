@@ -67,8 +67,9 @@ class Notices(unittest.TestCase):
         menu.wait(ROWS, bound=OPENS)
         menu.keys("j")
         menu.wait("› 2  beta")
+        # nothing pressed, as a key could come after the notice and be typed at its `esc back`:
+        # the open menu draws again by itself (`menu.TICK`), reading its news first
         self.home.write(NOTICE, "update: install.sh failed\n")
-        menu.keys("i")          # a key that does nothing: the menu reads its news before a draw
         self.assertEqual(shown(menu.wait("esc back"))[-2:],
                          [" update: install.sh failed", "esc back"])
         menu.keys("Escape")
@@ -110,7 +111,7 @@ class NewCode(unittest.TestCase):
             while time.time() < int(drawn) + 1:
                 time.sleep(0.05)
             home.write(".agentkit/state/installed-at", f"{int(time.time())}\n")
-            menu.keys("i")
+            menu.keys("i")          # a key that does nothing: the menu reads news before a draw
             screen = menu.wait(lambda text: "ChatGPT" in text and "esc leave" in text,
                                bound=OPENS)
             self.assertIn("› 2  beta", screen)
