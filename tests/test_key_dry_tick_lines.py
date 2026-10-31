@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
 from fixtures.akbin import Home
 from fixtures.fakegh import LOGGED_OUT, OFFLINE, GitHub
+from test_key_tick_dry_run import files
 from test_key_tick_gh_out import without_gh
 from test_key_tick_lock_held import LOCK, MINUTE, SLACK
 
@@ -40,11 +41,9 @@ def skipped(start, said):
     return f"{start}{' '.join(said.split())[:160]})"
 
 
-def files(root):
-    """Every path under `root` with its mode, and each file's bytes and when it changed."""
-    return {str(path.relative_to(root)): (path.lstat().st_mode, *(
-                (path.read_bytes(), path.lstat().st_mtime_ns) if path.is_file() else ()))
-            for path in root.rglob("*")}
+def kept(root):
+    """What a dry tick leaves as it was: `files` under `root`, and each path's mode beside it."""
+    return {path: (state, (root / path).lstat().st_mode) for path, state in files(root).items()}
 
 
 class DryTick(unittest.TestCase):
@@ -60,10 +59,10 @@ class DryTick(unittest.TestCase):
     def dry(self, home, env=None):
         """The lines `ak watch --dry-run` printed, once it exited 0 with nothing on stderr and
         left every file under HOME as it was."""
-        before = files(home.path)
+        before = kept(home.path)
         done = home.ak("watch", "--dry-run", env=env)
         self.assertEqual((done.code, done.err), (0, ""), done.out)
-        after = files(home.path)
+        after = kept(home.path)
         self.assertEqual(sorted(path for path in before.keys() | after.keys()
                                 if before.get(path, 0) != after.get(path, 0)), [])
         return done.out.splitlines()
