@@ -26,14 +26,3 @@ func grokLend(login config.Login) Loan {
 	}
 	return Loan{Copy: run.Line(value), Ends: ends}
 }
-
-// grokEnds is the epoch second an `expires_at` names, read as grokbuild.sh's `lend` reads it: to
-// the second, any fraction dropped, at UTC or an offset written with or without its colon.
-func grokEnds(text string) (int64, bool) {
-	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05Z0700"} {
-		if at, err := time.Parse(layout, text); err == nil {
-			return at.Unix(), true
-		}
-	}
-	return 0, false
-}

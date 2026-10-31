@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -14,9 +13,6 @@ import (
 )
 
 func init() { plugins["grokbuild"] = plugin{auth: grokAuth, lend: grokLend, opens: true, titled: true} }
-
-// dated is an ISO-8601 instant, which sorts as a string: Grok's `expires_at`.
-var dated = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T`)
 
 // grokAuth reads Grok Build's one login as grokbuild.sh's `auth` does, the seat's as a turn's:
 // the usual login's key in the environment, else an entry of its file with an unexpired key, or
@@ -44,11 +40,11 @@ func grokAuth(login config.Login, _ bool) Answer {
 			return no("the billing endpoint refused the login in " + file + " after grok's own renewal")
 		}
 	}
-	now := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	now := time.Now().Unix()
 	switch {
 	case some(func(entry *run.Object) bool {
-		ends := entry.Str("expires_at")
-		return grokKeyed(entry) && dated.MatchString(ends) && ends > now
+		ends, ok := grokEnds(entry.Str("expires_at"))
+		return grokKeyed(entry) && ok && ends > now
 	}):
 		return Answer{Yes: true, Line: "grok: the login in " + file + " is saved"}
 	case some(func(entry *run.Object) bool { return !blank(entry.Str("refresh_token")) }):
@@ -83,4 +79,15 @@ func grokLogin(login config.Login) (file string, data []byte, value any, entries
 // grokKeyed is whether an entry holds a session key.
 func grokKeyed(entry *run.Object) bool {
 	return !blank(entry.Str("key"))
+}
+
+// grokEnds is the epoch second an `expires_at` names, read as grokbuild.sh's `ends` reads it: to
+// the second, any fraction dropped, at UTC or an offset written with or without its colon.
+func grokEnds(text string) (int64, bool) {
+	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05Z0700"} {
+		if at, err := time.Parse(layout, text); err == nil {
+			return at.Unix(), true
+		}
+	}
+	return 0, false
 }

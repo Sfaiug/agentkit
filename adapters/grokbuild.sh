@@ -104,6 +104,11 @@ keyof() { jq -r '[.[] | select(type == "object") | .key // empty
   "$AUTH" 2>/dev/null || true; }
 digest() { if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi \
   | cut -d' ' -f1; }
+# The epoch second an ISO-8601 `expires_at` names, grok's key's end: read to the second less its
+# offset from UTC, which fromdateiso8601 cannot read.
+ENDS='def ends: capture("^(?<t>.{19})(\\.[0-9]+)?(Z|(?<s>[+-])(?<h>[0-9]{2}):?(?<m>[0-9]{2}))$")
+  | (.t + "Z" | fromdateiso8601) - (if .s == "-" then -1 else 1 end)
+    * ((.h // "0" | tonumber) * 3600 + (.m // "0" | tonumber) * 60);'
 cmd=${1:-}; shift 2>/dev/null || true
 
 # jq is the tool most likely to be missing, so build the error object with printf
@@ -368,15 +373,12 @@ login-end)
     '{email: $email, ends: null, plan: $plan} | map_values(if . == "" then null else . end)' ;;
 lend)
   # Renewing retires the refresh token used, so the copy keeps each entry's key without one:
-  # grok runs a turn on a key until its ISO-8601 `expires_at`, the latest where several are,
-  # read to the second less its offset from UTC, which fromdateiso8601 cannot read.
+  # grok runs a turn on a key until its `expires_at`, the latest where several are.
   [ $# -ge 1 ] || { echo "grokbuild.sh lend needs <home>" >&2; exit 2; }
   command -v jq >/dev/null || { echo "grokbuild.sh lend: jq is required" >&2; exit 2; }
-  lent=$(jq -c --argjson now "$(date +%s)" '
+  lent=$(jq -c --argjson now "$(date +%s)" "$ENDS"'
       ([.[] | objects | select(.key | strings | test("[^[:space:]]")) | .expires_at | strings
-        | capture("^(?<t>.{19})(\\.[0-9]+)?(Z|(?<s>[+-])(?<h>[0-9]{2}):?(?<m>[0-9]{2}))$")
-        | ((.t + "Z" | fromdateiso8601) - (if .s == "-" then -1 else 1 end)
-           * ((.h // "0" | tonumber) * 3600 + (.m // "0" | tonumber) * 60))?] | max) as $ends
+        | ends?] | max) as $ends
       | select($ends > $now)
       | {ends: $ends, login: map_values(if type == "object" then del(.refresh_token) else . end)}' \
       "$AUTH" 2>/dev/null) && [ -n "$lent" ] || {
@@ -385,17 +387,15 @@ lend)
   printf '%s' "$lent" | python3 "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" "$1" "$at" ;;
 auth)
   # Can a headless turn authenticate right now?  Exit 0 and say so, or exit 1 with one line
-  # saying why not; anything else is no answer, and the caller carries on as before.  The
-  # answer is a login grok can use: an entry with a session key and a future ISO-8601
-  # instant, which sorts as a string, so expiry is a string comparison and no date parsing;
-  # or one with a refresh token, which grok trades for a fresh six-hour key itself whenever
-  # it runs, so a key that lapsed while grok sat idle is still a login.  A lapsed key with
-  # no refresh token is expired.  Grok saying the session expired (the `[auth]` signatures
-  # in grokbuild.toml) is grok failing to trade that token, and it drops the login from
-  # this file as it says so, so that answer is read here off the file it leaves.  A key
-  # grok renewed that the billing endpoint still refused is the one logout grok does not
-  # write down, so `usage` does, as its digest in $REFUSED, and it holds while auth.json
-  # carries that key.
+  # saying why not; anything else is no answer, and the caller carries on as before.  The answer
+  # is a login grok can use: an entry with a session key that has not reached its `expires_at`;
+  # or one with a refresh token, which grok trades for a fresh six-hour key itself whenever it
+  # runs, so a key that lapsed while grok sat idle is still a login.  A lapsed key with no
+  # refresh token is expired.  Grok saying the session expired (the `[auth]` signatures in
+  # grokbuild.toml) is grok failing to trade that token, and it drops the login from this file
+  # as it says so, so that answer is read here off the file it leaves.  A key grok renewed that
+  # the billing endpoint still refused is the one logout grok does not write down, so `usage`
+  # does, as its digest in $REFUSED, and it holds while auth.json carries that key.
   # `seat` is the same login here, and is accepted and ignored.
   [ -n "${XAI_API_KEY:-}" ] && { echo "grok: XAI_API_KEY is set"; exit 0; }
   grep -q '[^[:space:]]' "$AUTH" 2>/dev/null || {
@@ -407,11 +407,10 @@ auth)
   [ -z "$refused" ] || [ -z "$key" ] || [ "$refused" != "$(printf '%s' "$key" | digest)" ] || {
     echo "grok: the billing endpoint refused the login in $AUTH after grok's own renewal; run \`grok login\`" >&2
     exit 1; }
-  now=$(date -u +%FT%TZ)
   keyed='((.key // "") | type == "string" and test("[^[:space:]]"))'
-  dated="((.expires_at // \"\") | type == \"string\" and test(\"^[0-9]{4}-[0-9]{2}-[0-9]{2}T\") and . > \$now)"
+  dated='([.expires_at | strings | ends?] | any(. > $now))'
   renewable='((.refresh_token // "") | type == "string" and test("[^[:space:]]"))'
-  if jq -e --arg now "$now" "[.[] | select($keyed and $dated)] | length > 0" \
+  if jq -e --argjson now "$(date +%s)" "$ENDS [.[] | select($keyed and $dated)] | length > 0" \
       "$AUTH" >/dev/null 2>&1; then
     echo "grok: the login in $AUTH is saved"
   elif jq -e "[.[] | select($renewable)] | length > 0" "$AUTH" >/dev/null 2>&1; then

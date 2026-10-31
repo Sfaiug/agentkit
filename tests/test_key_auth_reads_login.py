@@ -12,6 +12,7 @@ that writes down each start; this test fails against `/bin/false`.
 """
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 import hashlib
 from itertools import combinations_with_replacement
 import json
@@ -59,6 +60,12 @@ def session(expires, **more):
     """A Grok Build login as it keeps one."""
     return {"https://auth.x.ai::acme": {"key": "acme-key", "auth_mode": "oidc",
                                         "expires_at": expires, **more}}
+
+
+def hence(hours, offset):
+    """The instant `hours` from now, written `offset` hours from UTC."""
+    at = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=hours)
+    return at.astimezone(timezone(timedelta(hours=offset))).isoformat()
 
 
 def digest(key):
@@ -146,7 +153,10 @@ class AuthReadsLogin(unittest.TestCase):
                    env={"XAI_API_KEY": "acme-api-key"})
 
     def test_grok_a_live_login_answers(self):
-        self.reads("grokbuild", {AUTH: session(LATER)}, (0, SAVED))
+        # an hour ahead written five hours behind UTC, whose text sorts before now's
+        for expires in (LATER, hence(1, -5)):
+            with self.subTest(expires=expires):
+                self.reads("grokbuild", {AUTH: session(expires)}, (0, SAVED))
 
     def test_grok_a_lapsed_login_holding_a_refresh_token_answers_without_a_turn(self):
         # grok renews its own key whenever it runs
@@ -154,8 +164,11 @@ class AuthReadsLogin(unittest.TestCase):
                    (0, f"{SAVED}; grok renews its lapsed key itself"))
 
     def test_grok_an_expired_login_with_nothing_to_renew_it_is_a_no(self):
-        self.reads("grokbuild", {AUTH: session(EARLIER)},
-                   (1, f"grok: the login in ~/{AUTH} is expired; run `grok login`"))
+        # an hour ago written five hours ahead of UTC, whose text sorts after now's
+        for expires in (EARLIER, hence(-1, 5)):
+            with self.subTest(expires=expires):
+                self.reads("grokbuild", {AUTH: session(expires)},
+                           (1, f"grok: the login in ~/{AUTH} is expired; run `grok login`"))
 
     def test_grok_no_login_is_a_no(self):
         self.reads("grokbuild", {}, (1, f"grok: no ~/{AUTH}; run `grok login`"))
