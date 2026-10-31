@@ -38,6 +38,12 @@ func TypedHere() bool {
 	return isTerminal(os.Stdin)
 }
 
+// Attachable is whether this command can hand its terminal to a seat: its input and its output
+// are both one.
+func Attachable() bool {
+	return isTerminal(os.Stdin) && isTerminal(os.Stdout)
+}
+
 func Dim(out io.Writer, text string) string {
 	return For(out).Styled(text, "dim")
 }

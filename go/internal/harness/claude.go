@@ -19,7 +19,7 @@ import (
 func init() {
 	ceiling := strconv.Itoa(run.CeilingHours * 3600 * 1000)
 	plugins["claude"] = plugin{seats: true, answer: claudeAnswer, auth: claudeAuth, lend: claudeLend, turnEnv: map[string]string{
-		"BASH_DEFAULT_TIMEOUT_MS": ceiling, "BASH_MAX_TIMEOUT_MS": ceiling}}
+		"BASH_DEFAULT_TIMEOUT_MS": ceiling, "BASH_MAX_TIMEOUT_MS": ceiling}, opens: true, titled: true}
 }
 
 // projectCut is where Claude Code ends a project folder's name with a hash of the path.

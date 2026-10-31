@@ -77,21 +77,27 @@ func Kill(server, name string) error {
 	return err
 }
 
-// run asks one server. $TMUX goes: inside somebody's tmux, a call to the default server
-// would follow it to theirs.
+// run asks one server.
 func run(server string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), ceiling)
 	defer cancel()
+	out, err := command(ctx, server, args...).Output()
+	return string(out), err
+}
+
+// command is one call to a server. $TMUX goes: inside somebody's tmux, a call to the default
+// server would follow it to theirs. So does the mark of the ak that started this one (Python's
+// owner.MARK): a server keeps its starting client's environment for good.
+func command(ctx context.Context, server string, args ...string) *exec.Cmd {
 	if server != Default {
 		args = append([]string{"-L", server}, args...)
 	}
 	command := exec.CommandContext(ctx, "tmux", args...)
 	command.Env = []string{}
 	for _, entry := range os.Environ() {
-		if !strings.HasPrefix(entry, "TMUX=") {
+		if !strings.HasPrefix(entry, "TMUX=") && !strings.HasPrefix(entry, "AK_OWNER=") {
 			command.Env = append(command.Env, entry)
 		}
 	}
-	out, err := command.Output()
-	return string(out), err
+	return command
 }

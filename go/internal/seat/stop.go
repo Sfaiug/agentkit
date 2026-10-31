@@ -205,11 +205,22 @@ func (found seen) close(state, name string, now time.Time) (bool, error) {
 	})
 }
 
-// forgetSeen is Python's watch.forget for a seat the owner stopped: in watch.json, under its
-// lock, the seat's alert generation past every one before and its stall record gone; then under
-// the seat's typing lock the question its turn's end kept back (notify.clear).
+// forgetSeen is Python's watch.forget for a seat the owner stopped or a person opened: its next
+// alert generation, then under the seat's typing lock the question its turn's end kept back
+// (notify.clear).
 func forgetSeen(state, name string, now time.Time) error {
-	err := put(filepath.Join(state, "watch.json"), filepath.Join(state, "watch.lock"), run.Encode, true, func(data *run.Object) bool {
+	if err := nextGeneration(state, name, now); err != nil {
+		return err
+	}
+	return notify.Held(context.Background(), name, func(current string) error {
+		return writeSeat(state, current, []field{{"unasked", nil}})
+	})
+}
+
+// nextGeneration is watch.forget of a seat a person is opening (`opening`): in watch.json, under
+// its lock, the seat's alert generation past every one before and its stall record gone.
+func nextGeneration(state, name string, now time.Time) error {
+	return put(filepath.Join(state, "watch.json"), filepath.Join(state, "watch.lock"), run.Encode, true, func(data *run.Object) bool {
 		for _, key := range watchKeys {
 			if data.Dict(key) == nil {
 				data.Set(key, run.NewObject())
@@ -224,12 +235,6 @@ func forgetSeen(state, name string, now time.Time) error {
 		data.Set("seen_at", generations)
 		data.Dict("stalls").Delete(name)
 		return true
-	})
-	if err != nil {
-		return err
-	}
-	return notify.Held(context.Background(), name, func(current string) error {
-		return writeSeat(state, current, []field{{"unasked", nil}})
 	})
 }
 

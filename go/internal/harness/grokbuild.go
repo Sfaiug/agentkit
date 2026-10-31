@@ -13,7 +13,7 @@ import (
 	"agentkit/internal/run"
 )
 
-func init() { plugins["grokbuild"] = plugin{auth: grokAuth, lend: grokLend} }
+func init() { plugins["grokbuild"] = plugin{auth: grokAuth, lend: grokLend, opens: true, titled: true} }
 
 // dated is an ISO-8601 instant, which sorts as a string: Grok's `expires_at`.
 var dated = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T`)
