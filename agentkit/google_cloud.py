@@ -316,18 +316,19 @@ def _rent(ledger, wanted, cap, now, offered, limits, taken):
     # the public half of the key `_idle` made, or OSError before any machine is on the meter
     (compute, token), key = _login(), (config.SECRETS / f"{SSH_KEY}.pub").read_text().strip()
     said, tries, used, full = [f"nothing offered with {wanted} MiB a vCPU"], TRIES, Counter(), {}
-    types = {(one.name, one.region): one for one in offered}
+    vcpus = {one.name: one.vcpus for one in offered}   # a type's, offered in any region
     for zone, listed in _pages(token, f"{compute}/aggregated/instances", "items"):
         region = zone.removeprefix("zones/").rsplit("-", 1)[0]
         for one in listed.get("instances") or ():    # ak's or not: a quota counts both
-            if kind := types.get((one["machineType"].split("/")[-1], region)):
-                used.update(dict.fromkeys(_quotas(kind, limits), kind.vcpus))
+            kind = one["machineType"].split("/")[-1]
+            used.update(dict.fromkeys(_quotas(kind, region, limits), vcpus.get(kind, 0)))
     for offer in best(wanted, offered):
         if (life := int(min(LIFE, left * 3600 / offer.hourly))) < READY:
             said = [f"rents nothing: €{cap - left:.2f} of €{cap:.2f} spent this month or held "
                     f"to the machines' ends leaves less than {READY // 60} minutes of {offer.name}"]
             continue
-        if out := [one for one in _quotas(offer, limits) if used[one] + offer.vcpus > limits[one]]:
+        if out := [one for one in _quotas(offer.name, offer.region, limits)
+                   if used[one] + offer.vcpus > limits[one]]:
             full.update(dict.fromkeys(out))
             said = ["too little quota left: " + "; ".join(
                 f"{one}: {used[one]:g} of {limits[one]:g} vCPUs in use" for one in full)]
@@ -353,6 +354,7 @@ def _rent(ledger, wanted, cap, now, offered, limits, taken):
 def _limits(regions):
     """{quota: the vCPUs Google lets the project hold of it}, named as `_quotas` names them, of
     `regions`; none if any cannot be read, as a less specific one would hold a family instead."""
+    unanswered = len(UNANSWERED)
     try:
         compute, token = _login()
         project, found = compute.rsplit("/", 1)[1], {}
@@ -370,18 +372,18 @@ def _limits(regions):
             if quota["metric"] == "CPUS_ALL_REGIONS":
                 found[quota["metric"]] = quota["limit"]
     except (Unavailable, LookupError, TypeError, ValueError, AttributeError):
+        del UNANSWERED[unanswered:]     # the rent still asks Compute, which answered the offers
         return {}
     return found
 
 
-def _quotas(offer, limits):
-    """The quotas of `limits` a machine of `offer`'s type counts against: its family's in its
-    region, the most specific Google lists, and all regions'; but none of -1, Google's no limit."""
-    family = offer.name.split("-")[0].upper()
-    region = next((one for one in (f"{family} in {offer.region}",
-                                   f"{family}_CPUS in {offer.region}", f"CPUS in {offer.region}")
-                   if one in limits), None)
-    return [one for one in (region, "CPUS_ALL_REGIONS") if limits.get(one, -1) >= 0]
+def _quotas(kind, region, limits):
+    """The quotas of `limits` a machine of type `kind` in `region` counts against: its family's
+    there, the most specific Google lists, and all regions'; but none of -1, Google's no limit."""
+    family = kind.split("-")[0].upper()
+    mine = next((one for one in (f"{family} in {region}", f"{family}_CPUS in {region}",
+                                 f"CPUS in {region}") if one in limits), None)
+    return [one for one in (mine, "CPUS_ALL_REGIONS") if limits.get(one, -1) >= 0]
 
 
 def _create(compute, token, zone, machine):

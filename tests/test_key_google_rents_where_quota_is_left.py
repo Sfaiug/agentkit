@@ -3,7 +3,7 @@ limit Google lists for the region and family, then all regions', against every m
 ak's or not.  With none left anywhere no create is made, and the tick says each region's use and
 limit; with a limit unread, the walk is as before.  Black-box: `AK_BIN` runs `ak watch` in
 `home.tick()`'s box and `ak doctor` on a fake Google's clock, the first tick keeping the prices
-and limits, the second renting.
+the machines listed cost, the second a day later reading prices and limits anew and renting.
 """
 
 from datetime import UTC, datetime
@@ -27,12 +27,15 @@ ZONES = {f"zones/{zone}": {"machineTypes": [kind("c4a-highcpu-8", 8, 16), kind(
     "c4a-highcpu-16", 16, 32), kind("c4a-standard-72", 72, 288)]}
          for zone in ("europe-west4-a", "us-central1-a")}
 T = datetime(2026, 11, 2, tzinfo=UTC).timestamp()
-# 72 vCPUs of ak's and 72 of another's in europe-west4, ak's living from half an hour ago for one
-LISTED = [{"id": id, "name": f"acme-{id}", "labels": labels, "machineType":
-           "zones/europe-west4-a/machineTypes/c4a-standard-72", "creationTimestamp":
-           datetime.fromtimestamp(T - 1800, UTC).isoformat(), "scheduling": {
-               "maxRunDuration": {"seconds": "3600"}}}
-          for id, labels in (("1", {"ak": "rented"}), ("2", {"team": "acme"}))]
+# 72 vCPUs of ak's and 72 of another's in europe-west4, and 8 of another's in us-east5, where
+# nothing is offered; ak's living from half an hour ago for one hour
+LISTED = [{"id": id, "name": f"acme-{id}", "labels": labels, "machineType": machine,
+           "creationTimestamp": datetime.fromtimestamp(T - 1800, UTC).isoformat(),
+           "scheduling": {"maxRunDuration": {"seconds": "3600"}}}
+          for id, labels, machine in (
+              ("1", {"ak": "rented"}, "zones/europe-west4-a/machineTypes/c4a-standard-72"),
+              ("2", {"team": "acme"}, "zones/europe-west4-a/machineTypes/c4a-standard-72"),
+              ("3", {"team": "acme"}, "zones/us-east5-a/machineTypes/c4a-highcpu-8"))]
 
 
 @unittest.skipUnless(boxable() and shutil.which("ssh-keygen"), "no bwrap boxing a tick or ssh-keygen")
@@ -46,7 +49,7 @@ class GoogleRentsWhereQuotaIsLeft(unittest.TestCase):
         self.addCleanup(google.close)
         google.key()
         google.buckets, google.quotas = buckets, quotas
-        google.at(T - 180, 500)
+        google.at(T - 86400, 500)
         google.machines = LISTED
         home.write(".agentkit/state/google-cloud-need", "820\n")
         _, _, lines = google.at(T, 500)
@@ -60,7 +63,7 @@ class GoogleRentsWhereQuotaIsLeft(unittest.TestCase):
     def test_a_full_region_is_passed_over_for_the_cheapest_that_fits_elsewhere(self):
         # europe-west4's C4A holds 144 of 150, its CPUS no limit of C4A's; all regions' leave 12
         self.assertRents(self.rent({("europe-west4", "C4A"): 150, ("us-central1", "C4A"): 24}, {
-            "europe-west4": {"CPUS": 1000}, "acme-build": {"CPUS_ALL_REGIONS": 156}}),
+            "europe-west4": {"CPUS": 1000}, "acme-build": {"CPUS_ALL_REGIONS": 164}}),
             "us-central1-a", "c4a-highcpu-8")
 
     def test_a_smaller_machine_fits_where_the_cheapest_would_not(self):
@@ -74,8 +77,8 @@ class GoogleRentsWhereQuotaIsLeft(unittest.TestCase):
                 "too little quota left: C4A in europe-west4: 144 of 150 vCPUs in use; "
                 "C4A_CPUS in us-central1: 0 of 4 vCPUs in use"]))
 
-    def test_limits_google_will_not_show_leave_the_walk_as_before(self):
-        # europe-west4's CPUS would hold C4A to nothing without its own bucket
+    def test_limits_unread_leave_the_walk_as_before(self):
+        # Service Usage not answering, europe-west4's CPUS would hold C4A to nothing in its stead
         self.assertRents(self.rent(None, {"europe-west4": {"CPUS": 0}}),
                          "europe-west4-a", "c4a-highcpu-16")
 

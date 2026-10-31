@@ -5,7 +5,7 @@ token for any signed JWT, Compute Engine's price list from `skus` and the machin
 offer from `zones`, each a list of pages handed out in order.  `sku` and `kind` make their
 entries, `ADDRESS` is a Spot machine's address.  `missed` joins every page of machine types,
 `{"unreachables": [...]}` naming zones Google could not reach.  `buckets`, {(region, family):
-vCPUs}, are Service Usage's `cpus_per_vm_family`, None refused, and `quotas`, {region or
+vCPUs}, are Service Usage's `cpus_per_vm_family`, None unanswered, and `quotas`, {region or
 project: {metric: vCPUs}}, Compute Engine's.  `asked` is every path asked, oldest first, `made` every machine,
 answered by the next of `answers`, `(body, code, bytes promised that never come)`, else made.
 `key` writes a service-account key ak can sign with, `rented` runs `ak doctor` and gives its
@@ -69,7 +69,8 @@ class Google(http.server.ThreadingHTTPServer):
     def __init__(self, home, skus, zones):
         super().__init__(("127.0.0.1", 0), _Answers)
         self.home, self.skus, self.zones, self.asked, self.missed = home, skus, zones, [], {}
-        # europe-west4-a's machines; by name, those read again as others and refused deletions
+        # machines, each in the zone its type names; by name, those read again as others and
+        # refused deletions
         self.machines, self.again, self.refused, self.silent = [], {}, set(), False
         self.made, self.answers, self.buckets, self.quotas = [], [], {}, {}
         self.env = {**ECHO, "AK_GOOGLE_URL": f"http://127.0.0.1:{self.server_address[1]}"}
@@ -147,7 +148,7 @@ class _Answers(http.server.BaseHTTPRequestHandler):
             return self.answer(found) if found else self.send_error(404)
         if url.path.endswith("%2Fcpus_per_vm_family"):
             if self.server.buckets is None:
-                return self.send_error(403)
+                return
             return self.answer({"consumerQuotaLimits": [{"quotaBuckets": [{
                 "effectiveLimit": str(limit), "dimensions": {"region": region, "vm_family": family}}
                 for (region, family), limit in self.server.buckets.items()]}]})
@@ -155,11 +156,15 @@ class _Answers(http.server.BaseHTTPRequestHandler):
             quotas = self.server.quotas.get(url.path.rsplit("/", 1)[1], {})
             return self.answer({"quotas": [{"metric": metric, "limit": float(limit)}
                                            for metric, limit in quotas.items()]})
+        zones = {}
+        for one in self.server.machines:
+            zones.setdefault(f"zones/{one['machineType'].split('/')[-3]}", {
+                "instances": []})["instances"].append(one)
         pages = {"/v1/services/6F81-5844-456A/skus": [{"skus": skus} for skus in self.server.skus],
                  f"{PROJECT}/aggregated/machineTypes":
                      [{"items": zones, **self.server.missed} for zones in self.server.zones],
                  f"{PROJECT}/aggregated/instances":
-                     [{"items": {"zones/europe-west4-a": {"instances": self.server.machines}}}]}
+                     [{"items": zones}]}
         listing, at = pages[url.path], int(parse_qs(url.query).get("pageToken", ["0"])[0])
         self.answer({**listing[at], **({"nextPageToken": str(at + 1)}
                                        if at + 1 < len(listing) else {})})
