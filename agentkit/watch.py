@@ -4992,13 +4992,19 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                    key=lambda a: (not window(a), a != current))
     target = next((a for a in order if a == current
                    or orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
+
+    def said(text):
+        # The words and whose they are: a harness may keep redrawing a box's shading, while a
+        # dim suggestion the owner accepts says the same words as their draft.
+        return strip_sgr(text), screen_state(harness, pane_tail(text))
+
     with state_lock():
         # Slow meters must not undo a stop, rename, manual open or another launch.
         current_seat = orch.find(name)
         if (seat_closed_by_owner(name) or config.session_records().get(name) != record
                 or seat_read(name).get("opened_at") != live.get("opened_at")
                 or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)
-                or pane_text(current_seat) != pane):
+                or said(pane_text(current_seat)) != said(pane)):
             return True
         if refusal and not waiting and not spent(current):
             # The host may have slept through the deadline. Never replace that old
