@@ -65,7 +65,8 @@ func Command(model config.Model, env []string) ([]string, string, bool) {
 		key, value, _ := strings.Cut(pair, "=")
 		values[key] = value
 	}
-	for _, path := range config.Unswitched(model.Harness, values) {
+	cwd, _ := os.Getwd()
+	for _, path := range config.Unswitched(model.Harness, values, cwd) {
 		if _, err := os.Stat(path); err == nil {
 			return nil, "", false
 		}

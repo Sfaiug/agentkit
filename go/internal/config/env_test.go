@@ -127,6 +127,21 @@ func TestIntReadsPythonsDigits(t *testing.T) {
 	}
 }
 
+func TestUnswitchedFilesAreWhereTheHarnessReadsThem(t *testing.T) {
+	adapters := t.TempDir()
+	t.Setenv("AGENTKIT_ADAPTER_DIR", adapters)
+	manifest := "[instructions]\nunswitched = [\"${ACME_HOME:-~/.acme}/AGENTS.md\", \"relative/AGENTS.md\"]\n"
+	if err := os.WriteFile(filepath.Join(adapters, "acme.toml"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// a relative variable or HOME is read from the folder the harness runs in, as it reads them;
+	// a name under neither a home nor a variable is none
+	want := []string{"/code/widgets/cfg/AGENTS.md", "/code/widgets/home/.acme/AGENTS.md"}
+	if got := Unswitched("acme", map[string]string{"HOME": "home", "ACME_HOME": "cfg"}, "/code/widgets"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestManifestPathsReadTheHarnesssEnvironment(t *testing.T) {
 	names := []string{"~/.acme", "$ACME_HOME", "~/.acme-$AGENTKIT_ACCOUNT", "${ACME_STATE:-~/.acme-state}", "$$ACME_HOME", "relative/dir", "${EMPTY:-fallback}/y", "$UNSET/z"}
 	env := map[string]string{"HOME": "/home/acme", "ACME_HOME": "/opt/acme", "AGENTKIT_ACCOUNT": "", "EMPTY": ""}
