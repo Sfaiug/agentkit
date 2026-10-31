@@ -166,13 +166,10 @@ def member(state):
 
 def line(turn):
     """Green deliveries in tested stack order, then the rest in join order, a held install's
-    fix (`update.first_place`) ahead of those; their records every reader's (`record.read_state`),
+    fix (`update.first_place`) ahead of those; their records every reader's (`record.runs`),
     so only read."""
-    members = []
-    for directory in record.run_dirs():
-        state = record.read_state(directory, shared=True) or {}
-        if member(state) and state["waiting_on"]["line"] == turn.name:
-            members.append((directory, state))
+    members = [(directory, state) for directory, state in record.runs()
+               if member(state) and state["waiting_on"]["line"] == turn.name]
     deliveries = {directory.name: state["waiting_on"]["land"] for directory, state in members
                   if green_delivery(state["waiting_on"])}
     # A repaired member keeps its join place behind the deliveries its tree includes.

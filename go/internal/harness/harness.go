@@ -16,8 +16,7 @@ import (
 
 // A plugin is one harness's own answers; a hook it leaves nil takes the default.
 type plugin struct {
-	identity  func(text string, argv []string) (string, bool)
-	snapshots bool
+	identity func(text string, argv []string) (string, bool)
 	// seats is whether Go follows this harness's seats tmux no longer holds, and fresh what
 	// reopening one does where it owns no conversation its record names.
 	seats   bool
@@ -36,12 +35,6 @@ func Identity(name, text string, argv []string) (string, bool) {
 		return hook(text, argv)
 	}
 	return text, true
-}
-
-// Snapshots is whether an upgrade of that harness is put back from a local snapshot it takes
-// itself; otherwise its `[update] revert` puts it back, or nothing can.
-func Snapshots(name string) bool {
-	return plugins[name].snapshots
 }
 
 // Reopens is what reopening a seat of that harness only its record holds does, as Python's
