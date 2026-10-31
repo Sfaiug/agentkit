@@ -475,7 +475,8 @@ def fails_on_base(lp):
             marks = []
             _, text = gate.run_done_when(cmds, checkout, log_path, set(), lp.done_when_limit,
                                          lp.log, silence=lp.turn_limit, run_dir=lp.run_dir,
-                                         marks=marks, checked=(lp.rnd, "base-proof", base))
+                                         marks=marks,
+                                         checked=(lp.run_dir, lp.rnd, "base-proof", base))
         laid = f", with {len(paths)} files of {head} laid over" if paths else ""
         log_path.write_text(f"Commit: {base}{laid}\n\n{text}")
         return marks + [None] * (len(cmds) - len(marks))      # none past a kill ran
@@ -592,14 +593,14 @@ def verify_work(lp, cmds=None):
     follow_target(lp)
     lp.validation = {} if lp.scratch else gitcall.commit_identity(lp.wt)
     head = lp.validation.get("head_sha")
-    with history.check(lp.run_dir, (lp.rnd, "rules", head), "files_scope, rules_check",
+    with history.check((lp.run_dir, lp.rnd, "rules", head), "files_scope, rules_check",
                        time.time()) as ended:
         checks = (files_scope(lp), rules_check(lp))
         ended.append(int(any(checks)))
     clean = lp.scratch or lp.state.get("review_pr") or gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
     ok, text = check(cmds, lp.wt, lp.round_dir / "donewhen.log", lp.artifacts,
                      lp.done_when_limit, lp.log, silence=lp.turn_limit, run_dir=lp.run_dir,
-                     checked=(lp.rnd, "done-when", head))
+                     checked=(lp.run_dir, lp.rnd, "done-when", head))
     suite_ok, suite_text = affected_suite(lp)
     if suite_text:
         ok &= suite_ok
@@ -697,7 +698,7 @@ def affected_suite(lp):
                                       lp.done_when_limit, lp.log, silence=lp.turn_limit,
                                       run_dir=lp.run_dir, heavy=True, pieces=pieces,
                                       confirmed=confirmed, changed=changed,
-                                      checked=(lp.rnd, "done-when", merged))
+                                      checked=(lp.run_dir, lp.rnd, "done-when", merged))
         text = f"The `tests:` suite on {where}, AK_CHANGED listing its {len(paths)} paths:\n\n{text}"
         if moved(merged):
             return False, f"{text}\n\nCheckout changed during the suite; it does not verify {where}."
@@ -712,7 +713,7 @@ def affected_suite(lp):
         gate.run_done_when([suite], checkout, lp.round_dir / "suite-target.log", set(),
                            lp.done_when_limit, lp.log, silence=lp.turn_limit, run_dir=lp.run_dir,
                            heavy=True, shard="1/1", only=failed, confirmed=again,
-                           checked=(lp.rnd, "done-when", tip))
+                           checked=(lp.run_dir, lp.rnd, "done-when", tip))
         if moved(tip):
             return False, text
     theirs = [test for test in failed if test in (again.get(suite) or {}).get("1/1", ())]
