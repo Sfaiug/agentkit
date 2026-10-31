@@ -10,18 +10,30 @@ import (
 // it and its adapter's shell spells it: an account's own where $AGENTKIT_ACCOUNT names one, else
 // the one its `env` variable names unless that is an account's (`drop`), else the usual one.
 func loginHome(root *table) string {
-	account, _ := root.get("account").(*table)
-	value := func(key string) string {
-		text, _ := account.get(key).(string)
-		return text
-	}
 	if name := os.Getenv("AGENTKIT_ACCOUNT"); name != "" {
-		return strings.ReplaceAll(spelled(value("home")), "{account}", name)
+		return strings.ReplaceAll(spelled(accountValue(root, "home")), "{account}", name)
 	}
-	if set := os.Getenv(value("env")); set != "" && !dropped(set, value("drop")) {
+	return usualHome(root)
+}
+
+// usualHome is the home of the login a call naming no account is on.
+func usualHome(root *table) string {
+	if set := os.Getenv(accountValue(root, "env")); set != "" && !handedDown(root) {
 		return set
 	}
-	return spelled(value("usual"))
+	return spelled(accountValue(root, "usual"))
+}
+
+// handedDown is whether the `env` variable names an account's home (`drop`), which that account's
+// seat handed down to what it started.
+func handedDown(root *table) bool {
+	return dropped(os.Getenv(accountValue(root, "env")), accountValue(root, "drop"))
+}
+
+func accountValue(root *table, key string) string {
+	account, _ := root.get("account").(*table)
+	text, _ := account.get(key).(string)
+	return text
 }
 
 // dropped is whether text matches the pattern as a shell's `case` matches it, each `*` any
