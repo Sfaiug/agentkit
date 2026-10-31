@@ -153,8 +153,8 @@ def probe(request):
             blocked(event)()
         if event == "open" and isinstance(values[0], (str, bytes, os.PathLike)):
             path = os.fsdecode(values[0])
-            # the one read `owner.mark` makes, its own start, matched whole: no other file of
-            # this process, and nothing reached through /proc/self/root
+            # the one read `owner.mark` makes with no seat's tag to drop, its own start, matched
+            # whole: no other file of this process, and nothing reached through /proc/self/root
             if path.startswith("/proc/") and path != "/proc/self/stat":
                 blocked("process inspection")()
             flags = values[2]
