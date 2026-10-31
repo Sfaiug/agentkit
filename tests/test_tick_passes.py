@@ -118,9 +118,11 @@ class TickPasses(unittest.TestCase):
 
     def test_the_tick_reads_no_board(self):
         # the owner, 22 Oct 2026: "It should not be a 24/7 running process, but isntead more
-        # like a feature"; the models screen and `ak models` read the boards
+        # like a feature"; the models screen and `ak models` read the boards. A pass named for
+        # them runs here, so one coming back is caught reading.
+        boards = [name for name, _, _ in watch.local_passes({}, False, print) if "board" in name]
         out = io.StringIO()
-        with only_passes(self.root), redirect_stdout(out), \
+        with only_passes(self.root, *boards), redirect_stdout(out), \
                 patch("agentkit.matrix.refresh", side_effect=AssertionError("the tick read")):
             self.assertEqual(watch.main([]), 0)
         self.assertNotIn("the tick read", out.getvalue())
