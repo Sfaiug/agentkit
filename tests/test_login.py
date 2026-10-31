@@ -347,23 +347,38 @@ class Login(unittest.TestCase):
         mark = watch.auth_expiry("claude")[2][0]
         for harness in self.harnesses:
             self.adapter(harness, HANGING.replace("__MARK__", mark))
-        waited, stops, limited = self.waits(), [], worker.limited
+        waited, stops, looks = self.waits(), [], []
+        limited, scanner = worker.limited, worker.auth_scanner
 
         def watched(*args, **kwargs):
             """The turn's watchdog, saying why it stopped the turn and how much it waited first."""
             return limited(*args, on_timeout=lambda why, _pid: stops.append((why, len(waited))),
                            **kwargs)
 
+        def scanning(harness):
+            """The turn's scan, noting at each look whether the line was there to find."""
+            scan = scanner(harness)
+
+            def look(out_dir):
+                log = Path(out_dir) / "stderr.log"
+                there = log.is_file() and mark in log.read_text()
+                looks.append((there, scan(out_dir)))
+                return looks[-1][1]
+            return look
+
         with patch.object(worker, "limited", watched), \
+                patch.object(worker, "auth_scanner", scanning), \
                 self.assertRaises(worker.LoginExpired) as caught:
             worker.call(self.cfg, "opus", "do it", self.root, self.root / "hanging",
                         limit=20 * 60)
         self.assertEqual(caught.exception.why, mark)
         # stopped on that line while it ran, never on the twenty-minute silence window: looked
-        # for at least once a poll, and once seen, waited for no longer than the stop's grace
+        # for at least once a poll, found by the first look that could, and once found, waited
+        # for no longer than the stop's grace
         [(why, at)] = stops
         self.assertEqual(why, "abort")
         self.assertLessEqual(max(waited[:at], default=0), worker.ACTIVITY_POLL)
+        self.assertEqual(next(found for there, found in looks if there), mark)
         self.assertLessEqual(sum(waited[at:]), worker.KILL_GRACE)
         # and nothing it spawned outlived it: the box waits out its namespace's teardown
         self.assertEqual(subprocess.run(["pgrep", "-f", str(self.adapters / "claude.sh")],
