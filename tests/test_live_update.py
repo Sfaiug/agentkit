@@ -98,7 +98,7 @@ class LiveUpdate(unittest.TestCase):
 
     def tick(self):
         """One `ak watch` that only goes live: what it said about agentkit."""
-        with only_passes(self.root, "agentkit did not go live"), \
+        with only_passes(self.root, "live update"), \
                 patch.object(config, "load", return_value=self.cfg), \
                 patch.object(watch, "gh_json", return_value=(None, "offline fixture")):
             out = io.StringIO()

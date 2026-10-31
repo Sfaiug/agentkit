@@ -1,11 +1,12 @@
 """A test's tick: `watch.main` runs only the passes a test names, under no login of the caller's.
 
-A pass is named by its WARN line in `watch.local_passes`.  Every other pass of that table is a
-no-op, one added to it later included: a test listing the passes to stub would run a new one for
-real, and the weekly audit pass opened a real seat that way.  HOME is the test's temporary
-directory, and no login of the caller's is left for a pass to find its way back to the owner's
-with: no harness's state or login root (CLAUDE_CONFIG_DIR among them), ak's own adapters' as well
-as any a test's fake adapters declare instead, no account or provider ak names, no credential.
+A test names a pass by its name in `watch.local_passes`, and a name no pass has is refused: it
+would still the very pass the test meant.  Every other pass of that table is a no-op, one added
+to it later included: a test listing the passes to stub would run a new one for real, and the
+weekly audit pass opened a real seat that way.  HOME is the test's temporary directory, and no
+login of the caller's is left for a pass to find its way back to the owner's with: no harness's
+state or login root (CLAUDE_CONFIG_DIR among them), ak's own adapters' as well as any a test's
+fake adapters declare instead, no account or provider ak names, no credential.
 """
 
 from contextlib import contextmanager
@@ -40,12 +41,15 @@ def only_passes(home, *named):
     table, reached = watch.local_passes, []
 
     def passes(state, dry_run, log):
-        for what, step, also_dry in table(state, dry_run, log):
-            def reach(what=what, step=step):
-                reached.append(what)
-                if what in named:
+        found = tuple(table(state, dry_run, log))
+        missing = {*named} - {name for name, _, _ in found}
+        assert not missing, f"no pass is named {', '.join(sorted(missing))}"
+        for name, step, also_dry in found:
+            def reach(name=name, step=step):
+                reached.append(name)
+                if name in named:
                     step()
-            yield what, reach, also_dry
+            yield name, reach, also_dry
 
     with patch.object(watch, "local_passes", passes), \
             patch.dict(os.environ, {"HOME": str(home)}):

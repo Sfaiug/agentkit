@@ -411,7 +411,7 @@ class TickHealth(unittest.TestCase):
     # --- a job whose launcher died --------------------------------------------
 
     def test_a_tick_relaunches_a_job_whose_launcher_died_once_and_a_dry_run_only_names_it(self):
-        self.stub_tick("the dead-job pass did not run")
+        self.stub_tick("dead jobs")
         cfg = config.load()
         workers = cfg["defaults"]["workers"]
         config.save_session(cfg, "atoll", workers[0], workers[:1])

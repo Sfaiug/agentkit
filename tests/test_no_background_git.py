@@ -62,7 +62,7 @@ class NoBackgroundGit(Sandbox):
 
     def tick(self, now=2 * DAY):
         with patch.object(gc.time, "time", return_value=now), \
-                only_passes(self.root, "git housekeeping did not finish"), \
+                only_passes(self.root, "git housekeeping"), \
                 redirect_stdout(io.StringIO()) as output:
             self.assertEqual(watch.main([]), 0)
         self.logs.extend(output.getvalue().splitlines())
@@ -276,7 +276,7 @@ class NoBackgroundGit(Sandbox):
         self.assertIn(f"git gc: {self.repo}", self.tick(3 * DAY))
 
     def test_a_dry_tick_writes_neither_config_nor_collection_stamp(self):
-        with only_passes(self.root, "git housekeeping did not finish"), \
+        with only_passes(self.root, "git housekeeping"), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(watch.main(["--dry-run"]), 0)
         self.assertEqual(self.git(self.repo, "config", "gc.auto"), "1")

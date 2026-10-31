@@ -243,7 +243,7 @@ class Refresh(unittest.TestCase):
         from agentkit import watch
         passes = {what: run for what, run, _ in watch.local_passes({}, False, print)}
         with patch.object(config, "load", return_value=self.cfg):
-            passes["the login-end read did not run"]()
+            passes["login reminder"]()
         self.assertEqual(sorted(logins.read()["anthropic"]), ["default", "second"])
 
 

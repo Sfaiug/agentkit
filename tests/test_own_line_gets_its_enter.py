@@ -87,7 +87,7 @@ class OwnLineGetsItsEnter(Sandbox):
 
     def tick(self, dry_run=False):
         # the real pass list, of which only this pass runs: every other is outside this behavior
-        with only_passes(self.root, "the held-line Enter pass did not run"):
+        with only_passes(self.root, "held lines"):
             for _what, step, also_dry in watch.local_passes({"stalls": {}}, dry_run,
                                                             lambda _line: None):
                 if not dry_run or also_dry:

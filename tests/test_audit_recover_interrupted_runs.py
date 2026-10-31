@@ -413,8 +413,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         workspace.mkdir(parents=True)         # a running run always has one to go back to
         directory = self.receipt("unattended", worktree=str(workspace), scratch=True)
         resumed = []
-        with only_passes(self.root, "the dead-loop pass did not run", "the stall pass did not run",
-                         "the ending pass did not run"), \
+        with only_passes(self.root, "dead loops", "stall recovery", "endings"), \
                 patch.object(watch, "gh_json", return_value=(None, "offline")), \
                 patch.object(watch, "launch_resume",
                              side_effect=lambda run_id, log=lambda _: None: resumed.append(run_id) or True), \

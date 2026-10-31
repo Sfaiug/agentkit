@@ -251,7 +251,7 @@ class V5AE(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {"AGENTKIT_TMUX_SOCKET": "agentkit-test"}))
         self.stack.enter_context(patch.object(subprocess, "run",
                                               side_effect=AssertionError("subprocess")))
-        healthy = [only_passes(self.root, "browser tidy did not finish"),
+        healthy = [only_passes(self.root, "browser tidy"),
                    patch.object(watch, "gh_json", return_value=({"login": "me"}, "")),
                    patch.object(watch, "incoming"),
                    patch.object(watch, "outgoing"),

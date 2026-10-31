@@ -88,9 +88,8 @@ class NoReplay(Sandbox):
     def tick(self):
         # the passes these tests are about: the mid-turn nudge, the endings and their sweep,
         # and the seat's revival
-        with only_passes(self.root, "the mid-turn continue pass did not run",
-                         "the pre-existing sweep did not run", "the ending pass did not run",
-                         "the seat revival pass did not run"), \
+        with only_passes(self.root, "rebooted turns", "switched turns", "old endings", "endings",
+                         "seat revival"), \
                 patch.object(watch, "gh_json", return_value=(None, "offline")):
             self.assertEqual(watch.main([]), 0)
 

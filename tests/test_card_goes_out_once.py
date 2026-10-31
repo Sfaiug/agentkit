@@ -72,7 +72,7 @@ class CardGoesOutOnce(Sandbox):
 
     def late(self):
         """The tick's card pass, then its retries, in the tick's own order: what Discord got."""
-        wanted = ("the card transition pass did not run", "the notification retry did not run")
+        wanted = ("card transitions", "notification retry")
         with patch.object(orch, "listing", return_value=[{"name": SEAT}]):
             for what, step, _ in watch.local_passes({}, False, lambda _line: None):
                 if what in wanted:

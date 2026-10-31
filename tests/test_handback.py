@@ -206,10 +206,8 @@ class HandBack(Sandbox):
     def tick(self):
         """One real `ak watch` of the hand-back's passes, with GitHub unavailable so it stops
         before its PR passes."""
-        with only_passes(self.root, "the held-line Enter pass did not run",
-                         "the pre-existing sweep did not run", "the ending pass did not run",
-                         "a finished job was not handed back",
-                         "the seat revival pass did not run"), \
+        with only_passes(self.root, "held lines", "old endings", "endings", "job handbacks",
+                         "seat revival"), \
                 patch.object(watch, "gh_json", return_value=(None, "offline")):
             self.assertEqual(watch.main([]), 0)
 

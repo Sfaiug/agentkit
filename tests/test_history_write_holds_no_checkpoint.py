@@ -25,7 +25,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, history, waiter, watch  # noqa: E402
 
-CHECKPOINT = "history's WAL was not checkpointed"
+CHECKPOINT = "history checkpoint"
 BIG = "x" * waiter.WAL_MAX       # one commit of over 1000 pages, and a WAL past 4 MiB
 
 # The waiter as `run.pickup_while_queued` runs it, with no agentkit on its path: it counts a

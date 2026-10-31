@@ -30,11 +30,9 @@ QUESTION = "Which branch should fix-api land on?"
 WORKING, SLOT = "20261017-2100-acme-parser", "20261017-2110-acme-docs"
 LANDING = "20261017-2050-acme-api"
 LINE = deliver.merge_lock_path("https://github.com/acme/fix-api", "origin/main").name
-PASSES = ("the notification retry did not run", "the boot resume pass did not run",
-          "the held-line Enter pass did not run", "the mid-turn continue pass did not run",
-          "the dead-loop pass did not run", "the dead-job pass did not run",
-          "the stall pass did not run", "the waiting-resume pass did not run",
-          "the card transition pass did not run", "the seat revival pass did not run")
+PASSES = ("notification retry", "boot resume", "held lines", "rebooted turns", "switched turns",
+          "dead loops", "dead jobs", "stall recovery", "waiting resume", "card transitions",
+          "seat revival")
 
 
 class RebootDrill(Sandbox):

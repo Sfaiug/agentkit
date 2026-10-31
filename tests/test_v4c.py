@@ -415,8 +415,7 @@ sys.exit(item.get("rc", 0))
         self.reply("api user", {"login": "me"})
         self.reply("api --paginate search/issues?q=is:pr+is:open+author:@me&per_page=100", [{"items": []}])
         # the passes that would act on the dead run below, were this not a dry run
-        with only_passes(self.root, "the dead-loop pass did not run",
-                         "the stall pass did not run"), \
+        with only_passes(self.root, "dead loops", "stall recovery"), \
                 patch.object(config, "ensure_dirs", side_effect=AssertionError("write")), patch.object(
                 run, "reap", side_effect=AssertionError("reap")), patch.object(
                 watch, "launch", side_effect=AssertionError("launch")):

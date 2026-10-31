@@ -29,6 +29,7 @@ from agentkit import config, gate, gc, gitcall, host, menu, notify, orch, retent
 from agentkit import record as run_record
 
 DAY = 86400
+RETENTION = ("collection", "exit clocks", "seat sweep")    # the tick's retention passes
 
 
 class RetainState(unittest.TestCase):
@@ -680,7 +681,7 @@ if not review:
         old, wt = self.receipt("auto-old")
         disposable = self.ephemeral("smoke-auto")
         self.seat("gone")
-        with only_passes(self.root, "retention pass did not finish"), \
+        with only_passes(self.root, *RETENTION), \
                 patch.object(gc, "schedule_gc", side_effect=lambda log: gc.gc(log, automatic=True)), \
                 patch.object(watch, "gh_json", return_value=(None, "offline")), \
                 redirect_stdout(io.StringIO()):
@@ -690,7 +691,7 @@ if not review:
         self.assertTrue((old / "result.md").exists())
         self.assertFalse(config.session_path("gone").exists())
         untouched = self.ephemeral("smoke-dry-tick")
-        with only_passes(self.root, "retention pass did not finish"), \
+        with only_passes(self.root, *RETENTION), \
                 patch.object(watch, "gh_json", return_value=(None, "offline")), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(watch.main(["--dry-run"]), 0)
@@ -971,8 +972,7 @@ sys.exit(int(os.environ["FIXTURE_UPDATE_RC"]))
         orch.sweep(lambda _: None)
         self.assertFalse(config.session_path("gone").exists())
         order = []
-        with only_passes(self.root, "the notification retry did not run",
-                         "the session health pass did not run", "retention pass did not finish"), \
+        with only_passes(self.root, "notification retry", "seat health", *RETENTION), \
                 patch.object(notify, "retry_pending", side_effect=lambda **kw: order.append("retry")), \
                 patch.object(watch, "health", side_effect=lambda *a: order.append("health")), \
                 patch.object(gc, "schedule_gc", side_effect=lambda *a: order.append("schedule")), \
