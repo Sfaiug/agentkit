@@ -4305,10 +4305,10 @@ def effort_back(name, model, effort, was):
 
 
 def switch_in_place(cfg, name, chosen, effort):
-    """Move that seat to the record fields `chosen` name -- its orchestrator and account -- at
-    `effort` where given, by owing its harness the lines `switch_lines` gives
-    (`watch.owe_line`), a turn its usage cut off told to go on after them: nothing restarts, so
-    nothing is cut or asked.  The record takes the move first, those fields and the effort, put
+    """Move that seat to the record fields `chosen` name -- its orchestrator, and the account
+    of another provider -- at `effort` where given, by owing its harness the lines
+    `switch_lines` gives (`watch.owe_line`), a turn its usage cut off told to go on after them:
+    nothing restarts, so nothing is cut or asked.  The record takes the move first, those fields and the effort, put
     back where it or the lines cannot be written, so a refused move is left to make again; the
     harness's next answer puts it back where it refused a line (`watch.follow_model`).  What to
     say under the rows, or ""; None where the seat, as it stands under its lock, must restart
@@ -4401,14 +4401,15 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     old_model = record["orchestrator"]
     if old_model == model and effort is None:
         return ""
-    # A seat moved to another provider makes the account it moved on its home.
+    # A seat moved to another provider makes the account it moved on its home.  Within its
+    # provider a running process keeps the login it has, as its record holds it under the lock:
+    # a recovery made since `_switch_plan` read it is not undone by a move in place.
     try:
         moved = config.model(cfg, model)["provider"] != config.model(cfg, old_model)["provider"]
     except config.Error:
         moved = True          # its model is gone: no provider to stay home on
-    chosen = {"orchestrator": model, "account": account,
-              **({"home_account": account} if moved else {})}
-    note = switch_in_place(cfg, name, chosen, effort)
+    homed = {"account": account, "home_account": account} if moved else {}
+    note = switch_in_place(cfg, name, {"orchestrator": model, **homed}, effort)
     if note is not None:
         return note
     new_harness = config.model(cfg, model)["harness"]
@@ -4450,6 +4451,7 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     except (config.Error, OSError) as exc:
         unhanded(handed, before)
         return _one_line(exc)
+    chosen = {"orchestrator": model, "account": account, **homed}
     from . import notify
     # the owner's text lifted, the harness respawned and any line it is owed marked in one hold
     # of the seat's lock, so no tick hands the text back to the harness going or before that line
