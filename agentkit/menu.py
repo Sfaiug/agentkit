@@ -136,7 +136,7 @@ from contextlib import closing
 from pathlib import Path
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import parsed, record
+from . import look, parsed, record
 from . import warm
 
 KEYS = "n new   c config   esc leave"
@@ -189,7 +189,7 @@ def read(prompt, default=None):
 
 def rows(cfg):
     """The seats, their runs and their groups, as the main screen reads them (`Live.read`)."""
-    with record.one_look():            # one look at the runs a read: filing, looking, drawing
+    with look.one_look():              # one look a read: filing, looking, drawing
         found = orch.listing()
         records = run_records()
         orch.file_projectless(found, [state for _, state in records])
@@ -306,7 +306,7 @@ class Live:
 
     def _look(self, found, records):
         try:
-            with record.one_look():    # a pass of its own, off the read's thread (`rows`)
+            with look.one_look():      # a pass of its own, off the read's thread (`rows`)
                 v5o_groups(self.cfg, found, records)
         except (config.Error, OSError, ValueError, TypeError, KeyError):
             pass    # a seat that cannot be looked at keeps what its record says
