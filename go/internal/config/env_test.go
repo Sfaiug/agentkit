@@ -80,6 +80,22 @@ func TestEmbeddedAdapters(t *testing.T) {
 	}
 }
 
+// A file whose name cannot name a harness, a backup say, is no manifest: not TOML, it refuses
+// nothing, where one naming a harness is refused.
+func TestOnlyAHarnesssNameIsAManifest(t *testing.T) {
+	adapters := t.TempDir()
+	t.Setenv("AGENTKIT_ADAPTER_DIR", adapters)
+	for file, refused := range map[string]bool{"acme copy.toml": false, "acme.toml": true} {
+		if err := os.WriteFile(filepath.Join(adapters, file), []byte("[effort\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := Manifests(); (err != nil) != refused {
+			t.Errorf("%s: refused %v", file, err)
+		}
+		os.Remove(filepath.Join(adapters, file))
+	}
+}
+
 // Int reads no more digits than PYTHONINTMAXSTRDIGITS lets Python's int() read: a sign and
 // underscores aside, leading zeros among them, and 4300 where the variable is unset or refused.
 func TestIntReadsAsManyDigitsAsPython(t *testing.T) {
