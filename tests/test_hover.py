@@ -457,7 +457,7 @@ class Screens(Sandbox):
         role = next(iter(menu.quality.ROLES))
         row = {"release": "alpha", "effort": "high", "maker": "Acme", "name": "Alpha"}
         said = [("orch", [(menu.pointed(role, row), "★ pick", "Alpha", [], "high", 1.0,
-                           "100.0", "$1.00", [])], [])]
+                           "100.0", "$1.00", [], "Acme")], [])]
         for name, value in (("stored", {"lineup": [row]}), ("refresh", ({}, None)),
                             ("answer", {role: {"pick": row}})):
             self.stack.enter_context(patch.object(menu.matrix, name, return_value=value))
