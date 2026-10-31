@@ -2,8 +2,8 @@
 and counted by ak's live check on that subscription, its account named; a usual login is still
 lent first, and then the check names none.
 
-Through smoke_home's own code, check 3's and agentkit/lend.py, from a caller HOME of fixture
-logins holding fake values, with every harness program faked, as
+Through smoke_home's own code, check 3's, smoke's availability check and agentkit/lend.py,
+from a caller HOME of fixture logins holding fake values, with every harness program faked, as
 tests/test_checks_lend_logins_that_cannot_renew.py does.  The caller's config lists the account
 `acme` for one provider and runs none of its models.
 """
@@ -116,6 +116,16 @@ class ChecksBorrowASubscriptionsLogin(LentLogins):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn(said, result.stdout)
         self.assertEqual(spent.read_text().split(), ["fixture-access"] * 3)
+
+    def test_the_checks_its_models_gate_are_not_skipped(self):
+        # Checks 1, 3a, 6 and 6d run only where model_unavailable says nothing, seat or not.
+        home = self.smoke("anthropic", ".claude/.credentials.json", ".claude-acme/.credentials.json")
+        unavailable = SMOKE[SMOKE.index("model_unavailable()"):SMOKE.index("skip_unavailable()")]
+        result = subprocess.run(["/bin/bash", "-c", unavailable + "\nmodel_unavailable opus"
+                                 " && model_unavailable opus seat\n"],
+                                env={**self.env, "HOME": str(home)},
+                                text=True, capture_output=True, timeout=120)
+        self.assertEqual((result.returncode, result.stdout), (0, ""), result.stderr)
 
     def test_muses_readings_are_the_listed_accounts(self):
         state = self.caller / ".agentkit/state"
