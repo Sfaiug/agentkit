@@ -416,12 +416,17 @@ class Terminal:
             path.write_text("\n".join(screen).rstrip() + "\n")
 
     def wait(self, ready, what, timeout=HANG):
+        """The screen once `ready` holds for it, alike in two captures running: a frame reaches
+        the pane in pieces, and a capture inside one -- the new highlight over the old page's
+        key line, or no highlight at all -- misled the walk at landing."""
         deadline = time.monotonic() + timeout
+        last = None
         while True:
             screen = self.screen()
-            if ready(screen):
+            if screen == last and ready(screen):
                 self.shot(what, screen)
                 return screen
+            last = screen
             self.case.assertFalse(self.dead(), f"the menu exited before {what}:\n" + "\n".join(screen))
             self.case.assertLess(time.monotonic(), deadline,
                                  f"timed out waiting for {what}:\n" + "\n".join(screen))
