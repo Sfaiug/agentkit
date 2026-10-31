@@ -15,7 +15,7 @@ import unittest
 
 from fixtures.sandbox import REPO, Sandbox, menu_input
 from agentkit import config, handback, menu, notify, orch, run, statusbar, terminal, usage, watch
-from agentkit import record as run_record
+from agentkit import parsed, record as run_record
 
 
 class Projects(Sandbox):
@@ -124,6 +124,7 @@ class Projects(Sandbox):
         # One draw settles what each seat is -- the classifier's record and the word it
         # began -- because that is the one thing a screen writes. Every draw after it,
         # in any role at any width, changes nothing at all.
+        self.stack.enter_context(patch.object(parsed, "FRESH", 0))   # its runs written long before
         self.draw(100, 30)
         before = {path: path.read_bytes() for directory in (config.RUNS, config.STATE)
                   for path in directory.rglob("*") if path.is_file()}

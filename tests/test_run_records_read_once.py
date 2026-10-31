@@ -11,8 +11,8 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.sandbox import Sandbox
-from agentkit import config, menu, record
+from fixtures.sandbox import Sandbox, parses
+from agentkit import config, menu, parsed, record
 
 
 def write(directory, **extra):
@@ -41,12 +41,11 @@ def reader(root, pipe):
     config.RUNS, config.STATE, config.TMP = (Path(root) / name for name in ("runs", "state", "tmp"))
     try:
         while pipe.recv() == "read":
-            with patch.object(record, "read_state", wraps=record.read_state) as read:
+            with parses() as reads:
                 before = written()
                 found = menu.run_records()
                 size = written() - before
-            pipe.send(([(directory.name, state) for directory, state in found],
-                       [call.args[0].name for call in read.call_args_list], size))
+            pipe.send(([(directory.name, state) for directory, state in found], reads, size))
     finally:
         if menu._RUN_RECORDS is not None:
             menu._RUN_RECORDS.close()
@@ -54,6 +53,11 @@ def reader(root, pipe):
 
 
 class RunRecords(Sandbox):
+    def setUp(self):
+        super().setUp()
+        # every run here was written long before: a pass keeps what it parses (`parsed`)
+        self.stack.enter_context(patch.object(parsed, "FRESH", 0))
+
     def runs(self, count):
         for i in range(count):
             write(config.RUNS / f"finished-{i:04}")
@@ -211,9 +215,9 @@ class RunRecords(Sandbox):
         self.runs(20)
         with patch.object(sqlite3, "connect", side_effect=sqlite3.OperationalError("locked")):
             self.assertEqual(menu.run_records(), full())
-        with patch.object(record, "read_state", wraps=record.read_state) as read:
+        with parses() as reads:
             menu.run_records()
-        read.assert_not_called()
+        self.assertEqual(reads, [])
 
     def test_uncached_reads_leave_persistent_caches_untouched(self):
         live = self.runs(3)

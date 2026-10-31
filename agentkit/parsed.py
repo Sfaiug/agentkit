@@ -1,4 +1,4 @@
-"""A file parsed again only once stat says it changed: its inode, size, mtime or ctime.
+"""A file parsed again only once stat says it changed: its device, inode, mtime, ctime or size.
 
 ak writes its state files whole, so a file whose stat reads as it did when it was parsed still
 holds what was parsed from it, and a screen open all day reads only the files that moved.  A file
@@ -23,7 +23,7 @@ def read(path, parse):
     except OSError:
         _KEPT.pop(key, None)
         raise
-    stamp = info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+    stamp = info.st_dev, info.st_ino, info.st_mtime_ns, info.st_ctime_ns, info.st_size
     kept = _KEPT.get(key)
     if kept is not None and kept[0] == stamp:
         return kept[1]
@@ -32,3 +32,14 @@ def read(path, parse):
     if time.time_ns() - info.st_ctime_ns >= FRESH:
         _KEPT[key] = stamp, value
     return value
+
+
+def kept(path, parse):
+    """The stat `read` keeps `parse(path)` under and what it made of the file, None for none."""
+    return _KEPT.get((os.fspath(path), parse))
+
+
+def keep(path, parse, stamp, value):
+    """What another process's `kept` said of `parse(path)`, unless this one keeps its own: a
+    file whose stat no longer reads `stamp` is parsed again."""
+    _KEPT.setdefault((os.fspath(path), parse), (tuple(stamp), value))
