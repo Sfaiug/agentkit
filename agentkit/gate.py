@@ -845,8 +845,8 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False):
 
     Turns were per repository and only a waiter of the same main checkout counted.
     They are host-wide now, so every live waiter counts whichever repository it
-    checks.  Rank is a line's own check (`line`), then a run's landing check before it
-    joins the line, then any round check; within each the longest wait, then the run id.
+    checks.  Rank is a line's own check (`line`), then a run's own landing check (a fork's,
+    which no line checks), then any round check; within each the longest wait, then the run id.
     `--first` plays no part, or loop repairs starve every other suite under load.  A
     round check stays behind any line's check (`landing_waits`).  A landing wait -- a
     run's, or the line checker's that marks no record -- ranks by its own file

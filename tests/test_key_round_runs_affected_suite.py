@@ -122,10 +122,15 @@ class AffectedRed(Round, unittest.TestCase):
     def fixer(self):
         return (self.run_dir / "round-1" / "fixer" / "prompt.md").read_text()
 
+    def reviewed(self):
+        """The round's checks after the fix, as its review read them: the done-when the rebase
+        onto the moved target runs again as the run joins its line runs no suite."""
+        return (self.run_dir / "round-1" / "reviewer" / "prompt.md").read_text()
+
     def test_the_suite_sees_exactly_the_change_s_paths_on_the_tree_merged_onto_the_target(self):
         # the fix put tests/widget back as the target has it: no longer a path the change edits
         for said, paths in ((self.fixer(), ["retry.txt", "tests/widget", "widget.txt"]),
-                            (self.checks(), ["retry.txt", "widget.txt"])):
+                            (self.reviewed(), ["retry.txt", "widget.txt"])):
             lines = said.splitlines()
             self.assertEqual(next(l for l in lines if l.startswith("changed: ")).split()[1:], paths)
             tree = next(line for line in lines if line.startswith("tree: ")).split()
@@ -136,7 +141,7 @@ class AffectedRed(Round, unittest.TestCase):
     def test_a_red_goes_back_to_the_executor_in_the_same_run(self):
         self.assertEqual(self.roles(), ["executor", "fixer"])
         self.assertIn("FAILED widget", self.fixer())
-        self.assertNotIn("FAILED", self.checks())
+        self.assertNotIn("FAILED", self.reviewed())
         self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
         self.assertEqual((self.state["state"], self.state["merged"]), ("pass", True))
 

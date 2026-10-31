@@ -3,13 +3,12 @@ and merge one at a time, in that order.
 
 Two runs on one project pass review, the second while the first is merging.  The project's
 `tests:` suite prints the commits under the tree it runs on, so what it printed shows how each
-change was tested: each alone before joining, then the second stacked on the first before
-the first has landed.  The GitHub here holds every `pr merge` until the test lets it go, and
-while the first is held the second, passed and tested, starts none: one merge per repository
-is a correctness lock, not capacity, as a merge beside another could land a tree no suite ran.
-The second then merges rebased onto the first.  Black-box: the program `AK_BIN` names runs from
-outside through
-tests/fixtures/akbin.py, against the bare origin of gitrig.py and the GitHub of fakegh.py,
+change was tested in the line: the first alone, the second stacked on the first before the
+first has landed.  The GitHub here holds every `pr merge` until the test lets it go, and while
+the first is held the second, passed and tested, starts none: one merge per repository is a
+correctness lock, not capacity, as a merge beside another could land a tree no suite ran.  The
+second then merges rebased onto the first.  Black-box: the program `AK_BIN` names runs from
+outside through tests/fixtures/akbin.py, against the bare origin of gitrig.py and the GitHub of fakegh.py,
 with scripted harnesses from fakeadapter.py.
 """
 
@@ -143,7 +142,6 @@ class LandingTrain(unittest.TestCase):
         first, second = map(self.added, self.order())
         # The first change is its own commit beneath the second: it had not merged yet.
         self.assertEqual(set(self.saw()), {f"add {first}|init|",
-                                           f"add {second}|init|",
                                            f"add {second}|add {first}|init|"})
 
     def test_a_second_merge_never_starts_while_the_first_is_merging(self):

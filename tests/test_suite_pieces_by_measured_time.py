@@ -68,15 +68,17 @@ class SuitePiecesByMeasuredTime(unittest.TestCase):
         return starts, out.getvalue()
 
     def land_check(self, scratch, ok, whole):
-        """A landing check whose pieces print `whole`, and hand back only its end."""
+        """A line's check of a member whose pieces print `whole`, and hand back only its end."""
         def piece(_cmd, _limit, *, output, **_kw):
             output.write(whole.encode())
             return (0 if ok else 1), "", False
 
+        member = {"repo": str(self.root), "waiting_on": {"line": ".merge-acme.lock", "joined": 1}}
+        config.RUNS.mkdir(parents=True, exist_ok=True)
         with patch.object(gate, "gate_turn", return_value=nullcontext()), \
                 patch.object(worker, "boxed", side_effect=piece), \
                 patch.object(worker, "kill_marked"):
-            self.assertEqual(land._check(self.sandbox, {}, scratch, ["python3 tests/landing.py"],
+            self.assertEqual(land._check(self.sandbox, member, scratch, ["python3 tests/landing.py"],
                                          self.sandbox / "lander-acme.log",
                                          lambda _line: None)[0], ok)
 

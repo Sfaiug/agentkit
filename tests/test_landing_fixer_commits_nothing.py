@@ -21,7 +21,7 @@ class LandingFixerCommitsNothing(line.OwnPrLineFixture, unittest.TestCase):
     def test_a_fixer_that_commits_nothing_gets_its_head_re_reviewed_and_merged(self):
         directory, url = self.own_pr("second", 1)
         reviewed = self.prs[url]["head"]
-        self.advance()      # the target moves: the check before the line rebases the reviewed head
+        self.advance()      # the target moves: joining the line rebases the reviewed head
         flakes = [True]
 
         def flaky(cmds, cwd, log_path, *args, **kw):
@@ -43,6 +43,8 @@ class LandingFixerCommitsNothing(line.OwnPrLineFixture, unittest.TestCase):
 
         with patch.object(gate, "run_done_when", side_effect=flaky), \
                 patch.object(run, "execute", side_effect=execute):
+            self.assertEqual(self.review(directory, url)["state"], "waiting")
+            land.check_line(self.turn)
             state = self.review(directory, url)
         self.assertEqual(flakes, [], "the suite never went red")
         self.assertEqual(starts, [reviewed], "the fixer did not start from the reviewed head")

@@ -1,12 +1,10 @@
 """A line's own check goes first for a heavy suite turn, and only its wait holds back new runs.
 
 Owner, 29 Oct 2026: the line is where a repository's changes land one at a time, so its check's
-wait delays every change behind it, while a run's check before it joins the line only spares the
-line a red.  Black-box through tests/fixtures/akbin.py: runs against gitrig.py's origins,
-fakegh.py's GitHub and fakeadapter.py's harnesses.  The host fits two suites (AK_HOST_READINGS);
-the test fills what the suites leave by holding ak's turn files, and frees one at a time.  Each
-repository's suite says when it starts and runs until the test lets it end.  A line checks its
-member itself, and runs the suite, once its origin moved past the tree the run checked.
+wait delays every change behind it.  Black-box through tests/fixtures/akbin.py: runs against
+gitrig.py's origins, fakegh.py's GitHub and fakeadapter.py's harnesses.  The host fits two suites
+(AK_HOST_READINGS); the test fills what the suites leave by holding ak's turn files, and frees
+one at a time.  Each repository's suite says when it starts and runs until the test lets it end.
 """
 
 from contextlib import ExitStack
@@ -135,26 +133,19 @@ class LineCheckGoesFirst(unittest.TestCase):
         self.start("anvils")
         self.start("bolts")
         self.until(lambda: sorted(self.order()) == ["anvils", "bolts"],
-                   "both runs' checks before the line to run")
-        # Only a round check, then also a check before the line, waits: each next run goes in.
+                   "both lines' checks to run")
+        # Only a round check waits: the next run goes in, and its line's check waits.
         cogs = self.start("cogs", every_round=True)
         self.until(lambda: self.waiting(cogs), "the round check to wait")
-        dials = self.start("dials")
-        self.until(lambda: self.waiting(dials), "a run admitted beside a round check")
-        eagles = self.start("eagles")
-        self.until(lambda: self.waiting(eagles), "a run admitted beside a check before the line")
-        # Each origin moves past the tree its run checked, so each line checks its member.
-        for waited, name in enumerate(("anvils", "bolts"), 1):
-            self.rigs[name].commit({"notes.txt": "moved\n"}, "move the target")
-            held = self.hold()
-            self.end(name)
-            self.until(lambda: self.lines_waiting() == waited, f"{name}'s line to wait")
+        self.start("dials")
+        self.until(lambda: self.lines_waiting() == 1, "a run admitted beside a round check")
         new = self.start("anvils", "--no-merge")
         self.until(lambda: "finished work goes first" in self.queued(new),
-                   "a new run to wait behind the lines' checks")
-        # The lines' checks, the older first, ahead of older checks before the line; those
-        # by their waits, ahead of the older round check.
-        for name in ("anvils", "bolts", "dials", "eagles", "cogs"):
+                   "a new run to wait behind the line's check")
+        held = self.hold()
+        self.end("anvils")
+        # The line's check ahead of the older round check.
+        for name in ("dials", "cogs"):
             held = self.free(held, name)
 
 
