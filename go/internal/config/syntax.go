@@ -250,6 +250,12 @@ func (p *parser) pair(target *table) error {
 	return nil
 }
 
+// clock and moment are TOML's times and dates as Python's tomllib reads them, from year 0001 as its datetime does;
+// time.Parse alone takes one-digit hours, year 0000 and offsets past 23:59, and adds only that the day is in its month.
+const clock = `(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]+)?`
+
+var moment = regexp.MustCompile(`^(?:(?:000[1-9]|00[1-9][0-9]|0[1-9][0-9]{2}|[1-9][0-9]{3})-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])(?:[Tt ]` + clock + `(?:[Zz]|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])?)?|` + clock + `)$`)
+
 var number = regexp.MustCompile(`^[+-]?(?:inf|nan|(?:0|[1-9](?:_?[0-9])*)(?:\.[0-9](?:_?[0-9])*)?(?:[eE][+-]?[0-9](?:_?[0-9])*)?)$|^0(?:x[0-9a-fA-F](?:_?[0-9a-fA-F])*|o[0-7](?:_?[0-7])*|b[01](?:_?[01])*)$`)
 
 func (p *parser) value() (any, error) {
@@ -304,7 +310,7 @@ func (p *parser) value() (any, error) {
 	for p.pos < len(p.text) && !strings.ContainsRune(",]}#\n", rune(p.text[p.pos])) {
 		p.pos++
 	}
-	value := strings.TrimSpace(p.text[start:p.pos])
+	value := strings.TrimRight(p.text[start:p.pos], " \t")
 	if value == "true" || value == "false" {
 		return value == "true", nil
 	}
@@ -334,9 +340,11 @@ func (p *parser) value() (any, error) {
 			return parsed, nil
 		}
 	}
-	for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05.999999999", "2006-01-02", "15:04:05.999999999"} {
-		if parsed, err := time.Parse(layout, strings.ReplaceAll(strings.ToUpper(value), " ", "T")); err == nil {
-			return parsed, nil
+	if moment.MatchString(value) {
+		for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05.999999999", "2006-01-02", "15:04:05.999999999"} {
+			if parsed, err := time.Parse(layout, strings.ReplaceAll(strings.ToUpper(value), " ", "T")); err == nil {
+				return parsed, nil
+			}
 		}
 	}
 	p.pos = start
