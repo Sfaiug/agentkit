@@ -19,8 +19,10 @@
 #                       login-end    -> {"email","ends","plan"}: whose the interactive login is, the
 #                                    epoch second it ends, after which only a new login serves,
 #                                    and the plan it is on
-#                       lend <home>  -> a copy of the interactive login nothing renews, where a
-#                                    turn with HOME=<home> reads it, and the epoch second it lapses
+#                       lend <home> [own] -> a copy of the interactive login nothing renews,
+#                                    where a turn with HOME=<home> reads it, and the epoch second
+#                                    it lapses; `own` puts a named account's where a turn naming
+#                                    that account reads it
 #                       hooks        -> wire this harness's lifecycle hooks, idempotently
 #                       models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                    Anthropic's models API, else the [catalog] table of
@@ -353,8 +355,8 @@ lend)
       | {ends: $ends, login: {claudeAiOauth: del(.refreshToken)}}' 2>/dev/null) &&
     [ -n "$lent" ] || {
     echo "claude: no unexpired access token in $CREDS to lend; run /login" >&2; exit 1; }
-  printf '%s' "$lent" | python3 "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" \
-    "$1" .claude/.credentials.json ;;
+  [ "${2:-}" = own ] && [ -n "$ACCOUNT" ] && at=${CREDS#"$HOME/"} || at=.claude/.credentials.json
+  printf '%s' "$lent" | python3 "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" "$1" "$at" ;;
 auth)
   # Can a turn authenticate right now?  Exit 0 and name the token, or exit 1 with one line
   # saying why not.  The loop asks before every turn and again after a turn that produced
@@ -568,6 +570,6 @@ models)
       | @tsv' 2>/dev/null) || listed=
   printf '%s\n' "${listed:-$table}" ;;
 *)
-  echo "usage: claude.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | claude.sh usage | claude.sh interactive <model> <effort> [session-id [new]] | claude.sh install | claude.sh login [again] | claude.sh logout | claude.sh forget | claude.sh login-end | claude.sh lend <home> | claude.sh auth [seat] | claude.sh hooks | claude.sh models" >&2
+  echo "usage: claude.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | claude.sh usage | claude.sh interactive <model> <effort> [session-id [new]] | claude.sh install | claude.sh login [again] | claude.sh logout | claude.sh forget | claude.sh login-end | claude.sh lend <home> [own] | claude.sh auth [seat] | claude.sh hooks | claude.sh models" >&2
   exit 2 ;;
 esac

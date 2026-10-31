@@ -18,8 +18,10 @@
 #                     login-end    -> {"email","ends","plan"}: whose the login is, and the ChatGPT
 #                                  plan its id token names; `ends` is null, since Codex writes
 #                                  down no day its login ends
-#                     lend <home>  -> a copy of the login nothing renews, where a turn with
-#                                  HOME=<home> reads it, and the epoch second it lapses, if it does
+#                     lend <home> [own] -> a copy of the login nothing renews, where a turn
+#                                  with HOME=<home> reads it, and the epoch second it lapses, if
+#                                  it does; `own` puts a named account's where a turn naming that
+#                                  account reads it
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
 #                                  `seat` is the same login here, and is accepted and ignored;
 #                                  a yes ends `; logged in as <email>` where the login says
@@ -331,8 +333,8 @@ lend)
       "$AUTH" 2>/dev/null) && [ -n "$lent" ] || {
     echo "codex: no unexpired access token or API key in $AUTH to lend; run \`codex login\`" >&2
     exit 1; }
-  printf '%s' "$lent" | python3 "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" \
-    "$1" .codex/auth.json ;;
+  [ "${2:-}" = own ] && [ -n "$ACCOUNT" ] && at=${AUTH#"$HOME/"} || at=.codex/auth.json
+  printf '%s' "$lent" | python3 "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" "$1" "$at" ;;
 auth)
   # Can a turn authenticate right now?  Exit 0 and say so, or exit 1 with one line saying why
   # not.  Without jq the file cannot be read at all, so the question is not answered: exit 2 is
@@ -390,6 +392,6 @@ models)
     python3 "$REPO/tools/catalog.py" codex
   fi ;;
 *)
-  echo "usage: codex.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | codex.sh usage | codex.sh reset-status | codex.sh reset | codex.sh interactive <model> <effort> [session-id [new]] | codex.sh install | codex.sh login [again] | codex.sh logout | codex.sh forget | codex.sh login-end | codex.sh lend <home> | codex.sh auth [seat] | codex.sh hooks | codex.sh models" >&2
+  echo "usage: codex.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | codex.sh usage | codex.sh reset-status | codex.sh reset | codex.sh interactive <model> <effort> [session-id [new]] | codex.sh install | codex.sh login [again] | codex.sh logout | codex.sh forget | codex.sh login-end | codex.sh lend <home> [own] | codex.sh auth [seat] | codex.sh hooks | codex.sh models" >&2
   exit 2 ;;
 esac

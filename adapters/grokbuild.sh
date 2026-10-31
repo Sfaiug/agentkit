@@ -33,8 +33,10 @@
 #                     login-end    -> {"email","ends","plan"}: whose the login is and its tier;
 #                                  `ends` is null, since grok writes down no day its refresh
 #                                  token ends
-#                     lend <home>  -> a copy of the login nothing renews, where a turn with
-#                                  HOME=<home> reads it, and the epoch second it lapses
+#                     lend <home> [own] -> a copy of the login nothing renews, where a turn
+#                                  with HOME=<home> reads it, and the epoch second it lapses;
+#                                  `own` puts a named account's where a turn naming that account
+#                                  reads it
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why: a
 #                                  refresh token or an unexpired key is a login grok can use,
 #                                  unless `usage` saw the endpoint refuse the key grok renewed;
@@ -379,8 +381,8 @@ lend)
       | {ends: $ends, login: map_values(if type == "object" then del(.refresh_token) else . end)}' \
       "$AUTH" 2>/dev/null) && [ -n "$lent" ] || {
     echo "grok: no unexpired session key in $AUTH to lend; run \`grok login\`" >&2; exit 1; }
-  printf '%s' "$lent" | python3 "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" \
-    "$1" .grok/auth.json ;;
+  [ "${2:-}" = own ] && [ -n "$ACCOUNT" ] && at=${AUTH#"$HOME/"} || at=.grok/auth.json
+  printf '%s' "$lent" | python3 "$(dirname -- "${BASH_SOURCE[0]}")/../tools/lend.py" "$1" "$at" ;;
 auth)
   # Can a headless turn authenticate right now?  Exit 0 and say so, or exit 1 with one line
   # saying why not; anything else is no answer, and the caller carries on as before.  The
@@ -487,6 +489,6 @@ models)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" grokbuild $ids ;;
 *)
-  echo "usage: grokbuild.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | grokbuild.sh usage | grokbuild.sh interactive <model> <effort> [session-id [new]] | grokbuild.sh install | grokbuild.sh login [again] | grokbuild.sh logout | grokbuild.sh forget | grokbuild.sh login-end | grokbuild.sh lend <home> | grokbuild.sh auth [seat] | grokbuild.sh hooks | grokbuild.sh models" >&2
+  echo "usage: grokbuild.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | grokbuild.sh usage | grokbuild.sh interactive <model> <effort> [session-id [new]] | grokbuild.sh install | grokbuild.sh login [again] | grokbuild.sh logout | grokbuild.sh forget | grokbuild.sh login-end | grokbuild.sh lend <home> [own] | grokbuild.sh auth [seat] | grokbuild.sh hooks | grokbuild.sh models" >&2
   exit 2 ;;
 esac
