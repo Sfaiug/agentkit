@@ -45,12 +45,14 @@ class ATickClosesTheCardsOfGoneSeats(unittest.TestCase):
         asked = home.ak("notify", "needs", "Which branch?", "--session", "fix-api")
         assert asked.code == 0, asked.err
         sink.wait(1)
+        # before fix-api goes: a server left with no session exits, and a client that reaches
+        # it on its way out fails with `server exited unexpectedly`
+        stray = home.tmux("new-session", "-d", "-s", "stray", "sleep 600")
+        assert stray.code == 0, stray.err
         assert home.tmux("kill-session", "-t", "=fix-api").code == 0
         (home.path / ".agentkit/state/session-fix-api.json").unlink()
         cls.write_card("gone", card("needs you", True))
         cls.write_card("lapsed", card("needs you", False))
-        stray = home.tmux("new-session", "-d", "-s", "stray", "sleep 600")
-        assert stray.code == 0, stray.err
         cls.write_card("stray", card("needs you", False))
         Seat(home, "beta", alive=False)
         cls.write_card("beta", card("needs you", True))
