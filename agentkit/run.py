@@ -162,7 +162,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         else:
             repo = task_repo(meta, task_path, receipt.get("task_file"))  # receipts before preflight saved it
         scratch = repo is None
-        raw_rounds = opts["--rounds"] or meta.get("rounds") or 3
+        raw_rounds = opts["--rounds"] or meta.get("rounds") or config.policy()["rounds"]
         try:
             n_rounds = int(raw_rounds)
         except (TypeError, ValueError):
@@ -1786,7 +1786,7 @@ def resume_run(argv):
         # the change's budget with this run's own rounds counted: spent, no --rounds carries
         # it on and the task is what changes; else the way on names the bound `over_lineage`
         # holds a --rounds to
-        left, why = change_budget(state, run_dir, taskfile.TASK_MAX_ROUNDS, own=state["rounds"])
+        left, why = change_budget(state, run_dir, config.policy()["rounds"], own=state["rounds"])
         if why:
             raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); {why}")
         if n_rounds is None or n_rounds <= state["rounds"]:
@@ -2785,7 +2785,7 @@ def settle_pr_round(lp, url, info):
 def own_pr_budget(url, run_dir, own=0):
     """`round_budget` for a seat's own pull request, `own` the rounds this run spent on it:
     the one place its arguments are read."""
-    return round_budget(taskfile.TASK_MAX_ROUNDS, pr=url, exclude=run_dir,
+    return round_budget(config.policy()["rounds"], pr=url, exclude=run_dir,
                         what=f"PR #{PR_PARTS.match(url).group(3)}", own=own)
 
 

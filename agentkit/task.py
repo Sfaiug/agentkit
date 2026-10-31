@@ -10,16 +10,11 @@ from . import config
 # (`launch_refusal`), the time keys draw a warning.
 TASK_KEYS = ("after", "base", "done_when_minutes", "files", "from", "merge", "repo",
              "rounds", "stall_minutes", "target", "turn_hours")
-TASK_MAX_ROUNDS = 3      # the round budget, not a default: past it, split or re-scope
 # One behaviour a reviewer holds in one read; past it, split the task.
 MAX_CHECKS = 3
-# Owner, 21 Oct 2026: larger first reviews merged less often and broke landing more often,
-# with no saving in tokens per merged line (14-21 Oct); seats failed all rounds about twice
-# as often as workers from the handoff size up, with mostly unrelated context (14 days).
-# Added lines only, generated files and unchanged moves aside (`transitions.diff_lines`,
-# `transitions.carried_lines`): past the task cap, split it; at the seat limit, write a task.
-MAX_PR_LINES = 300
-SEAT_TASK_LINES = 50
+# ak's defaults (`config.POLICY`): the host's own numbers are not read here yet
+MAX_PR_LINES = config.POLICY["review_lines"][0]
+SEAT_TASK_LINES = config.POLICY["seat_lines"][0]
 DONE_WHEN = re.compile(r"^##\s+Done when\s*$(.*?)(?=^##\s|\Z)", re.S | re.M | re.I)
 FENCE = re.compile(r"```(?:bash|sh)?\n(.*?)```", re.S)
 ONCE_MARKER = re.compile(r"#\s*once\s*$")
@@ -200,15 +195,17 @@ def opens_heredoc(command):
 def rounds_refusal(value, what):
     """One sentence when a round budget asked for is over the rule, else None.
 
-    Three rounds is the budget and never a default to raise: a run that has not passed by
-    then goes back to its orchestrator with its findings, to split or re-scope, and no
-    flag carries it further.  A value that is no number is left to the check that says so.
+    The host's `rounds` (`config.policy`) is the budget and never a default to raise: a run
+    that has not passed by then goes back to its orchestrator with its findings, to split or
+    re-scope, and no flag carries it further.  A value that is no number is left to the check
+    that says so.
     """
     try:
         rounds = int(value)
     except (TypeError, ValueError):
         return None
-    if rounds <= TASK_MAX_ROUNDS:
+    budget = config.policy()["rounds"]
+    if rounds <= budget:
         return None
-    return (f"{what} {rounds} is over the budget: {TASK_MAX_ROUNDS} rounds, then a run goes "
+    return (f"{what} {rounds} is over the budget: {budget} rounds, then a run goes "
             "back to its orchestrator to split or re-scope")

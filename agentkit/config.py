@@ -86,6 +86,19 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultra")   # the effort word
 POINTS = 10                    # the most `within` can be: past ten, a point says nothing
 CATALOG_TTL = 60               # seconds a harness's model list is reused before it is asked again
 CATALOG_NOW = 0.05             # seconds catalog_now waits on catalog() before the answer it has
+# What a change may spend, each config.toml's top-level key (`policy`): ak's default, the
+# floor, and what the number means.
+# Owner, 21 Oct 2026: larger first reviews merged less often and broke landing more often,
+# with no saving in tokens per merged line (14-21 Oct); seats failed all rounds about twice
+# as often as workers from the handoff size up, with mostly unrelated context (14 days).
+# Added lines only, generated files and unchanged moves aside (`transitions.diff_lines`,
+# `transitions.carried_lines`): past the task cap, split it; at the seat limit, write a task.
+POLICY = {
+    "rounds": (3, 1, "the review rounds a change has before it goes back to its orchestrator "
+                     "to split or re-scope"),
+    "review_lines": (300, 1, "the most added lines a first review reads"),
+    "seat_lines": (50, 0, "the added lines a seat's own change stays under"),
+}
 
 
 class Error(Exception):
@@ -373,6 +386,21 @@ def _read_toml(path):
         raise Error(f"{path}: {exc}")
 
 
+def policy():
+    """The POLICY numbers in force on this host: config.toml's own, else ak's defaults."""
+    path = HOME / CONFIG_NAME
+    data, numbers = _read_toml(path) or {}, {}
+    for key, (default, floor, meaning) in POLICY.items():
+        value = numbers[key] = data.get(key, default)
+        if type(value) is not int or value < floor:
+            raise Error(f"{path}: {key} must be a whole number of at least {floor}, {meaning} "
+                        f"(got {value!r})")
+    if numbers["seat_lines"] > numbers["review_lines"]:
+        raise Error(f"{path}: seat_lines {numbers['seat_lines']}, {POLICY['seat_lines'][2]}, is "
+                    f"over review_lines {numbers['review_lines']}, {POLICY['review_lines'][2]}")
+    return numbers
+
+
 def load():
     """The config: ~/.agentkit/config.toml, else the default shipped in the checkout.
 
@@ -392,6 +420,7 @@ def load():
     which then writes `[defaults]` and the top-level `pace_margin` in their place.
     """
     tables = ("defaults", "tiers", "models", "providers")
+    policy()    # the home file's, whichever file answers for the models
     path = HOME / CONFIG_NAME
     cfg = _read_toml(path)
     if cfg is None or not any(table in cfg for table in tables):
