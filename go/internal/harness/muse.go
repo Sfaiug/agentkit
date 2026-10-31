@@ -9,9 +9,7 @@ import (
 	"agentkit/internal/config"
 )
 
-// Muse's channel installer deletes the build it replaces and offers no versioned reinstall, so
-// only a snapshot puts it back.
-func init() { plugins["muse"] = plugin{identity: museIdentity, snapshots: true} }
+func init() { plugins["muse"] = plugin{identity: museIdentity} }
 
 // museIdentity is Muse's release label plus the build its launcher installed, which the launcher
 // records beside itself: the label alone cannot tell a frozen installed release from the next.

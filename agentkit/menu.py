@@ -189,10 +189,11 @@ def read(prompt, default=None):
 
 def rows(cfg):
     """The seats, their runs and their groups, as the main screen reads them (`Live.read`)."""
-    found = orch.listing()
-    records = run_records()           # one pass over run.json a read: filing, looking, drawing
-    orch.file_projectless(found, [state for _, state in records])
-    return found, records, v5o_groups(cfg, found, records, look=False)
+    with record.one_look():            # one look at the runs a read: filing, looking, drawing
+        found = orch.listing()
+        records = run_records()
+        orch.file_projectless(found, [state for _, state in records])
+        return found, records, v5o_groups(cfg, found, records, look=False)
 
 
 class Live:
@@ -2001,9 +2002,10 @@ def stop_behind(name, dry_run):
 
 def teardown(name, dry_run):
     """The process `x` stops the popup's own seat in (`stop_behind`, and the past screen's `x`
-    removes a stopped one in): `close_seat`, leaving a refusal as a job's notice
-    (`orch.job_notices`), since the popup it came from is gone by then."""
-    return [sys.executable, "-c", "import sys; from agentkit import menu, orch; "
+    removes a stopped one in), marked as its own: `close_seat`, leaving a refusal as a job's
+    notice (`orch.job_notices`), since the popup it came from is gone by then."""
+    return [sys.executable, "-c", "import sys; from agentkit import menu, orch, owner; "
+            "owner.mark('seat stop'); "
             "menu.close_seat(sys.argv[1], sys.argv[2] == '1', refused=orch.leave_notice)",
             name, "1" if dry_run else "0"]
 
@@ -2320,7 +2322,7 @@ class _RunRecords:
 
 
 def run_records(*, cache=True):
-    """Every run's record, each every reader's (`record.read_state`), so only read.
+    """Every run's record, each every reader's (`record.runs`), so only read.
 
     A process's first pass hands `parsed` the census saved in SQLite, so it opens only a run.json
     changed since; each pass saves what `parsed` keeps anew.  SQLite commits only changed rows
@@ -2339,14 +2341,10 @@ def run_records(*, cache=True):
             if _RUN_RECORDS is not None:
                 _RUN_RECORDS.close()
             _RUN_RECORDS = _RunRecords(root, cache=cache)
-        found, resolved, run_dirs = [], {}, record.run_dirs()
-        for run_dir in run_dirs:
-            state = record.read_state(run_dir, shared=True)
-            if state is None or state.get("unattended") or smoke_run(state, resolved):
-                continue
-            found.append((run_dir, state))
-        _RUN_RECORDS.save(run_dirs)
-        return found
+        runs, resolved = record.runs(), {}
+        _RUN_RECORDS.save(run_dir for run_dir, _ in runs)
+        return [(run_dir, state) for run_dir, state in runs
+                if not state.get("unattended") and not smoke_run(state, resolved)]
 
 
 def unread(prov, weekly, readable, now):

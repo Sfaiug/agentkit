@@ -2,5 +2,5 @@
 
 package host
 
-// userManager is false: only Linux runs a user systemd manager.
-func userManager() bool { return false }
+// UserManager is false: only Linux runs a user systemd manager.
+func UserManager() bool { return false }

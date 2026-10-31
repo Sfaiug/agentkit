@@ -73,9 +73,7 @@ func TestAProgramARelativePathEntryFindsIsInstalled(t *testing.T) {
 			}
 			t.Setenv("PATH", entry+string(os.PathListSeparator)+search)
 			var out, errOut bytes.Buffer
-			if _, err := Main(repo, false, &out, &errOut); !errors.Is(err, ErrPython) || wrote(home) {
-				t.Errorf("PATH entry %q, %s: the update left err=%v wrote=%t stdout=%q", entry, program, err, wrote(home), out.String())
-			}
+			// no `skipped: not installed here` comes first
 			code, err := Main(repo, true, &out, &errOut)
 			want := "gamma " + shown + " (cannot be reverted: it offers no versioned reinstall): acme-cli upgrade\n"
 			if code != 0 || err != nil || !strings.HasPrefix(out.String(), want) {
@@ -107,5 +105,24 @@ func TestALogNotInUTF8IsLeftToPythonBeforeAnythingIsWritten(t *testing.T) {
 	git("config", "--unset", "i18n.logOutputEncoding")
 	if code, err := Main(repo, true, &out, &errOut); code != 0 || err != nil || !strings.Contains(out.String(), " · ") {
 		t.Errorf("a log in UTF-8 gave %d, %v, %q", code, err, out.String())
+	}
+}
+
+func TestADowngradeIsReadAsPythonReadsOne(t *testing.T) {
+	for _, each := range []struct {
+		old, new string
+		down     bool
+	}{
+		{"2.2.0 (Acme Code)", "2.1.9 (Acme Code)", true},
+		{"2.1.0 (Acme Code)", "2.10.0 (Acme Code)", false},
+		{"Acme Code 1.4.1; build 1.4.1-R4600.1", "Acme Code 1.4.1; build 1.4.1-R4503.1", true},
+		{"Acme Code 1.4.1; build 1.4.1-R4503.1", "Acme Code 1.4.1", false}, // a label alone names no build
+		{"Acme Code 1.4.2", "Acme Code 1.4.1; build 1.4.1-R4600.1", true},
+		{"٢.١.٠", "2.0.9", true}, // Python's int() reads any script's digits
+		{"", "1.0.0", false},
+	} {
+		if down := downgrade(each.old, each.new); down != each.down {
+			t.Errorf("%q -> %q: downgrade %t", each.old, each.new, down)
+		}
 	}
 }

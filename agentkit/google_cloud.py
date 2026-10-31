@@ -1,5 +1,5 @@
 """Machines ak rents from Google Cloud: `best`, `rented`, `give_back`, the month's cost (`watch`,
-`said`); renting comes later, behind the same names, so another provider is one more module.  This
+`said`) and renting (`need`), behind names another provider can be one more module of.  This
 module alone knows Google: the service-account key `KEY`, the token its JWT buys (signed by the
 openssl CLI: the standard library has no RSA), Compute Engine's Spot price list and machine types;
 and which machines it rents serve, and how ssh reaches them (`serving`, `ssh_config`).
@@ -7,11 +7,13 @@ and which machines it rents serve, and how ssh reaches them (`serving`, `ssh_con
 
 import base64
 from collections import namedtuple
+import contextlib
 from datetime import datetime, timezone
 import http.client
 import json
 import os
 import re
+import secrets
 import subprocess
 import time
 import urllib.parse
@@ -32,6 +34,8 @@ HOURS_A_MONTH = 730                # how Google turns a monthly price into an ho
 SPOT = re.compile(r"^Spot Preemptible (?!.*Custom)(\w+) (?:[\w-]+ )*?"
                   r"Instance (Core|Ram) running in ")
 DISK = re.compile(r"^(Balanced PD|Hyperdisk Balanced) (?!IOPS|Throughput)\w+ in ")    # its GBs
+DISK_TYPES = {"Balanced PD": "pd-balanced", "Hyperdisk Balanced": "hyperdisk-balanced"}
+IMAGE = "projects/debian-cloud/global/images/family/debian-13"     # "-arm64" for arm64
 # The boot disks a series takes, which neither the price list nor a machine type says: Google's
 # older series Persistent Disk alone, C3, C3D, H3, M3 and Z3 either, every other Hyperdisk alone.
 PD, HYPERDISK = ("Balanced PD",), ("Hyperdisk Balanced",)
@@ -44,7 +48,28 @@ LATE = "google-cloud-late.json"         # doctor's lines: apart, so a bad ledger
 PASS = 180                         # seconds between the tick's passes: cron's */3 (install.sh)
 UNANSWERED = []                    # Google not answering this process, which then asks no more
 Rented = namedtuple("Rented", "id name zone type created until address")   # `id` survives a rename
-USER, READY = "ak", "/run/ak-ready"     # a machine's user for ak, and what says it is set up
+USER, SET_UP = "ak", "/run/ak-ready"    # a machine's user for ak, and what says it is set up
+READY = 600     # seconds a machine takes to come up: no rent meanwhile, nor one for a shorter life
+LIFE = 12 * 3600    # a Spot machine is replaced at no cost, and a forgotten one costs no more
+TRIES, POLLS = 4, 30    # a rent's creates, polled 2 s apart each: one ran 40 s on 31 Oct 2026
+NEED = "google-cloud-need"      # MiB a core of each suite no machine took since the last pass
+REFUSALS = {"QUOTA_EXCEEDED", "quotaExceeded", "ZONE_RESOURCE_POOL_EXHAUSTED",   # Google's codes:
+            "ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS"}    # a zone's quota or stock is out
+# A machine's setup, each line run on those that served suites on 31 Oct 2026: docker's data and
+# trees in memory, as on disk a suite's cores idled in disk wait; sshd keeps a piece's connection.
+STARTUP = """#!/bin/bash
+set -e
+useradd -m -s /bin/bash {user}
+mkdir -p /var/lib/docker ~{user}/.agentkit-helper ~{user}/.ssh
+mount -t tmpfs -o size=70% tmpfs /var/lib/docker
+mount -t tmpfs -o size=70% tmpfs ~{user}/.agentkit-helper
+echo '{key}' >~{user}/.ssh/authorized_keys
+chown -R {user}: ~{user}
+apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -qy docker.io docker-cli git jq
+usermod -aG docker {user}
+echo 'MaxStartups 500:30:1000' >/etc/ssh/sshd_config.d/ak.conf && systemctl reload ssh
+touch {ready}
+"""
 SSH_KEY, KNOWN_HOSTS = "google-cloud-ssh", "google-cloud-known-hosts"     # beside KEY
 SSH_CONFIG = "google-cloud-ssh-config"  # in config.STATE: the machines that serve, then the owner's
 # A machine that held nothing this long goes back.  A new machine's first suite pays about a
@@ -55,6 +80,7 @@ IDLE_FOR = 600
 
 class Unavailable(config.Error):
     """Why ak cannot say what Google offers, in plain words."""
+    codes = None    # Google's own, for a request it refused with a 4xx: it did nothing of it
 
 
 class Offer(NamedTuple):
@@ -63,24 +89,40 @@ class Offer(NamedTuple):
     cores: float      # physical: an arm64 vCPU is one, two x86 vCPUs share one
     memory_mb: int
     hourly: float     # euros: its cores, memory, boot disk and address, as the bill will
+    zones: list = ()  # none in a list kept before ak rented, which is then listed anew
+    image: str = ""
+    disk: str = ""    # its boot disk's type
 
     def __str__(self):
         return (f"{self.name} in {self.region} · {self.cores:g} cores · "
                 f"{self.memory_mb / 1024:g} GB · €{self.hourly:.3f} an hour")
 
 
-def best(mb_per_core):
-    """Of the offers with at least `mb_per_core` of memory a core, the one with the lowest price
-    per core, or None when there is none; raises Unavailable."""
-    fits = [offer for offer in offers() if offer.memory_mb >= mb_per_core * offer.cores]
-    return min(fits, key=lambda offer: (offer.hourly / offer.cores, offer), default=None)
+def best(mb_per_core, offered):
+    """The offers with at least `mb_per_core` of memory a core, the lowest price per core first."""
+    return sorted((offer for offer in offered if offer.memory_mb >= mb_per_core * offer.cores),
+                  key=lambda offer: (offer.hourly / offer.cores, offer))
+
+
+def renting():
+    """Whether ak may rent: `[google_cloud]` active; a config.toml mid-edit says no."""
+    with contextlib.suppress(config.Error):
+        return _setting()[0]
+
+
+def need(mb_per_core):
+    """A suite no machine took asks a pass for one of `mb_per_core` MiB a core; fails nothing."""
+    if renting():
+        with contextlib.suppress(OSError), (config.STATE / NEED).open("a") as noted:
+            noted.write(f"{mb_per_core}\n")
 
 
 def said(mb_per_core):
     """`ak doctor`'s lines: the tick's last answer while ak may rent, else `best`'s."""
     active, cap = _setting()
     if not active:
-        return [f"best now {cheapest}" if (cheapest := best(mb_per_core)) else "nothing offered"]
+        fits = best(mb_per_core, offers())
+        return [f"best now {fits[0]}" if fits else "nothing offered"]
     ledger, late = _ledger(), config._read_json(config.STATE / LATE) or []
     if ledger is None:
         return [f"cannot read {config.tilde(config.STATE / LEDGER)}: all machines go back", *late]
@@ -95,17 +137,17 @@ def said(mb_per_core):
 def watch():
     """The tick's pass while ak may rent: the meter moved on to what Google lists, each machine
     past its end, unpriced, past the cap or idle given back and said, the other ready ones serving;
-    only then a stale price list."""
-    active, cap = _setting()
+    only then a stale price list, and a machine rented for a need noted while none comes up."""
+    wanted, (active, cap) = _noted(config.STATE / NEED), _setting()
     if not active:
         return
     listed, now = rented(), time.time()
     try:
         kept = json.loads((config.STATE / OFFERS).read_text())
-        at, prices = kept["at"], {(name, region): hourly for name, region, *_, hourly
-                                  in kept["offers"] if _amount(hourly)}
+        at, offered = kept["at"], [Offer(*one) for one in kept["offers"]]
     except (OSError, ValueError, TypeError, KeyError):
-        at, prices = 0, {}
+        at, offered = 0, []
+    prices = {(one.name, one.region): one.hourly for one in offered if _amount(one.hourly)}
     ledger, late = (read := _ledger()) and _moved(read, listed, now, prices), []
     try:
         idle = _idle(listed)
@@ -127,8 +169,14 @@ def watch():
     config._write_json(config.STATE / LATE, late)
     if ledger:
         config._write_json(config.STATE / LEDGER, ledger)
-    if not _amount(at) or now - at >= FRESH_FOR:
-        config._write_json(config.STATE / OFFERS, {"at": now, "offers": offers()})
+    if not _amount(at) or now - at >= FRESH_FOR or not all(one.zones for one in offered):
+        config._write_json(config.STATE / OFFERS, {"at": now, "offers": (offered := offers())})
+    # none coming up: on the meter by name or listed, not ready, since less than READY ago
+    if wanted and ledger and all(now - since >= READY for since in [
+            *(one.get("from", 0) for one in ledger["machines"].values()),
+            *(one.created for one in listed if one.id not in idle)]):
+        late += _rent(ledger, wanted, cap, now, offered, {one.zone for one in listed})
+        config._write_json(config.STATE / LATE, late)
 
 
 def rented():
@@ -170,7 +218,7 @@ def give_back(machine):
 
 
 def offers():
-    """Every machine type a zone offers that the price list prices."""
+    """Every machine type the price list prices, with the zones of its region offering it."""
     compute, token = _login()
     core, ram, disk, address = {}, {}, {}, None
     for sku in _pages(token, _url("cloudbilling", f"/v1/services/{COMPUTE_SKUS}/skus"),
@@ -189,22 +237,25 @@ def offers():
     found = {}
     for zone, listed in _pages(token, f"{compute}/aggregated/machineTypes",
                                "items", returnPartialSuccess="true"):   # names zones it missed
-        region = zone.removeprefix("zones/").rsplit("-", 1)[0]
+        region = (zone := zone.removeprefix("zones/")).rsplit("-", 1)[0]
         for kind in listed.get("machineTypes") or ():
             name, vcpus, mb = kind.get("name", ""), kind.get("guestCpus"), kind.get("memoryMb")
             family = name.split("-")[0]
             a_vcpu, a_gb = core.get((family, region)), ram.get((family, region))
-            a_disk_gb = min((disk[product, region] for product in BOOT_DISKS.get(family, HYPERDISK)
-                             if (product, region) in disk), default=None)
+            product = min((one for one in BOOT_DISKS.get(family, HYPERDISK) if (one, region)
+                           in disk), key=lambda one: disk[one, region], default=None)
+            a_disk_gb = disk.get((product, region))
             # a shared core, an accelerator or a bundled local SSD is priced apart from the cores,
             # and bare metal is never Spot
             if (kind.get("isSharedCpu") or kind.get("accelerators") or kind.get("deprecated")
                     or kind.get("bundledLocalSsds") or name.endswith("-metal")
                     or not vcpus or not mb or None in (a_vcpu, a_gb, a_disk_gb, address)):
                 continue
-            cores = vcpus if kind.get("architecture") == "ARM64" else vcpus / 2
+            arm = kind.get("architecture") == "ARM64"
             hourly = vcpus * a_vcpu + mb / 1024 * a_gb + DISK_GB * a_disk_gb + address
-            found[name, region] = Offer(name, region, cores, mb, hourly)
+            found.setdefault((name, region), Offer(name, region, vcpus if arm else vcpus / 2, mb,
+                                                   hourly, [], IMAGE + "-arm64" * arm,
+                                                   DISK_TYPES[product])).zones.append(zone)
     return list(found.values())
 
 
@@ -229,6 +280,80 @@ def _setting():
 def _amount(value):
     """Whether `value` is a number ak could have written: a NaN passes any cap, a string none."""
     return type(value) in (int, float) and 0 <= value < 1e12
+
+
+def _noted(path):
+    """The most MiB a core noted at `path`, 0 for none, taken: a suite noting next notes anew."""
+    try:
+        return max(map(int, path.replace(path.with_suffix(".taken")).read_text().split()))
+    except (OSError, ValueError):
+        return 0
+
+
+def _rent(ledger, wanted, cap, now, offered, taken):
+    """How renting a machine of `wanted` MiB a core went, in lines: by price per core, zones
+    where ak has none (`taken`) first, as Google took both Spot machines of one zone in 6 s on 30
+    Oct 2026; on the meter by name till Google says it made none; living what the cap leaves."""
+    left = cap - ledger["spent"] - sum(one["price"] * max(0, one["until"] - one.get("from", now))
+                                       for one in ledger["machines"].values()) / 3600
+    # the public half of the key `_idle` made, or OSError before any machine is on the meter
+    (compute, token), key = _login(), (config.SECRETS / f"{SSH_KEY}.pub").read_text().strip()
+    said, tries = [f"nothing offered with {wanted} MiB a core"], TRIES
+    for offer in best(wanted, offered):
+        if (life := int(min(LIFE, left * 3600 / offer.hourly))) < READY:
+            said = [f"rents nothing: €{cap - left:.2f} of €{cap:.2f} spent this month or held "
+                    f"to the machines' ends leaves less than {READY // 60} minutes of {offer.name}"]
+            continue
+        for zone in sorted(offer.zones, key=taken.__contains__):
+            name, asked = f"ak-{secrets.token_hex(6)}", time.time()    # past refusals' polls
+            ledger["machines"][name] = {"price": offer.hourly, "from": asked, "until": asked + life}
+            config._write_json(config.STATE / LEDGER, ledger)
+            try:
+                codes = _create(compute, token, zone, _machine(name, zone, offer, life, key))
+            except Unavailable as exc:
+                return [f"{name} asked for in {zone}, kept on the meter: {exc}"]
+            if codes is None:
+                return [f"{name} rented: {offer.name} in {zone}"]
+            del ledger["machines"][name]
+            config._write_json(config.STATE / LEDGER, ledger)
+            said, tries = [f"{offer.name} in {zone} refused: {' '.join(sorted(codes))}"], tries - 1
+            if not tries or not codes & REFUSALS:
+                return said
+    return said
+
+
+def _create(compute, token, zone, machine):
+    """Google's codes for why it made nothing of `machine`, None once made; Unavailable: unknown."""
+    try:
+        operation = _call(f"{compute}/zones/{zone}/instances", token, machine)
+    except Unavailable as exc:
+        if exc.codes is None:
+            raise
+        return exc.codes
+    polls = 0
+    while operation.get("status") != "DONE":
+        if (polls := polls + 1) > POLLS:
+            raise Unavailable(f"Google had not made it after {POLLS} polls")
+        time.sleep(2)
+        operation = _call(f"{compute}/zones/{zone}/operations/{operation.get('name')}", token)
+    return _codes(operation) if "error" in operation else None
+
+
+def _machine(name, zone, offer, life, key):
+    """What Google is asked to make: Spot, deleted by Google itself at its end whatever becomes
+    of this host, its boot disk with it, reached by `key`, the public half of ak's, alone."""
+    startup = STARTUP.format(user=USER, key=key, ready=SET_UP)
+    return {"name": name, "machineType": f"zones/{zone}/machineTypes/{offer.name}",
+            "labels": {"ak": "rented"}, "scheduling": {
+                "provisioningModel": "SPOT", "instanceTerminationAction": "DELETE",
+                "maxRunDuration": {"seconds": str(life)}, "automaticRestart": False,
+                "onHostMaintenance": "TERMINATE"},
+            "disks": [{"boot": True, "autoDelete": True, "initializeParams": {
+                "sourceImage": offer.image, "diskSizeGb": str(DISK_GB),
+                "diskType": f"zones/{zone}/diskTypes/{offer.disk}"}}],
+            "networkInterfaces": [{"accessConfigs": [{"type": "ONE_TO_ONE_NAT"}]}],
+            "metadata": {"items": [{"key": "block-project-ssh-keys", "value": "true"},
+                                   {"key": "startup-script", "value": startup}]}}
 
 
 def _ledger():
@@ -284,7 +409,7 @@ def _idle(listed):
         if one.name not in was:
             subprocess.run(["ssh-keygen", "-R", one.address, "-f", known], capture_output=True)
     known.with_name(f"{KNOWN_HOSTS}.old").unlink(missing_ok=True)     # ssh-keygen's copy
-    line = f"test -e {READY} && {helper._line('idle')}"
+    line = f"test -e {SET_UP} && {helper._line('idle')}"
     said = machines.ask([[*machines.SSH, *(word for option in _reach(one).items()
                                            for word in ("-o", '%s="%s"' % option)),
                           "--", one.name, line] for one in reached])
@@ -328,10 +453,8 @@ def _token(key):
         signed = subprocess.run(["openssl", "dgst", "-sha256", "-sign", f"/dev/fd/{read}"],
                                 input=unsigned.encode(), capture_output=True, pass_fds=(read,),
                                 check=True)
-    body = urllib.parse.urlencode({
-        "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
-        "assertion": f"{unsigned}.{_b64(signed.stdout)}"}).encode()
-    return _call(url, data=body)["access_token"]
+    return _call(url, data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                            "assertion": f"{unsigned}.{_b64(signed.stdout)}"})["access_token"]
 
 
 def _pages(token, url, field, **query):
@@ -349,22 +472,36 @@ def _pages(token, url, field, **query):
 
 
 def _call(url, token=None, data=None, method=None, gone=None):
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    # Google's APIs take JSON, its token endpoint a form; a reply cut short raises IncompleteRead
+    headers = {"Authorization": f"Bearer {token}",
+               "Content-Type": "application/json"} if token else {}
+    body = data and (json.dumps(data) if token else urllib.parse.urlencode(data)).encode()
     if UNANSWERED:
         raise Unavailable(UNANSWERED[0])
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, data, headers, method=method),
+        with urllib.request.urlopen(urllib.request.Request(url, body, headers, method=method),
                                     timeout=TIMEOUT) as response:
             return json.load(response)
     except urllib.request.HTTPError as exc:     # Google's answer: 403 Forbidden, 404 Not Found ...
         if exc.code == 404 and gone is not None:
             return gone
-        raise Unavailable(f"Google refused: {exc.reason}")
+        refused = Unavailable(f"Google refused: {exc.reason}")
+        refused.codes = _codes(exc) if exc.code < 500 else None
+        raise refused
     except OSError as exc:      # no answer: it costs a process one TIMEOUT, no more
         UNANSWERED.append(f"asking Google failed: {getattr(exc, 'reason', exc)}")
         raise Unavailable(UNANSWERED[0])
     except (http.client.HTTPException, ValueError) as exc:   # http's, json's
         raise Unavailable(f"asking Google failed: {exc}")
+
+
+def _codes(answer):
+    """Google's codes in an operation or a refusal's body: its errors' codes or reasons."""
+    try:
+        errors = (answer if isinstance(answer, dict) else json.load(answer))["error"]["errors"]
+        return {one.get("code") or one.get("reason") for one in errors} - {None}
+    except (OSError, ValueError, LookupError, TypeError, AttributeError, http.client.HTTPException):
+        return set()
 
 
 def _url(host, path):

@@ -2645,7 +2645,10 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None):
     (`notify.answer_written`), which every other look also asks: the owner's message reaches it
     after their prompt hook ran.  An answer on the harness's own question `card` names the
     questions it answers, and answers only those (`notify.answered`).
+
+    Each of its starts starts it unmarked, in a session of its own: it marks itself.
     """
+    owner.mark("seat look")
     name = config.resolve_session(launched)
     number, session = next(((number, session) for number, session
                             in enumerate(orch.listing(reconcile=False), 1)
@@ -7739,9 +7742,9 @@ def doctor(argv):
                 wrong.append(f"{key}  {name}: {entry.get('model')} takes {' '.join(takes)}, "
                              f"not {entry.get(key)}")
     print("\n".join(wrong) or "effort  every model takes the effort it is set to", flush=True)
-    from . import gate, google_cloud   # here, not at the top: the gate imports this module
+    from . import gate, google_cloud, helper   # here, not at the top: the gate imports this module
     try:
-        lines = google_cloud.said(gate.HEAVY_MEM_MB)
+        lines = google_cloud.said(helper.each_mb(gate.HEAVY_MEM_MB, 0))
     except config.Error as exc:
         lines = [str(exc)]
     print("\n".join(f"rented machines: {line}" for line in lines))

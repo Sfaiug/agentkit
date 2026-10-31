@@ -110,13 +110,15 @@ RULES = [
     # quota (`cpu_quota`, systemd's `CPUQuota`, the user unit's `unit_quota`), the
     # usage-limit reset and its credits as the name of a feature, and what a subscription's
     # week holds in tokens (`capacity.json`, `ak usage --json`'s `capacity_tokens` and
-    # `capacity_pairs`).
+    # `capacity_pairs`).  Google Compute's refusal codes are agentkit/google_cloud.py's, the one
+    # module that knows Google.
     {"name": "provider failure words",
      "flags": ("-i",),
      "pattern": "rate[ _-]?limit|quota|capacity|overload|usage[ _-]?limit",
      "names": r"quota[_-]?dry|run-quota|(cpu|unit)[ _]?quota|usage[ -]limit (reset|credit)"
               r"|capacity[._](json|tokens|pairs)",
-     "home": ("adapters/", "agentkit/harness/", "go/internal/config/adapters/"),
+     "home": ("adapters/", "agentkit/harness/", "go/internal/config/adapters/",
+              "agentkit/google_cloud.py"),
      "max": 59},
     # The run loop, admission and a stop write run.json through its one writer.
     # Called through the module (`record.save_state`); watch.py's own `save_state` writes the

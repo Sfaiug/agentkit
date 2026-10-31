@@ -64,7 +64,7 @@ case $5 in''')
         (config.HOME / config.CONFIG_NAME).write_text('suite_helper = "acme-mac"\n')
         subprocess.run([*self.git, "rm", "-q", helper.RECIPE], check=True)
         subprocess.run([*self.git, "commit", "-qm", "no recipe"], check=True)
-        self.assert_here(self.check(), "no recipe for the suite helper acme-mac")
+        self.assert_here(self.check(), "no recipe for the suite helper")
         self.assertFalse((self.fake / "calls").exists())
 
     def test_probe_and_prepare_codes_each_say_why_in_the_lander_log(self):

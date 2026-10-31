@@ -44,7 +44,7 @@ class GoneAkLeftovers(unittest.TestCase):
         """The mark `owner.mark` makes as `ak usage`, in another pid namespace if one is given."""
         self.put("self")
         with patch.object(owner, "_namespace", return_value=namespace or owner._namespace()):
-            owner.mark("usage")
+            owner.mark("ak usage")
         return os.environ[owner.MARK]
 
     def put(self, pid, mark=None, *, start=1, session=SESSION, ppid=1, comm="sleep", turns=None,

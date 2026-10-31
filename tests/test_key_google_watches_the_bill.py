@@ -10,25 +10,11 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import AK, REPO, Home, boxable
-from fixtures.google import ADDRESS, NL, SPOT, Google, kind, sku
+from fixtures.akbin import Home, boxable
+from fixtures.google import SKUS, Google, kind
 
-# Every `bin/ak` gives `google_cloud` the test clock, at the time in the file it names.
-CLOCK = """
-import sys, time
-if sys.argv[:1] == [{ak!r}]:
-    sys.path[:0] = [{repo!r}, {tests!r}]
-    from fixtures.clock import Clock
-    from agentkit import google_cloud
-    del sys.path[:2]
-    google_cloud.time = Clock(time.sleep)
-    google_cloud.time.time = lambda: float(open({now!r}).read())
-"""
 # c4a-standard-8 costs €6.0045 an hour: €5.60 its cores, €0.40 memory, €0.0045 disk and address
 P, HOUR = 6.0045, 3600
-SKUS = [sku(f"{SPOT} C4A Arm Instance Core running in Netherlands", NL, 700_000_000),
-        sku(f"{SPOT} C4A Arm Instance Ram running in Netherlands", NL, 12_500_000),
-        sku("Hyperdisk Balanced Capacity in Netherlands", NL, 73_000_000, "GiBy.mo"), ADDRESS]
 T, DECEMBER = (datetime(2026, *at, tzinfo=UTC).timestamp() for at in ((11, 1, 2), (12, 1, 0, 30)))
 BOOKED = DECEMBER + HOUR
 
@@ -56,11 +42,7 @@ class WatchesTheBill(unittest.TestCase):
             "machineTypes": [kind("c4a-standard-8", 8, 32)]}}])
         cls.addClassCleanup(google.close)
         google.key()
-        home.write("clock/sitecustomize.py", CLOCK.format(
-            ak=AK, repo=str(Path(AK).resolve().parents[1]), tests=str(REPO / "tests"),
-            now=str(home.path / "clock" / "now")))
-        google.env["PYTHONPATH"] = str(home.path / "clock")
-        google.machines, cls.toml = [ONE, OWN], (home.path / ".agentkit/config.toml").read_text()
+        google.machines, cls.at = [ONE, OWN], google.at
         cls.off, cls.unpriced = cls.at(T, 0), cls.at(T)
         # renamed, acme-1 keeps its meter; acme-3 is read again as another machine of its name
         google.machines = [{**ONE, "name": "acme-1b"}, TWO, OWN, THREE]
@@ -83,19 +65,6 @@ class WatchesTheBill(unittest.TestCase):
         cls.booked = cls.at(BOOKED + 180)
         google.machines = [machine("5", "2026-12-01T01:40:00Z", 2)]
         cls.taken_over = cls.at(BOOKED + 2 * HOUR)
-
-    @classmethod
-    def at(cls, when, cap=50):
-        """At `when` and a cap of `cap` euros, 0 not active, what a tick asked Google, whom it
-        deleted, and `ak doctor`'s lines then."""
-        cls.home.write(".agentkit/config.toml", f"{cls.toml}\n[google_cloud]\nactive = "
-                       f"{'true' if cap else 'false'}\nmax_month = {cap}\n")
-        cls.home.write("clock/now", str(when))
-        start, done = len(cls.google.asked), cls.home.tick(env=cls.google.env)
-        assert done.code == 0, done.out + done.err
-        asked = cls.google.asked[start:]
-        return asked, [one[7:] for one in asked if one.startswith("DELETE ")], [
-            line.removeprefix("rented machines: ") for line in cls.google.rented()]
 
     def test_off_asks_nothing_on_one_past_its_end_or_unpriced_goes_back_and_prices_follow(self):
         self.assertEqual((*self.off[:2], self.off[2][0][:23]), ([], [], "best now c4a-standard-8"))
