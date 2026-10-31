@@ -3,7 +3,6 @@
 package box
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/host"
 )
 
 // stopFD is the descriptor the box's first process reads ak's stop by: its end, as ak closes its
@@ -71,9 +71,7 @@ func leftovers(command int) map[int]string {
 		if err != nil || pid == os.Getpid() || pid == command {
 			continue
 		}
-		stat, _ := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-		state := strings.Fields(string(stat[bytes.LastIndexByte(stat, ')')+1:]))
-		if len(state) == 0 || state[0] == "Z" || state[0] == "X" {
+		if stat, ok := host.ReadStat(pid); !ok || stat.Exited() {
 			continue
 		}
 		said, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
