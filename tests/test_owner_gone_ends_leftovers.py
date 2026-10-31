@@ -11,6 +11,7 @@ import shutil
 import signal
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -129,6 +130,15 @@ class GoneAkLeftovers(unittest.TestCase):
         self.reused = {10}
         self.assertEqual(self.sweep(), [])
         self.assertEqual(self.sent, set())
+
+    def test_a_loop_of_parents_read_across_a_pid_given_anew_ends_the_sweep(self):
+        self.put(10, self.mark, ppid=20)
+        self.put(20, self.mark, ppid=10)
+        sweep = threading.Thread(target=self.sweep, daemon=True)
+        sweep.start()
+        sweep.join(60)
+        self.assertFalse(sweep.is_alive(), "the sweep walked the loop for good")
+        self.assertEqual(self.running(), set())
 
 
 if __name__ == "__main__":

@@ -111,10 +111,14 @@ def _namespace():
 
 
 def _under_tmux(pid, stats):
-    """Whether that process is a tmux server, by the name tmux gives it, or below one."""
-    while pid in stats:
+    """Whether that process is a tmux server, by the name tmux gives it, or below one.  `stats`
+    is read a process at a time, so a pid given anew between two reads can close a loop of
+    parents: the walk ends where it would come back."""
+    seen = set()
+    while pid in stats and pid not in seen:
         if _proc(pid, "comm") == "tmux: server\n":
             return True
+        seen.add(pid)
         pid = stats[pid].ppid
     return False
 
