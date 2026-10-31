@@ -266,7 +266,7 @@ class Home:
             except subprocess.TimeoutExpired:
                 _end(proc)
                 raise AssertionError(f"still running after {timeout} s: "
-                                     f"{shlex.join(argv)}") from None
+                                     f"{shlex.join(map(str, argv))}") from None
         finally:
             for fd in (typist, terminal):
                 if fd is not None:

@@ -54,7 +54,7 @@ class Runner(unittest.TestCase):
 
     def test_a_hang_fails_and_leaves_nothing_running(self):
         with self.assertRaisesRegex(AssertionError, "still running after 1 s: sleep 60"):
-            self.home.run("sleep", "60", timeout=1)
+            self.home.run(Path("sleep"), "60", timeout=1)     # an argument may be a Path
 
     @unittest.skipUnless(Path("/proc/self/environ").exists(), "no /proc to find strays in")
     def test_a_hang_fails_while_a_detached_process_still_holds_its_output(self):
