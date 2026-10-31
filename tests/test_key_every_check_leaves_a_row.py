@@ -1,19 +1,23 @@
 """Every check a round runs leaves one row in history.db's `checks` table, written where it ran.
 
 A row names the run and round, the check's kind (`done-when`, `rules`, `base-proof`, `replay`),
-the command ak ran, the commit checked (the base's for a base proof), the host or helper it
-ran on, its exit, when it was asked for, started and finished, and whether the same command
-already ran on that commit in the run.  The columns an older ak made for a suite's measures and
-nothing wrote are dropped from `runs`.  Black-box: the program `AK_BIN` names runs from outside
+the command ak ran (a list the suite helper ran as one shell, a suite's piece with its share),
+the commit checked (the base's for a base proof, none for a scratch run's one workspace), the
+host or helper it ran on, its exit (none where it never returned: the row is written as the
+check starts), when it was asked for, started and finished, and whether the same command already
+ran on that commit in the run.  The columns an older ak made for a suite's measures and nothing
+wrote are dropped from `runs`.  Black-box: the program `AK_BIN` names runs from outside
 through tests/fixtures/akbin.py, on a project from gitrig.py, with scripted harnesses from
 fakeadapter.py, and the test reads the Home's history.db.
 """
 
 import contextlib
 import json
+import signal
 import socket
 import sqlite3
 import sys
+import time
 from pathlib import Path
 import unittest
 
@@ -48,16 +52,18 @@ class Rows:
         cls.db = cls.home.path / ".agentkit" / "history.db"
 
     @classmethod
-    def launch(cls, title, checks=CHECKS, env=None):
-        """Run a task whose done-when lists `checks`; its record, with its branch's commits."""
-        task = taskfile.write(cls.home, cls.rig.path, title, done_when=checks)
+    def launch(cls, title, checks=CHECKS, env=None, repo=None):
+        """Run a task whose done-when lists `checks` in the rig, or `repo` (`none`: a scratch
+        run); its record, with its branch's commits."""
+        task = taskfile.write(cls.home, repo or cls.rig.path, title, done_when=checks)
         done = cls.home.ak("run", str(task), "--no-merge", env={**OWNERS, **(env or {})},
                            timeout=300)
         assert done.code == 0, done.out + done.err
         run_dir, = (path for path in taskfile.runs(cls.home)
                     if path.name.endswith(taskfile.slug(title)))
         state = json.loads((run_dir / "run.json").read_text())
-        commits = cls.rig.git("rev-list", "--reverse", f"{cls.base}..{state['branch']}").split()
+        branch = state.get("branch")
+        commits = branch and cls.rig.git("rev-list", "--reverse", f"{cls.base}..{branch}").split()
         return {**state, "id": run_dir.name, "commits": commits}
 
     def rows(self, run, kind):
@@ -131,9 +137,52 @@ class EveryCheckLeavesARow(Rows, unittest.TestCase):
         self.assertEqual(columns & set(OLD), set())
 
 
-class AListRedOnTheHelper(Rows, unittest.TestCase):
-    """The round's list goes to the suite helper as one shell, red there, then runs here."""
+class AScratchRun(Rows, unittest.TestCase):
+    """A scratch run has no commit: its one workspace is the tree each of its checks runs on."""
+    once = "test -f .once || { touch .once; false; }"     # red, then green when run again at once
+
+    @classmethod
+    def setUpClass(cls):
+        cls.start()
+        akconfig.write(cls.home, ["opus", "astra"])
+        fakeadapter.install(cls.home, claude="work", codex="pass")
+        cls.scratch = cls.launch("Add retry file", (cls.once,), repo="none")
+
+    def test_the_command_run_again_is_a_rerun(self):
+        self.assertEqual([(row["command"], row["tree"], row["exit"], row["rerun"])
+                          for row in self.rows(self.scratch, "done-when")],
+                         [(self.once, None, 1, 0), (self.once, None, 0, 1)])
+
+
+class ACheckThatNeverReturns(Rows, unittest.TestCase):
+    """A run stopped while its check runs keeps the check's row, written as it started."""
+    hangs = 'echo started >"$(git rev-parse --git-common-dir)/started"; sleep 300'
+
+    @classmethod
+    def setUpClass(cls):
+        cls.start()
+        akconfig.write(cls.home, ["opus", "astra"])
+        fakeadapter.install(cls.home, claude="work", codex="pass")
+        task = taskfile.write(cls.home, cls.rig.path, "Add retry file", done_when=(cls.hangs,))
+        proc = cls.home.spawn("run", str(task), "--no-merge", env=OWNERS)
+        deadline = time.monotonic() + 240
+        while not (cls.rig.path / ".git" / "started").exists():
+            assert proc.poll() is None and time.monotonic() < deadline, "the check never started"
+            time.sleep(0.1)
+        proc.send_signal(signal.SIGINT)
+        proc.wait(timeout=60)
+        cls.stopped = {"id": taskfile.only_run(cls.home).name}
+
+    def test_its_row_has_no_exit(self):
+        self.assertEqual([(row["command"], row["exit"])
+                          for row in self.rows(self.stopped, "done-when")], [(self.hangs, None)])
+
+
+class OnTheSuiteHelper(Rows, unittest.TestCase):
+    """A round's list goes to the suite helper as one shell, and a suite's pieces each go there,
+    red there, then run here."""
     listed = (on_helper.HERE_ONLY, "true")
+    sharded = f': "$AK_SHARD"; {on_helper.HERE_ONLY}'
 
     @classmethod
     def setUpClass(cls):
@@ -144,7 +193,9 @@ class AListRedOnTheHelper(Rows, unittest.TestCase):
         (helper / "probe").write_text(on_helper.ROOM)
         cls.home.fake("ssh", on_helper.SSH.format(python=sys.executable, helper=str(helper)))
         fakeadapter.install(cls.home, claude="work", codex="pass")
-        cls.red = cls.launch("Add retry file", cls.listed, {"AK_HOST_READINGS": on_helper.READINGS})
+        readings = {"AK_HOST_READINGS": on_helper.READINGS}
+        cls.red = cls.launch("Add retry file", cls.listed, readings)
+        cls.pieces = cls.launch("Add pieces", (cls.sharded,), readings)
 
     def test_the_list_is_one_row_there_and_each_command_a_rerun_here(self):
         head, = self.red["commits"]
@@ -153,6 +204,15 @@ class AListRedOnTheHelper(Rows, unittest.TestCase):
                           for row in self.rows(self.red, "done-when")],
                          [("\n".join(self.listed), "acme-mac", 1, head, 0),
                           *((command, here, 0, head, 1) for command in self.listed)])
+
+    def test_each_piece_is_a_row_where_it_ran_and_its_go_here_a_rerun(self):
+        head, = self.pieces["commits"]
+        shares = [f"AK_SHARD={share} {self.sharded}" for share in ("1/2", "2/2")]
+        # the pieces run at once there: their rows start in either order
+        self.assertEqual(sorted((row["rerun"], row["command"], row["place"], row["exit"],
+                                 row["tree"]) for row in self.rows(self.pieces, "done-when")),
+                         [*((0, piece, "acme-mac", 1, head) for piece in shares),
+                          *((1, piece, socket.gethostname(), 0, head) for piece in shares)])
 
 
 if __name__ == "__main__":

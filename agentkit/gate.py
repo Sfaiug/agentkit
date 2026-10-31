@@ -1633,7 +1633,8 @@ def unnamed(code, only, ran, output):
 
 def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
               on_wait=None, measure=False, shard=None, pieces=None, later=None, only=None,
-              confirmed=None, changed=None, flaky=None, named=None, **kwargs):
+              confirmed=None, changed=None, flaky=None, named=None, checked=None, asked=None,
+              **kwargs):
     """One command, or all its opted-in pieces, with failed pieces retried alone.
 
     Callers keep one command and one outcome. Each piece has its own silence window;
@@ -1661,6 +1662,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     or `shard`) named as failed, confirmed or not.
     Every piece gets the file times recorded as the suite starts (`suite_times`): a record
     another suite changes meanwhile would cut a later piece's share differently.
+    With `checked` (`run_done_when`'s) each go of a piece leaves its row where it runs, a first go
+    asked for at `asked`, a later one as it is decided.
     """
     times = suite_times.handed(cwd)
     env = suite_env(changed, times)
@@ -1819,13 +1822,17 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     here = {} if there else {"cpu": measure.cpu, "quiet": measure.quiet,
                                              "only": only, "failed": tests, "flaky": flaky}
                     kills = measure.oom("oom_kill")
-                    code, _, killed = (worker.limited if there else worker.boxed)(
-                        helper.piece(there, shard, there_command)
-                        if there else ["bash", "-c", command],
-                        left, cwd=str(cwd), activity=Path(piece.name), output=stream,
-                        env=own, abort=abort,
-                        on_timeout=stopped, silence=silence if first else later or silence,
-                        **here, **kwargs)
+                    with history.check(run_dir, checked, f"AK_SHARD={shard} {command}",
+                                       asked if first else time.time(),
+                                       there and there.alias) as ended:
+                        code, _, killed = (worker.limited if there else worker.boxed)(
+                            helper.piece(there, shard, there_command)
+                            if there else ["bash", "-c", command],
+                            left, cwd=str(cwd), activity=Path(piece.name), output=stream,
+                            env=own, abort=abort,
+                            on_timeout=stopped, silence=silence if first else later or silence,
+                            **here, **kwargs)
+                        ended.append(None if killed else code)
                     if not there and not killed and measure.starved(code, kills):
                         starved.add(shard)
                     else:
@@ -2193,7 +2200,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     list, the tests it found failing, then passing, those a command run whole named failed
     before its re-run passed among them.  `changed`, a file of paths, is what
     `AK_CHANGED` names to every command.  `checked`, a round's `(round, kind, tree)`, has each
-    run of a command leave its row in history (`history.check`), a re-run one of its own.
+    run of a command, or of a piece of one, leave its row in history (`history.check`), a re-run
+    one of its own.
     The test files' times the commands printed are kept (`suite_times`) before the log, whole
     until then, takes `text`, its capped form.
     """
@@ -2235,11 +2243,12 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                 left = deadline - time.monotonic()
                 if left <= 0:
                     break
-                with log_path.open("ab") as progress:
+                # a suite split into pieces leaves a row for each piece (`run_suite`)
+                with log_path.open("ab") as progress, history.check(
+                        run_dir, None if split(cmd) else checked, cmd, asked) as ended:
                     progress.write(f"$ {cmd}\n".encode())
                     progress.flush()
                     offset = progress.tell()
-                    started = time.time()
                     code, piece_text, killed = run_suite(
                         cmd, left, activity=log_path, later=window and rest,
                         silence=rest if first_span is not None else window or silence,
@@ -2249,7 +2258,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         pieces=None if pieces is None else pieces.setdefault(cmd, {}),
                         only=only,
                         confirmed=None if confirmed is None else confirmed.setdefault(cmd, {}),
-                        changed=changed, flaky=flaky, named=named)
+                        changed=changed, flaky=flaky, named=named, checked=checked, asked=asked)
+                    ended.append(None if killed else code)
                     end = progress.tell()
                 if log is not None and run_dir is not None:
                     turns.memory_cap_note(run_dir, log)
@@ -2260,7 +2270,6 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     busy = True
                     deadline += busy_turn(run_dir, log_path, log)
                     continue
-                history.check(run_dir, checked, cmd, None if killed else code, asked, started)
                 asked = time.time()
                 if code == 0 or first_span is not None or split(cmd):
                     break
@@ -2353,21 +2362,20 @@ def run_round(cmds, cwd, log_path, artifacts, limit, log, silence, run_dir, chec
             say(f"done-when on the suite helper {away.alias}, as one piece")
             try:
                 run_record.stop_check(run_dir)    # a stop marked while it prepared starts none
-                started = time.time()
-                with log_path.open("wb") as progress:
+                with log_path.open("wb") as progress, history.check(
+                        run_dir, checked, "\n".join(cmds), asked, away.alias) as ended:
                     code, _, killed = worker.limited(
                         helper.piece(away, "1/1", there_command),
                         limit, cwd=str(cwd), activity=log_path, output=progress,
                         env=suite_env(), silence=silence, stderr=subprocess.STDOUT,
                         stdin=subprocess.DEVNULL)
+                    ended.append(None if killed else code)
             except OSError as exc:
                 # It never started (a list longer than one ssh argument may be): the shell's 126.
                 log_path.write_text(f"{exc}\n")
                 code, killed = 126, False
             finally:
                 helper.finish(away)
-            history.check(run_dir, checked, "\n".join(cmds), None if killed else code, asked,
-                          started, away.alias)
             run_record.stop_check(run_dir)
             suite_times.keep(cwd, log_path)
             with log_path.open("rb") as progress:

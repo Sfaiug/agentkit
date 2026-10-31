@@ -100,11 +100,12 @@ CREATE TABLE IF NOT EXISTS phases (
 )
 """
 
-# One row per check a round runs, written where it ran (`check`): `kind` is `done-when`, `rules`,
+# One row per check a round runs, written where it runs (`check`): `kind` is `done-when`, `rules`,
 # `base-proof` or `replay`, `command` the text ak ran (a list a helper ran as one shell, a command
-# a line), `tree` the commit checked (the base's for a base proof), `place` the host or helper,
-# `exit` NULL where it never returned.  Its wait and wall are differences of its moments, and
-# `rerun` is 1 where the command, or a list holding it, already ran on this tree in this run.
+# a line; a suite's piece its `AK_SHARD=` share before it), `tree` the commit checked (the base's
+# for a base proof; NULL for a scratch run's one workspace), `place` the host or helper, `exit`
+# NULL where it never returned.  Its wait and wall are differences of its moments, and `rerun` is
+# 1 where the command, or a list holding it, already ran on this tree in this run.
 CHECKS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS checks (
     run_id TEXT,
@@ -433,21 +434,37 @@ def add_wait(run_id, wait, seconds, at=None, *, began=None, log=None):
     _write(lambda connection: waiter.add_wait(connection, run_id, wait, seconds, began, at), log)
 
 
-def check(run_dir, checked, command, code, requested_at, started_at, place=None):
-    """The row of one check a round ran, ending now (`CHECKS_SCHEMA`): `checked` is its
-    `(round, kind, tree)`, None for a check no round runs, which leaves none, and `place` this
-    host unless named.  A run with no row keeps no checks."""
-    if checked is None or run_dir is None:
-        return
-    rnd, kind, tree = checked
-    _write(lambda connection: connection.execute(
-        "INSERT INTO checks (run_id, round, kind, command, tree, place, exit, requested_at, "
-        "started_at, finished_at, rerun) SELECT run_id, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, "
-        "EXISTS (SELECT 1 FROM checks WHERE run_id=?1 AND tree=?5 AND "
-        "instr(char(10) || command || char(10), char(10) || ?4 || char(10))) "
-        "FROM runs WHERE run_id=?1",
-        (Path(run_dir).name, rnd, kind, command, tree, place or socket.gethostname(), code,
-         requested_at, started_at, time.time())))
+@contextlib.contextmanager
+def check(run_dir, checked, command, requested_at, place=None):
+    """The row of one check a round runs (`CHECKS_SCHEMA`), written as it starts, so a check
+    that never returns -- killed, interrupted, its process gone -- keeps one: the caller appends
+    the exit it returned to the list this yields, and its end is written however the block ends.
+    `checked` is its `(round, kind, tree)`, None for a check no round runs, which leaves none, and
+    `place` this host unless named.  A run with no row keeps no checks."""
+    ended, row = [], None
+    if checked is not None and run_dir is not None:
+        values = (Path(run_dir).name, *checked, command, place or socket.gethostname(),
+                  requested_at, time.time())
+        row = _write(lambda connection: _started(connection, values))
+    try:
+        yield ended
+    finally:
+        if row:
+            _write(lambda connection: connection.execute(
+                "UPDATE checks SET exit=?, finished_at=? WHERE rowid=?",
+                (ended[0] if ended else None, time.time(), row)))
+
+
+def _started(connection, values):
+    """The new row's id, or None for a run with no row."""
+    cursor = connection.execute(
+        "INSERT INTO checks (run_id, round, kind, tree, command, place, requested_at, started_at, "
+        "rerun) SELECT run_id, ?2, ?3, ?4, ?5, ?6, ?7, ?8, EXISTS (SELECT 1 FROM checks "
+        "WHERE run_id=?1 AND tree IS ?4 AND "
+        "instr(char(10) || command || char(10), char(10) || ?5 || char(10))) "
+        "FROM runs WHERE run_id=?1", values)
+    # an insert of no row leaves the connection's last rowid, another table's
+    return cursor.lastrowid if cursor.rowcount else None
 
 
 phase = waiter.phase

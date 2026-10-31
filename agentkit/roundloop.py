@@ -590,12 +590,12 @@ def verify_work(lp, cmds=None):
         gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
         check = gate.run_round      # the tree at HEAD is the checkout's: the helper may run it
     follow_target(lp)
-    asked = time.time()
-    checks = (files_scope(lp), rules_check(lp))
     lp.validation = {} if lp.scratch else gitcall.commit_identity(lp.wt)
     head = lp.validation.get("head_sha")
-    history.check(lp.run_dir, (lp.rnd, "rules", head), "files_scope, rules_check",
-                  int(any(checks)), asked, asked)
+    with history.check(lp.run_dir, (lp.rnd, "rules", head), "files_scope, rules_check",
+                       time.time()) as ended:
+        checks = (files_scope(lp), rules_check(lp))
+        ended.append(int(any(checks)))
     clean = lp.scratch or lp.state.get("review_pr") or gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
     ok, text = check(cmds, lp.wt, lp.round_dir / "donewhen.log", lp.artifacts,
                      lp.done_when_limit, lp.log, silence=lp.turn_limit, run_dir=lp.run_dir,
