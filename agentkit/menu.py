@@ -136,7 +136,7 @@ from contextlib import closing
 from pathlib import Path
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import record
+from . import parsed, record
 from . import warm
 
 KEYS = "n new   c config   esc leave"
@@ -2259,8 +2259,11 @@ def looped(path):
 
 
 class _RunRecords:
+    """The census a starting screen reads in place of every run.json: what `parsed` keeps of
+    each run's record, a row per run under the stat it keeps it by."""
+
     def __init__(self, root, *, cache=True):
-        self.root, self.known, self.db = root, {}, None
+        self.root, self.saved, self.db = root, {}, None
         if not cache:
             return
         # The cache before RUN_RECORDS: nothing reads it, and a run still on that install that
@@ -2276,9 +2279,10 @@ class _RunRecords:
             self.db.execute("CREATE TABLE IF NOT EXISTS records (name TEXT PRIMARY KEY, value TEXT)")
             for name, value in self.db.execute("SELECT name, value FROM records"):
                 try:
-                    key, state = json.loads(value)
-                    if isinstance(key, list) and isinstance(state, dict):
-                        self.known[name] = key, state
+                    stamp, state = json.loads(value)
+                    if isinstance(stamp, list) and isinstance(state, dict):
+                        self.saved[name] = stamp = tuple(stamp)
+                        parsed.keep(config.RUNS / name / "run.json", record._state, stamp, state)
                 except (ValueError, TypeError, RecursionError):
                     continue
         except sqlite3.Error:
@@ -2289,26 +2293,21 @@ class _RunRecords:
             self.db.close()
             self.db = None
 
-    def read(self):
-        found, fresh, changed, resolved = [], {}, [], {}
-        for run_dir in record.run_dirs():
-            try:
-                info = (run_dir / "run.json").stat()
-            except OSError:
+    def save(self, run_dirs):
+        """Write down what `parsed` keeps that the census does not hold; a run gone since takes
+        its record out of both, since nothing reads its path again for `parsed` to forget it."""
+        saved, changed = {}, []
+        for run_dir in run_dirs:
+            stamp, state = parsed.kept(run_dir / "run.json", record._state) or (None, None)
+            if state is None:
                 continue
-            key = [info.st_dev, info.st_ino, info.st_mtime_ns, info.st_ctime_ns, info.st_size]
-            if run_dir.name in self.known and self.known[run_dir.name][0] == key:
-                state = self.known[run_dir.name][1]
-            else:
-                state = record.read_state(run_dir)
-                if state is None:
-                    continue
-                changed.append((run_dir.name, json.dumps([key, state])))
-            fresh[run_dir.name] = key, state
-            if not state.get("unattended") and not smoke_run(state, resolved):
-                found.append((run_dir, state))
-        removed = self.known.keys() - fresh.keys()
-        self.known = fresh
+            saved[run_dir.name] = stamp
+            if self.db is not None and self.saved.get(run_dir.name) != stamp:
+                changed.append((run_dir.name, json.dumps([stamp, state])))
+        removed = self.saved.keys() - saved.keys()
+        for name in removed:
+            parsed.forget(config.RUNS / name / "run.json", record._state)
+        self.saved = saved
         if self.db is not None and (changed or removed):
             try:
                 with self.db:
@@ -2318,17 +2317,16 @@ class _RunRecords:
                                         ((name,) for name in removed))
             except sqlite3.Error:
                 pass           # another process can fill the cache; this one keeps its reads
-        return found
 
 
 def run_records(*, cache=True):
-    """Every run's record, loading the shared cache only once per process.
+    """Every run's record, each every reader's (`record.read_state`), so only read.
 
-    Only a changed run.json is opened again, with its stat taken before the read so a racing
-    write can cause another read, never hide one. SQLite commits only changed rows and keeps
-    other processes' reads whole. Cache failures leave the run files authoritative. Returned
-    records are shared read-only snapshots, replaced only when their run.json changes.
-    With cache=False, snapshots stay in memory without touching persistent caches.
+    A process's first pass hands `parsed` the census saved in SQLite, so it opens only a run.json
+    changed since; each pass saves what `parsed` keeps anew.  SQLite commits only changed rows
+    and keeps other processes' reads whole.  Cache failures leave the run files authoritative.
+    With cache=False, no persistent cache is read or written.  Either way a run gone leaves
+    memory at the next pass.
 
     Unattended runs and tasks or repos resolving under ~/.agentkit/tmp/smoke-* are left out.
     Paths are resolved on every pass: a symlink can move without a run.json changing. Bad run
@@ -2341,7 +2339,14 @@ def run_records(*, cache=True):
             if _RUN_RECORDS is not None:
                 _RUN_RECORDS.close()
             _RUN_RECORDS = _RunRecords(root, cache=cache)
-        return _RUN_RECORDS.read()
+        found, resolved, run_dirs = [], {}, record.run_dirs()
+        for run_dir in run_dirs:
+            state = record.read_state(run_dir, shared=True)
+            if state is None or state.get("unattended") or smoke_run(state, resolved):
+                continue
+            found.append((run_dir, state))
+        _RUN_RECORDS.save(run_dirs)
+        return found
 
 
 def unread(prov, weekly, readable, now):
