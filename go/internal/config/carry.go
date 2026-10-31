@@ -36,11 +36,6 @@ func Carry(usual, own string) (string, bool, error) {
 	return text.String(), err == nil, err
 }
 
-// TOML is why text is no TOML, nil where it is.
-func TOML(text string) error {
-	return syntax(text)
-}
-
 // fill puts each of own's values shared lacks into shared, tables both hold filled in turn.
 func fill(shared, own *table) (changed bool) {
 	for _, key := range own.keys {

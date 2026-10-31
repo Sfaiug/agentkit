@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -23,10 +24,12 @@ drop = "~/.acme-*"
 unset = ["ACME_KEY"]
 `
 
-func manifest(t *testing.T) {
+// manifest is acme's, its [launch] holding extra too.
+func manifest(t *testing.T, extra string) {
 	adapters := t.TempDir()
 	t.Setenv("AGENTKIT_ADAPTER_DIR", adapters)
-	if err := os.WriteFile(filepath.Join(adapters, "acme.toml"), []byte(launch), 0o600); err != nil {
+	text := strings.Replace(launch, "[launch]\n", "[launch]\n"+extra, 1)
+	if err := os.WriteFile(filepath.Join(adapters, "acme.toml"), []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -34,7 +37,7 @@ func manifest(t *testing.T) {
 // A placeholder is the call's words, else the table's own key's, a string one word; a name
 // neither gives, or a key holding no words, is refused rather than dropped.
 func TestWordsPutTheCallsWordsOrTheTablesInEachPlaceholder(t *testing.T) {
-	manifest(t)
+	manifest(t, "")
 	call := map[string][]string{"conversation": nil, "model": {"m 1"}}
 	if got, ok, err := Words("acme", "seat", call); !ok || err != nil ||
 		!slices.Equal(got, []string{"acme", "--model", "m 1", "--pin", "A=1", "m 1"}) {
@@ -53,7 +56,7 @@ func TestWordsPutTheCallsWordsOrTheTablesInEachPlaceholder(t *testing.T) {
 // A call on an account runs on its home with the usual login's credentials gone; one naming no
 // account drops an account's home handed down, and keeps any other.
 func TestALoginsEnvironment(t *testing.T) {
-	manifest(t)
+	manifest(t, "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	for _, each := range []struct {
@@ -73,6 +76,20 @@ func TestALoginsEnvironment(t *testing.T) {
 		got := login.Environ([]string{"PATH=/bin", "ACME_KEY=k", "ACME_HOME=" + each.handed})
 		if !slices.Equal(got, each.want) {
 			t.Errorf("%+v: %q", each, got)
+		}
+	}
+}
+
+// The usual login a named one shares is the one a seat on the usual login runs on: the caller's
+// own home, unless that seat's line unsets the variable naming it.
+func TestTheUsualLoginIsTheOneAUsualSeatRunsOn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ACME_HOME", "/own")
+	for extra, want := range map[string]string{"": "/own", `env = ["-u", "ACME_HOME"]` + "\n": home + "/.acme"} {
+		manifest(t, extra)
+		if login, _, err := Account("acme"); login.Usual != want || err != nil {
+			t.Errorf("%q: usual %q, %v", extra, login.Usual, err)
 		}
 	}
 }

@@ -40,11 +40,11 @@ func TestSummarizeReadsTheEventsAsJqDoes(t *testing.T) {
 	}
 }
 
-// A login's settings already the usual file, through whatever links, are left as they are;
-// any other gives way to a link to the usual file.
-func TestLinkKeepsSettingsThatAreTheUsualFile(t *testing.T) {
+// A login's settings already leading to the usual file, through whatever links, are left as they
+// are; any other, a hard link to it among them, gives way to a link to the usual file.
+func TestLinkKeepsSettingsThatLeadToTheUsualFile(t *testing.T) {
 	dir := t.TempDir()
-	usual, own, other := filepath.Join(dir, "usual"), filepath.Join(dir, "own"), filepath.Join(dir, "other")
+	usual, own := filepath.Join(dir, "usual"), filepath.Join(dir, "own")
 	os.Symlink(own, usual) // the usual file leads to own's, not there yet
 	if err := link(usual, own, false); err != nil {
 		t.Fatal(err)
@@ -53,11 +53,16 @@ func TestLinkKeepsSettingsThatAreTheUsualFile(t *testing.T) {
 		t.Fatal("own was made")
 	}
 	os.Remove(usual)
-	os.WriteFile(other, []byte("mine"), 0o600)
-	if err := link(usual, other, false); err != nil {
-		t.Fatal(err)
-	}
-	if target, err := os.Readlink(other); err != nil || target != usual {
-		t.Fatalf("other leads to %q, %v", target, err)
+	os.WriteFile(usual, []byte("shared"), 0o600)
+	hard := filepath.Join(dir, "hard")
+	os.Link(usual, hard)
+	os.WriteFile(own, []byte("mine"), 0o600)
+	for _, path := range []string{own, hard} {
+		if err := link(usual, path, false); err != nil {
+			t.Fatal(err)
+		}
+		if target, err := os.Readlink(path); err != nil || target != usual {
+			t.Fatalf("%s leads to %q, %v", path, target, err)
+		}
 	}
 }

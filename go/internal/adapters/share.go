@@ -44,14 +44,14 @@ func share(login config.Login) error {
 	return nil
 }
 
-// link makes own a link to the usual login's file, unless own already is that file, through
-// whatever links, there yet or not.  Where carry is set, what own holds that the usual file
-// lacks is carried into it first; elsewhere what only own held goes, since carrying it would
-// rewrite a file another session may be saving.  The link is made under a name no other
-// launch shares and moved into own's place at once.
+// link makes own a link to the usual login's file, unless own already leads to that file,
+// through whatever links, there yet or not; a copy or a hard link would stop sharing at the
+// usual file's next save.  Where carry is set, what own holds that the usual file lacks is
+// carried into it first; elsewhere what only own held goes, since carrying it would rewrite a
+// file another session may be saving.  The link is made under a name no other launch shares
+// and moved into own's place at once.
 func link(usual, own string, carry bool) error {
-	there, err := os.Stat(own)
-	if config.Resolve(own) == config.Resolve(usual) || err == nil && same(there, usual) {
+	if config.Resolve(own) == config.Resolve(usual) {
 		return nil
 	}
 	if carry {
@@ -115,12 +115,6 @@ func carryOver(usual, own string) error {
 		err = os.Rename(temporary.Name(), target)
 	}
 	return err
-}
-
-// same is whether the file is the one at path, as the shell's `-ef` asks.
-func same(file fs.FileInfo, path string) bool {
-	other, err := os.Stat(path)
-	return err == nil && os.SameFile(file, other)
 }
 
 // under is name in dir, joined as a shell joins "$dir/name".

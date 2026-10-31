@@ -50,7 +50,9 @@ func Words(harness, key string, call map[string][]string) ([]string, bool, error
 // named one shares with the usual one.
 type Login struct {
 	// Account is $AGENTKIT_ACCOUNT, "" on the usual login; Env the variable naming the login's
-	// home, Home that home and Usual the usual login's.
+	// home, Home that home, and Usual the home a seat on the usual login runs on, which a named
+	// one shares: `usual` where that seat's line unsets Env ([launch] env), whatever the caller's
+	// Env says, else the home a call naming no account is on.
 	Account, Env, Home, Usual string
 	// Unset is what a call on an account unsets: the usual login's own credentials.
 	Unset []string
@@ -77,8 +79,14 @@ func Account(harness string) (Login, bool, error) {
 	conversations, _ := account.get("conversations").(string)
 	carry, _ := account.get("carry").(bool)
 	line, _ := account.get("line").(bool)
+	usual, seat := usualHome(root), words(root, "launch", "env")
+	for i := range len(seat) - 1 {
+		if seat[i] == "-u" && seat[i+1] == env {
+			usual = spelled(accountValue(root, "usual"))
+		}
+	}
 	name := os.Getenv("AGENTKIT_ACCOUNT")
-	return Login{name, env, loginHome(root), usualHome(root), words(root, "account", "unset"),
+	return Login{name, env, loginHome(root), usual, words(root, "account", "unset"),
 		conversations, words(root, "account", "settings"), carry, line,
 		name == "" && os.Getenv(env) != "" && handedDown(root)}, true, nil
 }
