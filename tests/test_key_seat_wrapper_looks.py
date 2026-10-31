@@ -1,18 +1,21 @@
 """Inside a seat's pane, the wrapper on its line names its harness's terminal and looks at the
-seat when its screen settles and when its harness exits.
+seat when its screen settles and when its harness exits, once its pane has ended.
 
 The line a harness's adapter prints for `ak orch` runs the harness inside a wrapper of ak's.  In
 a seat's own pane on ak's tmux server, the wrapper names the harness's terminal in the pane's
 `@ak_input_tty` before the harness starts, so ak never types in while the harness has input it
 has not read.  It looks at the seat whenever the screen comes to rest, and again when the harness
-exits, so the seat's published word follows its screen with no hook and no tick.
+exits, so the seat's published word follows its screen with no hook and no tick.  That last look
+reads the seat closed even where the pane's own process outlives the wrapper a moment.
 
 Black-box: as in tests/test_key_seat_relay.py, the adapter beside the program `AK_BIN` names (or
 `AK_ROOT`'s) prints the line, with a fake harness first on PATH under the harness's own name.
 Here the line runs in the pane of a seat tests/fixtures/akseat.py opened, respawned as ak
-respawns a seat's pane.  The fake shows captures of real screens from tests/fixtures, fires no
-hook, and writes down its own terminal and what the pane named when it started.  Nothing here
-runs ak, whose own look would publish a word too.  This test fails against `/bin/false`.
+respawns a seat's pane, under a shell that holds the pane HOLD seconds past the wrapper's end: a
+look that read the pane before it ended would find the seat at its prompt.  The fake shows
+captures of real screens from tests/fixtures, fires no hook, and writes down its own terminal and
+what the pane named when it started.  Nothing here runs ak, whose own look would publish a word
+too.  This test fails against `/bin/false`.
 """
 
 import json
@@ -29,6 +32,7 @@ from fixtures.hookdrive import ROOT
 
 WORKING, PROMPT = "claude-working-pane.txt", "claude-prompt-pane.txt"
 BOUND = 60      # seconds any change may take on a loaded host
+HOLD = 2        # seconds the pane outlives its wrapper: far longer than a look takes to start
 # Each screen at rest as its word and the rule that gave it; a harness gone, as its word and why.
 WORKED = ("working", "working.spinner")
 IDLE = ("idle", "prompt.composer")
@@ -102,9 +106,10 @@ class TheWrapperInASeatsPane(unittest.TestCase):
         printed = home.run("bash", str(ROOT / "adapters" / "claude.sh"), "interactive",
                            "claude-opus-5-5", "high", env=told, cwd=seat.cwd)
         assert printed.code == 0 and printed.out.strip(), printed.err
-        # parsed as `ak orch` parses it, and run in the seat's pane as its launch runs it
+        # parsed as `ak orch` parses it, and run in the seat's pane as its launch runs it, the
+        # pane held past the wrapper's end
         done = home.tmux("respawn-pane", "-k", "-t", seat.pane, "-c", str(seat.cwd),
-                         shlex.join(shlex.split(printed.out)))
+                         f"{shlex.join(shlex.split(printed.out))}; sleep {HOLD}")
         assert done.code == 0, done.err
         published = home.path / ".agentkit" / "state" / "seat-acme.json"
         cls.saw = waited(saw)
