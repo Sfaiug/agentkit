@@ -44,6 +44,11 @@ PROSE = (".md", ".markdown", ".mdx", ".rst", ".adoc")
 README_WORDS = 300
 
 
+# An answer key: a black-box test of the program from outside, which a port to another language
+# answers to.  Once a base holds one, every change to its Python brings one (`keyless_python`).
+KEY = re.compile(r"tests/test_key_[^/]*\.py")
+
+
 BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
                 "the task or its checks are wrong")
 
@@ -295,16 +300,17 @@ def files_scope(lp):
 
 
 def rules_check(lp):
-    """Refuse a branch that grows prose past what it may hold (`prose_grown`), or changes
-    AGENTS.md so workers would not get it as written: a link, a Git filter, more than a harness
-    reads of it, or a front matter line ak does not read; or grows its body past `BODY_WORDS`
-    and past what the base holds.  A branch that leaves the file alone, or deletes it, passes
-    that part."""
+    """Refuse a branch that grows prose past what it may hold (`prose_grown`), changes Python
+    with no answer key (`keyless_python`), or changes AGENTS.md so workers would not get it as
+    written: a link, a Git filter, more than a harness reads of it, or a front matter line ak
+    does not read; or grows its body past `BODY_WORDS` and past what the base holds.  A branch
+    that leaves the file alone, or deletes it, passes that part."""
     if lp.scratch:
         return ""
-    grown = prose_grown(lp)
-    if grown:
-        return grown
+    failure = prose_grown(lp) or keyless_python(lp)
+    if failure:
+        # a name `git_bytes` keeps whole can hold bytes no log or prompt written as UTF-8 takes
+        return failure.encode("utf-8", "surrogateescape").decode("utf-8", "backslashreplace")
     if not gitcall.git(lp.wt, "diff", "--name-only", "--no-renames", f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
         return ""
     entry = gitcall.git(lp.wt, "ls-tree", "HEAD", "--", "AGENTS.md")
@@ -366,6 +372,42 @@ def prose_grown(lp):
                     "this adds into a test, a check or a comment at the code it is about; words that are "
                     "the product itself need the base's `content:` to name them first.")
     return ""
+
+
+def keyless_python(lp):
+    """The refusal for a branch that changes Python outside tests/ with no answer key (`KEY`), or "".
+
+    In force where the base holds a key: the base's keys count, so a branch deleting its own frees
+    nothing.  Decided from git's change records alone: a deletion brings nothing, any other record
+    brings its new path, and only a pure move (R100) of a file already named .py leaves Python as
+    it was.
+    """
+    # `-r` lists files, never a directory named like a key.  `git` replaces only bytes that are not
+    # UTF-8, never "/" or ASCII: a key's name keeps its shape.
+    held = gitcall.git(lp.wt, "ls-tree", "-r", "-z", "--name-only", lp.base_sha, "--", "tests/")
+    if not any(KEY.fullmatch(name) for name in held.split("\0")):
+        return ""
+    fields = iter(gitcall.git_bytes(lp.wt, "diff", "--name-status", "--find-renames", "-z",
+                                    f"{lp.base_sha}...HEAD").split("\0"))
+    python, keyed = [], False
+    for status in fields:
+        if not status:
+            break       # the NUL ending the last record
+        old = new = next(fields)
+        if status == "D":
+            continue
+        if status[0] == "R":
+            new = next(fields)
+        if KEY.fullmatch(new):
+            keyed = True
+        elif (new.endswith(".py") and not new.startswith("tests/")
+              and (status != "R100" or not old.endswith(".py"))):
+            python.append(new)
+    if keyed or not python:
+        return ""
+    return (f"Python changed with no answer key: {', '.join(python)}. A change to a .py file "
+            "outside tests/ adds, edits or moves in a tests/test_key_*.py in the same change: a "
+            "black-box test of what it does.")
 
 
 def unknown_front_lines(text):
@@ -789,18 +831,6 @@ def park_waiting(lp, reason, ref, sha=None):
     return False
 
 
-def in_progress(wt, how):
-    """Is that `git rebase`/`git merge` still sitting in the worktree, unfinished?"""
-    names = ("MERGE_HEAD",) if how == "merge" else ("rebase-merge", "rebase-apply")
-    for name in names:
-        path = Path(gitcall.git(wt, "rev-parse", "--git-path", name))
-        if not path.is_absolute():
-            path = Path(wt) / path
-        if path.exists():
-            return True
-    return False
-
-
 def integrated(wt, rev):
     """Does the branch really carry `rev` now, whether by rebase or by merge?
 
@@ -878,7 +908,7 @@ def set_base(lp, tip):
 def pin_checkout(lp):
     """A review run reviews the commit its own rebase, merge or landing fixer left, until the
     PR head moves (`pinned_head`); a rebase or merge still stopped has made nothing yet."""
-    if lp.state.get("review_pr") and not (in_progress(lp.wt, "rebase") or in_progress(lp.wt, "merge")):
+    if lp.state.get("review_pr") and not gitcall.in_progress(lp.wt, "rebase", "merge"):
         lp.state["integrated"] = {"from": lp.state["head_sha"],
                                   "to": gitcall.git(lp.wt, "rev-parse", "HEAD")}
         lp.write()
@@ -927,7 +957,7 @@ def abort_stopped_integration(lp, how):
         lp.log(f"WARN could not abort the stopped {how} of {lp.state['branch']}: {exc}")
         return
     try:
-        dirty = rc != 0 and in_progress(lp.wt, how)
+        dirty = rc != 0 and gitcall.in_progress(lp.wt, how)
     except config.Error as exc:
         # the abort failed and the state cannot even be read: never claim the branch is back
         lp.log(f"WARN could not abort the stopped {how} of {lp.state['branch']}: {exc}; "
@@ -1429,16 +1459,18 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     name = f"reviewer-{lp.reviewer}" if handed else turns.open_review(rd)[0] or "reviewer"
 
     def ready_reviewers():
-        """The run's marked reviewers with room, as the meters read now, in pick order; only
-        those that already failed this round stay out."""
+        """The run's marked reviewers with room, as the meters read now, in pick order beside
+        everyone who wrote part of the head (`reviewer_order`); only those that already failed
+        this round stay out."""
         failed = lp.state["review_pending"].get("failed", [])
         try:
             providers = staffing.collect_usage(lp.cfg)
         except config.Error as exc:
             providers = {}      # meters nobody could read withhold no reviewer from a dead review
             lp.log(f"WARN could not read the meters: {exc}")
-        return [n for n in staffing.ready_order(lp.cfg, providers, staffing.run_reviewers(lp.cfg, lp.state),
-                                                lp.log, role="reviewer", repo=lp.state.get("repo"))
+        ready = staffing.ready_order(lp.cfg, providers, staffing.run_reviewers(lp.cfg, lp.state),
+                                     lp.log, role="reviewer", repo=lp.state.get("repo"))
+        return [n for n in staffing.reviewer_order(lp.cfg, staffing.head_writers(lp.state), ready)
                 if n not in failed]
 
     def independent(names):
@@ -1465,8 +1497,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         failed = lp.state["review_pending"].setdefault("failed", [])
         if lp.reviewer not in failed:
             failed.append(lp.reviewer)
-        # everyone who wrote part of the head reviews last
-        offered = staffing.reviewer_order(lp.cfg, staffing.head_writers(lp.state), ready_reviewers())
+        offered = ready_reviewers()
         if not allow_self:
             # A flake waits unless another model can review: only a reviewer that cannot
             # come back settles for the executor's own model.
@@ -1942,7 +1973,7 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
             # left in progress behind it would be a conflict round nobody asked for
             abort_integration(lp, how)
             raise
-        if not in_progress(lp.wt, how):
+        if not gitcall.in_progress(lp.wt, how):
             landed = integrated(lp.wt, tip)
             break
         if attempt < CONFLICT_ROUNDS:

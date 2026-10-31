@@ -1,7 +1,8 @@
 """Machines ak rents from Google Cloud: `best`, `rented`, `give_back`, the month's cost (`watch`,
 `said`); renting comes later, behind the same names, so another provider is one more module.  This
 module alone knows Google: the service-account key `KEY`, the token its JWT buys (signed by the
-openssl CLI: the standard library has no RSA), Compute Engine's Spot price list and machine types.
+openssl CLI: the standard library has no RSA), Compute Engine's Spot price list and machine types;
+and which machines it rents serve, and how ssh reaches them (`serving`, `ssh_config`).
 """
 
 import base64
@@ -42,7 +43,14 @@ LEDGER = "google-cloud-ledger.json"     # this month's meter: Google's billing e
 LATE = "google-cloud-late.json"         # doctor's lines: apart, so a bad ledger hides no refusal
 PASS = 180                         # seconds between the tick's passes: cron's */3 (install.sh)
 UNANSWERED = []                    # Google not answering this process, which then asks no more
-Rented = namedtuple("Rented", "id name zone type created until")   # `id` survives a rename
+Rented = namedtuple("Rented", "id name zone type created until address")   # `id` survives a rename
+USER, READY = "ak", "/run/ak-ready"     # a machine's user for ak, and what says it is set up
+SSH_KEY, KNOWN_HOSTS = "google-cloud-ssh", "google-cloud-known-hosts"     # beside KEY
+SSH_CONFIG = "google-cloud-ssh-config"  # in config.STATE: the machines that serve, then the owner's
+# A machine that held nothing this long goes back.  A new machine's first suite pays about a
+# minute to boot and 4.5 to receive a whole history and build its image (measured 30 Oct 2026),
+# and the tick looks only every PASS; ten idle minutes of the machines ak rents cost about €0.10.
+IDLE_FOR = 600
 
 
 class Unavailable(config.Error):
@@ -85,8 +93,9 @@ def said(mb_per_core):
 
 
 def watch():
-    """The tick's pass while ak may rent: the meter moved on to what Google lists, and each machine
-    past its end, unpriced or past the cap given back and said; only then a stale price list."""
+    """The tick's pass while ak may rent: the meter moved on to what Google lists, each machine
+    past its end, unpriced, past the cap or idle given back and said, the other ready ones serving;
+    only then a stale price list."""
     active, cap = _setting()
     if not active:
         return
@@ -98,14 +107,23 @@ def watch():
     except (OSError, ValueError, TypeError, KeyError):
         at, prices = 0, {}
     ledger, late = (read := _ledger()) and _moved(read, listed, now, prices), []
+    try:
+        idle = _idle(listed)
+    except (OSError, subprocess.CalledProcessError):    # no ssh here: the meter moves all the same
+        idle = {}
+    ready = []
     for machine in listed:
         if why := ("past its end" if now >= machine.until else "with no price kept" if not prices
-                   else "past the cap" if not ledger or ledger["spent"] > cap else None):
+                   else "past the cap" if not ledger or ledger["spent"] > cap
+                   else "idle" if idle.get(machine.id, 0) >= IDLE_FOR else None):
             try:
                 give_back(machine)
                 late.append(f"{machine.name} listed {why}, given back")
             except Unavailable as exc:
                 late.append(f"{machine.name} listed {why}, not given back: {exc}")
+        elif machine.id in idle:
+            ready.append(machine)
+    _serve(ready)
     config._write_json(config.STATE / LATE, late)
     if ledger:
         config._write_json(config.STATE / LEDGER, ledger)
@@ -121,9 +139,24 @@ def rented():
         for one in filter(_ours, listed.get("instances") or ()):
             created = datetime.fromisoformat(one["creationTimestamp"]).timestamp()
             life = ((one.get("scheduling") or {}).get("maxRunDuration") or {}).get("seconds", 0)
+            address = next((access.get("natIP") for nic in one.get("networkInterfaces") or ()
+                            for access in nic.get("accessConfigs") or ()), None)
             found.append(Rented(one["id"], one["name"], zone.removeprefix("zones/"),
-                                one["machineType"].split("/")[-1], created, created + int(life)))
+                                one["machineType"].split("/")[-1], created, created + int(life),
+                                address))
     return found
+
+
+def serving():
+    """The machines ak rents that serve, as the tick last found them ready, while ak may rent."""
+    lines = (config.STATE / SSH_CONFIG).read_text().splitlines() if ssh_config() else []
+    return [line[5:] for line in lines if line.startswith("Host ") and line != "Host *"]
+
+
+def ssh_config():
+    """ssh's words reaching those `serving` and every other machine as ever, while ak may rent."""
+    path = config.STATE / SSH_CONFIG     # replaced whole, never removed
+    return ("-F", str(path)) if path.exists() and _setting()[0] else ()
 
 
 def give_back(machine):
@@ -239,6 +272,45 @@ def _moved(ledger, listed, now, prices):
         else:
             spent += gone["price"] * max(0, gone["until"] - max(gone["from"], start)) / 3600
     return {"answered": now, "spent": spent, "machines": machines}
+
+
+def _idle(listed):
+    """{id: seconds it has held nothing} of each of `listed` READY, asked side by side by
+    tools/helper's `idle` with ak's key, made when missing; the address of one not serving yet
+    forgotten first, as Google hands addresses out again and ssh refuses an old host key there."""
+    from . import helper, machines    # here, not at the top: both read this module
+    key, known, was = config.SECRETS / SSH_KEY, config.SECRETS / KNOWN_HOSTS, serving()
+    if not key.exists():
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", USER, "-f", key],
+                       capture_output=True, check=True)
+    reached = [one for one in listed if one.address]
+    for one in reached:
+        if one.name not in was:
+            subprocess.run(["ssh-keygen", "-R", one.address, "-f", known], capture_output=True)
+    known.with_name(f"{KNOWN_HOSTS}.old").unlink(missing_ok=True)     # ssh-keygen's copy
+    line = f"test -e {READY} && {helper._line('idle')}"
+    said = machines.ask([[*machines.SSH, *(word for option in _reach(one).items()
+                                           for word in ("-o", '%s="%s"' % option)),
+                          "--", one.name, line] for one in reached])
+    return {one.id: int(answer) if answer.strip().isdigit() else 0
+            for one, answer in zip(reached, said) if answer is not None}
+
+
+def _reach(machine):
+    """How ssh reaches `machine`: at its address as USER by ak's key alone, its host key learned."""
+    return {"HostName": machine.address, "User": USER, "IdentityFile": config.SECRETS / SSH_KEY,
+            "IdentitiesOnly": "yes", "UserKnownHostsFile": config.SECRETS / KNOWN_HOSTS,
+            "StrictHostKeyChecking": "accept-new"}
+
+
+def _serve(machines):
+    """The ssh config, written whole: `machines` as ssh reaches each, then every other as ever."""
+    path = config.STATE / SSH_CONFIG
+    temp = path.with_suffix(".tmp")
+    temp.write_text("".join(f"Host {one.name}\n" + "".join(
+        '  %s "%s"\n' % option for option in _reach(one).items()) for one in machines)
+        + "Host *\n  Include ~/.ssh/config\n")
+    temp.replace(path)
 
 
 def _ours(machine):

@@ -1,6 +1,8 @@
-// Package update is `ak update` where it moves nothing, as Python's agentkit/update.py says it: a
-// dry run, and an update with no harness here and no ~/agentkit checkout.  Moving either is
-// Python's.
+// Package update is `ak update` where Go carries it out, as Python's agentkit/update.py says it:
+// a dry run, and an update with no harness here to move.  It hides how such an update moves
+// ~/agentkit (agentkit.go): forward on main to a commit whose live check let it through, swapped
+// in whole as Python's agentkit/versions.py swaps it (versions.go), then its install.sh, owed
+// until it passes, all under Python's lock.  Moving a harness is Python's.
 package update
 
 import (
@@ -16,6 +18,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -25,7 +28,7 @@ import (
 )
 
 // ErrPython leaves an update to Python ak before Go has written anything: one that would move a
-// harness or ~/agentkit, or output Go cannot read as Python does.
+// harness, or ~/agentkit where Go swaps no version in, or output Go cannot read as Python does.
 var ErrPython = errors.New("left to Python")
 
 // pins keep each harness from upgrading itself while it is asked its release.
@@ -76,11 +79,11 @@ func Main(repo string, dryRun bool, out, errOut io.Writer) (int, error) {
 	checkout := filepath.Join(home, "agentkit")
 	_, err = os.Stat(filepath.Join(checkout, ".git"))
 	held := err == nil
-	if !dryRun && (len(absent) < len(plans) || held) {
-		return 0, ErrPython // a harness or ~/agentkit to move
+	if !dryRun && (len(absent) < len(plans) || held && exchange == nil) {
+		return 0, ErrPython // a harness to move, or ~/agentkit where Go swaps no version in
 	}
 	agentkit := "update: agentkit: skipped: no checkout at " + checkout
-	if held {
+	if held && dryRun {
 		said, err := agentkitVersion(env, checkout)
 		if err != nil {
 			return 0, err
@@ -96,6 +99,9 @@ func Main(repo string, dryRun bool, out, errOut io.Writer) (int, error) {
 	}
 	if !dryRun {
 		fmt.Fprintln(out, "update: no harness installed here; nothing to upgrade")
+		if held {
+			return updateSelf(env, checkout, out), nil
+		}
 		fmt.Fprintln(out, agentkit)
 		fmt.Fprintln(errOut, "update: nothing was upgraded; the gate was not run")
 		return 1, nil
@@ -198,8 +204,8 @@ func words(name string, facts map[string]any, key string) ([]string, error) {
 // its command fails or names no release.
 func version(each plan, env []string) (string, error) {
 	program := cmp.Or(harness.Binary(each.version[0]), each.version[0])
-	stdout, stderr, ok := output(env, 2*time.Minute, append([]string{program}, each.version[1:]...)...)
-	if !ok {
+	stdout, stderr, code, err := output(env, 2*time.Minute, append([]string{program}, each.version[1:]...)...)
+	if err != nil || code != 0 {
 		return "", nil
 	}
 	if !utf8.Valid(stdout) || !utf8.Valid(stderr) {
@@ -217,7 +223,8 @@ func version(each plan, env []string) (string, error) {
 	if !release.MatchString(identity) {
 		return "", nil
 	}
-	if identity, ok = harness.Identity(each.name, identity, each.version); !ok {
+	identity, ok := harness.Identity(each.name, identity, each.version)
+	if !ok {
 		return "", ErrPython
 	}
 	return identity, nil
@@ -225,8 +232,8 @@ func version(each plan, env []string) (string, error) {
 
 // agentkitVersion is that checkout's short commit and its date, "" when git cannot say them.
 func agentkitVersion(env []string, checkout string) (string, error) {
-	stdout, _, ok := output(env, time.Minute, "git", "-C", checkout, "log", "-1", "--format=%h · %cs")
-	if !ok {
+	stdout, _, code, err := output(env, time.Minute, "git", "-C", checkout, "log", "-1", "--format=%h · %cs")
+	if err != nil || code != 0 {
 		return "", nil
 	}
 	if !utf8.Valid(stdout) {
@@ -236,8 +243,9 @@ func agentkitVersion(env []string, checkout string) (string, error) {
 }
 
 // output is what a command printed, as Python's subprocess.run captures it within a cap: its
-// stdout and stderr, and whether it ran and exited 0 in time.
-func output(env []string, limit time.Duration, argv ...string) (stdout, stderr []byte, ok bool) {
+// stdout, its stderr and its exit code, a signal's negated; err where it did not run, and
+// context.DeadlineExceeded where it ran past the cap.
+func output(env []string, limit time.Duration, argv ...string) (stdout, stderr []byte, code int, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	command := exec.CommandContext(ctx, argv[0], argv[1:]...)
@@ -248,8 +256,18 @@ func output(env []string, limit time.Duration, argv ...string) (stdout, stderr [
 	command.Env, command.Stdin, command.Stdout, command.Stderr = env, os.Stdin, &out, &errOut
 	// a program it left holding its output open is waited for no longer than the cap
 	command.WaitDelay = limit
-	err := command.Run()
-	return out.Bytes(), errOut.Bytes(), err == nil
+	err = command.Run()
+	var exited *exec.ExitError
+	switch {
+	case err != nil && ctx.Err() != nil:
+		err = ctx.Err()
+	case errors.As(err, &exited):
+		code, err = exited.ExitCode(), nil
+		if status, ok := exited.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+			code = -int(status.Signal())
+		}
+	}
+	return out.Bytes(), errOut.Bytes(), code, err
 }
 
 func regular(path string) bool {

@@ -456,8 +456,8 @@ class Screens(Sandbox):
     def test_the_models_screens_draw_no_highlight_off_every_row(self):
         role = next(iter(menu.quality.ROLES))
         row = {"release": "alpha", "effort": "high", "maker": "Acme", "name": "Alpha"}
-        said = [("orch · best 100.0", [(menu.pointed(role, row), "Alpha", [], "high", 1.0,
-                                        "100.0", "$1.00", "★ pick")])]
+        said = [("orch", [(menu.pointed(role, row), "★ pick", "Alpha", [], "high", 1.0,
+                           "100.0", "$1.00", [])], [])]
         for name, value in (("stored", {"lineup": [row]}), ("refresh", ({}, None)),
                             ("answer", {role: {"pick": row}})):
             self.stack.enter_context(patch.object(menu.matrix, name, return_value=value))

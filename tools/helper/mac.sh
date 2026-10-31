@@ -23,6 +23,7 @@ darwin() {
   # admit and started: a Mac takes every suite; its VMs share it by `left`.
   admit() { :; }
   started() { :; }
+  preparing() { :; }    # only a machine ak rents is asked how long it has held nothing
   # left: the MiB ak's VMs here may still be given. Together they get at most half of what would
   # be free without them, so the Mac stays its owner's: half of what macOS calls free and what
   # they hold, less what they were given. The VMs running are the truth: one counts exactly while
@@ -194,7 +195,7 @@ known)     # REPO: the commit its history here reaches, if any. A suite asks jus
 prepare)   # KEY IMAGE REPO [CPUS a turn holds], the parcel on stdin
   # Suites are admitted one at a time, before anything of theirs is unpacked.
   mkdir -p "$ROOT" || exit 253
-  locked "$ROOT/suites.lock" admit "$2" "$5" || exit
+  locked "$ROOT/suites.lock" admit "$2" "$5" && preparing "$2" || exit
   # -p: the recipe's files keep HEAD's modes, whatever umask the machine's shell has.
   mkdir -p "$ROOT/$2" && tar -x -p -C "$ROOT/$2" && echo "$3" >"$ROOT/$2/image/name" || exit 253
   # A turn's harness program is $ROOT/harness/<harness>/<version>/<program>; a suite names none.
@@ -256,5 +257,6 @@ collect)   # KEY FOLDER...: an ended turn's out dir, the bundle and exit turn.sh
   cd "$ROOT/$2" && [ -f code ] && shift 2 && mkdir -p "${@/#/home/}" &&
     tar -c out back.bundle code "${@/#/home/}" || exit 253 ;;
 finish) rm -rf "${ROOT:?}/$2" ;;
+idle) quiet ;;     # how long it has held nothing: Linux's alone, as only rented machines are asked
 *) exit 253 ;;
 esac

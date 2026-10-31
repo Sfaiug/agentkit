@@ -14,7 +14,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode"
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
@@ -127,40 +126,11 @@ func ChecksRefusal(every []string) string {
 // RoundsRefusal is the sentence for a round budget over three, or "": three rounds is the
 // budget, never a default to raise. A value that is no number is left to the check that says so.
 func RoundsRefusal(value, what string) string {
-	rounds := pyInt(value)
+	rounds := config.Int(value)
 	if rounds == nil || rounds.Cmp(big.NewInt(3)) <= 0 {
 		return ""
 	}
 	return fmt.Sprintf("%s %s is over the budget: 3 rounds, then a run goes back to its orchestrator to split or re-scope", what, rounds)
-}
-
-// pyInt is the number Python's int() reads in stripped text, or nil: a sign, then decimal
-// digits of any script, with single underscores between them, so `rounds: 1_0` is ten rounds.
-func pyInt(text string) *big.Int {
-	digits := strings.TrimLeft(text, "+-")
-	if len(text)-len(digits) > 1 {
-		return nil
-	}
-	var number strings.Builder
-	number.WriteString(text[:len(text)-len(digits)])
-	for _, part := range strings.Split(digits, "_") {
-		if part == "" {
-			return nil
-		}
-		for _, r := range part {
-			if !unicode.IsDigit(r) {
-				return nil
-			}
-			// Unicode keeps each script's digits in a run from 0 to 9
-			zero := r
-			for unicode.IsDigit(zero - 1) {
-				zero--
-			}
-			number.WriteRune('0' + (r-zero)%10)
-		}
-	}
-	rounds, _ := new(big.Int).SetString(number.String(), 10)
-	return rounds
 }
 
 // opensHeredoc is whether bash's own parser, reading the command as a whole script, meets a

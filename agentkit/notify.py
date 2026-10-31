@@ -638,11 +638,16 @@ def waited(notice, at):
 
 
 def opened(session, capture):
-    """Record the first interactive open of this notice, including its output baseline."""
+    """Record the first interactive open of this notice, including its output baseline.  A
+    watcher's alert gets none while a login keeps refusing that seat's runs: output after an
+    open answers nothing there."""
+    from . import watch    # here, not at the top: watch imports this module
     with session_lock(session) as session:
         previous = last(session)
         if not previous or previous.get("opened_at") is not None:
             return                 # two quick opens must not erase progress between them
+        if previous.get("watcher") is True and watch.login_refusing(session):
+            return
         pane = capture()
         stamp = previous.get("time")
         if (not isinstance(stamp, (int, float)) or isinstance(stamp, bool)

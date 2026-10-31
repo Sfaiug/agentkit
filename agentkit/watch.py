@@ -44,9 +44,9 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, host, notify,
-               orch, parsed, questions, seat_tokens, staffing, statusbar, transitions, turns,
-               update, usage, worker)
+from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, host,
+               login_refusals, notify, orch, owner, parsed, questions, seat_tokens, staffing,
+               statusbar, transitions, turns, update, usage, worker)
 from . import record as run_record
 from . import sleep
 from . import terminal as terminal_mod
@@ -1197,9 +1197,13 @@ def forget(session, *, resolve=True, acknowledge=True, opening=False, notice=Non
             previous = state["seen_at"].get(name, 0)
             state["seen_at"][name] = max(time.time(), math.nextafter(previous, math.inf))
             last = notify.last(name)
-            if opening and last and last.get("watcher") is True:
-                notice = last["text"]    # the user is taking over the watcher's recovery
-            if not opening or not last or last.get("watcher") is True:
+            # the user is taking over the watcher's recovery, which they cannot do for a login
+            # that keeps refusing: its answer or its runs' ending takes that card down
+            theirs = (opening and last and last.get("watcher") is True
+                      and not login_refusing(name))
+            if theirs:
+                notice = last["text"]
+            if not opening or not last or theirs:
                 state["stalls"].pop(name, None)
                 # ... and seat_account's give-up on a bare 429, kept in the seat's record
                 if (seat_read(name).get("usage_refusal") or {}).get("told"):
@@ -1209,7 +1213,7 @@ def forget(session, *, resolve=True, acknowledge=True, opening=False, notice=Non
             elif acknowledge:
                 notify.clear(name)
             _write_state(state)
-    except (config.Error, OSError) as exc:
+    except (config.Error, OSError, ValueError) as exc:
         print(f"WARN could not clear the stall record of {session}: {exc}", file=sys.stderr)
 
 
@@ -2675,7 +2679,7 @@ def start_look(launched):
              "from agentkit import watch; watch.hook_look(sys.argv[2])",
              str(Path(__file__).resolve().parents[1]), launched],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True)
+            start_new_session=True, env=owner.unmarked())
     except OSError:
         return None
 
@@ -2783,6 +2787,26 @@ def work_live(name):
     return "your plan is done and its changes are live"
 
 
+def refusing_login(run_dir, state):
+    """The login that keeps refusing a run that has not ended (`login_refusals`), else None."""
+    return login_refusals.owed(run_dir) if state.get("state") in run_record.GOING else None
+
+
+def login_refusing(name):
+    """Whether a login keeps refusing a run of that seat's."""
+    from . import menu as menu_mod    # the menu imports this module
+    return any(refusing_login(run_dir, state)
+               for run_dir, state in own_runs(name, menu_mod.run_records()))
+
+
+def owed_login(run_dir, state):
+    """The login a run waits on its owner for, else None: one it parked on that the tick has
+    not found back yet, and one that keeps refusing it."""
+    if state.get("state") == "waiting_login" and not state.get("login_back_at"):
+        return state.get("waiting_for")
+    return refusing_login(run_dir, state)
+
+
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,
                    found, harness, auth_out, gh_out, token_out, menu_mod, run_mod,
                    terminal_mod, stalls, mine):
@@ -2813,12 +2837,11 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # because the tick that can answer is the one that unparks it, and until it does the work
     # is stopped whatever any record says.  A run the tick has already found the login back
     # for is not that news -- it is being resumed, and saying `login expired` at it would
-    # send him to `/login` for something he has.
-    parked = [(run_dir, state) for run_dir, state in mine
-              if state.get("state") == "waiting_login" and not state.get("login_back_at")]
+    # send him to `/login` for something he has -- unless that login keeps refusing it.
+    parked = [(run_dir, state) for run_dir, state in mine if owed_login(run_dir, state)]
     if parked:
         run_dir, first = min(parked, key=lambda pair: pair[1].get("finished_at") or 0)
-        return {"word": "needs you", "reason": login_reason(first.get("waiting_for") or "a"),
+        return {"word": "needs you", "reason": login_reason(owed_login(run_dir, first)),
                 "since": first.get("finished_at")}
     # 1b. ... and the one login no harness owns, on every seat, as a dead worker token (1c):
     # while gh is logged out the tick reads no pull request and the next run to deliver
@@ -5057,22 +5080,22 @@ def health(cfg, state, dry_run, log):
         records = menu_mod.run_records(cache=not dry_run)
     except (config.Error, OSError, ValueError):
         records = None
-    # What each seat's runs are parked on, oldest first: the harness, when it parked and what
-    # it said.  The seat that launched one has to read the login it waits for even when it
-    # runs another harness itself, and the run being parked is the whole of the evidence --
-    # `resume_waiting_login` is what asks the verb again, and what unparks it.
+    # The login each seat's runs wait on their owner for (`owed_login`), oldest first: the
+    # harness, when it parked and what it said.  The seat that launched one has to read the
+    # login it waits for even when it runs another harness itself, and the run is the whole of
+    # the evidence -- `resume_waiting_login` is what asks the verb again, and what unparks it.
     parked_for = {}
-    for _, record in records or ():
-        if (record.get("state") != "waiting_login" or not record.get("waiting_for")
-                or record.get("login_back_at")):
-            continue        # back already: being resumed, and no login for anybody to fix
+    for run_dir, record in records or ():
+        login = owed_login(run_dir, record)
+        if not login:
+            continue
         try:
             owner = transitions.launched_session(record)
         except config.Error:
             owner = None
         if owner:
             parked_for.setdefault(owner, []).append(
-                (record["waiting_for"], record.get("finished_at"), record.get("error") or ""))
+                (login, record.get("finished_at"), record.get("error") or ""))
     for held in parked_for.values():
         held.sort(key=lambda parked: parked[1] or 0)
     # Every harness an earlier pass recorded a `no` for, asked again every pass whether or not
@@ -5197,9 +5220,9 @@ def health(cfg, state, dry_run, log):
                 latched = entry.get("harness") or harness
                 # A non-answer is not a yes: a latch a verb raised stands until that verb
                 # says otherwise, so an adapter that is briefly unrunnable retracts nothing.
-                # A latch a parked run raised has already had its answer -- nothing of this
-                # seat's is parked on that login any more, which is the only thing that was
-                # ever claimed.
+                # A latch a run raised has already had its answer -- nothing of this seat's
+                # waits on that login any more (`owed_login`), which is the only thing that
+                # was ever claimed.
                 if (entry.get("evidence") != "run"
                         and not logged_in(latched, state.get("auth_out"))):
                     continue
@@ -7761,7 +7784,7 @@ def local_passes(state, dry_run, log):
     Each pass re-derives placement or state from what it finds: a finding remembered from one
     tick to the next loses its race.
     """
-    from . import google_cloud, job as jobs, leases, logins, machines, retire, run
+    from . import google_cloud, history, job as jobs, leases, logins, machines, retire, run, waiter
     providers = {}
 
     def read_usage():
@@ -7786,6 +7809,10 @@ def local_passes(state, dry_run, log):
         ("the set-aside text pass did not run", lambda: drafts_back(config.load()), False),
         ("the mid-turn continue pass did not run",
          lambda: continue_turns(config.load(), log), False),
+        # A run parked on an expired login is resumed, silently, the moment that harness's
+        # `auth` verb passes again: before the seats, so no seat reads a login back as one to fix.
+        ("the login-resume pass did not run",
+         lambda: resume_waiting_login(dry_run=dry_run, log=log), True),
         # the seats early, and never behind the `gh api user` gate: a stalled seat is the one
         # thing on this tick that nothing else will ever get to, and a gh that is down is no
         # reason to leave it stuck
@@ -7816,14 +7843,11 @@ def local_passes(state, dry_run, log):
         ("the worker-token reminder did not run",
          lambda: remind_worker_tokens(state.get("worker_tokens")), False),
         # An exhausted run waits for a provider window and resumes itself when one refills, on
-        # the usage just read; a run parked on an expired login, the moment that harness's
-        # `auth` verb passes again; a run in error, on the loop's transient ladder, hourly at
-        # most; one waiting on a rebase conflict, after the next merge to main. All silently,
-        # never waiting on the run.
+        # the usage just read; a run in error, on the loop's transient ladder, hourly at most;
+        # one waiting on a rebase conflict, after the next merge to main. All silently, never
+        # waiting on the run.
         ("the exhausted-resume pass did not run",
          lambda: resume_exhausted(config.load(), providers, dry_run=dry_run, log=log), True),
-        ("the login-resume pass did not run",
-         lambda: resume_waiting_login(dry_run=dry_run, log=log), True),
         ("the error-retry pass did not run", lambda: resume_errored(dry_run=dry_run, log=log), True),
         ("the waiting-resume pass did not run",
          lambda: resume_waiting(dry_run=dry_run, log=log), True),
@@ -7843,6 +7867,9 @@ def local_passes(state, dry_run, log):
         ("the switch retirement pass did not run", lambda: retire.hand(log), False),
         ("the seat token pass did not run", lambda: seat_tokens.read(0, 0), False),
         ("history was not brought up to date", lambda: transitions.history_agree(log), False),
+        # The tick alone moves history's WAL into the database, holding no lock of ak's but its
+        # own, so no writer holds the others through those syncs (`waiter.connect`).
+        ("history's WAL was not checkpointed", lambda: waiter.checkpoint(history.path()), False),
         # The first tick of a week writes the board with its largest loss, and the `audit`
         # seat, opened with `[audit]`'s models, is told it at its quiet prompt.
         ("the weekly audit pass did not run", lambda: tell_audit(config.load(), log), False),
@@ -7871,11 +7898,12 @@ def local_passes(state, dry_run, log):
         # The shared browser's idle tabs are reaped: a machine with no browser on CDP costs one
         # refused connection and nothing else.
         ("browser tidy did not finish", lambda: browser.tidy(log), False),
-        # Each machine ak may use is asked what it is; one that does not answer holds the tick
-        # no longer than its ssh timeout.
-        ("the machines were not checked", machines.check, False),
-        # ... and Google for what ak rents, given back past its time or the month's cap
+        # Google is asked what ak rents, given back past its time, the month's cap or idle, the
+        # rest serving once ready ...
         ("the rented machines were not watched", google_cloud.watch, False),
+        # ... and each machine ak may use what it is; one that does not answer holds the tick no
+        # longer than its ssh timeout.
+        ("the machines were not checked", machines.check, False),
         # A merge to a project reaches its seats' rulebooks: their next prompts name it.
         ("the projects' rules were not fetched", orch.fetch_projects, False),
         # Merged agentkit goes live after every local pass, so as little of this tick's old

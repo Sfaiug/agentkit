@@ -48,16 +48,16 @@ func TestSessionRenameRefusals(t *testing.T) {
 	if _, _, err := CurrentSession(); err == nil || !strings.HasSuffix(err.Error(), "the rename chain loops through old -> new") {
 		t.Fatalf("rename cycle: %v", err)
 	}
-	for i := 0; i < renameHops; i++ {
+	for i := 0; i < RenameHops; i++ {
 		set(fmt.Sprint(i), fmt.Sprintf(`{"renamed":"%d"}`, i+1))
 	}
-	set(fmt.Sprint(renameHops), `{"repo":"acme"}`)
+	set(fmt.Sprint(RenameHops), `{"repo":"acme"}`)
 	t.Setenv("AGENTKIT_SESSION", "0")
 	name, record, err := CurrentSession()
-	if err != nil || name != fmt.Sprint(renameHops) || record["repo"] != "acme" {
+	if err != nil || name != fmt.Sprint(RenameHops) || record["repo"] != "acme" {
 		t.Fatalf("allowed rename chain: %q %v %v", name, record, err)
 	}
-	set(fmt.Sprint(renameHops), fmt.Sprintf(`{"renamed":"%d"}`, renameHops+1))
+	set(fmt.Sprint(RenameHops), fmt.Sprintf(`{"renamed":"%d"}`, RenameHops+1))
 	if _, _, err := CurrentSession(); err == nil || !strings.HasSuffix(err.Error(), "more than 8 renames deep") {
 		t.Fatalf("excessive rename chain: %v", err)
 	}

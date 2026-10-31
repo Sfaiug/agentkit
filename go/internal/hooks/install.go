@@ -1,10 +1,10 @@
 // Package hooks merges ak's hook scripts into a harness's settings file as its manifest's
-// `[hooks.install]` table says, keeping everything else the file holds.  It hides which
-// entries are ak's (a command naming one of a script's names), their repointing (every one
-// found, duplicates included, so a checkout that moved leaves nothing calling a file no longer
-// there), the splitting of a group another tool's handlers share where an event wants its own
-// matcher, the backup made before a file first changes, and the refusals of a file it could
-// not merge into without losing what is there.
+// `[hooks.install]` table says, keeping everything else the file holds, or writes them whole
+// where the file is ak's own.  It hides which entries are ak's (a command naming one of a
+// script's names), their repointing (every one found, duplicates included, so a checkout that
+// moved leaves nothing calling a file no longer there), the splitting of a group another tool's
+// handlers share where an event wants its own matcher, the backup made before a file first
+// changes, and the refusals of a file it could not merge into without losing what is there.
 package hooks
 
 import (
@@ -29,8 +29,12 @@ import (
 type handler struct{ group, entry *run.Object }
 
 // Install wires the table's scripts, under root's hooks/, into its settings file, and answers
-// the exit code: 0 wired, 1 a file refused or not written, 2 a directory that cannot be made.
+// the exit code: 0 wired, 1 a file refused or not written, 2 a directory that cannot be made
+// for a file it merges into.
 func Install(table config.HookTable, root string, out, errOut io.Writer) int {
+	if table.File {
+		return write(table, root, out, errOut)
+	}
 	path := table.Settings
 	if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
 		fmt.Fprintln(errOut, err)

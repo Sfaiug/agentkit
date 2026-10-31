@@ -206,7 +206,7 @@ class RunTree(unittest.TestCase):
                 patch.object(worker, "open", side_effect=environ, create=True), \
                 patch.object(worker.os, "kill", side_effect=kill), \
                 patch.object(worker.host, "proc_stat", side_effect=lambda pid: (
-                    worker.host.ProcStat("S", 1, 0) if pid in markers else None)), \
+                    worker.host.ProcStat("S", 1, 0, 1) if pid in markers else None)), \
                 patch.object(orch, "stop_scope", return_value=False):
             self.assertEqual(set(stop.marker_pids(self.run_id)), {101, 102})
             run.stop_run_tree({"run_id": self.run_id})
@@ -466,7 +466,7 @@ class RunTree(unittest.TestCase):
             read = state[0]
             if read == "R":
                 state[0] = "Z"
-            return worker.host.ProcStat(read, 1, 7)
+            return worker.host.ProcStat(read, 1, 7, 1)
 
         with patch.object(worker, "marked_pids",
                           lambda *_a, **_kw: [4242] if state[0] == "S" else []), \
@@ -487,7 +487,7 @@ class RunTree(unittest.TestCase):
         with patch.object(worker, "marked_pids", lambda *_a, **_kw: [] if signalled else [4242]), \
                 patch.object(worker.os, "kill", lambda pid, sig: signalled.append(sig)), \
                 patch.object(worker.host, "proc_stat",
-                             lambda pid: worker.host.ProcStat("R", 1, start[0])), \
+                             lambda pid: worker.host.ProcStat("R", 1, start[0], 1)), \
                 patch.object(worker, "time", SimpleNamespace(monotonic=lambda: now[0], sleep=sleep)):
             self.assertTrue(worker.kill_marked(self.marker, grace=0.1))
         self.assertEqual(signalled, [signal.SIGTERM])

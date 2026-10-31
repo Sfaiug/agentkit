@@ -34,7 +34,7 @@ class RegistryOwner(unittest.TestCase):
         self.enterContext(patch.object(muse, "sessions", lambda: root / "muse/sessions"))
         self.enterContext(patch.object(muse.os, "getppid", lambda: 4242))
         self.enterContext(patch.object(host, "proc_stat",
-                                       lambda pid: host.ProcStat("S", parents[pid], 200)))
+                                       lambda pid: host.ProcStat("S", parents[pid], 200, 1)))
         self.enterContext(patch.object(host, "process_identity", lambda pid: self.alive.get(pid)))
 
     def register(self, session, pid):

@@ -212,7 +212,7 @@ class MergeStep(unittest.TestCase):
         self.assertIn("did not finish the rebase of origin/main", state["merge_note"])
         self.assertFalse(state["merge_failed"])
         self.assertEqual(len(state["round_summaries"]), 1)   # no conflict round counted
-        self.assertFalse(roundloop.in_progress(wt, "rebase"))
+        self.assertFalse(gitcall.in_progress(wt, "rebase"))
 
     def test_a_failing_final_check_spends_no_task_round_and_parks_waiting(self):
         # every review passed and the budget is spent; the once suite keeps failing on the
@@ -588,7 +588,7 @@ class MergeStep(unittest.TestCase):
             saved = record.read_state(run_dir)
             self.assertEqual(saved["state"], parked)
             self.assertEqual(run.git(wt, "rev-parse", "HEAD"), head)
-            self.assertFalse(roundloop.in_progress(wt, how))
+            self.assertFalse(gitcall.in_progress(wt, how))
             code = run.cmd_resume([run_dir.name])
         state = record.read_state(run_dir)
         print(f"{type(stop).__name__} ({how}): stopped={saved['state']} "

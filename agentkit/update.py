@@ -36,7 +36,8 @@ import tempfile
 import time
 from datetime import datetime
 
-from . import command_help, config, gitcall, host, orch, retention, transitions, versions, worker
+from . import (command_help, config, gitcall, host, orch, owner, retention, transitions,
+               versions, worker)
 from . import record as run_record
 from .harness import load as harness_plugin
 
@@ -1257,7 +1258,7 @@ def background(name):
 def start(name):
     """`background(name)`, detached: it outlives the tick that starts it, gates and all."""
     subprocess.Popen([sys.executable, "-m", "agentkit.update", name], cwd=config.REPO,
-                     env=config.child_env(), stdin=subprocess.DEVNULL,
+                     env=owner.unmarked(config.child_env()), stdin=subprocess.DEVNULL,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
