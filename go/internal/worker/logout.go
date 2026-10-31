@@ -42,8 +42,11 @@ func loggedOut(harness, out string) *logout {
 // seen is the words the log holds by now, as the manifest spells them, read case-insensitively,
 // or "".
 func (words *logout) seen() string {
+	if len(words.marks) == 0 {
+		return ""
+	}
 	log, err := os.Open(words.log)
-	if err != nil || len(words.marks) == 0 {
+	if err != nil {
 		return ""
 	}
 	defer log.Close()
