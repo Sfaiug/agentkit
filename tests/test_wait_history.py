@@ -348,7 +348,7 @@ class WaitHistory(unittest.TestCase):
         self.leave_by_recovery("stalled")
 
     def test_a_slot_wait_counts_however_admission_ends(self):
-        """A steady second reading admits after one poll; a stop ends the wait instead.
+        """A run nothing holds goes in at its first poll, waiting none; a stop ends a wait.
 
         A waiter that dies has counted every poll but the one it died in, and nothing the
         record goes through afterwards adds to it: only a waiting process counts its wait,
@@ -417,7 +417,8 @@ class WaitHistory(unittest.TestCase):
                     state["deaths"] = [{"pid": os.getpid(), "at": self.wall[0]}]
                 self.assertEqual(self.waits(run_id), (60.0, 0.0, 0.0))
                 continue
-            self.assertEqual(self.waits(run_id), (30.0, 0.0, 0.0))
+            # fix-ui held a poll by the count before its stop
+            self.assertEqual(self.waits(run_id), (30.0 if running else 0.0, 0.0, 0.0))
 
     def test_a_queued_resumes_wait_waits_for_its_ending(self):
         """A resume's slot wait is the next attempt's, never divided by its last ending's run time."""
