@@ -54,8 +54,8 @@ LIFE = 12 * 3600    # a Spot machine is replaced at no cost, and a forgotten one
 TRIES, POLLS = 4, 30    # a rent's creates, polled 2 s apart each: one ran 40 s on 31 Oct 2026
 NEED = "google-cloud-need"      # MiB a core of each suite no machine took since the last pass
 QUOTA = {"QUOTA_EXCEEDED", "quotaExceeded"}    # Google's codes: a region's quota of one family's
-REFUSALS = {*QUOTA, "ZONE_RESOURCE_POOL_EXHAUSTED",    # cores (CPUS_PER_VM_FAMILY), or a zone's
-            "ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS"}    # stock, is out
+REFUSALS = {*QUOTA, "ZONE_RESOURCE_POOL_EXHAUSTED",    # cores (CPUS_PER_VM_FAMILY) left fewer than
+            "ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS"}    # asked, or a zone's stock is out
 # A machine's setup, each line run on those that served suites on 31 Oct 2026: docker's data and
 # trees in memory, as on disk a suite's cores idled in disk wait; sshd keeps a piece's connection.
 STARTUP = """#!/bin/bash
@@ -294,14 +294,14 @@ def _noted(path):
 def _rent(ledger, wanted, cap, now, offered, taken):
     """How renting a machine of `wanted` MiB a core went, in lines: by price per core, zones
     where ak has none (`taken`) first, as Google took both Spot machines of one zone in 6 s on 30
-    Oct 2026, and none of a family in a region whose quota refused it, as its every zone would
-    (4 creates in europe-west4 on 31 Oct 2026); on the meter by name till Google says it made
-    none; living what the cap leaves."""
+    Oct 2026, and none of a family in a region whose quota refused as many of its cores, as its
+    every zone would (4 creates in europe-west4 on 31 Oct 2026); on the meter by name till Google
+    says it made none; living what the cap leaves."""
     left = cap - ledger["spent"] - sum(one["price"] * max(0, one["until"] - one.get("from", now))
                                        for one in ledger["machines"].values()) / 3600
     # the public half of the key `_idle` made, or OSError before any machine is on the meter
     (compute, token), key = _login(), (config.SECRETS / f"{SSH_KEY}.pub").read_text().strip()
-    said, tries, full = [f"nothing offered with {wanted} MiB a core"], TRIES, set()
+    said, tries, refused = [f"nothing offered with {wanted} MiB a core"], TRIES, {}
     for offer in best(wanted, offered):
         if (life := int(min(LIFE, left * 3600 / offer.hourly))) < READY:
             said = [f"rents nothing: €{cap - left:.2f} of €{cap:.2f} spent this month or held "
@@ -309,7 +309,7 @@ def _rent(ledger, wanted, cap, now, offered, taken):
             continue
         quota = offer.region, offer.name.split("-")[0]      # what a region's quota counts
         for zone in sorted(offer.zones, key=taken.__contains__):
-            if quota in full:
+            if offer.cores >= refused.get(quota, float("inf")):
                 break
             name, asked = f"ak-{secrets.token_hex(6)}", time.time()    # past refusals' polls
             ledger["machines"][name] = {"price": offer.hourly, "from": asked, "until": asked + life}
@@ -326,7 +326,7 @@ def _rent(ledger, wanted, cap, now, offered, taken):
             if not tries or not codes & REFUSALS:
                 return said
             if codes & QUOTA:
-                full.add(quota)
+                refused[quota] = offer.cores
     return said
 
 
