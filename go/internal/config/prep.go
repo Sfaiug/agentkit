@@ -15,7 +15,9 @@ type PrepTable struct {
 	// Reads are other files the harness starts on, which nothing is answered in.
 	Reads []string
 	// Links are what a named login's home links from the usual login's.
-	Links   []string
+	Links []string
+	// Shared are objects of Usual whose every entry File takes, over one of its name.
+	Shared  []string
 	Answers []Answer
 }
 
@@ -36,7 +38,7 @@ func Prep(harness, folder string) (PrepTable, bool, error) {
 	if err != nil || file == "" {
 		return PrepTable{}, false, err
 	}
-	found := PrepTable{File: Expand(file), Links: words(root, "prep", "links")}
+	found := PrepTable{File: Expand(file), Links: words(root, "prep", "links"), Shared: words(root, "prep", "shared")}
 	if own, _ := prep.get("account").(string); own != "" && os.Getenv("AGENTKIT_ACCOUNT") != "" {
 		found.Usual = found.File
 		found.File = strings.ReplaceAll(Expand(own), "{home}", loginHome(root))

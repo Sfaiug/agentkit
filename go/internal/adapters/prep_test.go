@@ -20,6 +20,7 @@ file = "~/.acme.json"
 account = "{home}/.acme.json"
 reads = ["~/.acme/settings.json"]
 links = ["skills", "gone", "kept"]
+shared = ["servers"]
 
 [prep.answers]
 seen = true
@@ -148,15 +149,17 @@ func TestPrepRefusesAndLeavesTheFileAlone(t *testing.T) {
 	}
 }
 
-// A named login's answers are in its own file, with the usual file's `true`s and links from its
-// home; the usual file is only read, and one unreadable sends nothing over.
+// A named login's answers are in its own file, with the usual file's `true`s, each entry of its
+// shared objects over one of its name, and links from its home; the usual file is only read, and
+// one unreadable sends nothing over.
 func TestPrepOnANamedLogin(t *testing.T) {
 	home, folder := prepHome(t, preparing)
 	t.Setenv("AGENTKIT_ACCOUNT", "work")
 	usual, own := filepath.Join(home, ".acme.json"), filepath.Join(home, ".acme-work", ".acme.json")
 	login := config.Login{Account: "work", Usual: filepath.Join(home, ".acme"), Home: filepath.Join(home, ".acme-work")}
-	shared := `{"notice": true, "off": false, "id": "usual", "projects": {"/srv/beta": {}}}`
+	shared := `{"notice": true, "off": false, "id": "usual", "projects": {"/srv/beta": {}}, "servers": {"web": "new"}}`
 	put(t, usual, shared)
+	put(t, own, `{"servers": {"web": "old", "mine": "own"}}`)
 	put(t, filepath.Join(login.Usual, "skills", "one"), "")
 	put(t, filepath.Join(login.Usual, "kept"), "usual")
 	put(t, filepath.Join(login.Home, "kept"), "own")
@@ -171,6 +174,9 @@ func TestPrepOnANamedLogin(t *testing.T) {
 	}
 	if keys := data.Dict("projects").Keys(); len(keys) != 1 || keys[0] != folder {
 		t.Errorf("trusted %q", keys)
+	}
+	if got := record.Line(data.Dict("servers")); got != `{"web": "new", "mine": "own"}` {
+		t.Errorf("servers %s", got)
 	}
 	if text(t, usual) != shared {
 		t.Errorf("the usual file became %s", text(t, usual))

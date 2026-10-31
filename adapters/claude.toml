@@ -405,15 +405,17 @@ remedy = "run claude setup-token and replace ~/.agentkit/secrets/claude_oauth_to
 # agentkit/harness/claude.py does until Go takes over: it asks a new login to pick a theme, finish
 # onboarding and take auto mode, and asks whether to trust the folder, with "No, exit" as its
 # default.  `file` holds the answers on the usual login and `account` on a named one, which also
-# takes the `true`s and the `mcpServers` of the usual login's file, each server over one of its
-# name, and links `links` from its home.  A seat does not open on a `file`, `account` or `reads`
-# that cannot be read.  `answers` go in whatever the file holds there, `defaults` only where it
-# holds nothing, `{folder}` being the seat's resolved folder.
+# takes the `true`s of the usual login's file and each entry of its `shared` objects (the servers
+# `ak browser mcp-register` writes there) over one of its name, and links `links` from its home.
+# A seat does not open on a `file`, `account` or `reads` that cannot be read.  `answers` go in
+# whatever the file holds there, `defaults` only where it holds nothing, `{folder}` being the
+# seat's resolved folder.
 [prep]
 file = "~/.claude.json"
 account = "{home}/.claude.json"
 reads = ["~/.claude/settings.json"]
 links = ["CLAUDE.md", "agents", "skills", "commands", "plugins"]
+shared = ["mcpServers"]
 
 [prep.answers]
 hasSeenAutoDefaultNudge = true
