@@ -180,7 +180,7 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0):
     argument holds keeps the suite here. With `turn`, a model turn's (agentkit/machine_turn.py),
     it goes to a machine that takes turns, holding `piece_cpus` of it until it starts, not half,
     `turn(tar)` adding its own files to the parcel. None goes to a machine Google ends within
-    `lasting` seconds."""
+    `lasting` seconds of when it would start there."""
     try:
         aliases = machines.helpers()
     except config.Error:  # a config.toml mid-edit fails no run's suite: it runs here
@@ -188,7 +188,12 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0):
     if not aliases and not google_cloud.renting():
         return None, "no suite helper set up"
     ends = google_cloud.serving()
-    aliases = [alias for alias in aliases if ends.get(alias, math.inf) >= time.time() + lasting]
+
+    def lasts(alias):
+        """Whether Google ends `alias` `lasting` seconds from now or later: asked before its probe,
+        and again once it is prepared, which may take 30 minutes, as the work starts then."""
+        return ends.get(alias, math.inf) >= time.time() + lasting
+    aliases = list(filter(lasts, aliases))
     # A checkout's repository is the one its main checkout has, wherever the suite runs.
     repo = hashlib.sha256(str(gitcall.main_checkout(cwd)).encode()).hexdigest()[:12]
     try:
@@ -235,11 +240,11 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0):
                 known = [] if known and sent == LACKS else None
         except (OSError, subprocess.SubprocessError):
             sent = LOST
-        if not sent:
+        if not sent and lasts(alias):
             log(f"suite on {alias}: {fit[0]} pieces, {fit[1]} CPUs and {fit[2]} MiB each")
             return away, ""
         finish(away)
-        why[alias] = failure(sent)
+        why[alias] = failure(sent) if sent else "ends too soon"
     google_cloud.need(each_mb(piece_mem_mb, _least(repo)))
     return None, " · ".join(f"helper {alias} {reason}" for alias, reason in why.items()) or (
         "no suite helper set up")
