@@ -48,7 +48,7 @@ def boards():
             for board, found in rows.items()}
 
 
-ORCH_PICK = "›   Bolt 3         medium  ~     96.7   $3.00  ★ pick · 1 missing"
+ORCH_PICK = "› ★ pick   Bolt 3          medium  ~     96.7   $3.00  1 missing"
 CRUX_ORCH = ["  why Crux 2 low orchestrates",
              "  quality 93.2 ± 0.0   $1.00 a AA-Briefcase task",
              "  6.8 behind the best, Acme Max 5 max",
@@ -126,10 +126,10 @@ class ModelsWhy(unittest.TestCase):
         term.keys("Right")              # within 6: the orchestrator's front stands as it was
         shown = self.rows(term.wait("within 6 points"))
         self.assertIn(ORCH_PICK, shown)
-        self.assertIn("    Crux 2         low     ~     80.0   $1.00  1 missing", shown)
+        self.assertIn("           Crux 2          low     ~     80.0   $1.00  1 missing", shown)
         term.keys("Down", "Left", "Left", "Left", "Left")   # within 2: Crux 2 low leaves
         shown = self.rows(term.wait("within 2 points"))
-        self.assertIn("›   Acme Mid 5     high    ~     99.2  $15.00  ★ pick · 1 missing", shown)
+        self.assertIn("› ★ pick   Acme Mid 5      high    ~     99.2  $15.00  1 missing", shown)
         self.assertEqual(sum(line.startswith("›") for line in shown), 1)
 
     def test_enter_says_where_a_rows_quality_comes_from_and_esc_returns(self):
@@ -137,7 +137,7 @@ class ModelsWhy(unittest.TestCase):
         self.assertEqual(self.why(term, "Down")[:len(CRUX_ORCH)], CRUX_ORCH)
         term.keys("Escape")
         shown = self.rows(term.wait("comparing all 4 models"))
-        self.assertIn("›   Crux 2         low     ~     93.2   $1.00  2 missing", shown)
+        self.assertIn("›          Crux 2          low     ~     93.2   $1.00  2 missing", shown)
         self.assertEqual(self.why(term, "Down", "Down", "Down")[:len(MAX_HIGH_BUILDS)],
                          MAX_HIGH_BUILDS)
 

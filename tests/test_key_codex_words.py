@@ -27,7 +27,8 @@ WORKING = {"working": "working.interrupt", "approved": "working.interrupt",
 AT_PROMPT = {"prompt": "prompt.composer", "auth": "prompt.composer",
              "auth-401": "prompt.composer", "resumed-warning": "prompt.suggestion",
              "sub-agent-done": "prompt.suggestion", "suggestion": "prompt.suggestion",
-             "title-accepted": "prompt.suggestion", "title-idle": "prompt.suggestion"}
+             "title-accepted": "prompt.suggestion", "title-idle": "prompt.suggestion",
+             "agents-hint": "prompt.suggestion"}
 HOOKS_LISTING = ("remote-hooks", "remote-local-hooks", "seat-server-hooks")
 DRAFTS = {"draft": "prompt.draft", "draft-two-lines": "prompt.draft",
           "draft-warning": "prompt.draft", "draft-wrapped": "prompt.draft",

@@ -16,7 +16,8 @@ import (
 var sessionPunctuation = regexp.MustCompile(`[^a-z0-9_-]+`)
 var sessionDashes = regexp.MustCompile(`-+`)
 
-const renameHops = 8
+// RenameHops is how many renames deep a seat's name is followed, Python's RENAME_HOPS.
+const RenameHops = 8
 
 // Renamed is the key a rename leaves in the old name's record: the name it goes by now.
 const Renamed = "renamed"
@@ -89,7 +90,7 @@ func ResolveSession(name string) (string, map[string]any, error) {
 		return "", nil, err
 	}
 	seen := []string{name}
-	for hops := 0; hops <= renameHops; hops++ {
+	for hops := 0; hops <= RenameHops; hops++ {
 		path, err := sessionPath(name)
 		if err != nil {
 			return "", nil, err
@@ -121,5 +122,5 @@ func ResolveSession(name string) (string, map[string]any, error) {
 		}
 		seen = append(seen, name)
 	}
-	return "", nil, fmt.Errorf("%s: more than %d renames deep", origin, renameHops)
+	return "", nil, fmt.Errorf("%s: more than %d renames deep", origin, RenameHops)
 }

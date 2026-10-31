@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import Home
 
 VERBS = ("usage, models, worker, run, notify, wait, orch, attach, update, watch, browser, fetch, "
-         "macbridge, doctor, hand-in, plan")
+         "macbridge, doctor, hand-in, plan, move")
 GUESSES = ("bogus", "frobnicate", "help", "preview", "trial")
 MENU = ("ak attach: usage: ak [--client] [--overlay] [--dry-run]   "
         "(the menu; `ak attach` is the same)  (got '{}')\n")

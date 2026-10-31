@@ -580,7 +580,7 @@ class WeeklyBalance(unittest.TestCase):
                                      (executor, reviewer))
         self.assertEqual(usage.pick_order(self.cfg, self.providers(60, 57.9))[0], "astra")
 
-    def test_same_provider_pair_policy_preserves_budget_order(self):
+    def test_the_writers_provider_reviews_only_when_another_provider_cannot(self):
         for used in (100, None):
             for workers in (self.workers, [*self.workers, "fable"]):
                 with self.subTest(used=used, workers=workers), \
@@ -602,9 +602,9 @@ class WeeklyBalance(unittest.TestCase):
                         continue
                     self.assertEqual(usage.pick_order(self.cfg, providers)[0], "opus")
                     pair = run.pick_models(self.cfg, providers, None, None, lambda _: None)
-                    # fable, with a budget known, reviews before the others whose meters say
-                    # nothing or are spent: its company is nothing against it
-                    self.assertEqual(pair, ("opus", "fable"))
+                    # meters that say nothing withhold no model, so another provider reviews
+                    # before fable, whose budget is known; spent, it gives way to fable
+                    self.assertEqual(pair, ("opus", "fable" if used == 100 else "astra"))
                     self.assertEqual(run.review_providers(self.cfg, "opus", "fable"),
                                      ("anthropic", "anthropic"))
 

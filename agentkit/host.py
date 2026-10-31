@@ -30,10 +30,12 @@ def alive(pid):
 
 
 class ProcStat(NamedTuple):
-    """The fields of `/proc/<pid>/stat` ak reads: state letter, parent, start in clock ticks."""
+    """The fields of `/proc/<pid>/stat` ak reads: state letter, parent, start in clock ticks,
+    POSIX session."""
     state: str
     ppid: int
     start: int
+    session: int
 
     @property
     def exited(self):
@@ -52,7 +54,7 @@ def proc_stat(pid, proc_root=PROC):
     try:
         fields = ((Path(proc_root) / str(pid) / "stat").read_text(errors="replace")
                   .rsplit(")", 1)[1].split())
-        return ProcStat(fields[0], int(fields[1]), int(fields[19]))
+        return ProcStat(fields[0], int(fields[1]), int(fields[19]), int(fields[3]))
     except (OSError, ValueError, IndexError):
         return None
 

@@ -364,8 +364,8 @@ func checkedSite(site, root, quote string, hasQuote bool) (string, int, error) {
 		return "", 0, fmt.Errorf("name a file that exists inside this checkout")
 	}
 	content, err := readText(path)
-	if err != nil || len(digits) > 640 {
-		// what Python may refuse in its runtime's own words: past 640 digits, int() does as
+	if err != nil || len(digits) > config.MinDigits {
+		// what Python may refuse in its runtime's own words: past these digits, int() does as
 		// PYTHONINTMAXSTRDIGITS says
 		return "", 0, ErrPython
 	}

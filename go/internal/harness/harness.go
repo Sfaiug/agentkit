@@ -16,6 +16,11 @@ import (
 type plugin struct {
 	identity  func(text string, argv []string) (string, bool)
 	snapshots bool
+	// seats is whether Go follows this harness's seats tmux no longer holds, and fresh what
+	// reopening one does where it owns no conversation its record names.
+	seats  bool
+	fresh  string
+	answer func(conversation, cwd string) (model, effort any, found bool)
 }
 
 var plugins = map[string]plugin{}
@@ -33,6 +38,22 @@ func Identity(name, text string, argv []string) (string, bool) {
 // itself; otherwise its `[update] revert` puts it back, or nothing can.
 func Snapshots(name string) bool {
 	return plugins[name].snapshots
+}
+
+// Reopens is what reopening a seat of that harness only its record holds does, as Python's
+// plugin `restart_word` says it: "" where it resumes the conversation its record names; false
+// where Go does not follow that harness's seats yet.
+func Reopens(name string) (string, bool) {
+	return plugins[name].fresh, plugins[name].seats
+}
+
+// LastAnswer is the model and effort of the last answer a seat's conversation records, as
+// Python's plugin `running` reads it; false where that harness records none Go reads.
+func LastAnswer(name, conversation, cwd string) (model, effort any, found bool) {
+	if hook := plugins[name].answer; hook != nil {
+		return hook(conversation, cwd)
+	}
+	return nil, nil, false
 }
 
 // Binary is the program a harness's command names, found as its adapter finds it, as Python's

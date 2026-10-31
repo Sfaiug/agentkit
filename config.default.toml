@@ -29,8 +29,8 @@ within = 5                # a model this many points under the best (`ak models`
 # workers ranked alike or by nothing.
 # Budget = minimum fraction left / fraction of the window left across non-session limits;
 # a usage-limit reset in hand counts for nothing, since ak never spends one by itself.
-# Reviewer = the other model ranked first the same way for reviewing, whatever its provider,
-# else the executor's own model, marked self-reviewed. A meter at 100% used
+# Reviewer = the model ranked first the same way for reviewing, on another provider, else on
+# the executor's, else the executor's own model, marked self-reviewed. A meter at 100% used
 # removes a worker even without a reset time, and so does a harness that is not
 # installed or not logged in; an unknown budget comes after every known one of the same
 # matrix rank. The menu's `c` screen changes both defaults.

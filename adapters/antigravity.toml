@@ -23,6 +23,14 @@ workspace = ["AGENTS.md", "GEMINI.md", ".agents/rules", ".agent/rules"]
 # `interactive` hands $AGENTKIT_FIRST_PROMPT to the TUI as its first prompt, fresh or resumed
 first_prompt = true
 
+# The lines its prompt takes to move its conversation to another model or effort
+# (`orch.switch_lines`): `/model` takes the base model, as `run`'s --model does (agy 1.3.4 on),
+# and `/effort` picks its variant, the full id `interactive` launches on; a model at no effort
+# is that id itself, and is typed no effort.
+[switch]
+model = "/model {model}"
+effort = "/effort {effort}"
+
 [worker]
 state = ["~/.gemini/antigravity-cli", "~/.gemini/antigravity-cli-$AGENTKIT_ACCOUNT", "~/.gemini/config"]
 logins = ["~/.gemini/antigravity-cli/antigravity-oauth-token", "~/.gemini/antigravity-cli-$AGENTKIT_ACCOUNT/antigravity-oauth-token"]

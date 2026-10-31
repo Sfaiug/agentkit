@@ -1,8 +1,8 @@
-"""`r recommended` on `c` answers each role over every current model on the boards: its best,
-then its line of best quality for the money around the pick, each row's notes, and under a pick
-no harness of yours runs what `r` takes, the pointer on the first role's pick.  ←/→ step
-`within` and the answer follows; on 40 cells each row's line, numbers and notes take a line
-under its name.  `r` takes each role's take at its effort: into new seats' [defaults] in a
+"""`r recommended` on `c` answers each role over every current model on the boards: its line of
+best quality for the money around the pick, from its best, each row's notes, and the pick and
+what `r` takes marked before their names, the pointer on the first role's pick.  ←/→ step
+`within` and the answer follows, every line as long; on 40 cells each row's line, numbers and
+notes take a line under its name, and its mark one above it.  `r` takes each role's take at its effort: into new seats' [defaults] in a
 window of its own, and into a seat's record alone, its orchestrator only said, over a seat; a
 save that fails changes nothing and says why.
 
@@ -64,30 +64,29 @@ def boards():
     return {board: {"asked_at": NOW, "fetched_at": NOW, "error": None, "build": "", "rows": found}
             for board, found in rows.items()}
 
-def bar(full, half=0, size=35):
+def bar(full, half=0, size=36):
     """A row's quality line as drawn: `full` cells of it full, a half cell after them where
-    `half`, the rest of its `size` empty: 35 on 100 cells, 8 on 40."""
+    `half`, the rest of its `size` empty: 36 on 100 cells, 8 on 40."""
     return "━" * full + "╸" * half + "─" * (size - full - half)
 
 
-HEAD = "quality  a task"    # over the numbers, past every row's name, effort and line
-ORCH = ["  orch · best 100.0".ljust(64) + HEAD,
-        f"    Acme Max 5  ▰▰ max     {bar(35)}    100.0  $20.00  no harness",
-        f"    Acme Mid 5     high    {bar(34)}     99.7  $15.00",
-        f"    Bolt 3         medium  {bar(33)}     99.4   $3.00  ★ pick",
-        f"    Crux 2         low     {bar(3, 1)}     91.0   $1.00"]
-BUILDS = ["  builds · best 100.0".ljust(64) + HEAD,
-          f"    Acme Max 5  ▰▰ max     {bar(35)}    100.0  $20.00  no harness",
-          f"    Acme Mid 5     high    {bar(27, 1)}     97.8  $15.00",
-          f"    Acme Max 5  ▰▱ high    {bar(18, 1)}     95.3  $10.00  ★ pick · no harness",
-          "      r takes Acme Mid 5 high, 97.8, $15.00",
-          f"    Bolt 3         medium  {bar(11)}     93.2   $3.00",
-          f"    Crux 2         low     {bar(0)}     74.0   $1.00  1 missing"]
-REVIEWS = ["  reviews · best 100.0".ljust(64) + HEAD,
-           f"    Acme Max 5  ▰▰ max     {bar(35)}    100.0  $20.00  no harness",
-           f"    Acme Mid 5     high    {bar(26, 1)}     97.6  $15.00  ★ pick",
-           f"    Acme Max 5  ▰▱ high    {bar(17)}     94.8  $10.00  no harness",
-           f"    Bolt 3         medium  {bar(7)}     92.0   $3.00"]
+HEAD = "quality  a task"    # over the numbers, past every row's mark, name, effort and line
+ORCH = ["  orch".ljust(73) + HEAD,
+        f"           Acme Max 5  ▰▰  max     {bar(36)}    100.0  $20.00  no harness",
+        f"           Acme Mid 5      high    {bar(35)}     99.7  $15.00",
+        f"  ★ pick   Bolt 3          medium  {bar(34)}     99.4   $3.00",
+        f"           Crux 2          low     {bar(3, 1)}     91.0   $1.00", ""]
+BUILDS = ["  builds",
+          f"           Acme Max 5  ▰▰  max     {bar(36)}    100.0  $20.00  no harness",
+          f"  r takes  Acme Mid 5      high    {bar(28)}     97.8  $15.00",
+          f"  ★ pick   Acme Max 5  ▰▱  high    {bar(19)}     95.3  $10.00  no harness",
+          f"           Bolt 3          medium  {bar(11, 1)}     93.2   $3.00",
+          f"           Crux 2          low     {bar(0)}     74.0   $1.00  1 missing", ""]
+REVIEWS = ["  reviews",
+           f"           Acme Max 5  ▰▰  max     {bar(36)}    100.0  $20.00  no harness",
+           f"  ★ pick   Acme Mid 5      high    {bar(27, 1)}     97.6  $15.00",
+           f"           Acme Max 5  ▰▱  high    {bar(17, 1)}     94.8  $10.00  no harness",
+           f"           Bolt 3          medium  {bar(7)}     92.0   $3.00"]
 LEGEND = ["  as good    ‹ ▰▰▰▰▰▱▱▱▱▱ ›  within 5 points of the best, then the cheapest",
           "  left out   a row no better than a cheaper one, yours compared with yours",
           f"  comparing all 4 models · boards read {time.strftime('%H:%M', time.gmtime(NOW))}"]
@@ -151,16 +150,17 @@ class ModelsAnswer(unittest.TestCase):
         term, shown = self.models()
         at = shown.index(ORCH[0])
         pointed = [*ORCH[:3], "›" + ORCH[3][1:], *ORCH[4:]]    # the pointer starts on the pick
-        self.assertEqual(shown[at:at + 21], [*pointed, *BUILDS, *REVIEWS, "", *LEGEND])
+        answer = [*pointed, *BUILDS, *REVIEWS, "", *LEGEND]
+        self.assertEqual(shown[at:at + len(answer)], answer)
         self.assertEqual(next(line for line in reversed(shown) if line), KEYS)
         term.keys("Left")
         shown = lines(term.wait("within 4 points"))
-        at = next(n for n, line in enumerate(shown) if line.startswith("  builds · best"))
-        # the notes narrower, every line takes the cells they leave
+        at = shown.index("  builds")
+        # the pick is what `r` takes, and every line as long as it was
         self.assertEqual(shown[at + 2:at + 5], [
-            f"    Acme Mid 5     high    {bar(34, 1, 44)}     97.8  $15.00  ★ pick",
-            f"    Acme Max 5  ▰▱ high    {bar(23, 1, 44)}     95.3  $10.00  no harness",
-            f"    Bolt 3         medium  {bar(14, size=44)}     93.2   $3.00"])
+            f"  ★ pick   Acme Mid 5      high    {bar(28)}     97.8  $15.00",
+            f"           Acme Max 5  ▰▱  high    {bar(19)}     95.3  $10.00  no harness",
+            f"           Bolt 3          medium  {bar(11, 1)}     93.2   $3.00"])
         self.assertEqual(akconfig.read(self.home)["within"], 4)
 
     def test_r_takes_each_roles_take_at_its_effort(self):
@@ -211,14 +211,16 @@ class ModelsAnswer(unittest.TestCase):
 
     def test_a_40_cell_screen_puts_each_rows_line_numbers_and_notes_under_its_name(self):
         shown = self.models(40)[1]
-        at = shown.index("  builds · best 100.0")
-        self.assertEqual(shown[at + 1:at + 14], [
-            "              quality  a task",
-            "    Acme Max 5  ▰▰ max", f"    {bar(8, size=8)}    100.0  $20.00", "      no harness",
-            "    Acme Mid 5     high", f"    {bar(6, size=8)}     97.8  $15.00",
-            "    Acme Max 5  ▰▱ high", f"    {bar(4, size=8)}     95.3  $10.00  ★ pick",
-            "      no harness", "      r takes Acme Mid 5 high, 97.8,", "      $15.00",
-            "    Bolt 3         medium", f"    {bar(2, 1, 8)}     93.2   $3.00"])
+        at = shown.index("  builds")
+        self.assertEqual(shown[at - 1:at + 18], [
+            "", "  builds",
+            "    Acme Max 5  ▰▰  max", f"    {bar(8, size=8)}    100.0  $20.00", "      no harness",
+            "    r takes", "    Acme Mid 5      high", f"    {bar(6, size=8)}     97.8  $15.00",
+            "    ★ pick", "    Acme Max 5  ▰▱  high", f"    {bar(4, size=8)}     95.3  $10.00",
+            "      no harness",
+            "    Bolt 3          medium", f"    {bar(2, 1, 8)}     93.2   $3.00",
+            "    Crux 2          low", f"    {bar(0, size=8)}     74.0   $1.00  1 missing",
+            "", "  reviews", "    Acme Max 5  ▰▰  max"])
         self.assertIn("  as good    ‹ ▰▰▰▰▰▱▱▱▱▱ ›  within 5", shown)
 
 

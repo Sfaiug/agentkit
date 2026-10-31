@@ -12,6 +12,8 @@ import (
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"agentkit/internal/config"
 )
 
 // A record is read as Python's json module reads one.  Values are nil, bool, Number, string,
@@ -243,8 +245,8 @@ func numeric(value any) (float64, bool) {
 var ErrLoneSurrogate = errors.New("a lone surrogate")
 
 // ErrLimit is JSON that Python reads or refuses as the limits it runs under say: an int longer
-// than the 640 digits every PYTHONINTMAXSTRDIGITS lets it convert, or nesting deeper than
-// maxDepth.
+// than the config.MinDigits every PYTHONINTMAXSTRDIGITS lets it convert, or nesting deeper
+// than maxDepth.
 var ErrLimit = errors.New("past a limit Python runs under")
 
 // Decode reads one JSON value as Python's json.loads does, NaN and Infinity numbers among
@@ -258,6 +260,12 @@ func Decode(data []byte) (any, error) {
 // decide whether it reads the value.
 func DecodeLimited(data []byte) (any, error) {
 	return decode(&parser{data: data, limited: true})
+}
+
+// DecodeShown reads one JSON value as DecodeLimited does, for what Go only reads and shows: a
+// lone surrogate, which Python reads and its print cannot write, is U+FFFD.
+func DecodeShown(data []byte) (any, error) {
+	return decode(&parser{data: data, limited: true, shown: true})
 }
 
 func decode(p *parser) (any, error) {
@@ -281,17 +289,10 @@ type parser struct {
 	data    []byte
 	at      int
 	limited bool // ErrLimit where Python's limits decide
+	shown   bool // a lone surrogate as U+FFFD
 }
 
 var numberRe = regexp.MustCompile(`^(-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][-+]?[0-9]+)?|NaN|-?Infinity)`)
-
-// maxDigits is the longest int Python converts from text (sys.int_info.default_max_str_digits),
-// and minDigits the longest every PYTHONINTMAXSTRDIGITS lets it convert
-// (sys.int_info.str_digits_check_threshold).
-const (
-	maxDigits = 4300
-	minDigits = 640
-)
 
 // maxDepth is the deepest nesting a limited read takes: Python's json recurses once a level, and
 // before 3.12 the 1000 frames of its recursion limit, ak's own among them, end it short of 1000.
@@ -401,10 +402,10 @@ func (p *parser) value(depth int) (any, error) {
 	switch {
 	case found == nil:
 		return nil, p.fail("Expecting value", p.at)
-	case p.limited && integral(Number(found)) && digits > minDigits:
+	case p.limited && integral(Number(found)) && digits > config.MinDigits:
 		return nil, ErrLimit
-	case integral(Number(found)) && digits > maxDigits:
-		return nil, fmt.Errorf("Exceeds the limit (%d digits) for integer string conversion: value has %d digits; use sys.set_int_max_str_digits() to increase the limit", maxDigits, digits)
+	case integral(Number(found)) && digits > config.MaxDigits:
+		return nil, fmt.Errorf("Exceeds the limit (%d digits) for integer string conversion: value has %d digits; use sys.set_int_max_str_digits() to increase the limit", config.MaxDigits, digits)
 	}
 	p.at += len(found)
 	return Number(found), nil
@@ -453,7 +454,7 @@ func (p *parser) text() (string, error) {
 					p.at = next
 				}
 			}
-			if utf16.IsSurrogate(r) {
+			if utf16.IsSurrogate(r) && !p.shown {
 				return "", ErrLoneSurrogate
 			}
 			out = utf8.AppendRune(out, r)

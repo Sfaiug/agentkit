@@ -85,9 +85,9 @@ class ModelsPick(unittest.TestCase):
         self.assertEqual(self.compare(), ["acme-max-5", "acme-mid-5"])
         term.keys("Escape")
         shown = lines(term.wait("comparing 2 of 4 models"))
-        at = shown.index("  orch · best 100.0".ljust(64) + "quality  a task")      # was Bolt 3's
-        self.assertEqual(shown[at + 3], f"›   Acme Max 5  ▰▱ high  {bar(35, size=37)}     99.4  "
-                                        "$10.00  ★ pick · no harness")
+        at = shown.index("  orch".ljust(73) + "quality  a task")      # was Bolt 3's
+        self.assertEqual(shown[at + 3], f"› ★ pick   Acme Max 5  ▰▱  high  {bar(35, 1, 38)}     "
+                                        "99.4  $10.00  no harness")
 
     def test_find_narrows_the_list(self):
         term, _ = self.pick()
@@ -144,10 +144,10 @@ class ModelsPick(unittest.TestCase):
         self.assertIn("    □ Bolt 3 Long Context Preview Editi…", shown)
         term.keys("Escape")
         shown = lines(term.wait("comparing 1 of 4 models"))
-        at = shown.index("  builds · best 74.0")
-        self.assertEqual(shown[at + 2:at + 5], ["    Crux 2  low",
-                                                f"    {bar(8, size=8)}     74.0   $1.00  ★ pick",
-                                                "      1 missing · no harness"])
+        at = shown.index("  builds")
+        self.assertEqual(shown[at + 1:at + 5], ["    ★ pick", "    Crux 2  low",
+                                                f"    {bar(8, size=8)}     74.0   $1.00  1 missing",
+                                                "      no harness"])
         self.assertEqual(shown[shown.index("  comparing 1 of 4 models") + 1][:14], "  boards read ")
 
 

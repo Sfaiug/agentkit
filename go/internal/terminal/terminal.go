@@ -10,13 +10,15 @@ import (
 )
 
 // A style is a word's glyph, its ASCII stand-in, its colour on a dark background, its
-// eight-colour tone and its emphasis.  `dim` is a note beside a row, no state.
+// eight-colour tone and its emphasis.  `dim` is a note beside a row, no state; `idle` is drawn
+// as dim is.
 type style struct{ glyph, ascii, rgb, tone, emphasis string }
 
 var styles = map[string]style{
 	"needs you": {"!", "!", "f9e2af", "33", "1"},
 	"working":   {"●", "*", "89b4fa", "36", ""},
 	"done":      {"✓", "v", "a6e3a1", "32", ""},
+	"idle":      {"○", "o", "6c7086", "37", "2"},
 	"dim":       {"·", ".", "6c7086", "37", "2"},
 }
 
@@ -109,7 +111,7 @@ func (s Screen) Styled(text, word string) string {
 	case 256:
 		code = "38;5;" + strconv.Itoa(xterm(look.rgb))
 	}
-	if word == "dim" && s.depth == 8 {
+	if (word == "dim" || word == "idle") && s.depth == 8 {
 		code = "2"
 	} else if look.emphasis != "" {
 		code = look.emphasis + ";" + code

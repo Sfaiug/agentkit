@@ -27,11 +27,12 @@ func Alive(pid int) bool {
 	return err == nil || errors.Is(err, os.ErrPermission) || runtime.GOOS == "windows"
 }
 
-// A Stat is what ak reads of /proc/<pid>/stat: the state letter, the parent and the start in
-// clock ticks.
+// A Stat is what ak reads of /proc/<pid>/stat: the state letter, the parent, the kernel's flags
+// and the start in clock ticks.
 type Stat struct {
 	State  string
 	Parent int
+	Flags  int
 	Start  int64
 }
 
@@ -52,11 +53,12 @@ func ReadStat(pid int) (Stat, bool) {
 		return Stat{}, false
 	}
 	parent, err := strconv.Atoi(fields[1])
+	flags, unread := strconv.Atoi(fields[6])
 	start, failed := strconv.ParseInt(fields[19], 10, 64)
-	if err != nil || failed != nil {
+	if err != nil || unread != nil || failed != nil {
 		return Stat{}, false
 	}
-	return Stat{State: fields[0], Parent: parent, Start: start}, true
+	return Stat{State: fields[0], Parent: parent, Flags: flags, Start: start}, true
 }
 
 // An Identity is a process's birth, with the boot, so a reboot cannot recycle one.
