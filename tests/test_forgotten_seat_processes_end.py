@@ -150,14 +150,16 @@ class ForgottenSeatProcesses(unittest.TestCase):
             warm._start(str(REPO))
         self.assertNotIn(guard.TMUX_OWNER, spawn.call_args.args[2])
 
-    def test_an_ak_typed_in_a_side_session_runs_itself_again_untagged(self):
-        # /proc shows the environment a process started with, which is what the tick reads
-        said = ("import runpy, sys; from agentkit import usage; usage.main = lambda _: print("
-                f"open('/proc/self/environ').read().split('\\0').count('{guard.TMUX_OWNER}=gone'))"
-                "; sys.argv = ['bin/ak', 'usage']; runpy.run_path('bin/ak', run_name='__main__')")
-        done = subprocess.run([sys.executable, "-c", said], cwd=REPO, capture_output=True,
-                              text=True, timeout=60, env={**os.environ, guard.TMUX_OWNER: "gone"})
-        self.assertEqual(done.stdout.split(), ["0"], done.stderr)
+    def test_what_marks_itself_drops_the_tag_from_its_own_proc_and_keeps_its_input(self):
+        # /proc shows the environment a process started with, which is what the tick reads; a
+        # seat's hook hands its helper the owner's words before that helper marks itself
+        said = ("import sys; from agentkit import owner; said = sys.stdin.read(); "
+                "owner.mark('seat look'); print(open('/proc/self/environ').read().split('\\0')"
+                f".count('{guard.TMUX_OWNER}=gone'), said)")
+        done = subprocess.run([sys.executable, "-c", said], cwd=REPO, input="continue",
+                              capture_output=True, text=True, timeout=60,
+                              env={**os.environ, guard.TMUX_OWNER: "gone"})
+        self.assertEqual(done.stdout.split(), ["0", "continue"], done.stderr)
 
 
 if __name__ == "__main__":

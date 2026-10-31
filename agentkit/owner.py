@@ -20,7 +20,6 @@ import os
 import re
 import shlex
 import signal
-import sys
 import time
 
 from . import host
@@ -39,16 +38,11 @@ def mark(name):
     later starts at the same tick, and its POSIX session tells what it left there from what left
     for a session of its own.  Where /proc cannot say, the mark inherited, if any, stays.
 
-    A seat's tag goes first.  /proc shows a process the environment it was started with, which is
-    what the tick's look reads, so a process started with a tag runs itself again without it: an
-    `ak` typed in a side session is no more the seat's than what it starts.  A fork shows its
-    parent's, and runs on: its parent's command is not its own.
+    A seat's tag goes first, from what it starts and from what /proc shows of it (`_untag`): an
+    `ak` typed in a side session is no more the seat's than what it starts.
     """
-    if os.environ.pop(TMUX_OWNER, None) and _environ("self").get(TMUX_OWNER):
-        try:
-            os.execv(sys.executable, sys.orig_argv)
-        except OSError:
-            pass         # it runs on tagged, as an `ak` from before tags were dropped does
+    os.environ.pop(TMUX_OWNER, None)
+    _untag()
     namespace, stat = _namespace(), host.proc_stat("self")
     if namespace is not None and stat is not None:
         os.environ[MARK] = f"{namespace} {os.getpid()} {stat.start} {stat.session} {name}"
@@ -156,6 +150,28 @@ def _under_tmux(pid, stats):
         seen.add(pid)
         pid = stats[pid].ppid
     return False
+
+
+def _untag():
+    """Blank the tag's value in this process's start environment, all /proc shows the tick's look
+    of its environment: in place, so the process keeps its input and state, and a fork blanks its
+    own copy.  Nothing else reads those bytes once the tag is out of its environment.  Where
+    /proc cannot say, the tag stays, as on an `ak` from before tags were dropped."""
+    try:
+        start, end = map(int, _proc("self", "stat").rsplit(")", 1)[1].split()[47:49])
+        mem = os.open(host.PROC / "self" / "mem", os.O_RDWR)
+    except (OSError, ValueError, IndexError):
+        return
+    try:
+        key, at = f"{TMUX_OWNER}=".encode(), start
+        for entry in os.pread(mem, end - start, start).split(b"\0"):
+            if entry.startswith(key):
+                os.pwrite(mem, bytes(len(entry) - len(key)), at + len(key))
+            at += len(entry) + 1
+    except (OSError, ValueError):
+        pass
+    finally:
+        os.close(mem)
 
 
 def _environ(pid):
