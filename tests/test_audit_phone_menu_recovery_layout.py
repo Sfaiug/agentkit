@@ -481,12 +481,13 @@ class Terminal:
 
         tmux applies a pane's new size to its pty a moment after `resize-window`, so a key
         sent straight after may be answered at the old size, as a phone turned mid-keypress
-        would be; the next one draws it right.  The screen has to fit the size and hold its
-        highlight as well as say the texts: the old layout re-wrapped by tmux may still say
-        them, and so may a capture inside the new frame, its title over the old one's keys.
+        would be; the next one draws it right.  The screen has to be this size's as well as
+        say the texts, as the old layout re-wrapped by tmux and a capture inside the new frame
+        may: every frame ends two lines above the bottom, its keys last, so one ending there
+        and nothing under it is whole.
         """
         def drawn(screen):
-            return (len(screen) <= self.height and any(MARKED.match(line) for line in screen)
+            return (len(screen) == self.height - 2
                     and all(terminal.cells(line) <= self.width for line in screen))
         for _ in range(tries):
             self.keys(key)
@@ -573,21 +574,25 @@ class Phone(Sandbox):
 
     def moved(self, phone, key, lines):
         """The screen once `key` has moved the highlight one row on from the seat it is on in
-        `lines`, and the page's place on the key line has turned exactly when its rows did.
+        `lines`: on those rows under the same place on the key line, or past them under the next
+        page's.
 
         Pages split the rows the same way wherever the highlight is, and a frame reaches the
-        pane in pieces from the top: a capture inside one -- the new page's rows over the old
-        page's key line -- is no whole page, however long the rest takes to come.
+        pane in pieces from the top: a capture inside one has the new rows over the old place,
+        or over none where its line is cleared, however long the rest takes to come.
         """
         at, rows, place = self.marked(lines), self.numbers(lines), self.place(lines)
         step = {"Up": -1, "k": -1, "Down": 1, "j": 1}[key]
+        stays = at + step in rows
+        number, _, pages = place.partition(" / ")
+        want = place if stays else f"{int(number) + step} / {pages}"
         phone.keys(key)
 
         def ready(screen):
             inside = Terminal.inside(screen)
             last = next((line for line in reversed(inside) if line.strip()), "")
-            return (self.marked(inside) == at + step and last.endswith("esc leave")
-                    and (self.place(inside) == place) == (self.numbers(inside) == rows))
+            return (self.marked(inside) == at + step and self.place(inside) == want
+                    and (self.numbers(inside) == rows) == stays and last.endswith("esc leave"))
         return phone.wait(ready, f"the highlight moved by {key} off {at}")
 
     def turned(self, phone, before):
@@ -791,9 +796,11 @@ class Phone(Sandbox):
         phone.press("12")
         # the menu's look at it publishes the words, behind the frame the key was read on
         if narrow:
-            screen = phone.until(STAND_IN, "Ctrl-b m  menu", f"! needs you    {LONG_NAME[:7]}…")
+            screen = phone.until(STAND_IN, "Ctrl-b m  menu",
+                                 f"! needs you    {LONG_NAME[:7]}… ! 11 need you")
         else:
-            screen = phone.until(STAND_IN, "Ctrl-b m  menu", f"! needs you    {LONG_NAME}")
+            screen = phone.until(STAND_IN, "Ctrl-b m  menu",
+                                 f"! needs you    {LONG_NAME}   GPT-6-Astra")
         top, bar = screen[-2:]
         self.fits(screen, width, height)
         if narrow:
