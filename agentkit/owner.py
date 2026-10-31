@@ -38,11 +38,11 @@ def mark(name):
     later starts at the same tick, and its POSIX session tells what it left there from what left
     for a session of its own.  Where /proc cannot say, the mark inherited, if any, stays.
 
-    A seat's tag goes first, from what it starts and from what /proc shows of it (`_untag`): an
-    `ak` typed in a side session is no more the seat's than what it starts.
+    A seat's tag goes first, from what it starts and, where it had one, from what /proc shows of
+    it (`_untag`): an `ak` typed in a side session is no more the seat's than what it starts.
     """
-    os.environ.pop(TMUX_OWNER, None)
-    _untag()
+    if os.environ.pop(TMUX_OWNER, None):
+        _untag()
     namespace, stat = _namespace(), host.proc_stat("self")
     if namespace is not None and stat is not None:
         os.environ[MARK] = f"{namespace} {os.getpid()} {stat.start} {stat.session} {name}"
@@ -158,9 +158,9 @@ def _untag():
     own copy.  Nothing else reads those bytes once the tag is out of its environment.  Where
     /proc cannot say, the tag stays, as on an `ak` from before tags were dropped."""
     try:
-        start, end = map(int, _proc("self", "stat").rsplit(")", 1)[1].split()[47:49])
+        start, end = host.environ_span("self")
         mem = os.open(host.PROC / "self" / "mem", os.O_RDWR)
-    except (OSError, ValueError, IndexError):
+    except (TypeError, OSError):    # no span to read, or no memory to write
         return
     try:
         key, at = f"{TMUX_OWNER}=".encode(), start

@@ -52,11 +52,25 @@ def proc_stat(pid, proc_root=PROC):
     hidden, or not proof of anything -- is the caller's to say.
     """
     try:
-        fields = ((Path(proc_root) / str(pid) / "stat").read_text(errors="replace")
-                  .rsplit(")", 1)[1].split())
+        fields = _stat_fields(Path(proc_root) / str(pid))
         return ProcStat(fields[0], int(fields[1]), int(fields[19]), int(fields[3]))
     except (OSError, ValueError, IndexError):
         return None
+
+
+def environ_span(pid):
+    """(first, past last) address of that process's start environment in its memory, the bytes
+    its /proc environ shows; None where its stat cannot say."""
+    try:
+        fields = _stat_fields(PROC / str(pid))
+        return int(fields[47]), int(fields[48])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _stat_fields(process):
+    """The fields of a process's stat after its name, counted after the last `)` (`proc_stat`)."""
+    return (process / "stat").read_text(errors="replace").rsplit(")", 1)[1].split()
 
 
 def parents():
