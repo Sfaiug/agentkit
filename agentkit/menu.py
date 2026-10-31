@@ -155,8 +155,6 @@ STATE_ORDER = ("needs you", "out of usage", "working", "done", "idle")
 # provider's `colour` key in config.toml wins, and a provider named in neither is the accent.
 COLOURS = {"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai": "#736CD3",
            "google": "#203B9B", "mimo": "#FB8046"}
-# A board's maker as COLOURS names its company, where that is not the maker's name in lower case
-MAKERS = {"Xiaomi": "mimo"}
 # Each company's own name, on its usage row (a model sits under its harness's, model_heading);
 # any other provider is its own `name` key (provider_name), else its key capitalised.
 NAMES = {"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Grok",
@@ -2510,6 +2508,15 @@ def colour(cfg, name):
     return COLOURS.get(name, "accent")
 
 
+def company(cfg, maker):
+    """The provider a board's `maker` makes the models of, as COLOURS names it: the one whose
+    `maker` names it, the config's own table before the shipped one, else its name in lower
+    case: `Acme`, acme."""
+    tables = [*cfg["providers"].items(), *(config.shipped().get("providers") or {}).items()]
+    return next((name for name, entry in tables
+                 if isinstance(entry, dict) and entry.get("maker") == maker), maker.lower())
+
+
 def hue(kind):
     """Where a colour sorts: red through violet by its hue, then the near-greys, lightest first.
 
@@ -3019,10 +3026,9 @@ def models_said(answer, lineup, within):
     on it, its mark: `★ pick`, `r takes` on what `r` takes where that is not the pick, else "",
     name, its effort's cells out of the efforts its release has in `lineup`, a row naming none
     one of them (terminal.effort_cells), its effort or "" for none, how near the role's best it
-    is from 0, config.POINTS behind or more, to 1, quality, cost, notes, its maker's company as
-    COLOURS names it), and under a pick where `r` takes nothing that no harness of yours runs a
-    model this good.  With no pick, no priced row being within `within` of the best, the front
-    from its best, said so."""
+    is from 0, config.POINTS behind or more, to 1, quality, cost, notes, its maker), and under a
+    pick where `r` takes nothing that no harness of yours runs a model this good.  With no pick,
+    no priced row being within `within` of the best, the front from its best, said so."""
     levels = {}     # each release's efforts on the boards, weakest first, a row naming none one
     for row in lineup:
         levels.setdefault(row["release"], []).append(row["effort"])
@@ -3045,8 +3051,7 @@ def models_said(answer, lineup, within):
                 pointed(role, row), mark, row["name"], terminal.effort_cells(
                     len(taken), taken.index(row["effort"]) + 1),
                 row["effort"] or "", max(0, 1 - (found["best"] - row["quality"]) / config.POINTS),
-                f"{row['quality']:.1f}", f"${row['cost']:.2f}", notes,
-                MAKERS.get(row["maker"], (row["maker"] or "").lower())))
+                f"{row['quality']:.1f}", f"${row['cost']:.2f}", notes, row["maker"]))
             if row is pick and not take:
                 lines.append("no harness of yours runs a model this good")
         # the first row is the best but where the best has no cost, so the head says it then
@@ -3064,8 +3069,8 @@ def models_body(said, within, compared, total, fetched, at=None, moves=None, lit
     one -- its cells, then its word, in one column after the most cells any row has -- its line
     (terminal.share_line), taking the room the other columns leave, then its quality, cost and
     notes, these one under another in a column as wide as the widest.  Every line is QUIET and
-    every name plain but a row of the company `lit`, (company, colour): its line in the colour,
-    its name lifted from it toward the foreground.  Every column fits the rows `within` =
+    every name plain but a row of the maker `lit`, (maker, colour): its line in the colour, its
+    name lifted from it toward the foreground.  Every column fits the rows `within` =
     config.POINTS shows, so a step of `within` moves none.  Where that leaves the line under 8
     cells, the notes' column gives way first, each row's notes going under it; where the line is
     still under 8 cells, from 40 cells up, each row's mark, then its name and effort, take a line
@@ -3129,10 +3134,10 @@ def models_body(said, within, compared, total, fetched, at=None, moves=None, lit
                 for part in terminal.wrap(line, room - under):
                     put(" " * under + part, here)
                 continue
-            here, mark, name, cells, word, near, *numbers, notes, company = line
+            here, mark, name, cells, word, near, *numbers, notes, maker = line
             text = effort(cells, word)
             name = terminal.pad(name, label if wide else min(label, room - 6 - levelled))
-            ink = lit[1] if lit and lit[0] == company else None
+            ink = lit[1] if lit and lit[0] == maker else None
             # lifted, as a dark company's colour -- Google's -- reads on no dark background
             name = terminal.styled(name, terminal.faded(ink, -0.25)) if ink else name
             lead = f"{name}  {text}{' ' * (levelled - terminal.cells(text))}  "
@@ -3259,7 +3264,7 @@ def models_screen(cfg, session, selected, providers):
     step, never per draw.  ←/→ step `within`, saved at once (config_within), the knob nudging
     at either end.  ↑/↓ move the pointer over the rows shown, from the first role's pick; one
     whose row a step leaves unshown goes to its role's pick.  From the first move of the mouse's
-    pointer or the keys', the row pointed at lights its maker's company: every row of it in its
+    pointer or the keys', the row pointed at lights its maker: every row of it in its company's
     colour (models_body); none while the pointer is on no row.  ⏎ or a click opens the pointed
     row's why (models_why) until Esc, ↑/↓ turning its pages where it is taller than the screen.
     `p` picks the releases the answer compares (compare_screen), answered again once it is left.
@@ -3286,18 +3291,18 @@ def models_screen(cfg, session, selected, providers):
             compared = matrix.compared(cfg, current)
             answer = matrix.answer(lineup, matrix.within(cfg), compared)
             said = models_said(answer, lineup, matrix.within(cfg))
-            companies = {line[0]: line[-1] for _, lines, _ in said for line in lines
-                         if isinstance(line, tuple)}
-            rows = list(companies)
+            makers = {line[0]: line[-1] for _, lines, _ in said for line in lines
+                      if isinstance(line, tuple)}
+            rows = list(makers)
             if here not in rows:
                 role = here[1] if here else next(iter(quality.ROLES))
                 pick = answer[role]["pick"]
                 here = pointed(role, pick) if pick else next(
                     (row for row in rows if row[1] == role), rows[0] if rows else None)
-        moves, lit = [], pointing and not terminal.away() and companies.get(here)
+        moves, lit = [], pointing and not terminal.away() and makers.get(here)
         body, places = models_body(said, matrix.within(cfg), compared, len(current),
                                    held.get("fetched_at"), None if terminal.away() else here,
-                                   moves, lit and (lit, colour(cfg, lit)))
+                                   moves, lit and (lit, colour(cfg, company(cfg, lit))))
         # the legend stands under the rows whatever the height: the pointer never reaches it
         fold = next(line for line, (row, _) in places.items() if row == KNOB)
         places = {line: place for line, place in places.items() if line < fold}

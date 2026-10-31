@@ -1,7 +1,8 @@
 """The models screen draws no maker's colour when it opens, though the highlight is on the first
-role's pick; once ↓ moves it onto a row, every row of that row's maker, in every role, has the
+role's pick; once ↓ moves it onto a row, every row of that row's maker, in every role, has its
 company's colour, its provider's `colour`: its line in it, its name in it lifted a quarter of the
-way toward the foreground, a dark background's white.  No row of another maker has it.
+way toward the foreground, a dark background's white.  No row of another maker has it.  A
+provider whose `maker` names the boards' maker is its company, as `mimo`'s names Xiaomi.
 
 The owner's ask of 30 Oct 2026, colour only under the pointer.  Black-box, as
 tests/test_key_models_answer.py: the program `AK_BIN` names in a terminal with its colours
@@ -22,9 +23,11 @@ from fixtures.akterm import SERVER, Terminal
 from fixtures.aklooks import colours, plain, settled
 import test_key_models_answer as answer
 
-# each maker's company and colour, every channel a multiple of 4, so a quarter of the way to
-# white is never half way between two
-MAKERS = {"Acme": ("acme", (224, 64, 64)), "Bolt": ("bolt", (64, 160, 224))}
+# each maker's colour by its models' first word, every channel a multiple of 4, so a quarter of
+# the way to white is never half way between two; Bolt's provider is named apart from its maker
+COLOURS = {"Acme": (224, 64, 64), "Bolt": (64, 160, 224)}
+PROVIDERS = {"acme": {"mode": "subscription", "colour": "#E04040"},
+             "bolt": {"mode": "subscription", "colour": "#40A0E0", "maker": "Bolt Labs"}}
 ROW = re.compile(r"[ ›] .{7}  (\S.*?) +([━╸─]{8,}) +\d+\.\d +\$\d+\.\d\d")
 
 
@@ -37,19 +40,19 @@ def lifted(rgb):
 
 
 def boards():
-    """test_key_models_answer's but for Crux 2, whose build line is empty: Bolt 3 made by
-    Bolt, the rest by Acme."""
+    """test_key_models_answer's but for Crux 2, whose build line is empty: Bolt 3 made by Bolt
+    Labs, the rest by Acme."""
     held = answer.boards()
     for board in held.values():
         board["rows"] = [row for row in board["rows"] if row["model"] != "Crux 2"]
     for row in held["artificialanalysis.ai"]["rows"]:
-        row["maker"] = "Bolt" if row["model"] == "Bolt 3" else "Acme"
+        row["maker"] = "Bolt Labs" if row["model"] == "Bolt 3" else "Acme"
     return held
 
 
 def rows(lines):
-    """(its role, its maker, the look of each cell of its name, the look of its line's last
-    full cell, its line) of each row drawn on one line."""
+    """(its role, its name's first word, the look of each cell of its name, the look of its
+    line's last full cell, its line) of each row drawn on one line."""
     found, role = [], None
     for line in lines:
         text = plain(line)
@@ -73,9 +76,7 @@ class ModelsColour(unittest.TestCase):
         fakes = fakeadapter.install(self.home, claude="pass")
         fakes["claude"].answer("models", "acme-mid-5\tAcme Mid 5\tlow medium high xhigh max\n")
         akconfig.write(self.home, {"mid": {"harness": "claude", "model": "acme-mid-5"}},
-                       providers={company: {"mode": "subscription",
-                                            "colour": "#%02X%02X%02X" % rgb}
-                                  for company, rgb in MAKERS.values()})
+                       providers=PROVIDERS)
         self.home.write(".agentkit/state/boards.json", boards())
         env = {key: value for key, value in answer.ENV.items() if key != "NO_COLOR"}
         self.term = Terminal(self.home, size=(100, 60), env={**env, "COLORTERM": "truecolor"})
@@ -86,26 +87,30 @@ class ModelsColour(unittest.TestCase):
         self.term.wait("r recommended")
         self.term.keys("r")
 
-    def test_no_maker_lights_at_rest_and_down_lights_the_pointed_rows_maker(self):
-        shown = settled(self.term, "comparing all 3 models")
-        self.assertTrue(rows(shown))
-        self.assertFalse({sgr(paint(rgb)) for _, rgb in MAKERS.values()
-                          for paint in (tuple, lifted)} & colours(shown))
-        self.term.keys("Down")
-        shown = settled(self.term, lambda screen: "› ★ pick" not in screen)
+    def pointed(self, maker):
+        """The screen once the highlight has rested on a row of `maker`'s, each of its rows lit."""
+        shown = settled(self.term, lambda screen: any(
+            line.startswith("› ") and f"  {maker} " in line for line in screen.split("\n")))
         found = rows(shown)
-        _, rgb = MAKERS["Acme"]
-        self.assertEqual([maker for _, maker, *_, line in found if plain(line)[0] == "›"],
-                         ["Acme"])
-        self.assertEqual({role for role, maker, *_ in found if maker == "Acme"},
+        rgb = COLOURS[maker]
+        self.assertEqual({role for role, made, *_ in found if made == maker},
                          {"orch", "builds", "reviews"})
-        self.assertIn("Bolt", {maker for _, maker, *_ in found})
-        for role, maker, name, tip, line in found:
-            if maker == "Acme":
+        for role, made, name, tip, line in found:
+            if made == maker:
                 self.assertTrue(all(sgr(lifted(rgb)) in look for look in name), (role, name))
                 self.assertIn(sgr(rgb), tip, role)
             else:
-                self.assertFalse({sgr(rgb), sgr(lifted(rgb))} & colours([line]), role)
+                self.assertFalse({sgr(rgb), sgr(lifted(rgb))} & colours([line]), (role, made))
+
+    def test_no_maker_lights_at_rest_and_the_pointed_rows_maker_lights(self):
+        shown = settled(self.term, "comparing all 3 models")
+        self.assertEqual({made for _, made, *_ in rows(shown)}, set(COLOURS))
+        self.assertFalse({sgr(paint(rgb)) for rgb in COLOURS.values()
+                          for paint in (tuple, lifted)} & colours(shown))
+        self.term.keys("Down")
+        self.pointed("Acme")
+        self.term.keys("Down", "Down", "Down")
+        self.pointed("Bolt")
 
 
 if __name__ == "__main__":
