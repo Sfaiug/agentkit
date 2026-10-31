@@ -618,33 +618,31 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok):
 
 
 def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=None,
-           only=None, artifacts=None, line=None, kind="landing"):
+           only=None, kind="landing"):
     """(whether the checks passed, their output, what they found red as `red_part` reads it,
     `suite` standing for a red no command showed); with `shard` every command runs as that
-    one piece alone, on one turn, and with `only` just those tests, on none.  A run checking
-    before it joins names the `line` it joins: a flake it sees counts there as one the line's
-    check sees.  Each command, or piece of one, leaves its `kind` row in history under the
-    member's run, on the commit checked: `landing`, or `tip` for a probe of the target's."""
+    one piece alone, on one turn, and with `only` just those tests, on none.  Each command, or
+    piece of one, leaves its `kind` row in history under the member's run, on the commit
+    checked: `landing`, or `tip` for a probe of the target's."""
     from . import gate, run
     identity = gitcall.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
-    # The line's checker marks no member's record; a run checking before joining owns its wait.
-    wait = state.get("waiting_on") or {}
-    context = ({"repo": state["repo"], "run_id": directory.name, "landing": True,
-                "since": wait["joined"], "line": wait["line"]} if wait.get("line") else None)
-    run_dir = None if context else directory
+    # The checker takes a heavy turn without marking any member's record.
+    wait = state["waiting_on"]
+    context = {"repo": state["repo"], "run_id": directory.name, "landing": True,
+               "since": wait["joined"], "line": wait["line"]}
     sharded = None if shard else next((cmd for cmd in cmds if gate.names_shard(cmd)), None)
     marks, pieces, confirmed, flaky = [], {}, {}, []
     # Tests named alone cost what a model's own test does, which takes no turn: on a host out of
     # CPU none comes until it is idle, and the wait held whole lines up to an hour (30 Oct 2026).
-    with nullcontext() if only else gate.gate_turn(run_dir, log_path, log, sharded, scratch,
+    with nullcontext() if only else gate.gate_turn(None, log_path, log, sharded, scratch,
                                                    context=context):
         ok, text = gate.run_done_when(
-            cmds, scratch, log_path, set() if artifacts is None else artifacts,
+            cmds, scratch, log_path, set(),
             3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
             silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True,
             marks=marks, shard=shard, pieces=pieces, only=only, confirmed=confirmed,
-            run_dir=run_dir, flaky=flaky, checked=(directory, None, kind, identity["head_sha"]))
+            flaky=flaky, checked=(directory, None, kind, identity["head_sha"]))
     moved = (not clean or gitcall.commit_identity(scratch) != identity
              or run.git_out(scratch, "diff", "--quiet", "HEAD")[0])
     if moved:
@@ -654,10 +652,9 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
                  "these commands do not verify the pinned commit.")
     text = f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}"
     log_path.write_text(text)
-    turn = config.RUNS / wait["line"] if context else line
-    if turn and not moved:
+    if not moved:
         # a pinned piece passing ran just `only` of its tests, and without them, none it names
-        _flaked(turn, directory, state, scratch, identity["tree_sha"], log_path, log, flaky,
+        _flaked(config.RUNS / wait["line"], directory, state, scratch, identity["tree_sha"], log_path, log, flaky,
                 {cmd: [test for tests in confirmed.get(cmd, {}).values() for test in tests]
                  for cmd in cmds},
                 {cmd: only if shard else None for cmd, mark in zip(cmds, marks)
@@ -774,11 +771,10 @@ def _check_tests(directory, state, scratch, tree, command, piece, tests, log):
                     **red}} if red.get("tests") or not tests else {}
 
 
-def _check_tree(directory, state, scratch, tree, checks, log, suite, *, artifacts=None,
-                line=None):
+def _check_tree(directory, state, scratch, tree, checks, log, suite):
     log_path = directory / f"lander-{tree}.log"
     ok, text, red = _check(directory, state, scratch, list(checks), log_path, log,
-                           suite=suite, artifacts=artifacts, line=line)
+                           suite=suite)
     if red.get("short"):
         log(f"AK_SHARD={red['piece']} of {directory.name}'s tree ran out of memory again, run "
             "alone: nobody is blamed; the next pass checks it again")
