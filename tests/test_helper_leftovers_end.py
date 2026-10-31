@@ -42,8 +42,9 @@ def mark(name):
     with open("/proc/self/stat") as stat:
         start = stat.read().rsplit(")", 1)[1].split()[19]
     own = f"{os.stat('/proc/self/ns/pid').st_ino} {os.getpid()} {start} {os.getsid(0)} {name}"
-    with open(SAID, "a") as said:
+    with open(SAID + ".part", "w") as said:
         said.write(json.dumps({"mark": os.environ.get(owner.MARK), "own": own}) + "\\n")
+    os.replace(SAID + ".part", SAID)      # whole once there: the test reads it once it exists
     os._exit(0)
 
 
