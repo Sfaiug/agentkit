@@ -3,10 +3,10 @@
 Each pass of the tick has a name, one to three lowercase words, and the one place the passes run
 builds the WARN line of one that raises from it: `WARN <name> did not run: <why>`, so a log line
 or `ak doctor` can name the pass.  Here the switch retirement pass raises, finding a directory
-where its record is kept.  Cron appends a tick's output to watch.log, so what the tick prints is
-what the log gets.  Black-box: the program `AK_BIN` names ticks from outside through
-tests/fixtures/akbin.py, its GitHub tests/fixtures/fakegh.py; this test fails against
-`/bin/false`.
+where its record is kept.  Cron appends what the tick prints to watch.log, each line after its
+date and time (tests/test_key_tick_time_is_visible.py).  Black-box: the program `AK_BIN` names
+ticks from outside through tests/fixtures/akbin.py, its GitHub tests/fixtures/fakegh.py; this
+test fails against `/bin/false`.
 """
 
 import re

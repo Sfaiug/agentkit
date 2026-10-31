@@ -74,8 +74,9 @@ class TickTime(unittest.TestCase):
         done = cls.home.tick(cron=True)
         after = time.time()
         assert done.code == 0, cls.log.read_text()[-2000:]
+        lines = cls.log.read_bytes()[written:].decode().splitlines()
         watch = json.loads((cls.home.path / ".agentkit/state/watch.json").read_text())
-        return cls.log.read_bytes()[written:].decode().splitlines(), watch.get("tick"), before, after
+        return lines, watch.get("tick"), before, after
 
     def assert_ended_then(self, record, before, after):
         self.assertEqual(sorted(record), ["ended_at", "slowest", "started_at"], record)
