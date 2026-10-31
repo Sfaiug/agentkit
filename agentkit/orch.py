@@ -4426,7 +4426,7 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     session = find(name)
     pane = (watch.pane_text(session)
             if session and not any(session.get(key) for key in CLOSED) else None)
-    live = watch.look_at(session, cfg=cfg, pane=pane)[1] if pane and pane.strip() else {}
+    live = watch.look_at(session, cfg=cfg, pane=pane)[1] if pane is not None else {}
     waited = watch.seat_read(name).get("usage_wait")   # a turn its usage cut off goes on
     going = (watch._turn_in_flight(old_harness or new_harness, live)[0]
              or (waited or {}).get("continue"))

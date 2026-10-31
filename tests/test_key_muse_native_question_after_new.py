@@ -23,6 +23,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
 from fixtures.akbin import REAL_TMUX, Home, boxable
+from fixtures.akpane import stamp
 from fixtures.akseat import PANE, PLAN_LINE
 from fixtures.akterm import Terminal
 
@@ -88,7 +89,7 @@ class MuseNativeQuestionAfterNew(unittest.TestCase):
         tui.write_text(TUI.format(root=str(root), registry=REGISTRY, pane=str(PANE)))
         self.home.fake("muse", MUSE.format(python=shlex.quote(sys.executable),
                                            tui=shlex.quote(str(tui))))
-        self.show("muse-prompt-pane.txt")
+        (root / "screen.txt").write_text((FIXTURES / "muse-prompt-pane.txt").read_text())
         # no audit seat of ak's own, nor a collection due, to outlive a tick's box
         akconfig.write(self.home, ["opus", "spark"])
         self.home.write(".agentkit/state/gc.json", {"started_at": time.time()})
@@ -98,24 +99,29 @@ class MuseNativeQuestionAfterNew(unittest.TestCase):
         self.assertEqual(done.code, 0, done.err)
 
     def show(self, fixture):
+        """Muse draws that screen next: the pane reads the file whole, and the seat is read
+        once the frame is up."""
         screen = (FIXTURES / fixture).read_text()
-        (self.home.root / "screen.txt").write_text(
-            screen.replace("Which colour should the acme banner use?", ASKED))
+        swap = self.home.root / "screen.swap"
+        swap.write_text(screen.replace("Which colour should the acme banner use?", ASKED))
+        swap.replace(self.home.root / "screen.txt")
+        self.drawn()
 
     def esc(self, session, prompt):
         """The owner presses Esc on that card: Muse puts it down as it logs it settled, so a
         look between the two reads either the card up or no card at all, never a screen
         nothing reads."""
         self.show("muse-prompt-pane.txt")
-        self.drawn()
         self.logs(session, card(prompt, "settled", outcome="interrupted"))
 
     def drawn(self):
-        """Once the seat's pane shows Muse's prompt whole: its status line, and no card."""
+        """Once the seat's pane has drawn the screen it was given: its title names the frame,
+        whatever keys ak typed into it (tests/fixtures/akpane.py)."""
+        frame = stamp((self.home.root / "screen.txt").read_bytes(), 0).rsplit(" ", 1)[0]
         deadline = time.monotonic() + 30
-        while (not (screen := self.home.tmux("capture-pane", "-p", "-t", "=acme:").out)
-                .rstrip().endswith("YOLO") or "to interrupt" in screen):
-            self.assertLess(time.monotonic(), deadline, "the prompt was never drawn")
+        while self.home.tmux("display-message", "-p", "-t", "=acme:",
+                             "#{pane_title}").out.rsplit(" ", 1)[0] != frame:
+            self.assertLess(time.monotonic(), deadline, "the screen was never drawn")
             time.sleep(0.05)
 
     def launch(self, *opening):
@@ -127,6 +133,7 @@ class MuseNativeQuestionAfterNew(unittest.TestCase):
             if time.monotonic() > deadline:
                 raise AssertionError(f"no muse started; the terminal shows:\n{term.screen()}")
             time.sleep(0.05)
+        self.drawn()
         return json.loads(started.read_text())
 
     def new(self, muse):
