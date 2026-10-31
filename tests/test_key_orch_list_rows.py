@@ -53,13 +53,17 @@ def bar(home, seat, bound=30):
     width, height = map(int, size.out.split())
     attach = shlex.join(["env", "-u", "TMUX", "-u", "TMUX_PANE", REAL_TMUX, "-L", SOCKET,
                          "attach", "-t", f"={seat.name}"])
+    # The viewer server outlives each client, so the next one never meets it on its way out
+    # ("server exited unexpectedly"); the Home's close ends it.
     done = home.tmux("-f", "/dev/null", "new-session", "-d", "-x", str(width), "-y",
-                     str(height + 2), "-P", "-F", "#{pane_id}", attach, server="viewer")
+                     str(height + 2), "-P", "-F", "#{pane_id}", attach, ";",
+                     "set", "-s", "exit-empty", "off", server="viewer")
     assert done.code == 0, done.err
+    pane = done.out.strip()
     try:
         deadline = time.monotonic() + bound
         while True:
-            rows = home.tmux("capture-pane", "-p", "-t", done.out.strip(), server="viewer").out
+            rows = home.tmux("capture-pane", "-p", "-t", pane, server="viewer").out
             under = " ".join(" ".join(rows.split("\n")[height:]).split())
             if any(word in under for word in ("idle", "needs you", "working", "done")):
                 return under
@@ -67,7 +71,7 @@ def bar(home, seat, bound=30):
                 return under
             time.sleep(0.05)
     finally:
-        home.tmux("kill-server", server="viewer")
+        home.tmux("kill-session", "-t", pane, server="viewer")
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
