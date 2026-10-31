@@ -49,7 +49,7 @@ HANG = 180
 LONG_REASON = ("reviewer astra died on API/transport errors 3 times and no eligible reviewer is "
                "left on another provider; waiting for review. See {}/round-1-reviewer*/stderr.log "
                "and the round summaries in result.md before deciding whether to resume")
-NUMBERED = re.compile(r"^[›>]?\s*(\d+)  \S")              # a seat or run row: its number, the name
+NUMBERED = re.compile(r"^\s*[›>]?\s*(\d+)  \S")    # a seat or run row, highlighted or not, in a box or not
 MARKED = re.compile(r"^\s*[›>] +(\d+)  \S")    # the highlighted seat row, and its number (in a box, padded)
 
 
@@ -433,13 +433,14 @@ class Terminal:
         boxed = [line.split("│")[1].rstrip() for line in screen if line.count("│") == 2]
         return boxed or screen
 
-    def until(self, *texts, absent=(), prompt=None, timeout=HANG):
-        """The screen once every text is on it, none of `absent` is, and `prompt` ends it."""
+    def until(self, *texts, absent=(), prompt=None, timeout=HANG, drawn=lambda screen: True):
+        """The screen once every text is on it, none of `absent` is, `prompt` ends it and it is
+        `drawn`."""
         def ready(screen):
             joined = "\n".join(screen)
             last = next((line for line in reversed(self.inside(screen)) if line.strip()), "")
             return (all(text in joined for text in texts) and not any(a in joined for a in absent)
-                    and (prompt is None or last.endswith(prompt)))
+                    and (prompt is None or last.endswith(prompt)) and drawn(screen))
         return self.wait(ready, " & ".join(texts) or f"prompt {prompt!r}", timeout)
 
     def type(self, text):
@@ -480,19 +481,20 @@ class Terminal:
 
         tmux applies a pane's new size to its pty a moment after `resize-window`, so a key
         sent straight after may be answered at the old size, as a phone turned mid-keypress
-        would be; the next one draws it right.  The screen has to fit the size as well as
-        say the texts: the old layout re-wrapped by tmux may still say them.
+        would be; the next one draws it right.  The screen has to be this size's as well as
+        say the texts, as the old layout re-wrapped by tmux and a capture inside the new frame
+        may: every frame ends two lines above the bottom, its keys last, so one ending there
+        and nothing under it is whole.
         """
+        def drawn(screen):
+            return (len(screen) == self.height - 2
+                    and all(terminal.cells(line) <= self.width for line in screen))
         for _ in range(tries):
             self.keys(key)
             try:
-                screen = self.until(*texts, prompt=prompt, timeout=3)
+                return self.until(*texts, prompt=prompt, timeout=3, drawn=drawn)
             except AssertionError as exc:
                 last = exc
-                continue
-            if len(screen) <= self.height and all(terminal.cells(l) <= self.width for l in screen):
-                return screen
-            last = AssertionError("drawn at the old size:\n" + "\n".join(screen))
         raise last
 
     def settled(self, timeout=HANG):
@@ -571,14 +573,26 @@ class Phone(Sandbox):
         return next((int(m.group(1)) for line in lines for m in [MARKED.match(line)] if m), None)
 
     def moved(self, phone, key, lines):
-        """The screen once `key` has moved the highlight off the seat it is on in `lines`."""
-        at = self.marked(lines)
+        """The screen once `key` has moved the highlight one row on from the seat it is on in
+        `lines`: on those rows under the same place on the key line, or past them under the next
+        page's.
+
+        Pages split the rows the same way wherever the highlight is, and a frame reaches the
+        pane in pieces from the top: a capture inside one has the new rows over the old place,
+        or over none where its line is cleared, however long the rest takes to come.
+        """
+        at, rows, place = self.marked(lines), self.numbers(lines), self.place(lines)
+        step = {"Up": -1, "k": -1, "Down": 1, "j": 1}[key]
+        stays = at + step in rows
+        number, _, pages = place.partition(" / ")
+        want = place if stays else f"{int(number) + step} / {pages}"
         phone.keys(key)
 
         def ready(screen):
             inside = Terminal.inside(screen)
             last = next((line for line in reversed(inside) if line.strip()), "")
-            return self.marked(inside) not in (None, at) and last.endswith("esc leave")
+            return (self.marked(inside) == at + step and self.place(inside) == want
+                    and (self.numbers(inside) == rows) == stays and last.endswith("esc leave"))
         return phone.wait(ready, f"the highlight moved by {key} off {at}")
 
     def turned(self, phone, before):
@@ -782,9 +796,11 @@ class Phone(Sandbox):
         phone.press("12")
         # the menu's look at it publishes the words, behind the frame the key was read on
         if narrow:
-            screen = phone.until(STAND_IN, "Ctrl-b m  menu", f"! needs you    {LONG_NAME[:7]}…")
+            screen = phone.until(STAND_IN, "Ctrl-b m  menu",
+                                 f"! needs you    {LONG_NAME[:7]}… ! 11 need you")
         else:
-            screen = phone.until(STAND_IN, "Ctrl-b m  menu", f"! needs you    {LONG_NAME}")
+            screen = phone.until(STAND_IN, "Ctrl-b m  menu",
+                                 f"! needs you    {LONG_NAME}   GPT-6-Astra")
         top, bar = screen[-2:]
         self.fits(screen, width, height)
         if narrow:
