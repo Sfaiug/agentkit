@@ -20,7 +20,7 @@ from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
 RUN = "20261031-0900-fix-api"           # going, no seat's
-REVIEW = "20261031-0901-review-cli"     # going, another seat's, reviewing PR 1
+REVIEW = "20261031-0901-review-cli"     # going, the seat `beta`'s, reviewing PR 1
 OWN = "20261031-0902-fix-db"            # going, the seat `owner`'s, landing PR 2
 STALLED = "20261031-0903-fix-docs"
 PASSED = "20261031-0904-fix-cli"        # ended PASS, merged
@@ -98,7 +98,8 @@ class WaitRecordsASeatsWait(unittest.TestCase):
         self.assert_waits("acme", pr(1), "pr", "PR #1")
         self.assert_waits("beta", pr(2), "pr", "PR #2")
 
-    def test_a_pr_the_seats_own_going_run_lands_is_waited_on_as_that_run(self):
+    def test_a_pr_the_seats_own_going_run_reviews_or_lands_is_waited_on_as_that_run(self):
+        self.assert_waits("beta", pr(1), "run", f"run {REVIEW}, on PR #1", recorded=REVIEW)
         self.assert_waits("owner", pr(2), "run", f"run {OWN}, on PR #2", recorded=OWN)
 
     def test_a_second_wait_replaces_the_first(self):
