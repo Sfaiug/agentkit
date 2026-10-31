@@ -9,10 +9,10 @@ import (
 	"agentkit/internal/harness"
 )
 
-// Seat is Go's wrapper on a seat's line, `seat -- <words>`: it runs the harness's words in the
-// seat's own terminal on the login $AGENTKIT_ACCOUNT names, so the terminal's size, what the
-// harness prints, what is typed to it and its exit code are the seat's.  Its `[prep]` answers go
-// in first.  It answers the exit code where the harness never starts.
+// Seat is Go's wrapper on a seat's line, `seat -- <words>`: it runs the harness's words on the
+// login $AGENTKIT_ACCOUNT names, on a terminal of its own relayed both ways to the seat's, so the
+// terminal's size, what the harness prints, what is typed to it and its exit code are the seat's.
+// Its `[prep]` answers go in first.  It answers the exit code where the harness never starts.
 func Seat(name string, args []string, errOut io.Writer) int {
 	login, ok, err := config.Account(name)
 	if err != nil {
