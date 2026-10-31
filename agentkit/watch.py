@@ -2110,18 +2110,14 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
     One capture per live seat, which is what a tick already does, on every menu draw, overlay
     draw, `ak orch list` and watch tick -- never on a seat whose process is gone, which has no
     screen to read.  These are the facts `session_state` reads, not a word any screen says.
-    Nothing is typed and nothing is acknowledged.  A capture that came back blank reads {} and
-    writes nothing: a process dying under the look leaves no screen, and recorded as one
-    nothing reads it would be a turn cut off that the tick reopens the seat to go on with.
+    Nothing is typed and nothing is acknowledged.
     """
     name = session["name"]
-    if pane is None:
-        pane = pane_text(session)
-    if not pane.strip():
-        return {}
     previous = seat_read(name)
     if harness is None:
         harness = seat_model(cfg if cfg is not None else config.load(), name)[0]
+    if pane is None:
+        pane = pane_text(session)
     at = time.time() if now is None else now
     try:
         found = observed(name, harness, pane, previous, at)
@@ -2131,7 +2127,9 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
         return {"state": "at_prompt", "since": None, "began": None, "hooked": None,
                 "hooked_at": None, "hooked_event": None, "authority": "", "rule": "none",
                 "evidence": str(exc)[:160]}
-    fields = dict(found, **stop_marks(harness, pane, found, previous, at))
+    # A blank capture is read, never kept: a process dying under the look leaves no screen,
+    # and kept as one nothing reads it would stand as a turn cut off, which the tick reopens.
+    fields = dict(found, **stop_marks(harness, pane, found, previous, at)) if pane.strip() else {}
     if any(previous.get(key) != value for key, value in fields.items()):
         seat_write(name, **fields)
     return found
@@ -2409,9 +2407,8 @@ def look_at(session, cfg=None, pane=None, now=None):
 
     The observation `session_state` decides on, kept apart from it: this captures a pane and
     writes the classifier's own record, and the decision itself does neither.  A seat nobody
-    is in has no screen to read, and answers (None, {}), as a blank capture reads {}.  A look
-    that finds the seat's turn ended asks the question it kept back during it
-    (`ask_kept_back`).
+    is in has no screen to read, and answers (None, {}).  A look that finds the seat's turn
+    ended asks the question it kept back during it (`ask_kept_back`).
     """
     if any(session.get(key) for key in orch.CLOSED):
         return None, {}
@@ -2609,7 +2606,7 @@ def announce_state(session, cfg=None, look=False, **facts):
             facts["harness"], facts["live"] = look_at(session, cfg=cfg)
             follow_model(config.load() if cfg is None else cfg, name)
         previous = seat_read(name)
-        if not facts.get("live"):       # a look that read nothing leaves the last reading
+        if facts.get("live") is None:
             facts["live"] = previous
         answer = session_state(name, session=session, cfg=cfg, previous=previous, **facts)
         # what it was decided from goes beside it: a classifier-only write since (a typing
@@ -4026,8 +4023,7 @@ def at_prompt(session, cfg=None, pane=None):
     exactly then.  A blank capture, a screen no adapter can read, a harness between turns with
     its hooks not installed -- none of those is a seat waiting to be typed into, whichever
     harness owns the word, and the absence of a `working` signal is not the presence of a
-    prompt.  A blank capture reads nothing at all (`live_state`), which `_free` takes for
-    silence.
+    prompt.  `health` drops a blank capture before it gates anything and this drops it too.
     """
     if any(session.get(key) for key in orch.CLOSED):
         return False
@@ -4035,6 +4031,9 @@ def at_prompt(session, cfg=None, pane=None):
         harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
         if not harness:
             return False
+        pane = pane_text(session) if pane is None else pane
+        if not pane.strip():
+            return False        # a failed or blank capture is no evidence that it is free
         found = live_state(session, harness, pane=pane, cfg=cfg)
     except (config.Error, OSError):
         return False
@@ -4058,6 +4057,9 @@ def takes_line(session, cfg=None, pane=None):
     try:
         harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
         if not harness:
+            return False
+        pane = pane_text(session) if pane is None else pane
+        if not pane.strip():
             return False
         found = live_state(session, harness, pane=pane, cfg=cfg)
     except (config.Error, OSError):
@@ -4207,7 +4209,7 @@ def _editor_read(session, where, cfg=None):
     try:
         harness = seat_model(config.load() if cfg is None else cfg, name)[0]
         pane = pane_text(session) if harness else ""
-        found = live_state(session, harness, pane=pane, cfg=cfg)
+        found = live_state(session, harness, pane=pane, cfg=cfg) if pane.strip() else {}
         picker = _picker_up(harness, found)
     except (config.Error, OSError):
         return None
@@ -4259,7 +4261,7 @@ def _past_text(session, cfg=None):
     try:
         harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
         pane = pane_text(session) if harness else ""
-        found = live_state(session, harness, pane=pane, cfg=cfg)
+        found = live_state(session, harness, pane=pane, cfg=cfg) if pane.strip() else {}
     except (config.Error, OSError):
         return None
     where = past(harness, pane, found) and seat_editor(session, cfg)   # most seats ask no editor
@@ -4320,8 +4322,8 @@ def carry_draft(session, harness, pane, to, cfg=None):
     # but a picker may draw it empty over the owner's text
     if not harness or asking(session["name"], harness, pane):
         return True
-    if composer_draft(harness, pane) == "" and not _picker_up(
-            harness, live_state(session, harness, pane=pane, cfg=cfg)):
+    if composer_draft(harness, pane) == "" and not (
+            pane.strip() and _picker_up(harness, live_state(session, harness, pane=pane, cfg=cfg))):
         return True
     where = screen(to).get("editor") and seat_editor(session, cfg)
     return bool(where and _editor_read(session, where, cfg)
@@ -4422,7 +4424,7 @@ def untyped(session, cfg=None):
     try:
         harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
         pane = pane_text(session) if harness else ""
-        found = live_state(session, harness, pane=pane, cfg=cfg)
+        found = live_state(session, harness, pane=pane, cfg=cfg) if pane.strip() else {}
     except (config.Error, OSError):
         found = {}
     if not found:
@@ -5180,7 +5182,7 @@ def health(cfg, state, dry_run, log):
                 # the same capture answers both questions: what this seat is doing, on the one
                 # classifier every render uses, and whether it has given up on its own error.
                 # The gates below read this pass's answer and never the last one's.
-                live = ({} if dry_run or session.get("exited")
+                live = ({} if blank or dry_run or session.get("exited")
                         else live_state(session, harness, pane=pane, cfg=cfg))
                 ask_kept_back(name, harness, live)
             at_prompt = (live or seat_read(name)).get("state") == "at_prompt"
