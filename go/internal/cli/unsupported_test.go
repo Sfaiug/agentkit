@@ -48,6 +48,7 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 		{"orch", "acme", "--dry-run"},
 		{"orch", "acme"},
 		{"orch", "ended", "acme", "1700000000"},
+		{"orch", "ended", "--model"},
 		{"orch", "stop", "acme"},
 		{"plan", "check", "٣", "true"},
 		{"plan", "check", "²", "a\nb"},
