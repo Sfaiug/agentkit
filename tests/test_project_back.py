@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from agentkit import alive, config
+from agentkit import alive, config, notify
 from fixtures.sink import Sink
 
 BACK = "acme is back since <t:1002700:t>, after 45 min"     # 1_000_000 + 45 min
@@ -69,6 +69,8 @@ class ProjectBack(unittest.TestCase):
         self.sink.script(503)
         refused, = self.read(45, "true")
         (config.STATE / "installed-at").write_text("1")    # each module is newer than the card
+        with patch.object(time, "time", return_value=1_000_000 + 60 * 47):
+            notify.retry_pending(log=self.fail)    # the tick's sweep drops nothing owed
         back, = self.read(48, "true")
         self.assertEqual([refused["content"], back["content"]], [BACK, BACK])
         self.assertEqual(self.read(51, "true"), [])
