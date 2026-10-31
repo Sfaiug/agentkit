@@ -4262,8 +4262,9 @@ def switch_lines(cfg, name, model, effort=None):
     prompt takes to run `model` at `effort`, else at the seat's own: `[switch]`'s `model` then
     `effort`, an effort of `none` typing none, and a step of effort on the model it runs only
     `effort` where that is a line of its own.  None where the move restarts the seat: another
-    harness or provider (a login is the process's), that pane ended or gone, no `model` line, or
-    a model with no id of its own (`default`: its launch names none, so the harness picks)."""
+    harness or provider (a login is the process's), that pane ended or gone, no `model` line, a
+    model with no id of its own (`default`: its launch names none, so the harness picks), or a
+    move its harness takes only from a launch (`switchable`)."""
     record = config.session_records().get(name) or {}
     try:
         was, entry = config.model(cfg, record.get("orchestrator")), config.model(cfg, model)
@@ -4279,6 +4280,8 @@ def switch_lines(cfg, name, model, effort=None):
         return None
     at = effort or config.role_effort(config.at_efforts(cfg, record)["models"][model],
                                       "orchestrator")
+    if not harness_plugin(entry["harness"]).switchable(entry["model"], at):
+        return None
     keys = [key for key in ("model", "effort") if key in block and (key, at) != ("effort", "none")]
     if keys == ["model", "effort"] and was["model"] == entry["model"]:
         keys = ["effort"]   # a harness may save each `/model` as its default for new sessions

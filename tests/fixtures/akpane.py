@@ -4,8 +4,10 @@
 
 It draws the text of the file SCREEN, again whenever that file changes or a key comes, and
 appends each byte it reads to TYPED as it comes.  As a harness's own composer does, the last
-line starting with COMPOSER (`❯` unless given) shows what has been typed since the last Enter,
-a paste and its line breaks included; each line entered goes to TYPED.lines as one JSON string.
+line starting with COMPOSER (`❯` unless given) shows, after its first character, what has been
+typed since the last Enter, a paste and its line breaks included -- a COMPOSER running on to a
+placeholder picks that row of a box (`┃  Ask anything…`); each line entered goes to TYPED.lines
+as one JSON string.
 Each frame ends by setting the pane's title to the `stamp` of what it drew: tmux reads a pane's
 output in order, so once the title reads it the frame is on the screen, however tmux laid it
 out.  It takes the terminal in raw mode with bracketed paste on, as the harnesses do, and runs
@@ -54,14 +56,21 @@ def stamp(screen, typed):
 
 
 def drawn(screen, draft, composer):
+    """A frame of `screen`, its composer showing `draft` and holding the cursor, as a harness's
+    own composer does: OpenCode is typed into only while the cursor sits in its box."""
     lines = screen.split("\n")
     at = max((i for i, line in enumerate(lines) if line.lstrip().startswith(composer)),
              default=None)
+    if at is None:
+        return "\x1b[H\x1b[2J" + "\r\n".join(lines).rstrip("\r\n")
     # Untouched until something is typed: a chooser's selected line starts with `❯` too.
-    if at is not None and draft:
+    if draft:
         indent = lines[at][:lines[at].index(composer)]
-        lines[at:at + 1] = f"{indent}{composer} {draft}".split("\n")
-    return "\x1b[H\x1b[2J" + "\r\n".join(lines).rstrip("\r\n")
+        rows = f"{indent}{composer[0]} {draft}".split("\n")
+        lines[at:at + 1] = rows
+        at += len(rows) - 1
+    return ("\x1b[H\x1b[2J" + "\r\n".join(lines).rstrip("\r\n")
+            + f"\x1b[{at + 1};{len(lines[at]) + 1}H")
 
 
 def main(screen_path, typed_path, composer="❯"):

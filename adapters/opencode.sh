@@ -11,6 +11,9 @@
 #                                  next session under an id of the caller's -- exits 3: the TUI
 #                                  takes `--session` for one that exists and has no flag for one
 #                                  that does not, so a seat's id is the one its plugin reports
+#                     variants <model> -> the document defining the variants a launch on that
+#                                  model defines itself (turn_variants), for a move to it to
+#                                  restart where it needs one (agentkit/harness/opencode.py)
 #                     install      -> the owner's installer, unless opencode is already here
 #                     login [again] -> `opencode auth login <provider>`, unless already logged
 #                                  in; `again` signs in afresh over a login that still stands
@@ -147,6 +150,8 @@ logged_in() { have_key "${1:-}" || store_key "${1:-}" || own_login "${1:-}"; }
 # API has one reasoning control, `thinking`, on by default; a `thinking` option in the model's
 # `options`, or in a variant's own keys, never reaches the request, while a variant's
 # `extraBody` is sent as it is.  So a `mimo/` model's `none` turns it off and its `high` on.
+# OpenCode reads this document only as it starts, so a seat moved to a variant defined here
+# restarts (`variants`), and one moved to any other switches in place.
 turn_variants() {  # <model>: the document defining its variants for this turn
   p=${1%%/*} m=${1#*/} v='"none":{}'
   [ "$p" = mimo ] && v='"none":{"extraBody":{"thinking":{"type":"disabled"}}},"high":{"extraBody":{"thinking":{"type":"enabled"}}}'
@@ -264,6 +269,9 @@ interactive)
   # The pane does not inherit the adapter's fallback PATH.
   printf 'python3 %q --harness opencode -- env OPENCODE_DISABLE_AUTOUPDATE=1 %s %s%s %s--standalone --auto%s\n' \
       "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$rules" "'${binary//$sq/$sq\\$sq$sq}'" "$resume" "$first" ;;
+variants)
+  [ $# -ge 1 ] || { echo "opencode.sh variants needs <model>" >&2; exit 2; }
+  turn_variants "$1"; echo ;;
 usage)
   # No login is a failed probe, not a missing meter: without one an unauthenticated provider
   # would read as a neutral 1.0 provider and be picked ahead of logged-in ones, only for
@@ -669,6 +677,6 @@ providers)
     echo "opencode: OpenCode did not list its providers" >&2; exit 1
   fi ;;
 *)
-  echo "usage: opencode.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | opencode.sh usage | opencode.sh interactive <model> <effort> [session-id [new]] | opencode.sh install | opencode.sh login [again] | opencode.sh logout | opencode.sh lend <home> | opencode.sh auth [seat] | opencode.sh hooks | opencode.sh models | opencode.sh providers" >&2
+  echo "usage: opencode.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | opencode.sh usage | opencode.sh interactive <model> <effort> [session-id [new]] | opencode.sh variants <model> | opencode.sh install | opencode.sh login [again] | opencode.sh logout | opencode.sh lend <home> | opencode.sh auth [seat] | opencode.sh hooks | opencode.sh models | opencode.sh providers" >&2
   exit 2 ;;
 esac
