@@ -1,12 +1,11 @@
-"""A run with nothing ahead of it starts at its first poll; of two started together, the second
-waits one.
+"""A run with nothing ahead of it starts at its first poll.
 
 On 31 Oct 2026 fresh runs waited a median 25 to 37 s for a second healthy poll with nothing else
-queued.  Readings lag what a run just let in will use, so only a run another went in before
-within a poll waits for the next: a lone run goes in at once, and a burst still goes in one a
-poll.  Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py,
-on a project from gitrig.py with scripted harnesses from fakeadapter.py; the host readings and
-the slot poll are ak's own knobs (AK_HOST_READINGS, AK_SLOT_POLL), the poll the shipped one, far
+queued.  Readings lag what a run just let in will use, so only runs let in before it may hold a
+run (tests/test_key_a_poll_lets_in_what_the_room_covers.py): a lone run goes in at once.
+Black-box: the program `AK_BIN` names a run from outside through tests/fixtures/akbin.py, on a
+project from gitrig.py with scripted harnesses from fakeadapter.py; the host readings and the
+slot poll are ak's own knobs (AK_HOST_READINGS, AK_SLOT_POLL), the poll the shipped one, far
 longer than a launch takes to reach its first.
 """
 
@@ -44,17 +43,11 @@ class LoneRunStartsAtItsFirstPoll(unittest.TestCase):
         rig = Rig(home, "widgets")
         akconfig.write(home, ["opus", "astra"])
         fakeadapter.install(home, claude="work", codex="pass")
-        cls.runs = []
-        for title in ("Add retry file", "Bump alpha notes"):
-            known = set(taskfile.runs(home))
-            # --anyway: the two check the same file, which reads as one change under way
-            done = home.ak("run", str(taskfile.write(home, rig.path, title)), "--no-merge",
-                           "--bg", "--anyway")
-            assert done.code == 0, done.out + done.err
-            cls.runs.append((set(taskfile.runs(home)) - known).pop())
-        wait(lambda: all(cls.state(run).get("state") not in ("queued", "running")
-                         for run in cls.runs), "both runs' end")
-        cls.first, cls.second = (cls.state(run) for run in cls.runs)
+        done = home.ak("run", str(taskfile.write(home, rig.path)), "--no-merge", "--bg")
+        assert done.code == 0, done.out + done.err
+        run = taskfile.only_run(home)
+        wait(lambda: cls.state(run).get("state") not in ("queued", "running"), "the run's end")
+        cls.record = cls.state(run)
 
     @classmethod
     def state(cls, run):
@@ -63,15 +56,11 @@ class LoneRunStartsAtItsFirstPoll(unittest.TestCase):
         except (OSError, ValueError):
             return {}
 
-    def test_both_runs_pass(self):
-        self.assertEqual([self.first.get("verdict"), self.second.get("verdict")], ["PASS"] * 2)
+    def test_the_run_passes(self):
+        self.assertEqual(self.record.get("verdict"), "PASS")
 
     def test_a_lone_run_starts_at_its_first_poll(self):
-        self.assertLess(self.first["slot_started_at"] - self.first["queued_at"], POLL)
-
-    def test_of_two_started_together_the_second_waits_a_poll(self):
-        self.assertGreaterEqual(self.second["slot_started_at"] - self.first["slot_started_at"],
-                                POLL)
+        self.assertLess(self.record["slot_started_at"] - self.record["queued_at"], POLL)
 
 
 if __name__ == "__main__":
