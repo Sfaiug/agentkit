@@ -1,5 +1,6 @@
 """A machine ak rents serves suites once ready and goes back once it has held nothing for ten
-minutes; one not ready is left alone; with `[google_cloud]` not active, none serves or goes back.
+minutes; one not ready is left alone; one that served and stops answering keeps its route for the
+work it holds but takes no new work; with `[google_cloud]` not active, none serves or goes back.
 
 Black-box: `AK_BIN` runs `ak watch` in `home.tick()`'s box, `ak doctor` and a lander against the
 fake Google of tests/fixtures/google.py.  A fake ssh is the machines, each a directory named by its
@@ -70,7 +71,7 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
         cls.active(True)
         cls.tick()      # the prices a machine is metered at
         # 1 holds a container, 2 held nothing 11 minutes, 3 and 4 never ran, up 5 and 11
-        # minutes, 5 receives a suite, 6 is not ready and 7's docker does not answer
+        # minutes, 5 receives a suite, 6 is not ready and 7's docker does not answer, then 7 not at all
         for n, up, ago in ((1, 3600, 1200), (2, 3600, 660), (3, 300, None), (4, 660, None),
                            (5, 3600, None), (6, 3600, None), (7, 3600, 1200)):
             cls.machine(n, up, ago, ready=n != 6)
@@ -93,8 +94,11 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
         known = home.path / ".agentkit/secrets/google-cloud-known-hosts"
         cls.host_key = " ".join(Path(f"{cls.key}.pub").read_text().split()[:2])
         known.write_text("".join(f"203.0.113.{n} {cls.host_key}\n" for n in (1, 6)))
-        google.machines = [listed(n) for n in (1, 3, 5, 6)]
+        google.machines = [listed(n) for n in (1, 3, 5, 6, 7)]
+        (cls.machines / "203.0.113.7").rename(cls.machines / "silent")
         cls.second, cls.known = cls.tick(), known.read_text()
+        cls.route = subprocess.run([REAL_SSH, "-G", "-F", home.path / ".agentkit/state/google-cloud-"
+                                    "ssh-config", "acme-7"], capture_output=True, text=True).stdout
         line = Line({"t/a.sh": "true\n", "tools/helper/Containerfile": "FROM acme\n"}, home=home)
         line.member({"api.txt": "x\n"})
         cls.landed, cls.verdict = line.land(), line.verdict(1)
@@ -148,6 +152,10 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
 
     def test_the_address_of_one_not_serving_yet_is_forgotten_before_ssh_asks_it(self):
         self.assertEqual(self.known, f"203.0.113.1 {self.host_key}\n")
+
+    def test_one_serving_that_stops_answering_keeps_its_route_and_takes_no_new_work(self):
+        self.assertIn("hostname 203.0.113.7\n", self.route)
+        self.assertNotIn("acme-7", self.second[1])
 
     def test_a_suite_goes_to_one(self):
         self.assertEqual(self.landed.code, 0, self.landed.out + self.landed.err)

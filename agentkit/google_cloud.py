@@ -46,7 +46,8 @@ UNANSWERED = []                    # Google not answering this process, which th
 Rented = namedtuple("Rented", "id name zone type created until address")   # `id` survives a rename
 USER, READY = "ak", "/run/ak-ready"     # a machine's user for ak, and what says it is set up
 SSH_KEY, KNOWN_HOSTS = "google-cloud-ssh", "google-cloud-known-hosts"     # beside KEY
-SSH_CONFIG = "google-cloud-ssh-config"  # in config.STATE: the machines that serve, then the owner's
+SSH_CONFIG = "google-cloud-ssh-config"  # in config.STATE: the machines ak reaches, then the owner's
+HELD = "# not ready: keeps the work it holds, takes none"     # in SSH_CONFIG, before such a Host
 # A machine that held nothing this long goes back.  A new machine's first suite pays about a
 # minute to boot and 4.5 to receive a whole history and build its image (measured 30 Oct 2026),
 # and the tick looks only every PASS; ten idle minutes of the machines ak rents cost about €0.10.
@@ -94,8 +95,9 @@ def said(mb_per_core):
 
 def watch():
     """The tick's pass while ak may rent: the meter moved on to what Google lists, each machine
-    past its end, unpriced, past the cap or idle given back and said, the other ready ones serving;
-    only then a stale price list."""
+    past its end, unpriced, past the cap or idle given back and said, the other ready ones serving
+    and one that served and does not answer now held for the work it holds; only then a stale
+    price list."""
     active, cap = _setting()
     if not active:
         return
@@ -107,11 +109,12 @@ def watch():
     except (OSError, ValueError, TypeError, KeyError):
         at, prices = 0, {}
     ledger, late = (read := _ledger()) and _moved(read, listed, now, prices), []
+    routed = [name for name, _ in _routes()]     # as the last tick left them
     try:
-        idle = _idle(listed)
+        idle = _idle(listed, routed)
     except (OSError, subprocess.CalledProcessError):    # no ssh here: the meter moves all the same
         idle = {}
-    ready = []
+    reached, named = [], [machine.name for machine in listed]
     for machine in listed:
         if why := ("past its end" if now >= machine.until else "with no price kept" if not prices
                    else "past the cap" if not ledger or ledger["spent"] > cap
@@ -121,9 +124,10 @@ def watch():
                 late.append(f"{machine.name} listed {why}, given back")
             except Unavailable as exc:
                 late.append(f"{machine.name} listed {why}, not given back: {exc}")
-        elif machine.id in idle:
-            ready.append(machine)
-    _serve(ready)
+        elif machine.id in idle or (machine.address and machine.name in routed
+                                    and named.count(machine.name) == 1):  # ssh reads its first Host
+            reached.append(machine)
+    _serve(reached, idle)
     config._write_json(config.STATE / LATE, late)
     if ledger:
         config._write_json(config.STATE / LEDGER, ledger)
@@ -149,12 +153,19 @@ def rented():
 
 def serving():
     """The machines ak rents that serve, as the tick last found them ready, while ak may rent."""
+    return [name for name, held in _routes() if not held]
+
+
+def _routes():
+    """(name, whether it is held) of each machine ak rents that ssh reaches, while ak may rent."""
     lines = (config.STATE / SSH_CONFIG).read_text().splitlines() if ssh_config() else []
-    return [line[5:] for line in lines if line.startswith("Host ") and line != "Host *"]
+    return [(line[5:], before == HELD) for before, line in zip(["", *lines], lines)
+            if line.startswith("Host ") and line != "Host *"]
 
 
 def ssh_config():
-    """ssh's words reaching those `serving` and every other machine as ever, while ak may rent."""
+    """ssh's words reaching those `serving` or held and every other machine as ever, while ak may
+    rent."""
     path = config.STATE / SSH_CONFIG     # replaced whole, never removed
     return ("-F", str(path)) if path.exists() and _setting()[0] else ()
 
@@ -270,18 +281,18 @@ def _moved(ledger, listed, now, prices):
     return {"answered": now, "spent": spent, "machines": machines}
 
 
-def _idle(listed):
+def _idle(listed, routed):
     """{id: seconds it has held nothing} of each of `listed` READY, asked side by side by
-    tools/helper's `idle` with ak's key, made when missing; the address of one not serving yet
+    tools/helper's `idle` with ak's key, made when missing; the address of one not `routed` yet
     forgotten first, as Google hands addresses out again and ssh refuses an old host key there."""
     from . import helper, machines    # here, not at the top: both read this module
-    key, known, was = config.SECRETS / SSH_KEY, config.SECRETS / KNOWN_HOSTS, serving()
+    key, known = config.SECRETS / SSH_KEY, config.SECRETS / KNOWN_HOSTS
     if not key.exists():
         subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", USER, "-f", key],
                        capture_output=True, check=True)
     reached = [one for one in listed if one.address]
     for one in reached:
-        if one.name not in was:
+        if one.name not in routed:
             subprocess.run(["ssh-keygen", "-R", one.address, "-f", known], capture_output=True)
     known.with_name(f"{KNOWN_HOSTS}.old").unlink(missing_ok=True)     # ssh-keygen's copy
     line = f"test -e {READY} && {helper._line('idle')}"
@@ -299,11 +310,12 @@ def _reach(machine):
             "StrictHostKeyChecking": "accept-new"}
 
 
-def _serve(machines):
-    """The ssh config, written whole: `machines` as ssh reaches each, then every other as ever."""
+def _serve(machines, ready):
+    """The ssh config, written whole: `machines` as ssh reaches each, held but those `ready` by
+    id, then every other as ever."""
     path = config.STATE / SSH_CONFIG
     temp = path.with_suffix(".tmp")
-    temp.write_text("".join(f"Host {one.name}\n" + "".join(
+    temp.write_text("".join(f"{HELD}\n" * (one.id not in ready) + f"Host {one.name}\n" + "".join(
         '  %s "%s"\n' % option for option in _reach(one).items()) for one in machines)
         + "Host *\n  Include ~/.ssh/config\n")
     temp.replace(path)
