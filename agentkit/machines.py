@@ -1,7 +1,7 @@
 """The machines ak may use and what each one is: this one, each `[machines.<ssh alias>]` of
-config.toml and the `suite_helper`.  Hidden here: the probe, tools/machine.sh, each tick's on
-all of them side by side, over ssh but for this one; its ssh options; and the history of their
-answers, state/machines.json, the last three days' checks, which only the tick writes.
+config.toml, the `suite_helper` and those ak rents that serve.  Hidden here: the probe,
+tools/machine.sh, each tick's on all of them side by side, over ssh but for this one; its ssh
+options; and their answers, state/machines.json, the last three days' checks, the tick's alone.
 """
 
 from collections import namedtuple
@@ -12,7 +12,7 @@ import signal
 import subprocess
 import time
 
-from . import config
+from . import config, google_cloud
 
 HERE = "this one"
 PROBE = config.REPO / "tools" / "machine.sh"
@@ -54,9 +54,10 @@ class Machine(namedtuple("Machine", "name checks said")):
 
 
 def helpers():
-    """Every machine ak may use but this one: the owner's config.toml as is, not `config.load`'s."""
+    """Every machine ak may use but this one: config.toml's as is, not `config.load`'s; rented."""
     named = (config._read_toml(config.HOME / config.CONFIG_NAME) or {}).get("machines")
-    names = [*(named if isinstance(named, dict) else ()), config.suite_helper()]
+    names = [*(named if isinstance(named, dict) else ()), config.suite_helper(),
+             *google_cloud.serving()]
     return [name for name in dict.fromkeys(names) if name]
 
 
@@ -73,16 +74,13 @@ def known():
 
 def check():
     """The tick's: asks each machine once, side by side, and records what it answered."""
-    script = PROBE.read_text()
-    deadline, now = time.monotonic() + TIMEOUT, time.time()
-    asked = [(machine, subprocess.Popen(
-        ["bash", "-c", script] if machine.name == HERE else
-        [*SSH, "--", machine.name, shlex.join(["bash", "-c", script])],
-        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-        errors="replace", start_new_session=True)) for machine in known()]
+    script, now, machines = PROBE.read_text(), time.time(), known()
+    answers = ask([["bash", "-c", script] if machine.name == HERE else
+                   [*SSH, *google_cloud.ssh_config(), "--", machine.name,
+                    shlex.join(["bash", "-c", script])] for machine in machines])
     record = {}
-    for machine, proc in asked:
-        said = _said(proc, deadline)
+    for machine, answer in zip(machines, answers):
+        said = _said(answer)
         checks = [one for one in machine.checks if one[0] > now - KEPT]
         record[machine.name] = {"checks": [*checks, [now, bool(said)]],
                                 "said": {**said, "at": now} if said else machine.said}
@@ -95,9 +93,17 @@ def _path():
     return config.STATE / "machines.json"
 
 
-def _said(proc, deadline):
-    """What the probe said, by READINGS, or None: it failed, said too little or still ran at
-    `deadline`, and ends with all it started.  Its lines fit the pipe: waited for, then read."""
+def ask(commands):
+    """What each of `commands`, run side by side, printed, or None: it failed or still ran TIMEOUT
+    on, and ends with all it started.  Their lines fit the pipe: waited for, then read."""
+    deadline = time.monotonic() + TIMEOUT
+    procs = [subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL, text=True, errors="replace",
+                              start_new_session=True) for command in commands]
+    return [_answer(proc, deadline) for proc in procs]
+
+
+def _answer(proc, deadline):
     with proc:
         try:
             if proc.wait(max(0, deadline - time.monotonic())):
@@ -105,7 +111,12 @@ def _said(proc, deadline):
         except subprocess.TimeoutExpired:
             os.killpg(proc.pid, signal.SIGKILL)     # unreaped, it still names its group
             return None
-        said = dict(line.partition(" ")[::2] for line in proc.stdout.read().splitlines())
+        return proc.stdout.read()
+
+
+def _said(answer):
+    """What the probe answered, by READINGS, or None: it did not answer or said too little."""
+    said = dict(line.partition(" ")[::2] for line in (answer or "").splitlines())
     try:
         return {name: kind(said[name]) for name, kind in READINGS.items()}
     except (KeyError, ValueError):
