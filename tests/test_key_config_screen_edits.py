@@ -117,17 +117,16 @@ class ConfigScreenEdits(unittest.TestCase):
         self.fakes["codex"].answer("interactive", f"sh -c 'echo $TMUX_PANE >{ran}; exec sleep 600'")
         # as Codex's adapter does: its TUI takes no conversation id of ak's making
         self.fakes["codex"].answer("interactive", "", 3, given=["new"])
+        marked = "› GPT-6-Astra  [○]                  ■  ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high"
         self.term.keys("j")
-        self.term.wait(lambda screen: "› GPT-6-Astra  [○]                  ■  ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high"
-                       in rows(screen))
+        self.term.wait(lambda screen: marked in rows(screen))
         pane, record = self.pane(), self.record.read_text()
         opened = len(self.fakes["codex"].calls("interactive"))
         # asked, nothing moved yet; Esc keeps the record, the pane and config.toml as they were
         self.asked("GPT-6-Astra")
         self.assertEqual((self.pane(), self.record.read_text()), (pane, record))
         self.term.keys("Escape")
-        screen = self.term.wait(lambda screen: key_line(screen) == KEYS)
-        self.assertIn("› GPT-6-Astra  [○]                  ■  ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high", rows(screen))
+        self.term.wait(lambda screen: key_line(screen) == KEYS and marked in rows(screen))
         self.assertEqual((self.pane(), self.record.read_text()), (pane, record))
         self.assertEqual(len(self.fakes["codex"].calls("interactive")), opened)
         self.assertFalse(ran.exists())
@@ -135,10 +134,10 @@ class ConfigScreenEdits(unittest.TestCase):
         # asked again, and `Move` moves it
         self.asked("GPT-6-Astra")
         self.term.keys("Down", "Enter")
-        screen = self.term.wait(lambda screen: "› GPT-6-Astra  [●] ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high"
-                                in rows(screen))
-        self.assertIn("  Fable 5.1     ○                   □                   □", rows(screen))
-        self.assertEqual(key_line(screen), KEYS)
+        self.term.wait(lambda screen: "› GPT-6-Astra  [●] ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high"
+                       in rows(screen)
+                       and "  Fable 5.1     ○                   □                   □" in rows(screen)
+                       and key_line(screen) == KEYS)
         now = json.loads(self.record.read_text())
         self.assertEqual((now["orchestrator"], now["workers"]), ("astra", ["astra"]))
         # the seat's pane runs what Codex's adapter says opens astra, in place of Fable's harness
@@ -162,19 +161,18 @@ class ConfigScreenEdits(unittest.TestCase):
     def test_models_ticks_a_model_its_harness_lists_in_and_out(self):
         self.fakes["claude"].answer("models", CATALOG)
         self.term.keys("j", "j")
-        screen = self.term.wait(lambda screen: "› Models" in rows(screen))
-        self.assertEqual(key_line(screen), KEYS.replace("␣ mark", "⏎ open"))
+        self.term.wait(lambda screen: "› Models" in rows(screen)
+                       and key_line(screen) == KEYS.replace("␣ mark", "⏎ open"))
         self.term.keys("Enter")
-        screen = self.term.wait(lambda screen: "› Claude Code  Fable 5.1" in rows(screen))
-        self.assertTrue(rows(screen)[0].startswith("agentkit · config · models"), screen)
-        self.assertEqual(body(screen)[:2], ["› Claude Code  Fable 5.1",
-                                            "  Codex        GPT-6-Astra"])
-        self.assertEqual(key_line(screen), PAGE_KEYS)
+        self.term.wait(lambda screen: rows(screen)[0].startswith("agentkit · config · models")
+                       and body(screen)[:2] == ["› Claude Code  Fable 5.1",
+                                                "  Codex        GPT-6-Astra"]
+                       and key_line(screen) == PAGE_KEYS)
         # its list draws once the harness's models are asked of it
         self.term.keys("Enter")
-        screen = self.term.wait(lambda screen: "›   □ Model One" in rows(screen))
-        self.assertEqual(body(screen)[:3], ["  Claude Code  Fable 5.1", "›   □ Model One",
-                                            "  Codex        GPT-6-Astra"])
+        self.term.wait(lambda screen: body(screen)[:3] == ["  Claude Code  Fable 5.1",
+                                                           "›   □ Model One",
+                                                           "  Codex        GPT-6-Astra"])
         self.term.keys("Space")
         self.term.wait(lambda screen: "›   ■ Model One" in rows(screen))
         text = self.config.read_text()
