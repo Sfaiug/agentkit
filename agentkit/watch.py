@@ -28,6 +28,7 @@ tick is running right now and how big the log it writes has grown.
 
 from contextlib import contextmanager, nullcontext, redirect_stdout
 import base64
+import codecs
 import fcntl
 import io
 import json
@@ -7121,8 +7122,12 @@ def say(dry_run, log, text, url, session, merged=False):
 AFTER_MERGE_WINDOW = 3 * 3600  # seconds a merge commit's checks are followed
 AFTER_MERGE_PASS = ("success", "neutral", "skipped")  # the conclusions that mean green
 HEALTH_TIMEOUT = 30  # a project's live probe must leave time for the rest of the tick
-# Everything up to the last place str.splitlines, which reads a probe's output, ends a line.
+# In UTF-8, as a probe's output is read: through the last line break str.splitlines makes, and
+# through the first byte of the last character str.strip keeps.
 UP_TO_LAST_BREAK = re.compile(rb"(?s).*(?:[\n\r\v\f\x1c-\x1e]|\xc2\x85|\xe2\x80[\xa8\xa9])")
+UP_TO_LAST_TEXT = re.compile(rb"(?s).*(?!\xc2[\x85\xa0]|\xe1\x9a\x80|"
+                             rb"\xe2\x80[\x80-\x8a\xa8\xa9\xaf]|\xe2\x81\x9f|\xe3\x80\x80)"
+                             rb"[^\t\n\v\f\r\x1c-\x20\x80-\xbf]")
 
 
 def health_command(repo, sha, command, checked=None, timeout=HEALTH_TIMEOUT):
@@ -7154,18 +7159,18 @@ def health_command(repo, sha, command, checked=None, timeout=HEALTH_TIMEOUT):
                 except subprocess.TimeoutExpired:
                     pass
             start = max(0, output.seek(0, os.SEEK_END) - 4096)
-            output.seek(start)
-            window = output.read(4096)
-            text = window.decode("utf-8", errors="replace")
-            if start and len(text.rstrip().splitlines()) == 1:
-                # The last line began before the window: its beginning says why, its end rarely.
-                # Bytes continuing a character begun before the window may end its break.
-                lead = len(window) - len(window.lstrip(bytes(range(0x80, 0xc0))))
+            if start:
+                # A last line begun before the window is read from its beginning, which says why.
                 with mmap.mmap(output.fileno(), 0, access=mmap.ACCESS_READ) as whole:
-                    found = UP_TO_LAST_BREAK.match(whole, 0, start + lead)
-                output.seek(found.end() if found else 0)
-                text = output.read(4096).decode("utf-8", errors="replace")
-            tail = "\n".join(text.splitlines()[-10:])
+                    if last := UP_TO_LAST_TEXT.match(whole):
+                        line = UP_TO_LAST_BREAK.match(whole, 0, last.end())
+                        start = min(start, line.end() if line else 0)
+            output.seek(start)
+            # Bytes continuing a character begun before the window, and those of one it cuts off,
+            # which a decoder not told the input ended holds back, are none of its text.
+            window = output.read(4096).lstrip(bytes(range(0x80, 0xc0)))
+            text = codecs.getincrementaldecoder("utf-8")(errors="replace").decode(window)
+            tail = "\n".join(text.rstrip().splitlines()[-10:])
             if timed_out:
                 tail += f"\ntimed out after {timeout}s"
             return not timed_out and proc.returncode == 0, tail.strip()
