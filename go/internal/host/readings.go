@@ -177,6 +177,15 @@ func SliceLine() string {
 	return sliceLine(sliceCgroup(), sliceCeiling())
 }
 
+// SeatSliceLine is SliceLine as `ak orch why` says it of a seat: where there is no manager, its
+// tmux server was started the way it always was, and this is the one place that says so.
+func SeatSliceLine() string {
+	if !userManager() {
+		return SliceLine() + "; this seat's tmux server was started plainly"
+	}
+	return SliceLine()
+}
+
 // sliceLine reads the slice's tasks, and its ceiling, else the drop-ins' `ceiling`. A slice
 // with nothing in it has no directory, so holds no tasks.
 func sliceLine(cgroup string, ceiling float64) string {

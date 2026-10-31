@@ -3,6 +3,7 @@ package tmux
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"slices"
@@ -65,6 +66,15 @@ func Panes(server string, names []string) ([]int, bool) {
 		}
 	}
 	return found, true
+}
+
+// Kill ends the session by exactly that name on one server; its error is what tmux said refusing.
+func Kill(server, name string) error {
+	_, err := run(server, "kill-session", "-t", "="+name)
+	if refused, ok := err.(*exec.ExitError); ok {
+		return errors.New(strings.TrimSpace(string(refused.Stderr)))
+	}
+	return err
 }
 
 // run asks one server. $TMUX goes: inside somebody's tmux, a call to the default server
