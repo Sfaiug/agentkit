@@ -4994,8 +4994,8 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                    or orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
 
     def said(text):
-        # The words and whose they are: OpenCode keeps redrawing a box's shading, while a dim
-        # suggestion the owner accepts says the same words as their draft.
+        # The words and whose they are: a harness may keep redrawing a box's shading, while a
+        # dim suggestion the owner accepts says the same words as their draft.
         return strip_sgr(text), screen_state(harness, pane_tail(text))
 
     with state_lock():
