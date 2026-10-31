@@ -50,6 +50,23 @@ func TestTheProgramsOutputInputAndExitAreTheRelays(t *testing.T) {
 	}
 }
 
+// as when the wrapper inherits that many open files: the relay's own descriptors lie past them
+func TestARelayWhoseDescriptorsArePastTheFirst1024Relays(t *testing.T) {
+	for {
+		inherited, err := os.Open(os.DevNull)
+		if err != nil {
+			t.Skip("no descriptor past 1024 to take:", err)
+		}
+		t.Cleanup(func() { inherited.Close() })
+		if inherited.Fd() > 1024 {
+			break
+		}
+	}
+	if code, err, shown := relayed(t, "echo fine; exit 7", "", named); code != 7 || err != nil || !strings.Contains(shown, "fine") {
+		t.Fatalf("answered %d %v, showed %q", code, err, shown)
+	}
+}
+
 func TestAProgramWhoseTerminalCannotBeNamedNeverStarts(t *testing.T) {
 	started, path := filepath.Join(t.TempDir(), "started"), ""
 	code, err, _ := relayed(t, "touch "+started, "", func(tty string) error {

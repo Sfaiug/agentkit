@@ -197,15 +197,13 @@ func ioctl(file *os.File, request uintptr, arg unsafe.Pointer) error {
 // while master is not.
 func readable(master, drained int) error {
 	for {
-		var ready syscall.FdSet
-		mark(ready.Bits[:], master)
-		mark(ready.Bits[:], drained)
-		err := wait(max(master, drained)+1, &ready)
+		ready := []pollFd{{fd: int32(master), events: pollIn}, {fd: int32(drained), events: pollIn}}
+		err := wait(ready)
 		switch {
 		case err == syscall.EINTR:
 		case err != nil:
 			return err
-		case marked(ready.Bits[:], master):
+		case ready[0].revents != 0:
 			return nil
 		default:
 			return io.EOF
@@ -213,13 +211,11 @@ func readable(master, drained int) error {
 	}
 }
 
-// mark puts fd in an fd_set's bits, whatever the width of their words.
-func mark[Word int32 | int64](bits []Word, fd int) {
-	width := int(unsafe.Sizeof(bits[0])) * 8
-	bits[fd/width] |= 1 << (fd % width)
+// pollFd is poll(2)'s struct pollfd, the same on Linux and macOS; poll, unlike select, takes a
+// descriptor of any number, such as those past the 1024 a wrapper that inherits many is given.
+type pollFd struct {
+	fd              int32
+	events, revents int16
 }
 
-func marked[Word int32 | int64](bits []Word, fd int) bool {
-	width := int(unsafe.Sizeof(bits[0])) * 8
-	return bits[fd/width]&(1<<(fd%width)) != 0
-}
+const pollIn = 1 // POLLIN, the same on Linux and macOS
