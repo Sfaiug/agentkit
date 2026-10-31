@@ -27,7 +27,11 @@ func unlock(master *os.File) (string, error) {
 	return string(name), nil
 }
 
-// wait is select(2) on what can be read.
-func wait(n int, readable *syscall.FdSet) error {
-	return syscall.Select(n, readable, nil, nil, nil)
+// wait is poll(2) on fds, without end.
+func wait(fds []pollFd) error {
+	forever := -1
+	if _, _, errno := syscall.Syscall(syscall.SYS_POLL, uintptr(unsafe.Pointer(&fds[0])), uintptr(len(fds)), uintptr(forever)); errno != 0 {
+		return errno
+	}
+	return nil
 }
