@@ -1,6 +1,7 @@
 """A machine ak rents serves suites once ready and goes back once it has held nothing for ten
 minutes; one not ready is left alone; one serving that stops answering keeps serving, for the work
-it holds; with `[google_cloud]` not active, none serves or goes back.
+it holds, until it has no address or a new machine has its name; with `[google_cloud]` not active,
+none serves or goes back.
 
 Black-box: `AK_BIN` runs `ak watch` in `home.tick()`'s box, `ak doctor` and a lander against the
 fake Google of tests/fixtures/google.py.  A fake ssh is the machines, each a directory named by its
@@ -71,9 +72,11 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
         cls.active(True)
         cls.tick()      # the prices a machine is metered at
         # 1 holds a container, 2 held nothing 11 minutes, 3 and 4 never ran, up 5 and 11
-        # minutes, 5 receives a suite, 6 is not ready, 7's docker does not answer, 8 goes silent
+        # minutes, 5 receives a suite, 6 is not ready, 7's docker does not answer, 8 goes silent,
+        # 9 is replaced and 10 loses its address
         for n, up, ago in ((1, 3600, 1200), (2, 3600, 660), (3, 300, None), (4, 660, None),
-                           (5, 3600, None), (6, 3600, None), (7, 3600, 1200), (8, 300, None)):
+                           (5, 3600, None), (6, 3600, None), (7, 3600, 1200), (8, 300, None),
+                           (9, 300, None), (10, 300, None)):
             cls.machine(n, up, ago, ready=n != 6)
         (cls.machines / "203.0.113.1/docker/containers/ak-a-1-1").write_text("1073741824\n")
         (cls.machines / "203.0.113.7/bin/docker").write_text("#!/bin/sh\nexit 1\n")
@@ -87,15 +90,17 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
             assert time.monotonic() < deadline and prepare.poll() is None, "prepare never held 5"
             time.sleep(0.05)
         os.utime(five / "home/.agentkit-helper", (time.time() - 1200,) * 2)
-        google.machines = [listed(n) for n in range(1, 9)]
+        google.machines = [listed(n) for n in range(1, 11)]
         cls.first = cls.tick()
         prepare.communicate()   # an empty parcel: the suite goes
         # a host key at each of 1's and 6's addresses: 1 serves, 6 does not yet
         known = home.path / ".agentkit/secrets/google-cloud-known-hosts"
         cls.host_key = " ".join(Path(f"{cls.key}.pub").read_text().split()[:2])
         known.write_text("".join(f"203.0.113.{n} {cls.host_key}\n" for n in (1, 6)))
-        google.machines = [listed(n) for n in (1, 3, 5, 6, 8)]
-        (cls.machines / "203.0.113.8").rename(cls.machines / "silent")
+        google.machines = [*map(listed, (1, 3, 5, 6, 8)), {**listed(9), "id": "19"},
+                           {**listed(10), "networkInterfaces": []}]
+        for n in (8, 9):    # the new 9 refuses ssh over the old one's host key
+            (cls.machines / f"203.0.113.{n}").rename(cls.machines / f"silent-{n}")
         cls.second, cls.known = cls.tick(), known.read_text()
         line = Line({"t/a.sh": "true\n", "tools/helper/Containerfile": "FROM acme\n"}, home=home)
         line.member({"api.txt": "x\n"})
@@ -142,9 +147,11 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
 
     def test_a_ready_machine_serves_until_it_held_nothing_ten_minutes(self):
         self.assertEqual(self.first, (["acme-2", "acme-4"], [
-            "this one", "acme-1", "acme-3", "acme-5", "acme-7", "acme-8"], [
+            "this one", "acme-1", "acme-3", "acme-5", "acme-7", "acme-8", "acme-9",
+            "acme-10"], [
             "acme-2 listed idle, given back", "acme-4 listed idle, given back"]))
-        # its suite gone, 5 has held nothing 20 minutes; 8 answers nothing and is not cut off
+        # its suite gone, 5 has held nothing 20 minutes; 8 answers nothing and is not cut off,
+        # while no route is left to 9's new machine or to 10
         self.assertEqual(self.second, (["acme-5"], ["this one", "acme-1", "acme-3", "acme-8"],
                                        ["acme-5 listed idle, given back"]))
 
