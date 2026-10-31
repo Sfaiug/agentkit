@@ -26,7 +26,10 @@
 # Before the harness draws its question prompt (PreToolUse, where its adapter installs it) this
 # refuses the question of a seat whose plan is done with nothing from the owner since
 # (`stop.question_refused`): it would block nothing but the owner, so its last message says it,
-# and a turn ending on it in prose stands.
+# and a turn ending on it in prose stands.  Letting it through, it keeps each question the card
+# asks back for the turn's end, as a Codex seat's are kept (`watch.keep`): the owner's answer on
+# the card drops it as their time (`watch.answered_kept`), and a card that answered nothing has
+# it asked when the turn ends.
 #
 # A worker is silent here as it is everywhere: no $AGENTKIT_SESSION, or AK_RUN_ROLE=worker,
 # and this decides nothing and exits 0.
@@ -77,7 +80,7 @@ sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
 from agentkit import config, harness, lifecycle, notify, questions
 from agentkit.handback import handback_reason
 from agentkit.stop import live_unrecorded, question_refused, recorded_ending, ways_out
-from agentkit.watch import owner_question, seat_read, start_look, turn_ended
+from agentkit.watch import keep, owner_question, seat_read, start_look, turn_ended
 
 LIMIT = 2           # blocks in one turn; the third stop stands
 REASON = ("You stopped with work open and nothing recorded: no question asked through the question "
@@ -336,11 +339,19 @@ def main():
     launched = sys.argv[1] if len(sys.argv) > 1 else ""
     payload = loads(sys.stdin.read())
     if payload.get("hook_event_name") == "PreToolUse":
-        refused = question_refused(resolve(launched))
+        seat = resolve(launched)
+        refused = question_refused(seat)
         if refused:
             print(json.dumps({"hookSpecificOutput": {
                 "hookEventName": "PreToolUse", "permissionDecision": "deny",
                 "permissionDecisionReason": refused}}))
+            return
+        call = payload.get("tool_input")
+        listed = call.get("questions") if isinstance(call, dict) else None
+        for item in listed if isinstance(listed, list) else ():
+            text = item.get("question") if isinstance(item, dict) else None
+            if isinstance(text, str) and text.strip():
+                keep(seat, text)
         return
     back = held(launched, payload)
     if not back:
