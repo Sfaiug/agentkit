@@ -1,6 +1,7 @@
 //go:build linux
 
-// Package box is the worker's walls, as Python's agentkit/box.py builds them.  It hides
+// Package box is the worker's walls, as Python's agentkit/box.py builds them, and whether this
+// host can start them, asked before a launch makes anything (Check).  It hides
 // bubblewrap's arguments: the root read-only, the devices the account may use, a /proc of the
 // box's own, the places a command may write, and /run, /tmp, /var/tmp, /dev/shm and the runtime
 // directory kept the box's own, empty but for a copy of the host's /run with no socket in it.
@@ -65,57 +66,19 @@ var credentials = []string{"~/.config/gh/hosts.yml", "$XDG_CONFIG_HOME/gh/hosts.
 // the links among the manifest paths of logins, the workspace and its git directories, and out;
 // the files and folders hidden read empty there, as the account's credentials do.
 func Run(argv []string, env map[string]string, workspace, out string, state, logins, hidden []string, stderr *os.File) (int, error) {
-	if _, err := exec.LookPath("bwrap"); err != nil {
-		return 0, errors.New("worker box needs bubblewrap; run `sudo apt-get install -y bubblewrap`")
-	}
-	for _, path := range transient {
-		if info, err := os.Stat(path); err != nil || !info.IsDir() {
-			return 0, fmt.Errorf("worker box needs %s: the host directory is missing", path)
-		}
-	}
-	env = maps.Clone(env)
-	agent := env["SSH_AUTH_SOCK"]
-	for _, key := range tokens {
-		delete(env, key)
-	}
-	out = config.Resolve(out)
-	places, err := writable(env, workspace, out, state, logins)
+	report := filepath.Join(config.Resolve(out), "box-processes.json")
+	cmd, done, err := command(append([]string{exe, report}, argv...), env, workspace, out, state, logins, hidden)
 	if err != nil {
 		return 0, err
 	}
-	hidden, err = masked(env, workspace, agent, hidden)
-	if err != nil {
-		return 0, err
-	}
-	// Short folders in out: a socket's path in the box still fits beside a long run id.
-	scratch, err := os.MkdirTemp(out, ".box-")
-	if err != nil {
-		return 0, err
-	}
-	defer os.RemoveAll(scratch)
-	empty, err := own(scratch, env, workspace, places, hidden)
-	if err != nil {
-		return 0, err
-	}
-	mounts, err := binds(empty, places)
-	if err != nil {
-		return 0, err
-	}
+	defer done()
 	// The running image, not the file at its path, which a build may since have replaced.
 	self, err := os.Open("/proc/self/exe")
 	if err != nil {
 		return 0, err
 	}
 	defer self.Close()
-	report := filepath.Join(out, "box-processes.json")
 	os.Remove(report)
-	args := append([]string{"--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent", "--new-session"}, walls()...)
-	args = append(append(append(args, mounts...), masks(hidden)...), "--", exe, report)
-	env["TMPDIR"] = "/var/tmp"
-	cmd := exec.Command("bwrap", append(args, argv...)...)
-	for key, value := range env {
-		cmd.Env = append(cmd.Env, key+"="+value)
-	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, stderr
 	cmd.ExtraFiles = []*os.File{self} // exeFD
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
@@ -129,6 +92,57 @@ func Run(argv []string, env map[string]string, workspace, out string, state, log
 		ended = *written.Returncode
 	}
 	return ended, nil
+}
+
+// command is bubblewrap's command putting argv in the box Run describes, and what removes the
+// folder in out holding the box's own places once the box has ended.
+func command(argv []string, env map[string]string, workspace, out string, state, logins, hidden []string) (*exec.Cmd, func(), error) {
+	if _, err := exec.LookPath("bwrap"); err != nil {
+		return nil, nil, errors.New("worker box needs bubblewrap; run `" + install + "`")
+	}
+	for _, path := range transient {
+		if info, err := os.Stat(path); err != nil || !info.IsDir() {
+			return nil, nil, fmt.Errorf("worker box needs %s: the host directory is missing", path)
+		}
+	}
+	env = maps.Clone(env)
+	agent := env["SSH_AUTH_SOCK"]
+	for _, key := range tokens {
+		delete(env, key)
+	}
+	out = config.Resolve(out)
+	places, err := writable(env, workspace, out, state, logins)
+	if err != nil {
+		return nil, nil, err
+	}
+	hidden, err = masked(env, workspace, agent, hidden)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Short folders in out: a socket's path in the box still fits beside a long run id.
+	scratch, err := os.MkdirTemp(out, ".box-")
+	if err != nil {
+		return nil, nil, err
+	}
+	done := func() { os.RemoveAll(scratch) }
+	empty, err := own(scratch, env, workspace, places, hidden)
+	if err != nil {
+		done()
+		return nil, nil, err
+	}
+	mounts, err := binds(empty, places)
+	if err != nil {
+		done()
+		return nil, nil, err
+	}
+	args := append([]string{"--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent", "--new-session"}, walls()...)
+	args = append(append(append(args, mounts...), masks(hidden)...), "--")
+	env["TMPDIR"] = "/var/tmp"
+	cmd := exec.Command("bwrap", append(args, argv...)...)
+	for key, value := range env {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
+	return cmd, done, nil
 }
 
 // First is the box's first process, where this program was started as one, and false otherwise:
