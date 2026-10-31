@@ -32,7 +32,7 @@ func sameModel(models map[string]config.Model, first, second string) bool {
 	}
 	one, ok := models[first]
 	two, found := models[second]
-	return ok && found && one == two
+	return ok && found && one.Provider == two.Provider && one.ID == two.ID
 }
 
 // SelfReviewed is whether the executor's own model reviews the run: the recorded review's

@@ -401,8 +401,46 @@ func Harnesses() ([]string, error) {
 	return names, nil
 }
 
-// A Model is what a [models.*] entry runs on: its provider and the provider's model id.
-type Model struct{ Provider, ID string }
+// A Model is what a [models.*] entry runs on: its provider, the provider's model id, the
+// harness that runs it, and the efforts it sets, by their RoleEfforts keys.
+type Model struct {
+	Provider, ID, Harness string
+	Efforts               map[string]string
+}
+
+// RoleEfforts are the keys an entry's efforts go under, a seat's first (config.ROLE_EFFORTS).
+var RoleEfforts = []string{"effort", "exec_effort", "review_effort"}
+
+// Offered is every model the config offers, in config.offered's order: a harness where its
+// first model is in the file, its models in file order under it.
+func Offered() ([]string, error) {
+	root, err := load()
+	if err != nil {
+		return nil, err
+	}
+	var harnesses []string
+	under := map[string][]string{}
+	models := root.values["models"].(*table)
+	for _, name := range models.keys {
+		entry, _ := models.values[name].(*table)
+		if entry == nil {
+			continue
+		}
+		harness, named := entry.values["harness"].(string)
+		provider, valid := entry.values["provider"].(string)
+		if _, exists := root.values["providers"].(*table).values[provider]; named && valid && exists {
+			if under[harness] == nil {
+				harnesses = append(harnesses, harness)
+			}
+			under[harness] = append(under[harness], name)
+		}
+	}
+	var names []string
+	for _, harness := range harnesses {
+		names = append(names, under[harness]...)
+	}
+	return names, nil
+}
 
 // Models is every entry `resolve` runs.
 func Models() (map[string]Model, error) {
@@ -450,7 +488,7 @@ func Bind() (Binding, error) {
 			continue
 		}
 		bound.Models = append(bound.Models, name)
-		for _, key := range []string{"effort", "exec_effort", "review_effort"} {
+		for _, key := range RoleEfforts {
 			if value, set := entry.values[key]; set {
 				effort, ok := value.(string)
 				if !ok {
@@ -510,7 +548,14 @@ func resolve(root *table, name string) (Model, error) {
 	if _, exists := root.values["providers"].(*table).values[provider]; !valid || !exists {
 		return Model{}, fmt.Errorf("~/.agentkit/config.toml: [models.%s].provider=%s has no [providers.*] entry", name, valueRepr(entry.values["provider"]))
 	}
-	return Model{provider, fmt.Sprint(entry.values["model"])}, nil
+	harness, _ := entry.values["harness"].(string)
+	efforts := map[string]string{}
+	for _, key := range RoleEfforts {
+		if word, ok := entry.values[key].(string); ok {
+			efforts[key] = word
+		}
+	}
+	return Model{provider, fmt.Sprint(entry.values["model"]), harness, efforts}, nil
 }
 
 func valueRepr(value any) string {
