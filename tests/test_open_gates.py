@@ -182,7 +182,8 @@ PY
             self.assertEqual((lent.read_text(), lent.is_symlink()), (CLAUDE, False))
 
     def test_smoke_mcp_claude_uses_worker_token_instead_of_refreshing_seat(self):
-        block = SMOKE[SMOKE.index('  BP=\'Use the browser MCP'):SMOKE.index('  if skip_spent 31e')]
+        block = SMOKE[SMOKE.index('  BP=\'Use the browser MCP'):
+                      SMOKE.index('  if SMOKE_LOGIN=usual skip_spent 31e')]
         with tempfile.TemporaryDirectory(prefix=".ak-test-open-gates-", dir=REPO) as tmp:
             home = Path(tmp)
             (home / '.agentkit/secrets').mkdir(parents=True)
