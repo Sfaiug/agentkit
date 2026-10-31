@@ -4631,7 +4631,7 @@ try:
 except Exception:
     sys.exit(1)
 " 2>/dev/null; then
-  if skip_spent 31d opus; then
+  if SMOKE_LOGIN=usual skip_spent 31d opus; then
     :
   else
   BP='Use the browser MCP server to list the open tabs of the shared Chromium, and the desktop MCP server to take one screenshot of the desktop. Then print one final line, exactly: BROWSER_TABS=<number of tabs> DESKTOP=<ok if the screenshot came back, else fail>'
@@ -4649,7 +4649,7 @@ except Exception:
     no "31d claude over MCP: $(tail -c 200 "$WORK/mcp-claude.txt")"
   fi
   fi
-  if skip_spent 31e astra; then
+  if SMOKE_LOGIN=usual skip_spent 31e astra; then
     :
   else
   CMODEL=$(PYTHONPATH="$REPO" python3 -c 'from agentkit import config; print(config.model(config.load(), "astra")["model"])')

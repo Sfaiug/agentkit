@@ -12,6 +12,7 @@ cache, as `spent_until` reads it.
 """
 
 import json
+import os
 from pathlib import Path
 import sys
 import time
@@ -22,7 +23,10 @@ from agentkit import config, run, usage
 
 def login(cfg, provider):
     """The login the check runs on that provider: the account its config lists, which smoke_home
-    lists only for a subscription it lent by name, else None, the usual one."""
+    lists only for a subscription it lent by name, else None, the usual one.  SMOKE_LOGIN=usual
+    names the usual one: 31d and 31e run `claude -p` and `codex exec` themselves, on it."""
+    if os.environ.get("SMOKE_LOGIN") == "usual":
+        return None
     return next(iter(config.accounts(cfg, provider)), None)
 
 

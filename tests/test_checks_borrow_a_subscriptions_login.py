@@ -127,6 +127,24 @@ class ChecksBorrowASubscriptionsLogin(LentLogins):
                                 text=True, capture_output=True, timeout=120)
         self.assertEqual((result.returncode, result.stdout), (0, ""), result.stderr)
 
+    def test_checks_31d_and_31e_are_asked_about_the_usual_login_they_run(self):
+        # Their own `claude -p` and `codex exec` run on the usual login: where Claude's is not
+        # there, 31d skips as not on this host before its call, and 31e, on Codex's, runs.
+        home = self.smoke("anthropic", ".claude/.credentials.json", ".claude-acme/.credentials.json")
+        prechecks = [f"{line} :; else echo RUNS {check}; fi" for check in ("31d", "31e")
+                     for line in SMOKE.splitlines() if f"skip_spent {check} " in line]
+        script = "\n".join([". tests/acceptance.sh",
+                            SMOKE[SMOKE.index("model_unavailable()"):SMOKE.index("reprobe()")],
+                            SMOKE[SMOKE.index("spent_until()"):SMOKE.index("skip_refused()")],
+                            *prechecks, 'echo "host=$NHOST spent=$NSPENT failed=$NFAIL"'])
+        result = subprocess.run(["/bin/bash", "-c", script], cwd=REPO, text=True,
+                                capture_output=True, timeout=120,
+                                env={**self.env, "HOME": str(home), "WORK": str(self.root),
+                                     "SMOKE_CALLER_HOME": str(self.caller)})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[-2:], ["RUNS 31e", "host=1 spent=0 failed=0"],
+                         result.stdout + result.stderr)
+
     def test_muses_readings_are_the_listed_accounts(self):
         state = self.caller / ".agentkit/state"
         state.mkdir(parents=True)
