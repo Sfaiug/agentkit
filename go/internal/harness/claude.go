@@ -18,7 +18,7 @@ import (
 // no activity to the silence watchdog.
 func init() {
 	ceiling := strconv.Itoa(run.CeilingHours * 3600 * 1000)
-	plugins["claude"] = plugin{seats: true, answer: claudeAnswer, auth: claudeAuth, turnEnv: map[string]string{
+	plugins["claude"] = plugin{seats: true, answer: claudeAnswer, auth: claudeAuth, lend: claudeLend, turnEnv: map[string]string{
 		"BASH_DEFAULT_TIMEOUT_MS": ceiling, "BASH_MAX_TIMEOUT_MS": ceiling}}
 }
 

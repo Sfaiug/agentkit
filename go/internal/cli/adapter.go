@@ -27,6 +27,8 @@ func adapter(args []string, out, errOut io.Writer) int {
 		return adapters.Turn(harness, rest, errOut)
 	case "auth":
 		return adapters.Auth(harness, rest, out, errOut)
+	case "lend":
+		return adapters.Lend(harness, rest, out, errOut)
 	case "hooks":
 	default:
 		fmt.Fprintf(errOut, "ak adapter: %s %s is not carried out in Go yet\n", harness, verb)

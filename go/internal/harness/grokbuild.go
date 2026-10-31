@@ -13,7 +13,7 @@ import (
 	"agentkit/internal/run"
 )
 
-func init() { plugins["grokbuild"] = plugin{auth: grokAuth} }
+func init() { plugins["grokbuild"] = plugin{auth: grokAuth, lend: grokLend} }
 
 // dated is an ISO-8601 instant, which sorts as a string: Grok's `expires_at`.
 var dated = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T`)
@@ -28,28 +28,17 @@ func grokAuth(login config.Login, _ bool) Answer {
 			return Answer{Yes: true, Line: "grok: " + variable + " is set"}
 		}
 	}
-	file := config.LoginPath("grokbuild", "credentials", login)
+	file, data, value, entries := grokLogin(login)
 	no := func(line string) Answer { return Answer{Line: "grok: " + line + "; run `grok login`"} }
-	data, _ := os.ReadFile(file)
-	value, err := run.Decode(data)
 	switch {
 	case blank(string(data)):
 		return no("no " + file)
-	case err != nil || value == nil || value == false: // what `jq -e .` refuses
+	case value == nil:
 		return no(file + " is not JSON")
 	}
-	var entries []*run.Object
-	if whole, ok := value.(*run.Object); ok {
-		for _, key := range whole.Keys() {
-			if entry, ok := whole.Get(key).(*run.Object); ok {
-				entries = append(entries, entry)
-			}
-		}
-	}
 	some := func(test func(entry *run.Object) bool) bool { return slices.ContainsFunc(entries, test) }
-	keyed := func(entry *run.Object) bool { return !blank(entry.Str("key")) }
 	refused, _ := os.ReadFile(config.LoginPath("grokbuild", "refused", login))
-	if at := slices.IndexFunc(entries, keyed); at >= 0 {
+	if at := slices.IndexFunc(entries, grokKeyed); at >= 0 {
 		digest := sha256.Sum256([]byte(entries[at].Str("key")))
 		if strings.TrimRight(string(refused), "\n") == hex.EncodeToString(digest[:]) {
 			return no("the billing endpoint refused the login in " + file + " after grok's own renewal")
@@ -59,15 +48,39 @@ func grokAuth(login config.Login, _ bool) Answer {
 	switch {
 	case some(func(entry *run.Object) bool {
 		ends := entry.Str("expires_at")
-		return keyed(entry) && dated.MatchString(ends) && ends > now
+		return grokKeyed(entry) && dated.MatchString(ends) && ends > now
 	}):
 		return Answer{Yes: true, Line: "grok: the login in " + file + " is saved"}
 	case some(func(entry *run.Object) bool { return !blank(entry.Str("refresh_token")) }):
 		return Answer{Yes: true, Line: "grok: the login in " + file + " is saved; grok renews its lapsed key itself"}
-	case !some(keyed):
+	case !some(grokKeyed):
 		return no(file + " carries no session token")
 	case some(func(entry *run.Object) bool { return given(entry.Get("expires_at")) }):
 		return no("the login in " + file + " is expired")
 	}
 	return no(file + " records no usable expiry")
+}
+
+// grokLogin is Grok Build's one login: the file it is kept in, the text read, that text as JSON
+// where `jq -e .` takes it, else nil, and each object it holds, an entry.
+func grokLogin(login config.Login) (file string, data []byte, value any, entries []*run.Object) {
+	file = config.LoginPath("grokbuild", "credentials", login)
+	data, _ = os.ReadFile(file)
+	value, err := run.Decode(data)
+	if err != nil || value == false {
+		value = nil
+	}
+	if whole, ok := value.(*run.Object); ok {
+		for _, key := range whole.Keys() {
+			if entry, ok := whole.Get(key).(*run.Object); ok {
+				entries = append(entries, entry)
+			}
+		}
+	}
+	return file, data, value, entries
+}
+
+// grokKeyed is whether an entry holds a session key.
+func grokKeyed(entry *run.Object) bool {
+	return !blank(entry.Str("key"))
 }

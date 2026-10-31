@@ -24,6 +24,7 @@ type plugin struct {
 	answer  func(conversation, cwd string) (model, effort any, found bool)
 	turnEnv map[string]string
 	auth    func(login config.Login, seat bool) Answer
+	lend    func(login config.Login) Loan
 }
 
 var plugins = map[string]plugin{}
