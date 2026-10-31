@@ -7117,10 +7117,13 @@ AFTER_MERGE_PASS = ("success", "neutral", "skipped")  # the conclusions that mea
 HEALTH_TIMEOUT = 30  # a project's live probe must leave time for the rest of the tick
 
 
-def health_command(repo, sha, command):
-    """A bounded live probe and its last output, without inherited pipes holding the tick."""
+def health_command(repo, sha, command, checked=None):
+    """A bounded live probe and its last output, without inherited pipes holding the tick,
+    leaving its row in history as `gate.run_done_when` does with `checked`: no exit where it
+    timed out."""
     try:
-        with tempfile.TemporaryFile() as output:
+        with tempfile.TemporaryFile() as output, \
+                history.check(checked, command, time.time()) as ended:
             proc = subprocess.Popen(["bash", "-c", command], cwd=repo,
                                     env={**os.environ, "AK_MERGE_SHA": sha},
                                     stdin=subprocess.DEVNULL, stdout=output,
@@ -7136,6 +7139,7 @@ def health_command(repo, sha, command):
                     os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
+            ended.append(None if timed_out else proc.returncode)
             if timed_out:
                 try:
                     proc.wait(timeout=1)
@@ -7226,7 +7230,8 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes,
                 return "pending", None, None
             probe = (key, sha)
             if probe not in probes:
-                probes[probe] = health_command(st["repo"], sha, command)
+                probes[probe] = health_command(st["repo"], sha, command,
+                                               checked=(run_dir, None, "health", sha))
             passed, output = probes[probe]
             with run_record.record(run_dir) as current:
                 if passed:

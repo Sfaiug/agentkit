@@ -388,7 +388,7 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
             progress.write(f"$ {command} (on {revision or 'workspace'})\n".encode())
             progress.flush()
             start = progress.tell()
-            with history.check(lp.run_dir, (lp.rnd, "replay", revision), command, asked) as ended:
+            with history.check((lp.run_dir, lp.rnd, "replay", revision), command, asked) as ended:
                 try:
                     code, _, killed = worker.boxed(
                         ["bash", "-c", command], lp.done_when_limit, silence=lp.turn_limit,

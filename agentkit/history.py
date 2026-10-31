@@ -100,10 +100,12 @@ CREATE TABLE IF NOT EXISTS phases (
 )
 """
 
-# One row per check a round runs, written where it runs (`check`): `kind` is `done-when`, `rules`,
-# `base-proof` or `replay`, `command` the text ak ran (a list a helper ran as one shell, a command
-# a line; a suite's piece its `AK_SHARD=` share before it), `tree` the commit checked (the base's
-# for a base proof; NULL for a scratch run's one workspace), `place` the host or helper, `exit`
+# One row per check a round, the lander or a merged run's live probe runs, written where it runs
+# (`check`): `kind` is a round's `done-when`, `rules`, `base-proof` or `replay`, the lander's
+# `landing` or `tip` (`round` NULL), or the live probe's `health`; `command` the text ak ran (a
+# list a helper ran as one shell, a command a line; a suite's piece its `AK_SHARD=` share before
+# it), `tree` the commit checked (the base's for a base proof, the target's tip for `tip`, the
+# merge for `health`; NULL for a scratch run's one workspace), `place` the host or helper, `exit`
 # NULL where it never returned.  Its wait and wall are differences of its moments, and `rerun` is
 # 1 where the command, or a list holding it, already ran on this tree in this run.
 CHECKS_SCHEMA = """
@@ -435,15 +437,16 @@ def add_wait(run_id, wait, seconds, at=None, *, began=None, log=None):
 
 
 @contextlib.contextmanager
-def check(run_dir, checked, command, requested_at, place=None):
-    """The row of one check a round runs (`CHECKS_SCHEMA`), written as it starts, so a check
-    that never returns -- killed, interrupted, its process gone -- keeps one: the caller appends
-    the exit it returned to the list this yields, and its end is written however the block ends.
-    `checked` is its `(round, kind, tree)`, None for a check no round runs, which leaves none, and
-    `place` this host unless named.  A run with no row keeps no checks."""
+def check(checked, command, requested_at, place=None):
+    """The row of one check (`CHECKS_SCHEMA`), written as it starts, so a check that never
+    returns -- killed, interrupted, its process gone -- keeps one: the caller appends the exit
+    it returned to the list this yields, and its end is written however the block ends.
+    `checked` is its `(run directory, round, kind, tree)`, None for a check that leaves none,
+    and `place` this host unless named.  A run with no row keeps no checks."""
     ended, row = [], None
-    if checked is not None and run_dir is not None:
-        values = (Path(run_dir).name, *checked, command, place or socket.gethostname(),
+    if checked is not None:
+        run_dir, *rest = checked
+        values = (Path(run_dir).name, *rest, command, place or socket.gethostname(),
                   requested_at, time.time())
         row = _write(lambda connection: _started(connection, values))
     try:
