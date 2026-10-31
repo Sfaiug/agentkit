@@ -46,17 +46,16 @@ func gateFlags(providers *run.Object, now float64, models map[string]config.Mode
 		onCredits := spent && creditsLeft(prov) > 0
 		prov.Set("on_credits", onCredits)
 		prov.Set("exhausted", marked || spent && !onCredits)
-		gap, split := splitWeek(name, prov, models)
+		week, own := splitWeek(name, prov, models)
 		prov.Delete("effective_used")
 		prov.Delete("gap")
-		if split {
-			prov.Set("gap", gap)
+		if week != nil {
+			prov.Set("gap", minus(week.Get("used"), own.Get("used")))
 		}
 		prov.Set("pace", topPace(prov.List("meters")))
 		prov.Set("headroom", nil)
-		if week := weekly(prov); week != nil && numbers(week, "used") {
-			left, _ := number(week.Get("used"))
-			prov.Set("headroom", round(max(0, (100-left)/100), 3))
+		if room, ok := headroom(weekly(prov)); ok {
+			prov.Set("headroom", room)
 		}
 		budget, why := providerBudget(prov, now)
 		prov.Set("budget_reason", nil)
@@ -68,9 +67,9 @@ func gateFlags(providers *run.Object, now float64, models map[string]config.Mode
 	return providers
 }
 
-// splitWeek is the gap between the shared week and the one model's own cap, where config.toml
-// and both meters describe that split, Python's usage._split_week.
-func splitWeek(provider string, prov *run.Object, models map[string]config.Model) (any, bool) {
+// splitWeek is the shared week and the one model's own cap, where config.toml and both meters
+// describe that split, Python's usage._split_week; nil where they do not.
+func splitWeek(provider string, prov *run.Object, models map[string]config.Model) (week, own *run.Object) {
 	scoped, claims, unclaimed := "", 0, false
 	for _, model := range models {
 		if model.Provider == provider && model.Meter == "" {
@@ -80,7 +79,7 @@ func splitWeek(provider string, prov *run.Object, models map[string]config.Model
 		}
 	}
 	if claims != 1 || !unclaimed {
-		return nil, false
+		return nil, nil
 	}
 	byName := map[string]*run.Object{}
 	for _, meter := range objects(prov.Get("meters")) {
@@ -88,11 +87,11 @@ func splitWeek(provider string, prov *run.Object, models map[string]config.Model
 			byName[meter.Str("name")] = meter
 		}
 	}
-	week, own := byName["weekly_all"], byName[scoped]
+	week, own = byName["weekly_all"], byName[scoped]
 	if week == nil || own == nil || scoped == "weekly_all" {
-		return nil, false
+		return nil, nil
 	}
-	return minus(week.Get("used"), own.Get("used")), true
+	return week, own
 }
 
 // providerBudget is a reading's smallest budget among its weekly meters, unknown before any known

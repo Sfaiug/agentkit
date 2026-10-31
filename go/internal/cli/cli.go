@@ -11,6 +11,7 @@ import (
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
+	"agentkit/internal/host"
 	"agentkit/internal/terminal"
 )
 
@@ -33,6 +34,7 @@ func Main(args []string, out, errOut io.Writer) int {
 		fmt.Fprint(out, commandhelp.Render(entry, func(text string) string { return terminal.Dim(out, text) }))
 		return 0
 	}
+	host.Mark("ak " + command) // what the command starts, through every way Go starts a program
 	if command == "browser" && len(rest) == 0 {
 		fmt.Fprint(out, commandhelp.Render("browser", func(text string) string { return text }))
 		return 2

@@ -6,9 +6,13 @@
 package pick
 
 import (
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
@@ -17,10 +21,11 @@ import (
 
 // Room is what a pick asks a usage read of each model.
 type Room interface {
-	// Spent is whether nothing is picked on it: a meter gating it spent, or its provider parked.
-	Spent(model string) bool
-	// Budget is its budget, false where its reading cannot tell.
-	Budget(model string) (float64, bool)
+	// Spent is why nothing is picked on it: a meter gating it spent, or its provider parked; ""
+	// where something may be.
+	Spent(model string) string
+	// Budget is its budget, and why its reading cannot tell, "" where it can.
+	Budget(model string) (float64, string)
 	// OnCredits is whether it runs on credits past a spent window.
 	OnCredits(model string) bool
 }
@@ -79,16 +84,19 @@ func Load() (*Rules, bool) {
 
 // Order is the models with room for a role, executors or with review reviewers, Python's
 // usage.pick_order: one on credits after every one with a window left, an unknown budget after
-// every known one, then the most budget first, else the order config.toml lists them in.
-func (r *Rules) Order(room Room, review bool) []string {
-	names := r.executors
+// every known one, then the most budget first, else the order config.toml lists them in.  told,
+// unless nil, hears each model left out and why, then each whose budget is unknown.
+func (r *Rules) Order(room Room, review bool, told io.Writer) []string {
+	names, role := r.executors, "executor"
 	if review {
-		names = r.reviewers
+		names, role = r.reviewers, "reviewer"
 	}
 	var order []string
 	for _, name := range names {
-		if !room.Spent(name) {
+		if why := room.Spent(name); why == "" {
 			order = append(order, name)
+		} else if told != nil {
+			fmt.Fprintf(told, "pick %s: %s excluded: %s\n", role, name, why)
 		}
 	}
 	type key struct {
@@ -97,8 +105,12 @@ func (r *Rules) Order(room Room, review bool) []string {
 	}
 	keys := map[string]key{}
 	for _, name := range order {
-		budget, known := room.Budget(name)
-		keys[name] = key{room.OnCredits(name), !known, budget}
+		budget, why := room.Budget(name)
+		keys[name] = key{room.OnCredits(name), why != "", budget}
+		if why != "" && told != nil {
+			fmt.Fprintf(told, "pick %s: %s (%s) budget %s unknown: %s; after every known budget of its rank\n", role, name,
+				r.models[name].Provider, strconv.FormatFloat(budget, 'g', 6, 64), strings.TrimPrefix(why, "unknown: "))
+		}
 	}
 	slices.SortStableFunc(order, func(a, b string) int {
 		x, y := keys[a], keys[b]
@@ -121,9 +133,9 @@ func (r *Rules) Order(room Room, review bool) []string {
 // of every executor and reviewer with room, the pair of the best tier, then the earlier executor,
 // then the earlier reviewer; false where none forms.
 func (r *Rules) Pair(room Room) (executor, reviewer string, ok bool) {
-	best, reviewers := 3, r.Order(room, true) // 3: past every tier
+	best, reviewers := 3, r.Order(room, true, nil) // 3: past every tier
 	// pairs come executor by executor, so the first of the best tier is the one taken
-	for _, each := range r.Order(room, false) {
+	for _, each := range r.Order(room, false, nil) {
 		for _, other := range reviewers {
 			if tier := r.tier(each, other); tier < best {
 				executor, reviewer, best = each, other, tier

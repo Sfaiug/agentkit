@@ -8,10 +8,12 @@ import (
 // A Subscription is a [providers.*] table load keeps, as the usage read and the pick read it:
 // how it is paid (`mode`) and its price a month (`price`), where it names them, and Via, the
 // first [models.*] entry naming it, whose harness's adapter answers for its meters, as Python's
-// config.provider_harness finds it; Via "" where no entry names it.
+// config.provider_harness finds it; Via "" where no entry names it.  Models is every entry
+// naming it, in the order the file names them.
 type Subscription struct {
 	Name, Mode, Harness, Via string
 	Price                    *float64
+	Models                   []string
 }
 
 // Subscriptions is every Subscription, in the order the file names them.
@@ -35,9 +37,11 @@ func Subscriptions() ([]Subscription, error) {
 		}
 		for _, model := range models.keys {
 			if each, _ := models.values[model].(*table); each.get("provider") == name {
-				sub.Harness, _ = each.get("harness").(string)
-				sub.Via = model
-				break
+				if len(sub.Models) == 0 {
+					sub.Harness, _ = each.get("harness").(string)
+					sub.Via = model
+				}
+				sub.Models = append(sub.Models, model)
 			}
 		}
 		found = append(found, sub)
