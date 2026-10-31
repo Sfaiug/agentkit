@@ -54,10 +54,6 @@ class AdmissionSliceCpu(unittest.TestCase):
     def test_high_host_load_and_slice_pressure_admit(self):
         loaded = {**READINGS, "load": 41, "slice_cpu_pressure": 90}
         admitted, state = self.claim(loaded)
-        self.assertFalse(admitted)  # first steady poll
-        self.assertEqual(state["slot_wait_reason"], "waiting for steady readings · 4 G free")
-        self.assertNotIn("slot_wait_kind", state)
-        admitted, state = self.claim(loaded, state)
         self.assertTrue(admitted)
         self.assertEqual(state["state"], "running")
 
@@ -78,8 +74,6 @@ class AdmissionSliceCpu(unittest.TestCase):
         # and under the pin the slice's own pressure gates nothing
         calm = {**READINGS, "load": 1, "slice_cpu_pressure": 90}
         admitted, state = self.claim(calm)
-        self.assertFalse(admitted)  # first steady poll
-        admitted, state = self.claim(calm, state)
         self.assertTrue(admitted)
 
     def test_pinned_max_load_in_environment_restores_load_check(self):
@@ -95,8 +89,6 @@ class AdmissionSliceCpu(unittest.TestCase):
         with patch.dict(os.environ, {"AK_MAX_LOAD": "0"}):
             readings = {**READINGS, "load": 400, "slice_cpu_pressure": 99}
             admitted, state = self.claim(readings)
-            self.assertFalse(admitted)  # first steady poll
-            admitted, state = self.claim(readings, state)
         self.assertTrue(admitted)
         self.assertEqual(state["state"], "running")
 

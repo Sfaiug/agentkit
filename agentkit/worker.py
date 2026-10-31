@@ -34,7 +34,7 @@ ONE_PASS = ("[worker judgement] Report every finding you can establish in this o
             "[worker judgement] Uphold a disputed finding by handing it in again with "
             "`ak hand-in finding`. Drop it by not handing it in again.\n"
             "[checked by ak: tests/test_blocking_gate.py] ak re-proves each earlier --run finding on the "
-            "commit a later round reviews and lists the quoted and disputed ones for you: one still "
+            "commit a later round reviews and lists the disputed ones for you: one still "
             "failing blocks whatever is handed in, and a new finding blocks only inside the fix delta, "
             "or with a proof that passes on the commit the last review judged.")
 # A task that cannot be done as written is the task's defect, not the worker's: handing it in ends
@@ -51,17 +51,18 @@ BLOCKED = ('[worker judgement] Close every turn with `ak hand-in done`, or `ak h
            "[checked by ak: tests/test_executor_text_ignored.py] ak asks once for a missing closing, "
            "then sends the work to checks and review.")
 # The reviewer supplies evidence; the loop weighs it outside the reviewer's editable copy.
-GATE = ("[worker judgement] Hand in a **blocking** finding only for a correctness defect in "
-        "the task's outcome, a safety or data-loss risk, a check the executor weakened or "
-        "skipped, a scope violation (work the task did not ask for, or asked-for work "
-        "missing), or complexity the diff adds: a second home for a piece of knowledge, a special "
-        "case inside general code, work pushed onto callers that the module could do, or a "
-        "function that only forwards to another. Quote the added lines and name the other home "
-        "or the caller in why it matters; complexity already on main is neither blocking nor a "
-        "follow-up. Moving what the change needs into its one home, or deleting what it makes "
-        "dead, is no scope violation. Use "
+GATE = ("[worker judgement] Hand in a **blocking** finding only for what a command can show "
+        "fails: a correctness defect in the task's outcome, asked-for work missing among them, a "
+        "safety or data-loss risk, or a check the executor weakened or skipped. A check line the "
+        "change removed or weakened is proven like any defect, at its changed line: "
+        "`grep -qF '<the line>' tests/x.py` fails while the line is gone and passes on base. "
+        "Complexity the diff adds (a second home for a piece of knowledge, a special case inside "
+        "general code, work pushed onto callers that the module could do), scope and naming are "
+        "what a note is for. Use "
         "`ak hand-in finding path:line \"what\" \"why it matters\" --run 'command'` "
-        "or `--quote 'lines from that file'` for blocking findings only; use only files on the branch.\n"
+        "for a blocking finding and `--quote 'lines from that file'` for a note; use only files on the branch.\n"
+        "[checked by ak: tests/test_key_a_quote_never_blocks.py] ak weighs a finding handed in "
+        "with `--quote` as a note, in every round and at every line: it never blocks.\n"
         "[checked by ak: tests/test_hand_in.py] ak refuses malformed or evidence-free findings, "
         "absent quotes, missing files, invalid lines, finding commands that exit 0, "
         "follow-ups without `--before` that quote or whose command exits 0, and follow-up commands "
@@ -492,8 +493,7 @@ def within_declared_timeout(pid):
         except OSError:
             continue
         seconds = timeout_seconds(argv)
-        birth = seconds and host.process_identity(child)
-        if birth and birth["started_at"] + seconds > time.time():
+        if seconds and (age := host.process_age(child)) is not None and age < seconds:
             return True
     return False
 

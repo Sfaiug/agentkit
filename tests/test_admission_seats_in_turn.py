@@ -36,6 +36,8 @@ class AdmissionSeatsInTurn(unittest.TestCase):
         stack.enter_context(patch.object(record, "process_owner", return_value={"pid": 1}))
         stack.enter_context(patch.object(record, "process_active",
                                         side_effect=lambda state: state.get("pid") == 1))
+        # order, not pace: no poll's pause after each start
+        stack.enter_context(patch.object(gate, "SLOT_POLL", 0))
 
     def queued(self, name, queued_at, seat=None, **extra):
         directory = config.RUNS / name
@@ -86,11 +88,7 @@ class AdmissionSeatsInTurn(unittest.TestCase):
         while pending:
             self.assert_order(expected[len(admitted):])
             # Every waiter polls, with the busy seat's runs polling before the other seat.
-            entered = []
-            for _ in range(2):
-                for name in sorted(pending):
-                    if self.state(name)["state"] == "queued" and self.claim(name):
-                        entered.append(name)
+            entered = [name for name in sorted(pending) if self.claim(name)]
             self.assertEqual(len(entered), 1)
             name = entered[0]
             admitted.append(name)
@@ -111,7 +109,6 @@ class AdmissionSeatsInTurn(unittest.TestCase):
         state.update(state="stopped", slot_waiting=False)
         record.save_state(config.RUNS / "acme-1", state)
         self.assert_order(["acme-2", "fix-api-1"])
-        self.assertFalse(self.claim("acme-2"))  # first healthy poll
         self.assertEqual(gate.slot_note(self.state("fix-api-1")),
                          "waiting for a slot · 1 ahead")
         self.assertTrue(self.claim("acme-2"))
@@ -122,7 +119,6 @@ class AdmissionSeatsInTurn(unittest.TestCase):
         for number in range(1, 3):
             self.queued(f"fix-api-{number}", number + 3, "fix-api")
         for name in ("acme-1", "fix-api-1"):
-            self.assertFalse(self.claim(name))
             self.assertTrue(self.claim(name))
             state = self.state(name)
             state["state"] = "pass"
@@ -182,7 +178,6 @@ class AdmissionSeatsInTurn(unittest.TestCase):
             self.queued(f"acme-{number}", number, "acme")
         self.queued("fix-api-1", 5, "fix-api")
         for name in ("acme-1", "fix-api-1", "acme-2"):
-            self.assertFalse(self.claim(name))  # first healthy poll
             self.assertTrue(self.claim(name))
             state = self.state(name)
             state["state"] = "pass"
@@ -198,7 +193,6 @@ class AdmissionSeatsInTurn(unittest.TestCase):
         while "acme-2" not in admitted and len(admitted) < 6:
             _, ahead, others = gate.slot_counts(self.state("acme-2"))
             name = others[0] if ahead else "acme-2"
-            self.assertFalse(self.claim(name))  # first healthy poll
             self.assertTrue(self.claim(name))
             state = self.state(name)
             state["state"] = "pass"

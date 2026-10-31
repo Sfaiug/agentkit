@@ -200,7 +200,7 @@ class RulesCapTold(unittest.TestCase):
         self.assert_round_fails_with(
             "AGENTS.md front matter has lines ak does not read: `test: make check`, "
             "`preview: make serve` (it reads tests, health, cleanup, users, features, suite_image, "
-            "content): remove them, or fix the misspelled name.")
+            "content, setup): remove them, or fix the misspelled name.")
 
     def test_a_project_names_its_product_text_in_its_front_matter(self):
         self.commit_rules("---\nusers: none\n---\nAcme.\n")

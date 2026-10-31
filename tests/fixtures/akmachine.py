@@ -114,10 +114,12 @@ elif words[0] == "run":
     sys.exit(code)
 """
 
-# The machine's own programs: docker; its size; the piece's way offline, which changes nothing
-# here; and a curl that reaches nothing until a test gives it its own.
+# The machine's own programs: docker; its size and a last minute that left it idle; the piece's
+# way offline, which changes nothing here; and a curl that reaches nothing until a test gives it
+# its own.
 TOOLS = {"docker": f"#!{sys.executable}\n{DOCKER}",
          "nproc": "#!/bin/sh\necho 2\n",
+         "uptime": "#!/bin/sh\necho ' 05:00:00 up 1 day,  load average: 0.00, 0.00, 0.00'\n",
          "free": "#!/bin/sh\nprintf '%s\\n' '  total used' 'Mem: 65536 1024'\n",
          "unshare": '#!/bin/sh\nwhile [ "${1#-}" != "$1" ]; do shift; done\nexec "$@"\n',
          "setpriv": '#!/bin/sh\nwhile [ "${1#-}" != "$1" ]; do shift; done\nexec "$@"\n',

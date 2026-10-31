@@ -3,7 +3,9 @@
 A seat starts sessions of its own for a build, a server or a long test, and nothing ends them
 once their work is done: a tick saves each pane's screen to ~/.agentkit/tmp and closes the
 session the day after its last pane ended.  Younger than a day, with a pane still running, or
-started by no seat, it stays: the owner's own sessions on ak's server are never the tick's.
+started by no seat, it stays: the owner's own sessions on ak's server are never the tick's.  Its
+seat `acme` has a session in tmux: a forgotten seat's sessions close at once
+(tests/test_key_forgotten_seat_side_sessions_close.py).
 Black-box: the sessions start through a seat's own tmux shim (tests/fixtures/shims.py) on the
 Home's real tmux, and the tick runs boxed with a loopback of its own, as cron runs it; judged by
 what tmux holds and the files the tick wrote.  This test fails against `/bin/false`.
@@ -45,6 +47,7 @@ class FinishedSessions(unittest.TestCase):
         # a collection on record from just now: one due would outlive the tick's box
         home.write(".agentkit/state/gc.json", {"started_at": time.time()})
         cls.shims = Shims(home)
+        assert home.tmux("new-session", "-d", "-s", "acme", "sleep 3600").code == 0
         held = home.root / "tmux-held"
         (home.bin / "tmux").rename(held)
         home.fake("tmux", WOUND.format(python=sys.executable, held=str(held), ago=AGO))

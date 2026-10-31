@@ -44,6 +44,15 @@ cannot = "its channel installer offers no versioned reinstall"
 latest = ["sh", "-c", '''
 exec curl -fsSL -A muse-code/launcher-3 "https://api.meta.ai/muse-code/channels/${MUSE_CHANNEL:-muse-stable}"''']
 
+# Read by Go's `ak update` alone, where Python's is agentkit/harness/muse.py's `Snapshot`: what
+# it saves before an upgrade and puts back on a red gate, the links leading to the launcher, the
+# launcher, and these files beside it (a name or a glob); and the lock the channel installer
+# holds while it writes them, which leaves the update to Python.
+[snapshot]
+files = [".muse-version", ".muse-release-info.json", ".muse-update-checked-at", ".muse-update-notice",
+         "muse-bin", "muse-bin-*"]
+lock = ".muse-update-lock"
+
 # What a seat launch tells this harness and no child of that seat may be told.  Muse takes its
 # rulebook from the environment (see `interactive` in adapters/muse.sh), and everything a seat
 # starts inherits its environment: a worker, a done-when command or another harness launched

@@ -1,4 +1,4 @@
-"""Host resource admission is conservative, FIFO and steady across two polls."""
+"""Host resource admission is conservative, FIFO, and a poll behind the last run let in."""
 
 import os
 import sys
@@ -6,7 +6,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -48,13 +48,12 @@ class Slots(unittest.TestCase):
         with patch.object(host, "host_readings", return_value=readings):
             return gate.claim_slot(state, 1), state
 
-    def test_memory_low_waits_then_admits_after_two_healthy_polls(self):
+    def test_memory_low_waits_then_admits_once_healthy(self):
         state = {"run_id": "r", "run_depth": 0}
         low = {**HEALTHY, "free_mb": 1024}
-        with patch.object(host, "host_readings", side_effect=[low, HEALTHY, HEALTHY]):
+        with patch.object(host, "host_readings", side_effect=[low, HEALTHY]):
             self.assertFalse(gate.claim_slot(state, 1))
             self.assertEqual(state["slot_wait_reason"], "waiting for memory · 1 G free, needs 3 G")
-            self.assertFalse(gate.claim_slot(state, 1))
             self.assertTrue(gate.claim_slot(state, 1))
         self.assertEqual(state["state"], "running")
 
@@ -92,40 +91,39 @@ class Slots(unittest.TestCase):
         state = {"run_id": "r", "run_depth": 0}
         with patch.dict(os.environ, {"AK_MIN_FREE_MB": "0", "AK_MAX_LOAD": "8"}), \
                 patch.object(host, "host_readings", return_value={**HEALTHY, "free_mb": 0}):
-            self.assertFalse(gate.claim_slot(state, 1))  # first steady poll
             self.assertTrue(gate.claim_slot(state, 1))
 
     def test_zero_maximum_disables_load_gate(self):
         state = {"run_id": "r", "run_depth": 0}
         with patch.dict(os.environ, {"AK_MIN_FREE_MB": "3072", "AK_MAX_LOAD": "0"}), \
                 patch.object(host, "host_readings", return_value={**HEALTHY, "load": 400}):
-            self.assertFalse(gate.claim_slot(state, 1))  # first steady poll
             self.assertTrue(gate.claim_slot(state, 1))
 
     def test_unknown_readings_fail_open(self):
         state = {"run_id": "r", "run_depth": 0}
         with patch.object(host, "host_readings", return_value={}):
-            self.assertFalse(gate.claim_slot(state, 1))  # first steady poll
             self.assertTrue(gate.claim_slot(state, 1))
         self.assertEqual(state["state"], "running")
 
-    def test_healthy_first_poll_names_steadiness(self):
+    def test_a_run_let_in_holds_the_next_a_poll_naming_steadiness(self):
         state = {"run_id": "r", "run_depth": 0}
         with patch.object(host, "host_readings", return_value=HEALTHY):
+            self.assertTrue(gate.claim_slot({"run_id": "other", "run_depth": 0}, 1))
             self.assertFalse(gate.claim_slot(state, 1))
             self.assertEqual(state["slot_wait_reason"],
                              "waiting for steady readings · 4 G free, load 1")
             self.assertNotIn("slot_wait_kind", state)
-            self.assertTrue(gate.claim_slot(state, 1))
+            later = time.time() + gate.SLOT_POLL
+            with patch.object(gate, "time", Mock(time=lambda: later)):
+                self.assertTrue(gate.claim_slot(state, 1))
         self.assertEqual(state["state"], "running")
 
     def test_admission_clears_wait_reason(self):
         state = {"run_id": "r", "run_depth": 0}
         low = {**HEALTHY, "free_mb": 1024}
-        with patch.object(host, "host_readings", side_effect=[low, HEALTHY, HEALTHY]):
+        with patch.object(host, "host_readings", side_effect=[low, HEALTHY]):
             self.assertFalse(gate.claim_slot(state, 1))
             self.assertEqual(state["slot_wait_kind"], "memory")
-            self.assertFalse(gate.claim_slot(state, 1))
             self.assertTrue(gate.claim_slot(state, 1))
         self.assertNotIn("slot_wait_reason", state)
         self.assertNotIn("slot_wait_kind", state)
@@ -148,7 +146,7 @@ class Slots(unittest.TestCase):
                              "a run is admitted while ≥ 3 G free · at most 1 run at once\n"
                              "heavy suites: 2 at once (derived)")
 
-    def test_capture_banks_no_healthy_poll(self):
+    def test_a_launch_lets_no_run_in(self):
         with tempfile.TemporaryDirectory(prefix=".ak-test-slots-", dir=REPO) as temp:
             runs = Path(temp) / "runs"
             runs.mkdir()
@@ -162,8 +160,8 @@ class Slots(unittest.TestCase):
                 directory.mkdir()
                 run.capture_launch(directory)
                 state = record.read_state(directory)
+                # the process that waits owns the start
                 self.assertEqual(state["state"], "queued")
-                self.assertNotIn("slot_healthy_polls", state)
 
     def test_wait_log_names_memory_reason(self):
         with tempfile.TemporaryDirectory(prefix=".ak-test-slots-", dir=REPO) as temp:

@@ -938,7 +938,8 @@ def compress(path, expected):
 if __name__ == "__main__":
     import sys
     if sys.argv[1:] == ["collect"]:
-        from . import gc
+        from . import gc, owner
+        owner.mark("background cleanup")   # `gc.schedule_gc` starts it unmarked
         gc.gc(print, automatic=True)
     elif sys.argv[1] == "begin":
         begin(Path(sys.argv[2]), sys.argv[3], int(sys.argv[4]))

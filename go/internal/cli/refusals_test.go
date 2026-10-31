@@ -137,6 +137,8 @@ func TestNotifyNeeds(t *testing.T) {
 	ask := func(args ...string) []string { return append([]string{"notify", "needs"}, args...) }
 	unimplemented := "ak notify needs: not implemented in Go yet\n"
 	assertCall(t, ask("Which branch?"), 2, "", "ak notify: notify needs a session: use --session NAME\n")
+	// a watch record leaves the seat's word, and so the ask, to Python
+	write(t, filepath.Join(home, ".agentkit", "state", "watch.json"), "{}")
 	assertCall(t, ask("Which branch?", "--session", "acme"), 3, "", unimplemented)
 	// a seat asking for itself is its turn's to decide, before its record is read
 	t.Setenv("AGENTKIT_SESSION", "acme")

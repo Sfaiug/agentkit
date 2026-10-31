@@ -1,10 +1,11 @@
 """A Linux suite helper admits a suite at its `prepare` while a quarter of the machine is spare,
-counting half of it for each suite admitted whose first piece does not run yet, and gives one
-suite at most half of it; one image's build holds up no other's.
+counting half of it for each suite admitted whose first piece does not run yet, and no more than
+twice the cores the last minute left idle, and gives one suite at most half of it; one image's
+build holds up no other's.
 
 Black-box, as tests/test_key_helper_on_linux.py: tools/helper's script runs here as ak sends it,
 in a HOME of its own, with the machine's programs first on PATH: four CPUs, each counting twice
-as a piece holds half what it is given, 64 GiB and a fake docker.
+as a piece holds half what it is given, 64 GiB, a fake docker and the last minute's load.
 """
 
 import io
@@ -43,8 +44,10 @@ inspect)    # inspect --format FORMAT NAME...: an unknown container fails it, as
 esac
 """
 
+# its last minute's load, as `uptime` says it, is the machine's `load` file
 MACHINE = {"docker": DOCKER, "nproc": "#!/bin/sh\necho 4\n",
-           "free": "#!/bin/sh\nprintf '%s\\n' '  total used' 'Mem: 65536 1024'\n"}
+           "free": "#!/bin/sh\nprintf '%s\\n' '  total used' 'Mem: 65536 1024'\n",
+           "uptime": '#!/bin/sh\necho " 05:00:00 up 1 day,  load average: $(cat "${0%/*}/../load")"\n'}
 
 
 class LinuxHelperTurnsASuiteAway(unittest.TestCase):
@@ -57,6 +60,7 @@ class LinuxHelperTurnsASuiteAway(unittest.TestCase):
         for name, text in MACHINE.items():
             (self.machine / "bin" / name).write_text(text)
             (self.machine / "bin" / name).chmod(0o755)
+        (self.machine / "load").write_text("0.00, 0.00, 0.00")
         repo = self.machine / "repo"
         git = ["env", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "git", "-C",
                str(repo), "-c", "user.name=acme", "-c", "user.email=a@acme.test"]
@@ -135,6 +139,14 @@ class LinuxHelperTurnsASuiteAway(unittest.TestCase):
         for path in (self.machine / "home").rglob("*"):
             os.utime(path, (then, then), follow_symlinks=False)
         self.assertEqual(self.prepare("c"), 0)
+
+    def test_cores_the_last_minute_kept_busy_are_not_spare(self):
+        (self.machine / "load").write_text("3.50, 1.00, 0.50")    # a turn's tests, given nothing
+        self.assertEqual(self.probe(), (1, 4))
+        self.assertEqual(self.prepare("a"), 252)
+        (self.machine / "load").write_text("2.00, 3.50, 1.00")
+        self.assertEqual(self.prepare("a"), 0)
+        self.assertEqual(self.probe(), (0, 4))    # a holds the 4 the last minute left idle
 
     def test_running_containers_hold_the_cpus_they_were_given(self):
         self.running("ak-other-1-2", 3)

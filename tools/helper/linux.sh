@@ -15,13 +15,18 @@ linux() {
   # half what it is given for its bursts (36 given two each kept 72 cores 48% busy, on a machine
   # that keeps their files in memory, with nothing waiting on a disk).
   cpus() { echo $(( $(nproc) * 2 )); }
-  # spare: the CPUs nothing holds: `cpus`, less those its running containers were given and those
-  # each `reserved` says it holds, of what was admitted in the last two minutes and has not started.
+  # spare: the CPUs nothing holds: `cpus` less those its running containers were given, but no
+  # more than twice the cores the last minute left idle, as a turn is given no CPUs and what it runs
+  # may take most of the machine (one took 47 of 72 cores beside 45 pieces, 31 Oct 2026); less
+  # those each `reserved` says it holds, of what was admitted in the last two minutes and has not
+  # started, which neither counts yet.
   spare() {
-    given=$(given NanoCpus) || return
+    given=$(given NanoCpus) && idle=$(uptime | awk -v cores="$(nproc)" '{
+      print 2 * (cores - $(NF - 2)) }') && [ -n "$idle" ] || return
     find "$ROOT" -mindepth 2 -maxdepth 2 -name reserved -mmin -2 -exec cat {} + 2>/dev/null |
-      awk -v cpus="$(cpus)" -v given="$given" '{held += $1} END {
-        spare = cpus - given / 1e9 - held; print (spare > 0 ? spare : 0) }'
+      awk -v cpus="$(cpus)" -v given="$given" -v idle="$idle" '{held += $1} END {
+        spare = cpus - given / 1e9; if (idle < spare) spare = idle
+        spare -= held; print (spare > 0 ? spare : 0) }'
   }
   # probe: docker answers; half of `cpus`, what one suite takes at most, and a load that leaves
   # what is spare of them.

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/host"
 )
 
 const checkLimit = 600 * time.Second // an unfinished check proves nothing
@@ -168,7 +169,7 @@ func (on *branch) passes(ctx context.Context, tree, check string) (bool, error) 
 	defer cancel()
 	cmd := exec.CommandContext(limited, "bash", "-c", check)
 	cmd.Dir, cmd.Env = tree, on.env
-	stop := group(cmd)
+	stop := host.Group(cmd)
 	if err := cmd.Start(); err != nil {
 		return false, err
 	}

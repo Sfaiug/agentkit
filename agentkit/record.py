@@ -18,6 +18,7 @@ from . import config, host, parsed
 SILENCE_MINUTES = 20            # no command output or harness event for this long is a death
 CEILING_HOURS = 6               # the whole done-when list, even if it keeps printing
 _RECOVERY_HELD = threading.local()   # the recovery locks this thread is already inside
+_LOOK = threading.local()            # the runs as this thread's pass first saw them (`one_look`)
 _RUN_TEMP = "run.tmp"
 DELIVERY_TEMP = "delivery.tmp"
 RECOVERY_LOCK = "recovery.lock"
@@ -78,6 +79,33 @@ def run_dirs():
                                                   if entry.is_dir())]
     except FileNotFoundError:
         return []
+
+
+def runs():
+    """Every run's (directory, record), those with a readable one, each every reader's
+    (`read_state`), so only read; in a pass (`one_look`), as its first ask on this thread found
+    them."""
+    found = getattr(_LOOK, "runs", None)
+    if found is None:
+        found = [(directory, state) for directory in run_dirs()
+                 if (state := read_state(directory, shared=True)) is not None]
+        if hasattr(_LOOK, "runs"):
+            _LOOK.runs = found
+    return found
+
+
+@contextmanager
+def one_look():
+    """A pass that looks at the runs once, however many of its readers ask (`runs`); the next
+    one looks again.  One opened inside it is part of it; another thread reads for itself."""
+    if hasattr(_LOOK, "runs"):
+        yield
+        return
+    _LOOK.runs = None
+    try:
+        yield
+    finally:
+        del _LOOK.runs
 
 
 def process_owner(pid=None):

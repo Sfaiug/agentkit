@@ -39,6 +39,8 @@ class LaterRoundGoesAhead(unittest.TestCase):
         stack.enter_context(patch.object(record, "process_owner", return_value=OWNER))
         stack.enter_context(patch.object(record, "process_active", return_value=True))
         stack.enter_context(patch.object(gate, "landing_waits", return_value=False))
+        # order, not pace: no poll's pause after each start
+        stack.enter_context(patch.object(gate, "SLOT_POLL", 0))
 
     def queued(self, name, queued_at, **extra):
         directory = config.RUNS / name
@@ -71,7 +73,6 @@ class LaterRoundGoesAhead(unittest.TestCase):
                 if record.read_state(behind)["state"] == "queued" and behind != directory:
                     self.assertFalse(self.claim(behind))
                     self.assertEqual(record.read_state(behind).get("slot_wait_kind"), "count")
-            self.assertFalse(self.claim(directory))  # first steady poll
             self.assertTrue(self.claim(directory))
             self.finish(directory)
 
@@ -80,7 +81,6 @@ class LaterRoundGoesAhead(unittest.TestCase):
         own = self.queued("own-fix", 20, **OWN_FIX)
         resumed = self.queued("round-two", 30, **ROUND)
         self.assertFalse(self.claim(resumed))
-        self.assertFalse(self.claim(own))
         self.assertTrue(self.claim(own))
         self.assertFalse(self.claim(fresh))
 
@@ -92,7 +92,6 @@ class LaterRoundGoesAhead(unittest.TestCase):
                 directory = self.queued(f"unreviewed-{index}", index, **extra)
                 self.assertFalse(self.claim(directory))
                 self.assertEqual(record.read_state(directory)["slot_wait_kind"], "count")
-        self.assertFalse(self.claim(fresh))
         self.assertTrue(self.claim(fresh))
 
     def test_host_gates_hold_finished_work_and_fresh_launches(self):
@@ -120,7 +119,6 @@ class LaterRoundGoesAhead(unittest.TestCase):
         for index, env in enumerate(({}, {"AK_MAX_LOAD": "8"})):
             with self.subTest(env=env), patch.dict(os.environ, env):
                 first = self.queued(f"repair-{index}", 40 + index, first=True)
-                self.assertFalse(self.claim(first, busy))
                 self.assertTrue(self.claim(first, busy))
                 self.finish(first)
 
@@ -137,7 +135,6 @@ class LaterRoundGoesAhead(unittest.TestCase):
                 self.assertIn("limit full (1 running)", gate.slot_note(record.read_state(directory)))
                 self.finish(directory)
         first = self.queued("repair", 40, first=True)
-        self.assertFalse(self.claim(first))
         self.assertTrue(self.claim(first))
 
 

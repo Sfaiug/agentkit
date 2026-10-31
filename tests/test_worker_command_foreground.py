@@ -9,7 +9,7 @@ import re
 import sys
 import tempfile
 import unittest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -276,7 +276,7 @@ sys.exit(1)
         with self.loop_sleeps() as sleep:
             code, directory, state = self.launch(rounds=1)
         self.assertEqual(code, 0, self.log(directory))
-        self.assertEqual(sleep.call_args_list, [call(gate.SLOT_POLL)])
+        sleep.assert_not_called()
         calls = self.calls("executor")
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0]["session"], [])
@@ -365,7 +365,7 @@ sys.exit(1)
         with self.loop_sleeps() as sleep:
             code, directory, state = self.launch(rounds=1)
         self.assertEqual(code, 0, self.log(directory))
-        self.assertEqual(sleep.call_args_list, [call(gate.SLOT_POLL)])
+        sleep.assert_not_called()
         calls = self.calls("executor")
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[1]["session"], ["sess-1"])
