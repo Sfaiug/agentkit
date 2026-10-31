@@ -551,7 +551,8 @@ def kill_group(proc, run_id=None):
 
 
 def limited(cmd, limit, *, silence=None, activity=None, heartbeats=(), output=None,
-            on_timeout=None, abort=None, stop=None, quiet=None, **kwargs):
+            on_timeout=None, abort=None, stop=None, quiet=None, declared=within_declared_timeout,
+            **kwargs):
     """Run a process group until it exits, goes silent, reaches an optional ceiling, or
     says something that means it will never finish.
 
@@ -572,6 +573,10 @@ def limited(cmd, limit, *, silence=None, activity=None, heartbeats=(), output=No
     said it cannot authenticate is not going to finish, and waiting out the silence window
     for one that keeps emitting events -- or never emits another -- is the whole of what
     this is here to stop.  It must be cheap and must not raise.
+
+    `declared(pid)` says whether a command the process runs is inside the timeout it declared,
+    which holds off silence: `within_declared_timeout` reads the tree under the pid, a turn on a
+    machine asks the machine (agentkit/machine_turn.py).
 
     `heartbeats` are the `type`s of JSON lines that only say a tool is still running: with any,
     only a whole line of another kind counts as activity, so a hung tool call heartbeating
@@ -654,13 +659,15 @@ def limited(cmd, limit, *, silence=None, activity=None, heartbeats=(), output=No
                 longest = max(longest, now - last)
                 last, seen = now, current
             if (silence is not None and now - last >= silence
-                    and within_declared_timeout(proc.pid)):
+                    and declared(proc.pid)):
                 held = now      # silence counts from the last poll a declared bound held
             reason = ("abort" if abort is not None and abort() else
                       "ceiling" if limit is not None and now - started >= limit else
                       "silence" if silence is not None and now - max(last, held) >= silence
                       else None)
-            if reason:
+            # a check that takes a while (a machine asked over ssh) can outlast the command: one
+            # that ended meanwhile is not stopped
+            if reason and not finished.is_set():
                 expired.set()
                 try:
                     if on_timeout is not None:
@@ -864,7 +871,7 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     watch = {"silence": limit, "activity": out_dir / "events.jsonl",
              "heartbeats": paths.get("heartbeats", ()), "abort": lambda: watching(out_dir)}
     away = machine_turn.call(entry, cmd, workspace, out_dir, turn_env, places, session,
-                             lambda argv, **streams: limited(argv, None, **watch, **streams))
+                             lambda argv, **kwargs: limited(argv, None, **watch, **kwargs))
     if away:
         code, killed, session = away
     else:

@@ -105,6 +105,9 @@ linux() {
       "$image" /bin/bash /in/turn.sh "$@"
   }
   stop() { docker stop -t 1 "$1"; }
+  # processes KEY, for `processes`: each process of the turn's container, its seconds since it
+  # started, then its argv, one line each, its words split at spaces.
+  processes() { docker top "ak-$1-turn" -eo pid,etimes,args | awk 'NR > 1 {$1 = ""; print}'; }
   # preparing KEY: `prepare`'s lock until it ends, as parcel, harness and image hold no container
   preparing() { exec 9>>"$ROOT/$1/preparing" && flock 9; }
   # quiet, for `idle`: nothing while a container of ak's runs, a suite prepares or docker cannot

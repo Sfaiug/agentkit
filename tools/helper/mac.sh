@@ -258,5 +258,7 @@ collect)   # KEY FOLDER...: an ended turn's out dir, the bundle and exit turn.sh
     tar -c out back.bundle code "${@/#/home/}" || exit 253 ;;
 finish) rm -rf "${ROOT:?}/$2" ;;
 idle) quiet ;;     # how long it has held nothing: Linux's alone, as only rented machines are asked
+processes) processes "$2" ;;    # KEY: what runs in the turn's container (agentkit/machine_turn.py):
+  # Linux's alone, as only rented machines take turns
 *) exit 253 ;;
 esac
