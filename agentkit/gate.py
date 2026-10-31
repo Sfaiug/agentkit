@@ -1823,7 +1823,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     here = {} if there else {"cpu": measure.cpu, "quiet": measure.quiet,
                                              "only": only, "failed": tests, "flaky": flaky}
                     kills = measure.oom("oom_kill")
-                    with history.check(run_dir, checked, f"AK_SHARD={shard} {command}",
+                    with history.check(checked, f"AK_SHARD={shard} {command}",
                                        asked_at.get(shard, asked), there and there.alias) as ended:
                         code, _, killed = (worker.limited if there else worker.boxed)(
                             helper.piece(there, shard, there_command)
@@ -2200,9 +2200,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     `run_suite` confirms: the tests a red piece named that failed again alone, and `flaky`, a
     list, the tests it found failing, then passing, those a command run whole named failed
     before its re-run passed among them.  `changed`, a file of paths, is what
-    `AK_CHANGED` names to every command.  `checked`, a round's `(round, kind, tree)`, has each
-    run of a command, or of a piece of one, leave its row in history (`history.check`), a re-run
-    one of its own.
+    `AK_CHANGED` names to every command.  `checked`, a check's `(run directory, round, kind,
+    tree)`, has each run of a command, or of a piece of one, leave its row in history
+    (`history.check`), a re-run one of its own.
     The test files' times the commands printed are kept (`suite_times`) before the log, whole
     until then, takes `text`, its capped form.
     """
@@ -2246,7 +2246,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     break
                 # a suite split into pieces leaves a row for each piece (`run_suite`)
                 with log_path.open("ab") as progress, history.check(
-                        run_dir, None if split(cmd) else checked, cmd, asked) as ended:
+                        None if split(cmd) else checked, cmd, asked) as ended:
                     progress.write(f"$ {cmd}\n".encode())
                     progress.flush()
                     offset = progress.tell()
@@ -2364,7 +2364,7 @@ def run_round(cmds, cwd, log_path, artifacts, limit, log, silence, run_dir, chec
             try:
                 run_record.stop_check(run_dir)    # a stop marked while it prepared starts none
                 with log_path.open("wb") as progress, history.check(
-                        run_dir, checked, "\n".join(cmds), asked, away.alias) as ended:
+                        checked, "\n".join(cmds), asked, away.alias) as ended:
                     code, _, killed = worker.limited(
                         helper.piece(away, "1/1", there_command),
                         limit, cwd=str(cwd), activity=log_path, output=progress,

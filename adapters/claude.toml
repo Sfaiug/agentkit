@@ -395,3 +395,24 @@ file = "claude_oauth_token"
 # the variable the Go build's `run` hands a turn the file's text in
 env = "CLAUDE_CODE_OAUTH_TOKEN"
 remedy = "run claude setup-token and replace ~/.agentkit/secrets/claude_oauth_token"
+
+# What the Go build's wrapper has Claude Code find answered before it starts, as
+# agentkit/harness/claude.py does until Go takes over: it asks a new login to pick a theme, finish
+# onboarding and take auto mode, and asks whether to trust the folder, with "No, exit" as its
+# default.  `file` holds the answers on the usual login and `account` on a named one, which also
+# takes the `true`s of the usual login's file and links `links` from its home.  A seat does not
+# open on a `file`, `account` or `reads` that cannot be read.  `answers` go in whatever the file
+# holds there, `defaults` only where it holds nothing, `{folder}` being the seat's resolved folder.
+[prep]
+file = "~/.claude.json"
+account = "{home}/.claude.json"
+reads = ["~/.claude/settings.json"]
+links = ["CLAUDE.md", "agents", "skills", "commands", "plugins"]
+
+[prep.answers]
+hasSeenAutoDefaultNudge = true
+hasCompletedOnboarding = true
+projects."{folder}".hasTrustDialogAccepted = true
+
+[prep.defaults]
+theme = "dark"

@@ -137,8 +137,8 @@ class SuiteOnAHelper(unittest.TestCase):
         with patch.object(gate.time, "time", lambda: 1000 + moved[0]), \
                 patch.object(history, "time", gate.time), \
                 patch.object(gate, "_acquire_gate_turn", side_effect=waited):
-            self.check({"helper": (1,)}, run_dir=run_dir, checked=(1, "done-when", "a" * 40),
-                       asked=1000)
+            self.check({"helper": (1,)}, run_dir=run_dir,
+                       checked=(run_dir, 1, "done-when", "a" * 40), asked=1000)
         with contextlib.closing(sqlite3.connect(history.path())) as connection:
             again = connection.execute("SELECT place, requested_at, started_at FROM checks "
                                        "WHERE rerun").fetchall()

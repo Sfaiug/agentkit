@@ -1,6 +1,7 @@
 """Go's ak in go/: formatted, vetted, its own tests passing, and built for every platform it ships on."""
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -22,15 +23,20 @@ class Go(unittest.TestCase):
     def test_formatted_vetted_tested_and_built(self):
         # Never a skip: the landing suite counts a skipped case as passed.
         self.assertTrue(shutil.which("go"), "go is not installed: Go 1.23 or newer builds go/")
-        # gofmt ships beside go, which PATH may reach only through a link.
-        gofmt = Path(shutil.which("go")).resolve().with_name("gofmt")
-        self.assertEqual(self.check(gofmt, "-l", "."), "", "gofmt -w these files")
-        self.check("go", "vet", "./...")
-        self.check("go", "test", "./...")
+        # Two releases' gofmt can lay one file out two ways and their vet judge it two ways, so
+        # every machine judges with the release go.mod's toolchain line names: its own go, or
+        # that release in go's cache, else this fails naming it.
+        release = re.search(r"^toolchain (\S+)$", (GO / "go.mod").read_text(), re.M)
+        self.assertTrue(release, "go/go.mod names no toolchain: the Go release that judges go/")
+        judge = {"GOTOOLCHAIN": release[1]}
+        gofmt = Path(self.check("go", "env", "GOROOT", **judge).strip(), "bin", "gofmt")
+        self.assertEqual(self.check(gofmt, "-l", "."), "", "`go fmt ./...` formats these files")
+        self.check("go", "vet", "./...", **judge)
+        self.check("go", "test", "./...", **judge)
         with tempfile.TemporaryDirectory(prefix="ak-go-") as out:
             for system, arch in (("linux", "amd64"), ("darwin", "arm64"), ("windows", "amd64")):
                 self.check("go", "build", "-o", os.path.join(out, system), "./cmd/ak",
-                           GOOS=system, GOARCH=arch)
+                           GOOS=system, GOARCH=arch, **judge)
 
 
 if __name__ == "__main__":

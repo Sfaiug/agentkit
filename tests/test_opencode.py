@@ -1191,7 +1191,8 @@ stop();
         self.assertEqual(cfg["models"]["mimo"],
                          {"harness": "opencode", "model": "mimo/mimo-v2.6-pro",
                           "effort": "high", "provider": "mimo"})
-        self.assertEqual(cfg["providers"]["mimo"], {})   # its mode is the endpoint's
+        # no mode: its mode is the endpoint's
+        self.assertEqual(cfg["providers"]["mimo"], {"maker": "Xiaomi"})
 
 
 if __name__ == "__main__":
