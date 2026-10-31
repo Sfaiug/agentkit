@@ -548,7 +548,8 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
     ever.  ak's own replay of the earlier findings (`replayed`) is weighed with the
     reviewer's, each where the fix left its line (`placed`): one still failing blocks
     whether or not the reviewer handed it in again; one fixed or unable to run is a note.
-    A finding handed in with a quote is a note, in every round and at every line."""
+    A finding handed in with a quote is a note, in every round and at every line.  A record
+    whose kind this changes keeps the one handed in as `handed`."""
     if not any(row["kind"] in ("finding", "follow-up") for row in submitted.records) and not replayed:
         return submitted
     head = None if lp.scratch else head or gitcall.git(lp.wt, "rev-parse", "HEAD")
@@ -559,7 +560,7 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
             records.append(row)
             continue
         evidence = row["evidence"]
-        kind = row["kind"]
+        kind = was = row["kind"]
         # a follow-up from before the task is proven on base; one of this change (no `before`)
         # on this commit, and on base too, where failing makes it one from before the task
         deferred = kind == "follow-up" and "before" not in row
@@ -619,7 +620,7 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
             if reason:
                 row.update(kind="note", dropped=reason)
                 lp.log(f"Dropped follow-up {row['path']}:{row['line']}: {reason}")
-        records.append(row)
+        records.append(row if row["kind"] == was else {**row, "handed": was})
     if replayed:
         handed = [row for row in records if isinstance(row.get("evidence"), dict)]
         extra = []
@@ -629,7 +630,7 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
             line, touched, sites = placed(lp, row, since, head)
             row = {**row, "line": line}
             if not failing:
-                extra.append({**row, "kind": "note", "evidence": now,
+                extra.append({**row, "handed": row["kind"], "kind": "note", "evidence": now,
                               "replayed": "fixed; its proof passes now"
                               if now["returncode"] == 0 and not now.get("killed")
                               else replay_word(now, failing)})
