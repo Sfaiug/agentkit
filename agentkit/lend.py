@@ -19,19 +19,25 @@ import tempfile
 
 from . import config
 
+FAILED = (config.Error, OSError, ValueError, subprocess.TimeoutExpired)    # what `into` raises
+
+
+def _lenders():
+    return [harness for harness, data in dict(config.manifests()).items()
+            if data.get("worker", {}).get("logins") and config.adapter_path(harness).exists()]
+
 
 def into(home):
     """Lend `home` each harness's login: ({harness: [files placed]}, the epoch second the first
-    of them stops authenticating, None where none does).  Where a lend fails or a place it takes
-    is taken it raises, leaving none lent: no caller is told what to keep out of what it saves."""
+    of them stops authenticating and its harness, None where none does).  Where a lend fails or
+    a place it takes is taken it raises, leaving none lent: no caller is told what to keep out of
+    what it saves."""
     home = Path(home)
     home.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, **config.account_env(None), **config.provider_env(())}
     lent, ends = {}, []
     try:
-        for harness, data in dict(config.manifests()).items():
-            if not (data.get("worker", {}).get("logins") and config.adapter_path(harness).exists()):
-                continue
+        for harness in _lenders():
             # Lent into a folder of its own, so what it placed is known without its harness's
             # layout, and linked from there into `home`, which refuses a place taken.
             with tempfile.TemporaryDirectory(prefix=".lend-", dir=home) as staging:
@@ -51,7 +57,7 @@ def into(home):
                         os.link(path, place)
                         lent[harness].append(place)
                 if proc.stdout.strip():
-                    ends.append(int(proc.stdout))
+                    ends.append((int(proc.stdout), harness))
     except BaseException:
         for place in (place for files in lent.values() for place in files):
             place.unlink()
@@ -59,11 +65,26 @@ def into(home):
     return lent, min(ends, default=None)
 
 
+def first_lapse():
+    """`into`'s first lapse for a check started now; None where a lend fails, which that check
+    reports.  Each harness's `auth seat` runs first, in this HOME: where an adapter renews a lapsed
+    login in place, it is lent fresh.  So only the tick asks this: a gate's own lending, `into`
+    alone, must not renew a real login from the landing suite."""
+    from . import worker    # here, not at the top: a check's own lend would load all of ak
+    try:
+        for harness in _lenders():
+            worker.auth_ok(harness, seat=True)
+        with tempfile.TemporaryDirectory(prefix="lend-", dir=config.TMP) as home:
+            return into(home)[1]
+    except FAILED:
+        return None
+
+
 if __name__ == "__main__":
     home = Path(sys.argv[1])
     try:
         lent, _ = into(home)
-    except (config.Error, OSError, ValueError, subprocess.TimeoutExpired) as exc:
+    except FAILED as exc:
         sys.exit(f"lend: {exc}")
     for harness, files in lent.items():
         print(harness, *(path.relative_to(home) for path in files))

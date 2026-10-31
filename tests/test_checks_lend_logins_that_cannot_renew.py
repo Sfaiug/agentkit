@@ -102,7 +102,7 @@ class ChecksLendLoginsThatCannotRenew(LentLogins):
             self.assertRaises(FileExistsError, lend.into, self.root / "taken")
             lent, ends = lend.into(home)
         self.assertEqual([path for path in taken.parents[2].rglob("*") if path.is_file()], [taken])
-        self.assertEqual(ends, ENDS)    # Codex's; Claude's is a minute later, Grok's lapsed
+        self.assertEqual(ends, (ENDS, "codex"))     # Claude's is a minute later, Grok's lapsed
         self.assertEqual({str(path.relative_to(home)) for files in lent.values() for path in files},
                          LENT)
         self.assert_lent_copies(home)
