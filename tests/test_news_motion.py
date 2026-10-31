@@ -7,7 +7,8 @@ settle from bright to its colour over 400 ms; a seat's progress line glides to i
 with a light at its head over 700 ms.  The first
 draw, one after another screen, a notice or a resize, and a menu opened again draw what they find
 as it is, and nothing moves under NO_COLOR.  Offline, in a throwaway HOME:
-the probe is never started, the reads are the test's own and the keyboard is a stand-in.
+the probe is never started, the reads are the test's own, the keyboard is a stand-in, and the
+menu's clock moves only as the stand-in's waits run, so a loaded host draws no frame late.
 """
 
 import io
@@ -15,10 +16,10 @@ import json
 import os
 import re
 import select
-import time
 from unittest.mock import patch
 import unittest
 
+from fixtures.clock import Clock
 from fixtures.sandbox import Sandbox, menu_input
 from agentkit import config, menu, motion, orch, terminal
 
@@ -70,6 +71,9 @@ class NewsMotion(Sandbox):
         (repo / ".git").mkdir(parents=True)
         self.words, self.tasks, self.notices, self.live, self.reasons = {}, {}, [], None, {}
         self.cache(used=20)
+        self.now = 1000.0                   # the menu's clock: still but for the waits it runs
+        clock = Clock(self.sleep)
+        clock.monotonic = lambda: self.now
 
         def row_state(cfg, session, look=True, **facts):
             return {"word": self.words[session["name"]],
@@ -90,9 +94,13 @@ class NewsMotion(Sandbox):
                 (menu.Live, "watch", watch),
                 (terminal, "Keyboard", Keyboard),
                 (terminal, "sense", lambda: None),     # a taken keyboard's, no real terminal's
-                (terminal, "width", lambda *args: 100)):
+                (terminal, "width", lambda *args: 100),
+                (menu, "time", clock), (motion, "time", clock)):
             self.stack.enter_context(patch.object(target, name, fake))
         self.addCleanup(setattr, terminal, "_ASKED", False)
+
+    def sleep(self, seconds):
+        self.now += seconds
 
     def cache(self, used):
         """Claude's shared week, `used` percent spent, as the probe writes it."""
@@ -121,23 +129,23 @@ class NewsMotion(Sandbox):
         last = {}
 
         def wait_key(prompt, timeout=None, wake=None):
-            waits.append((timeout, time.monotonic(), out.getvalue()))
+            waits.append((timeout, self.now, out.getvalue()))
             out.seek(0)
             out.truncate()
             if wake is not None and select.select([wake], [], [], 0)[0]:
                 return None
             if not steps:
-                last.setdefault("at", (len(waits) - 1, time.monotonic()))
-                if timeout > motion.FRAME or time.monotonic() - last["at"][1] > after:
+                last.setdefault("at", (len(waits) - 1, self.now))
+                if timeout > motion.FRAME or self.now - last["at"][1] > after:
                     return ""
-                time.sleep(timeout)
+                self.sleep(timeout)
                 return None
             step = steps.pop(0)
             if callable(step):
                 step()
                 return None
             if step is None:
-                time.sleep(min(timeout, motion.FRAME))
+                self.sleep(min(timeout, motion.FRAME))
             return step
 
         with menu_input(wait=wait_key, return_value="q"), \
