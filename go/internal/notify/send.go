@@ -36,6 +36,10 @@ const (
 	webhookEnv = "AGENTKIT_DISCORD_WEBHOOK"
 )
 
+// EnvNames are where a page goes, which a seat takes from whoever opens it (Python's
+// notify.ENV_NAMES).
+var EnvNames = []string{sinkEnv, sinkLogEnv, webhookEnv, "AGENTKIT_DISCORD_USER_ID"}
+
 // backoff is the wait before each retry, by the attempts made, in seconds.
 var backoff = []float64{60, 180, 600, 1800, 3600}
 

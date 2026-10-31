@@ -16,11 +16,12 @@ import (
 // Command is the TUI command a new seat of model opens on the usual login, as Python's
 // orch.command and fresh_command build it: ak's own env words, then the line the harness's
 // adapter prints for `interactive`, under a new conversation id or, where its TUI cannot be told
-// one (exit 3), none.  The adapter is the script $AGENTKIT_ADAPTER_DIR holds, else this program,
-// to which the stubs under go/adapters hand every verb.  env is what the adapter is told.  False
-// where Python's launch says why none opens: no adapter runs, it prints no line, or a file the
-// harness reads on its own, which nothing on the line can stop, is there.
-func Command(model config.Model, env []string) ([]string, bool) {
+// one (exit 3), none; and that id, "" for none.  The adapter is the script $AGENTKIT_ADAPTER_DIR
+// holds, else this program, to which the stubs under go/adapters hand every verb.  env is what
+// the adapter is told.  False where Python's launch says why none opens: no adapter runs, it
+// prints no line, or a file the harness reads on its own, which nothing on the line can stop, is
+// there.
+func Command(model config.Model, env []string) ([]string, string, bool) {
 	adapter, err := config.Adapter(model.Harness)
 	argv := []string{adapter}
 	if errors.Is(err, config.ErrNoAdapterDir) {
@@ -29,20 +30,22 @@ func Command(model config.Model, env []string) ([]string, bool) {
 		argv = []string{self, "adapter", filepath.Dir(filepath.Dir(self)), model.Harness}
 	}
 	if err != nil {
-		return nil, false
+		return nil, "", false
 	}
 	env = append(slices.Clip(env), "AGENTKIT_ACCOUNT=")
 	args := []string{"interactive", model.ID, model.Efforts["effort"]}
+	conversation := uuid()
 	line, ok := []string(nil), false
-	for _, call := range [][]string{append(args, uuid(), "new"), args} {
+	for _, call := range [][]string{append(args, conversation, "new"), args} {
 		run := exec.Command(argv[0], slices.Concat(argv[1:], call)...)
 		run.Env = env
 		out, err := run.Output()
 		if exit := (*exec.ExitError)(nil); len(call) > len(args) && errors.As(err, &exit) && exit.ExitCode() == 3 {
+			conversation = ""
 			continue
 		}
 		if line, ok = commandhelp.ShellSplit(strings.TrimFunc(string(out), config.Space)); err != nil || !ok || len(line) == 0 {
-			return nil, false
+			return nil, "", false
 		}
 		break
 	}
@@ -67,8 +70,8 @@ func Command(model config.Model, env []string) ([]string, bool) {
 	cwd, _ := os.Getwd()
 	for _, path := range append(config.ManifestPaths(names, values, cwd), config.ManifestPaths(names, map[string]string{"HOME": values["HOME"]}, cwd)...) {
 		if _, err := os.Stat(path); err == nil {
-			return nil, false
+			return nil, "", false
 		}
 	}
-	return line, true
+	return line, conversation, true
 }

@@ -15,16 +15,19 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/seat"
+	"agentkit/internal/terminal"
 	"agentkit/internal/tmux"
 )
 
-// orchPreview answers a person's preview of a new seat naming both its models, `ak orch NAME
-// --dry-run --model M --workers W`, as Python's orch.main and orch.create do with dry_run: what
-// the seat would take and the command it would run, its rulebook written into a scratch folder
-// gone once that is printed, and nothing saved or started.  The rest is Python's: a seat it would
-// ask about, a name held, a seat filed under a project, and one on a provider's accounts, which
-// opens on the one its login and usage pick.
-func orchPreview(name string, flags map[string]string, out, errOut io.Writer) int {
+// orchNew answers a person's new seat naming both its models, `ak orch NAME --model M --workers
+// W`, as Python's orch.main and orch.create do.  A preview (`--dry-run`) prints what the seat
+// would take and the command it would run, its rulebook written into a scratch folder gone once
+// that is printed, and saves and starts nothing; an open, from a person's terminal, opens the seat
+// and hands it that terminal.  The rest is Python's: a seat it would ask about, a name held, a
+// seat filed under a project, one on a provider's accounts, which opens on the one its login and
+// usage pick, and an open with no tmux, whose harness runs in the terminal itself, or with no
+// terminal on its output, which says how to attach instead.
+func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.Writer) int {
 	orchestrator := flags["--model"]
 	workers, listed := flags["--workers"]
 	cwd, err := os.Getwd()
@@ -40,21 +43,33 @@ func orchPreview(name string, flags map[string]string, out, errOut io.Writer) in
 	if accounts, err := config.Accounts(model.Provider); err != nil || len(accounts) > 0 {
 		return notImplemented(errOut, "orch")
 	}
+	if !dryRun {
+		if _, err := exec.LookPath("tmux"); err != nil || !terminal.Attachable() {
+			return notImplemented(errOut, "orch")
+		}
+		opened, err := seat.Open(name, orchestrator, model, crew, cwd)
+		if !opened {
+			return notImplemented(errOut, "orch")
+		}
+		if err == nil {
+			err = seat.Attach(name, out, errOut)
+		}
+		fmt.Fprintf(errOut, "ak orch: %s\n", err)
+		return 2
+	}
 	scratch, err := os.MkdirTemp("", "ak-dry-run-")
 	defer os.RemoveAll(scratch)
 	rulebook := filepath.Join(scratch, "rulebook-"+name+".md")
-	if text, unread := rules(); err != nil || unread != nil || os.WriteFile(rulebook, []byte(text), 0o666) != nil {
+	if text, unread := seat.Rulebook(); err != nil || unread != nil || os.WriteFile(rulebook, []byte(text), 0o666) != nil {
 		return notImplemented(errOut, "orch")
 	}
-	cmd, ok := adapters.Command(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO=",
+	cmd, _, ok := adapters.Command(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO=",
 		"AGENTKIT_RULEBOOK_DIR="+scratch, "AGENTKIT_RULEBOOK="+rulebook, "AGENTKIT_FIRST_PROMPT="))
 	if !ok {
 		return notImplemented(errOut, "orch")
 	}
 	fmt.Fprintf(out, "orch: %s (--model)\nsession %s in %s (new)\nworkers %s\n", orchestrator, name, cwd, strings.Join(crew, " "))
-	// tmux refuses a terminal it cannot describe, so a seat's tmux runs as xterm-256color where
-	// infocmp knows no $TERM (orch.fix_term)
-	if term := os.Getenv("TERM"); term != "" && term != "xterm-256color" && exec.Command("infocmp", term).Run() != nil {
+	if tmux.Term() != "" {
 		fmt.Fprint(out, "TERM=xterm-256color ")
 	}
 	fmt.Fprintln(out, commandhelp.ShellJoin(cmd))
@@ -100,22 +115,4 @@ func picked(orchestrator, workers string) (config.Model, []string, error) {
 		return model, nil, errors.New("--workers contains duplicate model names")
 	}
 	return model, names, nil
-}
-
-// rules is the rulebook a seat filed under no project opens on (config.seat_rulebook): ak's
-// rules, then this host's own where it wrote any, each read as Python reads text.
-func rules() (string, error) {
-	body, err := os.ReadFile(filepath.Join(config.Repo(), "orchestrator.md"))
-	if err != nil {
-		return "", err
-	}
-	local, err := os.ReadFile(filepath.Join(config.Home(), "rules.md"))
-	if errors.Is(err, fs.ErrNotExist) {
-		err = nil
-	}
-	text := string(body)
-	if strings.TrimFunc(string(local), config.Space) != "" {
-		text = strings.TrimRightFunc(text, config.Space) + "\n\n" + string(local)
-	}
-	return strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(text), err
 }

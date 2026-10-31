@@ -25,6 +25,10 @@ type plugin struct {
 	turnEnv map[string]string
 	auth    func(login config.Login, seat bool) Answer
 	lend    func(login config.Login) Loan
+	// opens is whether Go opens this harness's seats: Python's launch writes down the launcher's
+	// conversation id alone (the default `launched`), and titled whether its TUI takes a title
+	// line (`title_command`).
+	opens, titled bool
 }
 
 var plugins = map[string]plugin{}
@@ -43,6 +47,18 @@ func Identity(name, text string, argv []string) (string, bool) {
 // where Go does not follow that harness's seats yet.
 func Reopens(name string) (string, bool) {
 	return plugins[name].fresh, plugins[name].seats
+}
+
+// Opens is whether a launch of that harness's seat writes down its title, as Python's plugin
+// `title_command` and the manifest's `[title] at_launch` say; false where Go does not open that
+// harness's seats yet.
+func Opens(name string) (titled, known bool) {
+	if !plugins[name].opens {
+		return false, false
+	}
+	title, err := config.Section(name, "title")
+	at, set := title["at_launch"].(bool)
+	return plugins[name].titled && (!set || at), err == nil
 }
 
 // LastAnswer is the model and effort of the last answer a seat's conversation records, as
