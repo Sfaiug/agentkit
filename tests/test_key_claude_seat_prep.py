@@ -5,7 +5,8 @@ Claude Code asks a new login to pick a theme and finish onboarding, offers auto 
 would sit there or quit.  So the line `adapters/claude.sh interactive` prints for `ak orch`
 answers them in `~/.claude.json`, in the seat's own folder, before it starts claude, keeping
 everything the owner had there; a file it could not read back is refused before claude starts,
-never replaced, since it holds the owner's login and projects.
+never replaced, since it holds the owner's login and projects.  A seat on a named login opens
+with the usual login's MCP servers, the shared browser and desktop among them.
 
 Black-box: the adapters beside the program `AK_BIN` names (or `AK_ROOT`'s) print the line, and
 a shell runs it in the seat's folder with a fake `claude` that keeps what it found on starting;
@@ -36,7 +37,8 @@ class ClaudeSeatPrep(unittest.TestCase):
         # Logs each start, and keeps the config as claude found it on starting.
         home.fake("claude", LOG.format(python=shlex.quote(sys.executable),
                                        log=shlex.quote(str(home.log("claude"))))
-                  + f'cat "$HOME/.claude.json" >{shlex.quote(str(cls.saw))}\n')
+                  + 'cat "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" >'
+                  + f'{shlex.quote(str(cls.saw))}\n')
         cls.cwd = home.path / "code" / "acme"
         cls.cwd.mkdir(parents=True)
         cls.env = {"AGENTKIT_SESSION": "acme",
@@ -47,22 +49,23 @@ class ClaudeSeatPrep(unittest.TestCase):
 
     def reset(self):
         """No config, no settings, and nothing claude saw."""
-        for path in (self.config, self.home.path / ".claude/settings.json", self.saw):
+        for path in (self.config, self.home.path / ".claude/settings.json", self.saw,
+                     self.home.path / ".claude-harbor/.claude.json"):
             path.unlink(missing_ok=True)
 
-    def line(self):
+    def line(self, **env):
         return self.home.run("bash", str(ADAPTERS / "claude.sh"), "interactive", "opus", "xhigh",
-                             env=self.env, cwd=self.cwd)
+                             env={**self.env, **env}, cwd=self.cwd)
 
-    def launch(self, line):
-        return self.home.run("sh", "-c", line, env=self.env, cwd=self.cwd)
+    def launch(self, line, **env):
+        return self.home.run("sh", "-c", line, env={**self.env, **env}, cwd=self.cwd)
 
-    def opened(self):
+    def opened(self, **env):
         """The config claude found on starting, once the seat's line has run."""
-        printed = self.line()
+        printed = self.line(**env)
         self.assertEqual(printed.code, 0, printed.err)
         starts = len(self.home.calls("claude"))
-        done = self.launch(printed.out)
+        done = self.launch(printed.out, **env)
         self.assertEqual(done.code, 0, done.err)
         self.assertEqual(len(self.home.calls("claude")), starts + 1)
         return json.loads(self.saw.read_text())
@@ -97,6 +100,20 @@ class ClaudeSeatPrep(unittest.TestCase):
                                "projects": {str(self.cwd): {"hasTrustDialogAccepted": True}}})
         # it will hold the owner's login: nobody else reads it
         self.assertEqual(self.config.stat().st_mode & 0o777, 0o600)
+
+    def test_a_named_login_opens_with_the_usual_logins_mcp_servers(self):
+        # `ak browser mcp-register` writes the usual login's; each replaces one of its name.
+        servers = {"browser": {"type": "http", "url": "http://127.0.0.1:8931/mcp"},
+                   "desktop": {"type": "stdio", "command": "desktop-mcp", "args": []}}
+        own = {"type": "stdio", "command": "notes-mcp"}
+        self.home.write(".claude.json", {"userID": "usual-user", "mcpServers": servers})
+        self.home.write(".claude-harbor/.claude.json", {"userID": "harbor-user", "mcpServers": {
+            "browser": {"type": "http", "url": "http://127.0.0.1:1/gone"}, "notes": own}})
+        saw = self.opened(AGENTKIT_ACCOUNT="harbor")
+        self.assertEqual(saw["userID"], "harbor-user")
+        self.assertEqual(saw["mcpServers"], {"notes": own, **servers})
+        self.assertEqual(json.loads(self.config.read_text()),
+                         {"userID": "usual-user", "mcpServers": servers})
 
     def test_settings_that_cannot_be_read_print_no_line_and_start_nothing(self):
         for relative, held in UNREADABLE:

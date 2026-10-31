@@ -34,13 +34,28 @@ func answered(name string) (config.PrepTable, *record.Object, error) {
 		return prep, nil, err
 	}
 	if prep.Usual != "" {
-		// A notice answered once is answered everywhere: only `true`s travel, so a named login
-		// keeps its own account, ids, caches and projects.  Nothing does from a file unread.
+		// A notice answered once is answered everywhere: only `true`s and the shared objects'
+		// entries travel, so a named login keeps its own account, ids, caches, projects and
+		// entries.  Nothing does from a file unread.
 		if usual, err := held(prep.Usual); err == nil {
 			for _, key := range usual.Keys() {
 				if usual.Get(key) == true {
 					data.Set(key, true)
 				}
+			}
+			for _, key := range prep.Shared {
+				entries := usual.Dict(key)
+				if entries == nil || len(entries.Keys()) == 0 {
+					continue
+				}
+				own := data.Dict(key)
+				if own == nil {
+					own = record.NewObject()
+				}
+				for _, name := range entries.Keys() {
+					own.Set(name, entries.Get(name))
+				}
+				data.Set(key, own)
 			}
 		}
 	}

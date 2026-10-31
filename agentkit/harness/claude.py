@@ -532,7 +532,8 @@ def register_mcp(servers):
     """Put `servers` into ~/.claude.json's top-level mcpServers, user scope, in place.
 
     A URL is Claude's `http` server and a command its `stdio` one.  An entry of the same name
-    from before is replaced whole, leaving no stale command behind.
+    from before is replaced whole, leaving no stale command behind.  A seat on a named login
+    takes them from there as it opens (`account_config`).
     """
     from .. import config
     path = config_entries()["file"]      # user scope lives at the top level
@@ -632,11 +633,16 @@ def account_config(check=False):
         usual = {}
     if not isinstance(usual, dict):
         usual = {}
-    # A notice answered once is answered everywhere: only `true` flags travel,
-    # so the named login keeps its own account, ids, caches and projects.
+    # A notice answered once is answered everywhere: only `true` flags travel, and the usual
+    # login's MCP servers (the shared browser and desktop `ak browser mcp-register` writes there),
+    # each over one of its name, so the named login keeps its own account, ids, caches, projects
+    # and servers.
     for key, value in usual.items():
         if value is True:
             values[1][key] = True
+    servers, own = usual.get("mcpServers"), values[1].get("mcpServers")
+    if isinstance(servers, dict) and servers:
+        values[1]["mcpServers"] = {**(own if isinstance(own, dict) else {}), **servers}
     answered(values[1])
     _write(paths[1], values[1])
     for name in ("CLAUDE.md", "agents", "skills", "commands", "plugins"):
