@@ -4,6 +4,7 @@ Black-box: `AK_BIN` runs `ak watch` in `home.tick()`'s box and `ak doctor` on a 
 """
 
 from datetime import UTC, datetime
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -29,6 +30,7 @@ SKUS = [sku(f"{SPOT} C4A Arm Instance Core running in Netherlands", NL, 700_000_
         sku(f"{SPOT} C4A Arm Instance Ram running in Netherlands", NL, 12_500_000),
         sku("Hyperdisk Balanced Capacity in Netherlands", NL, 73_000_000, "GiBy.mo"), ADDRESS]
 T, DECEMBER = (datetime(2026, *at, tzinfo=UTC).timestamp() for at in ((11, 1, 2), (12, 1, 0, 30)))
+BOOKED = DECEMBER + HOUR
 
 
 def machine(id, created, hours, labels={"ak": "rented"}):
@@ -73,6 +75,14 @@ class WatchesTheBill(unittest.TestCase):
         for text in ("{", "null", '{"answered": 1, "spent": NaN, "machines": {}}'):
             ledger = home.write(".agentkit/state/google-cloud-ledger.json", text)
             cls.unreadable += [(text, cls.at(DECEMBER + 180), ledger.read_text())]
+        # acme-5 and acme-6 on the meter by name from 01:30, until 03:30 and 02:30
+        google.machines, google.refused = [OWN], set()
+        ledger.write_text(json.dumps({"answered": BOOKED, "spent": 0, "machines": {
+            "acme-5": {"price": 1, "from": BOOKED, "until": BOOKED + 2 * HOUR},
+            "acme-6": {"price": 1, "from": BOOKED, "until": BOOKED + HOUR}}}))
+        cls.booked = cls.at(BOOKED + 180)
+        google.machines = [machine("5", "2026-12-01T01:40:00Z", 2)]
+        cls.taken_over = cls.at(BOOKED + 2 * HOUR)
 
     @classmethod
     def at(cls, when, cap=50):
@@ -104,6 +114,12 @@ class WatchesTheBill(unittest.TestCase):
         self.assertEqual(self.unanswered, (["/token"], [], [
             f"3 running · €{1.65 * P:.2f} of €50.00 this month as of 1 Nov 02:03",
             *self.refused[2][1:]]))
+
+    def test_a_machine_on_the_meter_by_name_stays_until_listed_and_is_paid_whole_past_its_end(self):
+        self.assertEqual(self.booked[2], ["0 running · €0.00 of €50.00 this month"])
+        # acme-5 from its creation at 01:40 to 03:30 at its type's price, acme-6 one hour at its own
+        self.assertEqual(self.taken_over[2], [
+            f"1 running · €{P * 110 / 60 + 1:.2f} of €50.00 this month"])
 
     def test_past_the_cap_each_goes_back_and_a_month_counts_its_own_time(self):
         # acme-1b and acme-2 1.95 hours more, acme-3 nothing past its end
