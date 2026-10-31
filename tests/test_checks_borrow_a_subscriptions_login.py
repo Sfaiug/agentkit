@@ -1,6 +1,6 @@
-"""ak's live check runs a harness whose only login is a subscription its caller's config lists
-by name on that subscription, its account named, and counts it there; a usual login still goes
-first, and then nothing is named.
+"""A harness whose only login is a subscription its caller's config lists by name is lent, run
+and counted by ak's live check on that subscription, its account named; a usual login is still
+lent first, and then the check names none.
 
 Through smoke_home's own code, check 3's and agentkit/lend.py, from a caller HOME of fixture
 logins holding fake values, with every harness program faked, as
@@ -24,8 +24,8 @@ import check4_pair
 
 CONFIG = """[models.grok]
 harness = "grokbuild"
-model = "grok-4"
-effort = "high"
+model = "grok-4.7"
+effort = "xhigh"
 provider = "xai"
 
 [providers.xai]
