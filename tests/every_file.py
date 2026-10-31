@@ -138,7 +138,9 @@ def run_file(root, path, env):
     # Files can run beside smoke.sh in the same checkout. Their HOME and temp files must
     # not reach another file's sandbox; their bytecode is the piece's own (`env`).
     # tmux canonicalizes TMUX_TMPDIR; a long worktree path cannot hold its socket.
-    with tempfile.TemporaryDirectory(prefix="ak-test-file-", dir="/tmp") as sandbox:
+    # A process the file leaves behind may still write here as it goes: that fails no file.
+    with tempfile.TemporaryDirectory(prefix="ak-test-file-", dir="/tmp",
+                                     ignore_cleanup_errors=True) as sandbox:
         child_env = dict(env, HOME=sandbox, TMPDIR=sandbox)
         proc = subprocess.run([sys.executable, str(path.relative_to(root))], cwd=root,
                               env=child_env, stdin=subprocess.DEVNULL,
@@ -222,8 +224,10 @@ def main(root, others=None):
     todo.sort(key=lambda path: -cost[path])
     # One bytecode cache for the piece: each file compiling all of agentkit again cost
     # about three quarters of a short file's CPU. No other piece writes or reads it. It is in
-    # the checkout, where the boxes the files start see it: a box has its own /tmp.
-    pycache = tempfile.TemporaryDirectory(prefix=".ak-test-pycache-", dir=root)
+    # the checkout, where the boxes the files start see it: a box has its own /tmp. A process
+    # a file leaves behind may still compile into it as it goes; the loop removes the rest.
+    pycache = tempfile.TemporaryDirectory(prefix=".ak-test-pycache-", dir=root,
+                                          ignore_cleanup_errors=True)
     env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTKIT_", "AK_"))}
     # This checkout's code and shims are under test, never the ones installed on the caller's
     # PATH: a test's own shim takes the first `git` after it for the real one.
