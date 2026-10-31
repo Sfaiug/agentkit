@@ -66,12 +66,11 @@ class GoogleRentsUnderACap(unittest.TestCase):
             ["europe-west4-a", "c4a-highcpu-8"], ["europe-west4-b", "c4a-highcpu-8"],
             ["europe-west4-a", "c4a-standard-8"]])
         # what €50 buys of it, under 12 hours
-        self.assertEqual((made[-1]["labels"], made[-1]["scheduling"]), ({"ak": "rented"}, {
+        self.assertEqual((made[-1]["labels"], made[-1]["scheduling"], lines[1:]), ({"ak": "rented"}, {
             "provisioningModel": "SPOT", "instanceTerminationAction": "DELETE",
             "maxRunDuration": {"seconds": "29977"}, "automaticRestart": False,
-            "onHostMaintenance": "TERMINATE"}))
-        rented = f"{made[-1]['name']} rented: c4a-standard-8 in europe-west4-a"
-        self.assertEqual(lines[1:], [rented])
+            "onHostMaintenance": "TERMINATE"}, [f"{made[-1]['name']} rented: c4a-standard-8 in "
+                                                "europe-west4-a"]))
 
     def test_none_while_one_comes_up_or_off_or_past_the_cap_where_one_cut_short_counts(self):
         for asked, _, lines in [*self.coming, self.off, self.dropped]:

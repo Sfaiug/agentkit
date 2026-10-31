@@ -89,9 +89,9 @@ class Offer(NamedTuple):
     cores: float      # physical: an arm64 vCPU is one, two x86 vCPUs share one
     memory_mb: int
     hourly: float     # euros: its cores, memory, boot disk and address, as the bill will
-    zones: list
-    image: str
-    disk: str         # its boot disk's type
+    zones: list = ()  # none in a list kept before ak rented, which is then listed anew
+    image: str = ""
+    disk: str = ""    # its boot disk's type
 
     def __str__(self):
         return (f"{self.name} in {self.region} · {self.cores:g} cores · "
@@ -169,7 +169,7 @@ def watch():
     config._write_json(config.STATE / LATE, late)
     if ledger:
         config._write_json(config.STATE / LEDGER, ledger)
-    if not _amount(at) or now - at >= FRESH_FOR:
+    if not _amount(at) or now - at >= FRESH_FOR or not all(one.zones for one in offered):
         config._write_json(config.STATE / OFFERS, {"at": now, "offers": (offered := offers())})
     # none coming up: on the meter by name or listed, not ready, since less than READY ago
     if wanted and ledger and all(now - since >= READY for since in [
@@ -305,8 +305,8 @@ def _rent(ledger, wanted, cap, now, offered, taken):
                     f"to the machines' ends leaves less than {READY // 60} minutes of {offer.name}"]
             continue
         for zone in sorted(offer.zones, key=taken.__contains__):
-            name = f"ak-{secrets.token_hex(6)}"
-            ledger["machines"][name] = {"price": offer.hourly, "from": now, "until": now + life}
+            name, asked = f"ak-{secrets.token_hex(6)}", time.time()    # past refusals' polls
+            ledger["machines"][name] = {"price": offer.hourly, "from": asked, "until": asked + life}
             config._write_json(config.STATE / LEDGER, ledger)
             try:
                 codes = _create(compute, token, zone, _machine(name, zone, offer, life, key))
@@ -330,12 +330,13 @@ def _create(compute, token, zone, machine):
         if exc.codes is None:
             raise
         return exc.codes
-    for _ in range(POLLS):
-        if operation.get("status") == "DONE":
-            return _codes(operation) if "error" in operation else None
+    polls = 0
+    while operation.get("status") != "DONE":
+        if (polls := polls + 1) > POLLS:
+            raise Unavailable(f"Google had not made it after {POLLS} polls")
         time.sleep(2)
         operation = _call(f"{compute}/zones/{zone}/operations/{operation.get('name')}", token)
-    raise Unavailable(f"Google had not made it after {POLLS} polls")
+    return _codes(operation) if "error" in operation else None
 
 
 def _machine(name, zone, offer, life, key):
