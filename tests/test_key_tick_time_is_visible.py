@@ -6,9 +6,10 @@ run's lines, printed where it was run, do not.  A pass that took more than a sec
 line `<its name> took <seconds> s`, a GitHub pass too, and however the tick ends, an early
 return at the GitHub gate included, watch.json's `tick` holds when it started and ended and the
 slowest pass's name and seconds; a dry run writes none.  Here a merged run's `health:` and gh's
-answer to who is logged in each sleep past a second.  Black-box: the program `AK_BIN` names
-ticks from outside by cron's line, through tests/fixtures/akbin.py, on a project from gitrig.py
-and the GitHub of fakegh.py.
+answer to who is logged in each sleep past a second, and a seat whose record cannot be written
+has the tick print a WARN to stderr, which cron appends to the log too.  Black-box: the program
+`AK_BIN` names ticks from outside by cron's line, through tests/fixtures/akbin.py, on a project
+from gitrig.py, a seat from akseat.py and the GitHub of fakegh.py.
 """
 
 from datetime import datetime, timezone
@@ -22,6 +23,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import boxable, Home
+from fixtures.akseat import Seat
 from fixtures.fakegh import LOGGED_OUT, OFFLINE, GitHub
 from fixtures.gitrig import Rig
 
@@ -63,6 +65,8 @@ class TickTime(unittest.TestCase):
             "finished_at": now - 600, "started_at": now - 1200, "repo": str(rig.path),
             "pr": "https://github.com/acme/app/pull/7", "merge_sha": rig.head(),
             "health": {"command": f"sleep {SLEEP}"}})
+        Seat(home, "acme", screen="claude-working-pane.txt")
+        (home.path / ".agentkit/state/seat-acme.tmp").mkdir()
         cls.log = home.write(".agentkit/tmp/watch.log", "")
         cls.lines, cls.record, cls.before, cls.after = cls.tick()
 
@@ -83,7 +87,7 @@ class TickTime(unittest.TestCase):
         self.assertTrue(before <= record["started_at"] <= record["ended_at"] <= after, record)
 
     def test_every_line_in_the_log_starts_with_when_it_was_written(self):
-        self.assertTrue(self.lines, "the tick wrote nothing into its log")
+        self.assertTrue([line for line in self.lines if "seat-acme.tmp" in line], self.lines)
         for line in self.lines:
             stamped = LINE.fullmatch(line)
             self.assertTrue(stamped, line)

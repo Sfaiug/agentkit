@@ -344,15 +344,38 @@ def tick_log(text):
     nothing will ever trim that file for us, and every tick has lines of its own to write --
     including the one that never gets the lock, which is the only thing still writing while
     another tick hangs on to it.  Flushed as it goes, so a log read while a tick is still
-    running shows how far that tick has got.  Into the log, each line starts with its date and
-    time, so two lines say how long what lay between them took; read anywhere else, it is read
-    as it comes.
+    running shows how far that tick has got.
     """
     rotate_log()
-    if sys.stdout in log_streams():
-        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        text = "\n".join(f"{stamp} {line}" for line in text.split("\n"))
     print(text, flush=True)
+
+
+class Stamped:
+    """A stream of the tick's into its log: each line written to it, whoever writes it -- a
+    WARN printed to stderr, a traceback -- starts with its date and time, so two lines say how
+    long what lay between them took.  Anything else it is asked, it answers as the stream."""
+
+    def __init__(self, stream):
+        self.stream, self.fresh = stream, True      # `fresh`: what comes next starts a line
+
+    def write(self, text):
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S ")
+        self.stream.write("\n".join(stamp + piece if piece and (index or self.fresh) else piece
+                                    for index, piece in enumerate(text.split("\n"))))
+        if text:
+            self.fresh = text.endswith("\n")
+        return len(text)
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+
+def stamp_log():
+    """Date every line this tick writes into its log from here on (`Stamped`).  A terminal's
+    reader sees each line as it comes, so a stream that is not the log is left as it is."""
+    log_streams()
+    for name in LOG_OWNED:
+        setattr(sys, name, Stamped(getattr(sys, name)))
 
 
 def tick_health():
@@ -7981,6 +8004,7 @@ def main(argv):
         log(tick_health())
         held = None
     else:
+        stamp_log()
         config.ensure_dirs()
         held = tick_lock()
         if held is None:
