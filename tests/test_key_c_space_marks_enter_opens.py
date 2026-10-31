@@ -53,6 +53,12 @@ def key_line(screen):
     return next((line for line in reversed(lines(screen)) if line), "")
 
 
+def shows(text, keys):
+    """A screen with `text` over that key line, judged at once: tmux may be read part way
+    through a draw, the row drawn and the key line not yet."""
+    return lambda screen: text in screen and key_line(screen) == keys
+
+
 def until(test):
     deadline = time.monotonic() + 30
     while not test():
@@ -73,12 +79,11 @@ class ConfigKeys(unittest.TestCase):
         self.term = Terminal(self.home, size=(100, 30), env={"NO_COLOR": "1"})
         self.term.wait("esc leave")
         self.term.keys("c")
-        self.term.wait(lambda screen: key_line(screen) == MARK_KEYS and "› Fable 5.1" in screen)
+        self.term.wait(shows("› Fable 5.1", MARK_KEYS))
 
     def test_space_flips_a_builds_mark_and_enter_leaves_it(self):
         self.term.keys("Right", "Right")
-        screen = self.term.wait("› Fable 5.1     ●  ▰▰▰▰▱   xhigh   [■]")
-        self.assertEqual(key_line(screen), MARK_KEYS)
+        self.term.wait(shows("› Fable 5.1     ●  ▰▰▰▰▱   xhigh   [■]", MARK_KEYS))
         self.term.keys("Enter", "Space")
         self.term.wait("› Fable 5.1     ●  ▰▰▰▰▱   xhigh   [□]")
         until(lambda: akconfig.read(self.home)["defaults"]["workers"] == ["astra"])
@@ -92,8 +97,7 @@ class ConfigKeys(unittest.TestCase):
 
     def test_space_on_models_does_nothing_and_enter_opens_it(self):
         self.term.keys("j", "j")
-        screen = self.term.wait("› Models")
-        self.assertEqual(key_line(screen), OPEN_KEYS)
+        self.term.wait(shows("› Models", OPEN_KEYS))
         self.term.keys("Space", "j")      # still on `c`: the highlight moves on from Models
         self.term.wait("› Subscriptions")
         self.term.keys("k", "Enter")
@@ -119,8 +123,7 @@ class FeaturesKeys(unittest.TestCase):
         term.keys("k")
         term.wait("› ACME")
         term.keys("Enter")
-        screen = term.wait("› Dark mode  [○]")
-        self.assertEqual(key_line(screen), FEATURE_KEYS)
+        term.wait(shows("› Dark mode  [○]", FEATURE_KEYS))
         term.keys("Enter", "Space")
         term.wait("› Dark mode  [●]")
         calls = [json.loads(line) for line in
