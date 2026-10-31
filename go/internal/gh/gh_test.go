@@ -44,20 +44,38 @@ func TestJSONSaysWhyGhFailedAsPythonSaysIt(t *testing.T) {
 	}
 }
 
-func TestJSONIsTheValueGhPrinted(t *testing.T) {
+// gh is found as Python's subprocess finds it: a relative PATH entry is read from the folder gh
+// runs in, and the last entry, under no folder, says why none holds a gh.
+func TestJSONFindsGhAsPythonDoes(t *testing.T) {
 	t.Setenv("AGENTKIT_ADAPTER_DIR", "")
 	fake(t, `printf '{"login": "acme"}'`)
-	value, why, err := JSON(t.TempDir(), "api", "user")
+	dir := t.TempDir()
+	if err := os.Rename(filepath.Join(os.Getenv("PATH"), "gh"), filepath.Join(dir, "gh")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", ".")
+	value, why, err := JSON(dir, "api", "user")
 	if user, _ := value.(*run.Object); user == nil || user.Str("login") != "acme" || why != "" || err != nil {
 		t.Fatalf("%v %q %v", value, why, err)
 	}
+	t.Setenv("PATH", filepath.Join(dir, "gh"))
+	if _, why, err := JSON(dir, "api", "user"); why != "gh: [Errno 20] Not a directory: 'gh'" || err != nil {
+		t.Fatalf("%q %v", why, err)
+	}
 }
 
-// Bytes that are no UTF-8 Python reads its own way, so Go leaves the call to it.
-func TestJSONLeavesToPythonWordsThatAreNoText(t *testing.T) {
+// A gh that is not executable, and bytes that are no UTF-8, Python says its own way, so Go
+// leaves the call to it.
+func TestJSONLeavesToPythonWhatItCannotSayAsPythonDoes(t *testing.T) {
 	t.Setenv("AGENTKIT_ADAPTER_DIR", "")
 	fake(t, `printf 'bad \377' >&2; exit 1`)
 	if _, _, err := JSON(t.TempDir(), "api", "user"); !errors.Is(err, ErrPython) {
-		t.Fatalf("answered %v", err)
+		t.Fatalf("no text: answered %v", err)
+	}
+	if err := os.Chmod(filepath.Join(os.Getenv("PATH"), "gh"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := JSON(t.TempDir(), "api", "user"); !errors.Is(err, ErrPython) {
+		t.Fatalf("not executable: answered %v", err)
 	}
 }

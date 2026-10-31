@@ -8,10 +8,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -46,12 +49,13 @@ func JSON(dir string, args ...string) (any, string, error) {
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		dir = config.Repo()
 	}
+	program, missing, err := find(dir)
+	if program == "" {
+		return nil, missing, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
-	command := exec.CommandContext(ctx, "gh", args...)
-	if errors.Is(command.Err, exec.ErrDot) {
-		command.Err = nil // Python's subprocess runs what a relative PATH entry finds
-	}
+	command := exec.CommandContext(ctx, program, args...)
 	var stdout, stderr bytes.Buffer
 	command.Dir, command.Stdout, command.Stderr = dir, &stdout, &stderr
 	command.Env = append(env, "GIT_TERMINAL_PROMPT=0", "GH_PROMPT_DISABLED=1")
@@ -61,8 +65,6 @@ func JSON(dir string, args ...string) (any, string, error) {
 	switch {
 	case ctx.Err() != nil:
 		return nil, "gh timed out", nil
-	case errors.Is(err, exec.ErrNotFound):
-		return nil, "gh: [Errno 2] No such file or directory: 'gh'", nil
 	case err != nil && !errors.As(err, &exited), !utf8.Valid(stdout.Bytes()), !utf8.Valid(stderr.Bytes()):
 		return nil, "", ErrPython
 	}
@@ -76,4 +78,32 @@ func JSON(dir string, args ...string) (any, string, error) {
 		return nil, "gh printed no JSON (" + err.Error() + ")", nil
 	}
 	return value, "", nil
+}
+
+// find is the gh Python's subprocess runs for a child working in dir: the first PATH entry, a
+// relative one read from dir, holding an executable gh; else, where no entry holds one, why, as
+// Python's OSError says it of 'gh'. An entry holding a gh Go cannot tell Python runs leaves the
+// call to Python.
+func find(dir string) (string, string, error) {
+	path, set := os.LookupEnv("PATH")
+	if !set {
+		path = "/bin:/usr/bin" // Python's os.defpath
+	}
+	var errno syscall.Errno
+	for _, entry := range strings.Split(path, string(os.PathListSeparator)) {
+		candidate := filepath.Join(entry, "gh")
+		if !filepath.IsAbs(candidate) {
+			candidate, _ = filepath.Abs(filepath.Join(dir, candidate))
+		}
+		info, err := os.Stat(candidate)
+		if err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+			return candidate, "", nil
+		}
+		// Python's exec goes on past a gh that is not there or under no folder, and says the last
+		if !errors.As(err, &errno) || errno != syscall.ENOENT && errno != syscall.ENOTDIR {
+			return "", "", ErrPython
+		}
+	}
+	said := errno.Error()
+	return "", fmt.Sprintf("gh: [Errno %d] %s%s: 'gh'", int(errno), strings.ToUpper(said[:1]), said[1:]), nil
 }
