@@ -98,7 +98,9 @@ palette and the colour depth once per start. Under `NO_COLOR` nothing is coloure
 A company's colour comes from `menu.COLOURS` or its provider's `colour` in config.toml and
 colours its name on `c`; a harness's, from its manifest, its name over its models. On the main
 screen a company's shows only under the pointer on its meter, filling it and lighting each
-model on it.
+model on it. On the models screen (`c` → `r`) every name is plain and every line one quiet
+grey until the pointer or ↑/↓ moves; then the row under the pointer lights every row of its
+maker's company, each line in the company's colour and each name lifted toward the foreground.
 
 ## Motion
 
