@@ -41,7 +41,7 @@ func Turn(name string, args []string, errOut io.Writer) int {
 	call["model"], call["effort"], call["prompt"] = args[:1], args[1:2], []string{prompt}
 	words := []string(nil)
 	if err == nil {
-		words, _, err = config.Words(name, "turn", call)
+		words, _, err = config.Launch(name, "turn", call)
 	}
 	if err != nil {
 		return refused(name, "run", err, errOut)

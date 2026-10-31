@@ -36,19 +36,19 @@ func manifest(t *testing.T, extra string) {
 
 // A placeholder is the call's words, else the table's own key's, a string one word; a name
 // neither gives, or a key holding no words, is refused rather than dropped.
-func TestWordsPutTheCallsWordsOrTheTablesInEachPlaceholder(t *testing.T) {
+func TestLaunchPutsTheCallsWordsOrTheTablesInEachPlaceholder(t *testing.T) {
 	manifest(t, "")
 	call := map[string][]string{"conversation": nil, "model": {"m 1"}}
-	if got, ok, err := Words("acme", "seat", call); !ok || err != nil ||
+	if got, ok, err := Launch("acme", "seat", call); !ok || err != nil ||
 		!slices.Equal(got, []string{"acme", "--model", "m 1", "--pin", "A=1", "m 1"}) {
 		t.Fatalf("Words = %q %v %v", got, ok, err)
 	}
 	for _, key := range []string{"typo", "odd"} {
-		if _, ok, err := Words("acme", key, call); ok || err == nil {
+		if _, ok, err := Launch("acme", key, call); ok || err == nil {
 			t.Errorf("%s: not refused", key)
 		}
 	}
-	if _, ok, err := Words("acme", "turn", call); ok || err != nil {
+	if _, ok, err := Launch("acme", "turn", call); ok || err != nil {
 		t.Errorf("a key the table lacks: %v %v", ok, err)
 	}
 }

@@ -63,10 +63,10 @@ func Interactive(root, name string, args []string, out, errOut io.Writer) int {
 	}
 	seat, env := []string(nil), []string(nil)
 	if err == nil {
-		seat, _, err = config.Words(name, "seat", call)
+		seat, _, err = config.Launch(name, "seat", call)
 	}
 	if err == nil {
-		env, _, err = config.Words(name, "env", call)
+		env, _, err = config.Launch(name, "env", call)
 	}
 	if err != nil {
 		return refused(name, "interactive", err, errOut)
@@ -106,7 +106,7 @@ func conversation(name, id string, fresh bool) (map[string][]string, error) {
 	if id == "" {
 		return call, nil
 	}
-	words, _, err := config.Words(name, key, map[string][]string{"id": {id}})
+	words, _, err := config.Launch(name, key, map[string][]string{"id": {id}})
 	call["conversation"] = words
 	if !fresh {
 		call["resume"] = words

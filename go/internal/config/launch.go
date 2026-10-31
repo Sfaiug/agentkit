@@ -7,12 +7,12 @@ import (
 	"strings"
 )
 
-// Words is the words a harness's `[launch]` table lists under key: a seat's line or a worker's
+// Launch is the words a harness's `[launch]` table lists under key: a seat's line or a worker's
 // turn, as the Go build's adapter verbs run its harness.  A word `{name}` is the call's words for
 // that name where it has them, else the words this table's own `name` holds, a string being one
 // word, so a manifest names its harness's switches once for both; a name neither gives is an
 // error.  False where the table lists nothing under key.
-func Words(harness, key string, call map[string][]string) ([]string, bool, error) {
+func Launch(harness, key string, call map[string][]string) ([]string, bool, error) {
 	manifests, err := manifests()
 	launch, _ := manifests[harness].get("launch").(*table)
 	if _, ok := launch.get(key).([]any); err != nil || !ok {
