@@ -187,13 +187,17 @@ out = pathlib.Path(sys.argv[6])
         self.assertIn("proof on base", self.lp.state["followups"][0])
         self.assertEqual(list(self.lp.state["followup_checks"].values()), [self.fails, self.fails, own])
         self.assertTrue(any(call.args[0] == ["bash", "-c", own] for call in limited.call_args_list))
-        self.assertIn("Dropped follow-up", self.lp.state["notes"][0])
+        [note] = self.lp.state["notes"]
+        self.assertIn("old quoted defect", note)
+        self.assertNotIn("Dropped follow-up", note)
 
-    def test_quotes_on_changed_lines_and_removal_borders_block(self):
+    def test_quotes_on_changed_lines_and_removal_borders_are_notes(self):
         self.assertEqual(self.review(
             finding("api.py:1", "changed quote", quote='mode = "branch"'),
-            finding("api.py:4", "removal quote", quote="border = True")), "FAIL")
-        self.assertEqual(self.lp.state["round_summaries"][0]["finding_count"], 2)
+            finding("api.py:4", "removal quote", quote="border = True")), "PASS")
+        self.assertEqual(self.lp.state["round_summaries"][0]["finding_count"], 0)
+        self.assertEqual(self.lp.state["followups"], [])
+        self.assertEqual(len(self.lp.state["notes"]), 2)
 
     def test_a_proof_that_passes_outside_the_reviewers_edit_is_only_a_note(self):
         command = ("if test -f reviewer-only; then echo 'reviewer output'; exit 7; fi; "
@@ -246,7 +250,9 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.review(
             finding("legacy.py:1", "proven scratch defect", self.fails),
             finding("legacy.py:1", "quoted scratch defect", quote="old_bug = True")), "FAIL")
-        self.assertEqual(self.lp.state["round_summaries"][0]["finding_count"], 2)
+        self.assertEqual(self.lp.state["round_summaries"][0]["finding_count"], 1)
+        [note] = self.lp.state["notes"]
+        self.assertIn("quoted scratch defect", note)
         self.assertNotIn("proof on base", self.lp.findings)
 
     def test_proof_edits_are_discarded_between_runs_and_afterwards(self):
