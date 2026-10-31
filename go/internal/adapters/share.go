@@ -99,22 +99,7 @@ func carryOver(usual, own string) error {
 	} else if err := config.TOML(text); err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(filepath.Dir(target), "tmp")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(temporary.Name())
-	_, err = temporary.WriteString(text)
-	if closed := temporary.Close(); err == nil {
-		err = closed
-	}
-	if info, statErr := os.Stat(target); err == nil && statErr == nil {
-		err = os.Chmod(temporary.Name(), info.Mode().Perm())
-	}
-	if err == nil {
-		err = os.Rename(temporary.Name(), target)
-	}
-	return err
+	return replace(target, text)
 }
 
 // under is name in dir, joined as a shell joins "$dir/name".

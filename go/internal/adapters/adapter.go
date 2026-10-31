@@ -23,8 +23,9 @@ import (
 // [new]]`: the env words, Go's wrapper, then the harness's words, its first prompt last, after a
 // `--`, as one word.  On a named login it shares the usual one's conversations and settings
 // first, and writes ak's hooks in that login's home where each login keeps its own.  It answers
-// the exit code: 2 where it prints no line, as with no rulebook to hand over, since a seat
-// opened without the rules it was asked for is worse than one that does not open.
+// the exit code: 2 where it prints no line, as with settings its `[prep]` cannot read, or no
+// rulebook to hand over, since a seat opened without the rules it was asked for is worse than
+// one that does not open.
 func Interactive(root, name string, args []string, out, errOut io.Writer) int {
 	if len(args) < 2 {
 		fmt.Fprintf(errOut, "%s interactive needs <model> <effort> [session-id [new]]\n", name)
@@ -32,6 +33,10 @@ func Interactive(root, name string, args []string, out, errOut io.Writer) int {
 	}
 	if launch, err := config.Section(name, "launch"); err != nil || launch["seat"] == nil {
 		return refused(name, "interactive", err, errOut)
+	}
+	if _, _, err := answered(name); err != nil {
+		fmt.Fprintf(errOut, "%s interactive: %s\n", name, err)
+		return 2
 	}
 	login, _, err := config.Account(name)
 	if err == nil && login.Account != "" {

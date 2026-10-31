@@ -11,8 +11,8 @@ import (
 
 // Seat is Go's wrapper on a seat's line, `seat -- <words>`: it runs the harness's words in the
 // seat's own terminal on the login $AGENTKIT_ACCOUNT names, so the terminal's size, what the
-// harness prints, what is typed to it and its exit code are the seat's.  It answers the exit
-// code where the harness never starts.
+// harness prints, what is typed to it and its exit code are the seat's.  Its `[prep]` answers go
+// in first.  It answers the exit code where the harness never starts.
 func Seat(name string, args []string, errOut io.Writer) int {
 	login, ok, err := config.Account(name)
 	if err != nil {
@@ -32,6 +32,10 @@ func Seat(name string, args []string, errOut io.Writer) int {
 	if program == "" {
 		fmt.Fprintf(errOut, "ak adapter: %s: not found\n", words[0])
 		return 127
+	}
+	if err := prepare(name, login); err != nil {
+		fmt.Fprintf(errOut, "ak adapter: %s\n", err)
+		return 2
 	}
 	return run(program, words, env, errOut)
 }
