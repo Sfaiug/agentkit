@@ -18,9 +18,10 @@ type plugin struct {
 	snapshots bool
 	// seats is whether Go follows this harness's seats tmux no longer holds, and fresh what
 	// reopening one does where it owns no conversation its record names.
-	seats  bool
-	fresh  string
-	answer func(conversation, cwd string) (model, effort any, found bool)
+	seats   bool
+	fresh   string
+	answer  func(conversation, cwd string) (model, effort any, found bool)
+	turnEnv map[string]string
 }
 
 var plugins = map[string]plugin{}
@@ -54,6 +55,12 @@ func LastAnswer(name, conversation, cwd string) (model, effort any, found bool) 
 		return hook(conversation, cwd)
 	}
 	return nil, nil, false
+}
+
+// TurnEnv is what a worker turn of that harness is told beyond what every turn is, none by
+// default.
+func TurnEnv(name string) map[string]string {
+	return plugins[name].turnEnv
 }
 
 // Binary is the program a harness's command names, found as its adapter finds it, as Python's

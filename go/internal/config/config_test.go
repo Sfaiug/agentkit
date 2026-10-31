@@ -125,10 +125,10 @@ func TestSchemaRefusals(t *testing.T) {
 			t.Errorf("valid config %q: %v", data, err)
 		}
 	}
-	if err := CheckModel("absent"); err == nil || !strings.Contains(err.Error(), "defines: acme") {
+	if _, err := ModelNamed("absent"); err == nil || !strings.Contains(err.Error(), "defines: acme") {
 		t.Fatalf("unknown model: %v", err)
 	}
-	if err := CheckModel("acme"); err != nil {
+	if _, err := ModelNamed("acme"); err != nil {
 		t.Fatal(err)
 	}
 }

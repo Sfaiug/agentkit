@@ -54,6 +54,20 @@ func ChildEnv() ([]string, error) {
 	return env, nil
 }
 
+// SeatlessEnv is ChildEnv without the seat's name, saying it is unattended, Python's
+// config.seatless_env: nothing below the loop speaks for a seat, and what starts there is
+// machinery, on no menu.
+func SeatlessEnv() ([]string, error) {
+	child, err := ChildEnv()
+	var env []string
+	for _, pair := range child {
+		if !strings.HasPrefix(pair, "AGENTKIT_SESSION=") {
+			env = append(env, pair)
+		}
+	}
+	return append(env, "AGENTKIT_UNATTENDED=1"), err
+}
+
 // Digits is whether text is one or more of the ASCII digits 0 to 9.
 func Digits(text string) bool {
 	for _, r := range text {
