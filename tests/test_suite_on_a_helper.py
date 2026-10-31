@@ -4,8 +4,11 @@ starts together.
 """
 
 from collections import Counter
+import contextlib
 import io
 from pathlib import Path
+import socket
+import sqlite3
 import sys
 import threading
 import time
@@ -14,7 +17,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import test_suite_helper as fixture
-from agentkit import gate, helper, worker
+from agentkit import config, gate, helper, history, worker
 
 
 class Turn:
@@ -47,8 +50,9 @@ class SuiteOnAHelper(unittest.TestCase):
         self.holds.append(hold)
         return hold
 
-    def check(self, codes=None, places=3):
-        """The suite on `places` places; `codes[place]`: the exits of the first piece run there."""
+    def check(self, codes=None, places=3, **suite):
+        """The suite on `places` places; `codes[place]`: the exits of the first piece run there;
+        `suite`, what else `run_suite` is given."""
         self.calls, self.holds, self.turns, self.first = Counter(), [], [], {}
         self.local_turns, self.logs = [], []
         started, outcomes = set(), {}
@@ -79,7 +83,7 @@ class SuiteOnAHelper(unittest.TestCase):
                 execute("here", *a, **kw)), patch.object(helper, "piece", wraps=helper.piece) as sent:
             code, text, killed = gate.run_suite(
                 fixture.SUITE, 30, cwd=self.repo, activity=self.root / "live.log",
-                output=io.BytesIO(), log=self.logs.append, pieces=outcomes)
+                output=io.BytesIO(), log=self.logs.append, pieces=outcomes, **suite)
         self.count = 2 * places
         self.shards = {f"{i}/{self.count}" for i in range(1, self.count + 1)}
         self.assertEqual(started, self.shards)
@@ -118,6 +122,27 @@ class SuiteOnAHelper(unittest.TestCase):
                 self.assertIn((shard, 2), self.local_turns)
                 self.assertIn(f"AK_SHARD={shard} runs here: helper acme-mac "
                               f"{helper.failure(failed)}", self.logs)
+
+    def test_a_piece_run_again_here_is_asked_for_as_its_go_there_ended(self):
+        # the turn it waits for here, a minute on the clock, is its row's wait
+        run_dir = config.RUNS / "fix-api"
+        run_dir.mkdir()
+        history.start_run(run_dir.name, repo="acme")
+        moved = [0]
+
+        def waited(*args, **kwargs):
+            moved[0] += 60
+            return self.turn(*args, **kwargs)
+
+        with patch.object(gate.time, "time", lambda: 1000 + moved[0]), \
+                patch.object(history, "time", gate.time), \
+                patch.object(gate, "_acquire_gate_turn", side_effect=waited):
+            self.check({"helper": (1,)}, run_dir=run_dir, checked=(1, "done-when", "a" * 40),
+                       asked=1000)
+        with contextlib.closing(sqlite3.connect(history.path())) as connection:
+            again = connection.execute("SELECT place, requested_at, started_at FROM checks "
+                                       "WHERE rerun").fetchall()
+        self.assertEqual(again, [(socket.gethostname(), 1000, 1060)])
 
     def test_a_vm_turned_away_for_room_asks_the_helper_again_no_sooner_than_a_poll(self):
         # One VM's place ends; the other's pieces take a moment, time enough for an ask the piece

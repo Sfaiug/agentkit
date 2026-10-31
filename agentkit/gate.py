@@ -1662,8 +1662,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     or `shard`) named as failed, confirmed or not.
     Every piece gets the file times recorded as the suite starts (`suite_times`): a record
     another suite changes meanwhile would cut a later piece's share differently.
-    With `checked` (`run_done_when`'s) each go of a piece leaves its row where it runs, a first go
-    asked for at `asked`, a later one as it is decided.
+    With `checked` (`run_done_when`'s) each go of a piece leaves its row where it runs, its first
+    go asked for at `asked`, a later one as the go before it ended: a turn it waits for is wait.
     """
     times = suite_times.handed(cwd)
     env = suite_env(changed, times)
@@ -1736,6 +1736,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         silence = kwargs.pop("silence", None)
         silenced = set()    # the pieces whose first go silence stopped, each to go again
         starved = set()     # those whose last go here the kernel killed for memory
+        asked_at = {}       # by piece, when its last go ended: its next one is owed from then
         home_reason = getattr(_GATE_HELD, "here", None) or (
             "no place is left on the suite helper" if away else
             "command is not sent to the suite helper (suite already holds a local turn)")
@@ -1823,8 +1824,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                                              "only": only, "failed": tests, "flaky": flaky}
                     kills = measure.oom("oom_kill")
                     with history.check(run_dir, checked, f"AK_SHARD={shard} {command}",
-                                       asked if first else time.time(),
-                                       there and there.alias) as ended:
+                                       asked_at.get(shard, asked), there and there.alias) as ended:
                         code, _, killed = (worker.limited if there else worker.boxed)(
                             helper.piece(there, shard, there_command)
                             if there else ["bash", "-c", command],
@@ -1839,6 +1839,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         starved.discard(shard)
                 finally:
                     stream.finish()
+                    asked_at[shard] = time.time()
                     if local:
                         local.give(turn)
                 return code, piece, killed, tests
