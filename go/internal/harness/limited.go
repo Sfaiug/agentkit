@@ -9,10 +9,10 @@ import (
 	"agentkit/internal/config"
 )
 
-// limits are the words that say a rate limit, Python's harness.LIMITS.
+// limits are the words that say the endpoint is asked too often, Python's harness.LIMITS.
 var limits = []string{"429", "too many requests", "rate~limit", "rate~limited", "rate~limit~error"}
 
-// Limited is whether text says a rate limit, whole, as Python's harness.limited reads it.
+// Limited is whether text says one of limits, whole, as Python's harness.limited reads it.
 func Limited(text string) bool {
 	for _, word := range limits {
 		if says(text, word) {

@@ -17,8 +17,8 @@ import (
 )
 
 // ErrPython is a home whose usage Python ak reads: where its adapter scripts live, a provider
-// listing accounts, a harness whose probe runs a model, says no time or counts usage-limit
-// resets, and the tokens a window holds measured in state/capacity.json are not yet Go's.
+// listing accounts, a harness whose probe runs a model, says no time or counts the resets the
+// owner spends, and the tokens a window holds measured in state/capacity.json are not yet Go's.
 var ErrPython = errors.New("left to Python")
 
 // Readings is every provider's reading, as of the moment it was read.

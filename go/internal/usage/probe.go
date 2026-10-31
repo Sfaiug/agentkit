@@ -175,7 +175,7 @@ var (
 )
 
 // refused is whether an error says the endpoint would not answer, Python's usage.probe_refused:
-// a rate limit, a 5xx or a probe that never came back, none of which says anything of the
+// a 429, a 5xx or a probe that never came back, none of which says anything of the
 // credentials it went out with.
 func refused(error string) bool {
 	if harness.Limited(error) || timedOut.MatchString(error) {

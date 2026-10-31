@@ -46,8 +46,8 @@ func Subscriptions() ([]Subscription, error) {
 }
 
 // UsageFacts is a harness's `[usage]` table as Python's harness plugin reads it: whether its probe
-// runs a model (`capture`), its answer says no time (`strips_timestamp`), it counts usage-limit
-// resets (`reset`) or it reads no meter at all (`none`), and how often its endpoint may be asked,
+// runs a model (`capture`), its answer says no time (`strips_timestamp`), it counts the resets the
+// owner spends (`reset`) or it reads no meter at all (`none`), and how often its endpoint may be asked,
 // in seconds, 0 where it names no number.
 type UsageFacts struct {
 	Capture, StripsTimestamp, Reset, None bool
