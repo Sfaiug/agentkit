@@ -66,7 +66,7 @@ class OwnPrReview(unittest.TestCase):
         return self.commit()
 
     def review(self, author="owner", seat="fix-api", background=False,
-               want_review=None, launch_only=False):
+               want_review=None, launch_only=False, merge=None):
         end_runs_going()                # each call is a launch of its own
         directory = config.RUNS / f"review-{len(list(config.RUNS.iterdir()))}"
         directory.mkdir()
@@ -107,7 +107,7 @@ class OwnPrReview(unittest.TestCase):
             reviewer = mocks.enter_context(patch.object(run, "review", side_effect=passed))
             usage = run.collect_usage
             self.reviewer, self.usage = reviewer, usage
-            mocks.enter_context(patch.object(run, "merge_own_pr", side_effect=merged))
+            mocks.enter_context(patch.object(run, "merge_own_pr", side_effect=merge or merged))
             inbox = mocks.enter_context(patch.object(watch, "ask_inbox", return_value=0))
             if background:
                 mocks.enter_context(patch.object(run, "spawn_bg", return_value=0,
@@ -136,6 +136,21 @@ class OwnPrReview(unittest.TestCase):
                 firsts.append(history.get(state["run_id"])["first_review_lines"])
         # the first review records what it read; the second run reviews a PR already reviewed
         self.assertEqual(firsts, [taskfile.SEAT_TASK_LINES - 1, None])
+
+    def test_an_own_pr_parked_off_the_line_is_the_tick_s_to_retry(self):
+        self.change(2)
+
+        def parked(lp, *_args, **_kw):
+            # the merge step's park on a red target (`roundloop.park_waiting`), before any line
+            lp.state.update(state="waiting", error="origin/main itself fails: `false`",
+                            waiting_on={"ref": "origin/main", "sha": self.base})
+            return False
+
+        state = self.review(merge=parked)[0]
+        self.assertEqual(state["state"], "waiting")
+        said = []
+        watch.resume_waiting(dry_run=True, log=said.append, run=config.RUNS / state["run_id"])
+        self.assertEqual(said, [f"would resume {state['run_id']} after the next merge to origin/main"])
 
     def test_an_own_pr_review_resumed_before_its_verdict_keeps_the_size_it_first_read(self):
         predecessor = self.change(2)
