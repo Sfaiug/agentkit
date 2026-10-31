@@ -151,9 +151,11 @@ def probe(request):
                     Path(values[0]).parent == root / "adapters"):
                 return
             blocked(event)()
-        if event == "open" and isinstance(values[0], (str, bytes)):
+        if event == "open" and isinstance(values[0], (str, bytes, os.PathLike)):
             path = os.fsdecode(values[0])
-            if path.startswith("/proc/"):
+            # the one read `owner.mark` makes, its own start, matched whole: no other file of
+            # this process, and nothing reached through /proc/self/root
+            if path.startswith("/proc/") and path != "/proc/self/stat":
                 blocked("process inspection")()
             flags = values[2]
             if flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND):
@@ -197,7 +199,10 @@ def probe(request):
             response.status = request["status"]
             stack.enter_context(patch.object(urllib.request, "urlopen", return_value=response))
         try:
-            if module:
+            if mode == "read":
+                Path(request["path"]).read_bytes()
+                code = 0
+            elif module:
                 # the same entry points bin/ak's ENTRY names, under the same names
                 entry = getattr(module, {"fetch": "fetch_main", "doctor": "doctor",
                                          "wait": "wait_main"}.get(args[0], "main"))
@@ -448,6 +453,16 @@ sys.exit(int(os.environ.get("HELP_WORKER_EXIT", "0")))
             result = self.cli(["notify", "--check"], mode="check", status=status,
                               env={"AGENTKIT_DISCORD_WEBHOOK": "https://example.invalid/hook"})
             self.assertEqual(result.returncode, code, result.stderr)
+
+    def test_process_inspection_stays_blocked_but_for_the_mark_s_own_start(self):
+        result = self.cli([], mode="read", path="/proc/self/stat")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for path in ("/proc/self/status", "/proc/self/environ", "/proc/thread-self/stat",
+                     "/proc/self/root/proc/self/stat", "/proc/1/stat"):
+            with self.subTest(path=path):
+                result = self.cli([], mode="read", path=path)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("operational work: process inspection", result.stderr)
 
     def test_fetch_literal_help_filename_after_separator(self):
         path = self.root / "--help"

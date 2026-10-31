@@ -36,6 +36,7 @@ NICE = 10       # ... and it gives way to the rest of the host meanwhile
 # What the terminal signals the process in its session, the client, and the menu has to hear.
 FORWARDED = ("SIGWINCH", "SIGHUP", "SIGTERM", "SIGINT", "SIGQUIT", "SIGTSTP", "SIGCONT")
 _PRIMED = None  # in a forked menu: the reader's last read, for its first frame
+MARK = "AK_OWNER"   # what an `ak` command marks all it starts with (`owner`): the client's too
 
 
 def place(repo):
@@ -109,10 +110,12 @@ def cold(repo, argv, state):
 
 
 def _start(repo):
+    """A server, unmarked: it outlives whatever `ak` started it."""
     try:
         os.posix_spawn(sys.executable,
                        [sys.executable, os.path.join(repo, "agentkit", "warm.py"), "serve"],
-                       os.environ, setsid=True,
+                       {key: value for key, value in os.environ.items() if key != MARK},
+                       setsid=True,
                        file_actions=[(os.POSIX_SPAWN_OPEN, fd, os.devnull, os.O_RDWR, 0)
                                      for fd in (0, 1, 2)])
     except (OSError, NotImplementedError):

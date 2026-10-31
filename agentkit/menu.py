@@ -135,7 +135,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, plan, quality, staffing, terminal, transitions, update, usage, worker
+from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
 from . import record
 from . import warm
 
@@ -1991,7 +1991,8 @@ def stop_behind(name, dry_run):
     """Stop the popup's own seat behind it, in a process of its own (`teardown`), so the popup
     going ends nothing halfway."""
     try:
-        subprocess.Popen(teardown(name, dry_run), cwd=config.REPO, env=config.owner_env(),
+        subprocess.Popen(teardown(name, dry_run), cwd=config.REPO,
+                         env=owner.unmarked(config.owner_env()),
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, start_new_session=True)
     except OSError as exc:
@@ -4233,8 +4234,12 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
         # SIG_IGN, is not inherited by the harness.
         interrupt = signal.signal(signal.SIGINT, lambda *_: None)
         try:
+            # an install is the menu's own and ends with it; a browser a sign-in opens is the
+            # owner's, and outlives it (`owner`)
+            env = config.child_env()
             code = subprocess.run([str(config.adapter(harness)), *verb.split()],
-                                  env={**config.child_env(), **config.account_env(account),
+                                  env={**(owner.unmarked(env) if verb.startswith("login") else env),
+                                       **config.account_env(account),
                                        **config.provider_env([provider] if provider else [])}
                                   ).returncode
             # a sign-in cut short can still exit 0 (codex 0.163's on ^C): it finished unless the
@@ -5930,7 +5935,8 @@ def update_first(live=None, updates=None):
         return result()
     try:
         proc = subprocess.Popen([sys.executable, "-m", "agentkit.update", "--agentkit"],
-                                cwd=config.REPO, env=config.child_env(), stdin=subprocess.DEVNULL,
+                                cwd=config.REPO, env=owner.unmarked(config.child_env()),
+                                stdin=subprocess.DEVNULL,
                                 stdout=subprocess.PIPE if live else subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL, text=True, encoding="utf-8",
                                 start_new_session=True)
