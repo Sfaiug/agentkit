@@ -2321,9 +2321,8 @@ def answered_kept(name, replies, at):
     """A native card reply answers only its questions, including before the turn ends: its own
     card's copy, and every copy of a question whose latest card it is.  Each question it answers
     is the owner's time, asked when first kept and answered at `at`, unless the reply naming it
-    also names a question the seat's notice asks, by that question's card as `notify.answered`
-    reads it, with or without the choices shown: that answer records it.  The caller holds the
-    notice lock."""
+    also answers a question the seat's notice asks (`notify.card_answered`), whose answer
+    records it.  The caller holds the notice lock."""
     with seat_lock(name):
         data = seat_read(name)
         kept = questions_kept(data.get("unasked"))
@@ -2338,10 +2337,8 @@ def answered_kept(name, replies, at):
             return False
         _seat_put(name, data, {"unasked": _kept([q for q in kept if q not in answered])})
     notice = notify.last(name)
-    cards = {**((notice or {}).get("question_ids") or {}), **latest}
-    noticed = [reply for reply in replies if notice and any(
-               notify.replied([reply], q, cards.get(notify.question_key(q)))
-               for q in notify.questions(notice))]
+    noticed = [reply for reply in replies
+               if notice and notify.card_answered(notice, [reply], at, latest)]
     asked = {}
     for q in answered:
         key = notify.question_key(q["text"])
