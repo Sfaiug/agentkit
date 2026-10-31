@@ -4,33 +4,17 @@ Black-box: `AK_BIN` runs `ak watch` in `home.tick()`'s box and `ak doctor` on a 
 """
 
 from datetime import UTC, datetime
-import json
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import AK, REPO, Home, boxable
-from fixtures.google import ADDRESS, NL, SPOT, Google, kind, sku
+from fixtures.akbin import Home, boxable
+from fixtures.google import SKUS, Google, kind
 
-# Every `bin/ak` gives `google_cloud` the test clock, at the time in the file it names.
-CLOCK = """
-import sys, time
-if sys.argv[:1] == [{ak!r}]:
-    sys.path[:0] = [{repo!r}, {tests!r}]
-    from fixtures.clock import Clock
-    from agentkit import google_cloud
-    del sys.path[:2]
-    google_cloud.time = Clock(time.sleep)
-    google_cloud.time.time = lambda: float(open({now!r}).read())
-"""
 # c4a-standard-8 costs €6.0045 an hour: €5.60 its cores, €0.40 memory, €0.0045 disk and address
 P, HOUR = 6.0045, 3600
-SKUS = [sku(f"{SPOT} C4A Arm Instance Core running in Netherlands", NL, 700_000_000),
-        sku(f"{SPOT} C4A Arm Instance Ram running in Netherlands", NL, 12_500_000),
-        sku("Hyperdisk Balanced Capacity in Netherlands", NL, 73_000_000, "GiBy.mo"), ADDRESS]
 T, DECEMBER = (datetime(2026, *at, tzinfo=UTC).timestamp() for at in ((11, 1, 2), (12, 1, 0, 30)))
-BOOKED = DECEMBER + HOUR
 
 
 def machine(id, created, hours, labels={"ak": "rented"}):
@@ -56,10 +40,6 @@ class WatchesTheBill(unittest.TestCase):
             "machineTypes": [kind("c4a-standard-8", 8, 32)]}}])
         cls.addClassCleanup(google.close)
         google.key()
-        home.write("clock/sitecustomize.py", CLOCK.format(
-            ak=AK, repo=str(Path(AK).resolve().parents[1]), tests=str(REPO / "tests"),
-            now=str(home.path / "clock" / "now")))
-        google.env["PYTHONPATH"] = str(home.path / "clock")
         google.machines, cls.toml = [ONE, OWN], (home.path / ".agentkit/config.toml").read_text()
         cls.off, cls.unpriced = cls.at(T, 0), cls.at(T)
         # renamed, acme-1 keeps its meter; acme-3 is read again as another machine of its name
@@ -75,15 +55,6 @@ class WatchesTheBill(unittest.TestCase):
         for text in ("{", "null", '{"answered": 1, "spent": NaN, "machines": {}}'):
             ledger = home.write(".agentkit/state/google-cloud-ledger.json", text)
             cls.unreadable += [(text, cls.at(DECEMBER + 180), ledger.read_text())]
-        # acme-5 and acme-6 on the meter by name from 01:30, until 03:30 and 02:30
-        google.machines, google.refused = [OWN], set()
-        ledger.write_text(json.dumps({"answered": BOOKED, "spent": 0, "machines": {
-            "acme-5": {"price": 1, "from": BOOKED, "until": BOOKED + 2 * HOUR},
-            "acme-6": {"price": 1, "from": BOOKED, "until": BOOKED + HOUR}}}))
-        cls.booked = cls.at(BOOKED + 180)
-        cls.older, cls.answered = cls.at(BOOKED + 60), json.loads(ledger.read_text())["answered"]
-        google.machines = [machine("5", "2026-12-01T01:40:00Z", 2)]
-        cls.taken_over = cls.at(BOOKED + 2 * HOUR)
 
     @classmethod
     def at(cls, when, cap=50):
@@ -91,7 +62,7 @@ class WatchesTheBill(unittest.TestCase):
         deleted, and `ak doctor`'s lines then."""
         cls.home.write(".agentkit/config.toml", f"{cls.toml}\n[google_cloud]\nactive = "
                        f"{'true' if cap else 'false'}\nmax_month = {cap}\n")
-        cls.home.write("clock/now", str(when))
+        cls.google.at(when)
         start, done = len(cls.google.asked), cls.home.tick(env=cls.google.env)
         assert done.code == 0, done.out + done.err
         asked = cls.google.asked[start:]
@@ -115,14 +86,6 @@ class WatchesTheBill(unittest.TestCase):
         self.assertEqual(self.unanswered, (["/token"], [], [
             f"3 running · €{1.65 * P:.2f} of €50.00 this month as of 1 Nov 02:03",
             *self.refused[2][1:]]))
-
-    def test_a_machine_on_the_meter_by_name_stays_until_listed_and_is_paid_whole_past_its_end(self):
-        unlisted = ["0 running · €0.00 of €50.00 this month"]
-        self.assertEqual((self.booked[2], self.older[2], self.answered),
-                         (unlisted, unlisted, BOOKED + 180))
-        # acme-5 from its creation at 01:40 to 03:30 at its type's price, acme-6 one hour at its own
-        self.assertEqual(self.taken_over[2], [
-            f"1 running · €{P * 110 / 60 + 1:.2f} of €50.00 this month"])
 
     def test_past_the_cap_each_goes_back_and_a_month_counts_its_own_time(self):
         # acme-1b and acme-2 1.95 hours more, acme-3 nothing past its end

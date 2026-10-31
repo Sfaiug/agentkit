@@ -105,9 +105,7 @@ def room(alias, piece_cpus, piece_mem_mb, least_mb=0, turns=False):
     alone. Its CPUs less its load, split equally, as VMs time-share them; the memory ak's VMs
     may still be given there (`left`), beside other suites' VMs. A VM gets two CPUs or more, as a
     one-CPU VM's kernel hands a terminal's bytes over late and the suite's terminal tests read
-    them at once, and twice the piece's measured memory, as it also holds its own kernel, page
-    cache and clone, or `least_mb` where that is more. The most pieces are its CPUs' fit
-    with no load."""
+    them at once, and `each_mb`. The most pieces are its CPUs' fit with no load."""
     try:
         probe = _remote(alias, "probe", text=True, timeout=30)
         if probe.returncode:
@@ -118,13 +116,19 @@ def room(alias, piece_cpus, piece_mem_mb, least_mb=0, turns=False):
             return None, "takes no model turns"
         cpus, room_mb = readings["cpus"], readings["room_mb"]
         spare, each_cpus = cpus - readings["load"], max(piece_cpus, 2)
-        each_mb = int(max(2 * piece_mem_mb, least_mb))
-        count = min(int(spare // each_cpus), int(room_mb // each_mb))
+        mb = each_mb(piece_mem_mb, least_mb)
+        count = min(int(spare // each_cpus), int(room_mb // mb))
     except (OSError, subprocess.TimeoutExpired, KeyError, ValueError, OverflowError):
         return None, "did not answer (asleep or away)"
     if count < 1:
         return None, f"has no room ({spare:g} spare CPUs and {room_mb:g} MiB)"
-    return (count, int(spare // count), each_mb, int(cpus // each_cpus)), ""
+    return (count, int(spare // count), mb, int(cpus // each_cpus)), ""
+
+
+def each_mb(piece_mem_mb, least_mb):
+    """The MiB a VM gets, on one core of a machine with docker: twice the piece's measured memory,
+    as it also holds its own kernel, page cache and clone, or `least_mb` where that is more."""
+    return int(max(2 * piece_mem_mb, least_mb))
 
 
 def failure(code):
@@ -176,26 +180,25 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None):
     it goes to a machine that takes turns, holding `piece_cpus` of it until it starts, not half,
     `turn(tar)` adding its own files to the parcel."""
     try:
-        aliases = machines.helpers()
+        aliases, renting = machines.helpers(), google_cloud.renting()
     except config.Error:  # a config.toml mid-edit fails no run's suite: it runs here
-        aliases = []
-    if not aliases:
+        aliases, renting = [], False
+    if not aliases and not renting:
         return None, "no suite helper set up"
-    alias = aliases[0]
     # A checkout's repository is the one its main checkout has, wherever the suite runs.
     repo = hashlib.sha256(str(gitcall.main_checkout(cwd)).encode()).hexdigest()[:12]
     try:
         image, recipe = _recipe(cwd, repo) or (None, None)
     except ValueError as exc:
         log(f"WARN the suite helper cannot build suite_image: {exc}; the suite runs here")
-        return None, f"helper {alias} cannot build suite_image: {exc}"
+        return None, f"the suite helper cannot build suite_image: {exc}"
     if not image:
-        return None, f"no recipe for the suite helper {alias}"
+        return None, "no recipe for a suite helper"
     code, branch = gitcall.git_out(cwd, "symbolic-ref", "-q", "--short", "HEAD")
     named, default = gitcall.git_out(cwd, "rev-parse", "--abbrev-ref", "origin/HEAD")
     programs = {program for program in orch.agent_programs() if config.harness_binary(program)}
     wide = 2 ** 64 - 1    # the shard, CPUs and MiB, unknown before the probe, at their widest
-    away = Away(alias, secrets.token_hex(6), repo, image, wide, wide, wide, wide,
+    away = Away(None, secrets.token_hex(6), repo, image, wide, wide, wide, wide,
                 "" if code else branch,
                 "" if named else default.removeprefix("origin/"), " ".join(sorted(programs)))
     size = len(os.fsencode(piece(away, f"{wide}/{wide}", command)[-1]))
@@ -230,7 +233,10 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None):
             return away, ""
         finish(away)
         why[alias] = failure(sent)
-    return None, " · ".join(f"helper {alias} {reason}" for alias, reason in why.items())
+    if renting:
+        google_cloud.need(each_mb(piece_mem_mb, _least(repo)))
+    return None, " · ".join(f"helper {alias} {reason}" for alias, reason in why.items()) or (
+        "no suite helper set up")
 
 
 def _least(repo):
