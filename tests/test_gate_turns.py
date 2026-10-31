@@ -84,8 +84,8 @@ class GateTurns(unittest.TestCase):
                                    "started_at": time.time(), "round_summaries": []})
         return directory
 
-    def mark(self, word, seconds=0):
-        return f"echo {word} >> {shlex.quote(str(self.marks))}; sleep {seconds}"
+    def mark(self, word):
+        return f"echo {word} >> {shlex.quote(str(self.marks))}"
 
     def hold(self, word):
         """A command that writes its mark, then keeps its turn until `self.release()`."""
@@ -119,8 +119,8 @@ class GateTurns(unittest.TestCase):
     def test_two_gates_of_one_repository_run_one_after_the_other(self):
         for name in ("one", "two"):
             history.start_run(name, repo=ACME)
-        first = Gate(self, "one", ACME, [self.mark("start", 1), self.mark("end")])
-        second = Gate(self, "two", ACME, [self.mark("start", 0.2), self.mark("end")])
+        first = Gate(self, "one", ACME, [self.hold("start"), self.mark("end")])
+        second = Gate(self, "two", ACME, [self.mark("start"), self.mark("end")])
         self.started(first)
         second.start()
         gate_log = second.run_dir / "donewhen.log"
@@ -130,6 +130,8 @@ class GateTurns(unittest.TestCase):
         self.assertEqual(suite_gate.gate_turn_note(state), "waiting for a heavy suite turn")
         self.assertIn("  waiting for a heavy suite turn",
                       status.status_details(second.run_dir, state))
+        time.sleep(0.5)     # a wait its history row must keep
+        self.release()
         first.join(20)
         second.join(20)
         self.assertEqual(self.marks.read_text(), "start\nend\nstart\nend\n")
@@ -144,18 +146,19 @@ class GateTurns(unittest.TestCase):
         self.assertGreater(history.get("two")["suite_wait_seconds"], 0.5)
 
     def test_gates_of_different_repositories_share_heavy_turns_host_wide(self):
-        first = Gate(self, "one", ACME, [self.mark("start", 1), self.mark("end")])
+        first = Gate(self, "one", ACME, [self.hold("start"), self.mark("end")])
         other = Gate(self, "two", WIDGET, [self.mark("other")])
         self.started(first)
         other.start()
+        self.until(other.waited, "the other repository's gate to wait")
+        self.release()
         other.join(20)
         first.join(20)
         self.assertEqual(self.marks.read_text(), "start\nend\nother\n")
-        self.assertTrue(other.waited(), other.logs)
         self.assertTrue(first.result[0] and other.result[0])
 
     def test_a_wait_past_the_silence_window_costs_neither_the_gate_nor_its_ceiling(self):
-        first = Gate(self, "one", ACME, [self.mark("start", 4)])
+        first = Gate(self, "one", ACME, [self.hold("start")])
         chatty = (f"{shlex.quote(sys.executable)} -u -c "
                   "'import time\nfor i in range(8): print(i); time.sleep(0.2)'")
         # a silence window the wait outlasts, and a ceiling the wait plus the command would
@@ -164,10 +167,12 @@ class GateTurns(unittest.TestCase):
         self.started(first)
         began = time.monotonic()
         second.start()
+        self.until(second.waited, "the second gate to wait")
+        time.sleep(2)       # past the silence window, and with the command's 1.6s past the ceiling
+        self.release()
         first.join(20)
         second.join(20)
         self.assertGreater(time.monotonic() - began, 3.5)
-        self.assertTrue(second.waited(), second.logs)
         self.assertTrue(second.result[0], second.result[1])
         self.assertNotIn("stopped after", second.result[1])
         self.assertIn("[exit 0]\n0\n1\n", second.result[1])
