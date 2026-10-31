@@ -3046,8 +3046,27 @@ def unread_question(name):
     return not isinstance(notice, dict) or (notice.get("kind") == "needs" and not notice.get("seen"))
 
 
+def forgotten(tag, found):
+    """ak holds nothing of the seat a side session's tag names: no record or rename pointer and
+    no session in tmux, under the tag or where its renames lead.  Asked afresh each time, as a
+    seat may open under the name while the session's screens are saved.  A record it cannot read,
+    a rename chain it cannot follow or a failed tmux probe is no proof the seat is gone."""
+    try:
+        names = {tag, config.resolve_session(tag)}
+    except (config.Error, OSError):
+        return False
+    if not names.isdisjoint(found) or any(retention.present(config.session_path(name))
+                                          for name in names):
+        return False
+    # By name as tmux lists it: a target reads `$1` as an id.  The listing holds the side
+    # session itself, so an empty one is a probe that failed.
+    held = held_names()
+    return bool(held) and names.isdisjoint(held)
+
+
 def sweep_finished(found, log):
-    """Save and close a seat's auxiliary sessions after every pane has been dead for a day."""
+    """Save and close a seat's auxiliary sessions after every pane has been dead for a day, or
+    at once, live panes and all, when ak has forgotten the seat: nothing else ever ends them."""
     rc, out = tmux_out("list-panes", "-a", "-F",
                        f"#{{session_id}}\t#{{session_name}}\t"
                        f"#{{{MARK}}}\t#{{pane_id}}\t#{{pane_dead}}\t#{{pane_dead_time}}\t.")
@@ -3062,16 +3081,16 @@ def sweep_finished(found, log):
     cutoff = time.time() - 86400
     for sid, panes in grouped.items():
         name, mark = panes[0][:2]
-        if mark == "1" or name in (CONTROL, *found) or guard.seat(name):
+        if (mark == "1" or name in (CONTROL, *found) or guard.seat(name)
+                or any(not re.fullmatch(r"%[0-9]+", p[2]) for p in panes)):
             continue
-        if any(not re.fullmatch(r"%[0-9]+", p[2]) or p[3] != "1"
-               or not p[4].isdigit() or not 0 < int(p[4]) <= cutoff for p in panes):
-            continue
+        finished = all(p[3] == "1" and p[4].isdigit() and 0 < int(p[4]) <= cutoff
+                       for p in panes)
         # The session's own environment: a format's #{} falls back to the server's, which holds
         # the tag whenever a process in a tagged pane started this server.
         rc, tag = tmux_out("show-environment", "-t", sid, guard.TMUX_OWNER)
         owner = tag.removeprefix(f"{guard.TMUX_OWNER}=")
-        if rc or owner in (tag, ""):
+        if rc or owner in (tag, "") or not (finished or forgotten(owner, found)):
             continue
         try:
             config.TMP.mkdir(parents=True, exist_ok=True)
@@ -3095,7 +3114,7 @@ def sweep_finished(found, log):
             finally:
                 os.close(directory)
         except (OSError, subprocess.TimeoutExpired) as exc:
-            log(f"WARN could not save the finished session {name}: {exc}")
+            log(f"WARN could not save the side session {name}: {exc}")
             continue
         # Recheck every window and pane inside tmux's kill command: a pane respawned, added
         # or moved during capture must survive, as must a session renamed into a seat or whose
@@ -3107,9 +3126,13 @@ def sweep_finished(found, log):
                      f"#{{==:#{{{guard.TMUX_OWNER}}}/#{{session_name}}/"
                      f"#{{W:#{{P:#{{pane_id}}/#{{pane_dead}}/#{{pane_dead_time}};}}}},"
                      f"{snapshot}}}}}")
-        if not guard.seat(name):
+        # A seat opened under the owner's name during capture takes its sessions back.
+        if not guard.seat(name) and (finished or forgotten(owner, found)):
             tmux_out("show-environment", "-t", sid, guard.TMUX_OWNER, ";",
                      "if-shell", "-F", "-t", sid, condition, f"kill-session -t '{sid}'")
+            if session_absent(sid):     # tmux reads `=$1` as session $1, renamed or not
+                log(f"closed {name}, a side session {owner} started; its screens are in "
+                    f"{config.TMP / filename}")
 
 
 def sweep(log):
