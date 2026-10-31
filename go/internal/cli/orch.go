@@ -95,6 +95,10 @@ func validateOrch(args []string) string {
 // answers only where Python's maintenance finds nothing to tidy on the way in; a person's open
 // and pane-died's `ended` are Python's, and a dry run orchPreview's.
 func orchOpen(args []string, out, errOut io.Writer) int {
+	// validateOrch reads nothing after `ended`, so neither may this
+	if len(args) > 0 && args[0] == "ended" {
+		return notImplemented(errOut, "orch")
+	}
 	name, dryRun, flags := "", false, map[string]string{}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -107,14 +111,14 @@ func orchOpen(args []string, out, errOut io.Writer) int {
 			name = config.SessionName(args[i])
 		}
 	}
-	if dryRun && args[0] != "ended" {
+	if dryRun {
 		return orchPreview(name, flags, out, errOut)
 	}
 	// a terminal a seat made is not a person's; a person's open is Python's, as is a seat name
 	// CurrentSession refuses
 	seat, _, err := config.CurrentSession()
 	typed := terminal.TypedHere()
-	if err != nil || typed && seat == "" || len(args) > 0 && args[0] == "ended" || !tidy() || config.EnsureDirs() != nil {
+	if err != nil || typed && seat == "" || !tidy() || config.EnsureDirs() != nil {
 		return notImplemented(errOut, "orch")
 	}
 	how := "a new seat opens only from a terminal (the menu's n, or `ak orch NAME` typed there)"
