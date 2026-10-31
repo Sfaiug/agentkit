@@ -4258,7 +4258,7 @@ def switch_lines(cfg, name, model, effort=None):
                                       "orchestrator")
     keys = [key for key in ("model", "effort") if key in block and (key, at) != ("effort", "none")]
     if keys == ["model", "effort"] and was["model"] == entry["model"]:
-        keys = ["effort"]   # `/model` again would only re-save it as Claude's and Muse's default
+        keys = ["effort"]   # a harness may save each `/model` as its default for new sessions
     return [{"line": block[key].format(model=entry["model"], effort=at), "switch": True,
              "pane": pane} for key in keys]
 
