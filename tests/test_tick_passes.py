@@ -100,6 +100,12 @@ class TickPasses(unittest.TestCase):
                     if other != "agentkit.staffing._cached_providers":
                         self.assertTrue(mock.called, f"{other} did not run after {name}")
 
+    def test_each_pass_has_a_name_of_its_own_in_one_to_three_lowercase_words(self):
+        names = [name for name, _, _ in watch.local_passes({}, False, print)]
+        self.assertEqual(sorted(names), sorted(set(names)))
+        for name in names:
+            self.assertRegex(name, r"\A[a-z]+(?: [a-z]+){0,2}\Z")
+
     def test_a_dry_run_runs_only_the_passes_that_change_nothing(self):
         self.tick("--dry-run")
         for where, name, _what, dry in PASSES:
