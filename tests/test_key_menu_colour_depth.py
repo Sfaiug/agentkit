@@ -1,8 +1,9 @@
 """The menu draws in as many colours as the terminal takes, and in none under NO_COLOR.
 
-True colour only where COLORTERM says so; otherwise the terminal's own count: xterm-256color
-takes the nearest of its 256 fixed colours and a plain xterm the eight basic ones, so no cell is
-drawn in a colour the terminal would show as some other.  NO_COLOR turns colour off everywhere,
+True colour only where COLORTERM or tmux says so; otherwise the terminal's own count:
+xterm-256color takes the nearest of its 256 fixed colours and a plain xterm the eight basic ones,
+so no cell of any frame is drawn in a colour the terminal would show as some other.  NO_COLOR
+turns colour off everywhere,
 even on a true-colour terminal, the help included, and the menu still reads by its shapes: the
 rule under its header, the `›` on the highlighted row and the key line.  Black-box: ak runs
 through tests/fixtures/akterm.py, and each cell is judged by how it looks
@@ -48,6 +49,20 @@ class ColourDepth(unittest.TestCase):
         self.assertEqual(look(screen, "›"), {"1", "36"})
         drawn = colours(screen)
         self.assertEqual({c for c in drawn if not re.fullmatch(r"[34][0-7]", c)}, set())
+
+    def test_every_later_frame_keeps_the_depth_of_the_first(self):
+        menu = Terminal(self.home, size=(100, 40), env={"TERM": "xterm"})
+        self.addCleanup(self.home.tmux, "kill-session", "-t", menu.pane, server=SERVER)
+        settled(menu, lambda text: "! needs you" in text and "esc leave" in text)
+        menu.resize(90, 40)     # a whole new frame, every cell of it drawn again
+        screen = settled(menu, lambda text: "─" * 90 in text and "─" * 91 not in text
+                         and "esc leave" in text)
+        self.assertEqual(look(screen, "›"), {"1", "36"})
+        self.assertEqual({c for c in colours(screen) if not re.fullmatch(r"[34][0-7]", c)}, set())
+
+    def test_true_colour_tmux_reports_is_drawn_though_colorterm_does_not_say_it(self):
+        screen = self.menu(TERM="xterm-256color", AGENTKIT_TERMFEATURES="RGB")
+        self.assertEqual(look(screen, "›"), {"1", "38;2;137;180;250"})
 
     def test_no_color_draws_no_colour_even_on_a_true_colour_terminal(self):
         screen = self.menu(NO_COLOR="1", COLORTERM="truecolor")
