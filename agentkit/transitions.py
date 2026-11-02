@@ -222,12 +222,11 @@ MOVED_BLOCK = 20    # alphanumeric characters a moved block holds at least, as g
                     # moved-line detection (--color-moved) asks before it calls lines moved
 
 
-def first_review_refusal(what, lines, carried=0):
+def first_review_refusal(what, lines, ceiling, carried=0):
     """One sentence when `what` (a pull request, a task's change) adds more lines than a first
     review takes at once (`config.policy`'s `review_lines`), else None: `lines` as `diff_lines`
     counts the added ones, less `carried`, the ones `carried_lines` found moved unchanged from
     lines the diff deletes -- what a reviewer reads; nothing deleted counts."""
-    ceiling = config.policy()["review_lines"]
     if lines - carried <= ceiling:
         return None
     moved = f", {carried} of them moved unchanged from lines it deletes" if carried else ""
@@ -310,7 +309,7 @@ REPLACED_WITHIN = 14 * 86400    # a pull request that failed at its budget this 
                                 # charges the one that re-adds its lines
 
 
-def budget_failed_reviews(repo, exclude=None):
+def budget_failed_reviews(repo, budget, exclude=None):
     """The pull requests of that repository whose review spent the budget, counted
     across their runs as `rounds_spent_elsewhere` counts them, none of which merged, as
     (url, `size_base`, head) of the runs of them that ended `fail` within `REPLACED_WITHIN`,
@@ -334,12 +333,11 @@ def budget_failed_reviews(repo, exclude=None):
             key = pr_key(state["review_pr"])
             found.setdefault((key, size_base(state), state["head_sha"]),
                              (state["review_pr"], size_base(state), state["head_sha"]))
-    budget = config.policy()["rounds"]
     return [failed for (key, _, _), failed in found.items()
             if key not in merged and spent[key] >= budget]
 
 
-def replacement_refusal(repo, base, head, number, counted, exclude=None):
+def replacement_refusal(repo, base, head, number, counted, budget, exclude=None):
     """Why a pull request's first review is refused as a replacement, else None: more than half
     of the lines it adds that a reviewer reads (`reviewed_lines`) and that hold a letter or digit
     were added by a pull request whose review failed at the budget (`budget_failed_reviews`), and
@@ -354,7 +352,7 @@ def replacement_refusal(repo, base, head, number, counted, exclude=None):
     if not mine:
         return None
     written, worst = sum(mine.values()), None
-    for url, their_base, their_head in budget_failed_reviews(repo, exclude):
+    for url, their_base, their_head in budget_failed_reviews(repo, budget, exclude):
         if not all(gitcall.git(repo, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}", check=False)
                    for sha in (their_base, their_head)):
             continue
@@ -366,7 +364,7 @@ def replacement_refusal(repo, base, head, number, counted, exclude=None):
         return None
     url, shared, size = worst
     return (f"PR #{number} re-adds {shared} of its {written} lines holding a letter or digit from {url}, "
-            f"whose review failed after {config.policy()['rounds']} rounds; a replacement inherits them: "
+            f"whose review failed after {budget} rounds; a replacement inherits them: "
             f"split it into parts under {size // 2 + 1} lines, or redesign it")
 
 
@@ -484,7 +482,7 @@ def over_lineage(state, run_dir, n_rounds):
     cap = lineage_cap(state, run_dir)
     if n_rounds > cap:
         raise config.Error(f"--rounds {n_rounds} is over this change's budget: {cap} of "
-                           f"{config.policy()['rounds']} rounds across its runs; split or redesign the task")
+                           f"{run_record.policy_of(state)['rounds']} rounds across its runs; split or redesign the task")
 
 
 def failed_at_budget(state):
@@ -1247,10 +1245,10 @@ def rounds_spent(state):
     return recorded + (1 if begun > recorded and going(state) else 0)
 
 
-def spent_line(spent, runs, what):
+def spent_line(spent, runs, what, budget):
     """Why no round is left: the one wording of a spent budget, wherever it is refused."""
     return (f"{spent} review rounds spent on {what} across {runs} run{'s' if runs != 1 else ''}: "
-            f"{config.policy()['rounds']} per pull request is the budget; split or redesign it")
+            f"{budget} per pull request is the budget; split or redesign it")
 
 
 def rounds_spent_elsewhere(*, pr=None, change=None, exclude=None):
@@ -1294,29 +1292,30 @@ def change_reviewed(*, pr=None, change=None):
     return any(state.get("round_summaries") for state in runs_on(pr=pr, change=change))
 
 
-def round_budget(asked, *, pr=None, change=None, exclude=None, what, own=0):
+def round_budget(asked, budget, *, pr=None, change=None, exclude=None, what, own=0):
     """(the rounds this run may still have, None), or (0, why) once the change's budget is
     spent: `asked` less what the other runs (`exclude` names this one) spent on the same pull
-    request or change and less this run's `own`, the host's `rounds` in all.  The one
+    request or change and less this run's `own`, `budget` rounds in all.  The one
     reading of the budget: a launch, a resume, the way on from a FAIL and every round as it
     is spent read it here."""
     spent, runs = rounds_spent_elsewhere(pr=pr, change=change, exclude=exclude)
-    left = min(asked, config.policy()["rounds"] - spent - own)
+    left = min(asked, budget - spent - own)
     if left < 1:
-        return 0, spent_line(spent + own, runs + (1 if own else 0), what)
+        return 0, spent_line(spent + own, runs + (1 if own else 0), what, budget)
     return left, None
 
 
 def change_budget(state, run_dir, asked, own=0):
     """`round_budget` for a run's own pull request or change: the one place a record is
     read into its arguments."""
-    return round_budget(asked, pr=state.get("pr") or state.get("review_pr"),
+    return round_budget(asked, run_record.policy_of(state)["rounds"],
+                        pr=state.get("pr") or state.get("review_pr"),
                         change=change_of(state), exclude=run_dir, what="this change", own=own)
 
 
 def lineage_cap(state, run_dir):
     """The rounds that run may have in all: the change's budget less what other runs spent."""
-    return change_budget(state, run_dir, config.policy()["rounds"])[0]
+    return change_budget(state, run_dir, run_record.policy_of(state)["rounds"])[0]
 
 
 def allowed_rounds(lp):

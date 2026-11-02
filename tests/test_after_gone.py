@@ -87,7 +87,7 @@ class AfterGone(unittest.TestCase):
     def test_an_old_run_copy_with_after_still_parses(self):
         meta, _, title = task.parse_task(self.write("after: base.md\n", "fix-api.md"))
         self.assertEqual((meta["after"], title), ("base.md", "fix-api.md"))
-        self.assertIn("`after:` is gone", task.launch_refusal(meta, []))
+        self.assertIn("`after:` is gone", task.launch_refusal(meta, [], 3))
 
     def saved(self, name, **extra):
         """A record from before `after:` went: cut from a dependency's passed tip."""

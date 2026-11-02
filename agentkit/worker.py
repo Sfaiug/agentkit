@@ -103,6 +103,7 @@ REAL_USERS = ("[worker judgement] This repository has real users: new user-visib
 # The commit a turn's `users:` line is read at, handed in the turn's env like the findings
 # path and taken out of it before the harness starts.
 BASE_ENV = "AK_USERS_BASE"
+REVIEW_LINES_ENV = "AK_REVIEW_LINES"    # the run's `review_lines`, handed in the same way
 
 
 def users_declared(workspace, base=None):
@@ -869,7 +870,8 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
                                        role=role, findings=turn_env.pop(hand_in.FINDINGS_ENV, None))
     base = turn_env.pop(BASE_ENV, None)
     preamble = (PREAMBLES[role].format(workspace=workspace)
-                .replace(SIZE, size_rule(config.policy()["review_lines"])))
+                .replace(SIZE, size_rule(turn_env.pop(REVIEW_LINES_ENV, None)
+                                         or config.policy()["review_lines"])))
     if GATE in preamble:
         if users_declared(workspace, base) == "real":
             preamble = preamble.replace(GATE, f"{GATE}\n{REAL_USERS}")

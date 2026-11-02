@@ -387,11 +387,37 @@ def _read_toml(path):
         raise Error(f"{path}: {exc}")
 
 
-def policy(table=None):
+def host_policy(table=None):
     """The POLICY numbers in force on this host: config.toml's own, or `table`'s as it would
     be saved, else ak's defaults."""
     path = HOME / CONFIG_NAME
-    data, numbers = (_read_toml(path) or {}) if table is None else table, {}
+    return _policy_in(path, (_read_toml(path) or {}) if table is None else table)
+
+
+def policy(checkout=None):
+    """The POLICY numbers in force for a project: the front matter of AGENTS.md on the default
+    branch of its local checkout, else the host's.  A checkout that is None, or whose git does
+    not answer at launch, gives the host's numbers, and preflight reports the repository as it
+    does today: nothing is cloned or resolved to read a number.  A clone with no origin/HEAD yet
+    is read at its HEAD, where `default_base` ends up offline."""
+    numbers = host_policy()
+    if checkout is None:
+        return numbers
+    from . import gitcall     # here, not at the top: gitcall imports this module
+    try:
+        ref = gitcall.git(checkout, "rev-parse", "--verify", "--quiet", RULES_REF, check=False) or "HEAD"
+    except Exception:
+        return numbers
+    declared = {key: gitcall.declared_at(checkout, ref, key) for key in POLICY}
+    return _policy_in(Path(checkout) / "AGENTS.md", {
+        **numbers, **{key: int(value) if re.fullmatch("[0-9]+", value) else value
+                      for key, value in declared.items() if value is not None}})
+
+
+def _policy_in(path, data):
+    """The POLICY numbers `data` holds, ak's default for one it does not, refused naming `path`,
+    the floor and the meaning."""
+    numbers = {}
     for key, (default, floor, _, meaning, _) in POLICY.items():
         value = numbers[key] = data.get(key, default)
         if type(value) is not int or value < floor:

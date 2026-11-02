@@ -3278,12 +3278,12 @@ def config_within(cfg, step):
 
 
 def config_number(cfg, name, way):
-    """config.POLICY's `name` its step along `way` (1 or -1), or as far of it as config.policy
+    """config.POLICY's `name` its step along `way` (1 or -1), or as far of it as config.host_policy
     allows, and saved (_saved); what to say under the rows, or ""."""
-    was = config.policy(cfg)[name]
+    was = config.host_policy(cfg)[name]
     for value in range(was + way * config.POLICY[name][2], was, -way):
         try:
-            config.policy({**cfg, name: value})
+            config.host_policy({**cfg, name: value})
         except config.Error:
             continue
         before = copy.deepcopy(cfg)
@@ -3657,7 +3657,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                 "  " + terminal.cut(row, room - 2))
             places[len(lines)] = (("row", row), [])
             lines.append(terminal.highlight(line, number == 0) if at == ("row", row) else line)
-    numbers = config.policy(cfg)      # `values` ends with `Weekly audit`: these have columns
+    numbers = config.host_policy(cfg)      # `values` ends with `Weekly audit`: these have columns
     numbered, (down, across) = number_rows(numbers, wide, saved, room)
     for name, parts in numbered.items():
         row, value = ("row", name), numbers[name]
@@ -4067,9 +4067,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         elif here[0] == "row" and here[1] in config.POLICY:
             # unseen, the key only brings the highlight back
             if act in ("left", "right") and not terminal.unseen():
-                was = config.policy(cfg)[here[1]]
+                was = config.host_policy(cfg)[here[1]]
                 note = config_number(cfg, here[1], 1 if act == "right" else -1)
-                if config.policy(cfg)[here[1]] == was:
+                if config.host_policy(cfg)[here[1]] == was:
                     clock.touch(("number", here[1]))   # refused, at an end or unsaved
                 else:
                     saved = here[1]

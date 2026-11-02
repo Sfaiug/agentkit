@@ -70,6 +70,13 @@ def read_state(run_dir, shared=False):
         return None
 
 
+def policy_of(state):
+    """The numbers a run holds to: those read as its directory was made (`run.prepare`), kept on
+    its record because they do not change while it runs; a record from before that keeps none
+    and reads them from its worktree."""
+    return state.get("policy") or config.policy(state.get("worktree"))
+
+
 def run_dirs():
     # Sorted as strings: comparing thousands of Paths was most of a tick's reads of the runs.
     try:
