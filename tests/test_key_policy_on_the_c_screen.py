@@ -178,7 +178,7 @@ class PolicyOnC(unittest.TestCase):
 
     def test_a_home_file_of_top_level_keys_alone_keeps_its_numbers(self):
         path = self.home.path / ".agentkit/config.toml"
-        path.write_text('rounds = 5\nreview_lines = 200\n')
+        path.write_text('rounds = 5\nreview_lines = 200\nmax_runs = 7\ncustom_flag = true\n')
         term = self.opened(size=(100, 50))     # the shipped config answers for its models
         self.assertIn(row("rounds", 5, "default 3"), lines(term.wait("seat_lines")))
         term.keys(*["j"] * 30)                 # the last row
@@ -186,8 +186,8 @@ class PolicyOnC(unittest.TestCase):
         term.keys("Left")
         term.wait(row("seat_lines", 49, "default 50", "saved", SEAT, on=True))
         saved = akconfig.read(self.home)
-        self.assertEqual((saved["rounds"], saved["review_lines"], saved["seat_lines"]),
-                         (5, 200, 49))
+        self.assertEqual((saved["rounds"], saved["review_lines"], saved["seat_lines"],
+                          saved["max_runs"], saved["custom_flag"]), (5, 200, 49, 7, True))
 
 
 if __name__ == "__main__":

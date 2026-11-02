@@ -412,7 +412,7 @@ def load():
 
     It is the same file max_runs() reads, and an install from before the models moved into it
     left only that key there.  A file that configures no models at all is not a broken config:
-    the shipped default answers for the models, and the home file still answers for max_runs.
+    what it holds stays the host's, and the shipped default answers for the rest.
 
     Every model is offered as orchestrator and as worker; `[defaults]` names the orchestrator
     and the workers a new seat starts with, the last created seat's (remember_defaults): a
@@ -430,8 +430,7 @@ def load():
         cfg = _read_toml(path)
         if cfg is None:
             raise Error(f"missing {path}")
-        # the menu shows and saves this table: the home file's numbers stay the host's
-        cfg.update((key, home[key]) for key in POLICY if key in (home or {}))
+        cfg.update(home or {})
     for key in ("models", "providers"):
         if not isinstance(cfg.get(key), dict):
             raise Error(f"{path}: missing [{key}] table")
@@ -450,15 +449,18 @@ def load():
     defaults = cfg.setdefault("defaults", {})
     if not isinstance(defaults, dict):
         raise Error(f"{path}: [defaults] must be a table")
+
+    def held(key):      # a top-level setting's error sends the owner to the file that holds it
+        return HOME / CONFIG_NAME if key in (home or ()) else path
     if "within" in cfg and (isinstance(cfg["within"], bool) or not isinstance(cfg["within"], (int, float))
                             or not 0 <= cfg["within"] <= POINTS):
-        raise Error(f"{path}: within must be a number of points from 0 to {POINTS} "
+        raise Error(f"{held('within')}: within must be a number of points from 0 to {POINTS} "
                     f"(got {cfg['within']!r})")
     marks = cfg.get("compare")
     if marks is not None and (not isinstance(marks, list)
                               or any(not isinstance(slug, str) for slug in marks)):
-        raise Error(f"{path}: compare must list release slugs (compare = [\"acme-pro-5\"]) "
-                    f"(got {marks!r})")
+        raise Error(f"{held('compare')}: compare must list release slugs "
+                    f"(compare = [\"acme-pro-5\"]) (got {marks!r})")
     if not isinstance(defaults.setdefault("orchestrator", names[0]), str):
         raise Error(f"{path}: [defaults].orchestrator must be a model name "
                     f"(got {defaults['orchestrator']!r})")
@@ -1321,10 +1323,6 @@ def remember_defaults(record, models=None):
                 "defaults")) == meant(defaults):
             return ""
         cfg = load()
-        # a file from before it held the models (max_runs alone) loads as the shipped one: its
-        # own keys are written back over the shipped ones, as they were
-        cfg.update((key, value) for key, value in (_read_toml(HOME / CONFIG_NAME) or {}).items()
-                   if key not in ("defaults", "tiers", "models", "providers"))
         if models is not None:
             cfg["models"] = models
         save(cfg, defaults)
