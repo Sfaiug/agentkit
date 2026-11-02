@@ -574,6 +574,16 @@ def installed_head():
     return waiter.head(str(config.REPO), env=tool_env())
 
 
+def started_on():
+    """The installed agentkit this process started on, read once: what its launch is judged on
+    (`judge_queued`) and what it moves from (`pickup_while_queued`).  Read apart, an install moving
+    between the two left a launch judged on neither, and first in line nothing moved it again."""
+    global _PICKUP_START
+    if _PICKUP_START is None:
+        _PICKUP_START = installed_head() or None
+    return _PICKUP_START
+
+
 def pickup_new_code(lp, execv=None, current=None):
     """Replace this process with the installed agentkit when it has moved, at a safe boundary.
 
@@ -1305,7 +1315,7 @@ def judge_queued(run_dir, opts, log, cfg):
     landing while it waits refuses it then, not when a slot comes.  A read that failed, of
     GitHub or of git, refuses nothing; the next version, or the run itself, asks again."""
     state = run_record.read_state(run_dir) or {}
-    now = installed_head()
+    now = started_on()
     if state.get("state") != "queued" or not now or state.get("judged_on") == now:
         return False
     try:
@@ -1994,12 +2004,10 @@ def resume_run(argv):
 
 def drive(cfg, run_dir, opts, log, prior=None, job=None):
     """The loop plus every way it can end: one place decides the exit code and who is told."""
-    global _PICKUP_START
-    if _PICKUP_START is None:
-        try:
-            _PICKUP_START = installed_head() or None
-        except Exception:
-            pass
+    try:
+        started_on()
+    except Exception:
+        pass
     existing = run_record.read_state(run_dir)
     if existing is not None and existing.get("state") == "stopped":
         return 1  # a stop landed before this attempt started; the record stands as left

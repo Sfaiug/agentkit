@@ -66,6 +66,26 @@ class QueuedRunWaitsOnTheInstalledCode(unittest.TestCase):
         self.assertIn(f"picked up agentkit {OLD}..{NEW} while waiting for a slot",
                       (self.run_dir / "log.txt").read_text())
 
+    def test_a_launch_the_install_moves_under_as_it_starts_still_moves(self):
+        """Its judgement and its wait read one version: the old one judged and the new one waited
+        on, it would be neither judged on the new code nor moved to it."""
+        record.save_state(self.run_dir, {**record.read_state(self.run_dir), "judged_on": OLD})
+        moved = []
+
+        def wait_for_slot(run_dir, between=None):
+            moved.append(between(None))
+            raise record.StopRequested
+
+        with patch.object(run, "_PICKUP_START", None), \
+                patch.object(run, "installed_head", side_effect=[OLD, NEW, NEW]), \
+                patch.object(run.os, "execv", lambda *a: self.execs.append(a)), \
+                patch.object(gate, "wait_for_slot", wait_for_slot):
+            log = run.logger(self.run_dir)
+            self.assertFalse(run.judge_queued(self.run_dir, {}, log, None))
+            self.assertEqual(run.drive(None, self.run_dir, {}, log, job=dict), 1)
+        self.assertEqual(moved, [True])
+        self.assertEqual(len(self.execs), 1)
+
     def test_a_launch_stays_where_it_cannot_move_as_itself(self):
         def job():
             jobs._JOB_MUTE.depth = 1
