@@ -85,17 +85,24 @@ err() { local m=${1//\\/}; m=${m//\"/\'}
 # onto it and `usage` fell back to the worker token, which the usage page refuses.  So before
 # either reads it, a lapsed login that still holds a refresh token gets the smallest turn
 # Claude Code runs on it -- its smallest model, one word, no tools, no conversation kept --
-# one per login at a time: whoever waited finds it renewed and asks nothing.  A login that
-# has not lapsed is never touched, and one the turn could not renew is read as it was.
+# one per login at a time: whoever waited finds it renewed and asks nothing.  A later login is
+# never touched, and one the turn could not renew is read as it was.  A login kept in its file
+# counts as lapsed 90 minutes early: `machine_turn.LENT_FOR` keeps every turn of a login in its
+# last hour on this host, which took its load to 40-60 for that hour of each eight (2 Nov 2026),
+# and `usage`, asked about every 15 minutes (`probe_every`), gets there first.  A machine's copy
+# is replaced as it renews (`machine_turn._following`); nothing follows the Keychain, so that waits.
 lapsed() {
-  local blob exp
-  blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
+  local blob ahead=5400
+  blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) && ahead=0 \
     || blob=$(cat "$CREDS" 2>/dev/null) || return 1
   exp=$(printf '%s' "$blob" | jq -r '.claudeAiOauth | select((.refreshToken // "") != "")
       | .expiresAt // empty' 2>/dev/null)
   case "$exp" in ''|*[!0-9]*) return 1 ;; esac
   [ "${#exp}" -gt 11 ] || exp="${exp}000"
-  [ "$exp" -le "$(( $(date +%s) * 1000 ))" ]
+  [ "$exp" -le "$(( ($(date +%s) + ahead) * 1000 ))" ]
+}
+put_login() {
+  tmp=$(mktemp "$CREDS.XXXXXX") && printf '%s' "$1" >"$tmp" && mv -f -- "$tmp" "$CREDS"
 }
 renew() {
   lapsed && mkdir -p -- "$TMPD" 2>/dev/null || return 0
@@ -103,11 +110,19 @@ renew() {
   # macOS has no flock(1).  Silent throughout: `auth` answers in one line.
   ( python3 -c 'import fcntl, signal; signal.alarm(30); fcntl.flock(0, fcntl.LOCK_EX)' <&9 &&
       lapsed && cd -- "$TMPD" || exit 0
+    # Claude Code renews, and writes this file, only in a login's last 5 minutes (2.1.316, 2 Nov
+    # 2026): earlier the file is still, and it is told it is there, and told back if nothing came.
+    if [ "$exp" -gt "$(( ($(date +%s) + 300) * 1000 ))" ]; then
+      held=$(cat -- "$CREDS") && near=$(printf '%s' "$held" |
+        jq -c '.claudeAiOauth.expiresAt = ((now + 240) * 1000 | floor)') && put_login "$near" || exit 0
+    fi
     # the seat login's own directory, never a token that would stand in for it; a worker's
     # role keeps the seat hooks quiet when the caller is a seat
     unset CLAUDE_CODE_OAUTH_TOKEN
     echo hi | AK_RUN_ROLE=worker claude -p --model haiku --tools "" --no-session-persistence \
       --settings "$PINS" 9>&-
+    if [ -n "${held:-}" ] && [ "$(jq -r .claudeAiOauth.accessToken "$CREDS")" = \
+         "$(printf '%s' "$held" | jq -r .claudeAiOauth.accessToken)" ]; then put_login "$held"; fi
   ) >/dev/null 2>&1 9>>"$TMPD/claude-login${ACCOUNT:+.$ACCOUNT}.lock"
 }
 

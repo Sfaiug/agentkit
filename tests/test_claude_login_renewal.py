@@ -27,6 +27,7 @@ dir=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 [ "$*" != "auth logout" ] || exec rm "$dir/.credentials.json"
 printf '%s|%s|%s|%s\n' "$dir" "${CLAUDE_CODE_OAUTH_TOKEN-unset}" "$(cat)" "$(printf '[%s]' "$@")" \
   >>"$FAKE/turns"
+jq -r .claudeAiOauth.expiresAt "$dir/.credentials.json" >>"$FAKE/told"
 sleep "${FAKE_SLEEP:-0}"
 [ ! -e "$FAKE/fail" ] || { echo "OAuth token refresh failed" >&2; exit 1; }
 printf '{"claudeAiOauth":{"accessToken":"renewed","refreshToken":"refresh-2","expiresAt":%s}}' \
@@ -149,6 +150,34 @@ class LoginRenewal(unittest.TestCase):
         # Nor is a lapsed one with nothing to renew it from: only /login brings that back.
         self.login("second", LAPSED, refresh="")
         self.assertEqual(self.ask("second", "auth", "seat")[0], 1)
+        self.assertEqual(self.turns(), [])
+
+    def in_(self, minutes):
+        return int((time.time() + minutes * 60) * 1000)
+
+    def test_a_login_with_ninety_minutes_left_is_renewed(self):
+        self.login("second", self.in_(80))
+        self.assertEqual(self.ask("second", "auth", "seat")[0], 0)
+        self.assertEqual(len(self.turns()), 1)
+        self.assertLess(int(self.lines("told")[-1]), self.in_(5))    # where Claude Code renews
+        self.assertEqual(self.ask("second", "auth", "seat")[0], 0)
+        self.assertEqual(len(self.turns()), 1)      # renewed, it has eight hours
+
+    def test_a_login_past_ninety_minutes_is_left_and_one_that_did_not_renew_reads_as_it_did(self):
+        self.login("second", self.in_(100))
+        self.assertEqual(self.ask("second", "auth", "seat")[0], 0)
+        self.assertEqual(self.turns(), [])
+        (self.fake / "fail").touch()
+        creds = self.login("second", self.in_(80))
+        before = creds.read_text()
+        self.assertEqual(self.ask("second", "auth", "seat")[0], 0)
+        self.assertEqual(len(self.turns()), 1)
+        self.assertEqual(creds.read_text(), before)
+
+    def test_a_keychain_login_waits_until_it_lapses(self):
+        blob = self.login("", self.in_(80)).read_text()
+        (self.root / "bin" / "security").write_text(f"#!/usr/bin/env bash\necho '{blob}'\n")
+        self.assertEqual(self.ask("", "auth", "seat")[0], 0)
         self.assertEqual(self.turns(), [])
 
     def test_logout_signs_out_its_own_login_and_worker_token_alone(self):
