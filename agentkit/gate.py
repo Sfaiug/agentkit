@@ -33,8 +33,8 @@ try:
     SLOT_POLL = float(os.environ.get("AK_SLOT_POLL", "30"))
 except ValueError:
     SLOT_POLL = 30
-# Seconds a run let in counts what it may still grow by: by then its first turn has started (12 to
-# 37 s after it went in, 2 Nov 2026) and the readings show what it holds.
+# Seconds past its first step a run counts what it may still grow by: by then the readings show
+# what it holds.
 STARTING = 6 * SLOT_POLL
 
 
@@ -311,14 +311,15 @@ def frozen_runs(state):
 
 
 def _starting(state, peak):
-    """(MB, runs): what the runs let in less than `STARTING` ago may still grow by, a recent run's
-    median `peak` less each one's own peak so far, never below 0, and how many may still grow.
-    One in longer has shown the readings what it holds: a turn on a rented machine leaves 43 MiB
-    here, and counted to the median of 763 for the rest of its life, 9 such held 22 runs in line
-    with 4.5 G free against a gate of 3.1 G (2 Nov 2026)."""
+    """(MB, runs): what the runs holding a slot, until `STARTING` past their first step, may still
+    grow by, a recent run's median `peak` less each one's own peak so far, never below 0, and how
+    many may still grow.  Time since going in would not do, as a slow first fetch has shown the
+    readings nothing.  One past that has shown them what it holds: a turn on a rented machine
+    leaves 43 MiB here, and counted to the median of 763 for the rest of its life, 9 such held 22
+    runs in line with 4.5 G free against a gate of 3.1 G (2 Nov 2026)."""
     now = time.time()
     holders = [other.get("run_id") for other in _holders(state)
-               if now - (other.get("slot_started_at") or now) < STARTING]
+               if now - (other.get("first_step_at") or now) < STARTING]
     so_far = history.peaks_so_far(holders)
     growth = [peak - (so_far.get(run_id) or 0) for run_id in holders]
     return sum(mb for mb in growth if mb > 0), sum(mb > 0 for mb in growth)
@@ -524,7 +525,7 @@ def claim_slot(state, limit, readings=None, launch=False):
     state.update(state="running", slot_waiting=False, slot_started_at=time.time(),
                  **run_record.process_owner())
     for key in ("resume_from", "reservation_pending",
-                "slot_wait_reason", "slot_wait_kind"):
+                "slot_wait_reason", "slot_wait_kind", "first_step_at"):
         state.pop(key, None)
     return True
 

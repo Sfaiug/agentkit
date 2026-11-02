@@ -16,13 +16,14 @@ from contextlib import closing
 import json
 from pathlib import Path
 import shlex
+import shutil
 import sqlite3
 import sys
 import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures import akconfig, fakeadapter, taskfile
+from fixtures import akbin, akconfig, fakeadapter, taskfile
 from fixtures.akbin import Home
 from fixtures.gitrig import Rig
 
@@ -55,10 +56,11 @@ def state(run):
         return {}
 
 
-def started_together(cls, readings, poll, count, ready):
+def started_together(cls, readings, poll, count, ready, fetch_held=False):
     """The records, once all have ended, of `count` runs, each started once `ready` holds of the
     records of those before it: a run behind one that has not polled yet waits a poll for it.
-    Each one's turn is held until `ready` holds of them all."""
+    Each one's turn, and with `fetch_held` the fetch a run starts with, is held until `ready` holds
+    of them all."""
     home = Home()
     cls.addClassCleanup(home.close)
     del home.env["AK_MAX_RUNS"]     # 0 turns admission off
@@ -75,6 +77,12 @@ def started_together(cls, readings, poll, count, ready):
     release = home.root / "adapters" / "release"
     hold = f"until [ -e {shlex.quote(str(release))} ]; do sleep 0.1; done"
     fakeadapter.install(home, claude={**fakeadapter.WORK, "sh": hold}, codex="pass")
+    if fetch_held:
+        git = shutil.which("git", path=":".join(akbin.SYSTEM))
+        home.fake("git", f"""#!/bin/sh
+case " $* " in *" fetch "*) [ -z "$AGENTKIT_RUN" ] || {{ {hold}; }};; esac
+exec {shlex.quote(git)} "$@"
+""")
     runs = []
     for title in TITLES[:count]:
         known = set(taskfile.runs(home))
@@ -139,6 +147,24 @@ class RoomOnceTheFirstHasStarted(unittest.TestCase):
         first, second = self.runs
         self.assertTrue(second.get("slot_waited"))
         self.assertLess(second["slot_started_at"], first["finished_at"])
+
+
+class NoRoomWhileTheFirstHasNotStarted(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # As in RoomForOne, but the first's fetch outlasts what it may take counting from when it
+        # went in, 6 polls: however long that takes, it has shown the readings nothing yet.
+        cls.runs = started_together(
+            cls, TIGHT, 1, 2,
+            lambda runs: time.time() - runs[0].get("slot_started_at", time.time()) > 7
+            and (runs[-1].get("state") != "queued" or runs[-1].get("slot_wait_reason")),
+            fetch_held=True)
+
+    def test_every_run_passes(self):
+        self.assertEqual([run.get("verdict") for run in self.runs], ["PASS"] * 2)
+
+    def test_the_second_waits_for_what_the_first_may_take(self):
+        self.assertTrue(self.runs[1].get("slot_waited"))
 
 
 if __name__ == "__main__":

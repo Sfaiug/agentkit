@@ -137,6 +137,26 @@ class Slots(unittest.TestCase):
                 self.assertEqual((state["slot_wait_reason"], state["slot_wait_kind"]),
                                  (reason, kind))
 
+    def test_what_a_run_may_still_take_counts_until_past_its_first_step(self):
+        went_in_long_ago = {"run_id": "other", "slot_started_at": 1.0}
+        with patch.object(history, "peaks_so_far", return_value={}), \
+                patch.object(gate, "time", Mock(time=lambda: 1000 + gate.STARTING)):
+            for first_step, counted in (({}, (100, 1)), ({"first_step_at": 1001}, (100, 1)),
+                                        ({"first_step_at": 1000}, (0, 0))):
+                with patch.object(gate, "_holders",
+                                  return_value=[{**went_in_long_ago, **first_step}]):
+                    self.assertEqual(gate._starting({}, 100), counted)
+
+    def test_a_run_let_in_again_counts_again_until_past_its_next_first_step(self):
+        state = {"run_id": "r", "run_depth": 0, "first_step_at": 1.0}
+        with patch.object(host, "host_readings", return_value=HEALTHY):
+            self.assertTrue(gate.claim_slot(state, 1))
+        self.assertNotIn("first_step_at", state)
+        prior = {"first_step_at": 1.0}
+        with patch.object(gate, "wait_for_slot", return_value=state), \
+                run.run_slot(Path("r"), prior):
+            self.assertNotIn("first_step_at", prior)
+
     def test_admission_clears_wait_reason(self):
         state = {"run_id": "r", "run_depth": 0}
         low = {**HEALTHY, "free_mb": 1024}
