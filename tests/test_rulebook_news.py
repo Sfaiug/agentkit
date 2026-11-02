@@ -21,7 +21,7 @@ from agentkit.harness import codex
 SEAT = "acme-fix"
 # one rule from the seat's rules now (`setUp`): a change short enough to carry inline, which
 # tests/test_key_rulebook_news_too_long.py says the shipped rules alone are not
-BEFORE = f"{(REPO / 'orchestrator.md').read_text().rstrip()}\n\nAn older rule.\n"
+BEFORE = f"{config.in_force((REPO / 'orchestrator.md').read_text(), {}).rstrip()}\n\nAn older rule.\n"
 OWN = "0f5d6e2a-6a43-4c3e-9b0e-3a1f6c2d9e10"      # the conversation the seat's launch handed out
 OWNED = {"conversation": OWN, "id_source": "launcher", "resumable": True}
 TOLD = '"additionalContext"'                        # what a notice rides in, inline or naming a file

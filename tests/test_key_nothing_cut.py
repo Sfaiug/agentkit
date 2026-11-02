@@ -20,7 +20,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import REAL_TMUX, REPO, Home
+from fixtures.akbin import REAL_TMUX, REPO, Home, shipped_rules
 from fixtures.gitrig import Rig
 
 HEADING = "## The done-when commands failed. Fix the root cause.\n```\n"
@@ -30,7 +30,7 @@ PRINTED = {SHORT: "".join(f"café short {n}\n" for n in range(1, 41)),
            LONG: "".join(f"café long {n}\n" for n in range(1, 30001))}
 FIX = {"write": {"fixed.txt": "ok\n"}, "commit": "fix the checks",
        "final": "## Summary\nfixed", "hand_in": [["done"]]}
-ORCHESTRATOR = (REPO / "orchestrator.md").read_text()
+ORCHESTRATOR = shipped_rules()
 # Far past any size a prompt or file was ever cut at, multi-byte text in it.
 HOST_RULES = ("# Acme host rules\n\n" + "".join(f"Rule {n}: the café widget {n} keeps its name.\n"
                                                 for n in range(2000))

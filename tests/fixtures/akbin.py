@@ -40,6 +40,7 @@ import sys
 import tempfile
 import threading
 import time
+from string import Template
 from urllib.parse import urlsplit
 
 REPO = Path(__file__).resolve().parents[2]
@@ -56,6 +57,15 @@ REFUSED = ("gh", "ssh", "curl", "systemctl", "systemd-run", "loginctl", "journal
            "notify-send", "claude", "codex", "muse", "grok", "opencode", "agy")
 
 Done = namedtuple("Done", "code out err")
+
+
+def shipped_rules():
+    """ak's rules beside the program, as a Home that sets no number of its own is handed them."""
+    written = (Path(AK).resolve().parents[1] / "orchestrator.md").read_text()
+    return Template(written).safe_substitute(rounds=3, Rounds="Three", s="s", one_over="a fourth",
+                                             review_lines=300, seat_lines=50)
+
+
 # cron's line: a tick's two streams appended to its log, the program as $0
 CRON = '"$0" watch "$@" >>"$HOME/.agentkit/tmp/watch.log" 2>&1'
 

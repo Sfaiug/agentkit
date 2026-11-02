@@ -19,11 +19,10 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import AK, Home
+from fixtures.akbin import Home, shipped_rules
 from fixtures.hookdrive import Hooks
 
 CONVERSATION = "7d3c1e2a-5b4f-4a6e-8c9d-0e1f2a3b4c5d"
-SHIPPED = Path(AK).resolve().parents[1] / "orchestrator.md"   # ak's own rules, beside it
 CHANGE = ".agentkit/state/change-acme.md"
 LIMIT = 10000
 SILENT = (0, "", "", [])
@@ -49,7 +48,7 @@ class TooLong(unittest.TestCase):
         self.addCleanup(self.home.close)
         self.hooks = Hooks(self.home)
         self.rules("Rule one.\n")
-        launched = f"{SHIPPED.read_text().rstrip()}\n\nRule one.\n"
+        launched = f"{shipped_rules().rstrip()}\n\nRule one.\n"
         self.home.write(".agentkit/state/rulebook-acme.md", launched)
         self.home.write(".agentkit/state/session-acme.json",
                         {"orchestrator": "opus", "workers": ["opus"], "reviewers": ["opus"],

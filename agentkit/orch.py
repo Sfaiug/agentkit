@@ -2566,6 +2566,7 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None):
     repository = git_dirs(cwd)
     plugin = seat_plugin({"orchestrator": model})
     from . import notify, watch
+    hand_task_template()
     # The rulebook this launch hands its harness, written down before the harness is up: its
     # first prompt may already be offered a newer one, which nothing after may wipe.  Under
     # the seat's lock, so a rename going on keeps its record; a launch whose harness never
@@ -2798,6 +2799,19 @@ def fetched(repo):
                         check=False, env=gitcall.project_env(repo)))
 
 
+def hand_task_template():
+    """Put templates/task.md, saying this host's numbers, beside the seats' rulebooks: in ak's
+    state, since each writing replaces it and the tasks folder holds what people wrote.  A seat
+    that cannot get it still has its rules, so a failed write stops nothing, and the next launch
+    or changed rulebook tries again."""
+    try:
+        config.STATE.mkdir(parents=True, exist_ok=True)
+        written = (config.REPO / "templates" / "task.md").read_text()
+        replace_file(config.STATE / "task-template.md", config.in_force(written).encode())
+    except OSError:
+        pass
+
+
 def write_rulebook(session):
     """Write the rulebook `session` is launched with (`config.seat_rulebook`) under its name and
     return its path: ~/.agentkit/state/rulebook-<session>.md, under $AGENTKIT_RULEBOOK_DIR
@@ -2862,8 +2876,8 @@ def rulebook_news(session, conversation, whole=lambda news: news):
     """What a seat's next prompt carries when its conversation is to be told its rulebook: "".
 
     A harness reads its rulebook only when it opens, so a seat left open across a change to
-    `orchestrator.md`, this host's `rules.md` or its project's `AGENTS.md` -- a
-    merge, or the seat filed elsewhere -- would keep working to the old rules.  Reopening it
+    `orchestrator.md`, this host's `rules.md`, the numbers it sets or its project's `AGENTS.md`
+    -- a merge, or the seat filed elsewhere -- would keep working to the old rules.  Reopening it
     replaces its pane, and nothing on a screen proves the owner has no draft there, so the
     seat is told instead, with the prompt that starts its next turn: what changed since the
     rulebook it holds (`rulebook_change`), or the whole rulebook where ak no longer has that one.
@@ -2882,6 +2896,7 @@ def rulebook_news(session, conversation, whole=lambda news: news):
     found = rulebook_due(name)
     if not found or found[1] != conversation:
         return ""
+    hand_task_template()    # the numbers its rulebook now says may be new
     record, _, text = found
     sha = config.rulebook_digest(text)
     told = record.get("rulebook_told") or {}
