@@ -251,6 +251,11 @@ class RelaunchClaude(Sandbox):
         watch.health(self.cfg, state, False, lambda _: None)
         watch.save_state(state)
 
+    def test_a_relaunch_has_been_sent_back_by_nothing_yet(self):
+        watch.seat_write("lagoon", stop_nudged="the words its last harness was refused on")
+        orch.launch("lagoon", "opus", self.root, ["claude"], "fake-conversation")
+        self.assertIsNone(watch.seat_read("lagoon")["stop_nudged"])
+
     def test_launch_records_without_typing(self):
         self.title("lagoon")
         orch.launch("lagoon", "opus", self.root, ["claude"], "fake-conversation")

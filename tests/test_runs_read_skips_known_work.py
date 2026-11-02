@@ -42,6 +42,22 @@ class SkipsKnownWork(Sandbox):
         self.assertEqual(menu.silent_for_run(quiet, record.read_state(quiet), now=NOW), "2h")
         self.assertEqual([call.args[0].name for call in walks.call_args_list], ["quiet"])
 
+    def test_a_quiet_run_is_walked_once_a_minute_and_a_written_record_needs_none(self):
+        quiet = run("quiet", NOW - 2 * 3600)
+        walks = self.stack.enter_context(patch.object(watch, "run_last_write",
+                                                      wraps=watch.run_last_write))
+        clock = self.stack.enter_context(patch.object(menu.time, "monotonic", return_value=1000.0))
+        state = record.read_state(quiet)
+        self.assertEqual([menu.silent_for_run(quiet, state, now=NOW) for _ in range(3)], ["2h"] * 3)
+        self.assertEqual(walks.call_count, 1)
+        clock.return_value += menu.WALK_EVERY
+        self.assertEqual(menu.silent_for_run(quiet, state, now=NOW), "2h")
+        self.assertEqual(walks.call_count, 2)
+        clock.return_value += menu.WALK_EVERY
+        os.utime(quiet / "run.json", (NOW - 60, NOW - 60))
+        self.assertIsNone(menu.silent_for_run(quiet, state, now=NOW))
+        self.assertEqual(walks.call_count, 2)
+
     def test_the_sandbox_and_each_path_resolve_once_a_pass(self):
         states = [{"task": str(config.RUNS / f"run-{n}" / "task.md"), "repo": "/c/acme"}
                   for n in range(20)]

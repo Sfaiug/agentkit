@@ -147,14 +147,14 @@ class AnswerClosesQuestion(Sandbox):
         self.assertGreater(notice["answered_at"], notice["time"])
         self.assertTrue(notify.resolved(notice))
         self.assertFalse(watch.owner_question(notify.last(name)))
-        # The whole owner turn can finish between ticks: the word remains needs you,
-        # but the question and its card are answered even without an observed working word.
+        # The whole owner turn can finish between ticks: its open line sends it back, and the
+        # question and its card are answered even without an observed working word.
         self.hook("Stop")
         harness, live = watch.look_at(self.seat, cfg=self.cfg)
         answer = watch.session_state(name, session=self.seat, cfg=self.cfg,
                                      harness=harness, live=live)
         self.assertEqual((answer["word"], answer["reason"]),
-                         ("needs you", "stopped with work open: the parser parses"))
+                         ("working", "going back to its open work: the parser parses"))
         self.assertEqual(notify.transition(name, answer=answer, seat=self.seat), 0)
         # The answer ended its episode: the seat waiting now is one of its own, not carded yet.
         card = notify._card_read(name)

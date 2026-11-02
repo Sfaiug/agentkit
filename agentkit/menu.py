@@ -161,6 +161,10 @@ COLOURS = {"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai"
 NAMES = {"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Grok",
          "google": "Gemini", "mimo": "MiMo"}
 TICK = 10.0              # the longest the main screen waits for a key before drawing itself again
+WALK_EVERY = 60          # seconds one walk of a quiet run answers for: silence is told in hours, so
+                         # a minute never shows, however many files a run's sandbox leaves behind
+_WALKED = {}             # a quiet run's directory: when it was walked, on time.monotonic, and what
+                         # that found
 STIR = 1.0               # ... and how often it looks for a seat's word or the meters having moved
 # What the `—` says, from the error the last probe left; the first match wins.  No pattern here
 # guesses at a login: `token`, `401` and `login` turn up in lines a logged-in seat produces too,
@@ -1026,7 +1030,11 @@ def silent_for_run(run_dir, state, now=None):
             continue
     try:
         from . import watch as _watch
-        newest = _watch.run_last_write(Path(run_dir))
+        kept = _WALKED.get(os.fspath(run_dir))
+        if kept is None or time.monotonic() - kept[0] >= WALK_EVERY:
+            kept = _WALKED[os.fspath(run_dir)] = (time.monotonic(),
+                                                  _watch.run_last_write(Path(run_dir)))
+        newest = kept[1]
     except (OSError, ValueError, AttributeError):
         newest = 0.0
     if not newest:
@@ -2341,13 +2349,14 @@ def run_records(*, cache=True, rest_may_lag=False):
     memory at the next pass.
 
     Unattended runs and tasks or repos resolving under ~/.agentkit/tmp/smoke-* are left out.
-    Paths are resolved on every pass that looks at the run: a symlink can move without a run.json
+    Paths are resolved on every pass that looks at every run: a symlink can move without a run.json
     changing. Bad run files are skipped, never repaired.
 
     With `rest_may_lag`, the main screen's read all day, only the open runs are looked at and a
     run at rest is as the last full read found it (`open_runs`), on the rows and in what a look
-    decides from them; the list comes back the same object while nothing changed.  Every other
-    caller decides on what it reads, and looks at every run.
+    decides from them; an open run's paths are resolved only once its record changed, so a symlink
+    that moved shows by the next full read; the list comes back the same object while nothing
+    changed.  Every other caller decides on what it reads, and looks at every run.
     """
     global _RUN_RECORDS
     with _RUN_RECORDS_LOCK:
@@ -3269,12 +3278,12 @@ def config_within(cfg, step):
 
 
 def config_number(cfg, name, way):
-    """config.POLICY's `name` its step along `way` (1 or -1), or as far of it as config.policy
+    """config.POLICY's `name` its step along `way` (1 or -1), or as far of it as config.host_policy
     allows, and saved (_saved); what to say under the rows, or ""."""
-    was = config.policy(cfg)[name]
+    was = config.host_policy(cfg)[name]
     for value in range(was + way * config.POLICY[name][2], was, -way):
         try:
-            config.policy({**cfg, name: value})
+            config.host_policy({**cfg, name: value})
         except config.Error:
             continue
         before = copy.deepcopy(cfg)
@@ -3648,7 +3657,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                 "  " + terminal.cut(row, room - 2))
             places[len(lines)] = (("row", row), [])
             lines.append(terminal.highlight(line, number == 0) if at == ("row", row) else line)
-    numbers = config.policy(cfg)      # `values` ends with `Weekly audit`: these have columns
+    numbers = config.host_policy(cfg)      # `values` ends with `Weekly audit`: these have columns
     numbered, (down, across) = number_rows(numbers, wide, saved, room)
     for name, parts in numbered.items():
         row, value = ("row", name), numbers[name]
@@ -4058,9 +4067,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         elif here[0] == "row" and here[1] in config.POLICY:
             # unseen, the key only brings the highlight back
             if act in ("left", "right") and not terminal.unseen():
-                was = config.policy(cfg)[here[1]]
+                was = config.host_policy(cfg)[here[1]]
                 note = config_number(cfg, here[1], 1 if act == "right" else -1)
-                if config.policy(cfg)[here[1]] == was:
+                if config.host_policy(cfg)[here[1]] == was:
                     clock.touch(("number", here[1]))   # refused, at an end or unsaved
                 else:
                     saved = here[1]

@@ -60,9 +60,9 @@ func table(t *ticking) []pass {
 		{"owed lines", false, seatless, nil},
 		// it reads its record before it asks each checkout for its switches
 		{"switch retirement", false, seat.NoCheckouts, retireRead},
-		{"seat tokens", false, all(seatless, historyless), nil},
-		{"history sync", false, historyless, nil},
-		{"history checkpoint", false, historyless, nil},
+		{"seat tokens", false, all(seatless, run.Historyless), nil},
+		{"history sync", false, run.Historyless, nil},
+		{"history checkpoint", false, run.Historyless, nil},
 		{"weekly audit", false, all(configured, config.AuditOff), nil},
 		{"typed answers", false, seatless, nil},
 		{"card transitions", false, all(seatless, cardless), nil},

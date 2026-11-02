@@ -106,6 +106,13 @@ class ThreeStates(Sandbox):
         path.write_text("".join(json.dumps(line) + "\n" for line in lines))
         return str(path)
 
+    def asked(self, said):
+        """Claude Code asks `said` on its question card: its hook records it, and the transcript
+        it hands the Stop holds it."""
+        self.hooks("PreToolUse", "orchestrator-stop.sh", tool_name="AskUserQuestion",
+                   tool_input={"questions": [{"question": said}]})
+        return self.transcript(said, question=True)
+
     def receipt(self, name, owner="atoll", **extra):
         directory = config.RUNS / name
         directory.mkdir(parents=True, exist_ok=True)
@@ -543,8 +550,7 @@ class ThreeStates(Sandbox):
         # ... until it reports back: the notification starts a turn, which asks him something
         self.hooks("UserPromptSubmit", "seat-state.sh")
         payload.update(background_tasks=[],
-                       transcript_path=self.transcript("Which of the two schemas should it read?",
-                                                       question=True))
+                       transcript_path=self.asked("Which of the two schemas should it read?"))
         self.assertEqual(self.hooks("Stop", *STOP, **payload), "")
         self.assertEqual(self.decide()["word"], "needs you")
 
@@ -571,8 +577,7 @@ class ThreeStates(Sandbox):
                                             background_tasks=[]))
         self.assertEqual(self.decide()["word"], "working")
         # a choice only he can make still ends the turn, and is his
-        asked = self.transcript("The parser is fixed.\n\nShould I proceed with SQLite or "
-                                "PostgreSQL?", question=True)
+        asked = self.asked("The parser is fixed.\n\nShould I proceed with SQLite or PostgreSQL?")
         self.assertEqual(self.hooks("Stop", *STOP, transcript_path=asked, background_tasks=[],
                                     stop_hook_active=True), "")
         self.assertEqual(self.decide()["word"], "needs you")
@@ -663,9 +668,19 @@ class ThreeStates(Sandbox):
                                          ("atoll", watch.MIDTURN_LINE)])
         self.assertIn("Continue that turn", watch.MIDTURN_LINE)
         self.assertEqual(self.decide()["word"], "working")
-        # ... where, left alone at its prompt, it would have read needs you
+        # ... where, left alone at its prompt, the tick would have sent it back to its plan
         config.hook_facts_path("atoll").write_text(json.dumps(
             {"session": "atoll", "event": "Notification", "kind": "idle_prompt", "at": NOW}))
+        self.assertEqual(self.decide()["reason"],
+                         "going back to its open work: the parser parses")
+
+    def test_r_a_line_owed_reads_going_back_only_where_the_tick_would_send_it(self):
+        self.pane = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text()
+        self.assertEqual(self.decide()["reason"],
+                         "going back to its open work: the parser parses")
+        # the tick's own passes keep these from the rule, so nothing would ever move the word
+        self.assertEqual(self.decide(stalls={"atoll": {"kind": "quiet"}})["word"], "needs you")
+        watch.seat_write("atoll", usage_refusal={"line": "limit", "at": NOW, "handled": True})
         self.assertEqual(self.decide()["word"], "needs you")
 
     def test_r_only_the_tick_types_the_line_and_only_until_it_lands(self):

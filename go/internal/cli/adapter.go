@@ -7,6 +7,7 @@ import (
 	"agentkit/internal/adapters"
 	"agentkit/internal/config"
 	"agentkit/internal/hooks"
+	"agentkit/internal/seat"
 )
 
 // adapter carries out what an adapter stub under go/adapters hands over: `ak adapter <root>
@@ -22,7 +23,7 @@ func adapter(args []string, out, errOut io.Writer) int {
 	case "interactive":
 		return adapters.Interactive(root, harness, rest, out, errOut)
 	case "seat":
-		return adapters.Seat(harness, rest, errOut)
+		return adapters.Seat(harness, rest, errOut, seat.StartLook)
 	case "run":
 		return adapters.Turn(harness, rest, errOut)
 	case "auth":

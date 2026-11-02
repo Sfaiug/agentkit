@@ -1,11 +1,12 @@
 """A seat at its prompt reads its plan: `done` once every line is ticked, `needs you` while one
-is open; a turn running reads `working` whatever the plan says.
+is open and going back did not move it; a turn running reads `working` whatever the plan says.
 
 The owner sees only what needs them or a finished job.  A seat whose plan has every line ticked
 has finished its job, and its row says `done` with the work that got done, so the owner knows
 where to look without opening it; a merged run of its own whose project declares no live check
-keeps nothing owed.  A seat that stopped with a line still open owes the owner that line, and
-its reason names it.  A turn moves without the owner: on the seat's screen, or begun by the
+keeps nothing owed.  A seat that stopped with a line still open is sent back once
+(tests/test_key_unjudged_stop_goes_back.py), then owes the owner that line, and its reason
+names it.  A turn moves without the owner: on the seat's screen, or begun by the
 owner's own prompt in a done seat, it reads `working`, never `done`.  Black-box: the program
 `AK_BIN` names runs from outside through tests/fixtures/akbin.py, before seats of
 tests/fixtures/akseat.py whose prompt hook fires as Claude fires it (tests/fixtures/hookdrive.py);
@@ -18,7 +19,7 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.hookdrive import Hooks
 
@@ -27,11 +28,10 @@ PROMPT = "claude-prompt-pane.txt"
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class PlanWords(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.home = Home()
-        cls.addClassCleanup(cls.home.close)
-        cls.hooks = Hooks(cls.home)
+    def setUp(self):
+        self.home = Home()      # its own: a tick opens an audit seat, which reshapes the list
+        self.addCleanup(self.home.close)
+        self.hooks = Hooks(self.home)
 
     def seat(self, name, plan, screen=PROMPT):
         # a minute old: the plan was finished before anything happens in the seat
@@ -67,8 +67,11 @@ class PlanWords(unittest.TestCase):
         row, _ = self.row("acme")
         self.assertIn("✓ done", row)
 
-    def test_an_open_line_at_its_prompt_needs_you_and_names_the_line(self):
+    @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
+    def test_an_open_line_at_its_prompt_needs_you_once_sent_back_and_names_the_line(self):
         self.seat("beta", "- [x] Ship the login fix\n- [ ] Write the docs\n")
+        done = self.home.tick()
+        self.assertEqual(done.code, 0, done.out + done.err)
         first, said = self.why("beta")
         self.assertEqual(first, "beta  needs you")
         self.assertEqual(said["reason"], "stopped with work open: Write the docs")

@@ -20,12 +20,6 @@ func missing(path string) bool {
 
 func statePath(name string) string { return filepath.Join(config.Home(), "state", name) }
 
-// historyless is whether no history.db stands to read: Go's standard library holds no SQLite.
-func historyless() bool {
-	base := filepath.Join(config.Home(), "history.db")
-	return missing(base) && missing(base+"-wal")
-}
-
 // cardless is whether no seat's card waits to be retired.
 func cardless() bool { return len(config.SeatRecords("card")) == 0 }
 

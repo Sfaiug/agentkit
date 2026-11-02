@@ -63,11 +63,14 @@ class DryRunTick(unittest.TestCase):
         cls.github = GitHub(home)
         rig.branch("fix-api", {"api.py": "x = 2\n"})
         cls.url = cls.github.open_pr(rig, "fix-api", title="Fix api", author="beta")
-        cls.seats = [Seat(home, name) for name in SEATS]
+        cls.seats = [Seat(home, name, planned=True) for name in SEATS]
         asked = time.time() - 300
         home.write(".agentkit/state/notify-acme.json", {
             "session": "acme", "kind": "needs", "text": QUESTION, "time": asked,
             "source": None, "watcher": False, "asked_at": {QUESTION.lower(): asked}}, ago=300)
+        # as a look left it: at its prompt owing a line, a question it kept back ready to ask
+        home.write(".agentkit/state/seat-acme.json", {"state": "at_prompt", "stop_said_at": asked,
+                   "unasked": {"text": "Which schema?", "ended": asked}}, ago=300)
         # beta's page met an outage and waits in the outbox; its retry fell due a minute ago
         cls.sink.script(500)
         done = home.ak("notify", "needs", "Which schema?", "--session", "beta")

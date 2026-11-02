@@ -4,7 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"agentkit/internal/seat"
@@ -12,12 +13,10 @@ import (
 
 func init() { commands["orch stop"] = orchStop }
 
-// orchStop stops a seat Go knows as Python's orch.cmd_stop does; a stop run inside a seat is
-// Python's, which may stop the very seat it runs in.
+// orchStop stops a seat Go knows as Python's orch.cmd_stop does.  Stopping the seat this runs in
+// hangs this very process up halfway through, so the hangup is ignored across all that follows.
 func orchStop(args []string, out, errOut io.Writer) int {
-	if os.Getenv("AGENTKIT_SESSION") != "" {
-		return notImplemented(errOut, "orch stop")
-	}
+	signal.Ignore(syscall.SIGHUP)
 	said, known, err := seat.Stop(args[0], time.Now())
 	var refused seat.Refusal
 	switch {
@@ -30,6 +29,8 @@ func orchStop(args []string, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "ak orch: %v\n", err)
 		return 1
 	}
-	fmt.Fprintln(out, said)
+	if said != "" {
+		fmt.Fprintln(out, said)
+	}
 	return 0
 }

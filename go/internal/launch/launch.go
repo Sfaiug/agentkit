@@ -136,17 +136,8 @@ func Task(path string, values map[string]string, flags map[string]bool, out io.W
 			return "", err
 		}
 	}
-	delivery, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))
-	if err != nil {
-		return "", err
-	}
 	why := ended.Str("error")
-	result := fmt.Sprintf("# FAIL — %s\n\nVERDICT: %s\n\n## Why this run stopped\n\n%s\n\nrelaunch: ak run %s\n\n",
-		cmp.Or(ended.Str("title"), filepath.Base(dir)), cmp.Or(ended.Str("verdict"), "none"),
-		cmp.Or(why, "no reason was recorded"), copied)
-	err = os.WriteFile(filepath.Join(dir, "result.md"), []byte(result), 0o666)
-	delivery.Close()
-	if err != nil || why == "" {
+	if err := run.Report(dir, ended); err != nil || why == "" {
 		return reason, nil // a result Python cannot write, or a stop's, goes untold
 	}
 	return reason, log("ERROR " + why)
