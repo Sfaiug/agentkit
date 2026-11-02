@@ -42,6 +42,8 @@ type plugin struct {
 	// paysItsOwnWay is whether its own config says how a model of it is paid, over config.toml's
 	// `mode`, as Python's plugin `mode` reads it.
 	paysItsOwnWay bool
+	// registerMCP is RegisterMCP's: nil where its plugin writes no MCP entry.
+	registerMCP func(servers []Server) (string, error)
 }
 
 var plugins = map[string]plugin{}

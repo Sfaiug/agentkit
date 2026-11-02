@@ -4,8 +4,7 @@
 // shares; the DevTools and MCP addresses, and noVNC's, read from the unit websockify runs in; and
 // how systemd and DevTools are read: `systemctl show` and `is-active`, and DevTools' HTTP JSON as
 // Python's urllib and json read it; the two names the VNC password is kept under; and whose home
-// may install the stack.  Minting a password, the rest of `install` and `mcp-register` are
-// still Python's.
+// may install the stack.  Minting a password and the rest of `install` are still Python's.
 package browser
 
 import (

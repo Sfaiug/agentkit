@@ -38,3 +38,35 @@ func TestSyntax(t *testing.T) {
 		}
 	}
 }
+
+// Each refusal as Python's tomllib words it and where it places it, taken from its own run.
+func TestRefusalsAreTomllibs(t *testing.T) {
+	for text, want := range map[string]string{
+		"[mcp_servers.acme]\nurl=\"x\"\n[mcp_servers.acme]\nurl=\"y\"\n": "Cannot declare ('mcp_servers', 'acme') twice (at line 3, column 18)",
+		"[a]\n[a]\n":               "Cannot declare ('a',) twice (at line 2, column 3)",
+		"x = [\"/code/acme\",\n":   "Invalid value (at end of document)",
+		"x =":                      "Invalid value (at end of document)",
+		"x = = 1\n":                "Invalid value (at line 1, column 5)",
+		"x = 1 y = 2\n":            "Expected newline or end of document after a statement (at line 1, column 7)",
+		"x = 01\n":                 "Expected newline or end of document after a statement (at line 1, column 6)",
+		"= 1\n":                    "Invalid statement (at line 1, column 1)",
+		"\x01\n":                   "Invalid statement (at line 1, column 1)",
+		"# a\x0cb\n":               `Found invalid character '\x0c' (at line 1, column 4)`,
+		"x = 'a\n":                 `Expected "'" (at end of document)`,
+		"x = 'a\nb'\n":             `Found invalid character '\n' (at line 1, column 7)`,
+		"x = \"a\nb\"\n":           `Illegal character '\n' (at line 1, column 7)`,
+		"x = \"\\q\"\n":            `Unescaped '\' in a string (at line 1, column 8)`,
+		"x = \"\\u12\"\n":          "Invalid hex value (at line 1, column 8)",
+		"x = 1979-02-29\n":         "Invalid date or datetime (at line 1, column 5)",
+		"x=1\nx=2\n":               "Cannot overwrite a value (at line 2, column 4)",
+		"x={a=1}\nx.b=2\n":         "Cannot mutate immutable namespace ('x',) (at line 2, column 6)",
+		"x={a=1,a=2}\n":            "Duplicate inline table key 'a' (at line 1, column 11)",
+		"[a.b]\nx=1\n[a]\nb.c=2\n": "Cannot redefine namespace ('a', 'b') (at line 4, column 6)",
+		"é = 1\n":                  "Invalid statement (at line 1, column 1)",
+		"x = \"é\" y\n":            "Expected newline or end of document after a statement (at line 1, column 9)",
+	} {
+		if err := TOML(text); err == nil || err.Error() != want {
+			t.Errorf("%q: %v, wanted %s", text, err, want)
+		}
+	}
+}

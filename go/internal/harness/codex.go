@@ -4,5 +4,5 @@ package harness
 // record Go follows names, so it starts fresh; Python then writes `resumable: false` into its
 // record (codex.py `reconcile`), a record Go does not follow.
 func init() {
-	plugins["codex"] = plugin{seats: true, fresh: "starts a new Codex conversation", receipt: "codex_launch"}
+	plugins["codex"] = plugin{seats: true, fresh: "starts a new Codex conversation", receipt: "codex_launch", registerMCP: codexRegisterMCP}
 }
