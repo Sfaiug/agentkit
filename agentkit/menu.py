@@ -5791,7 +5791,6 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
         live.watch(last)                  # read once, now: the first draw has nothing else
         back = False                      # back from a seat, or the screen that opens one
         newborn = None                    # the seat `n` is typing the name of (`born`)
-        holding = True                    # a restart's hold, until this process's first frame
         framed = False                    # the last wait read no key: its frame is still up
         while True:
             if back:
@@ -5840,10 +5839,6 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             page, pages = draw(cfg, found, listed, page, BORN if newborn else cursor, drawn,
                                look=False, groups=born_groups(groups, newborn) if newborn
                                else groups, clock=clock, updating=updating, pointing=pointing)
-            if holding and drawn is not None:
-                holding = False
-                sys.stdout.write(terminal.RELEASE)
-                sys.stdout.flush()
             if drawn and not newborn:     # the seat he sees highlighted, and if he points at it
                 cursor, pointing = drawn["cursor"], drawn["pointing"]
             if start_update:

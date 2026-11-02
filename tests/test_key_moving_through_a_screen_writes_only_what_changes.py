@@ -126,13 +126,19 @@ class Moving(unittest.TestCase):
 
     def test_back_from_c_the_screen_is_whole_and_a_row_filling_it_keeps_its_last_cell(self):
         menu = Menu(self, cols=80)
-        before = menu.screen.lines()
-        self.assertRegex(before[0], r"^.{75}\d\d:\d\d$", "the clock ends at the edge")
+        self.assertRegex(menu.screen.lines()[0], r"^.{75}\d\d:\d\d$", "the clock ends at the edge")
         menu.press(b"c", lambda lines: "config" in lines[0])
         self.assertEqual(len(menu.screen.lines()[0]), 80, "on `c` too")
+        sent = len(menu.sent)
         menu.press(b"\x1b", lambda lines: "config" not in lines[0])
         self.assertRegex(menu.screen.lines()[0], r"^.{75}\d\d:\d\d$", "drawn again whole")
-        self.assertEqual(menu.screen.lines()[1:], before[1:], "\n".join(menu.screen.lines()))
+        # an empty terminal given only what came since holds the same: every row of it was written
+        # again, and nothing of `c` is left, whatever a reading that landed meanwhile changed
+        alone = Screen(80)
+        for value in menu.sent[sent:]:
+            alone.byte(value)
+        self.assertEqual(alone.lines(), menu.screen.lines())
+        self.assertTrue(any("customer-journey" in line for line in alone.lines()), alone.lines())
 
 
 if __name__ == "__main__":
