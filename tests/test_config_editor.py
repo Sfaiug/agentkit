@@ -46,7 +46,7 @@ class Taken:
     def take(self):
         return True
 
-    def give(self):
+    def give(self, **_kw):
         pass
 
 

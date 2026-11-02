@@ -17,7 +17,7 @@ OPTION = ("=fix-api:", "@ak_top", "working")
 
 class Keyboard:
     """A terminal the menu has taken."""
-    take = give = close = lambda self: True
+    take = give = close = lambda self, **_kw: True
 
 
 class BarsFromLiveCode(Sandbox):
@@ -53,8 +53,8 @@ class BarsFromLiveCode(Sandbox):
             inbox.append(updates)
             updates.append({"progress": 2 / 3})
             (config.STATE / "installed-at").write_text(str(int(config.STARTED) + 5))
-        steps = [None, "result", terminal.Key("esc")]
-        def moving(*_a, **_kw):                          # a wait, the result, then Esc
+        steps = [None, "result", None, terminal.Key("esc")]
+        def moving(*_a, **_kw):                          # a wait, the result, a wait, then Esc
             step = steps.pop(0)
             if step == "result":
                 inbox[0].append({"moved": False, "lines": ["install.sh failed"]})
@@ -78,7 +78,7 @@ class BarsFromLiveCode(Sandbox):
                 if live:
                     (config.Path.home() / "agentkit").symlink_to(config.REPO)
                 stamp.unlink(missing_ok=True)
-                steps, notices = [None, terminal.Key("esc")], []
+                steps, notices = [None, None, terminal.Key("esc")], []
                 def moving(*_a, **_kw):                  # the tick installs after the first frame
                     stamp.write_text(str(int(config.STARTED) + 5))
                     return steps.pop(0)
@@ -88,15 +88,16 @@ class BarsFromLiveCode(Sandbox):
                         patch.object(menu, "moving", moving), \
                         patch.object(menu, "show_notices", notices.extend), \
                         patch.object(menu.subprocess, "Popen", side_effect=OSError("no fork")), \
-                        patch.object(menu.os, "execve") as restart, redirect_stdout(io.StringIO()):
-                    self.assertEqual(menu.loop(self.cfg), 0)
+                        patch.object(menu.os, "execve", side_effect=SystemExit) as restart, \
+                        redirect_stdout(io.StringIO()), self.assertRaises(SystemExit):
+                    menu.loop(self.cfg)                  # an exec does not come back
                 self.assertEqual(restart.call_count, 1)
                 self.assertEqual(notices, ["update: no fork"] if live else [])
 
     def test_an_open_menu_starts_again_once_new_code_is_installed_under_it(self):
         def restarts():
             with patch.object(menu, "Live", **{"return_value.heard.return_value": []}), \
-                    patch.object(menu, "wait_key", return_value=terminal.Key("esc")), \
+                    patch.object(menu, "wait_key", side_effect=[None, terminal.Key("esc")]), \
                     patch.object(terminal, "Keyboard", Keyboard), \
                     patch.object(terminal, "sense", lambda: None), \
                     patch.object(menu.os, "execve") as restart, redirect_stdout(io.StringIO()):

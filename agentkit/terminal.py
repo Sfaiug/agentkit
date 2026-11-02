@@ -758,6 +758,9 @@ class Spot(namedtuple("Spot", "what cell first last", defaults=(None, None, 0, 0
 # any-event tracking (1003) -- reported in SGR form (1006); and all of it undone, in reverse.
 TAKE = "\033[?1049h\033[?25l\033[?1003h\033[?1006h"
 GIVE = "\033[?1006l\033[?1003l\033[?25h\033[?1049l"
+# A synchronized update: a terminal that has it goes on showing what it showed until RELEASE or
+# its own limit (Ghostty's is a second); any other ignores both, tmux 3.5a for a pane or popup too.
+HOLD, RELEASE = "\033[?2026h", "\033[?2026l"
 _TAKEN = None      # the Keyboard that has the terminal now, or None
 _KEYED = b""       # what a keyboard sent past the key it was read for, or while `sense` asked
 _PRESSED = False   # the left button went down and has not been read coming up
@@ -856,18 +859,22 @@ class Keyboard:
         self._send(self.sequences[0])
         return True
 
-    def give(self):
+    def give(self, held=False):
         """The terminal back exactly as `take` found it: its attributes, its screen, its cursor.
 
         Nothing past the key that gives it is read, so what he typed after that key is there
         for whoever takes the terminal.  A button still down comes up as no click: the rest of
         it reaches a line `readline` drops it from, or a session's tmux, which reads it as the
         mouse report it is, or the menu again, which never saw that button go down.
+
+        With `held`, for a program about to take it again, none of this shows until that program
+        ends the hold (HOLD).  Without, any hold is ended, so a notice or a crash in a program
+        started under one shows at once.
         """
         global _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD
         if _TAKEN is not self:
             return
-        self._send(self.sequences[1])
+        self._send(HOLD + self.sequences[1] if held else self.sequences[1] + RELEASE)
         termios.tcsetattr(self.fd, termios.TCSADRAIN, self.saved)
         _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD = None, False, None, False, None
         for number, handler in self.kept.items():

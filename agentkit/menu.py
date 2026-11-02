@@ -121,6 +121,7 @@ import colorsys
 import copy
 import datetime
 import errno
+import hashlib
 import json
 import os
 import re
@@ -172,6 +173,9 @@ USAGE = ("usage: ak [--client] [--overlay] [--dry-run]   "
 RUN_RECORDS = "run-records.db"   # under STATE: one independently replaceable row per run.json
 _RUN_RECORDS = None
 _RUN_RECORDS_LOCK = threading.Lock()
+# The code `found` and `groups` are made and read in: a read crosses a restart only to the same.
+CODE = hashlib.sha256(b"".join(Path(__file__).with_name(name).read_bytes()
+                               for name in ("menu.py", "orch.py"))).hexdigest()
 
 
 def read(prompt, default=None):
@@ -375,7 +379,8 @@ class Live:
 
     def watch(self, last):
         """Read into `last` once, now, for the first draw -- in a menu the warm server forked, its
-        last read is the first draw's (`warm`), read again within STIR -- then again in a thread
+        last read is the first draw's (`warm`), and in one new code started again on the same code
+        the old one's (`warm.handed`), read again within STIR -- then again in a thread
         within STIR of any record changing, or when asked (`ask`): the seats and their groups,
         for each draw to draw.
 
@@ -391,10 +396,10 @@ class Live:
         only when a seat is listed that it has not met (`read`), once, and writes nothing else,
         so no menu's read keeps waking another, or itself; each one landing asks for one draw.
         """
-        self.last, primed = last, warm.primed()
+        self.last, primed = last, warm.primed() or warm.handed(CODE)
         if primed:
-            # the warm server's last read, read again at the watcher's first look: a read
-            # beside the first frame would hold it back, the two on one interpreter
+            # a read in hand, read again at the watcher's first look: a read beside the first
+            # frame would hold it back, the two on one interpreter
             last[:], self.seen, self.looking = primed, None, True
         else:
             self.seen = self.recorded()
@@ -5760,6 +5765,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
         live.watch(last)                  # read once, now: the first draw has nothing else
         back = False                      # back from a seat, or the screen that opens one
         newborn = None                    # the seat `n` is typing the name of (`born`)
+        holding = True                    # a restart's hold, until this process's first frame
+        framed = False                    # the last wait read no key: its frame is still up
         while True:
             if back:
                 live.back()               # drawn as the last read left it, read behind it
@@ -5781,13 +5788,17 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 clock.forget()            # and the menu it comes back to replays nothing
                 pointing = False
             # new code under an open menu, the tick's above all, draws it from here on, once
-            # the menu's own update, which stamps the install too, has said how it went
-            if updated or (updated is False and newborn is None and update.outdated()):
-                keyboard.give()
+            # the menu's own update, which stamps the install too, has said how it went; over a
+            # frame the terminal holds till the next one, so back from a seat or a notice the
+            # list comes up first, and no key is cut short
+            if (framed and not messages and newborn is None
+                    and (updated or (updated is False and update.outdated()))):
+                handing = warm.hand_on(last, CODE) if last[1] else {}
                 live.close()
+                keyboard.give(held=True)
                 sys.stdout.flush()
                 os.execve(sys.executable, [sys.executable, *sys.argv],
-                          {**os.environ, "AK_MENU_CURSOR": str(cursor or "")})
+                          {**os.environ, **handing, "AK_MENU_CURSOR": str(cursor or "")})
             found, groups = last          # after any notice: what changed under it is drawn as is
             past = past_offered(found)
             # `x` is only the popup's, for its own seat while that has a row: no screen stops
@@ -5803,6 +5814,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             page, pages = draw(cfg, found, listed, page, BORN if newborn else cursor, drawn,
                                look=False, groups=born_groups(groups, newborn) if newborn
                                else groups, clock=clock, updating=updating, pointing=pointing)
+            if holding and drawn is not None:
+                holding = False
+                sys.stdout.write(terminal.RELEASE)
+                sys.stdout.flush()
             if drawn and not newborn:     # the seat he sees highlighted, and if he points at it
                 cursor, pointing = drawn["cursor"], drawn["pointing"]
             if start_update:
@@ -5817,6 +5832,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             else:
                 key, shown = moving(clock, live.reader, timeout=0 if updates and newborn is None
                                     else TICK), drawn
+            framed = key is None
             if key is None:
                 # the wait ended on the clock, which looks again, or on news already written down
                 look = not live.drain()
