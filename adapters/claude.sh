@@ -152,6 +152,10 @@ run)
       "$out/events.jsonl" >"$out/final.md" 2>/dev/null || : >"$out/final.md"
   jq -sr '[.[] | select(.session_id != null)] | last | .session_id // ""' \
       "$out/events.jsonl" >"$out/session_id" 2>/dev/null || : >"$out/session_id"
+  # A failed turn's result is all Claude Code 2.1.316 says of a revoked login, with stderr empty,
+  # and the worker reads a dead login's words from stderr.log.
+  [ "$rc" -eq 0 ] || jq -sr '[.[] | select(.type == "result")] | last
+      | select(.is_error == true) | .result // empty' "$out/events.jsonl" >>"$out/stderr.log" 2>/dev/null
   exit $rc ;;
 interactive)
   [ $# -ge 2 ] || { echo "claude.sh interactive needs <model> <effort> [session-id [new]]" >&2; exit 2; }
