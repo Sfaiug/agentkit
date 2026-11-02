@@ -29,7 +29,8 @@ workspace), `sh` (a command run there), `commit` (a message for all of it), `han
 of argument lists for `ak hand-in`), `final` (final.md's text, where `{in N}` is the moment N
 seconds after the turn, as a refusal names when to come back), `session` (the id handed back:
 the one resumed, else `sid-<harness>-<n>`), `stderr` (what the harness says on its
-diagnostics, such as its logout words), `exit` (0).  A hand-in goes through the ak build
+diagnostics, such as its logout words), `exit` (0; negative, as a returncode says it, the
+turn dies of that signal with nothing of it left).  A hand-in goes through the ak build
 under test, the one AK_BIN names.  Every other verb answers as `answer` set it, or as a harness
 that is logged in with no meter to read, its `lend` the real tools/lend.py fed a login of the
 call's account lasting a day: `lent(account)` at LENT under the home named.
@@ -55,6 +56,7 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -249,4 +251,7 @@ def turn(fake, ak, call, model, effort, workspace, prompt, out, session=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main(*sys.argv[1:]))
+    exit_code = main(*sys.argv[1:])
+    if exit_code < 0:
+        signal.raise_signal(-exit_code)
+    sys.exit(exit_code)
