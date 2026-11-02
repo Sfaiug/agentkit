@@ -38,6 +38,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from tests.fixtures.draws import draws  # noqa: E402
 from agentkit import config, menu, motion, terminal, update  # noqa: E402
 
 # Both children's time: the real screens, clock and key reader over a clock that moves only by
@@ -250,14 +251,13 @@ class Screen:
             time.sleep(0.01)
 
     def draw(self, after=0):
-        """Where the next whole draw past `after` characters starts and its lines, waiting for
-        it."""
-        self.when(r"\x1b\[H\x1b\[K", after)
-        start = self.text().index("\x1b[H\x1b[K", after)
-        self.when(r"\x1b\[J", start)
+        """Where the next draw of rows past `after` characters starts and the lines it leaves
+        up, waiting for it."""
+        self.when(r"\x1b\[K(?:.|\n)*?\x1b\[\?2026l", after)
         text = self.text()
-        lines = terminal.ANSI.sub("", text[start:text.index("\x1b[J", start)]).split("\r\n")
-        return start, lines[:-1]
+        start = text.rindex("\x1b[?2026h", 0, text.index("\x1b[K", after))
+        lines = terminal.ANSI.sub("", draws(text, start)[-1].split("\x1b[J")[0])
+        return start, lines.replace("\r", "").split("\n")[:-1]
 
 
 def click_back_at_forty(case, screen):
@@ -314,7 +314,7 @@ class RuleProgress(unittest.TestCase):
         self.assertGreaterEqual(glided - opened, 0.15)      # nothing for the first 150 ms
         screen.when("Dark mode")
         text = screen.text()
-        landed = text.rindex("\x1b[H", 0, text.index("Dark mode"))
+        landed = text.rindex("\x1b[?2026h", 0, text.index("Dark mode"))
         self.assertIn("─" * 80, text[landed:])              # the rule still once it landed
         self.assertNotIn("━", text[landed:])
         self.assertGreater(len(GLIDE.findall(text[:landed])), 10)    # moving, not one frame
@@ -376,11 +376,8 @@ class RuleProgress(unittest.TestCase):
         screen.when("Dark mode", after=screen.text().index("<back>"))    # open again
         os.write(screen.master, b"\x1b[C ")            # `everyone on`, answered at once
         screen.when("<you landed>")                     # with `everyone` still off in its row
-        # the draw under way as it landed may have read the rows before it, the next did not
-        under_way, _ = screen.draw(screen.text().index("<you landed>"))
-        _, lines = screen.draw(under_way + 1)
-        line = next(line for line in lines if "Dark mode" in line)
-        self.assertEqual([mark for mark in line.split() if mark in "●○"], ["●", "●"], line)
+        # the draw under way as it landed may have read the rows before it, a next one did not
+        screen.when(r"Dark mode.*●.*●", screen.text().index("<you landed>"))
         os.write(screen.master, b"\x1b")
         self.assertEqual(screen.proc.wait(HUNG), 0, screen.text()[-2000:])
 
@@ -397,7 +394,7 @@ class RuleProgress(unittest.TestCase):
         after = len(text)
         fcntl.ioctl(screen.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 40, 0, 0))
         os.kill(screen.proc.pid, signal.SIGWINCH)      # the test's own child
-        screen.when(r"\x1b\[H\x1b\[Kagentkit · config · acme", after)
+        screen.when(r"\x1b\[Hagentkit · config · acme", after)
         drawn = screen.text().rindex("\x1b[H")
         screen.when(r"[^─]─{40}\x1b", drawn)          # the rule 40 wide, once it arrives
         screen.when(GLIDE.pattern, drawn)

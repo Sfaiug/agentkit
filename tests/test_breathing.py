@@ -96,7 +96,7 @@ class Breathing(Sandbox):
         out.isatty = lambda: True           # a terminal, as far as colour is concerned
 
         def wait_key(prompt, timeout=None, wake=None):
-            waits.append((timeout, self.now, out.getvalue()))
+            waits.append((timeout, self.now, re.sub(r"\x1b\[\?2026[hl]", "", out.getvalue())))
             out.seek(0)
             out.truncate()
             return answer(timeout)

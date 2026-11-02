@@ -23,7 +23,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_config_matrix import DOWN, FULL, RIGHT, SPACE, UP, Screen, on_effort, row
+from test_config_matrix import DOWN, FULL, RIGHT, SPACE, UP, Screen, draws, on_effort, row
 from agentkit import config, menu, motion, terminal
 
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
@@ -34,8 +34,7 @@ LIT = "38;"     # a colour of its own: a dim cell's, or the light's on a letter
 
 def drawn(screen):
     """The last whole screen's lines as written, colours and all."""
-    part = [part for part in screen.text().split("\x1b[H") if "\x1b[J" in part][-1]
-    return part.split("\x1b[J")[0].split("\n")
+    return draws(screen.text())[0].split("\x1b[J")[0].split("\n")
 
 
 def filled(screen, name):
@@ -67,7 +66,7 @@ def moved(screen, keys):
     for at, column, text in zip(parts[1::3], parts[2::3], parts[3::3]):
         text = text.split("\x1b[H")[0]            # a whole draw after it is no frame's
         cells.append((int(at), int(column), terminal.ANSI.sub("", text), text))
-    return cells
+    return [cell for cell in cells if cell[1] > 1]      # column 1: a row a draw wrote
 
 
 def places(lines, name):
