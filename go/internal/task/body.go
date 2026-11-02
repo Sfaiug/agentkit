@@ -1,8 +1,10 @@
 package task
 
 import (
+	"os"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"agentkit/internal/config"
 )
@@ -36,6 +38,20 @@ func Files(text string) []string {
 		}
 	}
 	return files
+}
+
+// SavedFiles is Files of a saved task as orch.changed_files reads it: none for a file that cannot
+// be read or whose front matter Python refuses.
+func SavedFiles(path string) []string {
+	data, err := os.ReadFile(path)
+	if err != nil || !utf8.Valid(data) {
+		return nil
+	}
+	text := Text(data)
+	if _, _, err := frontMatter(path, text); err != nil {
+		return nil
+	}
+	return Files(text)
 }
 
 var (

@@ -42,28 +42,9 @@ func Read(path string) (map[string]string, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	text := Text(data)
-	meta, body := map[string]string{}, text
-	if match := frontRe.FindStringSubmatch(text); match != nil {
-		for _, line := range config.SplitLines(match[1]) {
-			line = strings.TrimFunc(line, config.Space)
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			key, value, found := strings.Cut(line, ":")
-			if !found {
-				return nil, nil, fmt.Errorf("%s: front matter line is not `key: value`: %s", path, commandhelp.Quote(line))
-			}
-			key = strings.TrimFunc(key, config.Space)
-			if !slices.Contains(taskKeys, key) {
-				return nil, nil, fmt.Errorf("%s: unknown front-matter key %s; accepted keys: %s", path, commandhelp.Quote(key), strings.Join(taskKeys, ", "))
-			}
-			value, _, _ = strings.Cut(value, "#")
-			meta[key] = strings.TrimFunc(value, config.Space)
-		}
-		body = match[2]
-	} else if strings.HasPrefix(text, "---\n") {
-		return nil, nil, fmt.Errorf("%s: front matter needs a closing --- line", path)
+	meta, body, err := frontMatter(path, Text(data))
+	if err != nil {
+		return nil, nil, err
 	}
 	section := doneWhen.FindStringSubmatch(body)
 	if section == nil {
@@ -83,6 +64,34 @@ func Read(path string) (map[string]string, []string, error) {
 		return nil, nil, fmt.Errorf("%s: `## Done when` block is empty; done means commands that exit 0", path)
 	}
 	return meta, cmds, nil
+}
+
+// frontMatter is a task's front matter, each key as it last says it, and the text after it, or
+// the sentence ak refuses the file with, as Python's front_matter reads them.
+func frontMatter(path, text string) (map[string]string, string, error) {
+	meta, body := map[string]string{}, text
+	if match := frontRe.FindStringSubmatch(text); match != nil {
+		for _, line := range config.SplitLines(match[1]) {
+			line = strings.TrimFunc(line, config.Space)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			key, value, found := strings.Cut(line, ":")
+			if !found {
+				return nil, "", fmt.Errorf("%s: front matter line is not `key: value`: %s", path, commandhelp.Quote(line))
+			}
+			key = strings.TrimFunc(key, config.Space)
+			if !slices.Contains(taskKeys, key) {
+				return nil, "", fmt.Errorf("%s: unknown front-matter key %s; accepted keys: %s", path, commandhelp.Quote(key), strings.Join(taskKeys, ", "))
+			}
+			value, _, _ = strings.Cut(value, "#")
+			meta[key] = strings.TrimFunc(value, config.Space)
+		}
+		body = match[2]
+	} else if strings.HasPrefix(text, "---\n") {
+		return nil, "", fmt.Errorf("%s: front matter needs a closing --- line", path)
+	}
+	return meta, body, nil
 }
 
 // Title is the task's first `# ` heading after its front matter, as Python's parse_task reads

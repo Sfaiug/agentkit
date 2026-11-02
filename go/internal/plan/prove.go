@@ -94,8 +94,7 @@ func pythonPath(project string) bool {
 	if at := strings.LastIndex(project, "#"); at >= 0 {
 		project = project[:at]
 	}
-	names := strings.Split(project, "/")
-	return !slices.Contains(names, "..") && (names[0] == "~" || !strings.HasPrefix(names[0], "~"))
+	return !slices.Contains(strings.Split(project, "/"), "..") && !config.OtherHome(project)
 }
 
 // A branch is a project's default branch as just fetched, or the commit a line names: what checks run on.

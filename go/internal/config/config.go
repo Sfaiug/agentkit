@@ -119,6 +119,12 @@ func tilde(path string) string {
 	return cmp.Or(strings.TrimRight(UserHome(), "/"+string(filepath.Separator))+path[1:], "/")
 }
 
+// OtherHome is whether path starts in another user's home (`~bob/x`), which Python's expanduser
+// expands and tilde does not.
+func OtherHome(path string) bool {
+	return strings.HasPrefix(path, "~") && tilde(path) == path
+}
+
 // Resolve is path made absolute with its links followed, as far as they exist, and a leading
 // `~` kept literal, as Python's Path.resolve() reads it: name by name, so a `..` after a link
 // leaves the link's target, and a link that loops is kept as it is.  On Windows, Python takes
