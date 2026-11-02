@@ -72,13 +72,15 @@ func Look(launched, pid string) {
 	if err != nil || said != server+"\t"+name {
 		return
 	}
-	lookAgain(filepath.Join(config.Home(), "state"), name, time.Now())
+	lookAgain(filepath.Join(config.Home(), "state"), name)
 }
 
-// lookAgain decides a seat tmux holds gone and tells what it finds, the deciding under its announce
-// lock, so a look queued behind another announcer never lands an older word on that one's.
-func lookAgain(state, name string, now time.Time) error {
+// lookAgain decides a seat tmux holds gone and tells what it finds, the deciding and its clock
+// under its announce lock, so a look queued behind another announcer never lands an older word on
+// that one's, nor reads what was recorded while it queued as still to come.
+func lookAgain(state, name string) error {
 	return announcing(state, name, func() error {
+		now := time.Now()
 		if seat, models, known := lookedAt(state, name, now); known {
 			return seat.announced(state, now, models)
 		}

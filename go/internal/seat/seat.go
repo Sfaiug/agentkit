@@ -390,7 +390,7 @@ func announcing(state, name string, tell func() error) error {
 // at again there, as a look's other announcers may have moved it since the reading.
 func (seat Seat) announce(state string, now time.Time, models map[string]config.Model) error {
 	if seat.held {
-		return lookAgain(state, seat.Name, now)
+		return lookAgain(state, seat.Name)
 	}
 	return announcing(state, seat.Name, func() error { return seat.announced(state, now, models) })
 }

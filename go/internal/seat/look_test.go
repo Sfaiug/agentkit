@@ -257,6 +257,40 @@ func TestALookDecidesUnderTheAnnounceLock(t *testing.T) {
 	}
 }
 
+// A merge recorded while a look queues is younger than the look's start, and still awaits its check.
+func TestALookReadsAMergeMadeWhileItQueuedByTheClockOfItsDecision(t *testing.T) {
+	home := sandbox(t)
+	record(t, home, "acme", nil)
+	pane := paneDied(t, "acme")
+	state := filepath.Join(home, ".agentkit", "state")
+	path := filepath.Join(state, "seat-acme.json")
+	write(t, filepath.Join(state, "plan-acme.md"), doneLine)
+	held, err := lock.Wait(context.Background(), filepath.Join(state, "seat-acme.announce"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished := make(chan struct{})
+	socket, _ := tmux.Ask(tmux.Own(), "display-message", "-p", "#{socket_path}")
+	t.Setenv("TMUX", socket+",1,0")
+	t.Setenv("TMUX_PANE", pane)
+	t.Setenv("AGENTKIT_SESSION", "acme")
+	go func() {
+		defer close(finished)
+		Look("acme", "")
+	}()
+	// long enough for a look to have read its clock; a slow one only passes
+	time.Sleep(300 * time.Millisecond)
+	runRecord(t, home, "merged", map[string]any{"state": "pass", "merged": true, "repo": "/r",
+		"finished_at": float64(time.Now().UnixNano()) / 1e9, "health": map[string]any{"command": "true"}})
+	want := `{"word": "working", "reason": "waiting on the live check", "word_since": 2}`
+	write(t, path, want)
+	held.Close()
+	<-finished
+	if got, _ := os.ReadFile(path); string(got) != want {
+		t.Fatalf("the seat's file became %s", got)
+	}
+}
+
 func TestALookWritesOnlyAChangeAndTellsTheBar(t *testing.T) {
 	home := sandbox(t)
 	record(t, home, "acme", nil)
