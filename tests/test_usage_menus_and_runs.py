@@ -152,7 +152,8 @@ class UsageLeft(Sandbox):
                     self.assertEqual([terminal.plain(line) for line in rendered], plain)
             with patch.object(sys.stdout, "isatty", return_value=False):
                 self.assertNotIn("\033", "\n".join(menu.usage_lines(self.cfg, 100)))
-            with patch("curses.tigetnum", return_value=0):
+            with patch("curses.tigetnum", return_value=0), \
+                    patch.dict(os.environ, {"TERM": "xterm-mono"}):
                 self.assertNotIn("\033", "\n".join(menu.usage_lines(self.cfg, 100)))
 
     def test_missing_corrupt_or_unreadable_usage_keeps_every_provider_row(self):
