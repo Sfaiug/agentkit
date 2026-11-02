@@ -1,6 +1,8 @@
 package seat
 
 import (
+	"errors"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -206,16 +208,42 @@ func TestWhatTheLookDoesNotReadYetWritesNothing(t *testing.T) {
 			home := sandbox(t)
 			record(t, home, "acme", nil)
 			drawn(t, home, "acme", prompting)
+			waited, known := Looking(time.Now()) // as a look reads the home before it waits for its lock
+			if !known {
+				t.Fatal("Go did not read the seat")
+			}
 			setup(t, home)
-			before, _ := os.ReadDir(stateFile(home, ""))
+			before := stateFiles(t, home)
 			if _, known := Looking(time.Now()); known {
 				t.Fatal("Go took it")
 			}
-			if after, _ := os.ReadDir(stateFile(home, "")); len(after) != len(before) {
-				t.Fatal("refusing wrote a file")
+			if _, _, err := waited.Explain("acme", time.Now()); !errors.Is(err, ErrUnread) {
+				t.Fatalf("what came during the wait was looked past: %v", err)
+			}
+			after := stateFiles(t, home)
+			delete(after, "seat-acme.announce") // the lock it waited on, which holds nothing
+			if !maps.Equal(before, after) {
+				t.Fatalf("refusing wrote: %v, then %v", before, after)
 			}
 		})
 	}
+}
+
+func stateFiles(t *testing.T, home string) map[string]string {
+	t.Helper()
+	entries, err := os.ReadDir(stateFile(home, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{}
+	for _, entry := range entries {
+		data, err := os.ReadFile(stateFile(home, entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[entry.Name()] = string(data)
+	}
+	return files
 }
 
 func TestARuleGoCannotSayLeavesTheHarnessToPython(t *testing.T) {

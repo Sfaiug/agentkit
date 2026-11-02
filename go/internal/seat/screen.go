@@ -2,9 +2,11 @@ package seat
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -195,19 +197,34 @@ func (seat *Seat) decided(found sight, now float64, attached bool) {
 	seat.wordFrom = []any{found.state, found.rule, said}
 }
 
+// ErrUnread is a seat that came to hold what Go does not read yet while its look waited: Python's
+// to answer, with nothing written.
+var ErrUnread = errors.New("Go does not read this seat yet")
+
 // explainLive is orch.explain of a seat its panes still run on, under its announce lock from the
-// look to the word: watch.announce_state's look, what its last answer moved, the word published,
-// and what decided it read back as every other reader reads it.
-func (seat Seat) explainLive(state string, models map[string]config.Model) ([]string, error) {
-	err := announcing(state, seat.Name, func() error {
+// reading to the word, as the wait for that lock can outlast what the home held: what the listing
+// reconciles, watch.announce_state's look, what its last answer moved, the word published, and what
+// decided it read back as every other reader reads it.
+func explainLive(state, name string) ([]string, error) {
+	var seat Seat
+	err := announcing(state, name, func() error {
 		now := time.Now()
+		home, known := Looking(now)
+		at := slices.IndexFunc(home.Seats, func(each Seat) bool { return each.Name == name })
+		if !known || at < 0 || !home.Seats[at].live {
+			return ErrUnread
+		}
+		seat = home.Seats[at]
+		if err := reconcile(state, home.records, true); err != nil {
+			return err
+		}
 		found, err := seat.look(state, seconds(now))
 		if err != nil {
 			return err
 		}
-		attached, _ := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+seat.Name+":", "#{session_attached}")
+		attached, _ := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+name+":", "#{session_attached}")
 		seat.decided(found, seconds(now), attached != "" && attached != "0")
-		return seat.announced(state, now, models)
+		return seat.announced(state, now, home.models)
 	})
 	if err != nil {
 		return nil, err

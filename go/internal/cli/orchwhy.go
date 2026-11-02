@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -23,6 +24,9 @@ func orchWhy(args []string, out, errOut io.Writer) int {
 		return notImplemented(errOut, "orch why")
 	}
 	lines, found, err := home.Explain(name, now)
+	if errors.Is(err, seat.ErrUnread) {
+		return notImplemented(errOut, "orch why")
+	}
 	if err != nil {
 		fmt.Fprintf(errOut, "ak orch: %v\n", err)
 		return 1

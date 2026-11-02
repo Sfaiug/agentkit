@@ -15,18 +15,18 @@ import (
 // goes by that name.
 func (home Home) Explain(name string, now time.Time) ([]string, bool, error) {
 	state := filepath.Join(config.Home(), "state")
+	at := slices.IndexFunc(home.Seats, func(seat Seat) bool { return seat.Name == name })
+	if at >= 0 && home.Seats[at].live {
+		lines, err := explainLive(state, name)
+		return lines, true, err
+	}
 	if err := reconcile(state, home.records, true); err != nil {
 		return nil, false, err
 	}
-	at := slices.IndexFunc(home.Seats, func(seat Seat) bool { return seat.Name == name })
 	if at < 0 {
 		return nil, false, nil
 	}
 	seat := home.Seats[at]
-	if seat.live {
-		lines, err := seat.explainLive(state, home.models)
-		return lines, true, err
-	}
 	if err := seat.announce(state, now, home.models); err != nil {
 		return nil, false, err
 	}
