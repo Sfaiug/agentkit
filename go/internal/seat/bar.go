@@ -91,18 +91,45 @@ func barChip(screen terminal.Screen, word string) string {
 }
 
 // barProgress is the seat's plan as line one's last part in room cells (menu.last_column): a smooth
-// line and its count, none for a seat at rest or one with no plan.
-func barProgress(screen terminal.Screen, word string, done, total, room int) string {
-	if word == "idle" || total == 0 {
-		return ""
+// line and its count, the same line with nothing done for one working with no plan, none for a seat
+// at rest or any other with no plan; then what the owner left unsent, whose mark alone stays where
+// both do not fit.
+func barProgress(screen terminal.Screen, word string, unsent bool, done, total, room int) string {
+	mark, left := "", room
+	if unsent {
+		mark = "✎ unsent"
+		if screen.ASCII() {
+			mark = "* unsent"
+		}
+		left -= terminal.Cells(mark) + 2
 	}
-	count := fmt.Sprintf("%d of %d", done, total)
+	bar, cells := "", 0
+	if word != "idle" && (total > 0 || word == "working") {
+		bar, cells = barLine(screen, word, done, total, left)
+	}
+	if mark == "" {
+		return bar
+	}
+	mark = barPaint(mark, "needs you")
+	if bar == "" || cells > left {
+		return mark
+	}
+	return bar + "  " + mark
+}
+
+// barLine is that line in those cells, the count alone where no cell of line fits, and the cells
+// it takes.
+func barLine(screen terminal.Screen, word string, done, total, room int) (string, int) {
+	count := "no plan yet"
+	if total > 0 {
+		count = fmt.Sprintf("%d of %d", done, total)
+	}
 	size := room - len(count) - 1
 	if size < 1 {
-		return count
+		return count, len(count)
 	}
 	full, half, empty := "━", "╸", "─"
-	share := float64(done) / float64(total)
+	share := float64(done) / float64(max(total, 1))
 	halves := int(math.RoundToEven(2 * float64(size) * share))
 	if screen.ASCII() {
 		full, half, empty = "=", "-", "-"
@@ -124,7 +151,7 @@ func barProgress(screen terminal.Screen, word string, done, total, room int) str
 	if ends < size {
 		line.WriteString("#[fg=#" + terminal.RGB("dim") + "]" + strings.Repeat(empty, size-ends))
 	}
-	return line.String() + "#[default] " + count
+	return line.String() + "#[default] " + count, size + 1 + len(count)
 }
 
 // barFaded is a word's colour that far of the way to a dark terminal's background.
@@ -207,7 +234,7 @@ func (seat Seat) barOptions(screen terminal.Screen, model string, builds, review
 		head += "   " + barPaint(model, "dim")
 	}
 	why := barCrew(screen, builds, reviews)
-	if seat.Word == "needs you" {
+	if seat.Word == "needs you" && !seat.question {
 		why = tmuxText(terminal.Plain(seat.reason))
 	}
 	if why != "" {
@@ -218,7 +245,7 @@ func (seat Seat) barOptions(screen terminal.Screen, model string, builds, review
 		{target, "status-format[0]", barLineOne()}, {target, "status-format[1]", barLineTwo()}}
 	for i, option := range barTops {
 		top := head
-		if last := barProgress(screen, seat.Word, done, total, barCells[i]); last != "" {
+		if last := barProgress(screen, seat.Word, seat.unsent != "", done, total, barCells[i]); last != "" {
 			top += "   " + last
 		}
 		own = append(own, [3]string{target, option, top})

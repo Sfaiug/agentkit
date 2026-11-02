@@ -31,6 +31,10 @@ type plugin struct {
 	turnEnv map[string]string
 	auth    func(login config.Login, seat bool) Answer
 	lend    func(login config.Login) Loan
+	// looks is whether Go reads the screen of this harness's seats, and recorded the error its
+	// conversation ends on (Python's plugin `error`).
+	looks    bool
+	recorded func(conversation, cwd string) (string, bool)
 	// opens is whether Go opens this harness's seats: Python's launch writes down the launcher's
 	// conversation id alone (the default `launched`), and titled whether its TUI takes a title
 	// line (`title_command`).

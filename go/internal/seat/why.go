@@ -11,8 +11,8 @@ import (
 
 // Explain is Python's orch.explain of the seat by that name, once its listing has written into
 // the records what it reconciles and infers and its announce the seat's word: the word, why, and
-// that nothing read its screen, Go reading only seats whose process is gone; false where no seat
-// Go reads goes by that name.
+// what read its screen, or that nothing did where its process is gone; false where no seat Go reads
+// goes by that name.
 func (home Home) Explain(name string, now time.Time) ([]string, bool, error) {
 	state := filepath.Join(config.Home(), "state")
 	if err := reconcile(state, home.records, true); err != nil {
@@ -23,6 +23,10 @@ func (home Home) Explain(name string, now time.Time) ([]string, bool, error) {
 		return nil, false, nil
 	}
 	seat := home.Seats[at]
+	if seat.live {
+		lines, err := seat.explainLive(state, home.models)
+		return lines, true, err
+	}
 	if err := seat.announce(state, now, home.models); err != nil {
 		return nil, false, err
 	}

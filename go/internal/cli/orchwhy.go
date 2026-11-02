@@ -17,7 +17,7 @@ func init() { commands["orch why"] = orchWhy }
 // answers to.
 func orchWhy(args []string, out, errOut io.Writer) int {
 	now := time.Now()
-	home, known := seat.Read(now)
+	home, known := seat.Looking(now)
 	name, _, err := config.ResolveSession(args[0])
 	if !known || err != nil && !home.Seatless() {
 		return notImplemented(errOut, "orch why")
