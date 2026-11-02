@@ -77,11 +77,9 @@ func Main(args []string, out, errOut io.Writer) int {
 		args = args[1:]
 	}
 	wait, _ := timeout()
-	interrupt, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
 	code := 0
 	for _, arg := range args {
-		found, err := one(interrupt, arg, wait)
+		found, err := one(arg, wait)
 		if errors.Is(err, errInterrupted) {
 			fmt.Fprintln(errOut, "\nak fetch: interrupted")
 			return 130
@@ -123,10 +121,7 @@ func normalize(value string) (string, string) {
 	return value, ""
 }
 
-func one(interrupt context.Context, value string, wait float64) (string, error) {
-	if interrupt.Err() != nil {
-		return "", errInterrupted
-	}
+func one(value string, wait float64) (string, error) {
 	typed, problem := normalize(value)
 	if problem != "" {
 		return "", errors.New(problem)
@@ -136,7 +131,7 @@ func one(interrupt context.Context, value string, wait float64) (string, error) 
 	}
 	// The Mac reads the path as its own: host path cleaning would turn its slashes into
 	// Windows ones or drop a `..` after a symlink, and its `~` is the Mac's home.
-	return ask(interrupt, typed, wait)
+	return ask(typed, wait)
 }
 
 // bridge makes the folders the bridge exchanges files in, the owner's alone, and returns its root.
@@ -180,7 +175,7 @@ func exists(name string) bool {
 
 // ask leaves a request for the Mac and waits for its answer in the inbox: the file, an
 // error, or a mark that the file is gone. Whatever happens, no request or mark stays behind.
-func ask(interrupt context.Context, mac string, wait float64) (string, error) {
+func ask(mac string, wait float64) (string, error) {
 	root, err := bridge()
 	if err != nil {
 		return "", err
@@ -199,6 +194,10 @@ func ask(interrupt context.Context, mac string, wait float64) (string, error) {
 	ready := filepath.Join(inbox, "."+ident+".ready")
 	failed := filepath.Join(inbox, "."+ident+".error")
 	delivered := ""
+	// Only this wait catches Ctrl-C, as only it can stop early: everywhere else, a write to a
+	// stalled pipe above all, the signal has to go on ending the program.
+	interrupt, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
 	defer func() {
 		for _, leftover := range []string{temp, request, ready, failed} {
 			os.Remove(leftover)
