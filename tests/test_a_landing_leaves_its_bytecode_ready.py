@@ -1,0 +1,41 @@
+"""A landing leaves bytecode Python will load, written before the version goes live."""
+
+import importlib.util
+from pathlib import Path
+import struct
+import sys
+import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import test_a_landing_restarts_a_menu_once as landing
+from agentkit import config, versions
+
+
+def stale(version):
+    """The modules of `version` Python would compile again: bytecode names its source's time."""
+    for source in (version / "agentkit").rglob("*.py"):
+        cached, read = Path(importlib.util.cache_from_source(source)), source.stat()
+        stamp = struct.pack("<4sLLL", importlib.util.MAGIC_NUMBER, 0, int(read.st_mtime), read.st_size)
+        if not cached.exists() or cached.read_bytes()[:16] != stamp:
+            yield source.name
+
+
+class ALandingLeavesItsBytecodeReady(unittest.TestCase):
+    setUp, commit = landing.ALandingRestartsAMenuOnce.setUp, landing.ALandingRestartsAMenuOnce.commit
+    change, land = landing.ALandingRestartsAMenuOnce.change, landing.ALandingRestartsAMenuOnce.land
+
+    def ready(self, name):
+        told = []
+        self.land(name, lambda: told.extend(
+            name for version in (config.HOME / versions.VERSIONS).iterdir() for name in stale(version)))
+        self.assertEqual(told, [])
+
+    def test_a_landing_with_code(self):
+        self.ready("agentkit/acme.py")
+
+    def test_a_landing_keeping_the_modules_times(self):
+        self.ready("docs/acme.md")
+
+
+if __name__ == "__main__":
+    unittest.main()
