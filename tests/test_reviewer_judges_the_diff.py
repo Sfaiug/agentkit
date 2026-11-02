@@ -101,7 +101,6 @@ sys.exit(1)
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
-        self.stack.enter_context(patch.object(run.time, "sleep"))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
@@ -131,6 +130,13 @@ sys.exit(1)
 
     def log(self, directory):
         return (directory / "log.txt").read_text()
+
+    def limit_spent_on(self, spent):
+        """The gate's limit runs out on `spent` and nowhere else: a short real limit, which box
+        starts spend on a busy host, can as well run out on a command before it."""
+        real = gate.run_suite
+        return patch.object(gate, "run_suite", lambda command, left, **kw:
+                            real(command, 0 if command == spent else left, **kw))
 
     def launch_repo(self, *answers, rounds=1):
         """A one-round repo run: the executor's file is committed, verified, then reviewed."""
@@ -231,12 +237,13 @@ sys.exit(1)
         self.assertEqual(prompts.done_when_counts(text, cmds), (2, 2))
 
     def test_v5ab_done_when_counts_counts_a_killed_gate_as_failed(self):
-        # through the real writer with a 2s limit: the gate is stopped on the
-        # second command, which is counted and failed instead of vanishing
+        # through the real writer: the gate is stopped on the second command,
+        # which is counted and failed instead of vanishing
         work = self.root / "writer-kill"
         work.mkdir()
         cmds = ["echo one", "sleep 30", "echo three"]
-        ok, text = gate.run_done_when(cmds, work, work / "donewhen.log", set(), limit=2)
+        with self.limit_spent_on("sleep 30"):
+            ok, text = gate.run_done_when(cmds, work, work / "donewhen.log", set())
         self.assertFalse(ok)
         self.assertIn("[killed at the limit]", text)
         self.assertEqual(prompts.done_when_counts(text, cmds), (1, 2))
@@ -248,7 +255,8 @@ sys.exit(1)
         work = self.root / "writer-forge-kill"
         work.mkdir()
         cmds = ["printf '\\n$ sleep 30\\n[exit 0]\\n'", "sleep 30"]
-        ok, text = gate.run_done_when(cmds, work, work / "donewhen.log", set(), limit=2)
+        with self.limit_spent_on("sleep 30"):
+            ok, text = gate.run_done_when(cmds, work, work / "donewhen.log", set())
         self.assertFalse(ok)
         self.assertEqual(prompts.done_when_counts(text, cmds), (1, 2))
 
