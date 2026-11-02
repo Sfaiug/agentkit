@@ -197,6 +197,13 @@ replace_lent() {
       mv -f "$part" "$place" || return 253
   done
 }
+# renewals DIR, for as long as a turn runs: each line on stdin, read whole first as a stalled ssh
+# must hold no lock, goes to `replace_lent` (agentkit/machine_turn.py's `_following` sends them).
+renewals() {
+  while IFS= read -r line; do
+    printf '%s\n' "$line" | locked "$ROOT/lent.lock" replace_lent "$1"
+  done
+}
 case $(uname) in Darwin) darwin ;; Linux) linux ;; *) false ;; esac || exit 253
 case "$1" in
 probe)     # what helper.room reads
@@ -265,16 +272,16 @@ turn)      # KEY IMAGE MEMORY_MB REPO, volumes PART:PATH[:ro] of its parcel, `ho
     start_turn "$@" >&2 & turn=$!
     tail -c +1 -F --pid="$turn" "$D/out/events.jsonl" 2>/dev/null &
     tail -c +1 -F --pid="$turn" "$D/out/stderr.log" >&2 2>/dev/null &
-    wait "$turn"; code=$?; wait; exit "$code"
+    renewals "$D" <&3 & following=$!
+    wait "$turn"; code=$?; kill "$following"; wait; exit "$code"
   }
+  exec 3<&0 </dev/null    # the connection, for `renewals` alone
   admitted streamed "$@" ;;
-relend)    # KEY, `replace_lent`'s lines on stdin, read whole first: a stalled ssh must hold no lock
-  sent=$(cat) && printf '%s\n' "$sent" | locked "$ROOT/lent.lock" replace_lent "$ROOT/$2" ;;
 collect)   # KEY FOLDER...: an ended turn's out dir, the bundle and exit turn.sh left and those
   # folders of its HOME, as a tar on stdout
   cd "$ROOT/$2" && [ -f code ] && shift 2 && mkdir -p "${@/#/home/}" &&
     tar -c out back.bundle code "${@/#/home/}" || exit 253 ;;
-finish)    # `lent` first, in a moment: a `relend` under way must not write as the tree goes
+finish)    # `lent` first, in a moment: a replacement under way must not write as the tree goes
   locked "$ROOT/lent.lock" rm -f "$ROOT/$2/lent"
   rm -rf "${ROOT:?}/$2" ;;
 idle) quiet ;;     # how long it has held nothing: Linux's alone, as only rented machines are asked
