@@ -26,11 +26,10 @@ const stopFD = 4
 const grace = 5 * time.Second
 
 // supervise waits for the command, a session's leader, reaping meanwhile the orphans a PID 1
-// inherits: how it ended, and every other process still running in the box then, by pid, with
-// its command line, which the first process's exit ends.  Asked by ak to stop, it gives the
-// command's process group TERM and waits for the group, not only the command: TERM may end a
-// shell adapter at once while the harness it started still saves.  A command still running after
-// grace ends by KILL with the rest.
+// inherits: how it ended, and what still runs in the box then (leftovers), which the first
+// process's exit ends.  Asked by ak to stop, it gives the command's process group TERM and waits
+// for the group, not only the command: TERM may end a shell adapter at once while the harness it
+// started still saves.  A command still running after grace ends by KILL, named with the rest.
 func supervise(command int) (int, map[int]string) {
 	ended := make(chan int, 1)
 	go func() {
@@ -60,24 +59,24 @@ func supervise(command int) (int, map[int]string) {
 				case <-time.After(10 * time.Millisecond):
 				}
 			}
-			return code, leftovers(command)
+			return code, leftovers()
 		case <-stop:
 			stop, late = nil, time.After(grace)
 			syscall.Kill(-command, syscall.SIGTERM)
 		case <-late:
-			return -int(syscall.SIGKILL), leftovers(command)
+			return -int(syscall.SIGKILL), leftovers()
 		}
 	}
 }
 
-// leftovers is every process in the box but its first and the command, by pid, with its command
-// line, as Python's box._supervise names them: one that has ended is none.
-func leftovers(command int) map[int]string {
+// leftovers is every process in the box but its first, by pid, with its command line, as Python's
+// box._supervise names them: one that has ended is none, as a command already reaped is.
+func leftovers() map[int]string {
 	left := map[int]string{}
 	entries, _ := os.ReadDir("/proc")
 	for _, entry := range entries {
 		pid, err := strconv.Atoi(entry.Name())
-		if err != nil || pid == os.Getpid() || pid == command {
+		if err != nil || pid == os.Getpid() {
 			continue
 		}
 		if stat, ok := host.ReadStat(pid); !ok || stat.Exited() {
