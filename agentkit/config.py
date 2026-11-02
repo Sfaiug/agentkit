@@ -436,14 +436,14 @@ def _policy_in(path, data):
 
 
 def in_force(text, table=None):
-    """ak's own words as this host's numbers (`policy`) make them: `$rounds`, `$review_lines` and
+    """ak's own words as this host's numbers (`host_policy`) make them: `$rounds`, `$review_lines` and
     `$seat_lines` the number, `$Rounds` it opening a sentence, `$s` the plural of its round and
     `$one_over` the round past the budget.  Only ak's own text comes here: a rule the owner or a
     project wrote is theirs to the letter, a `$` in it included."""
     try:
-        numbers = policy(table)
+        numbers = host_policy(table)
     except Error:   # the commands that act on a config.toml refuse it; words only saying it don't
-        numbers = policy({})
+        numbers = host_policy({})
     rounds = numbers["rounds"]
     opening, over = ROUNDS_SAID.get(rounds, (rounds, f"round {rounds + 1}"))
     return Template(text).safe_substitute(numbers, Rounds=opening, one_over=over,

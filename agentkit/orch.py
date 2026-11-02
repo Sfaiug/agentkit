@@ -2554,6 +2554,7 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None):
     repository = git_dirs(cwd)
     plugin = seat_plugin({"orchestrator": model})
     from . import notify, watch
+    hand_task_template()
     # The rulebook this launch hands its harness, written down before the harness is up: its
     # first prompt may already be offered a newer one, which nothing after may wipe.  Under
     # the seat's lock, so a rename going on keeps its record; a launch whose harness never
@@ -2816,13 +2817,11 @@ def write_rulebook(session):
     path = config.rulebook_path(session)
     if os.environ.get(config.RULEBOOK_DIR_ENV):
         path = Path(os.environ[config.RULEBOOK_DIR_ENV]) / path.name
-    else:
-        hand_task_template()
-        if repo and not fetched(Path(repo)):
-            try:
-                fetch_project(Path(repo))
-            except config.Error:
-                pass
+    elif repo and not fetched(Path(repo)):
+        try:
+            fetch_project(Path(repo))
+        except config.Error:
+            pass
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(config.seat_rulebook(session, repo))
