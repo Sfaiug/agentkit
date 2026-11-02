@@ -583,6 +583,13 @@ class Harness:
         messages = sorted(hook(record, cwd, conversation), key=lambda message: message["at"])
         matched, excluded = set(), set()
         if seat:
+            from .. import watch
+            own = (watch.MIDTURN_LINE, watch.ASKED_LINE, watch.ACCOUNT_LINE, watch.MOVED_LINE)
+            held = watch.HELD_LINE.split("{}")[0]
+            for index, message in enumerate(messages):
+                text = message["text"].removesuffix(watch.FRESH_NOTE)
+                if text in own or text.startswith(held):
+                    excluded.add(index)
             for sent in entries(config.seat_file("input", config.resolve_session(seat))):
                 if sent.get("harness") != self.name or sent.get("conversation") != conversation:
                     continue
