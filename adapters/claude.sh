@@ -23,6 +23,7 @@
 #                                    where a turn with HOME=<home> reads it, and the epoch second
 #                                    it lapses; `own` puts a named account's where a turn naming
 #                                    that account reads it
+#                       renewal      -> `renew`'s own early renewal, holding the login's lock
 #                       hooks        -> wire this harness's lifecycle hooks, idempotently
 #                       models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                    Anthropic's models API, else the [catalog] table of
@@ -91,7 +92,7 @@ err() { local m=${1//\\/}; m=${m//\"/\'}
 # on this host, which took its load to 40-60 for that hour of each eight (2 Nov 2026), and
 # `usage`, asked about every 15 minutes (`probe_every`), gets there first.  A machine's copy is
 # replaced as it renews (`machine_turn._following`).  On a Mac that waits: nothing follows the
-# Keychain, and a turn on a copy of the login would renew into the Keychain, out of `COPY`'s reach.
+# Keychain, and a turn on a copy of the login would renew into the Keychain, out of the file's reach.
 lapsed() {
   local blob ahead=5400
   [ "$(uname)" != Darwin ] || ahead=0
@@ -103,42 +104,30 @@ lapsed() {
   [ "${#exp}" -gt 11 ] || exp="${exp}000"
   [ "$exp" -le "$(( ($(date +%s) + ahead) * 1000 ))" ]
 }
-# Claude Code renews, and writes its file, only in a login's last 5 minutes (2.1.316, 2 Nov 2026).
-# Earlier the turn runs on a copy that says it is there, so the login's own file never says so,
-# whatever ends the turn.  Renewing retires the login renewed, so a copy holding the renewal
-# outlives a turn killed after it: the next `renew` takes it, and no second turn runs.
-COPY="$TMPD/claude-login${ACCOUNT:+.$ACCOUNT}.copy"
-# That login alone, onto the file as it is now, which holds the MCP servers' logins too: a copy
-# nothing renewed has the file's token, and one a renewal of the file itself overtook ends sooner.
-take_renewal() {
-  local merged tmp
-  merged=$(jq -c --slurpfile copy "$COPY/.credentials.json" '$copy[0].claudeAiOauth as $new
-      | select($new.accessToken != .claudeAiOauth.accessToken
-               and $new.expiresAt > .claudeAiOauth.expiresAt)
-      | .claudeAiOauth = $new' "$CREDS" 2>/dev/null) || return 0
-  if [ -n "$merged" ]; then
-    tmp=$(mktemp "$CREDS.XXXXXX") && printf '%s' "$merged" >"$tmp" && mv -f -- "$tmp" "$CREDS" || return 0
-  fi
-  rm -rf -- "$COPY"
+# One login at a time, on any host: macOS has no flock(1).  flock(2) on fd 9 holds until every
+# holder of that fd closes it.
+LOCK="$TMPD/claude-login${ACCOUNT:+.$ACCOUNT}.lock"
+hold_login() { python3 -c 'import fcntl, signal; signal.alarm(30); fcntl.flock(0, fcntl.LOCK_EX)' <&9; }
+# Whoever reads or removes the login past this sees what a renewal under way made of it.
+renewal_over() { [ ! -e "$LOCK" ] || ( hold_login ) 9>>"$LOCK"; }
+# The seat login's own directory or a copy, never a token that would stand in for it; a worker's
+# role keeps the seat hooks quiet when the caller is a seat.  Whatever comes first runs `claude`.
+renewing_turn() {
+  echo hi | AK_RUN_ROLE=worker "$@" claude -p --model haiku --tools "" --no-session-persistence \
+    --settings "$PINS" 9>&-
 }
 renew() {
   lapsed && mkdir -p -- "$TMPD" 2>/dev/null || return 0
-  # flock(2) on fd 9 holds until this subshell closes it, after the turn; python3 because
-  # macOS has no flock(1).  Silent throughout: `auth` answers in one line.
-  ( python3 -c 'import fcntl, signal; signal.alarm(30); fcntl.flock(0, fcntl.LOCK_EX)' <&9 &&
-      { take_renewal; lapsed; } && cd -- "$TMPD" || exit 0
-    if [ "$exp" -gt "$(( ($(date +%s) + 300) * 1000 ))" ]; then
-      near=$(jq -c '{claudeAiOauth} | .claudeAiOauth.expiresAt = ((now + 240) * 1000 | floor)' "$CREDS") &&
-        mkdir -p -m 700 -- "$COPY" && printf '%s' "$near" >"$COPY/.credentials.json" || exit 0
-      export CLAUDE_CONFIG_DIR=$COPY
-    fi
-    # the seat login's own directory or its copy, never a token that would stand in for it; a
-    # worker's role keeps the seat hooks quiet when the caller is a seat
+  # Silent throughout: `auth` answers in one line.
+  ( hold_login && lapsed || exit 0
     unset CLAUDE_CODE_OAUTH_TOKEN
-    echo hi | AK_RUN_ROLE=worker claude -p --model haiku --tools "" --no-session-persistence \
-      --settings "$PINS" 9>&-
-    take_renewal
-  ) >/dev/null 2>&1 9>>"$TMPD/claude-login${ACCOUNT:+.$ACCOUNT}.lock"
+    # Claude Code renews only in a login's last 5 minutes (2.1.316, 2 Nov 2026).  Renewing retires
+    # the login renewed, so what renews early outlives a caller's timeout: `config._end` leaves a
+    # session of its own alone.
+    [ "$exp" -le "$(( ($(date +%s) + 300) * 1000 ))" ] ||
+      exec setsid --wait bash "${BASH_SOURCE[0]}" renewal
+    cd -- "$TMPD" && renewing_turn
+  ) >/dev/null 2>&1 9>>"$LOCK"
 }
 
 # An account's login reads the usual one's conversations and settings through links: Claude Code
@@ -345,13 +334,38 @@ login)
   fi
   [ -t 0 ] || { echo "claude: not logged in; run \`claude auth login\` in a terminal" >&2; exit 1; }
   claude auth login ;;
+renewal)
+  # The turn runs on a copy that says it is in its last minutes, so the login's own file never
+  # says so, whatever ends the turn; nothing else knows the copy, which goes with the turn.
+  copy=$(mktemp -d "$TMPD/claude-renewal.XXXXXX") && cd -- "$TMPD" || exit 0
+  jq -c '{claudeAiOauth} | .claudeAiOauth.expiresAt = ((now + 240) * 1000 | floor)' "$CREDS" \
+    >"$copy/.credentials.json" &&
+    CLAUDE_CONFIG_DIR=$copy renewing_turn timeout -k 5 120
+  # That login alone goes onto the file as it is now, which holds the MCP servers' logins too,
+  # under the lock Claude Code writes that file under (`.storage-write`, 2.1.316).  One a session
+  # renewed meanwhile ends later and stays.  A lock its holder left is stale for Claude Code after
+  # 15 seconds and may stay for us: past that the renewal, the only live login, still lands.
+  guard="${CREDS%/*}/.storage-write.lock" held=
+  if tmp=$(mktemp "$CREDS.XXXXXX"); then
+    for _ in {1..100}; do mkdir -- "$guard" 2>/dev/null && { held=1; break; }; sleep 0.2; done
+    merged=$(jq -c --slurpfile copy "$copy/.credentials.json" '$copy[0].claudeAiOauth as $new
+        | select($new.accessToken != .claudeAiOauth.accessToken
+                 and $new.expiresAt > .claudeAiOauth.expiresAt)
+        | .claudeAiOauth = $new' "$CREDS" 2>/dev/null)
+    [ -z "$merged" ] || { printf '%s' "$merged" >"$tmp" && mv -f -- "$tmp" "$CREDS"; }
+    [ -z "$held" ] || rmdir -- "$guard"
+    rm -f -- "$tmp"
+  fi
+  rm -rf -- "$copy" ;;
 logout)
+  renewal_over
   rm -f -- "$TOKEN" || exit 1
   [ -e "$CREDS" ] || security find-generic-password -s "Claude Code-credentials" >/dev/null 2>&1 || exit 0
   unset CLAUDE_CODE_OAUTH_TOKEN   # the sign-out is the login's own, never a token's
   claude auth logout ;;
 forget)
   [ -n "$ACCOUNT" ] || { echo "claude.sh forget: the usual login is never forgotten" >&2; exit 2; }
+  renewal_over
   rm -rf -- "$CLAUDE_CONFIG_DIR" "$TOKEN" ;;
 login-end)
   # Claude Code renews the hour-long access token itself, but the refresh token it renews it
@@ -381,6 +395,7 @@ lend)
   # Read, never renewed: a lapsed login is none to lend.
   [ $# -ge 1 ] || { echo "claude.sh lend needs <home>" >&2; exit 2; }
   command -v jq >/dev/null || { echo "claude.sh lend: jq is required" >&2; exit 2; }
+  renewal_over
   blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
     || blob=$(cat "$CREDS" 2>/dev/null) || blob=
   lent=$(printf '%s' "$blob" | jq -c --argjson now "$(date +%s)" '.claudeAiOauth

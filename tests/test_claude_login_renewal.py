@@ -204,35 +204,63 @@ class LoginRenewal(unittest.TestCase):
         creds.write_text(json.dumps(saved))
         return saved
 
-    def test_a_turn_killed_before_renewing_leaves_the_login_true(self):
+    def access(self, creds):
+        return json.loads(creds.read_text())["claudeAiOauth"]["accessToken"]
+
+    def copies_left(self):
+        return list((self.root / ".agentkit" / "tmp").glob("claude-renewal.*"))
+
+    def test_a_killed_caller_leaves_the_login_true_until_its_renewal_lands_and_lend_waits(self):
         creds = self.login("second", self.in_(80))
         before = creds.read_text()
         self.killed(self.held_turn("hold", "turns"))
         self.assertEqual(creds.read_text(), before)
         (self.fake / "hold").unlink()
-        self.assertEqual(self.ask("second", "auth", "seat")[0], 0)    # the next ask renews it
-        self.assertEqual(json.loads(creds.read_text())["claudeAiOauth"]["accessToken"], "renewed")
-
-    def test_a_turn_killed_after_renewing_loses_no_renewal(self):
-        creds = self.login("second", self.in_(80))
-        self.killed(self.held_turn("hold-renewed", "renewed"))
-        (self.fake / "hold-renewed").unlink()
-        self.mcp_saved(creds, "new-mcp")
-        (self.fake / "fail").touch()        # the login renewed is retired: only the kept one serves
-        self.assertEqual(self.ask("second", "auth", "seat")[0], 0)
-        kept = json.loads(creds.read_text())
-        self.assertEqual(kept["claudeAiOauth"]["refreshToken"], "refresh-2")
-        self.assertEqual(kept["mcpOAuth"]["acme"]["accessToken"], "new-mcp")
+        code, said = self.ask("second", "lend", str(self.root / "lent"))
+        self.assertEqual(code, 0, said)
+        lent = self.root / "lent" / ".claude" / ".credentials.json"
+        self.assertEqual(self.access(lent), "renewed")
+        self.assertEqual(self.access(creds), "renewed")
+        self.assertEqual(self.copies_left(), [])
         self.assertEqual(len(self.turns()), 1)
 
-    def test_a_kept_renewal_never_replaces_a_later_login(self):
-        creds = self.login("second", self.in_(80))
-        self.killed(self.held_turn("hold-renewed", "renewed"))
+    def test_signing_out_waits_for_a_renewal_and_leaves_no_login_behind(self):
+        for verb in ("logout", "forget"):
+            with self.subTest(verb=verb):
+                creds = self.login("second", self.in_(80))
+                self.killed(self.held_turn("hold-renewed", "renewed"))
+                (self.fake / "hold-renewed").unlink()
+                self.assertEqual(self.ask("second", verb)[0], 0)
+                self.assertFalse(creds.exists())
+                self.assertEqual(self.copies_left(), [])
+
+    def test_a_renewal_lands_on_the_login_it_began_on(self):
+        first, other = self.root / "acme-a", self.root / "acme-b"
+        for path in (first, other):
+            path.mkdir()
+            (path / ".credentials.json").write_text(json.dumps({"claudeAiOauth": {
+                "accessToken": path.name, "refreshToken": "refresh-1",
+                "expiresAt": self.in_(80)}}))
+        (self.fake / "hold-renewed").touch()
+        proc = self.start("", "auth", "seat", CLAUDE_CONFIG_DIR=str(first))
+        deadline = time.monotonic() + 30
+        while not (self.fake / "renewed").exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.killed(proc)
+        (self.fake / "fail").touch()        # the other's own turn renews nothing
         (self.fake / "hold-renewed").unlink()
+        self.assertEqual(self.ask("", "auth", "seat", CLAUDE_CONFIG_DIR=str(other))[0], 0)
+        self.assertEqual(self.access(first / ".credentials.json"), "renewed")
+        self.assertEqual(self.access(other / ".credentials.json"), "acme-b")
+
+    def test_a_renewal_never_replaces_a_later_login(self):
+        creds = self.login("second", self.in_(80))
+        proc = self.held_turn("hold", "turns")
         later = json.loads(creds.read_text())
         later["claudeAiOauth"].update(accessToken="relogged", expiresAt=FRESH)
         creds.write_text(json.dumps(later))
-        self.assertEqual(self.ask("second", "auth", "seat")[0], 0)
+        (self.fake / "hold").unlink()
+        proc.communicate(timeout=60)
         self.assertEqual(json.loads(creds.read_text()), later)
 
     def test_what_a_session_saves_during_the_turn_stays(self):
@@ -250,6 +278,24 @@ class LoginRenewal(unittest.TestCase):
                 self.assertEqual(after["mcpOAuth"], saved["mcpOAuth"])
                 self.assertEqual(after["claudeAiOauth"]["accessToken"],
                                  "seat" if failing else "renewed")
+
+    def test_the_renewal_lands_only_once_a_session_writing_the_file_is_through(self):
+        creds = self.login("second", self.in_(80))
+        proc = self.held_turn("hold", "turns")
+        guard = creds.parent / ".storage-write.lock"     # how Claude Code holds its own writes
+        guard.mkdir()
+        (self.fake / "hold").unlink()
+        deadline = time.monotonic() + 30
+        while not (self.fake / "renewed").exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertEqual(self.access(creds), "seat")
+        self.mcp_saved(creds, "new-mcp")
+        guard.rmdir()
+        proc.communicate(timeout=60)
+        after = json.loads(creds.read_text())
+        self.assertEqual((after["claudeAiOauth"]["accessToken"],
+                          after["mcpOAuth"]["acme"]["accessToken"]), ("renewed", "new-mcp"))
+        self.assertFalse(guard.exists())
 
     def test_a_login_on_a_mac_waits_until_it_lapses(self):
         self.login("second", self.in_(80))
