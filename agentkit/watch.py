@@ -2866,7 +2866,9 @@ def done_unprompted(name, records=None, mine=None, cfg=None, harness=None, found
         return False
     # A prompt before the final plan write still owns its turn until that turn ends: a
     # refusal or error in it is recovered as for any live seat, not left as done.  Its last
-    # look stands, unless its hook has spoken since, as in `_cut_line`.
+    # look stands, unless its effective fact has spoken since, as in `_cut_line`: a card
+    # its harness recorded settled before its async hook lands still ends the turn, and a
+    # fact older than the look never replaces it.
     if harness is None:
         try:
             harness = seat_model(cfg if cfg is not None else config.load(), name)[0]
@@ -2875,10 +2877,11 @@ def done_unprompted(name, records=None, mine=None, cfg=None, harness=None, found
     if harness:
         looked = found or seat_read(name)
         try:
-            hooked, event, _text, when = hook_state(harness, hook_facts(name))
+            hooked, event, _text, when = hook_state(harness, seat_fact(name, harness))
         except config.Error:
             hooked, event, when = None, None, None
-        if when is not None and when != looked.get("hooked_at"):
+        seen_at = _stamp(looked.get("hooked_at"))
+        if when is not None and (seen_at is None or when > seen_at):
             looked = {"state": hooked, "hooked": hooked, "hooked_at": when,
                       "hooked_event": event}
         if (_turn_in_flight(harness, looked)[0] or looked.get("state") == "asking"

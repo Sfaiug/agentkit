@@ -916,6 +916,39 @@ print(json.dumps({"login": json.loads((home / "auth.json").read_text()), "args":
         self.refusal_tick()
         self.assertEqual((self.typed, self.answer()["word"]), (["continue"], "working"))
 
+    def test_a_done_seat_stays_done_when_a_recorded_interrupt_has_no_hook_yet(self):
+        # Muse records a card's Interrupt in its log before its async Interrupt hook updates
+        # the raw fact: the effective fact ended the turn, the raw one still asks its question.
+        os.environ["XDG_DATA_HOME"] = str(self.root / ".local/share")
+        config.update_session(NAME, orchestrator="spark", muse_launch="a" * 32)
+        receipt = config.STATE / ("muse-launch-" + "a" * 32)
+        receipt.mkdir()
+        (receipt / "session").write_text(CONVERSATION)
+        config.plan_path(NAME).write_text("- [x] the endpoint is live\n")
+        os.utime(config.plan_path(NAME), (self.now - 240, self.now - 240))
+        config.hook_facts_path(NAME).write_text(json.dumps(
+            {"session": NAME, "event": "Notification", "kind": "question_prompt",
+             "text": "Which shape?", "at": self.now - 180}))
+        log = self.root / ".local/share/muse/sessions/2026/10/26" / CONVERSATION / "session.jsonl"
+        log.parent.mkdir(parents=True)
+        events = [("requested", self.now - 180, {"questions": [{"question": "Which shape?"}]}),
+                  ("settled", self.now - 1, {"outcome": "interrupted"})]
+        log.write_text("".join(json.dumps(
+            {"record_type": "event", "recorded_at": int(at * 1000000),
+             "payload": {"kind": "run", "run_id": "acme-run", "event": {
+                 "kind": "user_input_prompt_" + kind, "prompt_id": "acme-prompt",
+                 "tool_call_id": "acme-call", **extra}}}) + "\n"
+            for kind, at, extra in events))
+        self.cached(lambda providers: providers.update(meta={
+            **providers["anthropic"]["accounts"]["default"], "provider": "meta"}))
+        self.pane = (REPO / "tests/fixtures/muse-prompt-pane.txt").read_text()
+        live = watch.live_state(self.seat, "muse", pane=self.pane, cfg=self.cfg)
+        self.assertEqual((live["state"], live["hooked_event"]), ("at_prompt", "Interrupt"))
+        watch.seat_account(self.cfg, self.seat, "muse", "meta", self.pane, False,
+                           self.logs.append)
+        self.assertEqual(self.answer()["word"], "done")
+        self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
+
 
 if __name__ == "__main__":
     unittest.main()
