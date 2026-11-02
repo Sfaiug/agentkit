@@ -36,7 +36,7 @@ import (
 // $AGENTKIT_ADAPTER_DIR, and a box on any system but Linux, are not yet Go's.
 var ErrPython = errors.New("left to Python")
 
-// ErrInterrupted is a turn ^C ended, once the box it ran in has.
+// ErrInterrupted is a turn ^C or its Given's context ended, once the box it ran in has.
 var ErrInterrupted = errors.New("interrupted")
 
 const (
@@ -46,12 +46,15 @@ const (
 
 // Turn runs one turn of the model name in role on the task's text, from the resolved workspace
 // into out, resuming session where one is given: its exit status as the box reports it, and the
-// conversation it leaves.  A harness whose login has expired is an error saying so.  Each process
-// the turn's end stopped is a line in errOut.
-func Turn(name, role, body, workspace, out, session string, errOut io.Writer) (int, string, error) {
+// conversation it leaves.  A harness whose login has expired is a LoginExpired.  Each process the
+// turn's end stopped is a line in errOut.
+func Turn(name, role, body, workspace, out, session string, given Given, errOut io.Writer) (int, string, error) {
 	model, err := config.ModelNamed(name)
 	if err != nil {
 		return 0, "", err
+	}
+	if given.Efforts != nil {
+		model.Efforts = given.Efforts
 	}
 	adapter, err := config.Adapter(model.Harness)
 	if !box.Supported || errors.Is(err, config.ErrNoAdapterDir) || config.EnsureDirs() != nil {
@@ -78,7 +81,7 @@ func Turn(name, role, body, workspace, out, session string, errOut io.Writer) (i
 	marker := fmt.Sprintf("%s=%s/turn-%x", host.Marker, cmp.Or(os.Getenv(host.Marker), filepath.Join(config.Home(), "runs", "worker")), id)
 	probe := append(seated, marker, "AGENTKIT_PROVIDER="+model.Provider)
 	if why := refused(adapter, probe); why != "" {
-		return 0, "", expired(model.Harness, why)
+		return 0, "", &LoginExpired{model.Harness, why}
 	}
 	if err := os.MkdirAll(out, 0o777); err != nil {
 		return 0, "", err
@@ -96,7 +99,7 @@ func Turn(name, role, body, workspace, out, session string, errOut io.Writer) (i
 		argv = append(argv, session)
 	}
 	env := map[string]string{}
-	for _, pair := range append(seatless, marker, handIn) {
+	for _, pair := range slices.Concat(seatless, []string{marker, handIn}, given.Env) {
 		key, value, _ := strings.Cut(pair, "=")
 		env[key] = value
 	}
@@ -110,10 +113,13 @@ func Turn(name, role, body, workspace, out, session string, errOut io.Writer) (i
 	}
 	began := time.Now()
 	words := loggedOut(model.Harness, out)
-	interrupt, restore := signal.NotifyContext(context.Background(), os.Interrupt)
+	interrupt, restore := signal.NotifyContext(cmp.Or(given.Context, context.Background()), os.Interrupt)
 	ctx, unwatch := words.watch(interrupt)
+	heartbeats, _ := config.Words(model.Harness, "worker", "heartbeats")
+	ctx, watched := Watch{Silence: given.Silence, Heard: Heard(filepath.Join(out, "events.jsonl"), heartbeats), Marker: env[host.Marker]}.Stop(ctx)
 	code, left, err := box.Run(ctx, argv, env, workspace, out, state, logins, config.Unswitched(model.Harness, env, workspace), said)
 	unwatch()
+	stopped := watched() != ""
 	interrupted := interrupt.Err() != nil
 	restore()
 	said.Close()
@@ -133,6 +139,9 @@ func Turn(name, role, body, workspace, out, session string, errOut io.Writer) (i
 	if interrupted {
 		return code, session, ErrInterrupted
 	}
+	if stopped {
+		return code, session, ErrSilent
+	}
 	why := words.seen()
 	// Nothing streamed and over at once: ask why before taking a silence for the turn's result.
 	events, _ := os.ReadFile(filepath.Join(out, "events.jsonl"))
@@ -140,14 +149,9 @@ func Turn(name, role, body, workspace, out, session string, errOut io.Writer) (i
 		why = refused(adapter, probe)
 	}
 	if why != "" {
-		return code, session, expired(model.Harness, why)
+		return code, session, &LoginExpired{model.Harness, why}
 	}
 	return code, session, nil
-}
-
-// expired is the error a harness's login that cannot authenticate is, why being what said so.
-func expired(harness, why string) error {
-	return fmt.Errorf("%s login expired: %s", harness, why)
 }
 
 // refused is the line the adapter's `auth` verb says no with, else "": any other answer is no

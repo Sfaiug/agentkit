@@ -15,6 +15,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/job"
 	"agentkit/internal/launch"
+	"agentkit/internal/loop"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
 )
@@ -26,14 +27,18 @@ var pullURL = regexp.MustCompile(`^https://github\.com/[^/\s]+/[^/\s]+/pull/[0-9
 
 func init() { commands["run"] = launchRun }
 
-// launchRun is `ak run <task.md>` where Go makes the launch: one task preflight refuses,
-// recorded as a run in error.  Any other launch it leaves to Python before it writes anything.
+// launchRun is `ak run <task.md>` where Go makes the launch: one task preflight refuses, recorded
+// as a run in error, or a scratch task's run, which it follows unless told --bg.  Any other launch
+// it leaves to Python before it writes anything.  `--drive` is that run's own process.
 func launchRun(args []string, out, errOut io.Writer) int {
+	if len(args) == 2 && args[0] == loop.DriveFlag {
+		return loop.Drive(args[1])
+	}
 	parsed, problem := parse(args, launch.Values, launch.Switches, runFlagsUsage)
 	if runSubcommand(args) || problem != "" || len(parsed.words) != 1 {
 		return notImplemented(errOut, "run")
 	}
-	reason, err := launch.Task(config.Absolute(parsed.words[0]), parsed.values, parsed.flags, out)
+	code, reason, err := launch.Task(config.Absolute(parsed.words[0]), parsed.values, parsed.flags, out, errOut)
 	switch {
 	case errors.Is(err, launch.ErrPython):
 		return notImplemented(errOut, "run")
@@ -43,12 +48,14 @@ func launchRun(args []string, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "ak run: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(errOut, "ak run: %s\n", reason)
-	return 2
+	if reason != "" {
+		fmt.Fprintf(errOut, "ak run: %s\n", reason)
+	}
+	return code
 }
 
 func runSubcommand(args []string) bool {
-	return len(args) > 0 && contains([]string{"--lander", "status", "show", "clean", "gc", "resume", "merge", "stop"}, args[0])
+	return len(args) > 0 && contains([]string{"--lander", loop.DriveFlag, "status", "show", "clean", "gc", "resume", "merge", "stop"}, args[0])
 }
 
 func validateRun(args []string) string {
@@ -140,6 +147,12 @@ func validateRunSubcommand(verb string, args []string) string {
 	if verb == "--lander" {
 		if len(args) != 1 || filepath.Base(args[0]) != args[0] || !strings.HasPrefix(args[0], ".merge-") {
 			return "usage: ak run --lander LINE"
+		}
+		return ""
+	}
+	if verb == loop.DriveFlag {
+		if len(args) != 1 {
+			return runUsage
 		}
 		return ""
 	}
