@@ -161,6 +161,10 @@ COLOURS = {"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai"
 NAMES = {"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Grok",
          "google": "Gemini", "mimo": "MiMo"}
 TICK = 10.0              # the longest the main screen waits for a key before drawing itself again
+WALK_EVERY = 60          # seconds one walk of a quiet run answers for: silence is told in hours, so
+                         # a minute never shows, however many files a run's sandbox leaves behind
+_WALKED = {}             # a quiet run's directory: when it was walked, on time.monotonic, and what
+                         # that found
 STIR = 1.0               # ... and how often it looks for a seat's word or the meters having moved
 # What the `—` says, from the error the last probe left; the first match wins.  No pattern here
 # guesses at a login: `token`, `401` and `login` turn up in lines a logged-in seat produces too,
@@ -1026,7 +1030,11 @@ def silent_for_run(run_dir, state, now=None):
             continue
     try:
         from . import watch as _watch
-        newest = _watch.run_last_write(Path(run_dir))
+        kept = _WALKED.get(os.fspath(run_dir))
+        if kept is None or time.monotonic() - kept[0] >= WALK_EVERY:
+            kept = _WALKED[os.fspath(run_dir)] = (time.monotonic(),
+                                                  _watch.run_last_write(Path(run_dir)))
+        newest = kept[1]
     except (OSError, ValueError, AttributeError):
         newest = 0.0
     if not newest:
