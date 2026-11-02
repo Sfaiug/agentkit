@@ -7,10 +7,12 @@ silence limit.  Silence is the command's, so it counts from when its box is up, 
 began building that box.  Black-box: the program `AK_BIN` names checks a landing line from outside
 through tests/fixtures/akline.py, its member's record carrying a silence limit of three seconds.
 
-The watchdog first asks about a bound at the limit, and on a busy host that question can come
-seconds late, so a bound here ends well past the limit.  A command meant to be stopped sleeps far
-past the limit, so a late stop still comes first, and the bound before it outlasts that sleep, so
-a bound that held on after it ended would let the sleep finish.
+The suite here prints until a test hushes it, so a silence begins where the test says, with any
+`timeout` live: a process starting late spends none of the limit.  Each silence under a bound
+outlasts the poll the watchdog may see the last line on, so the bound is asked about, and a bound
+meant to hold far outlasts that silence, as a process's age counts from before its timer starts.
+A command meant to be stopped sleeps far past the limit, and a bound before it outlasts that
+sleep, so a bound that held on after it ended would let the sleep finish.
 """
 
 import json
@@ -20,17 +22,23 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akline import Line
+from fixtures.akline import Line, SUITE, rules
 
 SILENCE_MINUTES = 0.05
 KILLED = "[killed at the limit]"
+# Blank lines are output like any other, and no fix line quotes one.  A box's temporary directory
+# is its own, so each piece's word is its own.
+TALKING = ('export hush="${TMPDIR:-/tmp}/hush"; '
+           '(while :; do [ -e "$hush" ] || echo; sleep .1; done) & '
+           'trap "kill $! 2>/dev/null" EXIT; ' + SUITE)
+HUSH, SPEAK = ': >"$hush"', 'rm "$hush"'
 
 
 class SilenceHonoursDeclaredTimeout(unittest.TestCase):
     def check(self, test, box_seconds=0):
         """What the lander left a member waiting on, the member adding `test` to the suite, with
         each box taking `box_seconds` longer to build."""
-        line = Line({"t/ok.sh": "true\n"})
+        line = Line({"AGENTS.md": rules(TALKING), "t/ok.sh": "true\n"})
         self.addCleanup(line.close)
         if box_seconds:
             line.home.fake("bwrap", f"#!/bin/sh\nsleep {box_seconds}\n"
@@ -44,7 +52,7 @@ class SilenceHonoursDeclaredTimeout(unittest.TestCase):
         return line.verdict(1)
 
     def test_a_silent_command_under_a_declared_timeout_runs_to_its_end(self):
-        verdict = self.check("timeout 30 sh -c 'sleep 8'\n")
+        verdict = self.check(f"timeout 600 sh -c '{HUSH}; sleep 5; {SPEAK}'\n")
         self.assertIn("land", verdict, verdict)
 
     def test_a_box_slow_to_build_is_no_silence_of_the_command(self):
@@ -52,15 +60,22 @@ class SilenceHonoursDeclaredTimeout(unittest.TestCase):
         self.assertIn("land", verdict, verdict)
 
     def test_a_silent_command_with_no_declared_bound_still_stops_at_the_silence_limit(self):
-        verdict = self.check("sleep 60\n")
+        verdict = self.check(f"{HUSH}; sleep 60\n")
         self.assertIn(KILLED, verdict["fix"]["line"], verdict)
 
     def test_a_declared_timeout_that_ended_holds_off_no_silence_after_it(self):
-        verdict = self.check("timeout 600 sleep 4; sleep 60\n")
+        verdict = self.check(f"timeout 600 sh -c '{HUSH}; sleep 5'; sleep 60\n")
+        self.assertIn(KILLED, verdict["fix"]["line"], verdict)
+
+    def test_a_declared_timeout_past_its_bound_holds_off_no_silence(self):
+        # A harmless signal, so the bound passes with `timeout` and its command still there.
+        verdict = self.check(f"timeout -s CONT 1 sh -c '{HUSH}; sleep 60'\n")
         self.assertIn(KILLED, verdict["fix"]["line"], verdict)
 
     def test_a_declared_timeout_ends_the_command_by_itself(self):
-        verdict = self.check("timeout 8 sleep 60\n")
+        # By the signal its timer sends, once the silence is over: no timer can then race the limit.
+        verdict = self.check(
+            f"timeout 600 sh -c '{HUSH}; sleep 5; {SPEAK}; kill -ALRM $PPID; sleep 60'\n")
         self.assertEqual(verdict["fix"]["tests"], ["slow.sh"], verdict)
         self.assertNotIn(KILLED, verdict["fix"]["line"], verdict)
 

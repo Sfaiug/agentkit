@@ -675,7 +675,10 @@ def limited(cmd, limit, *, silence=None, activity=None, heartbeats=(), output=No
                 last, seen = now, current
             if starting:
                 last = now
-                starting = not began() and now - started < BOX_START
+                try:
+                    starting = not began() and now - started < BOX_START
+                except OSError:     # the box's own directory closed: only its command can do that
+                    starting = False
             if (silence is not None and now - last >= silence
                     and declared(proc.pid)):
                 held = now      # silence counts from the last poll a declared bound held

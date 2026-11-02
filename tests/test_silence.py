@@ -12,7 +12,7 @@ import sys
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -230,6 +230,17 @@ class Silence(unittest.TestCase):
         clock = Clock(30)
         self.assertEqual(self.starting(clock, lambda: False), ["silence"])
         self.assertGreaterEqual(clock.now, worker.BOX_START + 90)
+
+    def test_a_box_whose_start_cannot_be_read_still_goes_silent(self):
+        self.assertEqual(self.starting(Clock(30), Mock(side_effect=PermissionError)), ["silence"])
+
+    def test_a_declared_bound_holds_until_its_very_end(self):
+        proc = subprocess.Popen(["timeout", "100", "sleep", "100"])
+        self.addCleanup(proc.wait)
+        self.addCleanup(proc.terminate)     # which `timeout` passes on to its `sleep`
+        for age, held in ((99.9, True), (100, False)):
+            with self.subTest(age=age), patch.object(host, "process_age", return_value=age):
+                self.assertEqual(worker.within_declared_timeout(proc.pid), held)
 
     def test_silent_turn_is_retried_as_transport_death(self):
         cfg = self.adapter(
