@@ -8,6 +8,8 @@ entries, `ADDRESS` is a Spot machine's address.  `missed` joins every page of ma
 vCPUs}, are Service Usage's `cpus_per_vm_family`, None unanswered, and `quotas`, {region or
 project: {metric: vCPUs}}, Compute Engine's.  `asked` is every path asked, oldest first, `made` every machine,
 answered by the next of `answers`, `(body, code, bytes promised that never come)`, else made.
+`preferences` are Cloud Quotas' quota preferences, `asks` each `(method, path, body)` asked of it,
+refused as Google refuses; `refusing`, {method: code}, answers a method with that code, None silence.
 `key` writes a service-account key ak can sign with, `rented` runs `ak doctor` and gives its
 rented-machines lines, `at` a tick on the test clock, `close` stops it:
 
@@ -21,6 +23,7 @@ rented-machines lines, `at` a tick on the test clock, `close` stops it:
         google.close()
 """
 
+from datetime import UTC, datetime
 import http.server
 import json
 import subprocess
@@ -34,6 +37,7 @@ from fixtures.akbin import AK, REPO
 
 SPOT, NL, IOWA = "Spot Preemptible", ["europe-west4"], ["us-central1"]
 PROJECT = "/compute/v1/projects/acme-build"
+QUOTAS = "/v1/projects/acme-build/locations/global/quotaPreferences"
 ECHO = {"AGENTKIT_ADAPTER_DIR": str(REPO / "tests/fixtures/adapters")}
 # Every `bin/ak` gives `google_cloud` the test clock, at the time in the file it names.
 CLOCK = """
@@ -52,6 +56,11 @@ def sku(description, regions, nanos, unit="h"):
     rate = {"unitPrice": {"units": "0", "nanos": nanos}}
     return {"description": description, "serviceRegions": regions, "pricingInfo": [
         {"pricingExpression": {"usageUnit": unit, "tieredRates": [rate]}}]}
+
+
+def stamp(when):
+    """A time as Cloud Quotas writes it, to the nanosecond."""
+    return datetime.fromtimestamp(when, UTC).strftime("%Y-%m-%dT%H:%M:%S.%f123Z")
 
 
 def kind(name, vcpus, gb, architecture="ARM64"):
@@ -73,6 +82,7 @@ class Google(http.server.ThreadingHTTPServer):
         # refused deletions
         self.machines, self.again, self.refused, self.silent = [], {}, set(), False
         self.made, self.answers, self.buckets, self.quotas = [], [], {}, {}
+        self.preferences, self.asks, self.refusing = [], [], {}
         self.env = {**ECHO, "AK_GOOGLE_URL": f"http://127.0.0.1:{self.server_address[1]}"}
         # ak doctor checks the models a config names: one that asks nobody
         akconfig.write(home, {"echo": {"harness": "echo", "model": "echo-1"}})
@@ -126,7 +136,42 @@ class _Answers(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def preference(self, method):
+        """Cloud Quotas' `method`: refused as measured on 2 Nov 2026, else a preference kept."""
+        server, data = self.server, json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        server.asked.append(self.path)
+        server.asks.append((method, self.path, data))
+        if method in server.refusing:
+            return server.refusing[method] and self.send_error(server.refusing[method])
+        found = [one for one in server.preferences if all(
+            one.get(field) == data.get(field) for field in ("service", "quotaId", "dimensions"))]
+        needs = {"service", "quotaId", "dimensions", "quotaConfig", "contactEmail", "justification"}
+        if method == "PATCH":
+            needs |= {"name", "etag"}
+        if not needs <= data.keys() or "preferredValue" not in data["quotaConfig"]:
+            return self.send_error(400)
+        if method == "POST" and found:
+            return self.send_error(409)
+        if method == "PATCH":
+            mask = parse_qs(urlsplit(self.path).query).get("updateMask")
+            if (mask != ["quotaConfig.preferredValue,contactEmail,justification"] or not found
+                    or found[0]["etag"] != data["etag"] or found[0]["name"] != data["name"]
+                    or urlsplit(self.path).path != f"/v1/{data['name']}"):
+                return self.send_error(400)
+            server.preferences.remove(found[0])
+        when = float((server.home.path / "clock/now").read_text())
+        kept = {**data, "name": data.get("name", f"{QUOTAS[1:-1]}/{len(server.asks)}"),
+                "etag": f"etag-{len(server.asks)}", "updateTime": stamp(when),
+                "reconciling": True}
+        server.preferences.append(kept)
+        self.answer(kept)
+
+    def do_PATCH(self):
+        self.preference("PATCH")
+
     def do_POST(self):
+        if urlsplit(self.path).path == QUOTAS:
+            return self.preference("POST")
         self.server.asked.append(self.path)
         if self.server.silent:
             return
@@ -143,6 +188,10 @@ class _Answers(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         self.server.asked.append(self.path)
         url = urlsplit(self.path)
+        if url.path == QUOTAS:
+            if "GET" in self.server.refusing:
+                return self.server.refusing["GET"] and self.send_error(self.server.refusing["GET"])
+            return self.answer({"quotaPreferences": self.server.preferences})
         if "/instances/" in url.path:
             found = ({one["name"]: one for one in self.server.machines} | self.server.again).get(
                 url.path.rsplit("/", 1)[1])

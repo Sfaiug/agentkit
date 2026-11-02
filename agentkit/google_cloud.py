@@ -2,8 +2,8 @@
 `said`) and renting (`need`), behind names another provider can be one more module of.  This
 module alone knows Google: the service-account key `KEY`, the token its JWT buys (signed by the
 openssl CLI: the standard library has no RSA), Compute Engine's Spot price list, machine types
-and CPU quotas; and which machines it rents serve, till when, and how ssh reaches them
-(`serving`, `ssh_config`).
+and CPU quotas, Cloud Quotas' asks to raise those; and which machines it rents serve, till when,
+and how ssh reaches them (`serving`, `ssh_config`).
 """
 
 import base64
@@ -88,6 +88,9 @@ IDLE_FOR = 600
 # 7.8 GB, and a 4 ran 6 pieces in 4 hours to a 72's 2231, each rent of one a pass the next waits
 # (2 Nov 2026).  A smaller image would let this go lower; a rent past it costs more for that hour.
 SMALLEST = 8
+ASK_EVERY = 86400   # seconds a quota's last ask stands: Google answered in minutes on 2 Nov 2026
+COMPUTE = "compute.googleapis.com"      # the service whose quotas are asked for
+WHY = "Spot machines running this project's test suites: the vCPUs in use plus one more machine"
 
 
 class Unavailable(config.Error):
@@ -156,7 +159,7 @@ def watch():
     """The tick's pass while ak may rent: the meter moved on to what Google lists, each machine
     past its end, unpriced, past the cap or idle given back and said, ssh reaching the others, the
     ready ones serving; only then a stale price list, and a machine rented for a need noted while
-    none comes up."""
+    none comes up, with the quota the cheapest offer it skipped lacks asked for."""
     wanted, (active, cap) = _noted(config.STATE / NEED), _setting()
     if not active:
         return
@@ -197,7 +200,9 @@ def watch():
             *(one.created for one in listed if one.id not in idle)]):
         # read for this rent: a limit raised shows at once, one unread is read again at the next
         limits = _limits({one.region for one in offered})
-        late += _rent(ledger, wanted, cap, now, offered, limits, {one.zone for one in listed})
+        late += _rent(ledger, wanted, cap, now, offered, limits, {one.zone for one in listed},
+                      skipped := [])
+        late += _ask(skipped, limits, now)
         config._write_json(config.STATE / LATE, late)
 
 
@@ -318,11 +323,13 @@ def _noted(path):
         return 0
 
 
-def _rent(ledger, wanted, cap, now, offered, limits, taken):
+def _rent(ledger, wanted, cap, now, offered, limits, taken, skipped):
     """How renting a machine of `wanted` MiB a vCPU went, in lines: by price per core, zones
     where ak has none (`taken`) first, as Google took both Spot machines of one zone in 6 s on 30
     Oct 2026; none past a quota of `limits`, every machine Google lists counted; on the meter by
-    name till Google says it made none; living what the cap leaves."""
+    name till Google says it made none; living what the cap leaves.  `skipped` gains, per offer
+    past a quota and within the cap, cheapest first, {quota past its limit: the vCPUs it would
+    take}."""
     left = cap - ledger["spent"] - sum(one["price"] * max(0, one["until"] - one.get("from", now))
                                        for one in ledger["machines"].values()) / 3600
     # the public half of the key `_idle` made, or OSError before any machine is on the meter
@@ -342,6 +349,7 @@ def _rent(ledger, wanted, cap, now, offered, limits, taken):
         if out := [one for one in _quotas(offer.name, offer.region, limits)
                    if used[one] + offer.cpus > limits[one]]:
             full.update(dict.fromkeys(out))
+            skipped.append({one: int(used[one] + offer.cpus) for one in out})
             said = ["too little quota left: " + "; ".join(
                 f"{one}: {used[one]:g} of {limits[one]:g} vCPUs in use" for one in full)]
             continue
@@ -361,6 +369,75 @@ def _rent(ledger, wanted, cap, now, offered, limits, taken):
             if not tries or not codes & REFUSALS:
                 return said
     return said
+
+
+def _ask(skipped, limits, now):
+    """Lines for what Google is asked, its answer never awaited, on the first of `_rent`'s `skipped`
+    with a quota whose preference, Google's own record of the last ask, is over a day old or
+    missing; and for any of Compute's preferences Google has finished granting short.  A failure
+    is its line and nothing more."""
+    if not skipped:
+        return []
+    unanswered = len(UNANSWERED)
+    try:
+        _, token = _login()
+        key = json.loads((config.SECRETS / KEY).read_text())
+        url = _url("cloudquotas",
+                   f"/v1/projects/{key['project_id']}/locations/global/quotaPreferences")
+        kept = {_named(one): one for one in _pages(token, url, "quotaPreferences")
+                if one.get("service") == COMPUTE}
+        said = []
+        for quota, one in kept.items():
+            if not one.get("reconciling"):
+                # a value of 0 is left out, as `_limits` finds
+                asked, granted = (int(one["quotaConfig"].get(field, 0))
+                                  for field in ("preferredValue", "grantedValue"))
+                if granted < asked:
+                    said.append(f"{quota}: Google granted {granted} of the {asked} vCPUs asked")
+        for lacking in skipped:
+            if due := {quota: vcpus for quota, vcpus in lacking.items() if quota not in kept
+                       or now - datetime.fromisoformat(kept[quota]["updateTime"]).timestamp()
+                       >= ASK_EVERY}:
+                break
+    except (Unavailable, OSError, LookupError, TypeError, ValueError, AttributeError) as exc:
+        del UNANSWERED[unanswered:]
+        return [f"no quota asked for: {exc}"]
+    for quota, vcpus in due.items():
+        quota_id, dimensions = _preference(quota)
+        ask = {"service": COMPUTE, "quotaId": quota_id, "dimensions": dimensions,
+               "quotaConfig": {"preferredValue": str(vcpus)},
+               "contactEmail": key.get("client_email"), "justification": WHY}
+        words = f"{quota}: {vcpus} vCPUs asked of Google, the limit now {limits[quota]:g}"
+        try:
+            if one := kept.get(quota):
+                _call(_url("cloudquotas", f"/v1/{one.get('name')}?updateMask=quotaConfig."
+                           "preferredValue,contactEmail,justification"), token,
+                      {**ask, "name": one.get("name"), "etag": one.get("etag")}, "PATCH")
+            else:
+                _call(url, token, ask)
+            said.append(words)
+        except Unavailable as exc:
+            del UNANSWERED[unanswered:]     # one unanswered leaves the next ask its own try
+            said.append(f"{words}: {exc}")
+    return said
+
+
+def _preference(quota):
+    """Cloud Quotas' quotaId and dimensions of a quota as `_quotas` names it."""
+    metric, _, region = quota.partition(" in ")
+    if not region:
+        return "CPUS-ALL-REGIONS-per-project", {}
+    if metric.endswith("CPUS"):     # CPUS, N2_CPUS
+        return f"{metric.replace('_', '-')}-per-project-region", {"region": region}
+    return "CPUS-PER-VM-FAMILY-per-project-region", {"region": region, "vm_family": metric}
+
+
+def _named(preference):
+    """A preference's quota as `_quotas` names it: `_preference` turned round."""
+    where = preference.get("dimensions") or {}
+    metric = where.get("vm_family") or preference.get("quotaId", "").removesuffix(
+        "-per-project-region").removesuffix("-per-project").replace("-", "_")
+    return f"{metric} in {where['region']}" if "region" in where else metric
 
 
 def _limits(regions):
