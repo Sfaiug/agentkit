@@ -1,8 +1,9 @@
 """On `c`, a terminal where a model's role cells do not fit beside even one cell of its label draws
 each role on a line of its own under the label, named there instead of over a column, so no row
-wraps; the keys and the pointer act on the role whose line they are on, and a wider terminal has
-its columns back.  Black-box: `AK_BIN` as the popup over an akseat.py seat in an akterm.py
-terminal, its harnesses fakeadapter.py's; it fails against `/bin/false`."""
+wraps; the keys and the pointer act on the role whose line they are on, a page too short for the
+row stays on that line and ↑/↓ still leave it, and a wider terminal has its columns back.
+Black-box: `AK_BIN` as the popup over an akseat.py seat in an akterm.py terminal, its harnesses
+fakeadapter.py's; it fails against `/bin/false`."""
 
 import json
 import sys
@@ -40,7 +41,7 @@ class ModelRowsFold(unittest.TestCase):
     def setUp(self):
         self.home = Home()
         self.addCleanup(self.home.close)
-        akconfig.write(self.home, ["opus"])
+        akconfig.write(self.home, ["opus", "astra"], workers=["opus"])
         fakeadapter.install(self.home, claude="pass", codex="pass")
         Seat(self.home, "acme-fix", record={"reviewers": ["opus"], "efforts": {"opus": EFFORTS}})
         self.term = Terminal(self.home, "attach", "--overlay", size=(32, 60),
@@ -78,6 +79,21 @@ class ModelRowsFold(unittest.TestCase):
         self.term.wait(lambda screen: opus(screen)[0][1:] == ["    orch      ● medium",
                                                               "    builds    ■ medium",
                                                               "    reviews   ■ high"])
+
+    def test_a_page_too_short_for_the_row_stays_on_the_cell_the_keys_are_on(self):
+        self.term.resize(32, 12)
+        self.term.wait("    orch     [●]medium")
+        self.term.keys("Right", "Right", "Right", "Right")      # to the review mark, the last line
+        self.term.wait("    reviews  [■]medium")
+        self.term.keys("Right", "Space")
+        self.stepped_to(review_effort="high")
+        self.term.wait("    reviews   ■ high")
+        self.term.keys("Left", "Down")                          # the review mark, onto the next row
+        self.term.wait("    reviews  [□]")
+        self.term.keys("Up")                                    # and back, whatever line it is on
+        self.term.wait("    reviews  [■]high")
+        self.term.keys("Left", "Left", "Left", "Left")
+        self.term.wait("    orch     [●]medium")
 
     def test_a_wider_terminal_has_the_columns_back(self):
         self.term.resize(100, 60)

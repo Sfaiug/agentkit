@@ -3829,19 +3829,22 @@ def meters_led(meters, body, places, under, keys, moves=()):
         (line + len(over), *rest) for line, *rest in moves]
 
 
-def matrix_page(body, places, here, top, under, keys, over=(), lead=None):
+def matrix_page(body, places, here, top, under, keys, over=(), lead=None, keyed=None):
     """The page of a matrix screen's rows that fits between `over` and `under`, lines of its
     own above and below the rows, and its key line: (top, room), the first line of `body` shown
     and how many are.  `top` stays where it was while the page holds every line of `here`, or
-    any of them for a row taller than the page, else moves the least that makes it so, and
-    never past the last page; a cell that is a row of its own (terminal.under) is on its line."""
+    for a row taller than the page the line of its cell in column `keyed`, or with none any of
+    its lines, else moves the least that makes it so, and never past the last page; a cell that
+    is a row of its own (terminal.under) is on its line."""
     room = max(1, terminal.height() - 5 - len(terminal.key_line(keys, first=lead)) - len(under)
                - len(over))
     drawn = [number for number, (row, cells) in places.items()
              if row == here or any(here in cell[3:] for cell in cells)] or [0]
     lo, hi = drawn[-1] - room + 1, drawn[0]       # the tops holding every line of the row
-    if lo > hi:                                   # taller than the page: the tops holding any
-        lo, hi = drawn[0] - room + 1, drawn[-1]
+    if lo > hi:                                   # taller than the page: Space acts on `keyed`
+        held = [number for number in drawn
+                if any(cell[2] == keyed for cell in places[number][1])] or drawn
+        lo, hi = held[0] - room + 1, held[-1]
     return max(0, min(max(top, lo), hi, len(body) - room)), room
 
 
@@ -3853,7 +3856,7 @@ def note_lines(note):
 
 def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, marks=2,
                began=None, going=None, clock=None, moves=(), under=(), over=(),
-               over_places=None, lead=None):
+               over_places=None, lead=None, keyed=None):
     """One draw of a matrix screen and the key read on it: (act, here, column, top).
 
     The `c` screen and a project's feature switches are read this way: rows the highlight moves
@@ -3863,7 +3866,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     `under`, then `note`, under it, whatever the height; `moves` counts `under`'s on after
     `body`'s, and `over_places` are `over`'s, each cell on a line a row of its own (a meter on
     `c`).  ↑/↓, k/j and the wheel move `here` through `rows`, turning the pages of a row
-    taller than the page before they leave it.  A click on a row
+    taller than the page, as far as its cell in column `keyed` stays shown (matrix_page), before
+    they leave it.  A click on a row
     makes it `here`, and one on a cell makes that the column, acting `space` on the first
     `marks` columns and, on another's, the cell of it clicked, from 0; `column` is None where
     no cell was clicked; a cell that only explains is none.  The pointer does the same and acts
@@ -3879,7 +3883,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     key is waited for; a key, not the pointer, ends them on their last frames.
     """
     said = note_lines(note)
-    top, room = matrix_page(body, places, here, top, [*under, *said], keys, over, lead)
+    below = [*under, *said]
+    top, room = matrix_page(body, places, here, top, below, keys, over, lead, keyed)
     shown, first = body[top:top + room], 3 + len(over)     # the screen row of the page's first
     spots = terminal.frame(title, [*over, *shown, *under, *said], keys, first=lead, places={
         **(over_places or {}), **{len(over) + line - top: place for line, place in places.items()
@@ -3920,8 +3925,10 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     step = terminal.step(key)
     if step and rows:
         mine = [line for line, (row, _) in places.items() if row == here]
-        if mine and (mine[-1] >= top + room if step > 0 else mine[0] < top):
-            top += step * room    # a row taller than the page: its next page before the next row
+        turned = matrix_page(body, places, here, top + step * room, below, keys, over, lead,
+                             keyed)[0]
+        if mine and (mine[-1] >= top + room if step > 0 else mine[0] < top) and turned != top:
+            top = turned          # a row taller than the page: its next page before the next row
         else:
             here = rows[min(max(rows.index(here) + step, 0), len(rows) - 1)]
     return act, here, column, top
@@ -4011,7 +4018,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top,
                                             told, keys, marks=3,
                                             clock=clock, moves=moves,
-                                            over=over, over_places=meters)
+                                            over=over, over_places=meters, keyed=column)
         column = column if clicked is None else clicked
         if act is None:
             continue                  # a resize or the pointer: drawn again
@@ -4020,7 +4027,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         def around(card, keys):   # the matrix laid out at this draw's size, the question under it
             over, _, body, places, _ = meters_led(config_meters(cfg), *config_body(
                 cfg, here, column, selected, providers, scope=scope, rows=under), card, keys)
-            first, room = matrix_page(body, places, here, top, card, keys, over)
+            first, room = matrix_page(body, places, here, top, card, keys, over, keyed=column)
             shown = body[first:first + room]
             terminal.frame(title, [*over, *shown, *card], keys)
             return 3 + len(over) + len(shown)
