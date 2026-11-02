@@ -5,7 +5,8 @@ a recent run's median peak of 0.78 G, and one went in every 31 to 61 s: after an
 the first in line waited a poll for steady readings.  Readings lag what a run just let in will
 use, so each run holding a slot counts what it may still grow by against the memory gates
 instead: runs started together each go in at their first poll while the room covers them, and
-one it does not cover waits.  Black-box: the program `AK_BIN` names runs from outside through
+one it does not cover waits; a run past its start has shown the readings what it holds and
+counts nothing more.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, on a project from gitrig.py with scripted harnesses from
 fakeadapter.py; the host readings and the slot poll are ak's own knobs (AK_HOST_READINGS,
 AK_SLOT_POLL), and a history database holds finished runs that peaked at PEAK.
@@ -33,6 +34,10 @@ COLUMNS = ("run_id TEXT PRIMARY KEY", "repo TEXT", "executor TEXT", "reviewer TE
            "executor_tokens INTEGER", "reviewer_tokens INTEGER", "peak_rss_mb REAL",
            "session TEXT")
 TITLES = ("Add retry file", "Bump alpha notes", "Trim beta notes")
+# The gate needs 3.2 G of 16 G: 4.5 G free lets one run past it, and with what that one may still
+# take counted, not a second.
+TIGHT = {"free_mb": 4500, "mem_total_mb": 16000, "cpus": 8, "load": 0.1, "slice_cpu_pressure": 0,
+         "slice_memory_pressure": 0}
 
 
 def wait(test, what, bound):
@@ -107,21 +112,33 @@ class RoomForAll(unittest.TestCase):
 class RoomForOne(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # The gate needs 3.2 G of 16 G: 4.5 G free lets one run past it, and with what that
-        # one may still take counted, not a second.  Each holds its slot until the last has
-        # gone in or says why it waits.
-        cls.runs = started_together(cls, {"free_mb": 4500, "mem_total_mb": 16000, "cpus": 8,
-                                          "load": 0.1, "slice_cpu_pressure": 0,
-                                          "slice_memory_pressure": 0}, 1, 2,
+        # Each holds its slot until the last has gone in or says why it waits.
+        cls.runs = started_together(cls, TIGHT, 1, 2,
                                     lambda runs: runs[-1].get("state") != "queued"
                                     or runs[-1].get("slot_wait_reason"))
 
     def test_every_run_passes(self):
         self.assertEqual([run.get("verdict") for run in self.runs], ["PASS"] * 2)
 
-    def test_the_second_goes_in_once_the_first_holds_no_slot(self):
+    def test_the_second_waits_for_what_the_first_may_take(self):
+        self.assertTrue(self.runs[1].get("slot_waited"))
+
+
+class RoomOnceTheFirstHasStarted(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # As in RoomForOne, but the first holds its slot until the second is in: what it may take
+        # counts only while it starts, however long its turn then lasts.
+        cls.runs = started_together(cls, TIGHT, 1, 2,
+                                    lambda runs: runs[-1].get("state") == "running")
+
+    def test_every_run_passes(self):
+        self.assertEqual([run.get("verdict") for run in self.runs], ["PASS"] * 2)
+
+    def test_the_second_waits_and_goes_in_while_the_first_holds_its_slot(self):
         first, second = self.runs
-        self.assertGreaterEqual(second["slot_started_at"], first["finished_at"])
+        self.assertTrue(second.get("slot_waited"))
+        self.assertLess(second["slot_started_at"], first["finished_at"])
 
 
 if __name__ == "__main__":
