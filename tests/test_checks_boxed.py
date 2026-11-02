@@ -312,6 +312,7 @@ class ChecksBoxed(unittest.TestCase):
             "cwd=workspace, home_overlay=True) as (cmd, env, spawn):\n"
             "   counts.append(len(cmd[:cmd.index('--')]))\n"
             "   spawn.pop('stop')\n"
+            "   spawn.pop('began')\n"
             "   result = subprocess.run(cmd, env=env, cwd=workspace, capture_output=True, "
             "text=True, timeout=30, **spawn)\n"
             "  assert result.returncode == 0, result.stderr\n"
@@ -342,6 +343,7 @@ class ChecksBoxed(unittest.TestCase):
                             cwd=workspace, state=("$HOME/state",),
                             home_overlay=True) as (cmd, env, spawn):
             spawn.pop("stop")
+            spawn.pop("began")
             result = subprocess.run(cmd, env=env, cwd=workspace, capture_output=True,
                                     text=True, timeout=10, **spawn)
         self.assertEqual(result.returncode, 0, result.stderr)

@@ -159,6 +159,7 @@ RUN_MARKER = "AGENTKIT_RUN"   # every process of a run carries its directory pat
 LAUNCHED = "launched"   # in a run's directory: its time is when a worker last went (`gate._starting`)
 MARK_KILL_GRACE = 10   # how long marked processes get to go quietly after TERM before KILL
 ACTIVITY_POLL = 1   # file-backed harness output has no portable readiness notification
+BOX_START = 300     # seconds a box may take to come up before silence counts regardless
 AUTH_CAP = 20       # the `auth` verb reads a file; one still silent after this is not answering
 AUTH_GRACE = 60     # a turn that was over this fast and said nothing never reached the model
 STDERR_CHUNK = 64 * 1024   # how much of a turn's diagnostics is held in memory while scanning
@@ -561,7 +562,7 @@ def kill_group(proc, run_id=None):
 
 def limited(cmd, limit, *, silence=None, activity=None, heartbeats=(), output=None,
             on_timeout=None, abort=None, stop=None, quiet=None, declared=within_declared_timeout,
-            **kwargs):
+            began=None, **kwargs):
     """Run a process group until it exits, goes silent, reaches an optional ceiling, or
     says something that means it will never finish.
 
@@ -586,6 +587,10 @@ def limited(cmd, limit, *, silence=None, activity=None, heartbeats=(), output=No
     `declared(pid)` says whether a command the process runs is inside the timeout it declared,
     which holds off silence: `within_declared_timeout` reads the tree under the pid, a turn on a
     machine asks the machine (agentkit/machine_turn.py).
+
+    `began()`, for a command a box starts, says the box is up.  Silence is the command's, and
+    counts from then: on a busy host the box alone can outlast a short limit.  One still not up
+    after `BOX_START` seconds goes silent like anything else, so a stuck box cannot hang a turn.
 
     `heartbeats` are the `type`s of JSON lines that only say a tool is still running: with any,
     only a whole line of another kind counts as activity, so a hung tool call heartbeating
@@ -661,12 +666,16 @@ def limited(cmd, limit, *, silence=None, activity=None, heartbeats=(), output=No
 
     def watch_output():
         last, seen, longest, held = started, previous, 0, started
+        starting = began is not None
         while not finished.is_set():
             now = time.monotonic()
             current = heard()
             if current != seen:
                 longest = max(longest, now - last)
                 last, seen = now, current
+            if starting:
+                last = now
+                starting = not began() and now - started < BOX_START
             if (silence is not None and now - last >= silence
                     and declared(proc.pid)):
                 held = now      # silence counts from the last poll a declared bound held

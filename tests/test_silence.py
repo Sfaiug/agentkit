@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import subprocess
 import sys
 import tempfile
 import threading
@@ -202,6 +203,33 @@ class Silence(unittest.TestCase):
         self.assertIn("last output: still going", logs[0])
         self.assertIn("; still running: ", logs[0])
         self.assertNotIn("$ echo never", text)
+
+    def starting(self, clock, began):
+        """Why a silent command stopped, the watchdog told `began` says of its box, and when."""
+        reasons = []
+        with patch.object(worker.time, "monotonic", side_effect=clock), \
+                patch.object(worker, "ACTIVITY_POLL", .01):
+            worker.limited(["sleep", "600"], 100 * worker.BOX_START, silence=90,
+                           activity=self.root / "silent.log", began=began,
+                           on_timeout=lambda why, _pid: reasons.append(why),
+                           stdout=subprocess.DEVNULL)
+        return reasons
+
+    def test_silence_counts_from_the_box_being_up(self):
+        clock, asked = Clock(30), []
+
+        def began():
+            asked.append(clock.now)
+            return len(asked) == 4
+
+        self.assertEqual(self.starting(clock, began), ["silence"])
+        self.assertEqual(len(asked), 4)
+        self.assertGreaterEqual(clock.now - asked[-1], 90)
+
+    def test_a_box_that_never_comes_up_still_goes_silent(self):
+        clock = Clock(30)
+        self.assertEqual(self.starting(clock, lambda: False), ["silence"])
+        self.assertGreaterEqual(clock.now, worker.BOX_START + 90)
 
     def test_silent_turn_is_retried_as_transport_death(self):
         cfg = self.adapter(
