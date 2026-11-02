@@ -774,7 +774,10 @@ esac
             fake = root / "claude"
             fake.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$ARGS"\ncat "$REPLAY"\nexit "${RC:-0}"\n')
             fake.chmod(0o755)
+            (root / "projects/acme").mkdir(parents=True)
+            (root / "projects/acme" / f"{result['session_id']}.jsonl").touch()
             env = {**os.environ, "PATH": directory + ":" + os.environ["PATH"],
+                   "CLAUDE_CONFIG_DIR": directory, "AGENTKIT_ACCOUNT": "",
                    "ARGS": str(root / "args"), "REPLAY": str(replay)}
             command = ["bash", str(REPO / "adapters/claude.sh"), "run", "model", "effort",
                        directory, str(root / "prompt"), str(root / "out"), result["session_id"]]

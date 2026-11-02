@@ -125,12 +125,20 @@ run)
   model=$1 effort=$2 ws=$3 pf=$4 out=$5 sid=${6:-}
   mkdir -p -- "$out" || exit 2
   cd -- "$ws" || { echo "codex.sh: no such workspace: $ws" >&2; exit 2; }
+  if [ -n "$ACCOUNT" ]; then home || exit 2; fi
+  # A conversation held nowhere opens for no resume: a turn on a lost machine leaves its id in what
+  # it streamed, and the closing event a harness answers that with reads as a provider's fault,
+  # retried for ever (2 Nov 2026).  A resume that streams nothing goes to a fresh conversation.
   # `codex exec resume` has no -C flag, hence the cd above; prompt comes from stdin.
-  if [ -n "$sid" ]; then set -- exec resume "$sid" -; else set -- exec; fi
+  if [ -n "$sid" ]; then
+    set -- "${CODEX_HOME:-$HOME/.codex}"/sessions/*/*/*/*"$sid"*
+    [ -e "$1" ] || { : >"$out/final.md"; : >"$out/session_id"; exit 1; }
+    set -- exec resume "$sid" -
+  else set -- exec; fi
   # A `default` (or empty) model leaves -m off entirely and codex runs its own -- see the note
   # above the `interactive` printf.
   case $model in ""|default) ;; *) set -- "$@" -m "$model" ;; esac
-  if [ -n "$ACCOUNT" ]; then home || exit 2; set -- "$@" -c "$STORE"; fi
+  if [ -n "$ACCOUNT" ]; then set -- "$@" -c "$STORE"; fi
   # shellcheck disable=SC2086 # OWN_RULES_OFF is words of codex's own command line
   codex "$@" -c model_reasoning_effort="$effort" $OWN_RULES_OFF \
       --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --json \

@@ -142,7 +142,14 @@ run)
   # never reads or refreshes the seat's ~/.claude/.credentials.json.  No file, and the turn
   # falls back to whatever the seat's own login leaves there, exactly as it always did.
   tok=$(cat "$TOKEN" 2>/dev/null) && [ -n "$tok" ] && export CLAUDE_CODE_OAUTH_TOKEN="$tok"
-  if [ -n "$sid" ]; then set -- -p --resume "$sid"; else set -- -p; fi
+  # A conversation held nowhere opens for no resume: a turn on a lost machine leaves its id in what
+  # it streamed, and the closing event a harness answers that with reads as a provider's fault,
+  # retried for ever (2 Nov 2026).  A resume that streams nothing goes to a fresh conversation.
+  if [ -n "$sid" ]; then
+    set -- "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$sid"*
+    [ -e "$1" ] || { : >"$out/final.md"; : >"$out/session_id"; exit 1; }
+    set -- -p --resume "$sid"
+  else set -- -p; fi
   # The prompt goes down stdin.
   # shellcheck disable=SC2086 # OWN_RULES_OFF is one NAME=value per word
   env $OWN_RULES_OFF claude "$@" --model "$model" --effort "$effort" --dangerously-skip-permissions \

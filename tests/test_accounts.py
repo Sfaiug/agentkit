@@ -45,6 +45,8 @@ cat >/dev/null
 jq -nc --arg resume "$sid" '{token: $ENV.CLAUDE_CODE_OAUTH_TOKEN, config: $ENV.CLAUDE_CONFIG_DIR,
     account: $ENV.AGENTKIT_ACCOUNT, resume: $resume}' >>"$FAKE/claude-calls"
 sid=${sid:-s1}
+mkdir -p "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/acme"
+: >"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/acme/$sid.jsonl"
 if [ -f "$FAKE/refuse-${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
   printf '{"type":"result","is_error":true,"result":"Claude AI usage limit reached","session_id":"%s"}\\n' "$sid"
   exit 1

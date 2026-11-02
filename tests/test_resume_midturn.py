@@ -15,14 +15,13 @@ import subprocess
 import sys
 import tempfile
 import time
-import tomllib
 import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, smoke, stateful
-from agentkit import config, handback, machine_turn, notify, orch, roundloop, run, status, watch
+from agentkit import config, handback, notify, orch, roundloop, run, status, watch
 from agentkit import record
 
 ADAPTER = """import json, os, sys
@@ -45,9 +44,6 @@ out.mkdir(parents=True, exist_ok=True)
 with record.open("a") as fh:
     fh.write(json.dumps({{"sid": sid, "prompt": prompt, "out": out.name}}) + "\\n")
 if sid and sid == os.environ.get("RESUME_DIE", ""):
-    sys.exit(1)
-if sid and sid == os.environ.get("RESUME_LOST", "") and record.read_text().count("\\n") < 4:
-    (out / "events.jsonl").write_text('{{"type": "result", "is_error": true}}\\n')
     sys.exit(1)
 (out / "events.jsonl").write_text('{{"type": "result"}}\\n')
 (out / "final.md").write_text(os.environ.get("RESUME_FINAL", "## Summary\\ncontinued\\n"))
@@ -293,33 +289,6 @@ class ResumeMidturn(unittest.TestCase):
         self.assertTrue(record.read_state(directory)["resume_notice"]["restarted"])
         self.assertIn("original task text", recorded[1]["prompt"])
 
-    def test_a_resume_of_a_conversation_held_nowhere_starts_afresh_whatever_it_streamed(self):
-        os.environ["RESUME_LOST"] = "lost-sid"
-        self.addCleanup(os.environ.pop, "RESUME_LOST", None)
-        directory = self.receipt("20260922-1305-lost-session", exec_session="lost-sid")
-        out = directory / "round-1" / "executor"
-        out.mkdir(parents=True)
-        (out / "session_id").write_text("lost-sid")
-        with patch.object(machine_turn, "_places", return_value=["~/held/{id}*"]):
-            run.execute(self.loop(directory.name), "executor", "original task text", "executor")
-        self.assertEqual([call["sid"] for call in self.calls()], ["lost-sid", ""])
-        self.assertEqual(record.read_state(directory)["exec_session"], "fresh-session")
-
-    def test_a_conversation_is_held_in_any_home_its_harness_may_keep_it(self):
-        shipped = tomllib.loads((REPO / "adapters/claude.toml").read_text())["worker"]["sessions"]
-        odd = self.root / "state[1]"
-        env = {"HOME": str(self.root), "CLAUDE_CONFIG_DIR": str(odd), "AGENTKIT_ACCOUNT": "acme"}
-        with patch.object(machine_turn, "_places", return_value=shipped):
-            self.assertTrue(machine_turn.lost("claude", "sid", env))
-            for home in (self.root / ".claude", odd, self.root / ".claude-acme"):
-                held = home / "projects/acme/sid.jsonl"
-                held.parent.mkdir(parents=True)
-                held.touch()
-                self.assertFalse(machine_turn.lost("claude", "sid", env), home)
-                held.unlink()
-            self.assertEqual(machine_turn._sessions("claude"), [".claude/projects/*/{id}*"])
-        self.assertFalse(machine_turn.lost("claude", "sid", env))    # it cannot say: no `sessions`
-
     def test_reviewer_resume_counts_its_verdict_for_the_round(self):
         os.environ["RESUME_FINAL"] = "VERDICT: PASS\n## Findings\n- none\n"
         directory = self.receipt("20260922-1306-reviewer", step="reviewer", rounds=1)
@@ -452,6 +421,10 @@ class ResumeMidturn(unittest.TestCase):
             fake.chmod(0o755)
         prompt = self.root / "prompt.md"
         prompt.write_text("continue this turn\n")
+        for held in (".claude/projects/acme/sess-1.jsonl",
+                     ".codex/sessions/2026/11/02/rollout-sess-1.jsonl"):
+            (self.root / held).parent.mkdir(parents=True)
+            (self.root / held).touch()
         for harness, spelling in (("claude", "-p --resume sess-1"),
                                   ("codex", "exec resume sess-1"),
                                   ("muse", "--session-id sess-1")):
@@ -460,6 +433,7 @@ class ResumeMidturn(unittest.TestCase):
                             "low", str(self.root), str(prompt),
                             str(self.root / f"{harness}-out"), "sess-1"],
                            env={**os.environ, "PATH": f"{binaries}:{os.environ['PATH']}",
+                                "CLAUDE_CONFIG_DIR": "", "CODEX_HOME": "",
                                 "ARGS": str(argv)}, check=False, timeout=120)
             self.assertIn(spelling, " ".join(argv.read_text().split()), harness)
 

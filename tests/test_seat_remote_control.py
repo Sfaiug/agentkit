@@ -72,6 +72,9 @@ class SeatRemoteControl(unittest.TestCase):
     def test_worker_turn_carries_no_remote_control(self):
         # A worker is seatless, but even with the seat's name around the turn must not
         # take it: the run verb never reads it.
+        held = self.root / ".claude/projects/acme" / f"{CONVERSATION}.jsonl"
+        held.parent.mkdir(parents=True)
+        held.touch()
         for account in (None, ACCOUNT):
             for sid in (None, CONVERSATION):
                 with self.subTest(account=account or "usual",

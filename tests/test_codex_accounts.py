@@ -17,6 +17,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 ADAPTER = REPO / "adapters/codex.sh"
+THREAD = "sessions/2026/11/02/rollout-thread-1.jsonl"
 
 # One JSON line per call: its arguments, the CODEX_HOME and keys it was handed, and the token
 # of the login it read.  `login` signs in by writing a fresh auth.json where codex would, and
@@ -38,7 +39,7 @@ elif "logout" in args:
 else:
     call["token"] = json.loads((home / "auth.json").read_text())["tokens"]["access_token"]
     if "resume" in args:
-        call["resumed"] = (home / "sessions" / (args[args.index("resume") + 1] + ".jsonl")).read_text()
+        call["resumed"] = next(home.glob(f"sessions/*/*/*/*{args[args.index('resume') + 1]}*")).read_text()
     sys.stdin.read()
     print(json.dumps({"type": "thread.started", "thread_id": "thread-2"}))
 with open(os.environ["FAKE_LOG"], "a") as log:
@@ -79,7 +80,8 @@ class CodexAccounts(unittest.TestCase):
         for store in ("sessions", "archived_sessions"):
             (self.usual / store).mkdir()
         (self.usual / "config.toml").write_text('model = "test-model"\n')
-        (self.usual / "sessions/thread-1.jsonl").write_text('{"begun":"on the usual login"}\n')
+        (self.usual / THREAD).parent.mkdir(parents=True)
+        (self.usual / THREAD).write_text('{"begun":"on the usual login"}\n')
         fake = self.root / "fake"
         (fake / "bin").mkdir(parents=True)
         for name, text in (("codex", FAKE_CODEX), ("curl", FAKE_CURL)):
@@ -231,7 +233,7 @@ class CodexAccounts(unittest.TestCase):
             proc, [call] = self.adapter(account, "logout")
             self.assertEqual((proc.returncode, call["args"][-1]), (0, "logout"), proc.stderr)
             self.assertFalse((own / "auth.json").exists())
-            self.assertTrue((self.usual / "sessions/thread-1.jsonl").exists())
+            self.assertTrue((self.usual / THREAD).exists())
         self.each(logout)
         proc, calls = self.adapter("second", "logout")       # nothing left to sign out
         self.assertEqual((proc.returncode, calls), (0, []))

@@ -3,8 +3,8 @@ workspace on the model and effort, hands it the prompt byte for byte, the conver
 and, on Claude, the worker token, and leaves the files a run reads.
 
 `run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id]` hands the prompt over by
-stdin or by a file, never as one argument, which Linux caps at 128 KiB.  Given a session id the
-harness resumes it; given none it starts its own conversation, Grok's under a fresh UUID.  The
+stdin or by a file, never as one argument, which Linux caps at 128 KiB.  Given a session id it
+holds the harness resumes it; given none it starts its own conversation, Grok's under a fresh UUID.  The
 verb writes the harness's stdout to events.jsonl and its stderr to stderr.log, the last result
 event's text to final.md and the last session id the events name to session_id, and exits with
 the harness's own code.
@@ -86,6 +86,8 @@ def turn(harness, prompt, session=None, token=None):
         home.fake(harness.program, FAKE.format(
             python=sys.executable, saw=str(saw), flag=harness.prompt_flag, stdout=STDOUT,
             stderr=STDERR, code=CODE))
+        if session:
+            home.write(f".claude/projects/acme/{session}.jsonl", "{}\n")
         if token:
             home.write(".agentkit/secrets/claude_oauth_token", f"{token}\n")    # as install.sh writes it
         workspace, out = home.path / WORKSPACE, home.path / "turn"

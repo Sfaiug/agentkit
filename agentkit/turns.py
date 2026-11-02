@@ -19,7 +19,7 @@ from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 
-from . import (config, gitcall, hand_in, history, host, login_refusals, machine_turn, orch,
+from . import (config, gitcall, hand_in, history, host, login_refusals, orch,
                record as run_record, update, worker)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
@@ -890,18 +890,16 @@ def try_again_at(said):
         return None
 
 
-def resume_failed(out_dir, killed, text, lost=False):
-    """A resume the harness ended at once, with nothing answered and nothing streamed or its
-    conversation `lost`, whatever it streamed to say so.
+def resume_failed(out_dir, killed, text):
+    """A resume the harness ended at once, with nothing streamed and nothing answered.
 
     A silence kill ran and was stopped; this one never started. The Codex session that
     exited before its first byte after a host freeze is the case, and retrying that id
-    spends the transport attempts on a conversation that will not come back; a harness's
-    closing event for a conversation it cannot find retried one for hours (2 Nov 2026).
+    spends the transport attempts on a conversation that will not come back.
     """
     if killed or (text or "").strip():
         return False
-    return lost or worker.said_nothing(out_dir)
+    return worker.said_nothing(out_dir)
 
 
 def note_turn_meters(cfg, name, out_dir, account, before=()):
@@ -1077,8 +1075,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         if swapped(code, killed, sid or session):
             session, calls = sid or session, calls + 1
             continue
-        if asked and resume_failed(target, killed, text, machine_turn.lost(
-                entry["harness"], asked, {**os.environ, **config.account_env(account)})):
+        if asked and resume_failed(target, killed, text):
             # One empty exit abandons the id. The role continues in a new conversation,
             # and the dead id is not retried and does not spend the transport attempts.
             log(f"resume of {asked} failed; fresh conversation")
