@@ -536,7 +536,7 @@ def cut_off(cfg, name, moved=None):
     # what it held, as a mid-turn seat is: background work is never lost silently, and some
     # harnesses say nothing of it themselves.  A watch is not work.
     owed = "turn" if cut else "work" if any(kind != WATCH for kind in work) else None
-    return owed, line
+    return owed, (line if owed or moved is not None else None)
 
 
 def _cut_line(cfg, name):
@@ -2858,6 +2858,17 @@ def work_live(name):
     return "your plan is done and its changes are live"
 
 
+def done_unprompted(name, records=None, mine=None):
+    from . import plan as plan_mod
+    done_at = plan_mod.path(name).stat().st_mtime if plan_mod.finished(name) else None
+    if (done_at is None or config.name_owed(name) or waiting_on(name)
+            or prompted_since(name, done_at) or any(t > done_at for t in notify.owner_said(name))):
+        return False
+    census = run_record.runs() if records is None and mine is None else records
+    return not runs_owe(own_runs(name, census) if mine is None else mine,
+                        transitions.supersession_index(census) if census is not None else None, time.time())
+
+
 def refusing_login(run_dir, state):
     """The login that keeps refusing a run that has not ended (`login_refusals`), else None."""
     return login_refusals.owed(run_dir) if state.get("state") in run_record.GOING else None
@@ -2987,7 +2998,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
 
     def usage():
         """3b. its subscription ran out and ak resumes it, or moves it to another account"""
-        if waiting:
+        if waiting and not done_unprompted(name, records, mine):
             until = waiting.get("until")
             return {"word": "out of usage" if until else "working", "reason": waiting["reason"],
                     "since": waiting["since"], "resumes_at": until}
@@ -3000,7 +3011,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             and not stall.get("nudged_at") else None)
         if (error and not gone and not session.get("legacy")
                 and not seat_closed_by_owner(name) and not stall.get("told")
-                and not (seat_read(name).get("usage_refusal") or {}).get("told")):
+                and not (seat_read(name).get("usage_refusal") or {}).get("told")
+                and not done_unprompted(name, records, mine)):
             return {"word": "working", "reason": f"retrying: {error}",
                     "since": found.get("began")}
 
@@ -3017,7 +3029,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
 
     # 2. a run of its own is unfinished and resumes itself: the seat is working.
     going = [(run_dir, state) for run_dir, state in mine if resumes_itself(state, at)]
-    if going:
+    if going and not usage():
         going.sort(key=lambda pair: (pair[1].get("started_at") or 0, pair[0].name))
 
         def quiet(run_dir, state):
@@ -3045,7 +3057,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                       "since": min(starts) if starts else None})
     # 2a. ... or it ended its turn on `ak wait`, and what it named is not over yet
     wait = waiting_on(name)
-    if wait:
+    if wait and not usage():
         return waits({"word": "working", "reason": f"waiting on {wait['on']}",
                       "since": wait["at"]})
     # 2b. a turn is in flight: the seat is working, parked run or not.  Only a seat
@@ -4986,6 +4998,10 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         if ended:
             refusal, outcome, line = True, SPENT, f"wrap_up {ended}"
     now = time.time()
+    if done_unprompted(name):
+        if waiting and not dry_run:
+            seat_write(name, usage_wait=None)
+        return bool(waiting or refusal or spent(current))
     observed = live.get("usage_refusal") or {}
     until = turns.try_again_at(line) if refusal else None
     handled = observed.get("line") == line and observed.get("handled")
@@ -5393,6 +5409,8 @@ def health(cfg, state, dry_run, log):
                             log(f"{name}: no progress for an hour; asked the user")
                         else:
                             log(f"WARN {name}: notification was not accepted; retry required")
+                continue
+            if done_unprompted(name, records):
                 continue
             if entry.get("kind"):
                 stalls.pop(name)    # a quiet or login episode is over; this stall is a new one

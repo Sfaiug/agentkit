@@ -880,5 +880,19 @@ print(json.dumps({"login": json.loads((home / "auth.json").read_text()), "args":
                 self.assertEqual((folder / "config.toml").resolve(), base / "config.toml")
 
 
+    def test_done_seat_stays_done_when_opened_on_spent_account_until_owner_prompts(self):
+        os.utime(config.plan_path(NAME), (self.now - 120, self.now - 120)) if config.plan_path(NAME).write_text("- [x] done\n") else None
+        with patch.object(watch, "holding", return_value=[watch.WATCH]):
+            self.assertEqual(watch.cut_off(self.cfg, NAME), (None, None))
+        self.meters(100, 100)
+        self.pane = "API Error: 500 server error"
+        self.refusal_tick()
+        self.assertEqual((self.typed, self.answer()["word"]), ([], "done"))
+        config.stop_path(NAME).write_text(json.dumps({"turn": self.now - 10}))
+        self.pane = "Usage limit reached"
+        self.tick()
+        self.assertEqual(self.answer()["word"], "out of usage")
+
+
 if __name__ == "__main__":
     unittest.main()

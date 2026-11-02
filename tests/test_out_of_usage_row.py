@@ -78,6 +78,12 @@ class OutOfUsageRow(Sandbox):
         # turn could have drawn, and the wait is the fact
         self.assertEqual(self.decide({"state": "working", "began": 9000})["word"], "out of usage")
 
+    def test_a_spent_window_reads_out_of_usage_while_runs_or_wait_are_going(self):
+        watch.seat_write(SEAT, usage_wait={"reason": SPENT, "until": 90000, "since": 9500},
+                         wait={"on": "https://github.com/acme/api/pull/2", "kind": "pr", "at": 9940})
+        run = (config.RUNS / "going", {"state": "running", "launched_session": SEAT, "started_at": 9940})
+        self.assertEqual(self.decide(records=[run])["word"], "out of usage")
+
     def test_an_unsent_draft_under_the_refused_turn_is_marked_beside_it(self):
         # the refused turn's UserPromptSubmit has no Stop: its hook still says working
         watch.seat_write(SEAT, usage_wait={"reason": SPENT, "until": 90000, "since": 9500})

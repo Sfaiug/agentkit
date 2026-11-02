@@ -102,6 +102,11 @@ class MovingWord(unittest.TestCase):
         self.live("omega", usage_wait={"reason": until, "until": time.time() + 3600,
                                        "since": time.time() - 60, "continue": True})
         self.assertEqual(self.why("omega"), ("out of usage", until))
+        self.home.write(".agentkit/runs/20261001-0800-omega/run.json", {"launched_session": "omega", "state": "running"})
+        self.assertEqual(self.why("omega"), ("out of usage", until))
+        self.home.write(".agentkit/state/plan-omega.md", "- [x] Done\n")
+        self.home.write(".agentkit/runs/20261001-0800-omega/run.json", {"state": "pass", "merged": True})
+        self.assertEqual(self.why("omega")[0], "done")
 
     def test_a_move_to_another_account_that_failed_needs_you(self):
         failed = "anthropic account reopen failed: no login for beta"
