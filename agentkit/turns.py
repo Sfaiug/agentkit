@@ -890,19 +890,21 @@ def try_again_at(said):
         return None
 
 
-def resume_failed(out_dir, killed, text, harness):
-    """A resume the harness ended at once, with nothing streamed and nothing answered, or saying
-    it holds no such conversation.
+def resume_failed(out_dir, killed, text, harness, asked=True, failures_only=False):
+    """A resume the harness says it holds no conversation for, or, of the conversation the caller
+    handed in (`asked`), one it ended at once with nothing streamed and nothing answered.
 
     A silence kill ran and was stopped; this one never started. The Codex session that
     exited before its first byte after a host freeze is the case, and retrying that id
     spends the transport attempts on a conversation that will not come back. Claude Code streams
-    a closing event for an id it does not hold, read as a provider's fault and retried for ever.
+    a closing event for an id it does not hold, read as a provider's fault and retried for ever,
+    and its words may fill final.md: they are read first, as `harness_said` reads any refusal.
     """
-    if killed or (text or "").strip():
+    if killed:
         return False
-    return worker.said_nothing(out_dir) or harness_plugin(harness).lost(
-        harness_said(out_dir, text, harness))
+    if harness_plugin(harness).lost(harness_said(out_dir, text, harness, failures_only)):
+        return True
+    return asked and not (text or "").strip() and worker.said_nothing(out_dir)
 
 
 def note_turn_meters(cfg, name, out_dir, account, before=()):
@@ -1070,18 +1072,19 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
 
     while True:
         target = out_dir if not calls else out_dir.with_name(f"{out_dir.name}-retry{calls}")
-        # Only the conversation the caller handed in is a resume. An id this ladder's own
-        # first attempt left behind is a fresh turn's, and an empty exit on it is the
+        # An empty exit abandons only the conversation the caller handed in. An id this ladder's
+        # own first attempt left behind is a fresh turn's, and an empty exit on it is the
         # transport failure the three attempts are for, not a session that cannot be opened.
         asked = session if not calls else None
         code, text, sid, killed, unfinished = turn(body, target, session)
         if swapped(code, killed, sid or session):
             session, calls = sid or session, calls + 1
             continue
-        if asked and resume_failed(target, killed, text, entry["harness"]):
-            # One empty exit abandons the id. The role continues in a new conversation,
-            # and the dead id is not retried and does not spend the transport attempts.
-            log(f"resume of {asked} failed; fresh conversation")
+        if session and resume_failed(target, killed, text, entry["harness"], asked,
+                                     failures_only=code == 0):
+            # The role continues in a new conversation, and the dead id is not retried and
+            # does not spend the transport attempts.
+            log(f"resume of {session} failed; fresh conversation")
             if isinstance(resume_note, dict):
                 resume_note["restarted"] = True
                 resume_note["at"] = time.time()
