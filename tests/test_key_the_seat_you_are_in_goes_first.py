@@ -123,6 +123,23 @@ class TheSeatYouAreIn(unittest.TestCase):
         self.assertEqual(done.code, 0, done.err)
         self.wait_weights(100, 10000)
 
+    def test_a_renamed_seat_keeps_its_place_on_the_scope_it_launched_in(self):
+        unit = "agentkit-seat-acme-three-0a1b2c3d.scope"
+        self.set_weight(unit, 100)
+        self.addCleanup(shutil.rmtree, self.scope(unit))
+        Seat(self.home, "acme-three")
+        self.addCleanup(self.home.tmux, "kill-session", "-t", "=lagoon:")
+        self.attach("acme-three")
+        self.assertEqual(self.home.ak("orch", "front").code, 0)
+        self.assertEqual(self.weight(unit), 10000)
+        done = self.home.ak("orch", "rename", "acme-three", "lagoon")
+        self.assertEqual(done.code, 0, done.err)
+        self.assertEqual(self.home.ak("orch", "front").code, 0)
+        self.assertEqual(self.weight(unit), 10000)
+        self.home.tmux("detach-client", "-s", "=lagoon:")
+        self.assertEqual(self.home.ak("orch", "front").code, 0)
+        self.assertEqual(self.weight(unit), 100)
+
     def test_the_unit_holding_the_server_wants_the_top_weight(self):
         pid = self.home.tmux("display-message", "-p", "#{pid}").out.strip()
         unit = Path(f"/proc/{pid}/cgroup").read_text().strip().rpartition("/")[2]

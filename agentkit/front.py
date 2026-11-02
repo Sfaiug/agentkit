@@ -11,10 +11,19 @@ loses nothing.
 import re
 import subprocess
 
-from . import host, orch
+from . import config, host, orch
 
-SEAT_SCOPE = re.compile(r"agentkit-seat-(.+)-[0-9a-f]{8}\.scope")   # as `orch.seat_command` names it
+SEAT_SCOPE = re.compile(r"agentkit-seat-(.+)-[0-9a-f]{8}\.scope")   # as `orch.seat_command` has it
 BEHIND = 100    # what systemd gives a unit nobody set
+
+
+def seat_now(launched):
+    """The session of a scope, which keeps the name its seat launched under through a rename.  A
+    rename chain that cannot be followed leads to no session, so that scope alone has no client."""
+    try:
+        return config.resolve_session(launched)
+    except config.Error:
+        return launched
 
 
 def once():
@@ -33,8 +42,8 @@ def once():
         for path in sorted((orch.slice_cgroup() / orch.seat_slice_name()).iterdir()):
             seat = SEAT_SCOPE.fullmatch(path.name)
             if path.is_dir() and (path.name == server or seat):
-                weight = (host.CPU_WEIGHT_MAX if path.name == server or seat[1] in attached
-                          else BEHIND)
+                first = path.name == server or seat_now(seat[1]) in attached
+                weight = host.CPU_WEIGHT_MAX if first else BEHIND
                 if host._cpu_weight(path) != weight:
                     subprocess.run(["systemctl", "--user", "set-property", "--runtime", path.name,
                                     f"CPUWeight={weight}"],
