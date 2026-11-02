@@ -4,7 +4,9 @@ package host
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -215,25 +217,42 @@ func sliceCeiling() float64 {
 
 // sliceDropIns are the slice's drop-in files, in the order systemd reads them.
 func sliceDropIns() []string {
-	configHome := os.Getenv("XDG_CONFIG_HOME")
-	if configHome == "" {
-		home, _ := os.UserHomeDir()
-		configHome = filepath.Join(home, ".config")
-	}
 	var found []string
-	for _, base := range []string{"systemd/user", "systemd/user.control"} {
-		files := config.Glob(filepath.Join(configHome, base, tmux.Own()+".slice.d"), "*.conf")
+	for _, dir := range sliceDropInDirs() {
+		files := config.Glob(dir, "*.conf")
 		sort.Strings(files)
 		found = append(found, files...)
 	}
 	return found
 }
 
-// NoSliceCeiling is whether the slice holds no task ceiling and no drop-in that could set one: a
-// tick's seat headroom pass holds the runs under ceilings alone.
+func sliceDropInDirs() []string {
+	configHome := os.Getenv("XDG_CONFIG_HOME")
+	if configHome == "" {
+		home, _ := os.UserHomeDir()
+		configHome = filepath.Join(home, ".config")
+	}
+	own := tmux.Own() + ".slice.d"
+	return []string{filepath.Join(configHome, "systemd/user", own), filepath.Join(configHome, "systemd/user.control", own)}
+}
+
+// NoSliceCeiling is whether the slice holds no task ceiling and no drop-in that could set one,
+// false where a read of either fails: a tick's seat headroom pass holds the runs under ceilings
+// alone.
 func NoSliceCeiling() bool {
-	_, limited := number(filepath.Join(sliceCgroup(), "pids.max"))
-	return !limited && len(sliceDropIns()) == 0
+	limit := filepath.Join(sliceCgroup(), "pids.max")
+	if _, err := os.ReadFile(limit); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	if _, limited := number(limit); limited {
+		return false
+	}
+	for _, dir := range sliceDropInDirs() {
+		if !config.Listable(dir) {
+			return false
+		}
+	}
+	return len(sliceDropIns()) == 0
 }
 
 // RunsCgroup is where detached runs and their lander take CPU, apart from the seats.

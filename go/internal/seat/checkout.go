@@ -2,6 +2,8 @@ package seat
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,8 +57,31 @@ func checkoutOf(repo string, stands func() []stand) string {
 	return ""
 }
 
-// NoCheckouts is whether no checkout stands for a project on this machine.
-func NoCheckouts() bool { return len(listed()) == 0 }
+// NoCheckouts is whether no checkout stands for a project on this machine, false where a look
+// fails: listed passes over a place it cannot read, which may hold one.
+func NoCheckouts() bool {
+	home, _ := os.UserHomeDir()
+	code := filepath.Join(home, "code")
+	entries, err := os.ReadDir(code)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	places := []string{filepath.Join(home, "agentkit")}
+	for _, entry := range entries {
+		places = append(places, filepath.Join(code, entry.Name()))
+	}
+	return !slices.ContainsFunc(places, unseen) && len(listed()) == 0
+}
+
+// unseen is whether a look at a place, or at the `.git` a folder there would hold, failed on
+// anything but nothing being there.
+func unseen(path string) bool {
+	info, err := os.Stat(path)
+	if err == nil && info.IsDir() {
+		_, err = os.Stat(filepath.Join(path, ".git"))
+	}
+	return err != nil && !errors.Is(err, fs.ErrNotExist)
+}
 
 // listed is every checkout that stands for a project (orch.listed): one directly under ~/code
 // that is no worktree of another listed, and agentkit's own at ~/agentkit, whose second clone

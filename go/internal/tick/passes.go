@@ -86,9 +86,9 @@ func table(t *ticking) []pass {
 }
 
 // idle is whether watch.json and every pass the tick runs say there is nothing to act on, read
-// with nothing written.
+// with nothing written. The state folder comes first: the passes' seat records are listed from it.
 func idle(dry bool) bool {
-	if state, ok := loadState(); !ok || !quiet(state) {
+	if state, ok := loadState(); !ok || !quiet(state) || !config.Listable(statePath("")) {
 		return false
 	}
 	for _, each := range table(&ticking{}) {

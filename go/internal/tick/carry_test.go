@@ -184,6 +184,51 @@ func TestAnythingToActOnWritesNothing(t *testing.T) {
 	}
 }
 
+// A folder a pass cannot read says nothing of what it holds, so the tick is left to Python with
+// nothing written, even where the record behind it would have said so itself.
+func TestAFailedReadWritesNothing(t *testing.T) {
+	for name, place := range map[string]struct {
+		file    string
+		blocked string
+		mode    os.FileMode
+	}{
+		"seat records": {"state/session-acme.json", "state", 0o100},
+		"card records": {"state/card-acme.json", "state", 0o100},
+		"code":         {"../code/api/.git/HEAD", "../code", 0},
+		"a code entry": {"../code/api/.git/HEAD", "../code/api", 0},
+		"own checkout": {"../agentkit/.git/HEAD", "../agentkit", 0},
+		"slice":        {"../.config/systemd/user/tick-test.slice.d/ceiling.conf", "../.config/systemd/user/tick-test.slice.d", 0},
+		"slice parent": {"../.config/systemd/user.control/tick-test.slice.d/ceiling.conf", "../.config/systemd", 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ak, _ := idleHome(t, answers)
+			put(t, filepath.Join(ak, place.file), "[Slice]\nTasksMax=100\n")
+			put(t, filepath.Join(ak, "state/watch.json"), "{}")
+			blocked := filepath.Join(ak, place.blocked)
+			if err := os.Chmod(blocked, place.mode); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.Chmod(blocked, 0o700) })
+			if _, err := os.ReadDir(blocked); err == nil {
+				t.Skip("this user reads every folder")
+			}
+			var out, errOut bytes.Buffer
+			if Carry(&out, &errOut) || out.Len()+errOut.Len() != 0 {
+				t.Fatalf("carried it, printing %q %q", out.String(), errOut.String())
+			}
+			if err := os.Chmod(blocked, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if got := read(t, filepath.Join(ak, "state/watch.json")); got != "{}" {
+				t.Errorf("watch.json holds %s", got)
+			}
+			if _, err := os.Lstat(filepath.Join(ak, "state/watch.tick.lock")); err == nil {
+				t.Error("it took the lock")
+			}
+		})
+	}
+}
+
 // A process of this HOME carrying ak's mark, or a seat's tag, is the leftover sweep's to judge.
 func TestAMarkedProcessIsForTheSweep(t *testing.T) {
 	idleHome(t, answers)

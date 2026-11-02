@@ -45,7 +45,7 @@ func noLoginsToEnd() bool { return missing(statePath("installed-at")) || !host.U
 func noLeftovers() bool {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		return true // no /proc, as on a Mac: the sweep finds nothing either
+		return errors.Is(err, fs.ErrNotExist) // no /proc, as on a Mac: the sweep finds nothing either
 	}
 	home := "HOME=" + os.Getenv("HOME")
 	for _, entry := range entries {
