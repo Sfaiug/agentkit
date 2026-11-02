@@ -107,6 +107,11 @@ class FailedNights(unittest.TestCase):
         broken.says("the host is down", code=3)
         garbled.says("no JSON here")
         cls.one_just_read = cls.tick(hour_on=True, just_read=garbled)
+        # the owner marks nobody to execute: `ak run` from no seat is refused, this run is not
+        akconfig.write(home, ["opus", "astra"], workers=[], reviewers=["astra"])
+        calm.says(failed())
+        cls.tick(hour_on=True, seen=True)
+        cls.ended()
 
     @classmethod
     def tick(cls, hour_on=False, seen=False, just_read=None):
@@ -170,6 +175,11 @@ class FailedNights(unittest.TestCase):
     def test_a_later_night_refused_leaves_the_running_fix_its_own_failures(self):
         self.assertEqual(self.kept, ["tests/a.py::first"])
         self.assertEqual(self.api.check(self.api.runs()[1]), ["tests/b.py::second"])
+
+    def test_with_nobody_marked_to_execute_the_marked_orchestrator_builds_it(self):
+        record = record_of(self.calm.runs()[0])
+        self.assertEqual((record["workers"], record["reviewers"], record["executor"]),
+                         (["opus"], ["astra"], "opus"))
 
     def test_no_seat_is_opened_and_no_card_reaches_the_owner(self):
         self.assertEqual(self.sink.requests, [])

@@ -937,8 +937,9 @@ def remember_memory_cap(state, placement, cap):
 def seat_launch(state):
     """Whether the tick launched that run for a seat (`launch_for_seat`): a fix run
     (`followup`) or a task started again (`restarted`), whose receipt names the seat and its
-    lists, and which descends from nothing that launched it."""
-    return bool(state.get("followup") or state.get("restarted"))
+    lists, and which descends from nothing that launched it; or a failed night's fix (`night`),
+    the same with its lists from the defaults and no seat."""
+    return bool(state.get("followup") or state.get("restarted") or state.get("night"))
 
 
 def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=None):
