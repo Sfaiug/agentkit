@@ -1,8 +1,9 @@
 """What ak tells a seat of `rounds`, `review_lines` and `seat_lines` is what this host set.
 
 The rulebook a seat opens on, the task template written beside it and `ak run --help` say the
-numbers in force, whole sentences reading right at any of them; with no
-setting they say ak's defaults, and a `$` the owner wrote in `rules.md` stays as written, as does a task a person left in the tasks folder.  A config.toml ak cannot use stops a command, never its help.
+numbers in force, whole sentences reading right at any of them; with no setting they say ak's
+defaults.  A `$` the owner wrote in `rules.md` stays as written, as does a task a person left in
+the tasks folder.  A config.toml ak cannot use stops a command, never its help.
 Black-box: the program `AK_BIN` names, judged by the file it writes for a seat and what it prints.
 This test fails against `/bin/false`.
 """
