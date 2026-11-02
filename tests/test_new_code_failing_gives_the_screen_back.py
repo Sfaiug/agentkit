@@ -13,6 +13,17 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
 from fixtures.akterm import GIVEN, Terminal
 
+# A signal in the old program, on its way to the exec: its last step done, the terminal's
+# attributes given back, once the test arms it.
+HANDING_OVER = """import os, signal, termios
+real = termios.tcsetattr
+def given_back(*args):
+    real(*args)
+    if os.path.exists(os.environ["ARM_FILE"]):
+        os.remove(os.environ["ARM_FILE"])
+        os.kill(os.getpid(), signal.SIGTERM)
+termios.tcsetattr = given_back
+"""
 # New code slow to start: told its screen is up, a program says who it is, then takes its time.
 SLOW = """import os, time
 if "AK_SCREEN_SHOWING" in os.environ:
@@ -37,6 +48,19 @@ class Failing(unittest.TestCase):
             self.assertEqual(menu.exit_code(bound=60), 1)
             self.assertEqual(menu.modes(), GIVEN)
             self.assertIn("FileNotFoundError", menu.screen())
+
+    def test_a_signal_on_the_way_to_new_code_gives_the_terminal_back(self):
+        with Home() as home:
+            Seat(home, "s-one")
+            home.write(".agentkit/state/installed-at", str(time.time() - 3600))
+            home.write("hook/sitecustomize.py", HANDING_OVER)
+            armed = home.root / "armed"
+            menu = Terminal(home, env={"PYTHONPATH": home.path / "hook", "ARM_FILE": armed})
+            menu.wait("s-one")
+            armed.touch()
+            home.write(".agentkit/state/installed-at", str(time.time()))
+            self.assertEqual(menu.exit_code(bound=60), 128 + signal.SIGTERM)
+            self.assertEqual(menu.modes(), GIVEN)
 
     def test_a_signal_while_new_code_starts_gives_the_terminal_back(self):
         with Home() as home:

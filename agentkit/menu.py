@@ -5733,11 +5733,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             # new code under an open menu, the tick's above all, draws it from here on, once
             # the menu's own update, which stamps the install too, has said how it went
             if updated or (updated is False and newborn is None and update.outdated()):
-                keyboard.give(showing=True)
                 live.close()
-                sys.stdout.flush()
-                os.execve(sys.executable, [sys.executable, *sys.argv],
-                          {**os.environ, "AK_MENU_CURSOR": str(cursor or "")})
+                terminal.restart(AK_MENU_CURSOR=str(cursor or ""))
             found, groups = last          # after any notice: what changed under it is drawn as is
             past = past_offered(found)
             # `x` is only the popup's, for its own seat while that has a row: no screen stops

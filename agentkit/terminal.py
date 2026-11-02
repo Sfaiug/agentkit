@@ -758,11 +758,11 @@ class Spot(namedtuple("Spot", "what cell first last", defaults=(None, None, 0, 0
 TAKE = "\033[?1049h\033[?25l\033[?1003h\033[?1006h"
 LEAVE = "\033[?25h\033[?1049l"
 GIVE = "\033[?1006l\033[?1003l" + LEAVE
-SHOWING = "AK_SCREEN_SHOWING"       # the program this one execs finds its screen up (`give`)
-# What would end or stop a program with a screen left up; ^C raises, so it only waits (`give`).
+SHOWING = "AK_SCREEN_SHOWING"       # the program this one execs finds its screen up (`restart`)
+# What would end or stop a program with a screen left up; ^C raises, so it only waits (`restart`).
 ENDS = {signals.SIGTERM, signals.SIGHUP, signals.SIGQUIT, signals.SIGTSTP}
 WAITS = {signals.SIGINT, *ENDS}
-_UP = False        # a screen left up (`give`) is this program's, and no Keyboard has taken it
+_UP = False        # a screen left up (`restart`) is this program's, and no Keyboard has taken it
 _TAKEN = None      # the Keyboard that has the terminal now, or None
 _KEYED = b""       # what a keyboard sent past the key it was read for, or while `sense` asked
 _PRESSED = False   # the left button went down and has not been read coming up
@@ -812,26 +812,39 @@ def asked_again():
 
 
 def showing():
-    """Whether a screen left up (`give`) waits for a `Keyboard` to draw over it."""
+    """Whether a screen left up (`restart`) waits for a `Keyboard` to draw over it."""
     return _UP
 
 
-def inherit():
-    """A program's first act: the screen the program that execed it left up is its own from here,
-    and the signals that waited through the exec are its to hear."""
-    if os.environ.pop(SHOWING, None):
-        _keep_up()
+def restart(**env):
+    """This program over again on the code installed now, `env` added to its environment.  The
+    last frame stays up, cursor hidden, until the next one draws over it (`inherit`); pointer and
+    attributes go back as `give` sends them.  The `Keyboard` keeps the terminal up to the exec, so
+    a signal or an exec that fails gives it all back, and past it the signals wait for `inherit`.
+    """
+    sys.stdout.flush()
+    if _TAKEN:
+        env[SHOWING] = "1"
+        _TAKEN._send(_TAKEN.sequences[1].removesuffix(LEAVE))
+        termios.tcsetattr(_TAKEN.fd, termios.TCSADRAIN, _TAKEN.saved)
+    signals.pthread_sigmask(signals.SIG_BLOCK, WAITS)
+    try:
+        os.execve(sys.executable, [sys.executable, *sys.argv], {**os.environ, **env})
+    finally:
         signals.pthread_sigmask(signals.SIG_UNBLOCK, WAITS)
 
 
-def _keep_up():
-    """However this program ends before a `Keyboard` takes the screen, it puts it away first."""
+def inherit():
+    """A program's first act: the screen `restart` left up is its own from here, to put away
+    however it ends before a `Keyboard` takes it, and the signals that waited are its to hear."""
     global _UP
-    _UP = True
-    atexit.register(put_away)
-    sys.excepthook = _said
-    for number in ENDS:
-        signals.signal(number, _away)
+    if os.environ.pop(SHOWING, None):
+        _UP = True
+        atexit.register(put_away)
+        sys.excepthook = _said
+        for number in ENDS:
+            signals.signal(number, _away)
+        signals.pthread_sigmask(signals.SIG_UNBLOCK, WAITS)
 
 
 def put_away():
@@ -847,7 +860,6 @@ def put_away():
         pass
     for number in ENDS:
         signals.signal(number, signals.SIG_DFL)
-    signals.pthread_sigmask(signals.SIG_UNBLOCK, WAITS)
 
 
 def _said(*error):
@@ -911,10 +923,8 @@ class Keyboard:
         _UP = False
         return True
 
-    def give(self, showing=False):
-        """The terminal back exactly as `take` found it: its attributes, its screen, its cursor;
-        with `showing` the last frame stays up, cursor hidden, until new code execed draws over it,
-        and what would end this program waits for that one to hear it (`inherit`).
+    def give(self):
+        """The terminal back exactly as `take` found it: its attributes, its screen, its cursor.
 
         Nothing past the key that gives it is read, so what he typed after that key is there
         for whoever takes the terminal.  A button still down comes up as no click: the rest of
@@ -924,16 +934,12 @@ class Keyboard:
         global _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD
         if _TAKEN is not self:
             return
-        self._send(self.sequences[1].removesuffix(LEAVE if showing else ""))
+        self._send(self.sequences[1])
         termios.tcsetattr(self.fd, termios.TCSADRAIN, self.saved)
         _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD = None, False, None, False, None
         for number, handler in self.kept.items():
             signals.signal(number, handler)
         self.kept = {}
-        if showing:
-            os.environ[SHOWING] = "1"
-            _keep_up()
-            signals.pthread_sigmask(signals.SIG_BLOCK, WAITS)
 
     def close(self):
         self.give()
