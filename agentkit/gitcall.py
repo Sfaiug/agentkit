@@ -767,20 +767,23 @@ def main_checkout(repo):
 
 
 def repository_id(repo):
-    """A short name of the repository at `repo`, the same from every worktree and clone of it: the
-    first commit of the branch origin calls default, whatever is checked out, along first parents
-    so that merging in another history leaves it.  A check's throwaway clone so names what its run
+    """A short name of the repository at `repo`, the same from every worktree and clone of it, full,
+    shallow or of one branch: the hash of origin's address, or with no origin of its main checkout.
+    A clone borrowing another's objects (`--shared`, a check's throwaway one) names what that one
     names, so a machine's copy of the history is sent once, not whole for each clone (169 copies
-    filled one machine's memory by 2 Nov 2026), and it reads the times its suites recorded.  With
-    no such commit to name, or a shallow clone's, which moves as it fetches: its main checkout.
+    filled one machine's memory by 2 Nov 2026), and it reads the times its suites recorded.
     """
-    git_at = ["git", "-C", str(repo)]
-    shallow = tool_run([*git_at, "rev-parse", "--is-shallow-repository"])[1].strip()
-    code, root, _ = tool_run([*git_at, "rev-list", "--first-parent", "--max-parents=0",
-                              "refs/remotes/origin/HEAD"])
-    if code or shallow != "false":
-        return hashlib.sha256(str(main_checkout(repo)).encode()).hexdigest()[:12]
-    return root.strip()[:12]
+    from . import deliver
+    repo = Path(repo)
+    borrows = tool_run(["git", "-C", str(repo), "rev-parse", "--git-path",
+                        "objects/info/alternates"])[1].strip()
+    try:
+        return repository_id(repo / (repo / borrows).read_text().splitlines()[0])
+    except (OSError, IndexError):
+        pass
+    code, origin, _ = tool_run(["git", "-C", str(repo), "remote", "get-url", "origin"])
+    named = deliver.remote_key(origin.strip()) if code == 0 else str(main_checkout(repo))
+    return hashlib.sha256(named.encode()).hexdigest()[:12]
 
 
 def leftover_junk(path):

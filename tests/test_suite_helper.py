@@ -519,27 +519,38 @@ class HelperMac(unittest.TestCase):
         self.assertEqual(suite_times._path(clone), suite_times._path(self.repo))
 
     def test_a_repository_keeps_its_name_whatever_is_checked_out_or_fetched(self):
-        self.git("-C", str(self.repo), "commit", "-q", "--allow-empty", "-m", "second")
-        self.git("-C", str(self.repo), "update-ref", "refs/remotes/origin/main", "HEAD")
-        self.git("-C", str(self.repo), "symbolic-ref", "refs/remotes/origin/HEAD",
-                 "refs/remotes/origin/main")
-        named = gitcall.repository_id(self.repo)
-        self.git("-C", str(self.repo), "checkout", "-q", "--orphan", "docs")
-        self.git("-C", str(self.repo), "commit", "-q", "--allow-empty", "-m", "docs")
-        self.assertEqual(gitcall.repository_id(self.repo), named)
+        origin = self.fake / "origin"
+        self.git("clone", "-q", "--bare", str(self.repo), str(origin))
+        self.git("-C", str(origin), "branch", "-q", "fix-api", "main")
+
+        def clone(name, *how):
+            self.git("clone", "-q", *how, origin.as_uri(), str(self.fake / name))
+            return self.fake / name
+
+        named = gitcall.repository_id(clone("full"))
+        shallow = clone("shallow", "--depth=1")
+        one = clone("one", "--single-branch", "--branch", "fix-api")
+        self.assertEqual(gitcall.repository_id(shallow), named)
+        self.assertEqual(gitcall.repository_id(one), named)
+        self.git("-C", str(shallow), "fetch", "-q", "--unshallow", "origin")
+        self.git("-C", str(one), "fetch", "-q", "origin", "main:refs/remotes/origin/main")
+        self.git("-C", str(one), "remote", "set-head", "origin", "--auto")
+        self.assertEqual(gitcall.repository_id(shallow), named)
+        self.assertEqual(gitcall.repository_id(one), named)
         linked = self.fake / "linked"
-        self.git("-C", str(self.repo), "worktree", "add", "-q", str(linked), "main")
+        self.git("-C", str(one), "worktree", "add", "-q", "--orphan", str(linked))
         self.assertEqual(gitcall.repository_id(linked), named)
-        # Another history merged in.
-        self.git("-C", str(linked), "merge", "-q", "--allow-unrelated-histories", "-m", "both",
-                 "docs")
-        self.git("-C", str(self.repo), "update-ref", "refs/remotes/origin/main", "main")
-        self.assertEqual(gitcall.repository_id(linked), named)
-        shallow = self.fake / "shallow"
-        self.git("clone", "-q", "--depth=1", "--branch", "main", self.repo.as_uri(), str(shallow))
-        before = gitcall.repository_id(shallow)
-        self.git("-C", str(shallow), "fetch", "-q", "--deepen=1", "origin", "main")
-        self.assertEqual(gitcall.repository_id(shallow), before)
+        # What ak's review checkout does to its mirror: nothing left to name but what it borrows.
+        mirror = self.fake / "mirror"
+        self.git("clone", "-q", "--shared", "--mirror", str(linked), str(mirror / ".git"))
+        self.git("-C", str(mirror), "config", "--remove-section", "remote.origin")
+        self.assertEqual(gitcall.repository_id(mirror), named)
+        self.assertNotEqual(gitcall.repository_id(self.repo), named)    # no origin: its own
+        # However a clone spells its origin.
+        self.git("-C", str(one), "remote", "set-url", "origin", "git@example.test:acme/widget.git")
+        spelled = gitcall.repository_id(one)
+        self.git("-C", str(one), "remote", "set-url", "origin", "https://example.test/acme/widget")
+        self.assertEqual(gitcall.repository_id(one), spelled)
 
     def test_a_suite_whose_history_there_went_since_known_sends_it_all(self):
         (self.repo / helper.RECIPE).parent.mkdir(parents=True)
