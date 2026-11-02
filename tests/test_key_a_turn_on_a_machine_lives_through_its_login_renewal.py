@@ -9,6 +9,7 @@ each verb and acts on the flags it is left.
 
 import base64
 import fcntl
+import io
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 import time
@@ -162,7 +164,7 @@ class TheVerbLeavesNothingBehind(unittest.TestCase):
         (self.tree / "turn/lent").write_text(f"{HELD}\0.fake/gone.json\0")
         self.held = self.tree / "turn/home" / HELD
         self.held.write_text("old\n")
-        self.other = self.held.with_name("other.json")
+        self.other = self.held.with_name(f"{HELD.name}.part")    # a harness's own, named as a part
         self.other.write_text("old\n")
         self.beside = lambda: sorted(path.name for path in self.held.parent.iterdir())
         self.env = {"HOME": str(self.home), "PATH": os.environ["PATH"]}
@@ -175,7 +177,7 @@ class TheVerbLeavesNothingBehind(unittest.TestCase):
     def relend(self):
         return self.verb("relend", "turn", sent=b"".join(
             base64.b64encode(f"{TOKEN}\n".encode()) + f" {path}\n".encode()
-            for path in (HELD, ".fake/gone.json", ".fake/other.json")))
+            for path in (HELD, ".fake/gone.json", f"{HELD}.part")))
 
     def test_it_writes_only_what_the_turn_s_list_names_and_it_still_holds_until_finish(self):
         self.assertEqual(self.relend().returncode, 0)
@@ -189,6 +191,33 @@ class TheVerbLeavesNothingBehind(unittest.TestCase):
         self.assertEqual(self.verb("finish", "turn").returncode, 0)
         self.relend()
         self.assertEqual([path.name for path in self.tree.iterdir()], ["lent.lock"])
+
+    def test_a_failed_rename_leaves_no_part_and_tells_the_sender(self):
+        marks = self.home / "marks"
+        marks.mkdir()
+        (marks / "mv").write_text("#!/bin/sh\nexit 1\n")
+        (marks / "mv").chmod(0o755)
+        self.env["PATH"] = f"{marks}:{self.env['PATH']}"
+        self.assertEqual(self.relend().returncode, 253)
+        self.assertEqual(self.held.read_text(), "old\n")
+        self.assertEqual(self.beside(), [HELD.name, self.other.name])
+
+    def test_the_turn_s_end_removes_its_login_and_nothing_beside_it(self):
+        (self.tree / "turn/harness").write_text("fake/1.0/program")
+        (self.tree / "turn/work").touch()    # a volume with no room: it ends before any container
+        self.verb("turn", "turn", "image", "256", "repo", "home:/acme", "work:/acme-work", "--")
+        self.assertEqual(self.beside(), [self.other.name])
+
+    def test_collect_sends_no_part_a_killed_send_left(self):
+        (self.tree / "turn/out").mkdir()
+        for name in ("back.bundle", "code"):
+            (self.tree / "turn" / name).touch()
+        self.held.with_name(f"{HELD.name}.ak-lent-abcdef").write_text(TOKEN)
+        reply = self.verb("collect", "turn", str(HELD.parent))
+        with tarfile.open(fileobj=io.BytesIO(reply.stdout)) as tar:
+            names = {Path(name).name for name in tar.getnames()}
+        self.assertTrue({HELD.name, self.other.name} <= names, names)
+        self.assertEqual({name for name in names if "ak-lent" in name}, set())
 
     def test_a_send_waiting_on_the_turn_s_end_finds_the_login_gone(self):
         # The lock held as `turn`'s end holds it, until a `flock` on the send's PATH says it waits.
