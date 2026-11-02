@@ -90,10 +90,17 @@ def state_label(word):
 
 
 def colour_depth():
-    term = os.environ.get("TERM", "")
-    if not sys.stdout.isatty() or not term or term == "dumb" or "NO_COLOR" in os.environ:
+    return _depth(sys.stdout.isatty, os.environ.get("TERM", ""), os.environ.get("COLORTERM", ""),
+                  "NO_COLOR" in os.environ, _RGB)
+
+
+@lru_cache(maxsize=8)
+def _depth(isatty, term, colorterm, no_colour, rgb):
+    # Once per terminal: a frame asks for every cell it moves, a system call each, and setting up
+    # curses each time where the colours come from there.
+    if not isatty() or not term or term == "dumb" or no_colour:
         return 0
-    if os.environ.get("COLORTERM", "").lower() in ("truecolor", "24bit") or _RGB:
+    if colorterm.lower() in ("truecolor", "24bit") or rgb:
         return 24
     try:
         import curses
