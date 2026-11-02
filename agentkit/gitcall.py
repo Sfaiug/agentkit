@@ -767,15 +767,20 @@ def main_checkout(repo):
 
 
 def repository_id(repo):
-    """A short name of the repository at `repo`, the same from every worktree and clone of it: its
-    first commit's. A check's throwaway clone so names what its run names, so a machine's copy of
-    the history is sent once, not whole for each clone (169 copies filled one machine's memory
-    by 2 Nov 2026), and it reads the times its suites recorded. No commit to name: its path.
+    """A short name of the repository at `repo`, the same from every worktree and clone of it: the
+    first commit of the branch origin calls default, whatever is checked out, along first parents
+    so that merging in another history leaves it.  A check's throwaway clone so names what its run
+    names, so a machine's copy of the history is sent once, not whole for each clone (169 copies
+    filled one machine's memory by 2 Nov 2026), and it reads the times its suites recorded.  With
+    no such commit to name, or a shallow clone's, which moves as it fetches: its main checkout.
     """
-    code, roots, _ = tool_run(["git", "-C", str(repo), "rev-list", "--max-parents=0", "HEAD"])
-    if code or not roots.split():
+    git_at = ["git", "-C", str(repo)]
+    shallow = tool_run([*git_at, "rev-parse", "--is-shallow-repository"])[1].strip()
+    code, root, _ = tool_run([*git_at, "rev-list", "--first-parent", "--max-parents=0",
+                              "refs/remotes/origin/HEAD"])
+    if code or shallow != "false":
         return hashlib.sha256(str(main_checkout(repo)).encode()).hexdigest()[:12]
-    return min(roots.split())[:12]
+    return root.strip()[:12]
 
 
 def leftover_junk(path):

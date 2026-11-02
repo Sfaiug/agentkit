@@ -22,7 +22,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.clock import Clock
 from fixtures.sandbox import account_home
-from agentkit import config, gate, google_cloud, helper, suite_times, worker
+from agentkit import config, gate, gitcall, google_cloud, helper, suite_times, worker
 
 SUITE = 'printf "piece %s\\n" "${AK_SHARD:-all}"'
 
@@ -517,6 +517,29 @@ class HelperMac(unittest.TestCase):
         self.assertEqual(len([path for path in (self.root / "mirrors").iterdir()
                               if path.is_dir()]), 1)
         self.assertEqual(suite_times._path(clone), suite_times._path(self.repo))
+
+    def test_a_repository_keeps_its_name_whatever_is_checked_out_or_fetched(self):
+        self.git("-C", str(self.repo), "commit", "-q", "--allow-empty", "-m", "second")
+        self.git("-C", str(self.repo), "update-ref", "refs/remotes/origin/main", "HEAD")
+        self.git("-C", str(self.repo), "symbolic-ref", "refs/remotes/origin/HEAD",
+                 "refs/remotes/origin/main")
+        named = gitcall.repository_id(self.repo)
+        self.git("-C", str(self.repo), "checkout", "-q", "--orphan", "docs")
+        self.git("-C", str(self.repo), "commit", "-q", "--allow-empty", "-m", "docs")
+        self.assertEqual(gitcall.repository_id(self.repo), named)
+        linked = self.fake / "linked"
+        self.git("-C", str(self.repo), "worktree", "add", "-q", str(linked), "main")
+        self.assertEqual(gitcall.repository_id(linked), named)
+        # Another history merged in.
+        self.git("-C", str(linked), "merge", "-q", "--allow-unrelated-histories", "-m", "both",
+                 "docs")
+        self.git("-C", str(self.repo), "update-ref", "refs/remotes/origin/main", "main")
+        self.assertEqual(gitcall.repository_id(linked), named)
+        shallow = self.fake / "shallow"
+        self.git("clone", "-q", "--depth=1", "--branch", "main", self.repo.as_uri(), str(shallow))
+        before = gitcall.repository_id(shallow)
+        self.git("-C", str(shallow), "fetch", "-q", "--deepen=1", "origin", "main")
+        self.assertEqual(gitcall.repository_id(shallow), before)
 
     def test_a_suite_whose_history_there_went_since_known_sends_it_all(self):
         (self.repo / helper.RECIPE).parent.mkdir(parents=True)
