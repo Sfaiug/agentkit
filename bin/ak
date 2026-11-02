@@ -6,6 +6,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from agentkit import terminal  # noqa: E402
+
+terminal.inherit()      # before anything here that can fail
+
 from agentkit import command_help, config, owner  # noqa: E402
 
 SUBS = ("usage", "models", "worker", "run", "notify", "wait", "orch", "attach", "update",
@@ -38,9 +42,11 @@ def main():
             return gc.cmd_gc(rest[1:])
         return getattr(module, entry)(rest)
     except config.Error as exc:
+        terminal.put_away()
         print(f"ak {sub}: {exc}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
+        terminal.put_away()
         print(f"\nak {sub}: interrupted", file=sys.stderr)
         return 130
 

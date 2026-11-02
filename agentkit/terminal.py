@@ -1,5 +1,6 @@
 """Small terminal layouts shared by the menu, runs and subscription meters."""
 
+import atexit
 import os
 import re
 import select
@@ -755,8 +756,13 @@ class Spot(namedtuple("Spot", "what cell first last", defaults=(None, None, 0, 0
 # The alternate screen, the cursor hidden, and the pointer -- clicks, the wheel and every move,
 # any-event tracking (1003) -- reported in SGR form (1006); and all of it undone, in reverse.
 TAKE = "\033[?1049h\033[?25l\033[?1003h\033[?1006h"
-GIVE = "\033[?1006l\033[?1003l\033[?25h\033[?1049l"
+LEAVE = "\033[?25h\033[?1049l"
+GIVE = "\033[?1006l\033[?1003l" + LEAVE
 SHOWING = "AK_SCREEN_SHOWING"       # the program this one execs finds its screen up (`give`)
+# What would end or stop a program with a screen left up; ^C raises, so it only waits (`give`).
+ENDS = {signals.SIGTERM, signals.SIGHUP, signals.SIGQUIT, signals.SIGTSTP}
+WAITS = {signals.SIGINT, *ENDS}
+_UP = False        # a screen left up (`give`) is this program's, and no Keyboard has taken it
 _TAKEN = None      # the Keyboard that has the terminal now, or None
 _KEYED = b""       # what a keyboard sent past the key it was read for, or while `sense` asked
 _PRESSED = False   # the left button went down and has not been read coming up
@@ -805,6 +811,55 @@ def asked_again():
     return asked
 
 
+def showing():
+    """Whether a screen left up (`give`) waits for a `Keyboard` to draw over it."""
+    return _UP
+
+
+def inherit():
+    """A program's first act: the screen the program that execed it left up is its own from here,
+    and the signals that waited through the exec are its to hear."""
+    if os.environ.pop(SHOWING, None):
+        _keep_up()
+        signals.pthread_sigmask(signals.SIG_UNBLOCK, WAITS)
+
+
+def _keep_up():
+    """However this program ends before a `Keyboard` takes the screen, it puts it away first."""
+    global _UP
+    _UP = True
+    atexit.register(put_away)
+    sys.excepthook = _said
+    for number in ENDS:
+        signals.signal(number, _away)
+
+
+def put_away():
+    """The shell's screen and cursor back from a screen left up, before anything is said there
+    or the terminal goes to another program; with none left up, nothing."""
+    global _UP
+    if not _UP:
+        return
+    _UP = False
+    try:
+        os.write(1, LEAVE.encode())
+    except OSError:
+        pass
+    for number in ENDS:
+        signals.signal(number, signals.SIG_DFL)
+    signals.pthread_sigmask(signals.SIG_UNBLOCK, WAITS)
+
+
+def _said(*error):
+    put_away()
+    sys.__excepthook__(*error)
+
+
+def _away(number, frame):
+    put_away()                         # which puts the default back, so this ends or stops us
+    os.kill(os.getpid(), number)
+
+
 class Keyboard:
     """The terminal, a key at a time while the main menu waits on it, and whole again otherwise.
 
@@ -840,7 +895,7 @@ class Keyboard:
 
     def take(self):
         """Keys one at a time from here on; True when there is a terminal to take at all."""
-        global _TAKEN
+        global _TAKEN, _UP
         if self.fd is None:
             return False
         if _TAKEN is self:
@@ -852,13 +907,14 @@ class Keyboard:
         attrs[3] &= ~(termios.ICANON | termios.ECHO)
         attrs[6][termios.VMIN], attrs[6][termios.VTIME] = 1, 0
         termios.tcsetattr(self.fd, termios.TCSADRAIN, attrs)
-        showing = os.environ.pop(SHOWING, None)
-        self._send(self.sequences[0].removeprefix("\033[?1049h" if showing else ""))
+        self._send(self.sequences[0].removeprefix("\033[?1049h" if _UP else ""))
+        _UP = False
         return True
 
     def give(self, showing=False):
         """The terminal back exactly as `take` found it: its attributes, its screen, its cursor;
-        with `showing` the last frame stays up, cursor hidden, until new code execed draws over it.
+        with `showing` the last frame stays up, cursor hidden, until new code execed draws over it,
+        and what would end this program waits for that one to hear it (`inherit`).
 
         Nothing past the key that gives it is read, so what he typed after that key is there
         for whoever takes the terminal.  A button still down comes up as no click: the rest of
@@ -868,14 +924,16 @@ class Keyboard:
         global _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD
         if _TAKEN is not self:
             return
-        if showing:
-            os.environ[SHOWING] = "1"
-        self._send(self.sequences[1].removesuffix("\033[?25h\033[?1049l" if showing else ""))
+        self._send(self.sequences[1].removesuffix(LEAVE if showing else ""))
         termios.tcsetattr(self.fd, termios.TCSADRAIN, self.saved)
         _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD = None, False, None, False, None
         for number, handler in self.kept.items():
             signals.signal(number, handler)
         self.kept = {}
+        if showing:
+            os.environ[SHOWING] = "1"
+            _keep_up()
+            signals.pthread_sigmask(signals.SIG_BLOCK, WAITS)
 
     def close(self):
         self.give()
@@ -901,8 +959,9 @@ class Keyboard:
                               ("SIGQUIT", self._end), ("SIGTSTP", self._stop),
                               ("SIGWINCH", self._resize)):
             number = getattr(signals, name, None)
-            if number is not None and signals.getsignal(number) == signals.SIG_DFL:
-                self.kept[number] = signals.signal(number, handler)
+            if number is not None and signals.getsignal(number) in (signals.SIG_DFL, _away):
+                signals.signal(number, handler)    # never a moment with neither
+                self.kept[number] = signals.SIG_DFL
 
     def _end(self, number, frame):
         self.give()                        # which puts the default back, so this ends us

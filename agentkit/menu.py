@@ -639,6 +639,7 @@ def pause(*lines):
     """Say something and, when someone is there to read it, wait until they have: Esc or Enter,
     in a frame while the menu holds the screen, else printed where the terminal was given
     back, with only the keys taken so Esc goes back at once here too."""
+    terminal.put_away()
     if terminal.taken():
         while True:
             body = ["  " + part for line in lines for part in
@@ -5700,7 +5701,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     updates = []                         # this loop's inbox, independent of the usage/read worker
     start_update = not (dry_run or overlay)
     last = [[], None]                     # what the last read left: the seats and their groups
-    clock = motion.Clock(fade=overlay and terminal.SHOWING not in os.environ)
+    clock = motion.Clock(fade=overlay and not terminal.showing())
                                           # what moves between draws: the dots, news, and
                                           # the popup's first draw coming up
     with closing(Live(cfg)) as live, closing(terminal.Keyboard()) as keyboard:
@@ -5938,6 +5939,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
 
 
 def client(alias, dry_run):
+    terminal.put_away()
     cmd = ["ssh", "-t", alias, "ak", "--client"]
     if dry_run:
         print(f"would run {shlex.join(cmd)}")

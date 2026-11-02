@@ -29,6 +29,10 @@ CONF = "set -g status off\nset -g default-terminal xterm-256color\nset -g exit-e
 # outlives a Ctrl-C that ends the program, whose SIGINT stays its default; the program gets ak's
 # colours, which the Home's NO_COLOR turns off for its piped runs.
 KEEP = 'trap : INT; env -u TMUX -u TMUX_PANE -u NO_COLOR "$@"; echo $? >"$0"; exec sleep 86400'
+# The alternate screen, the cursor showing, the pointer asked for and in SGR form, as tmux has them;
+# GIVEN is the shell's screen, its cursor showing, no pointer asked for.
+MODES = "#{alternate_on} #{cursor_flag} #{mouse_any_flag} #{mouse_sgr_flag}"
+GIVEN = "0 1 0 0"
 
 
 class Terminal:
@@ -62,6 +66,9 @@ class Terminal:
     def screen(self, colours=False):
         """What the terminal shows now; `colours` keeps the escape sequences that draw them."""
         return self._ask("capture-pane", "-p", *(["-e"] if colours else []), "-t", self.pane)
+
+    def modes(self):
+        return self._ask("display-message", "-p", "-t", self.pane, MODES).strip()
 
     def wait(self, shown, bound=30):
         """The screen once it shows that text, or that test of it holds; the program draws when

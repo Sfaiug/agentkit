@@ -21,11 +21,10 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
-from fixtures.akterm import CONF, KEEP, SERVER, Terminal
+from fixtures.akterm import CONF, GIVEN, KEEP, MODES, SERVER, Terminal
 
 # The alternate screen, the cursor shown, any-event pointer reports and their SGR form.
-MODES = "#{alternate_on} #{cursor_flag} #{mouse_any_flag} #{mouse_sgr_flag}"
-TAKEN, GIVEN = "1 0 1 1", "0 1 0 0"
+TAKEN = "1 0 1 1"
 LINES = termios.ICANON | termios.ECHO
 QUERY = re.compile(rb"\x1b\]11;\?(?:\x1b\\|\x07)")    # what is your background colour (OSC 11)
 LEFT, BACK = rb"\x1b\[\?1049l", rb"\x1b\[\?1049h"      # the alternate screen left, and taken
