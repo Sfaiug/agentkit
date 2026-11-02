@@ -22,7 +22,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.clock import Clock
 from fixtures.sandbox import account_home
-from agentkit import config, gate, google_cloud, helper, worker
+from agentkit import config, gate, google_cloud, helper, suite_times, worker
 
 SUITE = 'printf "piece %s\\n" "${AK_SHARD:-all}"'
 
@@ -487,6 +487,36 @@ class HelperMac(unittest.TestCase):
         self.git("-C", str(mirror), "gc", "-q", "--prune=now")
         self.assertNotEqual(subprocess.run(["git", "-C", str(mirror), "cat-file", "-e", tested],
                                            capture_output=True).returncode, 0)
+
+    def test_a_throwaway_clone_uses_its_repository_s_copy_there_and_its_recorded_times(self):
+        (self.repo / helper.RECIPE).parent.mkdir(parents=True)
+        (self.repo / helper.RECIPE).write_text("FROM acme/base\n")
+        self.git("-C", str(self.repo), "add", helper.RECIPE)
+        self.git("-C", str(self.repo), "commit", "-q", "-m", "recipe")
+        self.git("-C", str(self.repo), "update-ref", "refs/remotes/origin/main", "HEAD")
+        self.git("-C", str(self.repo), "symbolic-ref", "refs/remotes/origin/HEAD",
+                 "refs/remotes/origin/main")
+        clone = self.fake / "throwaway"
+        self.git("clone", "-q", "--shared", str(self.repo), str(clone))
+        sends = []
+        parcel = helper._parcel
+
+        def sent(cwd, default, known, recipe, into, turn=None):
+            sends.append(bool(known))
+            return parcel(cwd, default, known, recipe, into, turn)
+
+        with patch.object(helper.config, "suite_helper", return_value="acme-mac"), \
+                patch.object(helper, "room", return_value=((1, 2, 512, 1), "")), \
+                patch.object(helper.orch, "agent_programs", return_value=[]), \
+                patch.object(helper, "_parcel", side_effect=sent):
+            for checkout in (self.repo, clone):
+                away, reason = helper.start(1, 512, checkout, lambda line: None, "true")
+                self.assertIsNotNone(away, reason)
+                helper.finish(away)
+        self.assertEqual(sends, [False, True])    # the whole history once, then what it lacks
+        self.assertEqual(len([path for path in (self.root / "mirrors").iterdir()
+                              if path.is_dir()]), 1)
+        self.assertEqual(suite_times._path(clone), suite_times._path(self.repo))
 
     def test_a_suite_whose_history_there_went_since_known_sends_it_all(self):
         (self.repo / helper.RECIPE).parent.mkdir(parents=True)

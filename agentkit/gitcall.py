@@ -766,6 +766,18 @@ def main_checkout(repo):
     return common.parent if common else Path(repo)
 
 
+def repository_id(repo):
+    """A short name of the repository at `repo`, the same from every worktree and clone of it: its
+    first commit's. A check's throwaway clone so names what its run names, so a machine's copy of
+    the history is sent once, not whole for each clone (169 copies filled one machine's memory
+    by 2 Nov 2026), and it reads the times its suites recorded. No commit to name: its path.
+    """
+    code, roots, _ = tool_run(["git", "-C", str(repo), "rev-list", "--max-parents=0", "HEAD"])
+    if code or not roots.split():
+        return hashlib.sha256(str(main_checkout(repo)).encode()).hexdigest()[:12]
+    return min(roots.split())[:12]
+
+
 def leftover_junk(path):
     """Match names, not targets: a dependency symlink is junk even when Git ignores only directories."""
     parts = path.rstrip("/").split("/")
