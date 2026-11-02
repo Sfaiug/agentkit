@@ -483,9 +483,9 @@ def load():
     which then writes `[defaults]` and the top-level `pace_margin` in their place.
     """
     tables = ("defaults", "tiers", "models", "providers")
-    policy()    # the home file's, whichever file answers for the models
     path = HOME / CONFIG_NAME
     home = cfg = _read_toml(path)
+    _policy_in(path, home or {})    # the home file's, whichever file answers for the models
     if cfg is None or not any(table in cfg for table in tables):
         path = REPO / DEFAULT_CONFIG_NAME
         cfg = _read_toml(path)
@@ -1194,6 +1194,12 @@ def _read_json(path, shared=False):
         raise Error(f"{path}: {exc}")
 
 
+def _session_json(path):
+    """What a session file holds (`_read_json`), so only read.  In a pass the disk is asked once
+    (`look`), whoever walks or follows it, and a write in it shows by the next."""
+    return look.once(("session file", path), lambda: _read_json(path, shared=True))
+
+
 def resolve_session(name):
     """The name a session goes by now.
 
@@ -1210,7 +1216,7 @@ def resolve_session(name):
         name = orch.session_name(name)
     seen = [name]
     for _ in range(RENAME_HOPS + 1):    # RENAME_HOPS renames, then the name after the last
-        data = _read_json(session_path(name), shared=True)
+        data = _session_json(session_path(name))
         if not isinstance(data, dict) or not isinstance(data.get("renamed"), str):
             return name
         name = normalize_session(data["renamed"])
@@ -1475,24 +1481,27 @@ def keep_efforts(cfg, name):
 
 def _session_file(path, record):
     """What a session file holds where it is a record (`record`) or else a rename pointer, None
-    for no file, the other kind or neither; shared (`_read_json`): only read."""
+    for no file, the other kind or neither; shared (`_session_json`): only read."""
     try:
-        data = _read_json(path, shared=True)
+        data = _session_json(path)
     except Error:
         return None
     return data if isinstance(data, dict) and ("renamed" not in data) == record else None
 
 
 def _session_files(record):
-    """(name, contents) for every session file that is a record (`record`) or a rename pointer."""
-    for name, path in seat_files("session"):
-        data = _session_file(path, record)
-        if data is not None:
-            yield name, data
+    """(name, contents) for every session file that is a record (`record`) or a rename pointer,
+    listed once in a pass (`look`)."""
+    return look.once(("session files", record), lambda: [
+        (name, data) for name, path in seat_files("session")
+        if (data := _session_file(path, record)) is not None])
 
 
 def session_records():
-    """{name: record} for every session file that is a record rather than a rename pointer."""
+    """{name: record} for every session file that is a record rather than a rename pointer.  The
+    dict is its caller's to change; each record is every reader's (`_session_json`), so only read.
+    In a pass they are as its first ask found them: a write in it, as `orch.records`'
+    `update_session`, shows by the next pass."""
     return dict(_session_files(record=True))
 
 
@@ -1535,7 +1544,7 @@ def load_session(cfg, name, required=True):
     """
     name = resolve_session(name)
     path = session_path(name)
-    data = copy.deepcopy(_read_json(path, shared=True))     # its caller's own to change
+    data = copy.deepcopy(_session_json(path))     # its caller's own to change
     if data is None:
         if not required:
             return None
@@ -1843,10 +1852,15 @@ def manifest(harness):
     that a directory of fake adapters replaces the model calls, not the screen knowledge, so a
     missing file there falls back to this checkout's own.  A harness with no manifest reads as
     an empty one: nothing is recognised on its screen, and nothing is typed into it.
-    Cached by path and mtime, because it is read on every menu draw and every watch tick.
+    Cached by path and mtime, because it is read on every menu draw and every watch tick, and
+    asked for once in a pass (`look`), since a draw asks for every model's name.
     """
     if not isinstance(harness, str) or not HARNESS.fullmatch(harness):
         return {}
+    return look.once(("manifest", harness), lambda: _manifest(harness))
+
+
+def _manifest(harness):
     override = os.environ.get(ADAPTER_DIR_ENV)
     roots = [Path(override).expanduser(), REPO / "adapters"] if override else [REPO / "adapters"]
     for root in roots:
@@ -2170,6 +2184,9 @@ def provider_harness(cfg, provider):
 
 
 def ensure_dirs():
-    for d in (HOME, *(getattr(_self, name) for name in PLACES)):
-        d.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(d, 0o700)   # a dir someone else created stays 0700 too
+    """ak's directories, there and 0700; once in a pass (`look`), which asks for each seat."""
+    def ensure():
+        for d in (HOME, *(getattr(_self, name) for name in PLACES)):
+            d.mkdir(mode=0o700, parents=True, exist_ok=True)
+            os.chmod(d, 0o700)   # a dir someone else created stays 0700 too
+    look.once("directories", ensure)

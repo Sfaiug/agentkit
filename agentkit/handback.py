@@ -20,7 +20,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from . import config, gitcall, hand_in, host, notify, orch, plan, prompts, record as run_record, task as taskfile, terminal, transitions, turns
+from . import config, gitcall, hand_in, host, look, notify, orch, plan, prompts, record as run_record, task as taskfile, terminal, transitions, turns
 
 
 DECISION_MOST = 399     # under 400 characters: one read tells a seat what it decides
@@ -384,7 +384,8 @@ def join_session_project(session, runs=None):
     # One count at a time per session: a count taken before a later launch's run was on
     # disk must not be written after that launch's, or the minority wins until the next.
     with notify.session_lock(session) as session:
-        record = config.session_records().get(session)
+        with look.aside():
+            record = config.session_record(session)
         if record is None:
             return None
         repo = record.get("repo")

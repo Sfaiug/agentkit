@@ -48,7 +48,7 @@ from http.client import HTTPException
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from . import command_help, config, history, retention, transitions
+from . import command_help, config, history, look, retention, transitions
 from . import harness
 
 FILE_CAP = 8 * 1024 * 1024
@@ -383,6 +383,12 @@ class _Held(threading.local):
 _HELD = _Held()
 
 
+def _name_now(session):
+    """The name a seat goes by this moment, in a pass too: its lock is taken under that name."""
+    with look.aside():
+        return config.resolve_session(session)
+
+
 @contextmanager
 def session_lock(session, wait=True):
     """Serialize repeat checks, posts, acknowledgement and project votes across concurrent ak processes.
@@ -393,11 +399,11 @@ def session_lock(session, wait=True):
     respawns it in one hold.
     """
     config.ensure_dirs()
-    if wait and config.resolve_session(session) in _HELD.names:
-        yield config.resolve_session(session)
+    if wait and _name_now(session) in _HELD.names:
+        yield _name_now(session)
         return
     while True:
-        session = config.resolve_session(session)
+        session = _name_now(session)
         with config.notify_path(session).with_suffix(".lock").open("a") as fh:
             try:
                 fcntl.flock(fh, fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -405,7 +411,7 @@ def session_lock(session, wait=True):
                 yield None
                 return
             try:
-                if config.resolve_session(session) != session:
+                if _name_now(session) != session:
                     continue       # a rename won while this writer waited for the lock
                 _HELD.names.add(session)
                 try:
@@ -442,10 +448,11 @@ def record(session, kind, text, **extra):
 
 
 def last(session, include_seen=False):
-    """The last notification; resolved history stays on disk but off the menu."""
+    """The last notification, every reader's (`parsed`), so only read; resolved history stays on
+    disk but off the menu."""
     try:
-        data = json.loads(config.notify_path(session).read_text(encoding="utf-8"))
-    except (OSError, ValueError, config.Error):
+        data = config._read_json(config.notify_path(session), shared=True)
+    except config.Error:
         return None
     if (not isinstance(data, dict) or data.get("kind") != "needs"
             or not isinstance(data.get("text"), str) or (resolved(data) and not include_seen)):
@@ -496,7 +503,7 @@ def answered(session, at, typed=None, replies=None):
         partial = (watch.answered_kept(session, replies, typed or at)
                    if replies is not None else False)
         ask_kept(session, ended=True)
-        previous = last(session)
+        previous = dict(last(session) or {})      # its own: what is answered goes in below
         if replies is None and typed is not None and not typed > (asked_at(session) or math.inf):
             return
         if previous and previous.get("watcher") is True:
@@ -650,7 +657,7 @@ def opened(session, capture):
     open answers nothing there."""
     from . import watch    # here, not at the top: watch imports this module
     with session_lock(session) as session:
-        previous = last(session)
+        previous = dict(last(session) or {})      # its own: an old notice is dated below
         if not previous or previous.get("opened_at") is not None:
             return                 # two quick opens must not erase progress between them
         if previous.get("watcher") is True and watch.login_refusing(session):

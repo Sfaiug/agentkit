@@ -1829,7 +1829,7 @@ def session_projects(kept):
         for name, counts in votes.items():
             repo = min(counts, key=lambda repo: (-counts[repo], project_name(repo), repo)) if counts else None
             config.update_session(name, repo=repo)
-            kept[name]["repo"] = repo
+            kept[name] = {**kept[name], "repo": repo}      # a record is every reader's
     return {name: record.get("repo") for name, record in kept.items()}
 
 
@@ -2486,7 +2486,7 @@ def opened(harness, cwd, conversation):
 
 def seat_harness(record, cfg=None):
     try:
-        return config.model(config.load() if cfg is None else cfg,
+        return config.model(loaded() if cfg is None else cfg,
                             record.get("orchestrator"))["harness"]
     except config.Error:
         return None
@@ -2500,9 +2500,9 @@ def seat_plugin(record, cfg=None):
 
 def loaded():
     """The config, or one naming no model where it does not read, for a pass over every seat to
-    read once: each seat's harness is then what a read of its own would have found."""
+    read once (`look`): each seat's harness is then what a read of its own would have found."""
     try:
-        return config.load()
+        return look.once("config", config.load)
     except config.Error:
         return {"models": {}}
 
@@ -3105,8 +3105,8 @@ def unread_question(name):
     # Seat maintenance is allowed to read normally, including on macOS and linked homes.
     # GC's strict no-atime reader must not turn every ordinary notice into an unread question.
     try:
-        notice = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError):
+        notice = config._read_json(path, shared=True)
+    except config.Error:
         return True                   # an unreadable notice might still need an answer
     return not isinstance(notice, dict) or (notice.get("kind") == "needs" and not notice.get("seen"))
 

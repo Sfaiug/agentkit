@@ -98,5 +98,11 @@ class Reader:
              None if full else went)
         if full:
             self.due = time.monotonic() + min(CEILING, (time.thread_time() - began) / SHARE)
-        look.once("runs", lambda: self.every)
+        self.lend()
         return self.shown
+
+    def lend(self):
+        """Have `record.runs()` in this pass answer with every run as the last read held it; with
+        no read yet (a read's `due` is never 0), it reads for itself."""
+        if self.due:
+            look.once("runs", lambda: self.every)
