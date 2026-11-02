@@ -24,6 +24,7 @@ from fixtures.akterm import KEEP, SERVER, Terminal
 KEYS = "esc leave"
 NAME = "atoll-fix"
 ROW = NAME.encode()
+BAR = "━".encode()
 HOLD, RELEASE = b"\x1b[?2026h", b"\x1b[?2026l"
 ENTER, LEAVE = b"\x1b[?1049h", b"\x1b[?1049l"
 UPDATE = re.compile(rb"\x1b\[\?2026[hl]")
@@ -123,6 +124,16 @@ class Restart(unittest.TestCase):
         release, start, end = marks[0].start(), marks[1].start(), marks[2].start()
         self.assertIn(ROW, said[enter:release])      # the old frame, as the screen is taken
         self.assertIn(ROW, said[start:end])          # ... and the first frame, all over again
+
+    def test_no_line_grows_in_again(self):
+        self.home.write(f".agentkit/state/plan-{NAME}.md", "- [x] Shipped it\n- [x] Shipped that\n")
+        self.menu.wait("2 of 2")
+        self.drawn = time.time()
+        _said, _enter, marks = self.restarted()
+        time.sleep(1)       # as ak opens a line grows for under that, a frame at a time
+        later = self.said()[marks[2].end():].split(HOLD)
+        # a read landing may write its row the once
+        self.assertLessEqual(sum(BAR in update for update in later), 1, later)
 
     def test_a_terminal_resized_under_the_hold_gets_no_old_rows(self):
         # The new program takes this lock on its way to the terminal, so it waits there until the

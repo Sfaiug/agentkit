@@ -5780,6 +5780,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     probe unstarted: its thread calls `usage.collect` after the test's mock is gone.
     """
     own = config.current_session() if overlay else None     # the seat the popup is over
+    restarted = "AK_MENU_CURSOR" in os.environ    # by the exec below: the same screen, on new code
     cursor = os.environ.pop("AK_MENU_CURSOR", "") or own
     if cursor and cursor.startswith("/"):
         cursor = Path(cursor)
@@ -5790,6 +5791,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     last = [[], None]                     # what the last read left: the seats and their groups
     clock = motion.Clock(fade=overlay)    # what moves between draws: the dots, news, and
                                           # the popup's first draw coming up
+    clock.grows = {} if restarted else None     # nothing opened, so no line grows in again
     with closing(Live(cfg)) as live, closing(terminal.Keyboard()) as keyboard:
         if keyboard.take():
             terminal.sense()              # true colour and the background, once, before a draw
