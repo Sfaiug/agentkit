@@ -2785,6 +2785,19 @@ def fetched(repo):
                         check=False, env=gitcall.project_env(repo)))
 
 
+def hand_task_template():
+    """Put templates/task.md, saying this host's numbers, where a seat's rulebook files its tasks:
+    ~/.agentkit/tasks/task.md.  A seat that cannot get it still has its rules, so a failed write
+    stops nothing, and the next launch or changed rulebook tries again."""
+    folder = config.HOME / "tasks"
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        written = (config.REPO / "templates" / "task.md").read_text()
+        replace_file(folder / "task.md", config.in_force(written).encode())
+    except OSError:
+        pass
+
+
 def write_rulebook(session):
     """Write the rulebook `session` is launched with (`config.seat_rulebook`) under its name and
     return its path: ~/.agentkit/state/rulebook-<session>.md, under $AGENTKIT_RULEBOOK_DIR
@@ -2802,11 +2815,13 @@ def write_rulebook(session):
     path = config.rulebook_path(session)
     if os.environ.get(config.RULEBOOK_DIR_ENV):
         path = Path(os.environ[config.RULEBOOK_DIR_ENV]) / path.name
-    elif repo and not fetched(Path(repo)):
-        try:
-            fetch_project(Path(repo))
-        except config.Error:
-            pass
+    else:
+        hand_task_template()
+        if repo and not fetched(Path(repo)):
+            try:
+                fetch_project(Path(repo))
+            except config.Error:
+                pass
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(config.seat_rulebook(session, repo))
@@ -2869,6 +2884,7 @@ def rulebook_news(session, conversation, whole=lambda news: news):
     found = rulebook_due(name)
     if not found or found[1] != conversation:
         return ""
+    hand_task_template()    # the numbers its rulebook now says may be new
     record, _, text = found
     sha = config.rulebook_digest(text)
     told = record.get("rulebook_told") or {}

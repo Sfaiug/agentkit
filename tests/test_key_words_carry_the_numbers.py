@@ -1,8 +1,8 @@
 """What ak tells a seat of `rounds`, `review_lines` and `seat_lines` is what this host set.
 
-The rulebook a seat opens on and `ak run --help` say the numbers in force, whole sentences reading
-right at any of them; with no setting they say ak's defaults, and a `$` the owner wrote in
-`rules.md` stays as written.  A config.toml ak cannot use stops a command, never its help.
+The rulebook a seat opens on, the task template in the folder that rulebook files tasks in and
+`ak run --help` say the numbers in force, whole sentences reading right at any of them; with no
+setting they say ak's defaults, and a `$` the owner wrote in `rules.md` stays as written.  A config.toml ak cannot use stops a command, never its help.
 Black-box: the program `AK_BIN` names, judged by the file it writes for a seat and what it prints.
 This test fails against `/bin/false`.
 """
@@ -62,7 +62,7 @@ class Help(unittest.TestCase):
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class Rulebook(unittest.TestCase):
     def book(self, **settings):
-        """The rulebook a seat opened on this host is handed."""
+        """The rulebook a seat opened on this host is handed, then its task template."""
         with Home() as home:
             adapters = home.root / "adapters"
             shutil.copytree(REPO / "tests/fixtures/adapters", adapters)
@@ -73,10 +73,13 @@ class Rulebook(unittest.TestCase):
             done = home.ak("orch", "acme", "--model", "one", "--workers", "two", tty=True,
                            cwd=cwd, env={"AGENTKIT_ADAPTER_DIR": str(adapters)})
             self.assertEqual(done.code, 0, done.err)
-            return (home.path / ".agentkit/state/rulebook-acme.md").read_text()
+            return ((home.path / ".agentkit/state/rulebook-acme.md").read_text(),
+                    (home.path / ".agentkit/tasks/task.md").read_text())
 
     def test_says_the_numbers_in_force(self):
-        book = self.book(review_lines=150, rounds=4, seat_lines=20)
+        book, template = self.book(review_lines=150, rounds=4, seat_lines=20)
+        self.assertIn("at most 150 added lines with its tests", template)
+        self.assertIn("Four rounds is the budget (`rounds` defaults to 4).", template)
         for words in ("at most 150 added lines with its tests", "Under 20 added lines you build",
                       "ak refuses your own PR from 20 lines",
                       "Four review rounds per change is the budget", "ak refuses a fifth."):
@@ -85,14 +88,17 @@ class Rulebook(unittest.TestCase):
             self.assertNotIn(words, book)
 
     def test_reads_right_at_either_end_of_the_budget(self):
-        one, many = self.book(rounds=1), self.book(rounds=7)
+        one, many = self.book(rounds=1)[0], self.book(rounds=7)[0]
         self.assertIn("One review round per change is the budget", one)
         self.assertIn("ak refuses a second.", one)
         self.assertIn("7 review rounds per change is the budget", many)
         self.assertIn("ak refuses round 8.", many)
 
     def test_says_ak_s_defaults_with_no_setting_and_the_owner_s_dollars_as_written(self):
-        book = self.book()
+        book, template = self.book()
+        self.assertIn("at most 300 added lines with its tests", template)
+        self.assertIn("Three rounds is the budget (`rounds` defaults to 3).", template)
+        self.assertNotIn("$", template)
         for words in DEFAULTS:
             self.assertIn(words, book)
         self.assertEqual(book.count("$"), OWN.count("$"))

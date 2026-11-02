@@ -20,6 +20,7 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import akconfig
 from fixtures.akbin import Home, shipped_rules
 from fixtures.hookdrive import Hooks, read_rules
 
@@ -79,6 +80,13 @@ class RulebookNews(unittest.TestCase):
         self.assertIn("\n-Rule one.\n+Rule two.\n", news)
         self.assertLess(len(news), len(shipped_rules()) // 4)
         self.assertEqual(self.prompt(), SILENT)
+
+    def test_a_changed_number_reaches_the_task_template_with_the_news(self):
+        self.launched()
+        akconfig.write(self.home, ["opus"], settings={"review_lines": 150})
+        self.assertIn("at most 150 added lines", self.told())
+        template = self.home.path / ".agentkit/tasks/task.md"
+        self.assertIn("at most 150 added lines", template.read_text())
 
     def test_with_no_record_of_the_rulebook_held_the_whole_one_is_pointed_to(self):
         gone = hashlib.sha256(b"a launch's rules ak no longer has\n").hexdigest()
