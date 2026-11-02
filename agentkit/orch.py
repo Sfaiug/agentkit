@@ -1730,8 +1730,8 @@ def git_dirs(path):
     A plain `.git` directory with no `commondir` is a repository's own checkout; for anything
     else -- a `.git` file, a link, a worktree's git directory -- git itself is asked, looking
     no higher than `path`, so every layout and path it accepts reads the same here.  What it
-    said stands while `.git` reads the same (`parsed`): every read of an open screen looks at
-    every checkout.
+    said stands while `.git` reads the same (`parsed`) and `_git_rested_on` too: every read of
+    an open screen looks at every checkout.
     """
     dot = Path(path) / ".git"
     try:
@@ -1739,13 +1739,28 @@ def git_dirs(path):
             return None
         if dot.is_dir() and not dot.is_symlink() and not (dot / "commondir").exists():
             return dot.resolve(), False
-        return parsed.read(dot, _asked_git)
+        rested_on, gitdir, common = parsed.read(dot, _asked_git)
+        if rested_on != _git_rested_on(dot, gitdir, common):
+            parsed.forget(dot, _asked_git)
+            _, gitdir, common = parsed.read(dot, _asked_git)
     except OSError:
         return None
+    return common, gitdir != common
+
+
+def _git_rested_on(dot, gitdir, common):
+    """What git's answer rests on and `.git`'s stat misses: a directory moved keeps its stat, and
+    a `commondir` written in place leaves its directory's."""
+    try:
+        named = (gitdir / "commondir").read_bytes()
+    except OSError:
+        named = None
+    return os.path.realpath(dot), gitdir.is_dir(), common.is_dir(), named
 
 
 def _asked_git(dot):
-    """`git_dirs`, from git; an OSError where it says nothing, which nothing keeps."""
+    """(`_git_rested_on`, git directory, common directory), from git; an OSError where it says
+    nothing, which nothing keeps."""
     def ask(*flags):
         code, out = git_in(dot.parent, "rev-parse", "--path-format=absolute", *flags)
         return None if code != 0 else out.removesuffix(b"\n").split(b"\n")
@@ -1756,7 +1771,7 @@ def _asked_git(dot):
     if lines is None or None in lines:
         raise OSError(f"git says nothing of {dot}")
     gitdir, common = (Path(os.fsdecode(line)).resolve() for line in lines)
-    return common, gitdir != common
+    return _git_rested_on(dot, gitdir, common), gitdir, common
 
 
 def checkout_of(repo, stands=None):
