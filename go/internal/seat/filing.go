@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"agentkit/internal/commandhelp"
@@ -41,9 +42,9 @@ func File(given, named string, columns int, now time.Time) (string, bool, error)
 		return "", false, nil
 	}
 	stands := sync.OnceValue(listed)
-	repo, err := checkoutNamed(named, stands)
-	if err != nil {
-		return "", true, err
+	repo, known, err := checkoutNamed(named, stands)
+	if !known || err != nil {
+		return "", known, err
 	}
 	flights, known := inFlight(name, repo, stands, now)
 	state := filepath.Join(config.Home(), "state")
@@ -73,26 +74,34 @@ func File(given, named string, columns int, now time.Time) (string, bool, error)
 }
 
 // checkoutNamed is the checkout a name in any case, a path or a worktree finds; a name spelled
-// exactly wins over one that differs only in case.
-func checkoutNamed(named string, stands func() []stand) (string, error) {
+// exactly wins over one that differs only in case.  False where only Python can say: casefold
+// past ASCII, which Go's standard library cannot do (`ß` is `ss`), and another user's `~`.
+func checkoutNamed(named string, stands func() []stand) (string, bool, error) {
 	found := checkouts(stands)
 	if at := slices.IndexFunc(found, func(path string) bool { return base(path) == named }); at >= 0 {
-		return found[at], nil
+		return found[at], true, nil
+	}
+	if !ascii(named) || slices.ContainsFunc(found, func(path string) bool { return !ascii(base(path)) }) || config.OtherHome(named) {
+		return "", false, nil
 	}
 	alike := slices.DeleteFunc(slices.Clone(found), func(path string) bool { return !strings.EqualFold(base(path), named) })
 	if len(alike) > 1 {
-		return "", Refusal("ambiguous checkout: " + commandhelp.Quote(named) + " (checkouts: " + strings.Join(alike, ", ") + ")")
+		return "", true, Refusal("ambiguous checkout: " + commandhelp.Quote(named) + " (checkouts: " + strings.Join(alike, ", ") + ")")
 	}
 	if len(alike) == 1 {
-		return alike[0], nil
+		return alike[0], true, nil
 	}
 	if named != "" { // no path at all, where Absolute would read the current directory
 		if repo := checkoutOf(config.Absolute(named), stands); repo != "" {
-			return repo, nil
+			return repo, true, nil
 		}
 	}
-	known := cmp.Or(strings.Join(found, ", "), "none")
-	return "", Refusal("not a checkout: " + commandhelp.Quote(named) + " (checkouts: " + known + ")")
+	listing := cmp.Or(strings.Join(found, ", "), "none")
+	return "", true, Refusal("not a checkout: " + commandhelp.Quote(named) + " (checkouts: " + listing + ")")
+}
+
+func ascii(text string) bool {
+	return !strings.ContainsFunc(text, func(r rune) bool { return r > unicode.MaxASCII })
 }
 
 // checkouts are the projects' checkouts by name (orch.checkouts).

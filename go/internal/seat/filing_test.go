@@ -76,6 +76,28 @@ func TestFilingLeavesToPythonWhatGoCannotRead(t *testing.T) {
 	}
 }
 
+// A name only Python's casefold or expanduser can place is left to it, with nothing filed; spelled
+// exactly it needs neither.
+func TestFilingLeavesToPythonWhatOnlyPythonCanPlace(t *testing.T) {
+	home, state := filingHome(t)
+	if err := os.MkdirAll(filepath.Join(home, "code", "Straße", ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, named := range []string{"STRASSE", "ACME", "/nowhere/ß", "~bob/code/acme"} {
+		if said, known, err := File("fix-api", named, 80, time.Now()); known || said != "" || err != nil {
+			t.Error(named, said, known, err)
+		}
+	}
+	if kept, _ := run.ReadJSON(filepath.Join(state, "session-fix-api.json")); kept.Has("filed") {
+		t.Error(run.Line(kept))
+	}
+	for _, named := range []string{"acme", "Straße"} {
+		if said, known, err := File("fix-api", named, 80, time.Now()); !known || err != nil || !strings.HasPrefix(said, "filed fix-api under "+named+"\n") {
+			t.Error(named, said, known, err)
+		}
+	}
+}
+
 // What Python's changed_files reads as nothing changed is told as nothing.
 func TestFilingHearsNothingFromARunThatChangesNothingItCanName(t *testing.T) {
 	for name, build := range map[string]func(t *testing.T, home, dir string, fields map[string]any){
