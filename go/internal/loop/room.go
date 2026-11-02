@@ -71,7 +71,8 @@ func unready(model config.Model) string {
 		return ""
 	}
 	if unnamed {
-		login, _, err := config.Account(model.Harness)
+		// the login the scripted probe reads, on ChildEnv
+		login, _, err := config.UsualAccount(model.Harness)
 		answer, read := harness.Auth(model.Harness, login, false)
 		if err == nil && read && !answer.Yes && !answer.Lapsed {
 			return model.Harness + " is not logged in"
