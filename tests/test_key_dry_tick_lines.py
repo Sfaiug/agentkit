@@ -27,8 +27,8 @@ from test_key_tick_dry_run import files
 from test_key_tick_gh_out import without_gh
 from test_key_tick_lock_held import LOCK, MINUTE, SLACK
 
-FREE = "lock free · watch.log 0.0 MB of 5 MB"
-HELD = "lock held by pid 4242 for {} min · watch.log 0.0 MB of 5 MB"
+FREE = "lock free · no tick has ended yet · watch.log 0.0 MB of 5 MB"
+HELD = "lock held by pid 4242 for {} min · no tick has ended yet · watch.log 0.0 MB of 5 MB"
 OUT = "gh is not logged in; PR checks skipped ("
 DOWN = "WARN GitHub is unavailable; PR checks skipped ("
 # more after gh's own words: runs of tabs, spaces and blank lines, and past 160 characters
@@ -88,7 +88,7 @@ class DryTick(unittest.TestCase):
     def test_a_log_of_one_and_a_half_megabytes_reads_so(self):
         home = self.home()
         home.write(".agentkit/tmp/watch.log", "x" * (3 * 1024 * 1024 // 2))
-        self.assertEqual(self.dry(home), ["lock free · watch.log 1.5 MB of 5 MB",
+        self.assertEqual(self.dry(home), [FREE.replace("0.0 MB", "1.5 MB"),
                                           skipped(OUT, LOGGED_OUT)])
 
     def test_a_held_lock_is_named_by_its_pid_and_minutes_and_the_dry_run_goes_on(self):

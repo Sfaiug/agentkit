@@ -129,6 +129,7 @@ class MachinesMeasured(unittest.TestCase):
     def test_machines_are_the_owner_s_in_a_config_naming_no_models(self):
         with Home() as home:
             home.write(".agentkit/config.toml", 'suite_helper = "helper"\n\n[machines.acme]\n')
+            home.ticked()
             done = home.ak("doctor")
         self.assertEqual(done.code, 0, done.err)
         self.assertIn("machine  acme: new · never answered", done.out.splitlines())

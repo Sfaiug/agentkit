@@ -162,7 +162,7 @@ def ask_inbox(cfg, question, url, sha, log, asked=False, typed=lambda: None):
 # take the rest of it down with a traceback.
 
 
-TICK_HUNG = 1800        # seconds a tick may hold the lock before the log calls it hung
+TICK_HUNG = 1800        # seconds a tick may hold the lock, or none end, before ak calls it hung
 LOG_NAME = "watch.log"  # the tick's own log; cron only redirects into it
 LOG_MAX = 5 * 1024 * 1024   # ... and it is rolled over to <name>.1 once it passes this
 LOG_KEPT = f"{LOG_NAME}.1"  # one generation; there is nothing older to keep
@@ -379,16 +379,34 @@ def stamp_log():
         setattr(sys, name, Stamped(getattr(sys, name)))
 
 
+def tick_ended():
+    """What the `tick` line says of the last tick to end, and whether that silence is a hang."""
+    try:
+        tick = load_state()["tick"]
+        slowest, took = tick["slowest"], tick["ended_at"] - tick["started_at"]
+        age = time.time() - tick["ended_at"]
+        said = (f"ended {terminal_mod.format_age(age)} ago, took {took:.1f} s, "
+                f"slowest {slowest['pass']} {slowest['seconds']} s")
+    except (KeyError, TypeError):   # a record no tick wrote says nothing ended
+        return "no tick has ended yet", True
+    if age < TICK_HUNG:
+        return said, False
+    return f"{said} · no tick has ended within {terminal_mod.format_age(TICK_HUNG)}", True
+
+
 def tick_health():
-    """The line `--dry-run` prints beside its preview: who holds the lock, how big the log is."""
+    """The line `--dry-run` and `ak doctor` print: who holds the lock, when the last tick ended
+    and what it took, how big the log is; and whether the tick reads as hung."""
     running = tick_running()
     lock = (f"lock held by pid {running[0]} for {int(running[1] // 60)} min" if running
             else "lock free")
+    ended, hung = tick_ended()
     try:
         size = log_path().stat().st_size
     except OSError:
         size = 0
-    return f"{lock} · {LOG_NAME} {size / 1048576:.1f} MB of {LOG_MAX / 1048576:.0f} MB"
+    kept = f"{LOG_NAME} {size / 1048576:.1f} MB of {LOG_MAX / 1048576:.0f} MB"
+    return f"{lock} · {ended} · {kept}", hung
 
 
 def generation(value):
@@ -7821,6 +7839,7 @@ def doctor(argv):
     trouble -- which is the host this is typed on -- and come out before the efforts, which
     ask each harness for its models.  A model the owner set to an effort it does not take is
     named here and left as it is: the owner chose it, and the `c` screen is where it changes.
+    Exits 1 when the tick reads as hung, after everything else has been said.
     """
     if command_help.show("doctor", argv):
         return 0
@@ -7828,7 +7847,8 @@ def doctor(argv):
         raise config.Error(f"usage: ak doctor  (got {argv[0]!r})")
     # the slice line says its own name, so only the tick's needs one
     print(orch.slice_line())
-    print(f"tick  {tick_health()}", flush=True)
+    tick, hung = tick_health()
+    print(f"tick  {tick}", flush=True)
     from . import machines
     cfg = config.load()
     print("\n".join(f"machine  {machine}" for machine in machines.known()), flush=True)
@@ -7848,7 +7868,7 @@ def doctor(argv):
     except config.Error as exc:
         lines = [str(exc)]
     print("\n".join(f"rented machines: {line}" for line in lines))
-    return 0
+    return 1 if hung else 0
 
 
 # What a pass of the tick may raise and leave the rest of the tick to run: the pass says so in
@@ -8054,7 +8074,7 @@ def main(argv):
     # dry run renames nothing at all, and the log it may be printing into is no exception
     log = print if dry_run else tick_log
     if dry_run:
-        log(tick_health())
+        log(tick_health()[0])
         held = None
     else:
         stamp_log()
