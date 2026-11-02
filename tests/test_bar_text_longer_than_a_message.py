@@ -58,8 +58,13 @@ class LongerThanAMessage(Sandbox):
                          versions=[question] * len(statusbar.WHYS))
         for version in statusbar.WHYS:
             self.assertEqual(self.option(version), "  " + question, version)
-        # and its title is still what the bar is told last
-        self.assertIn("set-titles-string", self.calls[-1])
+        # its title is still what the bar shows last, and its digest says all of it landed
+        self.assertEqual([args[3] for args in self.calls if args[0] == "set-option"][-2:],
+                         ["set-titles-string", statusbar.TOLD])
+        self.calls.clear()
+        statusbar._write("acme", "opus", word="needs you",
+                         versions=[question] * len(statusbar.WHYS))
+        self.assertEqual([args for args in self.calls if args[0] == "set-option"], [])
 
     def test_a_question_a_call_carries_is_told_as_it_was_before(self):
         # longer than what several lists are packed into, shorter than tmux's own limit
@@ -69,10 +74,9 @@ class LongerThanAMessage(Sandbox):
                          versions=[question] * len(statusbar.WHYS))
         for version in statusbar.WHYS:
             self.assertEqual(self.option(version), "  " + question, version)
-        # one call for each version, none of them a piece, and the title's call last
+        # asked whole, then one call for each version, none of them a piece
         whys = [args for args in self.calls if set(statusbar.WHYS) & set(args)]
-        self.assertEqual([len(args) for args in whys], [5] * len(statusbar.WHYS))
-        self.assertIn("set-titles-string", self.calls[-1])
+        self.assertEqual([len(args) for args in whys[1:]], [5] * len(statusbar.WHYS))
 
     def test_text_in_pieces_is_the_text_whatever_it_holds(self):
         # what a file of commands would read as more than text, and a call does not

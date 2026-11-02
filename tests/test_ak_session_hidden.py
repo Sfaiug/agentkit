@@ -76,7 +76,7 @@ class ControlSessionHidden(Sandbox):
         self.assertEqual([s["name"] for s in orch.server_sessions(None, False, False)],
                          ["_akx", "ak"])
         self.assertEqual(orch.held_names(), {"_akx", "ak"})
-        self.assertEqual([name for _, name, _ in statusbar.sessions()], ["_akx", "ak"])
+        self.assertEqual([name for _, name, *_ in statusbar.sessions()], ["_akx", "ak"])
 
     def test_the_seat_guard_does_not_list_it(self):
         def run(argv, **_kw):
