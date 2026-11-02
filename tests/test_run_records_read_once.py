@@ -219,7 +219,6 @@ class RunRecords(Sandbox):
         for directory in record.run_dirs():
             os.utime(directory / "run.json", (1, 1))     # written long ago
         clock, read = open_runs.time.monotonic, lambda: menu.run_records(rest_may_lag=True)
-
         def later(reads):
             return patch.object(open_runs.time, "monotonic",
                                 lambda: clock() + reads * (open_runs.CEILING + 1))

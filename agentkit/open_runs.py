@@ -63,30 +63,23 @@ class Reader:
             before, after = set(self.listed), set(listed)
             self.listed, self.open = listed, (self.open & after) | (after - before)
             went = [run.name for run in before - after if self.found.pop(run, None)]
-            moved = bool(went)
         looked, resolved = listed if full else list(self.open), {}
         for directory in looked:
             state = record.read_state(directory, shared=True)
             seen = None if state is None else (state, attended(state, resolved))
-            if seen != self.found.get(directory):
-                moved = True
-                if seen is not None:
-                    self.found[directory] = seen
-                else:
-                    del self.found[directory]
+            if seen is None:
+                if self.found.pop(directory, None):
                     went.append(directory.name)
-            if _open(directory, state):
-                self.open.add(directory)
-            else:
-                self.open.discard(directory)
-        if moved:
+            elif seen != self.found.get(directory):
+                self.found[directory], moved = seen, True
+            (self.open.add if _open(directory, state) else self.open.discard)(directory)
+        if moved or went:
             self.every = [(directory, self.found[directory][0]) for directory in listed
                           if directory in self.found]
             self.shown = [run for run in self.every if self.found[run[0]][1]]
         save([directory for directory in looked if directory in self.found],
              None if full else went)
         if full:
-            spent = time.thread_time() - began
-            self.due = time.monotonic() + min(CEILING, spent / SHARE)
+            self.due = time.monotonic() + min(CEILING, (time.thread_time() - began) / SHARE)
         look.once("runs", lambda: self.every)
         return self.shown
