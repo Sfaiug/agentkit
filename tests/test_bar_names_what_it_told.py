@@ -31,7 +31,7 @@ class NamesWhatItTold(Sandbox):
         self.addCleanup(subprocess.run, ["tmux", "-L", "told", "kill-server"],
                         env={**os.environ, "TMUX_TMPDIR": sockets}, capture_output=True)
         self.tmux = orch.tmux_out
-        self.calls, self.refusing = [], False
+        self.calls, self.refused = [], None
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.logged))
         self.stack.enter_context(patch.object(orch, "processes", return_value={}))
         for name in SEATS:
@@ -43,8 +43,11 @@ class NamesWhatItTold(Sandbox):
 
     def logged(self, *args, **kw):
         self.calls.append(args)
-        if self.refusing and statusbar.TOLD in args:
-            return 1, "refused"
+        for at in range(len(args)):
+            if args[at:at + 2] == self.refused:     # what came before it landed, and tmux stopped
+                if at > 2:
+                    self.tmux(*args[:at - 3])
+                return 1, "refused"
         return self.tmux(*args, **kw)
 
     def look(self, word="idle"):
@@ -81,13 +84,23 @@ class NamesWhatItTold(Sandbox):
             statusbar._write("gamma", "fable", "working", cfg=self.cfg)
         self.assertIn("1 other seat needs you", self.option("gamma", statusbar.NEED))
 
-    def test_a_set_that_failed_is_told_again(self):
-        self.refusing = True
-        self.look("working")
-        self.assertNotIn("working", self.option("acme", statusbar.TOP))
-        self.refusing = False
+    def test_own_options_refused_part_way_come_right_on_the_next_look_whatever_it_says(self):
+        self.refused = ("=acme:", statusbar.TOPS[1])
         self.look("working")
         self.assertIn("working", self.option("acme", statusbar.TOP))
+        self.refused = None
+        self.look()      # what it told before the refused one, whose digest it had
+        self.assertIn("idle", self.option("acme", statusbar.TOP))
+
+    def test_a_right_end_refused_part_way_comes_right_on_the_next_look_whatever_it_says(self):
+        self.refused = ("=acme:", statusbar.FOLD)
+        watch.seat_write("beta", word="needs you", reason="", word_since=None)
+        statusbar.retell({"name": "beta"})
+        self.assertIn("1 other seat needs you", self.option("acme", statusbar.NEED))
+        self.refused = None
+        watch.seat_write("beta", word="idle", reason="", word_since=None)
+        self.look()
+        self.assertEqual(self.option("acme", statusbar.NEED), "")
 
 
 if __name__ == "__main__":

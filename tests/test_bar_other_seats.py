@@ -156,7 +156,7 @@ class OtherSeats(Sandbox):
         def tmux(*args, **kw):
             # fix-api's own write, which read the seats before web came to need you, waits
             if (threading.current_thread().name == "older"
-                    and args[:4] == ("set-option", "-t", "=fix-api:", statusbar.NEED)):
+                    and args[:4] == ("set-option", "-t", "=fix-api:", statusbar.TOLD_END)):
                 paused.set()
                 go.wait(10)
             return self.tmux(*args, **kw)

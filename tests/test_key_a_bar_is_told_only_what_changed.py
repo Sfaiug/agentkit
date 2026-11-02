@@ -16,7 +16,6 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
-STILL = 60         # the minute a bar stays as it is
 LOOK = 90          # an open screen looks about every 25 seconds; a loaded host takes longer
 QUIET = 30         # no write for longer than a look has passed: what opening the screen writes is over
 
@@ -63,7 +62,7 @@ class ToldOnlyWhatChanged(unittest.TestCase):
 
     def test_a_still_minute_sets_no_option(self):
         before = len(self.writes())
-        time.sleep(STILL)
+        time.sleep(60)
         # every look of this minute: the tests below show the screen is looking still
         self.assertEqual(self.writes()[before:], [])
 

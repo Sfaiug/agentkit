@@ -97,7 +97,8 @@ class LongerThanAMessage(Sandbox):
         self.assertEqual(len(self.calls), 2, [args[:4] for args in self.calls])
         found = [("$0", "acme", "needs you"), ("$1", "gone", "working")]
         with patch.object(statusbar, "seats", return_value=found):
-            statusbar._tell(None, [("=acme:", statusbar.WHY, long)])
+            statusbar._tell(None, [("=gone:", statusbar.WHY, long),
+                                   ("=acme:", statusbar.WHY, long)])
         self.assertEqual(self.option(statusbar.WHY), long)
 
 

@@ -45,8 +45,7 @@ TOP, WHY, KEY = "@ak_top", "@ak_why", "@ak_key"   # line one, line two, and line
 NEED, FOLD = "@ak_need", "@ak_fold"   # line one's right end: how many other seats need you,
                                       # and the same short, where it would cut this seat's name
 HIT = "@ak_hit"   # the session id the right end leads to while the pointer is on it, or nothing
-TOLD, TOLD_END = "@ak_told", "@ak_told_end"   # the digest of what that session's own options and
-                                              # its right end were last told
+TOLD, TOLD_END = "@ak_told", "@ak_told_end"   # a digest of its own options, of its right end
 # Where the pointer is: its cells counted from the client's right edge, the right end's own edge.
 AT = "#{e|-:#{client_width},#{mouse_x}}"
 CLICK = ("bind-key", "-n", "MouseDown1StatusRight", "if-shell", "-F", "#{E:" + HIT + "}",
@@ -228,9 +227,8 @@ def _digest(told):
 
 
 def _ends(listed, only):
-    """The command lists (`orch.tmux_options`) that tell line one's right end on that seat's bar,
-    or on every seat's, where it would say other than `listed` shows it told: from the words as
-    they stand now."""
+    """The command lists that tell line one's right end, on that seat's bar or on every seat's,
+    where the words as they stand now would say other than `listed` shows it told."""
     # a seat tmux did not list has no bar to write: no other session is asked what it is
     found = seats(listed) if only in (None, *(name for _, name, *_ in listed)) else []
     told = {name: end for _, name, _, _, end in listed}
@@ -243,44 +241,43 @@ def _ends(listed, only):
                 # One command list, which tmux runs whole before it reads another click: no
                 # click lands between what a bar draws and the lookup that finds its seat.
                 # Where they are told one by one the lookup is emptied first, so a click finds
-                # no seat until what it is for is drawn.  The digest last, as `_own` says.
+                # no seat until what it is for is drawn.  The digest around them, as `_own` says.
                 target = f"={name}:"   # that session alone, as `_write` says
                 lists.append(([(target, HIT, "")],
-                              [(target, NEED, needing), (target, FOLD, folded),
-                               (target, HIT, hit), (target, TOLD_END, digest)]))
+                              [(target, TOLD_END, ""), (target, NEED, needing),
+                               (target, FOLD, folded), (target, HIT, hit),
+                               (target, TOLD_END, digest)]))
     return lists
 
 
 def _own(own, listed):
-    """The command list that tells that session its `own` options, where they would say other
+    """The command lists that tell each session its `own` options, where they would say other
     than `listed` shows it told.  On a session the listing shows gone -- no server is up, or it
     lists others -- nothing is told: tmux would refuse the call on every draw a stopped seat is
     in.  A listing that reads no session says nothing, since tmux ends a server with its last
     one, and there they are told as before.
 
-    The digest goes last, since tmux stops a list at the command that fails, so it says all it
-    names landed.  Told one by one, for their length, it is emptied first: one stopped part way
-    leaves none a later write could match."""
-    if not own:
-        return []
-    target, digest = own[0][0], _digest(own)
+    The digest is emptied first and set last, since tmux stops a list at the command that fails:
+    one stopped part way leaves no digest that a later write could match."""
     told = {f"={name}:": mine for _, name, _, mine, _ in listed or ()}
-    if listed != [] and told.get(target, digest) == digest:
-        return []
-    return [([(target, TOLD, "")], [*own, (target, TOLD, digest)])]
+    lists = []
+    for target in dict.fromkeys(option[0] for option in own):
+        options = [option for option in own if option[0] == target]
+        digest = _digest(options)
+        if listed == [] or told.get(target, digest) != digest:
+            lists.append(((), [(target, TOLD, ""), *options, (target, TOLD, digest)]))
+    return lists
 
 
 def _tell(only=None, own=()):
     """Write line one's right end on that seat's bar, or on every seat's, then the caller's
-    `own` options on one session, each (target, option, text), and bind its click: one tmux call
-    however many seats there are, where a call per seat made every start and every changed word
-    wait on each open seat.
+    `own` options, each (target, option, text), and bind its click: one tmux call however many
+    seats there are, where a call per seat made every start and every changed word wait on each
+    open seat.
 
     What the listing shows already told is left out, before the lock: with nothing left there is
-    no write.  It is the session's own record, so whoever writes saves the same, and a set that
-    failed, a seat that closed and a session new under a seat's name all come right on the next
-    look.  A pass lists once (`look.once`) and anyone else for each write: a listing older than
-    a write can only cost a write that was not needed, or leave a bar wrong until the next look.
+    no write.  A pass lists once (`look.once`) and anyone else for each write: a listing older
+    than a write can only cost a write not needed, or leave a bar wrong until the next look.
 
     One lock across every bar's reading and writing: the seat words are read under it and
     written before it is let go, so whoever writes last has read last, and an older reading
