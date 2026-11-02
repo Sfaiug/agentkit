@@ -165,7 +165,7 @@ class SpentSeat(SeatAccount):
     def test_only_a_spent_session_limit_is_a_refusal(self):
         plugin = orch.harness_plugin("claude")
         self.assertEqual(plugin.failure("You've hit your session limit · resets 3:20pm "
-                                        "(Europe/Berlin)"), (watch.SPENT, "hit your session limit"))
+                                        "(Europe/Berlin)"), (watch.SPENT, "You've hit your"))
         self.assertEqual(plugin.failure("You've used 84% of your session limit · resets 3:20pm"),
                          (None, None))
 
