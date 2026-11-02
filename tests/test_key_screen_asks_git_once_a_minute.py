@@ -85,7 +85,10 @@ class ScreenAsksGitOnceAMinute(unittest.TestCase):
             "branch": "ak/fix", "started_at": time.time(), "step": "executor",
             "state": "pass" if over else "running", "verdict": "PASS" if over else None,
             "merged": over, "finished_at": time.time() if over else None,
-            "handed_back": time.time() if over else None, "reported": over})
+            "handed_back": time.time() if over else None, "reported": over,
+            # no loop runs it: without this the maintenance an opening screen starts behind its
+            # first frame, if it reaches the record, reaps it to `interrupted`, never `working`
+            "resume_after": None if over else time.time() + BOUND})
         (self.home.path / ".agentkit/state/runs-moved").touch()
         working = row("fix-api", "● working")
         return self.menu.wait((lambda screen: row("fix-api")(screen) and not working(screen))
