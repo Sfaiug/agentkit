@@ -890,16 +890,19 @@ def try_again_at(said):
         return None
 
 
-def resume_failed(out_dir, killed, text):
-    """A resume the harness ended at once, with nothing streamed and nothing answered.
+def resume_failed(out_dir, killed, text, harness):
+    """A resume the harness ended at once, with nothing streamed and nothing answered, or saying
+    it holds no such conversation.
 
     A silence kill ran and was stopped; this one never started. The Codex session that
     exited before its first byte after a host freeze is the case, and retrying that id
-    spends the transport attempts on a conversation that will not come back.
+    spends the transport attempts on a conversation that will not come back. Claude Code streams
+    a closing event for an id it does not hold, read as a provider's fault and retried for ever.
     """
     if killed or (text or "").strip():
         return False
-    return worker.said_nothing(out_dir)
+    return worker.said_nothing(out_dir) or harness_plugin(harness).lost(
+        harness_said(out_dir, text, harness))
 
 
 def note_turn_meters(cfg, name, out_dir, account, before=()):
@@ -1075,7 +1078,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         if swapped(code, killed, sid or session):
             session, calls = sid or session, calls + 1
             continue
-        if asked and resume_failed(target, killed, text):
+        if asked and resume_failed(target, killed, text, entry["harness"]):
             # One empty exit abandons the id. The role continues in a new conversation,
             # and the dead id is not retried and does not spend the transport attempts.
             log(f"resume of {asked} failed; fresh conversation")

@@ -344,6 +344,8 @@ signatures = ["API Error", "Overloaded", "rate limit", "rate_limit_error",
 refusals = ["usage limit", "rate limit", "rate_limit_error", "overloaded", "529",
             "500", "502", "503", "504", "Internal server error", "API Error",
             "Can't reach the API server", "at capacity"]
+# What 2.1.316 says resuming an id it does not hold (2 Nov 2026): `turns.resume_failed`.
+lost = ["No conversation found with session ID"]
 quotas = ["rate limit", "rate_limit_error", "Usage limit reached", "usage limit",
           "usage_limit_reached", "You've hit your", "429", "insufficient_quota", "insufficient quota"]
 # `terminal` is the event log's terminal record kind: the stream ends with a `result` event,

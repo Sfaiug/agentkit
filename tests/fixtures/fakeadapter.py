@@ -29,7 +29,7 @@ workspace), `sh` (a command run there), `commit` (a message for all of it), `han
 of argument lists for `ak hand-in`), `final` (final.md's text, where `{in N}` is the moment N
 seconds after the turn, as a refusal names when to come back), `session` (the id handed back:
 the one resumed, else `sid-<harness>-<n>`), `stderr` (what the harness says on its
-diagnostics, such as its logout words), `exit` (0).  A hand-in goes through the ak build
+diagnostics, such as its logout words), `events` (what it streams), `exit` (0).  A hand-in goes through the ak build
 under test, the one AK_BIN names.  Every other verb answers as `answer` set it, or as a harness
 that is logged in with no meter to read, its `lend` the real tools/lend.py fed a login of the
 call's account lasting a day: `lent(account)` at LENT under the home named.
@@ -221,6 +221,8 @@ def turn(fake, ak, call, model, effort, workspace, prompt, out, session=None):
     (out / "stderr.log").write_text(f"fake {fake.harness} adapter, call {n}\n"
                                     + todo.get("stderr", ""))
     (out / "session_id").write_text(todo.get("session", session or f"sid-{fake.harness}-{n}"))
+    if "events" in todo:
+        (out / "events.jsonl").write_text(todo["events"])
     for relative, text in todo.get("write", {}).items():
         path = Path(workspace, relative)
         path.parent.mkdir(parents=True, exist_ok=True)
