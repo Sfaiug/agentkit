@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/harness"
 	"agentkit/internal/run"
 )
 
@@ -35,8 +36,8 @@ type kind struct {
 
 // Read is the end of the conversation at path, a harness's that its manifest reads; nothing
 // where it has no `[transcript]` table or the file cannot be opened.
-func Read(harness, path string) (end End) {
-	table, _ := config.Tree(harness, "transcript")
+func Read(name, path string) (end End) {
+	table, _ := config.Tree(name, "transcript")
 	file, err := os.Open(path)
 	if table == nil || err != nil {
 		return end
@@ -63,7 +64,7 @@ func Read(harness, path string) (end End) {
 					answered[id] = true
 				}
 			}
-			if len(answers) == 0 && promptWords(prompts, entry) != "" {
+			if len(answers) == 0 && promptWords(name, prompts, entry) != "" {
 				prompted = true
 			} else {
 				for _, item := range card.items(entry) {
@@ -126,27 +127,16 @@ func promptKinds(table map[string]any) (kinds []kind) {
 
 // promptWords is the owner's words where the entry is their prompt, of one of their shapes with
 // words that no frame of its own opens; "" otherwise.
-func promptWords(kinds []kind, entry *run.Object) string {
+func promptWords(name string, kinds []kind, entry *run.Object) string {
 	for _, k := range kinds {
 		for _, item := range k.items(entry) {
 			said := words(item, k.words)
-			if said != "" && !slices.ContainsFunc(k.frames, func(frame string) bool { return framed(frame, said) }) {
+			if said != "" && !slices.ContainsFunc(k.frames, func(frame string) bool { return harness.Framed(name, frame, said) }) {
 				return said
 			}
 		}
 	}
 	return ""
-}
-
-// whole is how each frame that is a notice all its own ends (claude.py INTERRUPTS): the manifest
-// names one only by what opens it, and an owner who goes on after one wrote the rest themselves.
-var whole = map[string][]string{"[Request interrupted by user": {"]", " for tool use]"}}
-
-// framed is whether the frame opens the words, and for a notice is all of them.
-func framed(frame, said string) bool {
-	rest, opened := strings.CutPrefix(said, frame)
-	ends, notice := whole[frame]
-	return opened && (!notice || slices.Contains(ends, rest))
 }
 
 // fits is whether the object has the shape: each of its keys holds what the shape says there.

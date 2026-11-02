@@ -17,9 +17,12 @@ import (
 // no activity to the silence watchdog.
 func init() {
 	ceiling := strconv.Itoa(run.CeilingHours * 3600 * 1000)
-	plugins["claude"] = plugin{seats: true, answer: claudeAnswer, conversation: claudeConversation, auth: claudeAuth, lend: claudeLend, turnEnv: map[string]string{
+	plugins["claude"] = plugin{seats: true, answer: claudeAnswer, conversation: claudeConversation, notices: claudeNotices, auth: claudeAuth, lend: claudeLend, turnEnv: map[string]string{
 		"BASH_DEFAULT_TIMEOUT_MS": ceiling, "BASH_MAX_TIMEOUT_MS": ceiling}, opens: true, titled: true}
 }
+
+// claudeNotices are the interruptions Claude Code writes as a user line (claude.py INTERRUPTS).
+var claudeNotices = map[string][]string{"[Request interrupted by user": {"]", " for tool use]"}}
 
 // projectCut is where Claude Code ends a project folder's name with a hash of the path.
 const projectCut = 200

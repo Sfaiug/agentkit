@@ -3,6 +3,8 @@ package harness
 import (
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 )
 
 // Conversation is the file that harness keeps the conversation a seat's record names in (its
@@ -29,4 +31,12 @@ func claudeConversation(record map[string]any) string {
 		folder += "-" + account
 	}
 	return filepath.Join(home, folder, "projects", projectFolder(cwd), conversation+".jsonl")
+}
+
+// Framed is whether that frame of the harness's manifest opens the words, and for a notice is all
+// of them.
+func Framed(name, frame, said string) bool {
+	rest, opened := strings.CutPrefix(said, frame)
+	ends, notice := plugins[name].notices[frame]
+	return opened && (!notice || slices.Contains(ends, rest))
 }

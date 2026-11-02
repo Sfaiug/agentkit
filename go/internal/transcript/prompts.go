@@ -19,8 +19,8 @@ type Prompt struct {
 // Prompts is every dated message the owner wrote in the conversation at path, oldest first, as a
 // harness's `user_messages` reads them; none where its harness has no `[transcript]` table or the
 // file cannot be read.
-func Prompts(harness, path string) (found []Prompt) {
-	table, _ := config.Tree(harness, "transcript")
+func Prompts(name, path string) (found []Prompt) {
+	table, _ := config.Tree(name, "transcript")
 	if table == nil {
 		return nil
 	}
@@ -31,7 +31,7 @@ func Prompts(harness, path string) (found []Prompt) {
 		if skip != nil && fits(skip, entry) || len(answer.items(entry)) > 0 {
 			continue
 		}
-		if text, when := promptWords(kinds, entry), moment(first(at(entry, stamp))); text != "" && when != 0 {
+		if text, when := promptWords(name, kinds, entry), moment(first(at(entry, stamp))); text != "" && when != 0 {
 			found = append(found, Prompt{when, text})
 		}
 	}
