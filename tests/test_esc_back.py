@@ -405,7 +405,7 @@ class NewSessionKeyboard(Sandbox):
         events = []
 
         class MenuKeyboard:
-            def give(self):
+            def give(self, **_kw):
                 events.append("given")
         keyboard = MenuKeyboard()
         with patch.object(orch, "ask_name", return_value="acme"), \

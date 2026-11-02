@@ -62,7 +62,7 @@ mode = "payg"
 
 
 class Keyboard:
-    def give(self):
+    def give(self, **_kw):
         pass
 
     def take(self):

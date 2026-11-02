@@ -38,6 +38,7 @@ FORWARDED = ("SIGWINCH", "SIGHUP", "SIGTERM", "SIGINT", "SIGQUIT", "SIGTSTP", "S
 _PRIMED = None  # in a forked menu: the reader's last read, for its first frame
 MARK = "AK_OWNER"   # what an `ak` command marks all it starts with (`owner`): the client's too
 TMUX_OWNER = "AK_TMUX_OWNER"   # the seat that tagged a side session (`guard`), no start of ak's
+READ = "AK_MENU_READ"   # the descriptor a menu starting itself again leaves its last read on
 
 
 def place(repo):
@@ -129,6 +130,37 @@ def primed():
     global _PRIMED
     taken, _PRIMED = _PRIMED, None
     return taken
+
+
+def hand_on(last, code):
+    """What to add to the environment for `handed` to find `last`, a menu's last read made by
+    `code`, past an exec: a file no name reaches, on a descriptor the exec keeps.  A read not
+    handed on is only a cold start, so nothing here may stop the restart: {} then."""
+    import pickle
+    import tempfile
+    try:
+        read = pickle.dumps([code, *last])
+        fd, path = tempfile.mkstemp()
+        os.unlink(path)
+        while read:
+            read = read[os.write(fd, read):]
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.set_inheritable(fd, True)
+    except Exception:
+        return {}
+    return {READ: str(fd)}
+
+
+def handed(code):
+    """The read `hand_on` left this program where `code` made it, else None.  The variable and
+    the descriptor go either way, so nothing this program starts meets them."""
+    import pickle
+    try:
+        with os.fdopen(int(os.environ.pop(READ)), "rb") as file:
+            made, *read = pickle.load(file)
+    except Exception:     # bytes that are no read can raise anything out of pickle
+        return None
+    return read if made == code else None
 
 
 def serve(lock):

@@ -28,7 +28,7 @@ class Keyboard:
     def take(self):
         return True
 
-    def give(self):
+    def give(self, **_kw):
         pass
 
     def close(self):
