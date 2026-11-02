@@ -52,7 +52,7 @@ from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, 
 from datetime import datetime
 from pathlib import Path
 
-from . import aside_editor, command_help, config, gitcall, guard, host, owner, plan, retention, staffing, terminal, transitions, update, usage
+from . import aside_editor, command_help, config, gitcall, guard, host, look, open_runs, owner, plan, retention, staffing, terminal, transitions, update, usage
 from . import record as run_record
 from .harness import LAUNCHER, load as harness_plugin
 
@@ -1731,7 +1731,9 @@ def git_dirs(path):
 
     A plain `.git` directory with no `commondir` is a repository's own checkout; for anything
     else -- a `.git` file, a link, a worktree's git directory -- git itself is asked, looking
-    no higher than `path`, so every layout and path it accepts reads the same here.
+    no higher than `path`, so every layout and path it accepts reads the same here.  An open
+    screen's reads ask once in `open_runs.CEILING`: one per read per worktree was 80 processes
+    in 170 s on a host.
     """
     dot = Path(path) / ".git"
     try:
@@ -1744,14 +1746,18 @@ def git_dirs(path):
     def ask(*flags):
         code, out = git_in(path, "rev-parse", "--path-format=absolute", *flags)
         return None if code != 0 else out.removesuffix(b"\n").split(b"\n")
-    lines = ask("--git-dir", "--git-common-dir")
-    if lines is not None and len(lines) != 2:   # a path holding a newline: one at a time
-        lines = [b"\n".join(answer) if answer is not None else None
-                 for answer in (ask("--git-dir"), ask("--git-common-dir"))]
-    if lines is None or None in lines:
-        return None
-    gitdir, common = (Path(os.fsdecode(line)).resolve() for line in lines)
-    return common, gitdir != common
+
+    def answer():
+        lines = ask("--git-dir", "--git-common-dir")
+        if lines is not None and len(lines) != 2:   # a path holding a newline: one at a time
+            lines = [b"\n".join(one) if one is not None else None
+                     for one in (ask("--git-dir"), ask("--git-common-dir"))]
+        if lines is None or None in lines:
+            return None
+        gitdir, common = (Path(os.fsdecode(line)).resolve() for line in lines)
+        return common, gitdir != common
+    # one question however it is spelled: `listed` keeps a linked ~/code, `checkout_of` resolves it
+    return look.held(os.path.realpath(path), open_runs.CEILING, answer)
 
 
 def checkout_of(repo, stands=None):
@@ -2018,7 +2024,7 @@ def tmux_conf():
     sending arrow keys into the harness, and 50000 lines of history is what there is to scroll.
     `remain-on-exit` is here as well as on the session itself, because a seat whose harness
     exits in the moment it opens has to survive that too, and the file is read before it runs;
-    so is what then brings it back (`ended_options`).
+    so is what then brings it back (`hook_options`).
     `hyperlinks` hands a link a harness prints (OSC 8) on to the owner's terminal, so a login's,
     wrapped over a popup's rows, is one thing to click; tmux reads it as a terminal attaches, so
     one attached before this file was loaded gets the rows apart until it attaches again.
@@ -2061,7 +2067,7 @@ def tmux_conf():
             "set -g history-limit 50000\n"
             "set -g remain-on-exit on\n"
             + "".join(f"set -gq {option} {tmux_word(value)}\n"
-                      for option, value in ended_options().items()) +
+                      for option, value in hook_options().items()) +
             "set -g allow-passthrough on\n"
             'set -as terminal-features ",*:RGB:hyperlinks:sync"\n'
             f"bind-key {POPUP_KEY} if-shell -F {tmux_word(SMALL_CLIENT)} "
@@ -2074,8 +2080,9 @@ def tmux_conf():
     return path
 
 
-def ended_options():
-    """The server's options that bring back a seat whose harness ended without ak ending it.
+def hook_options():
+    """The server's options that run ak: what brings back a seat whose harness ended without ak
+    ending it, and what puts the seat a client is in first (`front`).
 
     tmux runs `pane-died` when a pane's program exits or is killed under `remain-on-exit`, and
     never for `respawn-pane -k` or `kill-session`, the ways ak ends one: so the owner's `/exit`,
@@ -2087,17 +2094,22 @@ def ended_options():
     `Pane is dead`; a tmux before 3.3 has no option for that, and `-q` keeps it quiet.
     """
     from . import watch   # here, not at the top: watch imports this module
-    ak = shlex.join([sys.executable, str(config.REPO / "bin" / "ak"), "orch", "ended"])
+    ak = shlex.join([sys.executable, str(config.REPO / "bin" / "ak"), "orch"])
     log = shlex.quote(str(watch.log_path()))
-    shell = f"{tmux_text(ak)} #{{q:session_name}} #{{pane_dead_time}} >>{tmux_text(log)} 2>&1; true"
-    return {"pane-died": f"run-shell -b {tmux_word(shell)}", "remain-on-exit-format": WAY_BACK}
+
+    def job(verb):
+        return "run-shell -b " + tmux_word(f"{tmux_text(ak)} {verb} >>{tmux_text(log)} 2>&1; true")
+    return {"pane-died": job("ended #{q:session_name} #{pane_dead_time}"),
+            "remain-on-exit-format": WAY_BACK,
+            **dict.fromkeys(("client-attached", "client-detached", "client-session-changed"),
+                            job("front"))}
 
 
-def set_ended_options():
-    """`ended_options` on ak's own server, which one started before them lacks: those alone,
+def set_hook_options():
+    """`hook_options` on ak's own server, which one started before them lacks: those alone,
     since loading the whole conf again adds its `terminal-features` once more each time.  The
     default server never gets them (`on_own_server`); a server that is not up gets nothing."""
-    tmux_lists([["set-option", "-gq", option, value] for option, value in ended_options().items()])
+    tmux_lists([["set-option", "-gq", option, value] for option, value in hook_options().items()])
 
 
 # Beside a launch's harness in its scope, from just before the harness starts: the harness is
@@ -4774,7 +4786,7 @@ def ensure(cfg, name, log=print, saved=False, roles=None, repo=None):
 
 
 def cmd_ended(argv):
-    """`pane-died`'s (`ended_options`): a seat whose harness ended without ak ending it, at
+    """`pane-died`'s (`hook_options`): a seat whose harness ended without ak ending it, at
     WHEN by tmux's clock, comes back in its pane, as its number opens it (`reopen`).
 
     Decided and done under the lock `cmd_stop` decides under, so a stop finds it back or this
@@ -4811,6 +4823,10 @@ def main(argv):
         return cmd_stop(argv[1:])
     if argv[:1] == ["ended"]:
         return cmd_ended(argv[1:])
+    if argv[:1] == ["front"]:
+        from . import front   # here, not at the top: front imports this module
+        front.once()
+        return 0
     if argv[:1] == ["rename"]:
         return cmd_rename(argv[1:])
     if argv[:1] == ["project"]:
