@@ -36,6 +36,9 @@ OVERLAY_REMEDY = ("install bubblewrap with --tmp-overlay support and use a kerne
 # The supervisor runs from the text this module was loaded from: the file on disk can change
 # under a running launcher, when a probe checks out another revision of ak's own checkout.
 SUPERVISOR = None if __name__ == "__main__" else Path(__file__).read_text()
+# Seconds PID 1 waits on the command's process group after TERM: under worker.KILL_GRACE, the
+# hard stop that would end PID 1 with its report unwritten.
+TERM_WAIT = 4
 
 
 def _contents(root):
@@ -577,13 +580,13 @@ def _supervise(report, argv, drain=False):
         Path(report).write_text(json.dumps({"returncode": code, "processes": []}))
         return code
 
-    stopping = False
+    wait_until = 0
 
     def term(signum, _frame):
         # Outer bwrap cannot forward TERM; leave it alive while the harness saves
         # its session. The kernel still ends detached descendants with PID 1.
-        nonlocal stopping
-        stopping = True
+        nonlocal wait_until
+        wait_until = time.monotonic() + TERM_WAIT
         try:
             os.killpg(proc.pid, signum)
         except ProcessLookupError:
@@ -626,9 +629,8 @@ def _supervise(report, argv, drain=False):
         # Whoever still holds the output may leave more orphans; reap them until EOF.
         reader.join(0.05)
         reap()
-    while stopping and group_runs():
+    while time.monotonic() < wait_until and group_runs():
         # TERM may end a shell adapter at once while the harness it started still saves.
-        # The grace of stop() ends this wait.
         time.sleep(0.01)
         reap()
     left = []

@@ -118,6 +118,10 @@ class WorkerBoxLeavesNothing(unittest.TestCase):
         self.step(f"trap '' TERM; {self.start('deaf')}")
         self.interrupted("deaf")
         self.assertFalse(self.held("deaf"), "the harness that ignores TERM still runs")
+        said = self.home.log(f"spawn-{len(self.home._spawned)}.err").read_text()
+        pid = (self.ws / "deaf.pid").read_text()
+        self.assertIn(f"executor beta left process {pid}: {self.start('deaf')}; "
+                      "stopping it\n", said)
 
     def saves_and_leaves_nothing_running(self):
         self.step(f"setsid {self.start('stray')} & {self.start('harness', 'saves')}")
