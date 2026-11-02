@@ -31,6 +31,14 @@ class OnlyTheServersHome(unittest.TestCase):
             menu.wait("needs you")
             self.assertIn("needs you", bar())
 
+    def test_its_own_home_writes_whatever_tmux_shows_a_client_outside_a_utf8_locale(self):
+        with Home() as home:
+            own = home.root / "élise"       # which tmux shows that client as `_lise`
+            own.symlink_to(home.path)
+            home.env.update(HOME=str(own), LANG="C", LC_ALL="C")
+            Seat(home, "s-one", screen="claude-working-pane.txt")
+            Terminal(home).wait(lambda _: "s-one" in home.tmux("show-options", "-t", "=s-one:").out)
+
 
 if __name__ == "__main__":
     unittest.main()

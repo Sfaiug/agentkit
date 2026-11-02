@@ -64,7 +64,7 @@ class NoAgentNoSeat(Sandbox):
             return 0, "\n".join(re.sub(r"#\{[^}]*\}", lambda field: {
                 "#{session_id}": sid, "#{session_name}": name, f"#{{{orch.MARK}}}": mark,
                 "#{session_path}": str(self.root), "#{session_created}": "100",
-                "#{session_attached}": "0"}[field[0]], args[2])
+                "#{session_attached}": "0", "#{HOME}": str(self.root)}[field[0]], args[2])
                 for name, (sid, mark) in self.sessions.items())
         if args[:3] == ("list-panes", "-a", "-F"):
             if args[3] == PANES:
