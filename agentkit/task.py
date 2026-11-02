@@ -148,7 +148,7 @@ def task_size(body, cmds):
     return task_words(body), task_points(body), len(cmds)
 
 
-def launch_refusal(meta, cmds):
+def launch_refusal(meta, cmds, budget):
     """One sentence when a new task file cannot start as written, else None.
 
     A heredoc never works in done-when: each line runs as a command of its own, so the
@@ -162,7 +162,7 @@ def launch_refusal(meta, cmds):
     if heredoc:
         return (f"done-when line {heredoc!r} opens a heredoc, but each line runs as a command of "
                 "its own: put the script in a file the change adds, or on one line")
-    return rounds_refusal(meta.get("rounds"), "task rounds")
+    return rounds_refusal(meta.get("rounds"), "task rounds", budget)
 
 
 def checks_refusal(every):
@@ -197,10 +197,10 @@ def opens_heredoc(command):
     return bool(UNCLOSED_HEREDOC.search(said))
 
 
-def rounds_refusal(value, what):
+def rounds_refusal(value, what, budget):
     """One sentence when a round budget asked for is over the rule, else None.
 
-    The host's `rounds` (`config.policy`) is the budget and never a default to raise: a run
+    `budget`, the `rounds` in force (`config.policy`), is never a default to raise: a run
     that has not passed by then goes back to its orchestrator with its findings, to split or
     re-scope, and no flag carries it further.  A value that is no number is left to the check
     that says so.
@@ -209,7 +209,6 @@ def rounds_refusal(value, what):
         rounds = int(value)
     except (TypeError, ValueError):
         return None
-    budget = config.policy()["rounds"]
     if rounds <= budget:
         return None
     return (f"{what} {rounds} is over the budget: {budget} rounds, then a run goes "

@@ -396,6 +396,9 @@ def _answer(state, argv, cwd):
         return _fields({"nameWithOwner": slug, "owner": {"login": owner}, "isFork": False,
                         "url": f"https://github.com/{slug}", "defaultBranchRef": {"name": "main"},
                         "viewerPermission": state["access"].get(slug, mine)}, opts), ""
+    if verb == "repo clone":
+        _git(cwd, "clone", "-q", str(_bare(pos[2])), pos[3])
+        return "", ""
     if verb == "repo fork":
         slug = _repo(opts, cwd)
         fork = _bare(f"{state['login']}/{slug.split('/')[1]}")

@@ -162,7 +162,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         else:
             repo = task_repo(meta, task_path, receipt.get("task_file"))  # receipts before preflight saved it
         scratch = repo is None
-        raw_rounds = opts["--rounds"] or meta.get("rounds") or config.policy()["rounds"]
+        raw_rounds = opts["--rounds"] or meta.get("rounds") or run_record.policy_of(receipt)["rounds"]
         try:
             n_rounds = int(raw_rounds)
         except (TypeError, ValueError):
@@ -225,7 +225,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                 # the change continues on that branch: the run the branch belongs to names it,
                 # and the rounds earlier runs spent on it are spent
                 change = change_on(from_branch, repo, exclude=run_dir)
-                n_rounds, why = round_budget(n_rounds, change=change, exclude=run_dir,
+                n_rounds, why = round_budget(n_rounds, run_record.policy_of(receipt)["rounds"],
+                                             change=change, exclude=run_dir,
                                              what=f"branch {from_branch}")
                 if why:
                     raise config.Error(f"{task_path}: {why}")
@@ -1285,12 +1286,30 @@ def refused(run_dir, exc, log, cfg, printed=False):
         announce_safely(state, run_dir, log, cfg)
 
 
+def launch_policy(task_path=None, task_file=None, pr=None):
+    """The numbers in force (`config.policy`) for a launch of that task or pull request, from the
+    checkout it has.  A task that does not read is no checkout: its launch reports that."""
+    try:
+        if pr:
+            owner, name, _ = PR_PARTS.match(pr).groups()
+            checkout = local_checkout(f"{owner}/{name}")
+        else:
+            path = Path(task_path).expanduser().resolve()
+            checkout = task_repo(taskfile.parse_task(path)[0], path, task_file)
+    except Exception:
+        checkout = None
+    return config.policy(checkout)
+
+
 def prepare(run_dir, opts, log, cfg=None, job_id=None, task_file=None, receipt=None,
             printed=False):
     taken = capture_launch(run_dir, opts, job_id, cfg, task_file, receipt)
     try:
         if taken:
             raise config.Error(taken)
+        numbers = launch_policy(run_dir / "task.md", task_file, opts.get("--review-pr"))
+        with run_record.record(run_dir) as state:
+            state["policy"] = numbers
         preflight(run_dir, opts, log)
     except (Stopped, config.Error, OSError) as exc:
         # The launch receipt is already visible to `r`; a launch refused at its receipt (another
@@ -1727,12 +1746,12 @@ def resume_run(argv):
         argv = argv[:1]
     if len(argv) != 1 or Path(argv[0]).name != argv[0] or argv[0] in (".", ".."):
         raise config.Error("usage: ak run resume <runid> [--rounds N] [--bg]")
-    refusal = taskfile.rounds_refusal(n_rounds, "--rounds")
-    if refusal:
-        raise config.Error(refusal)
     config.ensure_dirs()
     run_dir = config.RUNS / argv[0]
     state = run_record.read_state(run_dir) if (run_dir / "run.json").exists() else None
+    refusal = taskfile.rounds_refusal(n_rounds, "--rounds", run_record.policy_of(state or {})["rounds"])
+    if refusal:
+        raise config.Error(refusal)
     if state is None:
         raise config.Error(f"no resumable run: {argv[0]} (looked in {config.RUNS})")
     try:
@@ -1835,7 +1854,7 @@ def resume_run(argv):
         # the change's budget with this run's own rounds counted: spent, no --rounds carries
         # it on and the task is what changes; else the way on names the bound `over_lineage`
         # holds a --rounds to
-        left, why = change_budget(state, run_dir, config.policy()["rounds"], own=state["rounds"])
+        left, why = change_budget(state, run_dir, run_record.policy_of(state)["rounds"], own=state["rounds"])
         if why:
             raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); {why}")
         if n_rounds is None or n_rounds <= state["rounds"]:
@@ -2230,13 +2249,20 @@ def pr_writer(cfg, state, session_name, author):
     return bool(state["own_pr"]), orchestrator, effort
 
 
-def checkout_for(name_with_owner, log):
-    """The checkout of that GitHub repo (`orch.checkouts`, so agentkit's own is ~/agentkit),
-    cloned under ~/code with gh if there is none yet."""
+def local_checkout(name_with_owner):
+    """The checkout of that GitHub repo here (`orch.checkouts`), or None."""
     want = name_with_owner.lower()
     for path in orch.checkouts():
         if gitcall.owner_name(git(path, "remote", "get-url", "origin", check=False)) == want:
             return path
+    return None
+
+
+def checkout_for(name_with_owner, log):
+    """`local_checkout` (so agentkit's own is ~/agentkit), cloned under ~/code with gh if there
+    is none yet."""
+    if found := local_checkout(name_with_owner):
+        return found
     target = config.CODE / name_with_owner.split("/")[1]
     if target.exists():
         raise config.Error(f"{target} exists and is not a clone of {name_with_owner}")
@@ -2326,12 +2352,14 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
     if change_reviewed(pr=url):
         return None
     lines, carried = diff_lines(repo, target_sha, head, added_only=True), carried_lines(repo, target_sha, head)
-    read, limit = lines - carried, config.policy()["seat_lines"]
+    numbers = run_record.policy_of(run_record.read_state(run_dir) or {})
+    read, limit = lines - carried, numbers["seat_lines"]
     if read >= limit:
         return read, (f"PR #{number} adds {read} lines (generated files and unchanged moves aside): "
                       f"too big for the seat, which builds under {limit} added "
                       "lines. Write it as a task and launch it; a worker builds it")
-    return read, replacement_refusal(repo, target_sha, head, number, read, exclude=run_dir)
+    return read, replacement_refusal(repo, target_sha, head, number, read, numbers["rounds"],
+                                     exclude=run_dir)
 
 
 def pr_review_blocked(lp, exc):
@@ -2832,7 +2860,8 @@ def settle_pr_round(lp, url, info):
 def own_pr_budget(url, run_dir, own=0):
     """`round_budget` for a seat's own pull request, `own` the rounds this run spent on it:
     the one place its arguments are read."""
-    return round_budget(config.policy()["rounds"], pr=url, exclude=run_dir,
+    budget = run_record.policy_of(run_record.read_state(run_dir) or {})["rounds"]
+    return round_budget(budget, budget, pr=url, exclude=run_dir,
                         what=f"PR #{PR_PARTS.match(url).group(3)}", own=own)
 
 
@@ -3001,6 +3030,7 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
     if resumed:
         run_dir = Path(resumed)
     else:
+        launch_policy(pr=url)
         run_id = f"{datetime.now():%Y%m%d-%H%M}-review-pr-{slugify(name)}-{number}"
         run_dir = config.RUNS / run_id
         n = 1
@@ -3122,9 +3152,13 @@ def main(argv):
                            "ak run stop <runid> [--keep] | ak run clean <runid> | ak run gc")
     if opts["--rounds"] is not None and not (opts["--rounds"].isdigit() and int(opts["--rounds"]) > 0):
         raise config.Error(f"--rounds must be a positive integer (got {opts['--rounds']!r})")
-    refusal = taskfile.rounds_refusal(opts["--rounds"], "--rounds")
-    if refusal:
-        raise config.Error(refusal)
+    queued_child = os.environ.get(config.RUN_DIR_ENV)
+    queued_child = queued_child if queued_child and queued(Path(queued_child)) else None
+    # a launch's own child holds what its launch read: nothing refuses it for a line landed since
+    for task in positional if opts["--rounds"] and not queued_child else ():
+        refusal = taskfile.rounds_refusal(opts["--rounds"], "--rounds", launch_policy(task)["rounds"])
+        if refusal:
+            raise config.Error(refusal)
     parallel = None
     if opts["--parallel"] is not None:
         if not (str(opts["--parallel"]).isdigit() and int(opts["--parallel"]) > 0):
@@ -3136,9 +3170,8 @@ def main(argv):
     # read here, not first where the run is placed: by then its record exists, and a refusal
     # would leave a run that status lists and watch resumes
     config.run_memory_max_mb()
-    queued_child = os.environ.get(config.RUN_DIR_ENV)
     # a --bg child carries on the receipt its launch prepared, with the executors it saved
-    if not opts["--review-pr"] and not (queued_child and queued(Path(queued_child))):
+    if not opts["--review-pr"] and not queued_child:
         selection = config.active_session(cfg)
         if selection and selection.get("workers") == []:
             raise config.Error(f"{selection['name']} has no executor: build it in the session, "
@@ -3198,7 +3231,7 @@ def main(argv):
         # says to start regardless.  A run's own child launch never runs the
         # already-under-way check.
         cmds = taskfile.done_when(body, task_path)
-        refusal = taskfile.launch_refusal(meta, cmds)
+        refusal = taskfile.launch_refusal(meta, cmds, launch_policy(task_path)["rounds"])
         if refusal:
             print(f"ak run: {refusal}", file=sys.stderr)
             return 2
