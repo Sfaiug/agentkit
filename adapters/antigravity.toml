@@ -55,17 +55,25 @@ exec curl -fsSL https://antigravity-cli-auto-updater-974169037036.us-central1.ru
 [conversation]
 fresh_words = "no conversation recorded; it starts a new conversation"
 
-# No hooks are installed (see `hooks` in adapters/antigravity.sh), so the screen decides all
-# three states.
+# The screen decides all three states; the per-launch hooks (see `interactive` in
+# adapters/antigravity.sh) enforce the end-of-turn rule and write a turn's prompt down.
 [authority]
 working = "screen"
 asking = "screen"
 at_prompt = "screen"
 
-# The end-of-turn rule -- a turn ends with a question, a done, or a run to wait on -- is
-# typed at the seat by the `ak watch` tick, for want of an end-of-turn hook to enforce it.
-[stop]
-enforce = "nudge"
+# What the stop hook reads in the conversation a Stop names (`transcriptPath`), newest entry
+# first: the model's words, and the owner's prompt that ends the scan for a question asked.
+[transcript]
+at = "created_at"
+
+[transcript.said]
+shape = { type = "PLANNER_RESPONSE" }
+words = ["content"]
+
+[[transcript.prompt]]
+shape = { type = "USER_INPUT" }
+words = ["content"]
 
 [screen]
 # The composer is a bare `>` between two rules; a typed line reads `> text`, and so does every

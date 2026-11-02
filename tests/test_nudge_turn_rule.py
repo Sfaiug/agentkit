@@ -1,10 +1,10 @@
 """On a harness with no stop hook a turn ends by the same rule as on a harness with one.
 
-Muse, OpenCode and Antigravity declare `[stop] enforce = "nudge"`, and the tick types the
+Muse and OpenCode declare `[stop] enforce = "nudge"`, and the tick types the
 continue keystroke at a stop hooks/orchestrator-stop.sh would send back.  A run of the seat's
 own parked and undecided holds the stop past a run going, an `ak wait` and a finished plan there just
 as the hook holds it, and a seat whose `ak wait` names a run that has ended is told so,
-with its reason, before any bare `continue`.  Offline: a fake tmux, fake adapters for the three
+with its reason, before any bare `continue`.  Offline: a fake tmux, fake adapters for the two
 harnesses, fake run receipts and a throwaway HOME; the hook runs as its harness runs it, JSON on
 stdin.  The seat's turn began once, long ago, and never moves: what is decided here is read off
 runs, notices, waits and the screen.  So the hook's two blocks a turn are two nudges for the
@@ -26,9 +26,9 @@ from agentkit import config, host, job as jobs, menu, notify, orch, questions, r
 from agentkit import record
 
 SEAT, OTHER = "acme-api", "fix-api"
-HARNESSES = ("muse", "opencode", "antigravity")
+HARNESSES = ("muse", "opencode")
 # each harness's empty composer row on its prompt screen, and that row holding a typed line
-TYPED = {"muse": ("\n\u276f\n", "\n\u276f {}\n"), "antigravity": ("\n>\n", "\n> {}\n"),
+TYPED = {"muse": ("\n\u276f\n", "\n\u276f {}\n"),
          "opencode": ('\u2503  Ask anything\u2026 "What is the tech stack of this project?"',
                       "\u2503  {}")}
 SAID = "Here is my recommendation. Let me know if I should continue."

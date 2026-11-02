@@ -429,6 +429,22 @@ os.scandir, Path.read_text = during_census, during_plan
         payload = {"transcript_path": str(self.transcript(RECOMMENDATION, sidechain="Which?"))}
         self.assertEqual(self.blocked(self.stop(said=None, **payload))["reason"], REASON)
 
+    def test_antigravity_hands_a_transcript_path_and_its_own_entry_shapes(self):
+        path = self.home / "agy.jsonl"
+        path.write_text("".join(json.dumps(entry) + "\n" for entry in (
+            {"type": "USER_INPUT", "content": "go", "created_at": "2026-10-09T12:00:00Z"},
+            {"type": "PLANNER_RESPONSE", "content": "Done that.",
+             "created_at": "2026-10-09T12:01:00Z"})))
+        self.assertEqual(self.blocked(self.stop(
+            said=None, transcriptPath=str(path), terminationReason="NO_TOOL_CALL"))
+            ["reason"], REASON)
+        self.latch(self.turn)      # a cancelled turn is not blocked, and counts no block
+        self.assertEqual(self.stop(said=None, transcriptPath=str(path),
+                                   terminationReason="USER_CANCELED"), "")
+        self.assertEqual(self.blocked(self.stop(
+            said=None, finalModelOutput="Done that.", terminationReason="NO_TOOL_CALL"))
+            ["reason"], REASON)
+
 
 class StopNudge(unittest.TestCase):
     """The same rule where no hook can hold it: `ak watch` reads it off the seat's screen.
@@ -695,7 +711,7 @@ class StopNudge(unittest.TestCase):
         self.assertEqual(self.typed.call_count, 1)
 
     def test_a_harness_that_decides_in_its_own_hook_is_never_typed_into(self):
-        for harness in ("claude", "codex"):
+        for harness in ("claude", "codex", "antigravity"):
             with self.subTest(harness=harness):
                 self.setUp()
                 self.harness = harness

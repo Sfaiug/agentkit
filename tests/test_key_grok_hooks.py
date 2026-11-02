@@ -5,8 +5,8 @@ A Grok seat's word rides its hooks, which the TUI reads only from its home's hoo
 that home) writes them into `hooks/agentkit.json` there, beside the user's own files and never
 into them.  Grok also runs the hooks it finds in Claude's settings and drops only an identical
 (event, command) pair, so its file must name the very commands Claude's hooks do, or each fires
-twice.  Codex, Muse and OpenCode are handed their hooks on each launch's command line and
-Antigravity takes none: their `hooks` verb writes nothing a stale copy could linger in.
+twice.  Codex, Muse, OpenCode and Antigravity are handed their hooks per launch: their `hooks`
+verb writes nothing a stale copy could linger in.
 
 Black-box: the adapters beside the program `AK_BIN` names (or `AK_ROOT`'s) run as install.sh
 runs them, in a throwaway HOME; this test fails against `/bin/false`.
@@ -135,7 +135,7 @@ class PerLaunchHooks(unittest.TestCase):
 
     def test_codex_muse_opencode_and_antigravity_write_nothing(self):
         said = {"codex": "installed per launch", "muse": "given per launch",
-                "opencode": "installed per launch", "antigravity": "no hooks installed"}
+                "opencode": "installed per launch", "antigravity": "installed per launch"}
         for harness, words in said.items():
             with self.subTest(harness):
                 before = files(self.home)
