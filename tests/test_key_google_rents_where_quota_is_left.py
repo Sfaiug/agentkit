@@ -8,6 +8,7 @@ read for each rent.
 """
 
 from datetime import UTC, datetime
+import json
 import shutil
 import sys
 import unittest
@@ -28,6 +29,7 @@ ZONES = {f"zones/{zone}": {"machineTypes": [kind("c4a-highcpu-8", 8, 16), kind(
     "c4a-highcpu-16", 16, 32), kind("c4a-standard-72", 72, 288)]}
          for zone in ("europe-west4-a", "us-central1-a")}
 T = datetime(2026, 11, 2, tzinfo=UTC).timestamp()
+OFFERS = ".agentkit/state/google-cloud-offers.json"
 # 72 vCPUs of ak's and 72 of another's in europe-west4, and 8 of another's in us-east5, where
 # nothing is offered; ak's living from half an hour ago for one hour
 LISTED = [{"id": id, "name": f"acme-{id}", "labels": labels, "machineType": machine,
@@ -93,6 +95,20 @@ class GoogleRentsWhereQuotaIsLeft(unittest.TestCase):
         google.at(T - 3600, 500)    # listed an hour ago: still fresh at the rent
         google.machines = LISTED
         google.buckets[("europe-west4", "C4A")] = 160
+        home.write(".agentkit/state/google-cloud-need", "820\n")
+        google.at(T, 500)
+        self.assertEqual([one["machineType"] for one in google.made],
+                         ["zones/europe-west4-a/machineTypes/c4a-highcpu-16"])
+
+    def test_a_list_kept_before_ak_rented_is_listed_anew_for_the_rent(self):
+        home = Home()
+        self.addCleanup(home.close)
+        google = Google(home, [SKUS], [ZONES])
+        self.addCleanup(google.close)
+        google.key()
+        google.at(T - 3600, 500)
+        kept = json.loads((home.path / OFFERS).read_text())
+        home.write(OFFERS, {"at": kept["at"], "offers": [one[:5] for one in kept["offers"]]})
         home.write(".agentkit/state/google-cloud-need", "820\n")
         google.at(T, 500)
         self.assertEqual([one["machineType"] for one in google.made],

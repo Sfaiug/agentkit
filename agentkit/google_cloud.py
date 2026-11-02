@@ -178,7 +178,7 @@ def watch():
     config._write_json(config.STATE / LATE, late)
     if ledger:
         config._write_json(config.STATE / LEDGER, ledger)
-    if not _amount(at) or now - at >= FRESH_FOR:
+    if not _amount(at) or now - at >= FRESH_FOR or not all(one.zones for one in offered):
         offered = offers()
         config._write_json(config.STATE / OFFERS, {"at": now, "offers": offered})
     # none coming up: on the meter by name or listed, not ready, since less than READY ago
