@@ -93,31 +93,40 @@ func sighted(found screen.Reading, previous *run.Object, now float64) sight {
 	return sight{state: found.State, authority: "screen", rule: found.Rule, evidence: found.Evidence, since: began, began: began}
 }
 
-// look is watch.look_at: one capture, classified and kept as watch.live_state keeps it.  A blank
-// capture says nothing of the screen, so it writes nothing.
-func (seat Seat) look(state string, now float64) (sight, error) {
-	previous, _ := run.ReadJSON(filepath.Join(state, "seat-"+seat.Name+".json"))
+// observed is watch.observed: what a capture shows of a seat, against its files as they stand,
+// writing nothing.  A blank capture says nothing of the error it shows.
+func observed(state, name, own, pane string, now float64) (found sight, previous *run.Object) {
+	previous, _ = run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
 	if previous == nil {
 		previous = run.NewObject()
 	}
-	record, _ := run.ReadJSON(filepath.Join(state, "session-"+seat.Name+".json"))
-	if record == nil {
-		record = run.NewObject()
-	}
-	own := seat.own
 	seen := eyeOf(own)
-	pane, _ := tmux.Ask(tmux.Own(), "capture-pane", "-p", "-e", "-J", "-t", "="+seat.Name+":")
 	tail := screen.Tail(pane)
-	found := sighted(seen.rules.Read(tail), previous, now)
-	if pane == "" {
+	found = sighted(seen.rules.Read(tail), previous, now)
+	switch {
+	case pane == "":
 		found.stall, found.login = previous.Get("stall"), previous.Get("login")
-		return found, nil
-	}
-	if found.state == "at_prompt" {
+	case found.state == "at_prompt":
+		record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
+		if record == nil {
+			record = run.NewObject()
+		}
 		said, recorded := harness.RecordedError(own, record.Str("conversation"), record.Str("cwd"))
 		found.stall = seen.stallOn(own, pane, tail, said, recorded)
 		found.login = seen.loginOn(own, tail, said, recorded)
 	}
+	return found, previous
+}
+
+// look is watch.look_at: one capture, classified and kept as watch.live_state keeps it.  A blank
+// capture says nothing of the screen, so it writes nothing.
+func (seat Seat) look(state string, now float64) (sight, error) {
+	pane, _ := tmux.Ask(tmux.Own(), "capture-pane", "-p", "-e", "-J", "-t", "="+seat.Name+":")
+	found, previous := observed(state, seat.Name, seat.own, pane, now)
+	if pane == "" {
+		return found, nil
+	}
+	seen, tail := eyeOf(seat.own), screen.Tail(pane)
 	fields := []field{{"state", found.state}, {"since", found.since}, {"began", found.began}, {"authority", found.authority},
 		{"rule", found.rule}, {"evidence", found.evidence}, {"hooked", nil}, {"hooked_at", nil}, {"hooked_event", nil},
 		{"interrupted", false}, {"stall", found.stall}, {"login", found.login}}
@@ -185,6 +194,11 @@ func (seat *Seat) decided(found sight, now float64, attached bool) {
 	if found.state == "draft" && !attached {
 		seat.unsent = config.Fold(found.evidence)
 	}
+	seat.wordFrom = found.wordFrom()
+}
+
+// wordFrom is what of a sight a seat's word is decided from and kept beside it (watch.word_from).
+func (found sight) wordFrom() []any {
 	said := ""
 	switch {
 	case found.state == "asking" || found.state == "draft":
@@ -194,27 +208,35 @@ func (seat *Seat) decided(found sight, now float64, attached bool) {
 	case found.login != nil:
 		said, _ = found.login.(string)
 	}
-	seat.wordFrom = []any{found.state, found.rule, said}
+	return []any{found.state, found.rule, said}
 }
 
 // ErrUnread is a seat that came to hold what Go does not read yet while its look waited: Python's
 // to answer, with nothing written.
 var ErrUnread = errors.New("Go does not read this seat yet")
 
-// explainLive is orch.explain of a seat its panes still run on, under its announce lock from the
-// reading to the word, as the wait for that lock can outlast what the home held: what the listing
-// reconciles, watch.announce_state's look, what its last answer moved, the word published, and what
-// decided it read back as every other reader reads it.
-func explainLive(state, name string) ([]string, error) {
+// liveSeat is the home and the seat by that name, where Go reads them and its panes still run on.
+func liveSeat(name string, now time.Time) (Home, Seat, bool) {
+	home, known := Looking(now)
+	at := slices.IndexFunc(home.Seats, func(each Seat) bool { return each.Name == name })
+	if !known || at < 0 || !home.Seats[at].live {
+		return Home{}, Seat{}, false
+	}
+	return home, home.Seats[at], true
+}
+
+// lookedLive is the look at a seat its panes still run on, under its announce lock from the reading
+// to the word, as the wait for that lock can outlast what the home held: what the listing
+// reconciles, watch.announce_state's look, what its last answer moved, and the word published.
+func lookedLive(state, name string) (Seat, error) {
 	var seat Seat
 	err := announcing(state, name, func() error {
 		now := time.Now()
-		home, known := Looking(now)
-		at := slices.IndexFunc(home.Seats, func(each Seat) bool { return each.Name == name })
-		if !known || at < 0 || !home.Seats[at].live {
+		home, live, known := liveSeat(name, now)
+		if !known {
 			return ErrUnread
 		}
-		seat = home.Seats[at]
+		seat = live
 		if err := reconcile(state, home.records, true); err != nil {
 			return err
 		}
@@ -226,6 +248,13 @@ func explainLive(state, name string) ([]string, error) {
 		seat.decided(found, seconds(now), attached != "" && attached != "0")
 		return seat.announced(state, now, home.models)
 	})
+	return seat, err
+}
+
+// explainLive is orch.explain of a seat its panes still run on: the look, and what decided it read
+// back as every other reader reads it.
+func explainLive(state, name string) ([]string, error) {
+	seat, err := lookedLive(state, name)
 	if err != nil {
 		return nil, err
 	}
