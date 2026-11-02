@@ -38,17 +38,24 @@ type seen struct {
 	live, recorded, closed bool     // tmux holds the seat's session; a record keeps it; the owner stopped it
 	records                []Seat   // every seat's record, which the stop reconciles first (orch.records)
 	running                []string // for a name nothing holds, the seats Python's listing offers
+	going                  []string // the directories of the runs the seat launched still going
 }
 
-// Stop is Python's orch.cmd_stop of the seat by that name, run from outside any seat, where Go
-// knows the seat: what it says once done, or false where the stop is Python's.  The first stop
-// closes the seat and keeps it to reopen; a stop of one closed already, or of a session no record
-// keeps, removes it.  Each step takes the locks Python's takes, in its order, so no Python tick
-// or screen meets a seat half stopped.
+// Stop is Python's orch.cmd_stop of the seat by that name, where Go knows the seat: what it says
+// once done, or false where the stop is Python's.  Another seat's is refused before anything is
+// read of the target (config.check_stop_owner).  The first stop closes the seat and keeps it to
+// reopen, then its going runs stop; a stop of one closed already, or of a session no record
+// keeps, removes it.  Stopping the seat this runs in says nothing: the terminal went with it.
+// Each step takes the locks Python's takes, in its order, so no Python tick or screen meets a
+// seat half stopped.
 func Stop(arg string, now time.Time) (string, bool, error) {
 	name, _, err := config.ResolveSession(arg)
-	if err != nil {
+	caller, _, unresolved := config.CurrentSession()
+	if err != nil || unresolved != nil {
 		return "", false, nil
+	}
+	if caller != "" && caller != name {
+		return "", true, Refusal(fmt.Sprintf("owned by seat %s; a seat stops only its own runs", name))
 	}
 	if err := config.EnsureDirs(); err != nil {
 		return "", true, err
@@ -70,34 +77,47 @@ func Stop(arg string, now time.Time) (string, bool, error) {
 		if err := forgetSeen(state, name, now); err != nil {
 			return "", true, err
 		}
-		if !found.recorded { // tmux alone held it: no record to keep, no number to reopen it
-			if err := forget(state, name); err != nil {
-				return "", true, err
-			}
-			removed = true
+	}
+	// outside the lock: nothing a run's stop touches is the seat's state
+	said := stopRuns(found.going, now)
+	if !removed && !found.recorded { // tmux alone held it: no record to keep, no number to reopen it
+		if err := forget(state, name); err != nil {
+			return "", true, err
 		}
+		removed = true
 	}
 	if err := forgetCard(state, name); err != nil {
 		return "", true, err
 	}
-	if removed {
-		return "removed " + name, true, nil
+	if found.live && caller == name {
+		return "", true, nil
 	}
-	return "stopped " + name + "; its number reopens it", true, nil
+	if removed {
+		said = append(said, "removed "+name)
+	} else {
+		said = append(said, "stopped "+name+"; its number reopens it")
+	}
+	return strings.Join(said, "\n"), true, nil
 }
 
 // look is what a stop finds of the seat by that name and of every record, as Python's orch.find
-// and orch.records find them, or false where the stop is Python's: tmux holding another seat,
-// whose bar would count this one again (statusbar.retell), a record Go does not follow, or
-// something of the seat's own that Python ends with it (plain).
+// and orch.records find them, or false where the stop is Python's: a session by that name ak did
+// not open, a seat needing the owner that other sessions' bars count and would count again
+// (statusbar.retell), a record Go does not follow, or something of the seat's own that Python
+// ends with it (ownRuns, plain).
 func look(state, name string, now time.Time) (seen, bool) {
 	own := tmux.Sessions(tmux.Own())
-	found := seen{live: len(own) == 1 && own[0] == tmux.Session{Name: name, Mark: "1"}}
+	found := seen{live: slices.Contains(own, tmux.Session{Name: name, Mark: "1"})}
+	foreign := !found.live && slices.ContainsFunc(own, func(session tmux.Session) bool { return session.Name == name })
+	mark, _ := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
+	counted := found.live && len(own) > 1 && mark != nil && mark.Get("word") == "needs you"
 	models, err := config.Models()
 	entries, unread := os.ReadDir(state)
-	if len(own) > 0 && !found.live || marked(tmux.Default) || err != nil || unread != nil || !plain(state, name) {
+	ids, going, known := ownRuns(name)
+	if foreign || counted || marked(tmux.Default) || err != nil || unread != nil || !known || !plain(state, name, ids) {
 		return seen{}, false
 	}
+	found.going = going
 	for _, entry := range entries {
 		each, ok := sessionFile(entry.Name())
 		if !ok {
@@ -117,7 +137,6 @@ func look(state, name string, now time.Time) (seen, bool) {
 		found.records = append(found.records, seat)
 		found.recorded = found.recorded || each == name
 	}
-	mark, _ := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
 	found.closed = mark != nil && mark.Truthy("closed_by_owner")
 	if found.live || found.recorded {
 		return found, true
@@ -132,11 +151,11 @@ func look(state, name string, now time.Time) (seen, bool) {
 	return found, known
 }
 
-// plain is whether nothing the seat owns is Python's to end with it: no run it launched
-// (stop.release_session), no browser tab it opened (browser.close_owned), no question it asked
-// still unseen (notify.clear), and no card a webhook took or a question's, which an outbox may
-// hold, nor one Python could not read (notify.forget_card).
-func plain(state, name string) bool {
+// plain is whether nothing the seat owns is Python's to end with it: no browser tab it or one of
+// its runs opened (browser.close_owned), no question it asked still unseen (notify.clear), and no
+// card a webhook took or a question's, which an outbox may hold, nor one Python could not read
+// (notify.forget_card).
+func plain(state, name string, runs []string) bool {
 	if asked, _ := run.ReadJSON(filepath.Join(state, "notify-"+name+".json")); asked != nil {
 		if _, text := asked.Get("text").(string); asked.Get("kind") == "needs" && text && !asked.Truthy("seen") {
 			return false
@@ -148,24 +167,11 @@ func plain(state, name string) bool {
 	}
 	if tabs, _ := run.ReadJSON(filepath.Join(state, "browser-tabs.json")); tabs != nil {
 		for _, key := range tabs.Keys() {
-			if tab, _ := tabs.Get(key).(*run.Object); tab != nil && tab.Dict("opener") != nil && tab.Dict("opener").Get("session") == name {
-				return false
-			}
-		}
-	}
-	entries, _ := os.ReadDir(run.Runs())
-	for _, entry := range entries {
-		record, _ := run.Read(filepath.Join(run.Runs(), entry.Name()))
-		if record == nil {
-			continue
-		}
-		key := "launched_session" // `session` in a run.json from before its rename
-		if !record.Truthy(key) {
-			key = "session"
-		}
-		if launched := record.Str(key); launched != "" {
-			if seat, _, err := config.ResolveSession(launched); err == nil && seat == name {
-				return false
+			if tab, _ := tabs.Get(key).(*run.Object); tab != nil && tab.Dict("opener") != nil {
+				opener := tab.Dict("opener")
+				if opener.Get("session") == name || slices.Contains(runs, opener.Str("run")) {
+					return false
+				}
 			}
 		}
 	}
