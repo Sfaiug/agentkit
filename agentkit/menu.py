@@ -3459,21 +3459,25 @@ def number_rows(numbers, wide, saved, room):
     """{name: its lines} of each of config.POLICY's `numbers`, its name in `wide` cells: its
     value, `default N` where that is not ak's default, `saved` where it is the one `saved`, and
     the board rows it moves, in fixed columns.  Where the widest of those does not fit beside
-    them in `room` cells, each folds under its row, wrapped at words, never cut."""
+    them in `room` cells, each folds under its row, and where those columns do not fit either,
+    so do they, under the name alone; wrapped at words, never cut."""
     boards = {name: "moves " + ", ".join(moved) for name, (*_, moved) in config.POLICY.items()}
-    widths = [wide, max(len(str(value)) for value in numbers.values()),
+    widths = [max(len(str(value)) for value in numbers.values()),
               max(len(f"default {default}") for default, *_ in config.POLICY.values()),
               len("saved")]
-    taken = 2 + sum(widths) + 2 * len(widths)
-    beside = taken + max(map(terminal.cells, boards.values())) <= room
+    taken = 2 + wide + sum(2 + width for width in widths)
+    beside = taken + 2 + max(map(terminal.cells, boards.values())) <= room
     rows = {}
     for name, (default, *_) in config.POLICY.items():
-        row = [name, str(numbers[name]), "" if numbers[name] == default else f"default {default}",
-               "saved" if name == saved else ""]
-        rows[name] = ([terminal.table_row([*row, boards[name]], [*widths, room - taken],
-                                          indent="  ")] if beside else
-                      [terminal.table_row(row, widths, indent="  "),
-                       *("    " + part for part in terminal.wrap(boards[name], room - 4))])
+        said = [str(numbers[name]), "" if numbers[name] == default else f"default {default}",
+                "saved" if name == saved else ""]
+        first = [name, *said, *([boards[name]] if beside else [])]
+        rows[name] = ([terminal.table_row(first, [wide, *widths, room - taken - 2], indent="  ")]
+                      if taken <= room else
+                      ["  " + terminal.cut(name, room - 2),
+                       *("    " + part for part in terminal.wrap(" ".join(said), room - 4))])
+        rows[name] += [] if beside else [
+            "    " + part for part in terminal.wrap(boards[name], room - 4)]
     return rows
 
 

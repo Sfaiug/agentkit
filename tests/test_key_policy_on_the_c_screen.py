@@ -168,6 +168,14 @@ class PolicyOnC(unittest.TestCase):
         self.assertEqual(shown[at + 1:at + 3],
                          ["    moves first round, unmerged, hours", "    to merge"])
 
+    def test_a_value_too_wide_for_the_columns_folds_them_under_the_name_too(self):
+        term = self.c({"review_lines": 10000}, size=(40, 50))
+        self.to(term, "seat_lines")
+        term.keys("Right")
+        shown = lines(term.wait("saved"))
+        at = shown.index("› seat_lines")
+        self.assertEqual(shown[at + 1:at + 3], ["    51 default 50 saved", "    moves built"])
+
     def test_a_home_file_of_top_level_keys_alone_keeps_its_numbers(self):
         path = self.home.path / ".agentkit/config.toml"
         path.write_text('rounds = 5\nreview_lines = 200\n')
