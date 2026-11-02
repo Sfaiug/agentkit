@@ -2272,17 +2272,17 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
     """(the lines a seat's own PR's first review reads, the sentence refusing that review or
     None), or None where no first review is ahead: a PR a review already judged in this run
     or any, whose later rounds review whatever the fix left.  The
-    seat builds under `task.SEAT_TASK_LINES` added lines, the ones moved unchanged aside
+    seat builds under `config.policy`'s `seat_lines` added lines, the ones moved unchanged aside
     and the files the target's tip marks generated, as the change will land on it, and a PR
     that re-adds most of a budget-failed one's lines, no real split of it, inherits that one's
     rounds (`replacement_refusal`)."""
     if change_reviewed(pr=url):
         return None
     lines, carried = diff_lines(repo, target_sha, head, added_only=True), carried_lines(repo, target_sha, head)
-    read = lines - carried
-    if read >= taskfile.SEAT_TASK_LINES:
+    read, limit = lines - carried, config.policy()["seat_lines"]
+    if read >= limit:
         return read, (f"PR #{number} adds {read} lines (generated files and unchanged moves aside): "
-                      f"too big for the seat, which builds under {taskfile.SEAT_TASK_LINES} added "
+                      f"too big for the seat, which builds under {limit} added "
                       "lines. Write it as a task and launch it; a worker builds it")
     return read, replacement_refusal(repo, target_sha, head, number, read, exclude=run_dir)
 

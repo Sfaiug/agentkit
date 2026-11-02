@@ -12,9 +12,6 @@ TASK_KEYS = ("after", "base", "done_when_minutes", "files", "from", "merge", "re
              "rounds", "stall_minutes", "target", "turn_hours")
 # One behaviour a reviewer holds in one read; past it, split the task.
 MAX_CHECKS = 3
-# ak's defaults (`config.POLICY`): the host's own numbers are not read here yet
-MAX_PR_LINES = config.POLICY["review_lines"][0]
-SEAT_TASK_LINES = config.POLICY["seat_lines"][0]
 DONE_WHEN = re.compile(r"^##\s+Done when\s*$(.*?)(?=^##\s|\Z)", re.S | re.M | re.I)
 FENCE = re.compile(r"```(?:bash|sh)?\n(.*?)```", re.S)
 ONCE_MARKER = re.compile(r"#\s*once\s*$")
