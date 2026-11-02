@@ -61,14 +61,16 @@ class PriceHoldsDiskAndAddress(unittest.TestCase):
             "€0.032 an hour"])
 
     def test_a_smaller_type_cheaper_by_its_cores_and_memory_costs_more_a_core_in_all(self):
-        # t2a-standard-2 costs €0.013 an hour for its cores and memory, €0.0065 a core, and
-        # €0.0035 more for its disk and address: €0.00825 a core to c4a-standard-8's €0.0080
+        # t2a-standard-8 costs €0.0584 an hour for its cores and memory, €0.0073 a core, and
+        # €0.0035 more for its disk and address: €0.00774 a core to c4a-standard-16's €0.00768
         skus = [*C4A, HYPERDISK, ADDRESS, disk("Balanced PD", "Netherlands", NL, 36_500_000),
-                sku(f"{SPOT} T2A Arm Instance Core running in Netherlands", NL, 4_500_000),
+                sku(f"{SPOT} T2A Arm Instance Core running in Netherlands", NL, 5_300_000),
                 sku(f"{SPOT} T2A Arm Instance Ram running in Netherlands", NL, 500_000)]
         zones = {"zones/europe-west4-a": {"machineTypes": [
-            kind("c4a-standard-8", 8, 32), kind("t2a-standard-2", 2, 8)]}}
-        self.assertEqual(self.rented(skus, zones), [BEST_C4A])
+            kind("c4a-standard-16", 16, 64), kind("t2a-standard-8", 8, 32)]}}
+        self.assertEqual(self.rented(skus, zones), [
+            "rented machines: best now c4a-standard-16 in europe-west4 · 16 cores · 64 GB · "
+            "€0.123 an hour"])
 
 
 if __name__ == "__main__":
