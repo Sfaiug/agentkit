@@ -145,6 +145,20 @@ class Restart(unittest.TestCase):
         self.assertNotIn(ROW, said[enter:marks[0].start()])
         self.assertIn(ROW, said[marks[0].start():marks[1].start()])
 
+    def test_a_frame_the_terminal_was_resized_under_is_not_handed_on(self):
+        # Stopped, the menu draws nothing for the new size before the install is there to see, and
+        # the first thing it does on going on is start again.
+        pid = self.program()
+        os.kill(pid, signal.SIGSTOP)
+        until(lambda: Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "T",
+              "stopped")
+        self.menu.resize(40, 15)
+        self.stamp()
+        os.kill(pid, signal.SIGCONT)
+        said, enter, marks = self.taken(self.left_held())
+        self.assertEqual([mark.group() for mark in marks[:2]], [HOLD, RELEASE])
+        self.assertNotIn(ROW, said[enter:marks[0].start()])
+
     def test_what_the_menu_starts_after_a_restart_meets_none_of_it(self):
         before = self.in_seat()
         self.menu.wait(KEYS)

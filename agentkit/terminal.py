@@ -943,11 +943,15 @@ class Keyboard:
 def hand_on():
     """What to add to the environment for the program an exec makes of this one to write the frame
     up as it takes the terminal (`_last_frame`): plain bytes, as another version of the code reads
-    them.  A frame not handed on is only an empty screen a moment longer: {} then."""
-    if _TAKEN is None or not _PAINTED:
-        return {}
+    them.  A frame not handed on is only an empty screen a moment longer: {} then, and where a
+    resize or a return from ^Z has asked for a draw not yet made, whether read (`read_key`) or not:
+    what is up is not laid out for the size there is.  The size is read first, as a resize after
+    the look is the new program's to find."""
     try:
-        return warm.cross(FRAME, "\n".join([f"{width()} {height()}", *_PAINTED]).encode())
+        size = f"{width()} {height()}"
+        if not _UP or select.select([_TAKEN.again[0]], [], [], 0)[0]:
+            return {}
+        return warm.cross(FRAME, "\n".join([size, *_PAINTED]).encode())
     except Exception:
         return {}
 
