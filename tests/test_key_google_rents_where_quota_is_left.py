@@ -3,10 +3,12 @@ limit Google lists for the region and family, then all regions', against every m
 ak's or not.  With none left anywhere no create is made, and the tick says each region's use and
 limit; with a limit unread, the walk is as before.  Black-box: `AK_BIN` runs `ak watch` in
 `home.tick()`'s box and `ak doctor` on a fake Google's clock, the first tick keeping the prices
-the machines listed cost, the second a day later reading prices and limits anew and renting.
+the machines listed cost, the second a day later reading the prices anew and renting; limits are
+read for each rent.
 """
 
 from datetime import UTC, datetime
+import json
 import shutil
 import sys
 import unittest
@@ -27,6 +29,7 @@ ZONES = {f"zones/{zone}": {"machineTypes": [kind("c4a-highcpu-8", 8, 16), kind(
     "c4a-highcpu-16", 16, 32), kind("c4a-standard-72", 72, 288)]}
          for zone in ("europe-west4-a", "us-central1-a")}
 T = datetime(2026, 11, 2, tzinfo=UTC).timestamp()
+OFFERS = ".agentkit/state/google-cloud-offers.json"
 # 72 vCPUs of ak's and 72 of another's in europe-west4, and 8 of another's in us-east5, where
 # nothing is offered; ak's living from half an hour ago for one hour
 LISTED = [{"id": id, "name": f"acme-{id}", "labels": labels, "machineType": machine,
@@ -76,6 +79,40 @@ class GoogleRentsWhereQuotaIsLeft(unittest.TestCase):
             "us-central1": {"C4A_CPUS": 4, "CPUS": 1000}}), ([], [
                 "too little quota left: C4A in europe-west4: 144 of 150 vCPUs in use; "
                 "C4A_CPUS in us-central1: 0 of 4 vCPUs in use"]))
+
+    def test_a_limit_google_leaves_out_is_none_and_the_rest_still_count(self):
+        self.assertEqual(self.rent({("europe-west4", "C4A"): 150, ("us-central1", "C4A"): 0}, {}), (
+            [], ["too little quota left: C4A in europe-west4: 144 of 150 vCPUs in use; "
+                 "C4A in us-central1: 0 of 0 vCPUs in use"]))
+
+    def test_a_limit_raised_since_the_prices_were_listed_is_seen_at_the_next_rent(self):
+        home = Home()
+        self.addCleanup(home.close)
+        google = Google(home, [SKUS], [ZONES])
+        self.addCleanup(google.close)
+        google.key()
+        google.buckets = {("europe-west4", "C4A"): 150, ("us-central1", "C4A"): 0}
+        google.at(T - 3600, 500)    # listed an hour ago: still fresh at the rent
+        google.machines = LISTED
+        google.buckets[("europe-west4", "C4A")] = 160
+        home.write(".agentkit/state/google-cloud-need", "820\n")
+        google.at(T, 500)
+        self.assertEqual([one["machineType"] for one in google.made],
+                         ["zones/europe-west4-a/machineTypes/c4a-highcpu-16"])
+
+    def test_a_list_kept_before_ak_rented_is_listed_anew_for_the_rent(self):
+        home = Home()
+        self.addCleanup(home.close)
+        google = Google(home, [SKUS], [ZONES])
+        self.addCleanup(google.close)
+        google.key()
+        google.at(T - 3600, 500)
+        kept = json.loads((home.path / OFFERS).read_text())
+        home.write(OFFERS, {"at": kept["at"], "offers": [one[:5] for one in kept["offers"]]})
+        home.write(".agentkit/state/google-cloud-need", "820\n")
+        google.at(T, 500)
+        self.assertEqual([one["machineType"] for one in google.made],
+                         ["zones/europe-west4-a/machineTypes/c4a-highcpu-16"])
 
     def test_limits_unread_leave_the_walk_as_before(self):
         # Service Usage not answering, europe-west4's CPUS would hold C4A to nothing in its stead
