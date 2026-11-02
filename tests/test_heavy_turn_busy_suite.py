@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.clock import Clock
 from fixtures.sandbox import account_home
 from agentkit import config, gate, gitcall, roundloop, worker
 from agentkit import record
@@ -25,6 +26,7 @@ from test_red_target import make_loop, make_repos
 
 ACME = "/home/fixture/code/acme"        # main checkouts as the records name them; never opened
 WIDGET = "/home/fixture/code/widget"
+HANG = 600     # seconds that only a hang outlasts: a loaded host may take any shorter time
 # One copy at a time behind its own lock: on a heavy suite turn a busy lock is said at once,
 # exit 75; told nothing, the suite waits for its lock like any by-hand run.
 SUITE = """
@@ -108,8 +110,24 @@ class BusySuite(unittest.TestCase):
         return shlex.join([sys.executable, str(self.root / "suite.py"), str(self.lock),
                            str(self.marks), word, str(self.go) if hold else "-"])
 
-    def until(self, check, what, seconds=20):
-        deadline = time.monotonic() + seconds
+    def busy_polls_last(self):
+        """An event: once a suite said busy, a poll ends only when it is set.
+
+        A poll that ends on the real clock sends the suite back for the turn it gave up, at a
+        moment a loaded host can move past whatever this test looks at meanwhile.
+        """
+        over = threading.Event()
+        self.addCleanup(over.set)      # a test that fails first must not leave one waiting
+
+        def sleep(seconds):
+            if "busy" in self.marks.read_text():
+                over.wait()
+            time.sleep(seconds)
+        self.stack.enter_context(patch.object(gate, "time", Clock(sleep)))
+        return over
+
+    def until(self, check, what):
+        deadline = time.monotonic() + HANG
         while not check():
             self.assertLess(time.monotonic(), deadline, f"timed out waiting for {what}")
             time.sleep(0.02)
@@ -135,25 +153,26 @@ class BusySuite(unittest.TestCase):
     def test_a_busy_suite_gives_its_turn_to_another_repositorys_and_runs_once_free(self):
         self.gates(2)
         self.addCleanup(self.go.touch)     # a test that fails first must not leave one running
-        with patch.object(gate, "GATE_POLL", 2):
-            first = Gate(self, "one", ACME, [self.suite("one", hold=True)])
-            first.start()
-            self.until(lambda: self.marks.read_text() == "one\n", "the first copy to start")
-            second = Gate(self, "two", ACME, [self.suite("two")])
-            second.start()
-            self.until(lambda: self.marks.read_text() == "one\nbusy\n", "the second to say busy")
-            self.until(self.turn_free, "the busy copy to give its turn back")
-            # the one turn left, while the first copy runs and the second waits for its lock
-            other = Gate(self, "three", WIDGET, [f"echo other >> {shlex.quote(str(self.marks))}"])
-            other.start()
-            other.join(20)
-            self.assertTrue(other.result[0], other.result)
-            self.assertFalse(other.waited(), other.logs)
-            self.assertEqual(self.marks.read_text().replace("busy\n", ""), "one\nother\n")
-            self.go.touch()
-            first.join(20)
-            second.join(20)
-        self.assertEqual(self.marks.read_text().replace("busy\n", ""), "one\nother\ntwo\n")
+        poll_over = self.busy_polls_last()
+        first = Gate(self, "one", ACME, [self.suite("one", hold=True)])
+        first.start()
+        self.until(lambda: self.marks.read_text() == "one\n", "the first copy to start")
+        second = Gate(self, "two", ACME, [self.suite("two")])
+        second.start()
+        self.until(lambda: self.marks.read_text() == "one\nbusy\n", "the second to say busy")
+        self.until(self.turn_free, "the busy copy to give its turn back")
+        # the one turn left, while the first copy runs and the second waits for its lock
+        other = Gate(self, "three", WIDGET, [f"echo other >> {shlex.quote(str(self.marks))}"])
+        other.start()
+        other.join(HANG)
+        self.assertTrue(other.result[0], other.result)
+        self.assertFalse(other.waited(), other.logs)
+        self.assertEqual(self.marks.read_text(), "one\nbusy\nother\n")
+        self.go.touch()
+        first.join(HANG)
+        poll_over.set()
+        second.join(HANG)
+        self.assertEqual(self.marks.read_text(), "one\nbusy\nother\ntwo\n")
         self.assertTrue(first.result[0], first.result)
         ok, text = second.result
         self.assertTrue(ok, text)
@@ -169,13 +188,14 @@ class BusySuite(unittest.TestCase):
             for n, (heavy, repo) in enumerate(((True, ACME), (False, ACME), (True, None))):
                 gate = Gate(self, f"run-{n}", repo, [said], heavy)
                 gate.start()
-                gate.join(20)
+                gate.join(HANG)
                 self.assertTrue(gate.result[0], gate.result)
         self.assertEqual(self.marks.read_text(), "[1]\n[]\n[]\n")
 
     def test_a_busy_probe_of_the_target_gives_its_turn_back_and_runs_once_free(self):
         self.gates(1)
         held = self.hold_lock()
+        poll_over = self.busy_polls_last()
         (self.root / "probe").mkdir()
         _, _, wt = make_repos(self.root / "probe")
         cmd = self.suite("probe")
@@ -188,23 +208,29 @@ class BusySuite(unittest.TestCase):
             except BaseException as exc:      # noqa: BLE001 -- the test reads it
                 results["probed"] = exc
         probe = threading.Thread(target=body, daemon=True)
-        # a wait for the turn longer than the probe's whole limit, which is charged none of it
-        lp.done_when_limit = 2
+        # The limit runs on this clock, which passes it during the wait for the turn, charged none
+        # of it: on the real clock, a limit short enough for a test's wait to outlast was spent
+        # by a loaded host on starting the suite.
+        now = [0]
+        clock = Clock(time.sleep)
+        clock.monotonic = lambda: now[0]
+        self.stack.enter_context(patch.object(roundloop, "time", clock))
         with gate.gate_lock(ACME, 0).open("a") as turn:
             fcntl.flock(turn, fcntl.LOCK_EX)
             probe.start()
             self.until(lambda: (record.read_state(run_dir) or {}).get("gate_turn"),
                        "the probe to wait for a turn")
-            time.sleep(2.5)
+            now[0] = lp.done_when_limit + 1
         self.until(lambda: "busy" in self.marks.read_text(), "the probe to say busy")
         self.until(self.turn_free, "the busy probe to give its turn back")
         self.assertTrue(probe.is_alive(), results)
         fcntl.flock(held, fcntl.LOCK_UN)
-        probe.join(20)
+        poll_over.set()
+        probe.join(HANG)
         self.assertFalse(probe.is_alive(), "the probe never ran once its lock was free")
         # it passed on the target, so the branch broke it: no busy answer read as red
         self.assertEqual(results["probed"], "")
-        self.assertEqual(self.marks.read_text().replace("busy\n", ""), "probe\n")
+        self.assertEqual(self.marks.read_text(), "busy\nprobe\n")
 
 
 if __name__ == "__main__":
