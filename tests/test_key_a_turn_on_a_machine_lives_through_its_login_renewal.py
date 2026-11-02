@@ -188,7 +188,7 @@ class TheVerbLeavesNothingBehind(unittest.TestCase):
         self.renewals()
         self.assertEqual([path.name for path in self.tree.iterdir()], ["lent.lock"])
 
-    def test_a_failed_rename_leaves_no_part_and_tells_its_caller(self):
+    def test_a_failed_rename_leaves_no_part(self):
         marks = self.home / "marks"
         marks.mkdir()
         (marks / "mv").write_text("#!/bin/sh\nexit 1\n")
