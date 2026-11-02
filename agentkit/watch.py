@@ -356,13 +356,15 @@ class Stamped:
     lines say how long what lay between them took.  Anything else it answers as the stream."""
 
     def __init__(self, stream):
-        self.stream, self.fresh = stream, True      # `fresh`: what comes next starts a line
+        self.stream, self.last = stream, "\n"       # `last`: the character written last
 
     def write(self, text):
         stamp = time.strftime("%Y-%m-%d %H:%M:%S ")
         for line in text.splitlines(keepends=True):
-            self.stream.write(stamp + line if self.fresh else line)
-            self.fresh = line != line.splitlines()[0]
+            # the character before decides too: `print` writes a line's `\r` and its `\n` apart
+            starts = len((self.last + line[0]).splitlines()) > 1
+            self.stream.write(stamp + line if starts else line)
+            self.last = line[-1]
         return len(text)
 
     def __getattr__(self, name):
