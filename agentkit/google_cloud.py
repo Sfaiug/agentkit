@@ -146,18 +146,16 @@ def said(mb_per_cpu):
 def watch():
     """The tick's pass while ak may rent: the meter moved on to what Google lists, each machine
     past its end, unpriced, past the cap or idle given back and said, the other ready ones serving;
-    only then a stale price list and quotas, and a machine rented for a need noted while none
-    comes up."""
+    only then a stale price list, and a machine rented for a need noted while none comes up."""
     wanted, (active, cap) = _noted(config.STATE / NEED), _setting()
     if not active:
         return
     listed, now = rented(), time.time()
     try:
         kept = json.loads((config.STATE / OFFERS).read_text())
-        at, limits = kept["at"], kept.get("limits")
-        offered = [Offer(*one) for one in kept["offers"]]
+        at, offered = kept["at"], [Offer(*one) for one in kept["offers"]]
     except (OSError, ValueError, TypeError, KeyError):
-        at, offered, limits = 0, [], None
+        at, offered = 0, []
     prices = {(one.name, one.region): one.hourly for one in offered if _amount(one.hourly)}
     ledger, late = (read := _ledger()) and _moved(read, listed, now, prices), []
     try:
@@ -180,15 +178,15 @@ def watch():
     config._write_json(config.STATE / LATE, late)
     if ledger:
         config._write_json(config.STATE / LEDGER, ledger)
-    # no limits in a list kept before ak read quotas, which is then listed anew
-    if not _amount(at) or now - at >= FRESH_FOR or limits is None:
+    if not _amount(at) or now - at >= FRESH_FOR:
         offered = offers()
-        limits = _limits({one.region for one in offered})
-        config._write_json(config.STATE / OFFERS, {"at": now, "offers": offered, "limits": limits})
+        config._write_json(config.STATE / OFFERS, {"at": now, "offers": offered})
     # none coming up: on the meter by name or listed, not ready, since less than READY ago
     if wanted and ledger and all(now - since >= READY for since in [
             *(one.get("from", 0) for one in ledger["machines"].values()),
             *(one.created for one in listed if one.id not in idle)]):
+        # read for this rent: a limit raised shows at once, one unread is read again at the next
+        limits = _limits({one.region for one in offered})
         late += _rent(ledger, wanted, cap, now, offered, limits, {one.zone for one in listed})
         config._write_json(config.STATE / LATE, late)
 
@@ -362,8 +360,9 @@ def _limits(regions):
                 "consumerQuotaLimits") or ():
             for bucket in limit.get("quotaBuckets") or ():
                 if {"region", "vm_family"} <= (where := bucket.get("dimensions") or {}).keys():
+                    # Google's answer leaves out a limit of 0 (H4D in most regions, 2 Nov 2026)
                     found[f"{where['vm_family']} in {where['region']}"] = int(
-                        bucket["effectiveLimit"])
+                        bucket.get("effectiveLimit", 0))
         for region in regions:
             for quota in _call(f"{compute}/regions/{region}", token).get("quotas") or ():
                 if quota["metric"].endswith("CPUS"):

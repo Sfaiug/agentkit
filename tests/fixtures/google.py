@@ -149,8 +149,10 @@ class _Answers(http.server.BaseHTTPRequestHandler):
         if url.path.endswith("%2Fcpus_per_vm_family"):
             if self.server.buckets is None:
                 return
+            # as Google answers: a limit of 0 left out
             return self.answer({"consumerQuotaLimits": [{"quotaBuckets": [{
-                "effectiveLimit": str(limit), "dimensions": {"region": region, "vm_family": family}}
+                **({"effectiveLimit": str(limit)} if limit else {}),
+                "dimensions": {"region": region, "vm_family": family}}
                 for (region, family), limit in self.server.buckets.items()]}]})
         if url.path == PROJECT or url.path.startswith(f"{PROJECT}/regions/"):
             quotas = self.server.quotas.get(url.path.rsplit("/", 1)[1], {})
