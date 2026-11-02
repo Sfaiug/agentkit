@@ -125,7 +125,7 @@ class UnreadPane(Seats):
 
     def test_stop_nudges_finish_the_line_that_began_before_the_terminal_froze(self):
         config.plan_path(SEAT).write_text("- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n")        # the seat owes work: the nudge is due
-        for harness, model in (("antigravity", "gemini"), ("muse", "spark"),
+        for harness, model in (("muse", "spark"),
                                ("opencode", "mimo")):
             with self.subTest(harness=harness):
                 config.save_session(self.cfg, SEAT, model, ["astra"], {

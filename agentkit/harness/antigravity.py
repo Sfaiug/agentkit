@@ -111,6 +111,14 @@ def held_open(token):
     return found
 
 
+def prompt(entry):
+    """The owner's words one transcript line holds, or None for anything else."""
+    content = entry.get("content")
+    if entry.get("type") == "USER_INPUT" and isinstance(content, str) and content:
+        return content.strip()
+    return None
+
+
 def said(record, cwd, conversation):
     found = steps(conversation, *WORDS)
     if found is None:

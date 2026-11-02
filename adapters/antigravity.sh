@@ -31,7 +31,7 @@
 #                                  where a turn naming that account reads it
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
 #                                  `seat` is the same login here, and is accepted and ignored
-#                     hooks        -> says why this harness has none installed; writes nothing
+#                     hooks        -> hooks are installed per launch by interactive; writes nothing
 #                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                  `agy models` folded, else the [catalog] table of
 #                                  adapters/antigravity.toml
@@ -179,11 +179,21 @@ interactive)
     name=$(basename -- "$old")
     [ -e "$state/${name%.*}.md" ] || rm -rf -- "$old"
   done
+  # This launch's hooks, in the same `.agents` directory agy reads the agent from: a
+  # PreInvocation at invocationNum 0 is the turn's prompt, which hooks/seat-state.sh writes
+  # down as UserPromptSubmit (its stdout discarded, as agy parses a PreInvocation hook's
+  # stdout as a PreInvocationHookResult), and Stop is the end-of-turn gate itself.
+  pre="jq -c 'select((.invocationNum // 0) == 0) | {prompt: (.lastUserInput // \"\"), session_id: (.conversationId // \"\"), hook_event_name: \"UserPromptSubmit\"}' | bash ${REPO@Q}/hooks/seat-state.sh >/dev/null; exit 0"
+  stop="bash ${REPO@Q}/hooks/orchestrator-stop.sh"
   agents=$(mkdir -p -- "$state/antigravity" &&
     mktemp -d "$state/antigravity/$(basename -- "$rb" .md).XXXXXX") &&
     def="$agents/.agents/agents/agentkit" && mkdir -p -- "$def" &&
     { printf -- '---\nname: agentkit\ndescription: the agentkit orchestrator seat\nsubagent: false\ntools:\n  - run_command\n---\n'
-      cat -- "$rb"; } >"$def/agent.md" || {
+      cat -- "$rb"; } >"$def/agent.md" &&
+    jq -n --arg pre "$pre" --arg stop "$stop" \
+      '{agentkit: {PreInvocation: [{type: "command", command: $pre}],
+                   Stop: [{type: "command", command: $stop}]}}' \
+      >"$agents/.agents/hooks.json" || {
     rm -rf -- ${agents:+"$agents"}
     echo "antigravity.sh interactive: no rulebook for this seat" >&2; exit 2; }
   # The model by its full id, the one agy's own alias resolution makes of a model and an
@@ -340,12 +350,8 @@ auth)
   else echo "agy: no $TOKEN; run \`$SIGNIN\` and sign in" >&2; fi
   exit 1 ;;
 hooks)
-  # agy 1.2.9 runs hooks from ~/.gemini/config/hooks.json or a workspace's .agents/hooks.json
-  # (PreInvocation, PostInvocation, PreToolUse, PostToolUse, Stop), and a PreToolUse hook that
-  # does not answer {"decision":"allow"} denies every tool.  None is installed: the screen
-  # rules in adapters/antigravity.toml read a seat's state, and nothing of the user's is
-  # written to.
-  echo "agy: no hooks installed; its seats are read off the screen" ;;
+  # agy's hooks are per launch (see `interactive`): nothing of the user's is written to here.
+  echo "agy: hooks are installed per launch by adapters/antigravity.sh interactive (PreInvocation, Stop); nothing to write here" ;;
 models)
   # `agy models` prints one id per model and effort beside its label, strongest first
   # (`gemini-3.8-flash-high<TAB>Gemini 3.8 Flash (High)`).  They fold into the model `run`

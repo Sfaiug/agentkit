@@ -210,9 +210,10 @@ class OneRulebook(unittest.TestCase):
     def definitions(self, words):
         """{word: front matter lines}, and the bodies, of the definition files a directory
         of the state dir's named on the line holds: a harness whose system prompt is an
-        agent definition is handed one.  Every file under it is front matter and then a
-        body, and the whole file is the body where it is not, so no other file there can
-        carry text of its own past both checks."""
+        agent definition is handed one.  Every file under it but `hooks.json` -- hook
+        registration beside the definitions, pinned in tests/test_antigravity.py -- is
+        front matter and then a body, and the whole file is the body where it is not,
+        so no other file there can carry text of its own past both checks."""
         heads, bodies = {}, []
         for word in words:
             path = self.candidate_path(word)
@@ -221,7 +222,8 @@ class OneRulebook(unittest.TestCase):
                     continue
             except OSError:
                 continue
-            for item in sorted(p for p in path.rglob("*") if p.is_file()):
+            for item in sorted(p for p in path.rglob("*")
+                               if p.is_file() and p.name != "hooks.json"):
                 text = item.read_text()
                 head, sep, body = text[4:].partition("\n---\n")
                 if not (text.startswith("---\n") and sep):

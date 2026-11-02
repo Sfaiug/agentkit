@@ -137,6 +137,8 @@ def spoken(entry):
     """
     if entry.get("isSidechain"):
         return None
+    if entry.get("type") == "PLANNER_RESPONSE" and isinstance(entry.get("content"), str):
+        return entry["content"].strip() or None
     message = entry.get("message") if entry.get("type") == "assistant" else None
     payload = entry.get("payload")
     if (message is None and isinstance(payload, dict) and payload.get("type") == "message"
@@ -152,7 +154,7 @@ def spoken(entry):
 def transcript(payload):
     """Newest entries first, read back in growing chunks as far as the caller goes: a question
     still open stays found however much output followed it, in at most one chunk of memory."""
-    path = payload.get("transcript_path")
+    path = payload.get("transcript_path") or payload.get("transcriptPath")
     if not isinstance(path, str) or not path:
         return
     try:
@@ -176,7 +178,7 @@ def transcript(payload):
 
 def last_message(payload):
     """Codex hands over the message; Claude names its transcript. Both key spellings occur."""
-    for key in ("last_assistant_message", "lastAssistantMessage"):
+    for key in ("last_assistant_message", "lastAssistantMessage", "finalModelOutput"):
         if key in payload:
             said = payload[key]
             return said if isinstance(said, str) else None
@@ -283,6 +285,8 @@ def held(launched, payload):
     the seat's plan.  A turn that ends so on a question in prose alone goes back once to ask it,
     and one that reached the live host with no open line once to write it down; neither counts.
     """
+    if payload.get("terminationReason") not in (None, "", "NO_TOOL_CALL"):
+        return ""    # agy's cancelled or error terminations are not a turn ending on its words
     # The latch is this seat's own file, under the name its harness was launched with, the way
     # hooks/seat-state.sh writes it.  What it reads is the toolkit's, and that moved when the
     # seat was renamed.

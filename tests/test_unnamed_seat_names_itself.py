@@ -1,7 +1,7 @@
 """An unnamed seat's stops are sent back to name it, on every harness, a question aside.
 
-Claude Code, Codex and Grok Build stop through hooks/orchestrator-stop.sh, which answers with the
-naming line; Muse, OpenCode and Antigravity have no such hook, and the tick types that line.
+Claude Code, Codex, Grok Build and Antigravity stop through hooks/orchestrator-stop.sh, which
+answers with the naming line; Muse and OpenCode have no such hook, and the tick types that line.
 A question to the owner still ends the turn, and the hook's two blocks a turn hold as for any
 stop.  The seat owes nothing, so once named the same stop stands.  Offline: a fake tmux, fake
 adapters and a throwaway HOME; the hook runs as its harness runs it, JSON on stdin.
@@ -9,18 +9,21 @@ adapters and a throwaway HOME; the hook runs as its harness runs it, JSON on std
 
 import json
 import os
+from pathlib import Path
 import subprocess
+import sys
 import time
 import unittest
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import REPO, Sandbox
 from fixtures.seats import chat, cursor_row
 from agentkit import config, menu, notify, orch, watch
 
 SEAT, SAID = "acme-api", "The parser is in place."
 # each hookless harness's empty composer row on its prompt screen, and that row holding a line
-TYPED = {"muse": ("\n❯\n", "\n❯ {}\n"), "antigravity": ("\n>\n", "\n> {}\n"),
+TYPED = {"muse": ("\n❯\n", "\n❯ {}\n"),
          "opencode": ('┃  Ask anything… "What is the tech stack of this project?"',
                       "┃  {}")}
 
@@ -101,16 +104,16 @@ class UnnamedSeatNamesItself(Sandbox):
 
     def test_an_unnamed_seat_is_sent_back_to_name_itself_until_it_has(self):
         config.update_session(SEAT, unnamed=True)
-        self.assertEqual(self.judged(), [config.NAME_LINE] * 2 + [[config.NAME_LINE]] * 3)
+        self.assertEqual(self.judged(), [config.NAME_LINE] * 2 + [[config.NAME_LINE]] * 2)
         self.assertIn(config.NAME_LINE, config.seat_rulebook(SEAT))
         config.update_session(SEAT, unnamed=None)      # what `ak orch rename --auto` leaves
-        self.assertEqual(self.judged(), [""] * 2 + [[]] * 3)
+        self.assertEqual(self.judged(), [""] * 2 + [[]] * 2)
         self.assertNotIn(config.NAME_LINE, config.seat_rulebook(SEAT))
 
     def test_a_question_to_the_owner_still_ends_the_turn(self):
         config.update_session(SEAT, unnamed=True)
         notify.record(SEAT, "needs", "Which environment should this use?")
-        self.assertEqual(self.judged("Which environment should this use?"), [""] * 2 + [[]] * 3)
+        self.assertEqual(self.judged("Which environment should this use?"), [""] * 2 + [[]] * 2)
 
     def test_the_third_stop_of_a_turn_stands_as_any_other_does(self):
         config.update_session(SEAT, unnamed=True)

@@ -302,6 +302,60 @@ class Antigravity(unittest.TestCase):
         proc = self.adapter("interactive", "gemini-3.8-flash", "high", "launched-id", "new")
         self.assertEqual(proc.returncode, 3)
 
+    def test_interactive_writes_stop_and_pre_invocation_hooks(self):
+        proc = self.adapter("interactive", "gemini-3.8-flash", "high")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        words = shlex.split(proc.stdout)
+        agents = Path(words[words.index("--add-dir") + 1])
+        hooks = json.loads((agents / ".agents/hooks.json").read_text())
+        self.assertEqual(set(hooks), {"agentkit"})
+        pre = hooks["agentkit"]["PreInvocation"][0]
+        stop = hooks["agentkit"]["Stop"][0]
+        self.assertEqual([pre["type"], stop["type"]], ["command", "command"])
+        self.assertIn("hooks/seat-state.sh >/dev/null", pre["command"])
+        self.assertIn("(.invocationNum // 0) == 0", pre["command"])
+        self.assertIn("hooks/orchestrator-stop.sh", stop["command"])
+        env = {**self.env, "AK_RUN_ROLE": "orchestrator"}
+        state = self.home / ".agentkit/state"
+        latch = state / "stop-fakesession.json"
+        latch.unlink(missing_ok=True)
+
+        def fire(command, payload):
+            done = subprocess.run(["bash", "-c", command], input=json.dumps(payload),
+                                  capture_output=True, text=True, env=env)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            return done.stdout
+        # a later invocation in the same turn is no new prompt: it writes no turn down
+        self.assertEqual(fire(pre["command"], {"invocationNum": 1,
+                                                "lastUserInput": "later",
+                                                "conversationId": "c-1"}), "")
+        self.assertFalse(latch.exists())
+        self.assertEqual(fire(pre["command"], {"invocationNum": 0,
+                                                "lastUserInput": "go",
+                                                "conversationId": "c-1"}), "")
+        written = latch.read_text()
+        record = json.loads(written)
+        self.assertEqual(record["blocks"], 0)
+        self.assertGreater(record["turn"], time.time() - 60)
+        fire(pre["command"], {"invocationNum": 1, "lastUserInput": "later",
+                               "conversationId": "c-1"})
+        self.assertEqual(latch.read_text(), written)
+        # an unnamed seat's Stop goes back to name it, unless agy cancelled the turn
+        (state / "session-fakesession.json").write_text(json.dumps({"unnamed": True}) + "\n")
+        transcript = self.root / "transcript.jsonl"
+        transcript.write_text("".join(json.dumps(entry) + "\n" for entry in (
+            {"type": "USER_INPUT", "content": "go"},
+            {"type": "PLANNER_RESPONSE", "content": "The parser is in place."})))
+        blocked = fire(stop["command"], {"hook_event_name": "Stop",
+                                          "terminationReason": "NO_TOOL_CALL",
+                                          "transcriptPath": str(transcript)})
+        self.assertEqual(json.loads(blocked), {"decision": "block",
+                                                "reason": config.NAME_LINE})
+        passed = fire(stop["command"], {"hook_event_name": "Stop",
+                                         "terminationReason": "USER_CANCELED",
+                                         "transcriptPath": str(transcript)})
+        self.assertEqual(passed, "")
+
     # --- auth, usage, install, login, hooks ----------------------------------
     def test_auth_reports_login_presence_and_absence(self):
         proc = self.adapter("auth")
@@ -452,7 +506,8 @@ class Antigravity(unittest.TestCase):
         self.assertIn("already logged in", proc.stdout)
         proc = self.adapter("hooks")
         self.assertEqual(proc.returncode, 0)
-        self.assertIn("no hooks installed", proc.stdout)
+        self.assertIn("hooks are installed per launch by adapters/antigravity.sh "
+                      "interactive (PreInvocation, Stop); nothing to write here", proc.stdout)
         self.assertEqual([p.name for p in (self.home / ".gemini").rglob("*")
                           if p.is_file()], ["antigravity-oauth-token"])
 
@@ -641,20 +696,21 @@ class Antigravity(unittest.TestCase):
                              (state, rule, "screen"), kind)
 
     def test_the_end_of_turn_nudge_never_types_into_a_draft(self):
-        # The last look saw the seat at its prompt, long enough ago for the rule to act; what
-        # is on the screen now decides.  At the prompt the nudge is typed; over a line the
-        # owner has typed and not sent, or the chooser a `/` opened, nothing is.
+        # Its Stop hook enforces the end-of-turn rule now, so the tick types nothing at an
+        # Antigravity seat -- not at its prompt, and not over a line the owner has typed and
+        # not sent or the chooser a `/` opened either.
+        self.assertFalse(watch.stop_enforced("antigravity"))
         now = time.time()
         live = {"state": "at_prompt", "stop_said_at": now - 3600, "turn_began": now - 7200}
-        # the plan the nudge is judged against lives in ak's state: every path of it sandboxed
+        # the plan the rule is judged against lives in ak's state: every path of it sandboxed
         sandbox = ExitStack()
         self.addCleanup(sandbox.close)
         sandbox.enter_context(patch.object(config, "HOME", self.root))
         for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK"):
             sandbox.enter_context(patch.object(config, name, self.root / "ak" / name.lower()))
         config.ensure_dirs()
-        config.plan_path("seat").write_text("- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n")    # the seat owes work: the nudge is due
-        for kind, typed in (("prompt", 1), ("draft", 0), ("chooser", 0)):
+        config.plan_path("seat").write_text("- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n")    # the seat owes work
+        for kind, typed in (("prompt", 0), ("draft", 0), ("chooser", 0)):
             pane = self.pane(kind)
             with self.subTest(kind=kind), \
                     patch.object(watch, "seat_read", return_value=dict(live)), \

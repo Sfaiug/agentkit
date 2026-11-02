@@ -1,6 +1,6 @@
 """A question a seat with no blocking Stop leaves out of its chat is sent back there, once a stop.
 
-A Muse, OpenCode or Antigravity seat's question reads `needs you` once its turn stopped on a
+A Muse or OpenCode seat's question reads `needs you` once its turn stopped on a
 closing message holding it: the newest in its harness's own store, and the model's, never an
 earlier one, a tool's output or the composer.  Until then it reads `working`, each stop that
 left it out sent ak's reminder once, never over the owner's draft; a standing question left out
@@ -20,23 +20,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, hookdrive
 from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import FIXTURES, Seat
-from test_key_antigravity_question_conversation import nested, varint
 
 QUESTION = "Which schema should the acme parser write? Options: v1 · v2"
 TOKEN = "0" * 32
 # each harness's model, its composer, that row empty and holding a draft, and the seat's
 # conversation: Muse's and OpenCode's named by their launch's receipt
 SEATS = {"muse": ("spark", "❯", "\n❯\n", "\n❯ {}\n", "muse-acme"),
-         "antigravity": ("gemini", ">", "\n>\n", "\n> {}\n", "conv-antigravity"),
          "opencode": ("mimo", "┃", '┃  Ask anything… "What is the tech stack of this project?"',
                       "┃  {}", "ses_acme")}
 STORES = {"muse": (".local/share/muse/sessions/2026/10/26/muse-acme/session.jsonl", None),
           "opencode": (".local/share/opencode/opencode.db", "CREATE TABLE session_message (id"
                        " text, session_id text, type text, seq integer, time_created integer,"
-                       " time_updated integer, data text)"),
-          "antigravity": (".gemini/antigravity-cli/conversations/conv-antigravity.db",
-                          "CREATE TABLE steps (idx integer, step_type integer, status integer,"
-                          " metadata blob, step_payload blob)")}
+                       " time_updated integer, data text)")}
 
 
 class Talk:
@@ -78,18 +73,11 @@ class Talk:
             self.row("INSERT INTO session_message VALUES ('m', 'ses_acme', ?, (SELECT COUNT(*)"
                      " FROM session_message), ?, 0, ?)", "user" if who == "user" else
                      "assistant", round(at * 1000), json.dumps(data))
-        else:
-            stamp = varint(1 << 3) + varint(int(at)) + varint(2 << 3) + varint(int(at % 1 * 1e9))
-            kind, field = {"user": (14, nested(19, nested(2, text.encode()))),
-                           "model": (15, nested(20, nested(1, text.encode()))),
-                           "tool": (21, nested(28, nested(1, text.encode())))}[who]
-            self.row("INSERT INTO steps VALUES ((SELECT COUNT(*) FROM steps), ?, 3, ?, ?)",
-                     kind, nested(1, stamp), varint(1 << 3) + varint(kind) + field)
 
 
 class Seats:
-    """A Muse, an OpenCode and an Antigravity seat that asked QUESTION; each owns its
-    conversation unless `owned` is False."""
+    """A Muse and an OpenCode seat that asked QUESTION; each owns its conversation unless
+    `owned` is False."""
     owned = True
 
     def setUp(self):
@@ -99,7 +87,7 @@ class Seats:
         self.seats, self.talks = {}, {}
         unowned = {"id_source": None, "conversation": None, "resumable": False}
         for harness, (model, composer, *_, conversation) in SEATS.items():
-            launched = self.owned and harness != "antigravity" and home.write(
+            launched = self.owned and home.write(
                 f".agentkit/state/{harness}-launch-{TOKEN}/session", conversation)
             self.seats[harness] = Seat(home, harness, model=model, composer=composer,
                                        screen=f"{harness}-working-pane.txt", record=(
@@ -113,12 +101,11 @@ class Seats:
         self.assertEqual(home.tick().code, 0)
 
     def hook(self, harness, event, **payload):
-        if harness != "antigravity":         # it fires no hooks
-            command = {"opencode": ("hooks/seat-state.sh",), "muse": ("adapters/muse.sh", "hook")}
-            done = self.home.run("bash", str(hookdrive.ROOT / command[harness][0]),
-                                 *command[harness][1:], env={"AGENTKIT_SESSION": harness},
-                                 input=json.dumps({"hook_event_name": event, **payload}))
-            self.assertEqual(done.code, 0, done.err)
+        command = {"opencode": ("hooks/seat-state.sh",), "muse": ("adapters/muse.sh", "hook")}
+        done = self.home.run("bash", str(hookdrive.ROOT / command[harness][0]),
+                             *command[harness][1:], env={"AGENTKIT_SESSION": harness},
+                             input=json.dumps({"hook_event_name": event, **payload}))
+        self.assertEqual(done.code, 0, done.err)
 
     def stop(self, words, draft=None):
         """Each seat stops showing `words`, the owner's `draft` in its composer."""
