@@ -2858,12 +2858,32 @@ def work_live(name):
     return "your plan is done and its changes are live"
 
 
-def done_unprompted(name, records=None, mine=None):
+def done_unprompted(name, records=None, mine=None, cfg=None, harness=None, found=None):
     from . import plan as plan_mod
     done_at = plan_mod.path(name).stat().st_mtime if plan_mod.finished(name) else None
     if (done_at is None or config.name_owed(name) or waiting_on(name)
             or prompted_since(name, done_at) or any(t > done_at for t in notify.owner_said(name))):
         return False
+    # A prompt before the final plan write still owns its turn until that turn ends: a
+    # refusal or error in it is recovered as for any live seat, not left as done.  Its last
+    # look stands, unless its hook has spoken since, as in `_cut_line`.
+    if harness is None:
+        try:
+            harness = seat_model(cfg if cfg is not None else config.load(), name)[0]
+        except config.Error:
+            harness = None
+    if harness:
+        looked = found or seat_read(name)
+        try:
+            hooked, event, _text, when = hook_state(harness, hook_facts(name))
+        except config.Error:
+            hooked, event, when = None, None, None
+        if when is not None and when != looked.get("hooked_at"):
+            looked = {"state": hooked, "hooked": hooked, "hooked_at": when,
+                      "hooked_event": event}
+        if (_turn_in_flight(harness, looked)[0] or looked.get("state") == "asking"
+                or looked.get("hooked") == "asking"):
+            return False
     census = run_record.runs() if records is None and mine is None else records
     return not runs_owe(own_runs(name, census) if mine is None else mine,
                         transitions.supersession_index(census) if census is not None else None, time.time())
@@ -2998,7 +3018,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
 
     def usage():
         """3b. its subscription ran out and ak resumes it, or moves it to another account"""
-        if waiting and not done_unprompted(name, records, mine):
+        if waiting and not done_unprompted(name, records, mine, cfg, harness, found):
             until = waiting.get("until")
             return {"word": "out of usage" if until else "working", "reason": waiting["reason"],
                     "since": waiting["since"], "resumes_at": until}
@@ -3012,7 +3032,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         if (error and not gone and not session.get("legacy")
                 and not seat_closed_by_owner(name) and not stall.get("told")
                 and not (seat_read(name).get("usage_refusal") or {}).get("told")
-                and not done_unprompted(name, records, mine)):
+                and not done_unprompted(name, records, mine, cfg, harness, found)):
             return {"word": "working", "reason": f"retrying: {error}",
                     "since": found.get("began")}
 
@@ -4998,7 +5018,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         if ended:
             refusal, outcome, line = True, SPENT, f"wrap_up {ended}"
     now = time.time()
-    if done_unprompted(name):
+    if done_unprompted(name, cfg=cfg, harness=harness, found=live):
         if waiting and not dry_run:
             seat_write(name, usage_wait=None)
         return bool(waiting or refusal or spent(current))
@@ -5410,7 +5430,7 @@ def health(cfg, state, dry_run, log):
                         else:
                             log(f"WARN {name}: notification was not accepted; retry required")
                 continue
-            if done_unprompted(name, records):
+            if done_unprompted(name, records, cfg=cfg, harness=harness, found=live):
                 continue
             if entry.get("kind"):
                 stalls.pop(name)    # a quiet or login episode is over; this stall is a new one

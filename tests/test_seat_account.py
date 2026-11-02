@@ -893,6 +893,29 @@ print(json.dumps({"login": json.loads((home / "auth.json").read_text()), "args":
         self.tick()
         self.assertEqual(self.answer()["word"], "out of usage")
 
+    def plan_finished_mid_turn(self):
+        # the prompt predates its turn's final plan write, and that turn has no Stop yet
+        config.plan_path(NAME).write_text("- [x] the endpoint is live\n")
+        os.utime(config.plan_path(NAME), (self.now - 10, self.now - 10))
+        config.stop_path(NAME).write_text(json.dumps({"turn": self.now - 60}))
+        config.hook_facts_path(NAME).write_text(json.dumps(
+            {"session": NAME, "event": "UserPromptSubmit", "at": self.now - 60}))
+
+    def test_a_plan_finished_mid_turn_is_parked_when_that_turn_hits_the_usage_limit(self):
+        self.plan_finished_mid_turn()
+        self.meters(100, 100)
+        self.pane = "Usage limit reached"
+        self.refusal_tick()
+        self.assertEqual(self.answer()["word"], "out of usage")
+        self.assertTrue(watch.seat_read(NAME).get("usage_wait"))
+
+    def test_a_plan_finished_mid_turn_is_retried_when_that_turn_hits_a_500(self):
+        self.plan_finished_mid_turn()
+        self.meters(20, 20)
+        self.pane = "API Error: 500 server error"
+        self.refusal_tick()
+        self.assertEqual((self.typed, self.answer()["word"]), (["continue"], "working"))
+
 
 if __name__ == "__main__":
     unittest.main()
