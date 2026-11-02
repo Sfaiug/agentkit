@@ -424,6 +424,7 @@ def _probe_gently(cfg, provider, account=None):
         # Whoever we waited for has written their answer by now, and it is this one.
         cached = _cached_provider(provider, account)
         if _cooling(provider, account, _probe_every(cfg, provider)):
+            _keep_login(cfg, provider, account)
             return cached
         now = time.time()
         lock.write_text(repr(now))
@@ -432,6 +433,19 @@ def _probe_gently(cfg, provider, account=None):
         # The mark on disk travels with the record that replaces it (`_onto`), not the one
         # `cached` held: a mark made since, or a credit that lifted it since, is the later word.
         return _patch(provider, _kept(cached, fresh, now), account)
+
+
+def _keep_login(cfg, provider, account):
+    """Renews a login near its end where no meter is asked for: a harness's cadence can outlast the
+    last minutes in which it can be renewed, and a copy on a machine (`[worker] rereads_login`,
+    `machine_turn._following`) lapses unless this host renews it. `auth seat` renews before it
+    answers, and its answer is nobody's here."""
+    try:
+        harness, _ = config.provider_harness(cfg, provider)
+        if config.manifest(harness).get("worker", {}).get("rereads_login"):
+            worker.auth_ok(harness, seat=True, account=account, provider=provider)
+    except config.Error:    # no harness, no login to keep: the reading in hand still answers
+        pass
 
 
 def _adapter_json(harness, verb, timeout, account=None):

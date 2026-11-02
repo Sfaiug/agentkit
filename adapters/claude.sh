@@ -22,7 +22,8 @@
 #                       lend <home> [own] -> a copy of the interactive login nothing renews,
 #                                    where a turn with HOME=<home> reads it, and the epoch second
 #                                    it lapses; `own` puts a named account's where a turn naming
-#                                    that account reads it
+#                                    that account reads it; a Keychain login with under
+#                                    $AK_UNFOLLOWED_LASTS seconds left is none to lend
 #                       hooks        -> wire this harness's lifecycle hooks, idempotently
 #                       models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                    Anthropic's models API, else the [catalog] table of
@@ -86,9 +87,9 @@ err() { local m=${1//\\/}; m=${m//\"/\'}
 # either reads it, a login lapsed or about to, with a refresh token, gets the smallest turn
 # Claude Code runs on it -- its smallest model, one word, no tools, no conversation kept --
 # one per login at a time: whoever waited finds it renewed and asks nothing.  About to: under
-# 240 s left, as the tick's `usage` asks every minute, a copy lent to a machine must not lapse
-# first, and Claude Code 2.1.316 renews under 5 minutes (5.5 left no, 4.5 yes, 2 Nov 2026).  A
-# later login is never touched, and one the turn could not renew is read as it was.
+# 240 s left, as a turn on a machine asks every minute (`machine_turn.KEEP_EVERY`), so its copy
+# does not lapse first, and Claude Code 2.1.316 renews under 5 minutes (5.5 left no, 4.5 yes,
+# 2 Nov 2026).  A later login is never touched, and one the turn could not renew is read as it was.
 lapsed() {
   local blob exp
   blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
@@ -350,12 +351,15 @@ lend)
   # Renewing retires the login renewed (28 Oct: a check's renewal left every seat a dead one),
   # so the copy holds the access token alone, which runs a turn until `expiresAt` -- one that
   # says it lapses in a minute still does -- and not the MCP servers' logins, which renew too.
-  # Read, never renewed: a lapsed login is none to lend.
+  # Read, never renewed: a lapsed login is none to lend.  A renewal in the Keychain changes no
+  # file, so what follows a machine's copy (`machine_turn._following`) never sees it: there the
+  # caller's lasting stands whatever a turn rereads.
   [ $# -ge 1 ] || { echo "claude.sh lend needs <home>" >&2; exit 2; }
   command -v jq >/dev/null || { echo "claude.sh lend: jq is required" >&2; exit 2; }
-  blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
-    || blob=$(cat "$CREDS" 2>/dev/null) || blob=
-  lent=$(printf '%s' "$blob" | jq -c --argjson now "$(date +%s)" '.claudeAiOauth
+  lasts=${AK_UNFOLLOWED_LASTS:-0}
+  blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) || {
+    lasts=0; blob=$(cat "$CREDS" 2>/dev/null) || blob=; }
+  lent=$(printf '%s' "$blob" | jq -c --argjson now "$(( $(date +%s) + lasts ))" '.claudeAiOauth
       | (.expiresAt | numbers | if . > 99999999999 then . / 1000 | floor else . end) as $ends
       | select((.accessToken | strings | test("[^[:space:]]")) and $ends > $now)
       | {ends: $ends, login: {claudeAiOauth: del(.refreshToken)}}' 2>/dev/null) &&

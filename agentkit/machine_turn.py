@@ -30,7 +30,9 @@ from . import config, gitcall, helper
 
 AK = ("adapters", "agentkit", "bin", "tools")    # ak itself, read-only there, `bin` on PATH
 # Seconds a lent login must last, else the turn runs here, unless its harness's turns read a renewed
-# login (`[worker] rereads_login`). A machine Google ends sooner takes no turn, which it would lose.
+# login (`[worker] rereads_login`) kept where `[worker] logins` shows a renewal: an adapter holding
+# one elsewhere, which `_following` cannot see, keeps to this (AK_UNFOLLOWED_LASTS). A machine Google
+# ends sooner takes no turn, which it would lose.
 LENT_FOR = 3600
 # Seconds at most a bound found in a turn's container holds it before the machine is asked again:
 # past the silence limit the watchdog asks on every poll, and a command ending before its bound
@@ -40,6 +42,14 @@ KEPT = 60
 # real harness re-read its file for only 1.7 s of refusals (2 Nov 2026), `lend` and sending within,
 # where a new ssh to a far machine took 3.7 s and the turn died of the refusals.
 LOOK = 0.25
+# Seconds between a turn's asks that its login be renewed: under the 240 s claude.sh renews within,
+# as ticks, three minutes apart, skip one while the last runs on and so can miss that window whole.
+KEEP_EVERY = 60
+
+
+def _rereads(harness):
+    """Do this harness's turns read a renewed login, `[worker] rereads_login`?"""
+    return config.manifest(harness).get("worker", {}).get("rereads_login")
 
 
 def _sessions(harness):
@@ -84,8 +94,7 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
                                      env, cwd)]
     seen = [*map(_stamp, logins)]    # before the lend: a renewal as it prepares is sent too
     with tempfile.TemporaryDirectory() as home:
-        lent = _lend(entry, cmd[0], env, home,
-                     0 if config.manifest(harness).get("worker", {}).get("rereads_login") else LENT_FOR)
+        lent = _lend(entry, cmd[0], env, home, 0 if _rereads(harness) else LENT_FOR)
         if not lent:
             return None
         # 2048: twice this is 4 GiB, as on 30 Oct 2026 this host's runs peaked at a median of 768
@@ -180,8 +189,10 @@ def _following(entry, adapter, env, logins, seen, sent):
     """Gives the stdin for the turn's ssh. While inside it, a change of the files `logins` from their
     stamps `seen` asks the adapter for a new copy, and one differing from the copy `sent` goes down
     that connection to replace it on the machine (mac.sh's `renewals`): there at once, and what the
-    connection loses the turn loses too. None lent leaves nothing to send. Its thread's failures
-    reach nothing, and leaving stops it."""
+    connection loses the turn loses too. None lent leaves nothing to send. A harness that rereads its
+    login has it renewed meanwhile (`usage._keep_login`), on a thread of its own: a renewal takes
+    seconds, and it revokes the copy this one must then replace within LOOK's limit. The threads'
+    failures reach nothing, and leaving stops them."""
     stop = threading.Event()
     stdin, renewals = os.pipe()
 
@@ -202,8 +213,18 @@ def _following(entry, adapter, env, logins, seen, sent):
             except (OSError, subprocess.SubprocessError, config.Error):
                 pass
 
+    def keep():
+        from . import usage    # here, not at the top: usage reaches this module through the worker
+        while not stop.wait(KEEP_EVERY):
+            try:
+                usage._probe_gently(config.load(), entry["provider"])
+            except (OSError, ValueError, subprocess.SubprocessError, config.Error):
+                pass
+
     follower = threading.Thread(target=follow, args=(seen, sent), daemon=True)
     follower.start()
+    if _rereads(entry["harness"]):    # never joined: a read under way holds up no turn's end
+        threading.Thread(target=keep, daemon=True).start()
     try:
         yield stdin
     finally:
@@ -219,7 +240,8 @@ def _lend(entry, adapter, env, home, lasting=LENT_FOR):
     machine's adapter runs with none, reading the copy where the usual login lives."""
     try:
         done = config.run_adapter([adapter, "lend", home], 60,
-                                  env={**env, **config.provider_env([entry["provider"]])})
+                                  env={**env, **config.provider_env([entry["provider"]]),
+                                       "AK_UNFOLLOWED_LASTS": str(LENT_FOR)})
         if done.returncode or float(done.stdout or "inf") < time.time() + lasting:
             return {}
         return {str(path.relative_to(home)): path.read_bytes()
