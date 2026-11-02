@@ -200,26 +200,40 @@ func sliceLine(cgroup string, ceiling float64) string {
 // sliceCeiling is the task ceiling the drop-ins set, 0 where none does: the live one appears
 // with the slice's first process. The last file to name it wins, as systemd reads them.
 func sliceCeiling() float64 {
+	found := 0.0
+	for _, file := range sliceDropIns() {
+		data, _ := os.ReadFile(file)
+		for _, line := range strings.Split(string(data), "\n") {
+			key, value, _ := strings.Cut(line, "=")
+			if ceiling, err := strconv.ParseUint(strings.TrimSpace(value), 10, 64); err == nil && strings.TrimSpace(key) == "TasksMax" {
+				found = float64(ceiling)
+			}
+		}
+	}
+	return found
+}
+
+// sliceDropIns are the slice's drop-in files, in the order systemd reads them.
+func sliceDropIns() []string {
 	configHome := os.Getenv("XDG_CONFIG_HOME")
 	if configHome == "" {
 		home, _ := os.UserHomeDir()
 		configHome = filepath.Join(home, ".config")
 	}
-	found := 0.0
+	var found []string
 	for _, base := range []string{"systemd/user", "systemd/user.control"} {
 		files := config.Glob(filepath.Join(configHome, base, tmux.Own()+".slice.d"), "*.conf")
 		sort.Strings(files)
-		for _, file := range files {
-			data, _ := os.ReadFile(file)
-			for _, line := range strings.Split(string(data), "\n") {
-				key, value, _ := strings.Cut(line, "=")
-				if ceiling, err := strconv.ParseUint(strings.TrimSpace(value), 10, 64); err == nil && strings.TrimSpace(key) == "TasksMax" {
-					found = float64(ceiling)
-				}
-			}
-		}
+		found = append(found, files...)
 	}
 	return found
+}
+
+// NoSliceCeiling is whether the slice holds no task ceiling and no drop-in that could set one: a
+// tick's seat headroom pass holds the runs under ceilings alone.
+func NoSliceCeiling() bool {
+	_, limited := number(filepath.Join(sliceCgroup(), "pids.max"))
+	return !limited && len(sliceDropIns()) == 0
 }
 
 // RunsCgroup is where detached runs and their lander take CPU, apart from the seats.

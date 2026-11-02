@@ -38,12 +38,12 @@ func TestDryLeavesToPythonWhatItWouldActOn(t *testing.T) {
 		t.Fatalf("printed %q", got)
 	}
 	// each a folder holding the file named
-	for _, found := range []string{"runs/fix-api", "jobs/fix-api", "secrets/acme", "state/watch.json", "state/notification-outbox/acme.json"} {
+	for found, content := range map[string]string{"runs/fix-api": "", "jobs/fix-api": "", "secrets/acme": "", "state/watch.json": `{"own": {"https://github.com/acme/api/pull/1": {}}}`, "state/notification-outbox/acme.json": ""} {
 		path := filepath.Join(home, ".agentkit", found)
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path, nil, 0o600); err != nil {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		dry(false)

@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -61,7 +60,7 @@ func moveAgentkit(env []string, checkout string, out io.Writer) int {
 	tmp := filepath.Join(config.Home(), "tmp")
 	held, err := lock.Wait(context.Background(), filepath.Join(tmp, moving))
 	if err != nil {
-		fmt.Fprintf(out, "update: %s\n", pyError(err))
+		fmt.Fprintf(out, "update: %s\n", config.PyError(err))
 		return 1
 	}
 	defer held.Close()
@@ -90,7 +89,7 @@ func moveAgentkit(env []string, checkout string, out io.Writer) int {
 	// it, and only this says the install is owed
 	pending := filepath.Join(config.Home(), "state", "agentkit-install-pending")
 	if err := os.WriteFile(pending, nil, 0o666); err != nil {
-		fmt.Fprintf(out, "update: %s\n", pyError(err))
+		fmt.Fprintf(out, "update: %s\n", config.PyError(err))
 		return 1
 	}
 	if why := swap(env, checkout, target); why != "" {
@@ -249,27 +248,7 @@ func failure(err error, argv []string, limit time.Duration) string {
 		}
 		return fmt.Sprintf("Command '[%s]' timed out after %d seconds", strings.Join(words, ", "), int(limit.Seconds()))
 	}
-	return pyError(err)
-}
-
-// pyError is err as Python's OSError says it: `[Errno 2] No such file or directory: 'a'`, with
-// ` -> 'b'` after for a second path.
-func pyError(err error) string {
-	var errno syscall.Errno
-	if !errors.As(err, &errno) {
-		return err.Error()
-	}
-	text := errno.Error()
-	said := fmt.Sprintf("[Errno %d] %s%s", int(errno), strings.ToUpper(text[:1]), text[1:])
-	var link *os.LinkError
-	var path *os.PathError
-	switch {
-	case errors.As(err, &link):
-		said += ": " + commandhelp.Quote(link.Old) + " -> " + commandhelp.Quote(link.New)
-	case errors.As(err, &path):
-		said += ": " + commandhelp.Quote(path.Path)
-	}
-	return said
+	return config.PyError(err)
 }
 
 func short(commit string) string {

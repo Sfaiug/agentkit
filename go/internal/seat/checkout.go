@@ -55,6 +55,9 @@ func checkoutOf(repo string, stands func() []stand) string {
 	return ""
 }
 
+// NoCheckouts is whether no checkout stands for a project on this machine.
+func NoCheckouts() bool { return len(listed()) == 0 }
+
 // listed is every checkout that stands for a project (orch.listed): one directly under ~/code
 // that is no worktree of another listed, and agentkit's own at ~/agentkit, whose second clone
 // stands for it.

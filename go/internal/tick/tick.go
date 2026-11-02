@@ -1,7 +1,7 @@
 // Package tick is ak's three-minute cron tick, as Python's agentkit/watch.py runs it. It hides
-// the tick lock, which keeps one tick at a time, and the tick's log and its roll, which keep
-// cron's `>>watch.log 2>&1` bounded. Go carries out only a tick that finds another holding the
-// lock.
+// the tick lock, which keeps one tick at a time, the tick's log and its roll, which keep cron's
+// `>>watch.log 2>&1` bounded, and watch.json. Go carries out a tick that finds another holding
+// the lock, and one on a home with nothing to act on.
 package tick
 
 import (
@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -84,10 +85,19 @@ func newLog(out, errOut io.Writer) *log {
 	return l
 }
 
+// lineBreak is what Python's splitlines reads as the end of a line.
+var lineBreak = regexp.MustCompile("\\r\\n|[\\n\\r\\v\\f\\x1c\\x1d\\x1e\\x{85}\\x{2028}\\x{2029}]")
+
 // line prints one of the tick's lines, rolling the log it prints into first: the cron line only
 // redirects, and the tick that never gets the lock is the only one writing while another hangs.
+// In the log each line starts with its date and time, so two say how long what lay between them
+// took; a stream elsewhere has a reader who sees each as it comes.
 func (l *log) line(text string) {
 	l.roll()
+	if file, ok := l.out.(*os.File); ok && l.owned[file] {
+		stamp := time.Now().Format("2006-01-02 15:04:05 ")
+		text = stamp + lineBreak.ReplaceAllString(text, "${0}"+stamp)
+	}
 	fmt.Fprintln(l.out, text)
 }
 

@@ -5,10 +5,8 @@ import (
 	"io"
 	"os"
 	"runtime"
-	"strings"
 	"time"
 
-	"agentkit/internal/config"
 	"agentkit/internal/gh"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
@@ -24,25 +22,14 @@ func Dry(out io.Writer) bool {
 		return false
 	}
 	health := healthLine()
-	for _, idle := range passes {
-		if !idle() {
-			return false
-		}
-	}
-	value, why, err := gh.JSON(run.Runs(), "api", "user")
-	if user, _ := value.(*run.Object); err != nil || user != nil && user.Str("login") != "" {
+	if !idle(true) {
 		return false
 	}
-	if why == "" {
-		why = "gh api user failed"
+	value, why, err := gh.JSON(run.Runs(), "api", "user")
+	if err != nil || login(value) != "" {
+		return false
 	}
-	// gh's advice runs to several lines; one line is the whole point here
-	words := []rune(strings.Join(strings.FieldsFunc(why, config.Space), " "))
-	reason := string(words[:min(len(words), 160)])
-	line := "WARN GitHub is unavailable; PR checks skipped (" + reason + ")"
-	if gh.LoggedOut(reason) {
-		line = "gh is not logged in; PR checks skipped (" + reason + ")"
-	}
+	line, _ := unanswered(why)
 	fmt.Fprintln(out, health)
 	fmt.Fprintln(out, line)
 	return true
