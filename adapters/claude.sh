@@ -89,16 +89,17 @@ err() { local m=${1//\\/}; m=${m//\"/\'}
 # one per login at a time: whoever waited finds it renewed and asks nothing.  About to: under
 # 240 s left, as a turn on a machine asks every minute (`machine_turn.KEEP_EVERY`), so its copy
 # does not lapse first, and Claude Code 2.1.316 renews under 5 minutes (5.5 left no, 4.5 yes,
-# 2 Nov 2026).  A later login is never touched, and one the turn could not renew is read as it was.
+# 2 Nov 2026).  Not a Keychain login: renewing revokes its copies, and no copy follows one (`lend`).
+# A later login is never touched, and one the turn could not renew is read as it was.
 lapsed() {
-  local blob exp
-  blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
-    || blob=$(cat "$CREDS" 2>/dev/null) || return 1
+  local blob exp early=0
+  blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) || {
+    early=240; blob=$(cat "$CREDS" 2>/dev/null) || return 1; }
   exp=$(printf '%s' "$blob" | jq -r '.claudeAiOauth | select((.refreshToken // "") != "")
       | .expiresAt // empty' 2>/dev/null)
   case "$exp" in ''|*[!0-9]*) return 1 ;; esac
   [ "${#exp}" -gt 11 ] || exp="${exp}000"
-  [ "$exp" -le "$(( ($(date +%s) + 240) * 1000 ))" ]
+  [ "$exp" -le "$(( ($(date +%s) + early) * 1000 ))" ]
 }
 renew() {
   lapsed && mkdir -p -- "$TMPD" 2>/dev/null || return 0

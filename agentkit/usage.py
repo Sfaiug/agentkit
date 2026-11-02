@@ -423,8 +423,8 @@ def _probe_gently(cfg, provider, account=None):
         fcntl.flock(handle, fcntl.LOCK_EX)
         # Whoever we waited for has written their answer by now, and it is this one.
         cached = _cached_provider(provider, account)
+        _keep_login(cfg, provider, account)
         if _cooling(provider, account, _probe_every(cfg, provider)):
-            _keep_login(cfg, provider, account)
             return cached
         now = time.time()
         lock.write_text(repr(now))
@@ -436,16 +436,18 @@ def _probe_gently(cfg, provider, account=None):
 
 
 def _keep_login(cfg, provider, account):
-    """Renews a login near its end where no meter is asked for: a harness's cadence can outlast the
-    last minutes in which it can be renewed, and a copy on a machine (`[worker] rereads_login`,
-    `machine_turn._following`) lapses unless this host renews it. `auth seat` renews before it
-    answers, and its answer is nobody's here."""
-    try:
-        harness, _ = config.provider_harness(cfg, provider)
-        if config.manifest(harness).get("worker", {}).get("rereads_login"):
-            worker.auth_ok(harness, seat=True, account=account, provider=provider)
-    except config.Error:    # no harness, no login to keep: the reading in hand still answers
-        pass
+    """Renews a login near its end, whatever the meters do: their cadence can outlast the last
+    minutes in which it can be renewed, their adapter may be another harness's, and a copy on a
+    machine (`[worker] rereads_login`, `machine_turn._keep`) lapses unless this host renews it, each
+    harness the provider runs on keeping its own. `auth seat` renews before it answers, and its
+    answer is nobody's here."""
+    for harness in dict.fromkeys(entry["harness"] for entry in cfg["models"].values()
+                                 if entry.get("provider") == provider):
+        try:
+            if config.manifest(harness).get("worker", {}).get("rereads_login"):
+                worker.auth_ok(harness, seat=True, account=account, provider=provider)
+        except config.Error:    # no manifest, no login to keep: the reading in hand still answers
+            pass
 
 
 def _adapter_json(harness, verb, timeout, account=None):

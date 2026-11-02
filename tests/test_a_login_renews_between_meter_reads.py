@@ -2,12 +2,14 @@
 
 Claude's usage endpoint is asked once in fifteen minutes and its login renews only in its last
 five, so inside the cadence a read that asks no meter still renews a login near its end, for a
-harness whose turns read a renewed login, and a turn on a machine makes those reads itself, ticks
-being too far apart. The real `adapters/claude.sh`, a fake `claude` that renews the login it runs
-on, and a temporary HOME: no real login, and nothing that reaches a network.
+harness whose turns read a renewed login, whichever harness owns the meters, and a turn on a machine
+makes those reads itself, from its lend on, ticks being too far apart and its machine's prepare
+long. The real `adapters/claude.sh`, a fake `claude` that renews the login it runs on, and a
+temporary HOME: no real login, and nothing that reaches a network.
 """
 
 from contextlib import ExitStack
+from types import SimpleNamespace
 import base64
 import json
 import os
@@ -22,9 +24,10 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, machine_turn, usage  # noqa: E402
+from agentkit import config, helper, machine_turn, usage  # noqa: E402
 
-CONFIG = """[defaults]
+CONFIG = """turns_on_machines = true
+[defaults]
 orchestrator = "opus"
 workers = ["opus"]
 
@@ -37,6 +40,14 @@ provider = "anthropic"
 [providers.anthropic]
 accounts = ["acme-second"]
 """
+# ... whose meters another harness's adapter reads: the first of the provider's models
+ROUTED_FIRST = CONFIG.replace("[models.opus]", """[models.routed]
+harness = "opencode"
+model = "anthropic/claude-opus-5-5"
+effort = "high"
+provider = "anthropic"
+
+[models.opus]""")
 CLAUDE = """#!/bin/sh
 echo turn >>"$HOME/turns"
 printf '{"claudeAiOauth":{"accessToken":"renewed","refreshToken":"r","expiresAt":%s}}' \
@@ -96,19 +107,52 @@ class Renewal(unittest.TestCase):
         with patch.object(config, "manifest", return_value={}):
             self.assertFalse(self.read_with_left(200))
 
-    def test_a_turn_on_a_machine_has_its_login_renewed_and_is_sent_the_renewal(self):
-        self.left(200)
-        env = {**os.environ, "AGENTKIT_ACCOUNT": "acme-second"}
-        with patch.object(machine_turn, "KEEP_EVERY", 0.01), machine_turn._following(
-                {"harness": "claude", "provider": "anthropic"}, str(REPO / "adapters/claude.sh"),
-                env, [self.login], [machine_turn._stamp(self.login)], {}) as stdin:
+    def test_a_login_is_renewed_whichever_harness_owns_the_meters(self):
+        (config.HOME / "config.toml").write_text(ROUTED_FIRST)
+        self.cfg = config.load()
+        self.assertEqual(config.provider_harness(self.cfg, "anthropic")[0], "opencode")
+        self.assertTrue(self.read_with_left(200))
+        # ... and past the cadence too, when that other adapter is asked and renews nothing
+        usage._lock("anthropic", "acme-second").unlink()
+        reading = {"provider": "anthropic", "meters": [], "error": None}
+        with patch.object(usage, "_probe", side_effect=None, return_value=reading):
+            self.assertTrue(self.read_with_left(200))
+
+    def test_a_turn_has_its_login_renewed_from_its_lend_through_a_long_prepare(self):
+        self.left(30)
+        away = SimpleNamespace(alias="acme", key="turn", image="fixture", memory_mb=256,
+                               repo="acme", branch="main", default="main")
+        out = self.root / "out"
+        out.mkdir()
+
+        def prepare(*_args, **_kw):    # the copy is in the parcel: the renewal comes after it
+            deadline = time.monotonic() + 60
+            while (not (self.root / "turns").exists() and time.monotonic() < deadline):
+                time.sleep(0.01)
+            return away, ""
+
+        def watch(_argv, stdin, **_kw):
             self.assertTrue(select.select([stdin], [], [], 60)[0], "no renewal reached the turn")
-            line = os.read(stdin, 65536)
-        # a read still under way ends before this sandbox does: it would read the real HOME
+            self.assertIn(b"renewed", base64.b64decode(os.read(stdin, 65536).split(b" ", 1)[0]))
+            return 0, "", False
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(machine_turn, "KEEP_EVERY", 3600))    # the first ask
+            stack.enter_context(patch.object(machine_turn, "_program", return_value=("c/1/c", {})))
+            stack.enter_context(patch.object(machine_turn, "_stopped", return_value=False))
+            stack.enter_context(patch.object(machine_turn, "_home", return_value=(0, "")))
+            stack.enter_context(patch.object(helper, "start", side_effect=prepare))
+            stack.enter_context(patch.object(helper, "_remote", return_value=["fixture-ssh"]))
+            stack.enter_context(patch.object(helper, "finish"))
+            answer = machine_turn.call(
+                {"harness": "claude", "provider": "anthropic"}, [str(REPO / "adapters/claude.sh")],
+                self.root, out, {**os.environ, "AGENTKIT_ACCOUNT": "acme-second"}, (), None, watch)
+        self.assertEqual(answer, (0, False, ""))
+        # its end ends them, before this sandbox does: a read then would be of the real HOME
         for thread in threading.enumerate():
             if thread is not threading.current_thread():
                 thread.join(60)
-        self.assertIn(b"renewed", base64.b64decode(line.split(b" ", 1)[0]))
+                self.assertFalse(thread.is_alive())
 
 
 if __name__ == "__main__":

@@ -49,7 +49,7 @@ state = ["~/.claude", "$CLAUDE_CONFIG_DIR", "~/.claude-$AGENTKIT_ACCOUNT"]
 logins = ["~/.claude/.credentials.json", "$CLAUDE_CONFIG_DIR/.credentials.json", "~/.claude-$AGENTKIT_ACCOUNT/.credentials.json"]
 # a turn reads its login again when refused, so a renewal reaches it on a machine and any login
 # still unexpired will do to start one there (agentkit/machine_turn.py), which has it renewed
-# whatever the cadence below lets the meters ask (`usage._keep_login`)
+# whatever the cadence below lets the meters ask (`machine_turn._keep`)
 rereads_login = true
 # where a turn's conversation lives, `{id}` its id: what travels with a turn on a machine
 # (agentkit/machine_turn.py); a harness without this takes no turns there

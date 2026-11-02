@@ -7,7 +7,7 @@ first time a turn names it (mac.sh's `fetch`), a new version here reaching it at
 container tools/helper/turn.sh runs the turn in, at this host's paths; and what comes back: the out
 dir, a bundle of the turn's commits, the last holding what it left uncommitted, which git applies
 here, and the conversation it reported, at its place under this host's HOME. While it runs, a
-renewal of its login here reaches it (`_following`).
+renewal of its login here reaches it (`_following`), and one comes in time (`_keep`).
 """
 
 import base64
@@ -89,6 +89,16 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
             for name in glob.glob(place, root_dir=env["HOME"])]
     if session and not held:
         return None
+    keeping = threading.Event()
+    try:
+        return _on_machine(entry, cmd, cwd, out_dir, env, session, watch, program, held, keeping)
+    finally:
+        keeping.set()
+
+
+def _on_machine(entry, cmd, cwd, out_dir, env, session, watch, program, held, keeping):
+    """`call` past its checks, its answer the same; `keeping` set ends what `_keep` started."""
+    harness = entry["harness"]
     cwd, out_dir = Path(cwd).absolute(), Path(out_dir).absolute()
     logins = [*config.manifest_paths(config.manifest(harness).get("worker", {}).get("logins", ()),
                                      env, cwd)]
@@ -97,6 +107,7 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
         lent = _lend(entry, cmd[0], env, home, 0 if _rereads(harness) else LENT_FOR)
         if not lent:
             return None
+        _keep(entry, keeping)
         # 2048: twice this is 4 GiB, as on 30 Oct 2026 this host's runs peaked at a median of 768
         # MiB and p90 of 1868 MiB, test pieces included, with one at 5438 MiB.
         away = helper.start(2, 2048, cwd, lambda line: None, shlex.join(cmd), lambda tar: _parcel(
@@ -189,10 +200,8 @@ def _following(entry, adapter, env, logins, seen, sent):
     """Gives the stdin for the turn's ssh. While inside it, a change of the files `logins` from their
     stamps `seen` asks the adapter for a new copy, and one differing from the copy `sent` goes down
     that connection to replace it on the machine (mac.sh's `renewals`): there at once, and what the
-    connection loses the turn loses too. None lent leaves nothing to send. A harness that rereads its
-    login has it renewed meanwhile (`usage._keep_login`), on a thread of its own: a renewal takes
-    seconds, and it revokes the copy this one must then replace within LOOK's limit. The threads'
-    failures reach nothing, and leaving stops them."""
+    connection loses the turn loses too. None lent leaves nothing to send. Its thread's failures
+    reach nothing, and leaving stops it."""
     stop = threading.Event()
     stdin, renewals = os.pipe()
 
@@ -213,18 +222,8 @@ def _following(entry, adapter, env, logins, seen, sent):
             except (OSError, subprocess.SubprocessError, config.Error):
                 pass
 
-    def keep():
-        from . import usage    # here, not at the top: usage reaches this module through the worker
-        while not stop.wait(KEEP_EVERY):
-            try:
-                usage._probe_gently(config.load(), entry["provider"])
-            except (OSError, ValueError, subprocess.SubprocessError, config.Error):
-                pass
-
     follower = threading.Thread(target=follow, args=(seen, sent), daemon=True)
     follower.start()
-    if _rereads(entry["harness"]):    # never joined: a read under way holds up no turn's end
-        threading.Thread(target=keep, daemon=True).start()
     try:
         yield stdin
     finally:
@@ -232,6 +231,25 @@ def _following(entry, adapter, env, logins, seen, sent):
         stop.set()
         follower.join()
         os.close(renewals)
+
+
+def _keep(entry, stop):
+    """Until `stop`, a login a harness rereads, lent with any time left, is renewed before it lapses
+    (`usage._keep_login`), from now: a machine's prepare can take longer than the login has, and
+    `_following` sends what this renews as soon as the turn's connection opens. A thread of its own,
+    never joined: a renewal takes seconds, which the follower has not got and no turn's end waits."""
+    def keep():
+        from . import usage    # here, not at the top: usage reaches this module through the worker
+        while True:
+            try:
+                usage._probe_gently(config.load(), entry["provider"])
+            except (OSError, ValueError, subprocess.SubprocessError, config.Error):
+                pass
+            if stop.wait(KEEP_EVERY):
+                return
+
+    if _rereads(entry["harness"]):
+        threading.Thread(target=keep, daemon=True).start()
 
 
 def _lend(entry, adapter, env, home, lasting=LENT_FOR):
