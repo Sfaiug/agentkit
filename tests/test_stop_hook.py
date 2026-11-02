@@ -21,6 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from agentkit import config, host, job as jobs, menu, notify, orch, watch
 from fixtures.seats import chat
 

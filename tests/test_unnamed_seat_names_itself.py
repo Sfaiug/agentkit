@@ -9,11 +9,14 @@ adapters and a throwaway HOME; the hook runs as its harness runs it, JSON on std
 
 import json
 import os
+from pathlib import Path
 import subprocess
+import sys
 import time
 import unittest
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import REPO, Sandbox
 from fixtures.seats import chat, cursor_row
 from agentkit import config, menu, notify, orch, watch
