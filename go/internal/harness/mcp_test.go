@@ -98,6 +98,7 @@ func TestCodexWritesWhatPythonWrites(t *testing.T) {
 		{name: "line ends read as Python reads them", before: text("x = 1\r\n\r\n" + strings.ReplaceAll(testBlock, "\n", "\r\n")), done: "already registered in PATH", unchanged: true},
 		{name: "a comment quoting a marker is no block", before: text("# see " + codexBegin + "\n"), done: "registered in PATH", to: "# see " + codexBegin + "\n\n" + testBlock},
 		{name: "not TOML", before: text("x = = 1\n"), why: "PATH is not valid TOML, so nothing was changed: Invalid value (at line 1, column 5)", unchanged: true},
+		{name: "not TOML, in tomllib's words", before: text("[mcp_servers.acme]\n[mcp_servers.acme]\n"), why: "PATH is not valid TOML, so nothing was changed: Cannot declare ('mcp_servers', 'acme') twice (at line 2, column 18)", unchanged: true},
 		{name: "half a block", before: text(codexBegin + "\n"), why: half, unchanged: true},
 		{name: "two blocks", before: text(strings.Repeat(codexBegin+"\n"+codexEnd+"\n", 2)), why: half, unchanged: true},
 		{name: "backwards", before: text(codexEnd + "\n" + codexBegin + "\n"), why: half, unchanged: true},
@@ -105,7 +106,8 @@ func TestCodexWritesWhatPythonWrites(t *testing.T) {
 			why: "PATH already defines mcp_servers.browser, mcp_servers.desktop outside the agentkit block; remove those tables and run this again", unchanged: true},
 		{name: "settings inside the block", before: text(codexBegin + "\nmodel = \"x\"\n" + codexEnd + "\n"), why: "registering would change settings outside the agentkit block", unchanged: true},
 		{name: "markers in a string", before: text("x = \"\"\"\n" + codexBegin + "\n" + codexEnd + "\n\"\"\"\n"), why: "PATH: the block did not take effect", unchanged: true},
-		{name: "what cannot hold the block", before: text("mcp_servers = 5\n"), why: "the block this would write does not parse: ", unchanged: true},
+		{name: "what cannot hold the block", before: text("mcp_servers = 5\n"), why: "the block this would write does not parse: Cannot overwrite a value (at line 4, column 21)", unchanged: true},
+		{name: "an inline table of servers", before: text("mcp_servers = { acme = { url = \"x\" } }\n"), why: "the block this would write does not parse: Cannot declare ('mcp_servers', 'browser') twice (at line 4, column 21)", unchanged: true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			done, why, after := registered(t, "codex", filepath.Join(".codex", "config.toml"), c.before)
