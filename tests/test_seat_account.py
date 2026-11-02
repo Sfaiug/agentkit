@@ -895,6 +895,8 @@ print(json.dumps({"login": json.loads((home / "auth.json").read_text()), "args":
         self.assertEqual(self.answer()["word"], "done")
         self.assertIsNone(watch.seat_read(NAME).get("usage_wait"))
         config.stop_path(NAME).write_text(json.dumps({"turn": time.time() + 10}))
+        self.tick()
+        self.assertEqual(self.answer()["word"], "out of usage")
         self.pane = "Usage limit reached"
         self.tick()
         self.assertEqual(self.answer()["word"], "out of usage")

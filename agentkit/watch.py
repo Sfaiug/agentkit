@@ -2831,14 +2831,14 @@ def work_live(name):
     return "your plan is done and its changes are live"
 
 
-def done_resting(name, continuing=False, records=None, mine=None):
+def done_resting(name, records=None, mine=None):
     """Is that seat's plan finished, with no undecided run and no turn the owner began since?"""
     from . import menu as menu_mod, plan as plan_mod
-    if not plan_mod.finished(name):
+    if not plan_mod.finished(name) or config.name_owed(name):
         return False
     done_at = plan_mod.path(name).stat().st_mtime
-    said = notify.owner_said(name) if continuing else None
-    if continuing and (any(at > done_at for at in said) if said else prompted_since(name, done_at)):
+    said = notify.owner_said(name)
+    if any(at > done_at for at in said) if said else prompted_since(name, done_at):
         return False
     records = menu_mod.run_records() if records is None and mine is None else records
     mine = own_runs(name, records) if mine is None else mine
@@ -2969,7 +2969,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
 
     def usage():
         """3b. its subscription ran out and ak resumes it, or moves it to another account"""
-        if waiting and not done_resting(name, bool(waiting.get("continue")), records, mine):
+        if waiting and not done_resting(name, records, mine):
             until = waiting.get("until")
             return {"word": "out of usage" if until else "working", "reason": waiting["reason"],
                     "since": waiting["since"], "resumes_at": until}
@@ -2983,7 +2983,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         if (error and not gone and not session.get("legacy")
                 and not seat_closed_by_owner(name) and not stall.get("told")
                 and not (seat_read(name).get("usage_refusal") or {}).get("told")
-                and not done_resting(name, True, records, mine)):
+                and not done_resting(name, records, mine)):
             return {"word": "working", "reason": f"retrying: {error}",
                     "since": found.get("began")}
 
@@ -4969,12 +4969,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         if ended:
             refusal, outcome, line = True, SPENT, f"wrap_up {ended}"
     now = time.time()
-    flight, began = _turn_in_flight(harness, live)
-    own_turn = (flight and not refusal and waiting is not None
-                and isinstance(began, (int, float)) and began > waiting["since"])
-    continuing = bool((waiting or {}).get("continue") or refusal
-                      or flight and not own_turn or limit_ended(harness, name))
-    if done_resting(name, continuing):
+    if done_resting(name):
         if waiting and not dry_run:
             seat_write(name, usage_wait=None)
         return bool(waiting or refusal or spent(current))
@@ -5085,6 +5080,13 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         if refusal:
             observed = {"line": line, "at": now, "handled": True}
             seat_write(name, usage_refusal=observed)
+        # A turn begun since the wait and not refused is the owner's, answered by its account:
+        # no limit cut it, so it is never continued, reopened under or typed into.
+        flight, began = _turn_in_flight(harness, live)
+        own_turn = (flight and not refusal and waiting is not None
+                    and isinstance(began, (int, float)) and began > waiting["since"])
+        continuing = bool((waiting or {}).get("continue") or refusal
+                          or flight and not own_turn or limit_ended(harness, name))
         if target is not None:
             if own_turn:
                 if target == current:
@@ -5323,12 +5325,14 @@ def health(cfg, state, dry_run, log):
             if owner_question(notice):
                 stop_nudge(session, harness, pane, notice, records, dry_run, log)   # its words
                 continue        # an unanswered owner decision is never a reason to type a resume
-            if entry.get("told") or done_resting(name, True, records):
+            if entry.get("told"):
                 continue
             # Its harness's own login words, that login asked this pass and passing: a login that
             # failed and came back is a passing error, typed past once while the words stand,
             # however the screen around them is redrawn.
             if signature and logged_in(harness, state.get("auth_out")):
+                if done_resting(name, records):
+                    continue
                 if entry.get("kind") != "login":
                     entry = stalls[name] = {"kind": "login", "signature": signature, "since": now}
                 if entry.get("nudged_at") or now - entry["since"] < STALL_WAIT:
@@ -5378,6 +5382,8 @@ def health(cfg, state, dry_run, log):
                             log(f"{name}: no progress for an hour; asked the user")
                         else:
                             log(f"WARN {name}: notification was not accepted; retry required")
+                continue
+            if done_resting(name, records):
                 continue
             if entry.get("kind"):
                 stalls.pop(name)    # a quiet or login episode is over; this stall is a new one
