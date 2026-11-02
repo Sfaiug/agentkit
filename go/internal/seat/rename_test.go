@@ -164,26 +164,41 @@ func TestRenameThatMovesNothing(t *testing.T) {
 	}
 }
 
-// A record and a run written after the look are carried as they stand, not as they were looked at.
-func TestRenameCarriesWhatArrivedAfterItsLook(t *testing.T) {
+// A run launched after the look names the old name too.
+func TestRenameCarriesARunLaunchedAfterItsLook(t *testing.T) {
 	home := sandbox(t)
 	state := filepath.Join(home, ".agentkit", "state")
 	live(t, "acme")
-	held := `{"conversation": "conv-acme", "cwd": "/code/acme-\udcff"}`
-	write(t, filepath.Join(state, "session-acme.json"), held)
+	record(t, home, "acme", nil)
 	runRecord(t, home, "r-late", map[string]any{"state": "running", "launched_session": "acme", "session": "acme"})
-	if err := (carry{state, tmux.Own(), "acme", "beta", false}).do(time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	if got := contents(t, filepath.Join(state, "session-beta.json")); got != held {
-		t.Error(got)
-	}
-	if got, _ := run.ReadJSON(filepath.Join(state, "session-acme.json")); got.Str("renamed") != "beta" {
-		t.Error(run.Line(got))
+	if known, err := (carry{state, tmux.Own(), "acme", "beta", false}).do(time.Now()); !known || err != nil {
+		t.Fatal(known, err)
 	}
 	moved, _ := run.Read(filepath.Join(home, ".agentkit", "runs", "r-late"))
 	if moved.Str("launched_session") != "beta" || moved.Str("session") != "beta" {
 		t.Error(run.Line(moved))
+	}
+}
+
+// A record that came to hold what Go cannot keep after the look is Python's, with nothing moved.
+func TestRenameUndoesTmuxForARecordItCannotKeep(t *testing.T) {
+	home := sandbox(t)
+	state := filepath.Join(home, ".agentkit", "state")
+	live(t, "acme")
+	held := `{"unnamed": true, "conversation": "conv-acme", "cwd": "/code/acme-\udcff"}`
+	write(t, filepath.Join(state, "session-acme.json"), held)
+	write(t, filepath.Join(state, "plan-beta.md"), "- [ ] a gone seat's\n")
+	if known, err := (carry{state, tmux.Own(), "acme", "beta", false}).do(time.Now()); known || err != nil {
+		t.Fatal(known, err)
+	}
+	if got, _ := tmux.Ask(tmux.Own(), "list-sessions", "-F", "#{session_name}"); got != "acme" {
+		t.Errorf("tmux holds %q", got)
+	}
+	if got := contents(t, filepath.Join(state, "session-acme.json")); got != held {
+		t.Error(got)
+	}
+	if exists(filepath.Join(state, "session-beta.json")) || !exists(filepath.Join(state, "plan-beta.md")) {
+		t.Error("something moved")
 	}
 }
 

@@ -31,7 +31,8 @@ var stays = []string{"session", "rulebook", "stop", "live", "launch"}
 // what it says, or false where the rename is Python's.  It is Python's before anything moves where
 // a name's rename chain or record cannot be read, Go cannot keep what the seat's record or
 // watch.json holds, a run the seat launched holds a place in a landing line (run.Lined), or
-// another seat's record holds the name and only Python's listing says whether that seat has a row.
+// another seat's record holds the name and only Python's listing says whether that seat has a row;
+// and where a writer has since left in the record what Go cannot keep, with tmux's rename undone.
 // The harness's own title is left to the next tick (watch.sync_title), which finds it behind the
 // new name.  Everything happens under the locks Python's takes, in its order.
 func Rename(name, given string, auto bool, now time.Time) (string, bool, error) {
@@ -105,13 +106,16 @@ func renaming(state, name, new string, auto bool, now time.Time) (string, bool, 
 	if _, err := run.ReadJSON(filepath.Join(state, "watch.json")); !runsCarry(old) || errors.Is(err, run.ErrLoneSurrogate) {
 		return "", false, nil
 	}
-	return renamed, true, under(filepath.Join(state, "notify-"+old+".lock"), func() error {
+	carried := true
+	err = under(filepath.Join(state, "notify-"+old+".lock"), func() error {
 		// An old name of this seat keeps leading to the lock held above until its record moves
 		// back there: a writer reaching it then takes this lock, and waits for the files to follow.
-		return under(filepath.Join(state, "notify-"+new+".lock"), func() error {
-			return carry{state, server, old, new, target == old}.do(now)
+		return under(filepath.Join(state, "notify-"+new+".lock"), func() (err error) {
+			carried, err = carry{state, server, old, new, target == old}.do(now)
+			return err
 		})
 	})
+	return renamed, carried, err
 }
 
 func spokenFor(name string) Refusal {
@@ -185,23 +189,25 @@ type carry struct {
 	back                    bool
 }
 
-// do moves everything that names the seat, tmux first, as what follows is no use if tmux refuses.
-func (m carry) do(now time.Time) error {
+// do moves everything that names the seat, tmux first, as what follows is no use if tmux refuses;
+// false where the record has come to hold what Go cannot keep, and tmux's rename is undone.
+func (m carry) do(now time.Time) (bool, error) {
 	if err := tmux.Rename(m.server, m.old, m.new); err != nil {
-		return Refusal(fmt.Sprintf("tmux could not rename %s to %s: %v", m.old, m.new, err))
+		return true, Refusal(fmt.Sprintf("tmux could not rename %s to %s: %v", m.old, m.new, err))
+	}
+	if err := m.record(); errors.Is(err, run.ErrLoneSurrogate) {
+		if err := tmux.Rename(m.server, m.new, m.old); err != nil {
+			return true, Refusal(fmt.Sprintf("tmux could not rename %s to %s: %v", m.new, m.old, err))
+		}
+		return false, nil
+	} else if err != nil {
+		return true, err
 	}
 	// New windows get the new name; the running orchestrator follows the pointer.  One that does
 	// not take costs a later window its name, and no more, as Python's.
 	tmux.Ask(m.server, "set-environment", "-t", "="+m.new, "AGENTKIT_SESSION", m.new)
-	if !m.back {
-		// a free name: the plan a gone seat left there, or under a name still leading there, is
-		// not this seat's
-		if err := plan.Forget(m.new); err != nil {
-			return err
-		}
-	}
-	if err := errors.Join(m.record(), m.pointers(), m.files(), m.title(), m.watch(now)); err != nil {
-		return err
+	if err := errors.Join(m.pointers(), m.files(), m.watch(now)); err != nil {
+		return true, err
 	}
 	// Listed now rather than at the look: a run launched since names the old name too.
 	for _, dir := range run.Dirs() {
@@ -219,34 +225,34 @@ func (m carry) do(now time.Time) error {
 		})
 	}
 	m.tell()
-	return nil
+	return true, nil
 }
 
 // path is a file of state/.
 func (m carry) path(file string) string { return filepath.Join(m.state, file) }
 
-// record moves the record to the new name and leaves a pointer at the old (config.rename_session),
-// under both records' locks: a field written to the old one meanwhile moves with it.
+// record moves the record to the new name, titled, and leaves a pointer at the old
+// (config.rename_session), all under both records' locks: a field written to the old one meanwhile
+// moves with it.  What cannot be read is never written over, and its error leaves everything here
+// as it was.
 func (m carry) record() error {
 	was, now := m.path("session-"+m.old+".json"), m.path("session-"+m.new+".json")
 	return under(m.path(".session-"+m.old+".lock"), func() error {
 		return under(m.path(".session-"+m.new+".lock"), func() error {
-			data, err := os.ReadFile(was)
+			record, err := run.ReadJSON(was)
 			if err != nil && !errors.Is(err, fs.ErrNotExist) {
-				return err
+				return fmt.Errorf("%s: %w", was, err)
 			}
-			var record *run.Object
-			if err == nil {
-				// Only read, as the bytes move as they are: a writer since the look may have left
-				// what Go cannot keep.  What cannot be read at all is never written over.
-				value, err := run.DecodeShown(data)
-				if err != nil {
-					return fmt.Errorf("%s: %w", was, err)
+			if !m.back {
+				// a free name: the plan a gone seat left there, or under a name still leading
+				// there, is not this seat's
+				if err := plan.Forget(m.new); err != nil {
+					return err
 				}
-				record, _ = value.(*run.Object)
 			}
 			if record != nil && !record.Has(config.Renamed) {
-				if err := replace(now, data); err != nil {
+				titled(record, m.new)
+				if err := replace(now, []byte(run.Encode(record)+"\n")); err != nil {
 					return err
 				}
 			} else if m.back { // a seat with no record leaves no pointer to its own name
@@ -323,47 +329,34 @@ func (m carry) files() error {
 	return errors.Join(failed...)
 }
 
-// title changes the record under its new name.  One a writer since the look left holding what Go
-// cannot keep stays as it is: the seat has its name, and only the title's bookkeeping and an
-// `unnamed` wait for Python's next write of it.
-func (m carry) title() error {
-	if err := update(m.state, m.new, titled(m.new)); !errors.Is(err, run.ErrLoneSurrogate) {
-		return err
-	}
-	return nil
-}
-
 // titled is what a rename changes in the record under its new name (watch.title_record): named now;
 // a send for a conversation since replaced retired, and one in flight kept as an echo of a title
 // ak set, since its line can be sent or recorded later, after a newer title is confirmed.
-func titled(new string) func(*run.Object) bool {
-	return func(data *run.Object) bool {
-		data.Delete("unnamed")
-		conversation := data.Get("conversation")
-		if data.Has("title_conversation") && !run.Equal(data.Get("title_conversation"), conversation) {
-			data.Delete("title_sync")
-			data.Delete("title_superseded")
+func titled(data *run.Object, new string) {
+	data.Delete("unnamed")
+	conversation := data.Get("conversation")
+	if data.Has("title_conversation") && !run.Equal(data.Get("title_conversation"), conversation) {
+		data.Delete("title_sync")
+		data.Delete("title_superseded")
+	}
+	var echoes []string
+	for _, each := range data.List("title_superseded") {
+		if echo, isText := each.(string); isText && echo != new {
+			echoes = append(echoes, echo)
 		}
-		var echoes []string
-		for _, each := range data.List("title_superseded") {
-			if echo, isText := each.(string); isText && echo != new {
-				echoes = append(echoes, echo)
-			}
-		}
-		if pending := data.Dict("title_sync"); pending != nil && pending.Truthy("tries") && pending.Str("name") != new {
-			echoes = append(echoes, pending.Str("name"))
-		}
-		if len(echoes) > 0 {
-			data.Set("title_superseded", modelList(slices.Compact(slices.Sorted(slices.Values(echoes)))))
-		} else {
-			data.Delete("title_superseded")
-		}
-		if conversation != nil {
-			data.Set("title_conversation", conversation)
-		} else {
-			data.Delete("title_conversation")
-		}
-		return true
+	}
+	if pending := data.Dict("title_sync"); pending != nil && pending.Truthy("tries") && pending.Str("name") != new {
+		echoes = append(echoes, pending.Str("name"))
+	}
+	if len(echoes) > 0 {
+		data.Set("title_superseded", modelList(slices.Compact(slices.Sorted(slices.Values(echoes)))))
+	} else {
+		data.Delete("title_superseded")
+	}
+	if conversation != nil {
+		data.Set("title_conversation", conversation)
+	} else {
+		data.Delete("title_conversation")
 	}
 }
 
