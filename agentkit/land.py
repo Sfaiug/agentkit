@@ -654,7 +654,8 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
     log_path.write_text(text)
     if not moved:
         # a pinned piece passing ran just `only` of its tests, and without them, none it names
-        _flaked(config.RUNS / wait["line"], directory, state, scratch, identity["tree_sha"], log_path, log, flaky,
+        _flaked(config.RUNS / wait["line"], directory, state, scratch, identity["tree_sha"],
+                log_path, log, flaky,
                 {cmd: [test for tests in confirmed.get(cmd, {}).values() for test in tests]
                  for cmd in cmds},
                 {cmd: only if shard else None for cmd, mark in zip(cmds, marks)
@@ -773,8 +774,7 @@ def _check_tests(directory, state, scratch, tree, command, piece, tests, log):
 
 def _check_tree(directory, state, scratch, tree, checks, log, suite):
     log_path = directory / f"lander-{tree}.log"
-    ok, text, red = _check(directory, state, scratch, list(checks), log_path, log,
-                           suite=suite)
+    ok, text, red = _check(directory, state, scratch, list(checks), log_path, log, suite=suite)
     if red.get("short"):
         log(f"AK_SHARD={red['piece']} of {directory.name}'s tree ran out of memory again, run "
             "alone: nobody is blamed; the next pass checks it again")

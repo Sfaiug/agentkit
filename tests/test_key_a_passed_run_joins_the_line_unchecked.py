@@ -2,9 +2,9 @@
 the line's check is the one check of its tree before it merges.
 
 A run passing review waits in the line with no `landing` row of its own before the line's check
-of its tree, which leaves that tree's one row, written as it starts; a red the line finds still hands the run a fixer,
-and the run rejoins and merges; a target missing on origin ends the run as a delivery failure,
-never a run waiting in the line.  Black-box: the program `AK_BIN` names runs tasks from outside
+of its tree, which leaves that tree's one row, written as it starts; a red the line finds still
+hands the run a fixer, and the run rejoins and merges; a target missing on origin ends the run as
+a delivery failure, never a run waiting in the line.  Black-box: the program `AK_BIN` names runs tasks from outside
 through tests/fixtures/akbin.py on the project and suite of tests/fixtures/akline.py, unsplit,
 whose line the run starts itself, with harnesses from fakeadapter.py and the GitHub of
 fakegh.py; the ledger is read back from the Home's history.db.

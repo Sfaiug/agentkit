@@ -93,7 +93,7 @@ class FetchRefRace(unittest.TestCase):
             lp.state.update(merged=True) or True))
         config.ensure_dirs()
         self.lp = self.passed_run()
-        # These failures belong to a parked member, after its pre-line verification.
+        # These failures belong to a parked member.
         deliver.join_line(self.lp, "origin/main", lambda: True)
         self.assertIn("line", self.lp.state["waiting_on"])
 
