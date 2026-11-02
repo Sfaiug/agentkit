@@ -1,4 +1,5 @@
-"""Every screen's key line leads the same way, `↑↓←→ move`, then what Space and Enter do where
+"""Every screen's key line leads the same way, `↑↓←→ move` (`↑↓ move   ←→ step` on a row ←/→
+step, pinned by tests/test_key_policy_on_the_c_screen.py), then what Space and Enter do where
 its highlight is.
 
 The walk: `menu.show_config` in a child process on a pty of its own (tests/test_config_matrix.py's

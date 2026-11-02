@@ -87,7 +87,7 @@ POINTS = 10                    # the most `within` can be: past ten, a point say
 CATALOG_TTL = 60               # seconds a harness's model list is reused before it is asked again
 CATALOG_NOW = 0.05             # seconds catalog_now waits on catalog() before the answer it has
 # What a change may spend, each a top-level key of config.toml (`policy`): ak's default, the
-# floor and what the number means.
+# floor, what the number means and the board rows it moves.
 # Owner, 21 Oct 2026: larger first reviews merged less often and broke landing more often,
 # with no saving in tokens per merged line (14-21 Oct); seats failed all rounds about twice
 # as often as workers from the handoff size up, with mostly unrelated context (14 days).
@@ -95,9 +95,10 @@ CATALOG_NOW = 0.05             # seconds catalog_now waits on catalog() before t
 # `transitions.carried_lines`): past the task cap, split it; at the seat limit, write a task.
 POLICY = {
     "rounds": (3, 1, "the review rounds a change has before it goes back to its orchestrator "
-                     "to split or re-scope"),
-    "review_lines": (300, 1, "the most added lines a first review reads"),
-    "seat_lines": (50, 0, "the added lines a seat's own change stays under"),
+                     "to split or re-scope", ("first round", "unmerged", "hours to merge")),
+    "review_lines": (300, 1, "the most added lines a first review reads",
+                     ("first round", "merged")),
+    "seat_lines": (50, 0, "the added lines a seat's own change stays under", ("built",)),
 }
 
 
@@ -386,11 +387,12 @@ def _read_toml(path):
         raise Error(f"{path}: {exc}")
 
 
-def policy():
-    """The POLICY numbers in force on this host: config.toml's own, else ak's defaults."""
+def policy(table=None):
+    """The POLICY numbers in force on this host: config.toml's own, or `table`'s as it would
+    be saved, else ak's defaults."""
     path = HOME / CONFIG_NAME
-    data, numbers = _read_toml(path) or {}, {}
-    for key, (default, floor, meaning) in POLICY.items():
+    data, numbers = (_read_toml(path) or {}) if table is None else table, {}
+    for key, (default, floor, meaning, _) in POLICY.items():
         value = numbers[key] = data.get(key, default)
         if type(value) is not int or value < floor:
             raise Error(f"{path}: {key} must be a whole number of at least {floor}, {meaning} "
@@ -422,12 +424,14 @@ def load():
     tables = ("defaults", "tiers", "models", "providers")
     policy()    # the home file's, whichever file answers for the models
     path = HOME / CONFIG_NAME
-    cfg = _read_toml(path)
+    home = cfg = _read_toml(path)
     if cfg is None or not any(table in cfg for table in tables):
         path = REPO / DEFAULT_CONFIG_NAME
         cfg = _read_toml(path)
         if cfg is None:
             raise Error(f"missing {path}")
+        # the menu shows and saves this table: the home file's numbers stay the host's
+        cfg.update((key, home[key]) for key in POLICY if key in (home or {}))
     for key in ("models", "providers"):
         if not isinstance(cfg.get(key), dict):
             raise Error(f"{path}: missing [{key}] table")

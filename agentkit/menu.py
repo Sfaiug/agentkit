@@ -2790,8 +2790,8 @@ def show_notices(messages):
             message.replace(os.path.expanduser("~") + "/", "~/"), terminal.width() - 1)))
 
 
-# The rows under the models, each running its own step.
-CONFIG_ROWS = ("Models", "Subscriptions", "Discord", "Weekly audit")
+# The rows under the models, each running its own step, then the numbers ←/→ step.
+CONFIG_ROWS = ("Models", "Subscriptions", "Discord", "Weekly audit", *config.POLICY)
 AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (config.audit)
 # What a subscription offers, each where it applies (subscription_acts), and without UTF-8:
 # its meter, on the ak screen and on `c` alike, the first two; its row on `Subscriptions` all.
@@ -3248,6 +3248,19 @@ def config_within(cfg, step):
     return _saved(cfg, cfg, before)
 
 
+def config_number(cfg, name, step):
+    """config.POLICY's `name` one along and saved (_saved), unless config.policy would refuse it
+    so; what to say under the rows, or ""."""
+    value = config.policy(cfg)[name] + step
+    try:
+        config.policy({**cfg, name: value})
+    except config.Error:
+        return ""
+    before = copy.deepcopy(cfg)
+    cfg[name] = value
+    return _saved(cfg, cfg, before)
+
+
 @terminal.clicks_its_own
 def models_screen(cfg, session, selected, providers):
     """`r recommended` on `c`, named as `c`'s other pages are: `config · recommended · <seat>`,
@@ -3442,8 +3455,34 @@ def config_columns(selected, name):
                  if selected and number < 3 or number >= 3 and texts[number - 3] in "●■")
 
 
+def number_rows(numbers, wide, saved, room):
+    """{name: its lines} of each of config.POLICY's `numbers`, its name in `wide` cells: its
+    value, `default N` where that is not ak's default, `saved` where it is the one `saved`, and
+    the board rows it moves, in fixed columns.  Where the widest of those does not fit beside
+    them in `room` cells, each folds under its row, and where those columns do not fit either,
+    so do they, under the name alone; wrapped at words, never cut."""
+    boards = {name: "moves " + ", ".join(moved) for name, (*_, moved) in config.POLICY.items()}
+    widths = [max(len(str(value)) for value in numbers.values()),
+              max(len(f"default {default}") for default, *_ in config.POLICY.values()),
+              len("saved")]
+    taken = 2 + wide + sum(2 + width for width in widths)
+    beside = taken + 2 + max(map(terminal.cells, boards.values())) <= room
+    rows = {}
+    for name, (default, *_) in config.POLICY.items():
+        said = [str(numbers[name]), "" if numbers[name] == default else f"default {default}",
+                "saved" if name == saved else ""]
+        first = [name, *said, *([boards[name]] if beside else [])]
+        rows[name] = ([terminal.table_row(first, [wide, *widths, room - taken - 2], indent="  ")]
+                      if taken <= room else
+                      ["  " + terminal.cut(name, room - 2),
+                       *("    " + part for part in terminal.wrap(" ".join(said), room - 4))])
+        rows[name] += [] if beside else [
+            "    " + part for part in terminal.wrap(boards[name], room - 4)]
+    return rows
+
+
 def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=None, subs=(),
-                lit=None, scope=None, rows=CONFIG_ROWS):
+                lit=None, scope=None, rows=CONFIG_ROWS, saved=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
     Every offered model once, under its harness's name (model_heading), a line each: label,
@@ -3458,7 +3497,9 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     `lit`, from 1, of `subs` (`usage_rows`) has its label in that company's colour, which the
     clock washes in and out as `lit` comes and goes (motion.washing).  Then `Models`,
     `Subscriptions`, `Discord` and `Weekly audit` with
-    their values, unless `rows` is empty (a new session's screen). A row is `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that
+    their values and each number of config.POLICY (number_rows), `at`'s opening the line of what
+    it means under it, and `moves` handed how its value nudges once a step was refused, unless
+    `rows` is empty (a new session's screen). A row is `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
     the cell on it the keys act on.  `cells` are a model row's (first, last, column), -1 its
     label, for a click, counted from 1 as the terminal counts. On a phone the cells give way,
@@ -3562,7 +3603,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     lines.append("")
     values = ("", "", discord_value(), audit_value(cfg))
     # the values line up past the widest row that has one
-    wide = max(terminal.cells(row) for row, value in zip(CONFIG_ROWS, values) if value)
+    wide = max(terminal.cells(row) for row in CONFIG_ROWS[2:])
     for row, value in zip(CONFIG_ROWS, values):
         # the value wraps at a word under itself, never cut
         for number, part in enumerate(terminal.wrap(value, room - 2 - wide - 2) or [""]):
@@ -3571,6 +3612,18 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                 "  " + terminal.cut(row, room - 2))
             places[len(lines)] = (("row", row), [])
             lines.append(terminal.highlight(line, number == 0) if at == ("row", row) else line)
+    numbers = config.policy(cfg)      # `values` ends with `Weekly audit`: these have columns
+    for name, parts in number_rows(numbers, wide, saved, room).items():
+        row, value = ("row", name), numbers[name]
+        if moves is not None:
+            moves.append((len(lines), ("number", name), value,
+                          motion.refused(str(value), value, wide + 5, at == row)))
+        for number, part in enumerate(parts):
+            places[len(lines)] = (row, [])
+            lines.append(terminal.highlight(part, number == 0) if at == row else part)
+        for part in terminal.wrap(config.POLICY[name][2], room - 4) if at == row else ():
+            places[len(lines)] = (row, [])
+            lines.append(terminal.styled("    " + part, "dim"))
     return lines, places
 
 
@@ -3856,7 +3909,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     `fresh` window's -- one over no seat -- `a` gives them to every one, once asked
     (apply_defaults).
     ↑/↓, k/j and the wheel move between rows and ←/→ between each mark and the effort beside a
-    marked one (config_columns).  Space on an effort steps that role's alone up,
+    marked one (config_columns), or on a number of config.POLICY step it, saved at once
+    (config_number): its row says `saved` until the next key, and its value nudges where
+    the step was refused.  Space on an effort steps that role's alone up,
     from its highest round to its lowest, as a click on its
     word does, and a click on one of its cells takes that level: each change is saved, to the
     seat's record where it is a seat's (config_effort) -- its orchestrator's moving it, asked
@@ -3884,7 +3939,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     title, scope, under, advice = ("new session", None, (), False) if born else (
         "config", session or NEW_SEATS, CONFIG_ROWS, bool(selected))
     seat = (session, selected) if session or born else None     # whose efforts a step changes
-    here, column, top, clock = None, 0, 0, motion.Clock(page=True)
+    here, column, top, clock, saved = None, 0, 0, motion.Clock(page=True), None
     while True:
         if not session and not born and selected is not None:   # a page that took a model out
             selected.update(copy.deepcopy(cfg["defaults"]))      # moved them
@@ -3899,19 +3954,21 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         columns = config_columns(selected, here[1]) if here[0] == "model" else ()
         if here[0] == "model" and column not in columns:      # no effort here: onto its mark
             column = column - 3 if column - 3 in columns else columns[0]
-        opens = here[0] in ("row", "usage")       # else a mark or an effort, changed in place
+        stepped = here[0] == "row" and here[1] in config.POLICY     # ←/→ change it in place
+        # else a mark or an effort, changed in place
+        opens = here[0] in ("row", "usage") and not stepped
         # a meter that offers nothing opens no list (meter_acts)
         shut = here[0] == "usage" and not subscription_acts(cfg, keyboard, here[1])
         keys = terminal.keys(*([ADVICE_KEY] if advice else []),
-                             *([APPLY_KEY] if fresh else []), "esc back",
-                             space=None if opens else "mark" if column < 3 else "step",
+                             *([APPLY_KEY] if fresh else []), "esc back", steps=stepped,
+                             space=None if opens or stepped else "mark" if column < 3 else "step",
                              enter=None if shut else "open" if opens else "start" if born else None)
         # each meter's cells, on the lines over the page counted back from it, washing in and out
         moves = [(line - len(over), ("sub", number), number == lit,
                   motion.washing([(column, text, rest)], colour(cfg, subs[number - 1][0])))
                  for number, took in spans.items() for line, column, text, rest in took]
         body, places = config_body(cfg, None if terminal.away() else here, column,
-                                   selected, providers, moves, subs, lit, scope, under)
+                                   selected, providers, moves, subs, lit, scope, under, saved)
         # agentkit's build, read under the page so every page shows it, and what was said under it
         told = "\n".join(filter(None, (f"Version {version or '?'}", note or standing)))
         over, meters, body, places, moves = meters_led((over, meters), body, places,
@@ -3923,7 +3980,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         column = column if clicked is None else clicked
         if act is None:
             continue                  # a resize or the pointer: drawn again
-        note = ""
+        note, saved = "", None
 
         def around(card, keys):   # the matrix laid out at this draw's size, the question under it
             over, _, body, places, _ = meters_led(config_meters(cfg), *config_body(
@@ -3954,6 +4011,15 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         elif here == ("row", CONFIG_ROWS[1]):
             if act == "enter":
                 config_subscriptions(cfg, keyboard)
+        elif here[0] == "row" and here[1] in config.POLICY:
+            # unseen, the key only brings the highlight back
+            if act in ("left", "right") and not terminal.unseen():
+                was = config.policy(cfg)[here[1]]
+                note = config_number(cfg, here[1], 1 if act == "right" else -1)
+                if config.policy(cfg)[here[1]] == was:
+                    clock.touch(("number", here[1]))   # refused, at an end or unsaved
+                else:
+                    saved = here[1]
         elif here[0] == "row":
             if act == "enter":
                 if here == AUDIT:
