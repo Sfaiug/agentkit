@@ -860,7 +860,7 @@ else
   # seats that reached 1844 and runs that reached 3672), growing on a larger host, where a
   # per-core count would silently shrink the slice on a small one.  CPU weight yields to other
   # work under contention while letting ak use every idle core.
-  unit_tasks=8%
+  unit_tasks=8% unit_memory=90% unit_cpu=40
   if sudo -n mkdir -p -- "${UNIT_LIMITS%/*}" 2>/dev/null &&
      sudo -n tee "$UNIT_LIMITS" >/dev/null 2>/dev/null <<EOF
 # Written by agentkit's install.sh: the ceiling over the slice, for user@$(id -u).service.
@@ -868,14 +868,20 @@ else
 # by itself.  The slice's slice_* pins hold slice values still; this ceiling always follows.
 [Service]
 TasksMax=$unit_tasks
-MemoryMax=90%
-CPUWeight=40
+MemoryMax=$unit_memory
+CPUWeight=$unit_cpu
 OOMPolicy=continue
 EOF
   then
     sudo -n systemctl daemon-reload 2>/dev/null ||
       note "run \`sudo systemctl daemon-reload\` to pick up $UNIT_LIMITS"
-    echo "user-unit: $UNIT_LIMITS caps user@$(id -u).service at $unit_tasks tasks and 90% of memory; CPU yields to other work"
+    # A reload changes what systemd says of this running unit, not what the kernel holds it to
+    # (2 Nov 2026: 8% read 10201 while the kernel kept 5100, under a slice of 7650, and runs capped
+    # near it), so the manager already running is told too, until the next boot reads the file.
+    unit_now="TasksMax=$unit_tasks MemoryMax=$unit_memory CPUWeight=$unit_cpu"
+    sudo -n systemctl set-property --runtime "user@$(id -u).service" $unit_now 2>/dev/null ||
+      note "run \`sudo systemctl set-property --runtime user@$(id -u).service $unit_now\` to apply the ceiling"
+    echo "user-unit: $UNIT_LIMITS caps user@$(id -u).service at $unit_tasks tasks and $unit_memory of memory; CPU yields to other work"
   else
     note "user-unit: $UNIT_LIMITS could not be written; run \`sudo -v\` and re-run ./install.sh"
   fi
