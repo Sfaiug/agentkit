@@ -1,11 +1,12 @@
-"""A Claude seat refused by any usage limit reads `out of usage`, whatever words the refusal uses.
+"""A Claude seat refused by any usage limit reads `out of usage`, whatever words the refusal uses,
+and a seat with nothing to continue keeps its own word while that usage is gone.
 
 Seen on 31 Oct 2026 with Claude Code 2.1.314: `You've hit your 5-hour limit` was in no list, so a
-refused seat read `done` off its finished plan and nothing resumed it.  Three seats on one
-subscription, each with a finished plan: the refusal's typed kind says so in any words, its usual
-opening says so with no kind, and a conversation ending on an answer was refused nothing.
-Black-box against `AK_BIN`, as tests/test_key_idle_seat_holds_no_memory.py; conversations have
-the shape Claude Code writes, under invented ids, and no provider is reached.
+refused seat read `done` off its finished plan and nothing resumed it.  The refusal's typed kind
+says so in any words and its usual opening says so with no kind.  The owner, 2 Nov 2026: "Out of
+usage should be when there is no more usage from the provider to continue."  Black-box against
+`AK_BIN`, as tests/test_key_idle_seat_holds_no_memory.py; conversations have the shape Claude Code
+writes, under invented ids, and no provider is reached.
 """
 
 import json
@@ -31,19 +32,18 @@ def entry(text, **fields):
             "message": {"role": "assistant", "content": [{"type": "text", "text": text}]}}
 
 
-# what each seat's conversation ends on, and the word that makes it.  `answered` sorts first, and
-# must: a tick looks at seats in name order, and a refusal marks the subscription spent, which
-# reads `out of usage` on every seat looked at from then on (tests/test_seat_account.py).
-ENDS = {"typed": (entry("Back after a little rest", isApiErrorMessage=True,
-                        apiError="usage_limit_reached"), "out of usage"),
-        "worded": (entry("You've hit your 5-hour limit · resets 4:10am (Europe/Berlin)",
-                         isApiErrorMessage=True), "out of usage"),
-        "answered": (entry("Shipped it."), "done")}
+ANSWER = entry("Shipped it.")
+TYPED = entry("Back after a little rest", isApiErrorMessage=True, apiError="usage_limit_reached")
+WORDED = entry("You've hit your 5-hour limit · resets 4:10am (Europe/Berlin)",
+               isApiErrorMessage=True)
+FINISHED, OWING = "- [x] Shipped it\n", "- [x] Shipped it\n- [ ] Ship the rest\n"
 
 
 @unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class LimitInAnyWords(unittest.TestCase):
-    def test_each_seat_reads_what_its_conversation_ended_on(self):
+    def words(self, seats, ticks=1):
+        """Each seat's word after `ticks` ticks, on one subscription; `seats` gives each name what
+        its conversation ends on and its plan."""
         home = Home()
         self.addCleanup(home.close)
         with socket.socket() as probe:     # a port nobody listens on: the tick reaches no board
@@ -53,9 +53,9 @@ class LimitInAnyWords(unittest.TestCase):
         home.write(".agentkit/state/gc.json", {"started_at": time.time()})
         fakeadapter.install(home, claude="pass")
         hooks = Hooks(home)
-        for name, (end, _) in ENDS.items():
+        for name, (end, plan) in seats.items():
             seat = Seat(home, name)
-            home.write(f".agentkit/state/plan-{name}.md", "- [x] Shipped it\n")
+            home.write(f".agentkit/state/plan-{name}.md", plan)
             said = [{"type": "user", "message": {"role": "user", "content": "go"}}, end]
             folder = re.sub(r"[^A-Za-z0-9]", "-", str(seat.cwd))
             home.write(f".claude/projects/{folder}/conv-{name}.jsonl",
@@ -64,13 +64,31 @@ class LimitInAnyWords(unittest.TestCase):
             hooks.fire("Stop", {"background_tasks": [], "transcript_path": "",
                                 "last_assistant_message": "Done."}, seat=name, pane=seat,
                        finished=True)
-        done = home.ak("watch", boxed=True, env={"AK_HOST_READINGS": json.dumps(FINE)})
-        self.assertEqual(done.code, 0, done.out + done.err)
-        for name, (_, word) in ENDS.items():
-            with self.subTest(name):
-                why = home.ak("orch", "why", name)
-                self.assertEqual(why.code, 0, why.err)
-                self.assertEqual(why.out.splitlines()[0].split(None, 1)[1], word, why.out)
+        for _ in range(ticks):
+            done = home.ak("watch", boxed=True, env={"AK_HOST_READINGS": json.dumps(FINE)})
+            self.assertEqual(done.code, 0, done.out + done.err)
+        words = {}
+        for name in seats:
+            why = home.ak("orch", "why", name)
+            self.assertEqual(why.code, 0, why.err)
+            words[name] = why.out.splitlines()[0].split(None, 1)[1]
+        return words
+
+    def test_a_refusal_reads_out_of_usage_in_any_words(self):
+        # A home each: one refusal spends the subscription for every seat after it.
+        for end in (TYPED, WORDED):
+            with self.subTest(end["message"]["content"][0]["text"]):
+                self.assertEqual(self.words({"refused": (end, FINISHED)}),
+                                 {"refused": "out of usage"})
+
+    def test_a_conversation_ending_on_an_answer_was_refused_nothing(self):
+        self.assertEqual(self.words({"answered": (ANSWER, FINISHED)}), {"answered": "done"})
+
+    def test_out_of_usage_is_for_a_seat_with_something_to_continue(self):
+        # Two ticks, so that each is looked at once the refusal has spent the subscription.
+        self.assertEqual(self.words({"refused": (TYPED, FINISHED), "finished": (ANSWER, FINISHED),
+                                     "owing": (ANSWER, OWING)}, ticks=2),
+                         {"refused": "out of usage", "finished": "done", "owing": "out of usage"})
 
 
 if __name__ == "__main__":

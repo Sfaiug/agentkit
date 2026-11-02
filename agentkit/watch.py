@@ -2938,6 +2938,12 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # A seat waiting for its usage to come back was refused mid-turn: whatever its screen
     # shows, no turn is in flight until ak resumes it (3b).
     waiting = None if gone or seat_closed_by_owner(name) else seat_read(name).get("usage_wait")
+    # One no limit cut off, its work done and live and nothing left to tell it, has nothing the
+    # usage would continue, so it keeps its own word.  The owner, 2 Nov 2026: "Out of usage should
+    # be when there is no more usage from the provider to continue."
+    if (waiting and waiting.get("until") and not waiting.get("continue") and work_live(name)
+            and not news_owed(name, mine, bool(found.get("authority")))):
+        waiting = None
     if harness and not gone and found.get("state") == "asking":
         asked = " ".join(str(found.get("evidence") or "").split())
         return {"word": "needs you", "reason": asked or "waiting for you",
