@@ -636,10 +636,11 @@ def verify_work(lp, cmds=None):
 
 def round_suite(lp, ref=None):
     """The target's `tests:` suite, at `ref` or else as last fetched, where this run lands and
-    it names `AK_CHANGED`, which opts it into every round (`affected_suite`); else None.  Read
-    off the target each time, as a sibling can change the line mid-run."""
+    it names `AK_CHANGED`, which opts it into every round (`affected_suite`); else None, and
+    None while the run is `landing`, whose landing check runs the suite whole.  Read off the
+    target each time, as a sibling can change the line mid-run."""
     from . import gate  # here, not at the top: gate reaches run
-    landing = lp.upstream and not lp.state.get("no_merge")
+    landing = lp.upstream and not lp.state.get("no_merge") and not lp.state.get("landing")
     suite = landing and gitcall.declared_suite(lp.wt, lp.target, ref=ref)
     return suite if suite and gate.names_changed(suite) else None
 

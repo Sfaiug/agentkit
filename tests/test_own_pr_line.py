@@ -26,7 +26,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, deliver, gate, gc, gitcall, hand_in, handback, land, record, run, turns, watch, worker, worktrees
+from agentkit import config, deliver, gc, gitcall, hand_in, handback, land, record, roundloop, run, turns, watch, worker, worktrees
 from fixtures.hand_in import submitting
 from test_lander import LanderFixture, climb_ladder
 
@@ -193,8 +193,9 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         self.commit("fixture removes the finding and leaves wording")
         run.git(self.repo, "push", "origin", self.prs[url]["branch"])
         self.prs[url]["head"] = run.git(self.repo, "rev-parse", "HEAD")
-        with patch.object(run, "fix_own_pr", side_effect=lambda cfg, directory, url, state, opts, log:
-                          self.prs[url]["head"] != state["head_sha"]):
+        self.review(directory, url)
+        land.check_line(self.turn)
+        with patch.object(run, "fix_own_pr", return_value=False):
             state = self.review(directory, url)
         self.assertEqual(state["verdict"], "FAIL")
         current_failure = state["review"]["overridden"]
@@ -213,15 +214,11 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         self.assertTrue(state.get("on_target"))
         self.assertEqual(self.merges, [])
 
-    def test_suite_starts_after_the_review_passes(self):
+    def test_review_round_starts_no_suite(self):
         directory, url = self.own_pr("first", 1)
-        def check(*args, **kw):
-            self.assertEqual(len(self.reviews), 1, "the suite started before review")
-            return self.check(*args, **kw)
-        with patch.object(gitcall, "gh", return_value=(0, "")), \
-                patch.object(gate, "run_done_when", side_effect=check):
+        with patch.object(gitcall, "gh", return_value=(0, "")):
             state = self.review(directory, url)
-        self.assertEqual(len(self.checks), 1)
+        self.assertEqual(self.checks, [], "a review round ran the landing suite")
         self.assertEqual(state["state"], "waiting")
         self.assertIsNone(state["review"]["done_when"])
         self.assertNotIn("final_check", state)
@@ -388,37 +385,12 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(len(state["round_summaries"]), 1)
         self.assertIn("Landing failed", self.reviews[-1])
-        self.assertEqual(len(self.checks), checks + 1, "the fixed tree needs its check before joining")
+        self.assertEqual(len(self.checks), checks, "the seat's next review ran a suite")
         land.check_line(self.turn)
         state = self.review(directory, url)
         self.assertTrue(state["merged"])
         self.assertEqual(len(self.checks), checks + 1)
         self.assertEqual(len(self.reviews), 2)
-
-    def test_a_red_before_joining_gets_a_landing_fix_without_spending_a_round(self):
-        directory, url = self.own_pr("second", 1)
-        self.advance(**{"first.txt": "first\n"})
-
-        def fixed(cfg, directory, url, state, opts, log):
-            self.assertTrue(state["landing_fix"])
-            self.assertEqual(state["landing_reds"], 1)
-            self.assertNotIn("waiting_on", state)
-            self.assertFalse(land.line(self.turn))
-            self.push_fix(url, rename=True)
-            state["delivery_sha"] = self.prs[url]["head"]
-            record.save_state(directory, state)
-            return True
-
-        with patch.object(run, "fix_own_pr", side_effect=fixed) as fixer:
-            state = self.review(directory, url)
-        fixer.assert_called_once()
-        self.assertEqual(state["state"], "waiting")
-        self.assertEqual(len(state["round_summaries"]), 1)
-        self.assertEqual(len(self.reviews), 2)
-        checks = len(self.checks)
-        land.check_line(self.turn)
-        self.assertTrue(self.review(directory, url)["merged"])
-        self.assertEqual(len(self.checks), checks)
 
     def test_a_changed_target_keeps_its_place_and_checks_the_new_tree(self):
         directory, url = self.own_pr("first", 1)
@@ -441,7 +413,6 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         self.review(directory, url)
         self.advance()
         land.check_line(self.turn)
-        checks = len(self.checks)
         self.push_fix(url)
         newest = self.prs[url]["head"]
         state = self.review(directory, url)
@@ -449,7 +420,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         self.assertEqual(state["head_sha"], newest)
         self.assertEqual(run.git(self.remote, "rev-parse", self.prs[url]["branch"]), newest)
         self.assertEqual(len(self.reviews), 2)
-        self.assertEqual(len(self.checks), checks + 1)
+        self.assertEqual(len(self.checks), 1)
         self.assertEqual(self.merges, [])
 
     def test_a_head_pushed_while_waiting_for_the_lander_is_reviewed_before_any_check(self):
@@ -525,12 +496,22 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         self.assertEqual(len(self.checks), checks)
         self.assertEqual(len(self.reviews), 1)
 
-    def test_killed_in_the_landing_suite_after_its_rebase_lands_on_resume(self):
-        directory, url = self.own_pr("first", 1)
+    def killed_after_its_rebase(self, directory, url):
+        """Review the PR onto a moved target, the run killed once its rebase is done."""
         self.advance()
-        with patch.object(deliver.landing, "_check_tree", side_effect=InterruptedError("killed in the suite")):
+        rebase = roundloop.integrate
+
+        def killed(lp, upstream):
+            rebase(lp, upstream)
+            raise InterruptedError("killed after its rebase")
+
+        with patch.object(roundloop, "integrate", side_effect=killed):
             with self.assertRaises(InterruptedError):
                 self.review(directory, url)
+
+    def test_killed_after_its_rebase_lands_on_resume(self):
+        directory, url = self.own_pr("first", 1)
+        self.killed_after_its_rebase(directory, url)
         land.check_line(self.turn)
         self.review(directory, url)
         land.check_line(self.turn)
@@ -539,10 +520,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
 
     def test_a_receipt_from_before_integrated_resumes_on_its_rebased_commit(self):
         directory, url = self.own_pr("first", 1)
-        self.advance()
-        with patch.object(deliver.landing, "_check_tree", side_effect=InterruptedError("killed in the suite")):
-            with self.assertRaises(InterruptedError):
-                self.review(directory, url)
+        self.killed_after_its_rebase(directory, url)
         state = record.read_state(directory)
         self.assertNotEqual(state.pop("integrated")["to"], state["head_sha"])
         record.save_state(directory, state)

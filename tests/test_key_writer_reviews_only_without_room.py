@@ -120,15 +120,15 @@ class ShortageEndsBeforeReview(unittest.TestCase):
 
 
 class ResumeAfterPassedReview(unittest.TestCase):
-    """opus reviews its own work while astra is spent, and it passes; the run is cut off in
-    its landing suite.  Resumed once astra's window reset, the suite is red, and the fix's
-    re-review is astra's."""
+    """opus reviews its own work while astra is spent, and it passes; the line's check of it
+    is cut off.  Checked again once astra's window reset, the suite is red, and the fix's
+    re-review on the run's resume is astra's."""
 
     @classmethod
     def setUpClass(cls):
         over = time.time() + SHORTAGE
-        # the landing suite holds the work until the run is cut off, then judges it: a check
-        # reads HOME as it was when its box was built
+        # the line's suite holds the work until it is cut off, then judges it: a check reads
+        # HOME as it was when its box was built
         suite = ("if [ -f $HOME/cut ]; then test ! -f bad.txt; "
                  "else until [ -f $HOME/cut ]; do sleep 0.1; done; false; fi")
         work = {**fakeadapter.WORK, "write": {"retry.txt": "hello\n", "bad.txt": "stale\n"}}
@@ -156,15 +156,19 @@ class ResumeAfterPassedReview(unittest.TestCase):
         first.join()
         home.write("cut", "")
         until_true(lambda: time.time() > over + 1)
-        cls.resumed = home.ak("run", "resume", cls.run_dir.name, timeout=300)
+        cls.checked = home.ak("run", "--lander", cls.landing["waiting_on"]["line"], timeout=300)
+        # the red wakes the run, which the line checks again once fixed, then merges
+        until_true(lambda: record(cls.run_dir).get("state") not in ("waiting", "running",
+                                                                    "queued"), bound=300)
         cls.state = record(cls.run_dir)
 
-    def test_the_writer_reviewed_it_and_it_passed_before_the_cut(self):
+    def test_the_writer_reviewed_it_and_it_passed_before_the_cut_in_line(self):
         self.assertEqual(self.landing["round_summaries"][-1]["verdict"], "PASS")
         self.assertEqual(self.landing["review"]["reviewer"], "opus")
+        self.assertEqual(self.landing["state"], "waiting")
 
     def test_the_landing_fix_is_re_reviewed_by_the_reviewer_with_room(self):
-        self.assertEqual(self.resumed.code, 0, self.resumed.out + self.resumed.err)
+        self.assertEqual(self.checked.code, 0, self.checked.out + self.checked.err)
         self.assertEqual(roles(self.fakes["claude"]), ["executor", "reviewer", "fixer"])
         self.assertEqual(roles(self.fakes["codex"]), ["reviewer"])
         self.assertEqual((self.state["reviewer"], self.state["review"]["reviewer"]),

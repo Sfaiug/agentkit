@@ -7,10 +7,11 @@ cut by that cost.
 
 Black-box through tests/fixtures/akbin.py: two tasks run to the end, one after the other,
 against gitrig.py's origin, fakegh.py's GitHub and fakeadapter.py's harnesses, and each runs
-the repository's suite once, as it lands.  The kernel is the test's.  ak reads its cgroups under AK_CGROUP_ROOT,
-its own named by AK_CGROUP_FILE and holding only the run's loop, and the host has 4100 MiB
-free (AK_HOST_READINGS), so a suite not yet measured, planned at ak's first 410 MiB a piece,
-runs in 10.  Each piece tells the test when it starts and ends, and the test moves that
+the repository's suite once, in its line's check as it lands.  The kernel is the test's.  ak
+reads its cgroups under AK_CGROUP_ROOT, its own named by AK_CGROUP_FILE and holding only the
+line's checker, which starts as ~/.local/bin/ak in a scope of its own, and the host has 4100
+MiB free (AK_HOST_READINGS), so a suite not yet measured, planned at ak's first 410 MiB a
+piece, runs in 10.  Each piece tells the test when it starts and ends, and the test moves that
 cgroup's memory as a kernel does: a piece needs 600 MiB, RAM stops at the cap, what is over
 it goes to swap up to the swap cap, and past both the cgroup runs out.
 """
@@ -20,13 +21,12 @@ import os
 import socket
 import sys
 import threading
-import time
 from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import Home
+from fixtures.akbin import AK, Home
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
@@ -64,6 +64,12 @@ elif verb == "run":
             kernel.connect({address!r})
             kernel.sendall(b"last")
             kernel.recv(1)
+"""
+# The line's checker, started in a scope of its own: the cgroup holds it alone.
+LANDER = """import os, sys
+with open({procs!r}, "w") as procs:
+    procs.write(f"{{os.getpid()}}\\n")
+os.execv({ak!r}, [{ak!r}, *sys.argv[1:]])
 """
 
 
@@ -147,23 +153,14 @@ def passes(case, cap=UNCAPPED, swap_cap=0, helper=False):
         home.env.pop("AK_MAX_RUNS")
     akconfig.write(home, ["opus", "astra"], settings={"suite_helper": "acme-mac"} if helper else None)
     claude = fakeadapter.install(home, claude="work", codex="pass")["claude"]
-    for task, made in enumerate(("retry.txt", "notes.txt"), 1):
-        title = f"Add {made}"
+    home.write(".local/bin/ak", LANDER.format(procs=str(unit / "cgroup.procs"), ak=AK))
+    for made in ("retry.txt", "notes.txt"):
         if helper:
             battery.touch()
-        # The executor's turn waits while the cgroup comes to hold its run's loop alone.
-        claude.behave({"write": {made: "hello\n"}, "commit": f"add {made}", "hand_in": [["done"]],
-                       "sh": f"until [ -e {claude.dir / made} ]; do sleep 0.1; done"})
-        run = home.spawn("run", str(taskfile.write(home, rig.path, title,
-                                                   done_when=(f"test -f {made}",))))
-        deadline = time.monotonic() + 300
-        while claude.n < task:
-            case.assertLess(time.monotonic(), deadline, "the executor's turn never began")
-            time.sleep(0.05)
-        loop = next(path for path in taskfile.runs(home) if path.name.endswith(taskfile.slug(title)))
-        (unit / "cgroup.procs").write_text(f"{json.loads((loop / 'run.json').read_text())['pid']}\n")
-        (claude.dir / made).touch()
-        case.assertEqual(run.wait(timeout=600), 0, home.log(f"spawn-{task}.err").read_text())
+        claude.behave({"write": {made: "hello\n"}, "commit": f"add {made}", "hand_in": [["done"]]})
+        done = home.ak("run", str(taskfile.write(home, rig.path, f"Add {made}",
+                                                 done_when=(f"test -f {made}",))), timeout=600)
+        case.assertEqual(done.code, 0, done.out + done.err)
     return kernel.passes
 
 
