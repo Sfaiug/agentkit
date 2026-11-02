@@ -163,3 +163,41 @@ func TestRenameThatMovesNothing(t *testing.T) {
 		})
 	}
 }
+
+// A record and a run written after the look are carried as they stand, not as they were looked at.
+func TestRenameCarriesWhatArrivedAfterItsLook(t *testing.T) {
+	home := sandbox(t)
+	state := filepath.Join(home, ".agentkit", "state")
+	live(t, "acme")
+	held := `{"conversation": "conv-acme", "cwd": "/code/acme-\udcff"}`
+	write(t, filepath.Join(state, "session-acme.json"), held)
+	runRecord(t, home, "r-late", map[string]any{"state": "running", "launched_session": "acme", "session": "acme"})
+	if err := (carry{state, tmux.Own(), "acme", "beta", false}).do(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got := contents(t, filepath.Join(state, "session-beta.json")); got != held {
+		t.Error(got)
+	}
+	if got, _ := run.ReadJSON(filepath.Join(state, "session-acme.json")); got.Str("renamed") != "beta" {
+		t.Error(run.Line(got))
+	}
+	moved, _ := run.Read(filepath.Join(home, ".agentkit", "runs", "r-late"))
+	if moved.Str("launched_session") != "beta" || moved.Str("session") != "beta" {
+		t.Error(run.Line(moved))
+	}
+}
+
+func TestRenameLeavesARecordItCannotRead(t *testing.T) {
+	home := sandbox(t)
+	state := filepath.Join(home, ".agentkit", "state")
+	write(t, filepath.Join(state, "session-acme.json"), "{broken")
+	if err := (carry{state: state, old: "acme", new: "beta"}).record(); err == nil {
+		t.Error("no error")
+	}
+	if got := contents(t, filepath.Join(state, "session-acme.json")); got != "{broken" {
+		t.Error(got)
+	}
+	if exists(filepath.Join(state, "session-beta.json")) {
+		t.Error("a record was invented")
+	}
+}

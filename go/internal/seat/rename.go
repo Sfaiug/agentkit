@@ -102,15 +102,14 @@ func renaming(state, name, new string, auto bool, now time.Time) (string, bool, 
 			return "", true, Refusal(commandhelp.Quote(new) + " points at another session; pick a name that is not a rename")
 		}
 	}
-	runs, known := namedBy(old)
-	if _, err := run.ReadJSON(filepath.Join(state, "watch.json")); !known || errors.Is(err, run.ErrLoneSurrogate) {
+	if _, err := run.ReadJSON(filepath.Join(state, "watch.json")); !runsCarry(old) || errors.Is(err, run.ErrLoneSurrogate) {
 		return "", false, nil
 	}
 	return renamed, true, under(filepath.Join(state, "notify-"+old+".lock"), func() error {
 		// An old name of this seat keeps leading to the lock held above until its record moves
 		// back there: a writer reaching it then takes this lock, and waits for the files to follow.
 		return under(filepath.Join(state, "notify-"+new+".lock"), func() error {
-			return carry{state, server, old, new, target == old}.do(runs, now)
+			return carry{state, server, old, new, target == old}.do(now)
 		})
 	})
 }
@@ -163,24 +162,21 @@ func claimed(state, name, target string, seats map[string]string) (bool, bool) {
 	return false, false
 }
 
-// namedBy is the directories of the runs that name the seat; false where Python's write of one
-// does more than Change's, or Go cannot read one.
-func namedBy(old string) ([]string, bool) {
-	var dirs []string
+// runsCarry is false where Python's write of a run naming the seat does more than Change's, or Go
+// cannot read a run.
+func runsCarry(old string) bool {
 	for _, dir := range run.Dirs() {
 		record, err := run.Read(dir)
-		if errors.Is(err, run.ErrLoneSurrogate) {
-			return nil, false
+		if errors.Is(err, run.ErrLoneSurrogate) || names(record, old) && run.Lined(record) {
+			return false
 		}
-		if record == nil || record.Get("launched_session") != old && record.Get("session") != old {
-			continue
-		}
-		if run.Lined(record) {
-			return nil, false
-		}
-		dirs = append(dirs, dir)
 	}
-	return dirs, true
+	return true
+}
+
+// names is whether a run's record names the seat.
+func names(record *run.Object, seat string) bool {
+	return record != nil && (record.Get("launched_session") == seat || record.Get("session") == seat)
 }
 
 // A carry is one rename under way: back is a seat renamed to a name it had.
@@ -190,7 +186,7 @@ type carry struct {
 }
 
 // do moves everything that names the seat, tmux first, as what follows is no use if tmux refuses.
-func (m carry) do(runs []string, now time.Time) error {
+func (m carry) do(now time.Time) error {
 	if err := tmux.Rename(m.server, m.old, m.new); err != nil {
 		return Refusal(fmt.Sprintf("tmux could not rename %s to %s: %v", m.old, m.new, err))
 	}
@@ -204,10 +200,14 @@ func (m carry) do(runs []string, now time.Time) error {
 			return err
 		}
 	}
-	if err := errors.Join(m.record(), m.pointers(), m.files(), update(m.state, m.new, titled(m.new)), m.watch(now)); err != nil {
+	if err := errors.Join(m.record(), m.pointers(), m.files(), m.title(), m.watch(now)); err != nil {
 		return err
 	}
-	for _, dir := range runs {
+	// Listed now rather than at the look: a run launched since names the old name too.
+	for _, dir := range run.Dirs() {
+		if record, _ := run.Read(dir); !names(record, m.old) {
+			continue
+		}
 		// A record that cannot be written keeps the old name, which leads here.
 		run.Change(dir, func(record *run.Object) error {
 			for _, key := range []string{"launched_session", "session"} {
@@ -231,9 +231,21 @@ func (m carry) record() error {
 	was, now := m.path("session-"+m.old+".json"), m.path("session-"+m.new+".json")
 	return under(m.path(".session-"+m.old+".lock"), func() error {
 		return under(m.path(".session-"+m.new+".lock"), func() error {
-			data, _ := os.ReadFile(was)
-			value, _ := run.Decode(data)
-			if record, _ := value.(*run.Object); record != nil && !record.Has(config.Renamed) {
+			data, err := os.ReadFile(was)
+			if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+			var record *run.Object
+			if err == nil {
+				// Only read, as the bytes move as they are: a writer since the look may have left
+				// what Go cannot keep.  What cannot be read at all is never written over.
+				value, err := run.DecodeShown(data)
+				if err != nil {
+					return fmt.Errorf("%s: %w", was, err)
+				}
+				record, _ = value.(*run.Object)
+			}
+			if record != nil && !record.Has(config.Renamed) {
 				if err := replace(now, data); err != nil {
 					return err
 				}
@@ -309,6 +321,16 @@ func (m carry) files() error {
 		}
 	}
 	return errors.Join(failed...)
+}
+
+// title changes the record under its new name.  One a writer since the look left holding what Go
+// cannot keep stays as it is: the seat has its name, and only the title's bookkeeping and an
+// `unnamed` wait for Python's next write of it.
+func (m carry) title() error {
+	if err := update(m.state, m.new, titled(m.new)); !errors.Is(err, run.ErrLoneSurrogate) {
+		return err
+	}
+	return nil
 }
 
 // titled is what a rename changes in the record under its new name (watch.title_record): named now;
