@@ -44,8 +44,9 @@ LISTED = [{"id": id, "name": f"acme-{id}", "labels": labels, "machineType": mach
 @unittest.skipUnless(boxable() and shutil.which("ssh-keygen"), "no bwrap boxing a tick or ssh-keygen")
 class GoogleRentsWhereQuotaIsLeft(unittest.TestCase):
     def rent(self, buckets, quotas):
-        """Each machine a tick noting a need asked for, and its rented-machines lines past the
-        running one, Google listing `buckets` and `quotas` as limits."""
+        """Each machine a tick noting a need asked for, and its rented-machines line past the
+        running one, before any about asking for more, Google listing `buckets` and `quotas` as
+        limits."""
         home = Home()
         self.addCleanup(home.close)
         google = Google(home, [SKUS], [ZONES])
@@ -56,7 +57,7 @@ class GoogleRentsWhereQuotaIsLeft(unittest.TestCase):
         google.machines = LISTED
         home.write(".agentkit/state/google-cloud-need", "820\n")
         _, _, lines = google.at(T, 500)
-        return google.made, lines[1:]
+        return google.made, lines[1:2]
 
     def assertRents(self, rent, zone, name):
         made, lines = rent
