@@ -3,11 +3,58 @@
 package box
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
+
+// TestMain is the box's first process where Run starts this test program as one.
+func TestMain(m *testing.M) {
+	if code, first := First(); first {
+		os.Exit(code)
+	}
+	os.Exit(m.Run())
+}
+
+func TestACommandStillRunningAfterItsGraceIsNamedAmongWhatTheBoxStopped(t *testing.T) {
+	if err := Check(); err != nil {
+		t.Skip(err)
+	}
+	dir := t.TempDir()
+	written := filepath.Join(dir, "pid")
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	go func() {
+		for ctx.Err() == nil {
+			if _, err := os.Stat(written); err == nil {
+				stop()
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	argv := []string{"/bin/sh", "-c", `trap '' TERM; echo $$ >"$0"; exec sleep 60`, written}
+	code, left, err := Run(ctx, argv, map[string]string{"PATH": os.Getenv("PATH"), "HOME": dir}, dir, dir, nil, nil, nil, os.Stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	said, err := os.ReadFile(written)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(said)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != -int(syscall.SIGKILL) || left[pid] != "sleep 60" {
+		t.Fatalf("the box ended %d and named %q, not process %d", code, left, pid)
+	}
+}
 
 func TestTheRunCopyLeavesOutWhatIsHiddenByItsPathAndByTheInodeItHasAsTheCopyStarts(t *testing.T) {
 	source, copied := t.TempDir(), t.TempDir()

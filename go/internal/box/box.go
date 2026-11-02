@@ -12,8 +12,8 @@
 // how the command ended: an exit of n is n, a death by a signal keeps that signal, and a command
 // that cannot start keeps the shell's 127 or 126.  The first process is what sees every process
 // in the box, so it ends them and names them: ak stopping the box gives the command TERM, as a
-// harness saves its session, and what is left of it after a grace ends; and what still runs
-// beside the command as it ends, however it left, is in the report, and ends as the box does.
+// harness saves its session, and what is left of it after a grace ends; and what still runs as
+// the first process ends, however it left, is in the report, and ends as the box does.
 package box
 
 import (
