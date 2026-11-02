@@ -34,7 +34,7 @@ func TestDryLeavesToPythonWhatItWouldActOn(t *testing.T) {
 		return out.String()
 	}
 	gh("echo 'To get started, please run:\n\n  gh auth login' >&2; exit 4")
-	if got := dry(true); got != "lock free · watch.log 0.0 MB of 5 MB\ngh is not logged in; PR checks skipped (To get started, please run: gh auth login)\n" {
+	if got := dry(true); got != "lock free · no tick has ended yet · watch.log 0.0 MB of 5 MB\ngh is not logged in; PR checks skipped (To get started, please run: gh auth login)\n" {
 		t.Fatalf("printed %q", got)
 	}
 	// each a folder holding the file named
