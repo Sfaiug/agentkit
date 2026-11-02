@@ -1749,7 +1749,7 @@ def resume_run(argv):
     config.ensure_dirs()
     run_dir = config.RUNS / argv[0]
     state = run_record.read_state(run_dir) if (run_dir / "run.json").exists() else None
-    refusal = taskfile.rounds_refusal(n_rounds, "--rounds", run_record.policy_of(state or {})["rounds"])
+    refusal = n_rounds and taskfile.rounds_refusal(n_rounds, "--rounds", run_record.policy_of(state or {})["rounds"])
     if refusal:
         raise config.Error(refusal)
     if state is None:
