@@ -159,11 +159,10 @@ def sessions():
     """(session id, name, mark, `TOLD`, `TOLD_END`) of every session this HOME started on ak's
     own server; None where none of its is up: the socket is the user's, and a scratch HOME's `ak`
     wrote its empty records over real bars.  The fields are split at `:`, which tmux keeps out of
-    every session's name, and the HOME, which may hold one, comes last.  A HOME read as a UTF-8
-    client is the HOME itself, under any locale."""
-    rc, out = orch.tmux_out("list-sessions", "-F", ":".join(
-        f"#{{{field}}}" for field in ("session_id", "session_name", orch.MARK, TOLD, TOLD_END,
-                                      "HOME")),
+    every session's name, the HOME, which may hold one, last; read as a UTF-8 client it is the
+    HOME itself, under any locale."""
+    rc, out = orch.tmux_out("list-sessions", "-F", ":".join(f"#{{{field}}}" for field in (
+        "session_id", "session_name", orch.MARK, TOLD, TOLD_END, "HOME")),
                             socket=orch.socket_name(), utf8=True)
     if rc != 0:
         return None

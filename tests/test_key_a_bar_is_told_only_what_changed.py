@@ -27,8 +27,7 @@ class ToldOnlyWhatChanged(unittest.TestCase):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
         cls.seats = {name: Seat(cls.home, name) for name in ("acme", "beta", "gamma")}
-        cls.menu = Terminal(cls.home, size=(100, 40))
-        cls.menu.wait(lambda screen: all(name in screen for name in cls.seats))
+        cls.menu = Terminal(cls.home, size=(100, 40))     # the look that tells them each a word
         for name in cls.seats:
             cls.wait(lambda name=name: "idle" in cls.option(name, "@ak_top"))
         cls.settle()
@@ -78,8 +77,7 @@ class ToldOnlyWhatChanged(unittest.TestCase):
         self.assertNotIn("need", self.option("beta", "@ak_need"))
 
     def test_d_a_session_given_a_seats_name_again_has_its_bar_told(self):
-        done = self.home.tmux("kill-session", "-t", "=gamma:")
-        self.assertEqual(done.code, 0, done.err)
+        self.assertEqual(self.home.tmux("kill-session", "-t", "=gamma:").code, 0)
         self.seats["gamma"].start()     # a new session: nothing has been told to it yet
         self.wait(lambda: "gamma" in self.option("gamma", "@ak_top"))
 
