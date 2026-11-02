@@ -1019,8 +1019,9 @@ $own"
   # in swap is what froze the host.
   # OOMPolicy=continue ends only the process that grew, never its seat or the server; the
   # reload hands it to units already running, whose memory caps follow at their next start.
+  # Named outright: the ceiling is `agentkit.slice`'s, which this script writes under any HOME.
   read -r cap swap <<EOF || :
-$(cd -- "$REPO" && env -u AGENTKIT_TMUX_SOCKET XDG_CONFIG_HOME="$HOME/.config" python3 -c \
+$(cd -- "$REPO" && env AGENTKIT_TMUX_SOCKET=agentkit XDG_CONFIG_HOME="$HOME/.config" python3 -c \
     'from agentkit import host, run; c = run.memory_cap_mb(); print(c, host.swap_allowance_mb(c))' \
     2>/dev/null)
 EOF
