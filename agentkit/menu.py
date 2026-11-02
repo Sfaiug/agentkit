@@ -160,7 +160,7 @@ COLOURS = {"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai"
 # any other provider is its own `name` key (provider_name), else its key capitalised.
 NAMES = {"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Grok",
          "google": "Gemini", "mimo": "MiMo"}
-TICK = 10.0              # the longest the main screen waits for a key before drawing itself again
+TICK = terminal.TICK     # the longest the main screen waits for a key before drawing itself again
 WALK_EVERY = 60          # seconds one walk of a quiet run answers for: silence is told in hours, so
                          # a minute never shows, however many files a run's sandbox leaves behind
 _WALKED = {}             # a quiet run's directory: when it was walked, on time.monotonic, and what
@@ -544,7 +544,7 @@ def moving(clock, wake=None, timeout=TICK, going=None):
     one on content being fetched once `going()` says it has landed, looked at every frame
     whether or not anything moves, for the screen to draw what came.
     """
-    left, until = timeout, time.monotonic() + timeout
+    until = time.monotonic() + (left := max(0, min(timeout, terminal.whole_in())))
     terminal.asked_again()          # a draw asked for before the one just made is answered
     while True:
         due = clock.wait()
@@ -562,8 +562,7 @@ def moving(clock, wake=None, timeout=TICK, going=None):
         if (clock.wait() or 0) > 0:
             clock.clear()
             return None
-        sys.stdout.write(clock.frame())
-        sys.stdout.flush()
+        terminal.over(clock.frame())
         left = until - time.monotonic()
 
 
@@ -1929,12 +1928,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                            grow(now) if now < until else breathe(now))
             clock.start([cell], breathe)
         moved = clock.frame()
-    # Home and write over, each line cleared past its end and the screen below the last: one
-    # write, so no draw ever shows a blank screen or a half-drawn one.  Lines that rise are
-    # the frame's to write, from the background up, and never first as they are.
-    sys.stdout.write("\033[H" + ("" if rising else "".join(f"\033[K{line}\n" for line in out))
-                     + "\033[J" + moved)
-    sys.stdout.flush()
+    terminal.written(out, moved, rising, screen=page)     # another page is another screen
     # each page's first seat or heading drawn on no page before it, so the highlight resting
     # there has that page up: a heading over its project's next page, or a tall seat's rest, is not
     turns, before = [], set()
@@ -5799,7 +5793,6 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
         live.watch(last)                  # read once, now: the first draw has nothing else
         back = False                      # back from a seat, or the screen that opens one
         newborn = None                    # the seat `n` is typing the name of (`born`)
-        holding = True                    # a restart's hold, until this process's first frame
         framed = False                    # the last wait read no key: its frame is still up
         while True:
             if back:
@@ -5848,10 +5841,6 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             page, pages = draw(cfg, found, listed, page, BORN if newborn else cursor, drawn,
                                look=False, groups=born_groups(groups, newborn) if newborn
                                else groups, clock=clock, updating=updating, pointing=pointing)
-            if holding and drawn is not None:
-                holding = False
-                sys.stdout.write(terminal.RELEASE)
-                sys.stdout.flush()
             if drawn and not newborn:     # the seat he sees highlighted, and if he points at it
                 cursor, pointing = drawn["cursor"], drawn["pointing"]
             if start_update:

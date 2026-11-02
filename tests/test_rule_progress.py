@@ -38,6 +38,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from tests.fixtures.draws import draws  # noqa: E402
 from agentkit import config, menu, motion, terminal, update  # noqa: E402
 
 # Both children's time: the real screens, clock and key reader over a clock that moves only by
@@ -181,6 +182,8 @@ keyboard.give()
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
              "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLUMNS", "LINES")
 GLIDE = re.compile(r"\x1b\[2;\d+H\x1b\[[0-9;]*m━")   # a lit cell written on the rule's row
+# A whole update with a row in it: a clock's cell has none.
+DRAW = re.compile(r"(?s)\x1b\[\?2026h(?:(?!\x1b\[\?2026l).)*?\x1b\[K.*?\x1b\[\?2026l")
 HUNG = 120      # seconds with no answer: a child importing cold on a loaded host takes tens of them
 
 
@@ -250,14 +253,13 @@ class Screen:
             time.sleep(0.01)
 
     def draw(self, after=0):
-        """Where the next whole draw past `after` characters starts and its lines, waiting for
-        it."""
-        self.when(r"\x1b\[H\x1b\[K", after)
-        start = self.text().index("\x1b[H\x1b[K", after)
-        self.when(r"\x1b\[J", start)
+        """Where the first draw of rows starting at or past `after` characters starts and the
+        lines it leaves up, waiting for it."""
+        self.when(DRAW.pattern, after)
         text = self.text()
-        lines = terminal.ANSI.sub("", text[start:text.index("\x1b[J", start)]).split("\r\n")
-        return start, lines[:-1]
+        start = DRAW.search(text, after).start()
+        lines = terminal.ANSI.sub("", draws(text, start)[-1].split("\x1b[J")[0])
+        return start, lines.replace("\r", "").split("\n")[:-1]
 
 
 def click_back_at_forty(case, screen):
@@ -314,7 +316,7 @@ class RuleProgress(unittest.TestCase):
         self.assertGreaterEqual(glided - opened, 0.15)      # nothing for the first 150 ms
         screen.when("Dark mode")
         text = screen.text()
-        landed = text.rindex("\x1b[H", 0, text.index("Dark mode"))
+        landed = text.rindex("\x1b[?2026h", 0, text.index("Dark mode"))
         self.assertIn("─" * 80, text[landed:])              # the rule still once it landed
         self.assertNotIn("━", text[landed:])
         self.assertGreater(len(GLIDE.findall(text[:landed])), 10)    # moving, not one frame
@@ -397,7 +399,7 @@ class RuleProgress(unittest.TestCase):
         after = len(text)
         fcntl.ioctl(screen.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 40, 0, 0))
         os.kill(screen.proc.pid, signal.SIGWINCH)      # the test's own child
-        screen.when(r"\x1b\[H\x1b\[Kagentkit · config · acme", after)
+        screen.when(r"\x1b\[Hagentkit · config · acme", after)
         drawn = screen.text().rindex("\x1b[H")
         screen.when(r"[^─]─{40}\x1b", drawn)          # the rule 40 wide, once it arrives
         screen.when(GLIDE.pattern, drawn)

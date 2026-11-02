@@ -24,6 +24,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from tests.fixtures.draws import draws
 from agentkit import terminal
 
 # The child: the real loop, draw, heading, screen and key reader; fakes for what a seat is.
@@ -169,7 +170,7 @@ class Menu:
         """The last whole screen of that kind written over in place, as the screen shows it,
         row 1 first, once `where` accepts it."""
         def ready():
-            for part in reversed(self.text()[after:].split("\x1b[H")[1:]):
+            for part in draws(self.text(), after):
                 if "\x1b[J" not in part:
                     continue                  # still being written
                 lines = [terminal.ANSI.sub("", line).rstrip("\r")

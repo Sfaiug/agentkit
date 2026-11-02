@@ -641,7 +641,7 @@ def frame(name, body=(), keyline="esc back", filled=0, places=None, drawn=None, 
     spots = {3 + line: place for line, place in (places or {}).items()}
     spots.update(key_spots(keys, 4 + len(body)))
     if taken():
-        show(lines, spots, drawn)
+        show(lines, spots, drawn, name)
         return spots
     if (sys.stdout.isatty() and os.environ.get("TERM", "dumb") != "dumb"
             and "NO_COLOR" not in os.environ):
@@ -779,6 +779,11 @@ _SPOTS = {}        # what the screen up has where (`lit`), the pointer read agai
 _SHOWN = []        # ... its lines as drawn, and with the pointer's light (`relight`)
 _PAINTED = []
 _POINTED = Spot()  # ... the `Spot` the pointer was on when it was drawn
+TICK = 10.0        # the longest any row goes unwritten: a stray write, a child's, heals by then
+_UP = None         # while a `Keyboard` has the terminal, its rows as written, top down, None for
+                   # one written over since (`over`); empty, nothing on it is known
+_UP_OF, _WHOLE = None, 0.0     # ... the screen they are of, and when all were written last
+_LIST = {}         # the rows of a list (`choose`), {row: line}, over the blank ones its screen has
 _MOVED = 0.0       # when a move of the pointer was last answered
 _HELD = None       # a move read and not answered yet, and when the first of them was
 _NEXT = None       # a key read past a move, answered after it
@@ -851,13 +856,13 @@ class Keyboard:
 
     def take(self):
         """Keys one at a time from here on; True when there is a terminal to take at all."""
-        global _TAKEN
+        global _TAKEN, _UP
         if self.fd is None:
             return False
         if _TAKEN is self:
             return True
         self.saved = termios.tcgetattr(self.fd)
-        _TAKEN = self            # before anything changes, so a signal from here on gives it back
+        _TAKEN, _UP = self, []   # before anything changes, so a signal from here on gives it back
         self._handle()
         attrs = termios.tcgetattr(self.fd)
         attrs[3] &= ~(termios.ICANON | termios.ECHO)
@@ -878,12 +883,12 @@ class Keyboard:
         ends the hold (HOLD).  Without, any hold is ended, so a notice or a crash in a program
         started under one shows at once.
         """
-        global _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD
+        global _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD, _UP
         if _TAKEN is not self:
             return
         self._send(HOLD + self.sequences[1] if held else self.sequences[1] + RELEASE)
         termios.tcsetattr(self.fd, termios.TCSADRAIN, self.saved)
-        _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD = None, False, None, False, None
+        _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD, _UP = None, False, None, False, None, None
         for number, handler in self.kept.items():
             signals.signal(number, handler)
         self.kept = {}
@@ -1014,7 +1019,7 @@ def read_key(timeout=None, wake=None):
     again, and Enter or space -- a click on its key-line item too -- while the pointer is on
     no row (`away`) only brings it back, answered as a draw.
     """
-    global _PRESSED, _ASKED, _POINTER, _MOVED, _NEXT, _HELD, _AWAY, _UNSEEN
+    global _PRESSED, _ASKED, _POINTER, _MOVED, _NEXT, _HELD, _AWAY, _UNSEEN, _UP
     key, _NEXT = _NEXT, None
     fd = sys.stdin.fileno()
     until = None if timeout is None else time.monotonic() + timeout
@@ -1031,7 +1036,7 @@ def read_key(timeout=None, wake=None):
                 if _HELD is not None and time.monotonic() >= _MOVED + motion.FRAME:
                     break
                 if again is not None and again in ready:
-                    _ASKED = True
+                    _ASKED, _UP = True, _UP and []
                     try:
                         os.read(again, 4096)
                     except OSError:
@@ -1353,28 +1358,66 @@ def relight(spots=None):
     left where it was: what a question typed on that screen (`field`) draws over it, or a list
     asked on it (`choose`), its own `spots` read with the screen's."""
     before = _PAINTED
-    rows = "".join(f"\033[{row};1H\033[K{line}" for row, (line, was) in enumerate(zip(
+    rows = "".join(f"\033[{row};1H{_cleared(line)}" for row, (line, was) in enumerate(zip(
         lit(_SHOWN, _SPOTS if spots is None else spots), before), 1) if line != was)
-    if rows:
-        sys.stdout.write(f"\0337{rows}\0338")
+    over(f"\0337{rows}\0338" if rows else "")
+
+
+def _cleared(line):
+    """`line`, then its row's tail cleared, so no cell that is text before and after is ever blank
+    between.  A line filling the last column gets no clear: it leaves the cursor on that column,
+    and a clear there erases it -- the clock's last digit on a terminal no wider than the layout."""
+    return line if cells(line) >= width() else f"{line}\033[K"
+
+
+def _differing(rows):
+    """Those of `rows`, (row, line) each, the terminal does not hold as it is, each addressed."""
+    return "".join(f"\033[{row};1H{_cleared(line)}" for row, line in rows
+                   if not _UP or row > len(_UP) or line != _UP[row - 1])
+
+
+def whole_in():
+    """Seconds until the next draw writes every row again; a wait for one ends by then."""
+    return _WHOLE + TICK - time.monotonic() if _UP else float("inf")
+
+
+def over(frame, rows=""):
+    """`frame`, a clock's or the pointer's light, after any `rows`, as one synchronized update,
+    which a terminal not knowing it ignores.  The next draw writes the rows `frame` wrote over."""
+    if rows or frame:
+        sys.stdout.write(f"{HOLD}{rows}{frame}{RELEASE}")
         sys.stdout.flush()
+    for row in map(int, re.findall(r"\x1b\[(\d+);\d+H", frame) if _UP else ()):
+        if row <= len(_UP):
+            _UP[row - 1] = None
 
 
-def show(lines, spots, drawn=None):
-    """Write `lines` over the screen up, from its first row, in one write, so moving through it
-    never flickers; the cell under the pointer lit (`lit`).  Each line is cleared before it is
-    written, never after: a line filling the last column leaves the cursor on it, and a clear
-    there erases that column -- the clock's last digit on any terminal no wider than the layout.
-    `drawn()`, a clock's frame over them and whether they come up in it (`motion.Clock.drawn`),
-    goes in the same write: lines that come up are the frame's to write, never first as they are.
-    """
+def written(lines, frame="", rising=False, screen=None):
+    """`lines`, a screen from its first row, over the one up: the rows that differ from what the
+    terminal holds; all of them, what is below cleared, when `screen` is not the one up or what
+    is up not known, `lines` could scroll, and every TICK.  The cursor ends under them, where a
+    prompt goes.  `frame` goes in the same update (`over`); lines `rising` are its to write, never
+    first as they are, on a cleared screen."""
+    global _UP, _UP_OF, _WHOLE
+    rows = [_LIST.get(row, line) for row, line in enumerate(lines, 1)]
+    if (rising or not _UP or screen != _UP_OF or len(rows) >= height()
+            or time.monotonic() >= _WHOLE + TICK):
+        _WHOLE, text = time.monotonic(), "\033[H" + "".join(
+            _cleared(line) + "\n" for line in (() if rising else rows)) + "\033[J"
+    else:
+        text = _differing(enumerate(rows, 1))
+        text += f"\033[{len(rows) + 1};1H\033[J" if text or len(rows) < len(_UP) else ""
+    _UP, _UP_OF = None if _UP is None else rows, screen
+    over(frame, text)
+
+
+def show(lines, spots, drawn=None, screen=None):
+    """`lines` of `screen` written (`written`), the cell under the pointer lit (`lit`), with
+    `drawn()`, a clock's frame over them and whether they come up in it (`motion.Clock.drawn`)."""
     held, lines = _HELD, lit(lines, spots)
     if _HELD is not held:   # its row's highlight is stale: drawn again once the move is answered
         return
-    moved, rising = drawn() if drawn else ("", False)
-    sys.stdout.write("\033[H" + ("" if rising else "".join(f"\033[K{line}\n" for line in lines))
-                     + "\033[J" + moved)
-    sys.stdout.flush()
+    written(lines, *(drawn() if drawn else ()), screen=screen)
 
 
 def clicks_its_own(read):
@@ -1385,12 +1428,13 @@ def clicks_its_own(read):
     a cell it rests on is no row the keys' highlight is on."""
     @wraps(read)
     def reading(*args, **kwargs):
-        global _PRESSED, _POINTER, _AWAY, _HELD
+        global _PRESSED, _POINTER, _AWAY, _HELD, _LIST, _UP
         _PRESSED, _POINTER, _AWAY, _HELD = False, None, False, None
         try:
             return read(*args, **kwargs)
         finally:
-            _PRESSED, _POINTER, _AWAY, _HELD = False, None, False, None
+            _PRESSED, _POINTER, _AWAY, _HELD, _LIST = False, None, False, None, {}
+            _UP = _UP and []     # what it wrote where the cursor was, and its list, are no draw's
     return reading
 
 
@@ -1469,30 +1513,34 @@ def choose(choices, default=None, around=None, wait=None, warn=None):
     (`menu.moving`) keeps its dots breathing while the list is asked.  `warn` is a choice drawn
     in the warn colour: the one of `confirm`'s that ends something.
     """
-    global _PRESSED, _SHOWN, _PAINTED
+    global _PRESSED, _SHOWN, _PAINTED, _LIST
     at = (choices.index(default) if default in choices
           else 0 if default is None and choices else None)
     drawn, top, again = 0, None, around is not None
     while True:
+        lines = []
+        for number, choice in enumerate(choices):
+            line = cut(str(choice), width() - 3)
+            line = "  " + (styled(line, "amber") if choice == warn else line)
+            lines.append(highlight(line) if number == at and not _AWAY else line)
         if again:
+            _LIST = dict(enumerate(lines, top)) if top and _UP else {}
             moved, again = around(None if at is None else choices[at]), False
             if moved != top:
                 _PRESSED = False  # a press where a choice was is no click on what is there now
             top = moved
             if not top:
                 return None       # the screen it is asked on has no row for it any more
-        lines = []
-        for number, choice in enumerate(choices):
-            line = cut(str(choice), width() - 3)
-            line = "  " + (styled(line, "amber") if choice == warn else line)
-            lines.append(highlight(line) if number == at and not _AWAY else line)
-        sys.stdout.write((f"\033[{top};1H" if top else f"\033[{drawn}A" if drawn else "") +
-                         "".join(f"\r{line}\033[K\n" for line in lines))
-        sys.stdout.flush()
+        if not top:
+            over("", (f"\033[{drawn}A" if drawn else "")
+                 + "".join(f"\r{line}\033[K\n" for line in lines))
         drawn = len(lines)
         if top:       # over its screen's lines, as drawn, so the pointer is read against them
             _SHOWN, _PAINTED = ([*was[:top - 1], *[""] * (top - 1 - len(was)), *lines,
                                  *was[top - 1 + len(lines):]] for was in (_SHOWN, _PAINTED))
+            left, _LIST = _LIST, dict(enumerate(lines, top))      # any it moved off go back
+            over(_differing((row, _PAINTED[row - 1]) for row in sorted({*left, *_LIST})
+                            if row <= len(_PAINTED)))
         rows = {top + number: (number, []) for number in range(len(choices))} if top else {}
         # its screen's key line and its own choices are what the pointer lands on; that
         # screen's rows -- the seats under a question -- are nothing while it is asked

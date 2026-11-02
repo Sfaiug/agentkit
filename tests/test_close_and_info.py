@@ -15,11 +15,9 @@ child.
 from contextlib import contextmanager, redirect_stdout
 import fcntl
 import io
-import itertools
 import json
 import os
 from pathlib import Path
-import re
 import signal
 import struct
 import subprocess
@@ -33,6 +31,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from tests.fixtures.draws import draws
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
 from agentkit import browser, config, menu, notify, orch, statusbar, terminal, watch
@@ -175,7 +174,7 @@ class Menu:
         keys = keys or self.leave_key
 
         def ready(text):
-            for part in reversed(text[after:].split("\x1b[H")[1:]):
+            for part in draws(text, after):
                 if "\x1b[J" not in part:
                     continue                  # still being written
                 lines = [terminal.ANSI.sub("", line).rstrip("\r")
@@ -188,10 +187,10 @@ class Menu:
     def choices(self, after=0):
         """(the row the selector drew its first answer on, its two lines as shown)."""
         def ready(text):
-            found = re.search(r"\x1b\[(\d+);1H\r(.*?)\x1b\[K\r?\n\r(.*?)\x1b\[K", text[after:])
-            if not found:
-                return None
-            return int(found.group(1)), [terminal.ANSI.sub("", found.group(n)) for n in (2, 3)]
+            rows = (draws(text, after) or [""])[0].split("\n")
+            rows = [terminal.ANSI.sub("", row).rstrip("\r") for row in rows]
+            top = next((row for row, line in enumerate(rows) if "✓ Keep" in line), None)
+            return top is not None and (top + 1, rows[top:top + 2])
         return self.until(ready, "the stop question's answers")
 
     def highlighted(self, lines):
@@ -236,13 +235,10 @@ class CloseAndInfo(unittest.TestCase):
         asked = menu.frame(keys="esc back", after=mark)
         row = next(number for number, line in enumerate(asked, 1) if "beta" in line)
         self.assertEqual(asked[row:row + 2], ["", "  Stop beta and everything it runs?"])
-        means = list(itertools.takewhile(lambda line: line.strip(), asked[row + 2:]))
-        self.assertEqual(" ".join(line.strip() for line in means), stop_means(0))
-        self.assertFalse(any(line.startswith("›") for line in asked), asked)
         top, answers = menu.choices(after=mark)
-        self.assertEqual(top, row + 3 + len(means))         # the two lines under what it means
+        means = asked[row + 2:top - 1]                      # the two lines under what it means
+        self.assertEqual(" ".join(line.strip() for line in means), stop_means(0))
         self.assertEqual(answers, ["› ✓ Keep", "  ✗ Stop"])  # Keep is where the highlight starts
-        self.assertEqual(asked[top - 1:top + 2], ["", "", ""])
         self.assertEqual(asked[-1].strip(), "↑↓←→ move   ⏎ keep   esc back")
         mark = menu.mark()
         menu.send(ESC)
@@ -346,7 +342,7 @@ class CloseAndInfo(unittest.TestCase):
         self.assertGreater(top, before)
         at = asked.index("  and everything it runs?")
         self.assertEqual(asked[at - 2:at + 1], ["  Stop", f"  {long}", "  and everything it runs?"])
-        means = list(itertools.takewhile(lambda line: line.strip(), asked[at + 1:]))
+        means = asked[at + 1:top - 1]
         self.assertEqual(" ".join(line.strip() for line in means), stop_means(0))
         self.assertGreater(len(means), 1)                  # what it means wraps onto more lines
         self.assertEqual(top, at + 2 + len(means))

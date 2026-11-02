@@ -28,6 +28,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from tests.fixtures.draws import draws
 from agentkit import config, terminal
 
 SHIPPED = tomllib.loads((REPO / "config.default.toml").read_text())
@@ -162,7 +163,7 @@ class Screen:
     def drawn(self, marker, where=None, after=0):
         """The lines of the last whole screen drawn with `marker` on it; row 1 first."""
         def ready(text):
-            for part in reversed(text[after:].split("\x1b[H")[1:]):
+            for part in draws(text, after):
                 if "\x1b[J" not in part:
                     continue                  # still being written, or a frame printed once
                 lines = [terminal.ANSI.sub("", line).rstrip("\r")
