@@ -1308,12 +1308,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                     # the check is a given failing command, the target's own for a repair and the
                     # reviewer's for a follow-up, and the run makes it pass: one task for both
                     task += (
-                        "Your checkout starts on the target branch's tip, fetched when this run "
-                        "started: run the command below there first. If it "
-                        'passes there now, run `ak hand-in not-needed "<why>"`, with no edits or PR. '
-                        "Otherwise fix the root cause so it passes, and show it failing before the "
-                        "fix and passing afterwards in your summary. If only the owner can decide, "
-                        'run `ak hand-in blocked "<question>"`.\n\n'
+                        f"{taskfile.FIX_THE_COMMAND}\n\n"
                         f"## Done when\n```bash\n{repair['check'] if repair else checks[item]}\n```\n")
                 else:
                     task += (

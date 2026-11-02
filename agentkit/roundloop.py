@@ -29,8 +29,9 @@ from . import (config, gitcall, hand_in, handback, history, prompts, record as r
 # its knowledge base): words that are the product, not notes about the code.
 # `setup:` names the file that makes the machine ak runs on ready for the project (`machine_setup`).
 # `alive:` names the command that tells ak, from its own machine, the product is up (`alive`).
+# `nightly:` names the command that prints the project's newest night (`nightly`).
 FRONT_KEYS = ("tests", "health", "cleanup", "users", "features", "suite_image", "content", "setup",
-              "alive")
+              "alive", "nightly")
 
 
 # The words an AGENTS.md body may grow to: what the project is, and the few facts no code can
@@ -258,8 +259,9 @@ def worker_result(lp, summary, out):
     if closing:
         if closing["kind"] == "blocked":
             raise turns.Blocked(closing["why"], f"## Blocked\n\n{closing['why']}")
-        if (closing["kind"] == "not-needed" and lp.state.get("followup")
-                and not lp.state.get("round_summaries")):
+        # a fix run's: a seat's says so on its record, a failed night's in its task's own words
+        if (closing["kind"] == "not-needed" and not lp.state.get("round_summaries")
+                and (lp.state.get("followup") or taskfile.FIX_THE_COMMAND in lp.body)):
             raise turns.NotNeeded(closing["why"])
     # A closing reply may be only an acknowledgement; retain the work prose on restart too.
     name = re.split(r"-retry-(?:hand-in|foreground)", answer.name, maxsplit=1)[0]

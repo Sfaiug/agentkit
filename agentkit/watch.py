@@ -6974,19 +6974,20 @@ def settled(entry, dry_run=False):
     return "failed"
 
 
-def launch(url):
-    """`ak run --review-pr <url> --bg`; the run id it printed."""
-    proc = subprocess.run([sys.executable, str(config.REPO / "bin" / "ak"), "run",
-                           "--review-pr", url, "--bg"], capture_output=True, encoding="utf-8",
-                          errors="replace", env=config.child_env())
+def launch(*words):
+    """`ak run <words> --bg`, nobody's whoever typed `ak watch`; the run id it printed."""
+    asked = f"ak run {' '.join(words)} --bg"
+    proc = subprocess.run([sys.executable, str(config.REPO / "bin" / "ak"), "run", *words, "--bg"],
+                          capture_output=True, encoding="utf-8", errors="replace",
+                          env=config.owner_env())
     if proc.returncode != 0:
-        raise config.Error(f"ak run --review-pr {url} --bg exited {proc.returncode}: "
+        raise config.Error(f"{asked} exited {proc.returncode}: "
                            f"{(proc.stdout + proc.stderr).strip()[-300:]}")
     lines = proc.stdout.splitlines()
     for line in reversed(lines):
         if line.endswith("/result.md"):
             return line.rsplit("/", 2)[-2]
-    raise config.Error(f"ak run --review-pr {url} --bg printed no result path")
+    raise config.Error(f"{asked} printed no result path")
 
 
 def incoming(state, me, dry_run, log):
@@ -7032,7 +7033,7 @@ def incoming(state, me, dry_run, log):
                 log(f"would review {what}")
                 continue
             try:
-                run_id = launch(url)
+                run_id = launch("--review-pr", url)
             except config.Error as exc:
                 log(f"WARN {exc}")
                 state["reviewed"][url] = {"sha": sha, "run": None, "at": time.time(),
@@ -7911,7 +7912,7 @@ def local_passes(state, dry_run, log):
     tick to the next loses its race.
     """
     from . import (alive, google_cloud, history, job as jobs, leases, logins, machine_setup,
-                   machines, retire, run, waiter)
+                   machines, nightly, retire, run, waiter)
     providers, fetched = {}, set()
 
     def read_usage():
@@ -8028,6 +8029,8 @@ def local_passes(state, dry_run, log):
         ("project setups", machine_setup.tick, False),
         # ... and whether each seat's product is up, read from this machine, not the product's
         ("alive checks", lambda: alive.tick(fetched), False),
+        # ... and whether a project's night failed, which its own host read: a fix run, unasked
+        ("night reads", lambda: nightly.tick(log), False),
         # Merged agentkit goes live after every local pass, so as little of this tick's old
         # code as can be is left to run over new files; GitHub imports nothing new.
         ("live update", lambda: update.go_live(log), False),
