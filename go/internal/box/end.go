@@ -30,7 +30,8 @@ const grace = 5 * time.Second
 // process's exit ends.  Asked by ak to stop, it gives the command's process group TERM and waits
 // for the group, not only the command: TERM may end a shell adapter at once while the harness it
 // started still saves.  A command still running after grace ends by KILL, named with the rest.
-func supervise(command int) (int, map[int]string) {
+// Where drained is given, a command that ended waits for it too, the orphans still reaped.
+func supervise(command int, drained <-chan struct{}) (int, map[int]string) {
 	ended := make(chan int, 1)
 	go func() {
 		for {
@@ -57,6 +58,13 @@ func supervise(command int) (int, map[int]string) {
 				case <-late:
 					late = nil
 				case <-time.After(10 * time.Millisecond):
+				}
+			}
+			if drained != nil {
+				select {
+				case <-drained:
+				case <-stop:
+				case <-late:
 				}
 			}
 			return code, leftovers()

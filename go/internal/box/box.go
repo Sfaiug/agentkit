@@ -70,12 +70,19 @@ var credentials = []string{"~/.config/gh/hosts.yml", "$XDG_CONFIG_HOME/gh/hosts.
 // the links among the manifest paths of logins, the workspace and its git directories, and out;
 // the files and folders hidden read empty there, as the account's credentials do.
 func Run(ctx context.Context, argv []string, env map[string]string, workspace, out string, state, logins, hidden []string, stderr *os.File) (int, map[int]string, error) {
-	report := filepath.Join(config.Resolve(out), "box-processes.json")
-	cmd, done, err := command(append([]string{exe, report}, argv...), env, workspace, out, state, logins, hidden)
+	file := filepath.Join(config.Resolve(out), "box-processes.json")
+	cmd, done, err := command(append([]string{exe, file}, argv...), env, workspace, out, state, logins, hidden, nil)
 	if err != nil {
 		return 0, nil, err
 	}
 	defer done()
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, stderr
+	return supervised(ctx, cmd, file)
+}
+
+// supervised runs cmd, the box's first process given its report, until it ends, or ctx ends and
+// that process with it: how the command ended, and what the box's end stopped, by pid.
+func supervised(ctx context.Context, cmd *exec.Cmd, file string) (int, map[int]string, error) {
 	// The running image, not the file at its path, which a build may since have replaced.
 	self, err := os.Open("/proc/self/exe")
 	if err != nil {
@@ -89,8 +96,7 @@ func Run(ctx context.Context, argv []string, env map[string]string, workspace, o
 	defer stop.Close()
 	defer stopping.Close()
 	defer context.AfterFunc(ctx, func() { stopping.Close() })()
-	os.Remove(report)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, stderr
+	os.Remove(file)
 	cmd.ExtraFiles = []*os.File{self, stop} // exeFD, stopFD
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Run(); err != nil && !errors.As(err, new(*exec.ExitError)) {
@@ -100,19 +106,25 @@ func Run(ctx context.Context, argv []string, env map[string]string, workspace, o
 	ended := status(cmd.ProcessState.Sys().(syscall.WaitStatus))
 	var written struct {
 		Returncode *int
-		Processes  map[int]string
+		Processes  [][2]any
 	}
-	if data, err := os.ReadFile(report); err == nil && json.Unmarshal(data, &written) == nil && written.Returncode != nil {
+	left := map[int]string{}
+	if data, err := os.ReadFile(file); err == nil && json.Unmarshal(data, &written) == nil && written.Returncode != nil {
 		ended = *written.Returncode
+		for _, row := range written.Processes {
+			pid, _ := row[0].(float64)
+			left[int(pid)], _ = row[1].(string)
+		}
 	}
-	return ended, written.Processes, nil
+	return ended, left, nil
 }
 
 // command is bubblewrap's command putting argv in the box Run describes, and what removes the
 // folder in out holding the box's own places once the box has ended.  With no workspace, as a
 // launch has none yet, what env names relative is read from the current folder, and nothing is
-// written there.
-func command(argv []string, env map[string]string, workspace, out string, state, logins, hidden []string) (*exec.Cmd, func(), error) {
+// written there.  Each of homes a command writes as a throwaway overlay, beneath the writable
+// places and the masks.
+func command(argv []string, env map[string]string, workspace, out string, state, logins, hidden, homes []string) (*exec.Cmd, func(), error) {
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		return nil, nil, errors.New("worker box needs bubblewrap; run `" + install + "`")
 	}
@@ -150,7 +162,7 @@ func command(argv []string, env map[string]string, workspace, out string, state,
 		done()
 		return nil, nil, err
 	}
-	mounts, err := binds(empty, places)
+	mounts, err := binds(empty, places, overlays(homes, empty, places))
 	if err != nil {
 		done()
 		return nil, nil, err
@@ -167,15 +179,22 @@ func command(argv []string, env map[string]string, workspace, out string, state,
 
 // First is the box's first process, where this program was started as one, and false otherwise:
 // it runs the command, writes how it ended and what it left running to the report, and is the
-// status bubblewrap exits with.  As PID 1 its exit ends every process left in the box.
+// status bubblewrap exits with.  As PID 1 its exit ends every process left in the box.  Its
+// `--drain` is a check's, run until its output's end (`drain`).
 func First() (int, bool) {
 	if len(os.Args) < 3 || os.Args[0] != exe {
 		return 0, false
 	}
 	syscall.CloseOnExec(exeFD)
 	syscall.CloseOnExec(stopFD)
-	code, left := run(os.Args[2:])
-	data, _ := json.Marshal(map[string]any{"returncode": code, "processes": left})
+	var code int
+	var left map[int]string
+	if os.Args[2] == drainFlag {
+		code, left = drain(os.Args[3:])
+	} else {
+		code, left = run(os.Args[2:])
+	}
+	data, _ := json.Marshal(reported(code, left))
 	if err := os.WriteFile(os.Args[1], data, 0o666); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1, true
@@ -194,13 +213,9 @@ func run(argv []string) (int, map[int]string) {
 		Sys:   &syscall.SysProcAttr{Setsid: true},
 	})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		if errors.Is(err, fs.ErrNotExist) {
-			return 127, nil
-		}
-		return 126, nil
+		return commandFailed(err)
 	}
-	return supervise(command.Pid)
+	return supervise(command.Pid, nil)
 }
 
 // status is a process's exit status, or its killing signal's number negated.
@@ -565,10 +580,14 @@ func copyFile(path, target string, hidden map[[2]uint64]bool) error {
 	return nil
 }
 
-// binds are bubblewrap's mounts: each own place's folder at its path and each writable place at
-// its own, parents first so a deeper mount wins, and none that a parent's mount already shows.
-func binds(own map[string]string, writable []string) ([]string, error) {
+// binds are bubblewrap's mounts: each own place's folder at its path, each writable place at its
+// own and each overlay, parents first so a deeper mount wins, and none that a parent's mount
+// already shows.
+func binds(own map[string]string, writable, overlays []string) ([]string, error) {
 	shown := maps.Clone(own)
+	for _, path := range overlays {
+		shown[path] = path
+	}
 	for _, path := range slices.Sorted(slices.Values(writable)) {
 		if _, clash := own[path]; clash {
 			return nil, fmt.Errorf("%s is a place the box keeps empty and one it writes through to; give each a directory of its own", path)
@@ -582,7 +601,9 @@ func binds(own map[string]string, writable []string) ([]string, error) {
 			parent = filepath.Dir(parent)
 			_, found = shown[parent]
 		}
-		if !found || filepath.Join(shown[parent], strings.TrimPrefix(path, parent)) != shown[path] {
+		if slices.Contains(overlays, path) {
+			args = append(args, "--overlay-src", path, "--tmp-overlay", path)
+		} else if !found || slices.Contains(overlays, parent) || filepath.Join(shown[parent], strings.TrimPrefix(path, parent)) != shown[path] {
 			args = append(args, "--bind", shown[path], path)
 		}
 	}

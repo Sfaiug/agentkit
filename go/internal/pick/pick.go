@@ -36,18 +36,24 @@ type Rules struct {
 	models               map[string]config.Model
 }
 
-// Load is the home's Rules, false where Python ak picks there: a seat's own groups, a payg
-// provider or model, one whose harness says how it is paid, a pace_margin Python refuses, a model a group names that config.model refuses, a
-// matrix lineup from state/matrix.json that ranks the models, are not yet Go's.
+// Load is the Rules of the home's groups as they stand.
 func Load() (*Rules, bool) {
+	executors, reviewers, err := config.Groups()
+	if err != nil {
+		return nil, false
+	}
+	return Within(executors, reviewers)
+}
+
+// Within is the Rules of these groups, reviewers nil being the executors, false where Python ak
+// picks there: a seat's own groups, a payg provider or model, one whose harness says how it is
+// paid, a pace_margin Python refuses, a model a group names that config.model refuses, a matrix
+// lineup from state/matrix.json that ranks the models, are not yet Go's.
+func Within(executors, reviewers []string) (*Rules, bool) {
 	if _, seat, err := config.CurrentSession(); err != nil || seat != nil {
 		return nil, false
 	}
 	if _, ok := config.PaceMargin(); !ok || ranked() {
-		return nil, false
-	}
-	executors, reviewers, err := config.Groups()
-	if err != nil {
 		return nil, false
 	}
 	models, err := config.Models()
