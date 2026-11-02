@@ -23,6 +23,11 @@ type plugin struct {
 	fresh   string
 	receipt string
 	answer  func(conversation, cwd string) (model, effort any, found bool)
+	// conversation is the file a seat's record says its conversation is kept in, "" for none.
+	conversation func(record map[string]any) string
+	// notices is how each manifest frame that is a notice all its own ends: the manifest names one
+	// only by what opens it, and an owner who goes on after one wrote the rest themselves.
+	notices map[string][]string
 	turnEnv map[string]string
 	auth    func(login config.Login, seat bool) Answer
 	lend    func(login config.Login) Loan

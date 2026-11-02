@@ -13,7 +13,6 @@ func TestAConversationsEndReadsThroughItsHarnesssManifest(t *testing.T) {
 		return `{"type": "assistant", "message": {"content": [{"type": "thinking", "thinking": "hm"}, {"type": "text", "text": "` + text + `"}]}}`
 	}
 	prompt := `{"type": "user", "timestamp": "2026-10-31T05:00:00.5Z", "origin": {"kind": "human"}, "message": {"role": "user", "content": "go"}}`
-	const at = 1793422800.5
 	card := `{"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_1", "name": "AskUserQuestion"}]}}`
 	answer := `{"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "Yes"}]}}`
 	// a line past the first read back, which the next read ends
@@ -25,20 +24,26 @@ func TestAConversationsEndReadsThroughItsHarnesssManifest(t *testing.T) {
 	}{
 		{"the newest words, a sub-agent's aside", []string{prompt, said("Merged."),
 			`{"type": "assistant", "isSidechain": true, "message": {"content": [{"type": "text", "text": "Mine?"}]}}`},
-			End{Said: "Merged.", Prompted: at}},
-		{"words a turn before", []string{said("Merge it?"), prompt, card, answer}, End{Said: "Merge it?", Prompted: at}},
+			End{Said: "Merged."}},
+		{"words a turn before", []string{said("Merge it?"), prompt, card, answer}, End{Said: "Merge it?"}},
 		{"a card unanswered", []string{prompt, said("Merge it?"), card}, End{Said: "Merge it?", Asking: true}},
-		{"a card answered", []string{prompt, card, answer, said("Merged.")}, End{Said: "Merged.", Prompted: at}},
-		{"a card before the owner's prompt", []string{card, prompt, said("Merged.")}, End{Said: "Merged.", Prompted: at}},
+		{"a card answered", []string{prompt, card, answer, said("Merged.")}, End{Said: "Merged."}},
+		{"a card before the owner's prompt", []string{card, prompt, said("Merged.")}, End{Said: "Merged."}},
 		{"the harness's own lines and bookkeeping", []string{prompt,
 			`{"type": "user", "message": {"role": "user", "content": "<command-name>/model</command-name>"}}`,
 			`{"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "[Request interrupted by user]"}]}}`,
 			`{"type": "user", "isMeta": true, "message": {"role": "user", "content": "rules"}}`,
 			`{"type": "user", "origin": {"kind": "task-notification"}, "message": {"role": "user", "content": "done"}}`,
-			said("Merged.")}, End{Said: "Merged.", Prompted: at}},
+			said("Merged.")}, End{Said: "Merged."}},
+		{"a card before words that open with an interruption's notice", []string{card,
+			`{"type": "user", "message": {"role": "user", "content": "[Request interrupted by user] use 8080"}}`,
+			said("Merged.")}, End{Said: "Merged."}},
+		{"a card before the notice alone", []string{card,
+			`{"type": "user", "message": {"role": "user", "content": "[Request interrupted by user for tool use]"}}`,
+			said("Merged.")}, End{Said: "Merged.", Asking: true}},
 		{"a prompt queued while the turn ran", []string{said("Merged."), `{"type": "attachment", "timestamp": 7, "attachment": ` +
-			`{"type": "queued_command", "prompt": "and the docs", "origin": {"kind": "human"}}}`}, End{Said: "Merged.", Prompted: 7}},
-		{"read back past a long line", []string{prompt, filler, said("Merge it?")}, End{Said: "Merge it?", Prompted: at}},
+			`{"type": "queued_command", "prompt": "and the docs", "origin": {"kind": "human"}}}`}, End{Said: "Merged."}},
+		{"read back past a long line", []string{prompt, filler, said("Merge it?")}, End{Said: "Merge it?"}},
 	} {
 		path := filepath.Join(t.TempDir(), "conversation.jsonl")
 		if err := os.WriteFile(path, []byte(strings.Join(each.lines, "\n")+"\n"), 0o600); err != nil {

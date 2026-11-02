@@ -16,7 +16,7 @@ import (
 // hook carries out what a hook stub under go/hooks hands over: `ak hook <stem>`, the event's
 // JSON on stdin.  A hook that fails loudly is a harness that stops, so it reads all its stdin,
 // prints nothing but its harness's answer on out and exits 0, whatever it was handed and
-// whatever fails.
+// whatever fails; only a decision it leaves to Python exits 3.
 func hook(args []string, out io.Writer) (code int) {
 	defer func() { recover() }()
 	payload, err := io.ReadAll(os.Stdin)
@@ -25,7 +25,7 @@ func hook(args []string, out io.Writer) (code int) {
 	case args[0] == "seat-state":
 		seatState(payload)
 	case args[0] == "orchestrator-stop" && err == nil:
-		orchestratorStop(payload, out)
+		return orchestratorStop(payload, out)
 	}
 	return 0
 }

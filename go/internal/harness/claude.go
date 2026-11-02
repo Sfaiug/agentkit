@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode/utf16"
@@ -18,9 +17,12 @@ import (
 // no activity to the silence watchdog.
 func init() {
 	ceiling := strconv.Itoa(run.CeilingHours * 3600 * 1000)
-	plugins["claude"] = plugin{seats: true, answer: claudeAnswer, auth: claudeAuth, lend: claudeLend, turnEnv: map[string]string{
+	plugins["claude"] = plugin{seats: true, answer: claudeAnswer, conversation: claudeConversation, notices: claudeNotices, auth: claudeAuth, lend: claudeLend, turnEnv: map[string]string{
 		"BASH_DEFAULT_TIMEOUT_MS": ceiling, "BASH_MAX_TIMEOUT_MS": ceiling}, opens: true, titled: true}
 }
+
+// claudeNotices are the interruptions Claude Code writes as a user line (claude.py INTERRUPTS).
+var claudeNotices = map[string][]string{"[Request interrupted by user": {"]", " for tool use]"}}
 
 // projectCut is where Claude Code ends a project folder's name with a hash of the path.
 const projectCut = 200
@@ -29,11 +31,7 @@ const projectCut = 200
 // its end: its own, never a subagent's or one Claude Code made up itself. Read anywhere else
 // Claude Code would keep it, or not read, there is none.
 func claudeAnswer(conversation, cwd string) (model, effort any, found bool) {
-	if conversation == "" || cwd == "" {
-		return nil, nil, false
-	}
-	home, _ := os.UserHomeDir()
-	file, err := os.Open(filepath.Join(home, ".claude", "projects", projectFolder(cwd), conversation+".jsonl"))
+	file, err := os.Open(claudeConversation(map[string]any{"conversation": conversation, "cwd": cwd}))
 	if err != nil {
 		return nil, nil, false
 	}

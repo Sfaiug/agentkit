@@ -82,7 +82,7 @@ func goneWord(seat Seat, name string, place int) (string, string) {
 	if seat.closed {
 		return "idle", reason
 	}
-	if owed, _ := plan.Owes(name); owed {
+	if plan.Owes(name) {
 		return "needs you", reason
 	}
 	done := config.Fold(plan.LastDone(name))

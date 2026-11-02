@@ -3,6 +3,7 @@ package plan
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -28,13 +29,16 @@ func TestAPlanOwesItsOpenLinesAndIsDoneOnlyWithDoneWork(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(state, "plan-acme.md"), []byte(text), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		owed, done := Owes("acme")
-		if got := map[bool]string{true: "owed", false: map[bool]string{true: "nothing", false: "done"}[done.IsZero()]}[owed]; got != want {
+		done, err := DoneAt("acme")
+		if got := map[bool]string{true: "owed", false: map[bool]string{true: "nothing", false: "done"}[done.IsZero()]}[Owes("acme")]; got != want {
 			t.Errorf("%q: %s, want %s", text, got, want)
+		}
+		if err != nil && !strings.Contains(text, "deferred") {
+			t.Errorf("%q: %v", text, err)
 		}
 	}
 	os.Remove(filepath.Join(state, "plan-acme.md"))
-	if owed, done := Owes("acme"); owed || !done.IsZero() {
+	if done, err := DoneAt("acme"); Owes("acme") || !done.IsZero() || err != nil {
 		t.Error("no plan owes nothing and holds nothing done")
 	}
 }

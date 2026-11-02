@@ -15,16 +15,15 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/harness"
 	"agentkit/internal/run"
 )
 
-// An End is what a conversation's end says: what the model said last (`last_message`), whether a
-// question card it asked since the owner's last prompt is unanswered (`questioned`), and when
-// that prompt was written, in Unix seconds, 0 where none is dated (`notify.owner_said`).
+// An End is what a conversation's end says: what the model said last (`last_message`), and whether
+// a question card it asked since the owner's last prompt is unanswered (`questioned`).
 type End struct {
-	Said     string
-	Asking   bool
-	Prompted float64
+	Said   string
+	Asking bool
 }
 
 // A kind is one entry the table names: an entry of its shape, or, with parts, each part of
@@ -37,20 +36,16 @@ type kind struct {
 
 // Read is the end of the conversation at path, a harness's that its manifest reads; nothing
 // where it has no `[transcript]` table or the file cannot be opened.
-func Read(harness, path string) (end End) {
-	table, _ := config.Tree(harness, "transcript")
+func Read(name, path string) (end End) {
+	table, _ := config.Tree(name, "transcript")
 	file, err := os.Open(path)
 	if table == nil || err != nil {
 		return end
 	}
 	defer file.Close()
 	skip, _ := table["skip"].(map[string]any)
-	stamp, _ := table["at"].(string)
 	said, card, answer := named(table["said"]), named(table["card"]), named(table["answer"])
-	var prompts []kind
-	for _, each := range listed(table["prompt"]) {
-		prompts = append(prompts, named(each))
-	}
+	prompts := promptKinds(table)
 	answered, prompted := map[string]bool{}, false
 	for entry := range newest(file) {
 		if skip != nil && fits(skip, entry) {
@@ -69,8 +64,8 @@ func Read(harness, path string) (end End) {
 					answered[id] = true
 				}
 			}
-			if len(answers) == 0 && prompt(prompts, entry) {
-				prompted, end.Prompted = true, moment(first(at(entry, stamp)))
+			if len(answers) == 0 && promptWords(name, prompts, entry) != "" {
+				prompted = true
 			} else {
 				for _, item := range card.items(entry) {
 					id, _ := first(at(item, card.id)).(string)
@@ -122,18 +117,26 @@ func (k kind) items(entry *run.Object) (found []*run.Object) {
 	return found
 }
 
-// prompt is whether the entry is the owner's prompt: of one of their shapes, with words that
-// no frame of its own opens.
-func prompt(kinds []kind, entry *run.Object) bool {
+// promptKinds is each shape the table says the owner's prompt comes in.
+func promptKinds(table map[string]any) (kinds []kind) {
+	for _, each := range listed(table["prompt"]) {
+		kinds = append(kinds, named(each))
+	}
+	return kinds
+}
+
+// promptWords is the owner's words where the entry is their prompt, of one of their shapes with
+// words that no frame of its own opens; "" otherwise.
+func promptWords(name string, kinds []kind, entry *run.Object) string {
 	for _, k := range kinds {
 		for _, item := range k.items(entry) {
 			said := words(item, k.words)
-			if said != "" && !slices.ContainsFunc(k.frames, func(frame string) bool { return strings.HasPrefix(said, frame) }) {
-				return true
+			if said != "" && !slices.ContainsFunc(k.frames, func(frame string) bool { return harness.Framed(name, frame, said) }) {
+				return said
 			}
 		}
 	}
-	return false
+	return ""
 }
 
 // fits is whether the object has the shape: each of its keys holds what the shape says there.
