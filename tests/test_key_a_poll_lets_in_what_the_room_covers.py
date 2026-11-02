@@ -3,7 +3,7 @@
 On 31 Oct 2026 32 runs waited in line on a host with 8.8 G free, against a gate needing 3.2 G and
 a recent run's median peak of 0.78 G, and one went in every 31 to 61 s: after any run went in,
 the first in line waited a poll for steady readings.  Readings lag what a run just let in will
-use, so each run holding a slot counts what it may still grow by against the memory gates
+use, so a run that shows nothing yet counts what it may still grow by against the memory gates
 instead: runs started together each go in at their first poll while the room covers them, and
 one it does not cover waits.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, on a project from gitrig.py with scripted harnesses from
@@ -50,10 +50,10 @@ def state(run):
         return {}
 
 
-def started_together(cls, readings, poll, count, ready):
+def started_together(cls, readings, poll, count, ready, login_held=False):
     """The records, once all have ended, of `count` runs, each started once `ready` holds of the
     records of those before it: a run behind one that has not polled yet waits a poll for it.
-    Each one's turn is held until `ready` holds of them all."""
+    Each one's turn, with `login_held` its login check too, is held until `ready` holds of all."""
     home = Home()
     cls.addClassCleanup(home.close)
     del home.env["AK_MAX_RUNS"]     # 0 turns admission off
@@ -69,7 +69,11 @@ def started_together(cls, readings, poll, count, ready):
     akconfig.write(home, ["opus", "astra"])
     release = home.root / "adapters" / "release"
     hold = f"until [ -e {shlex.quote(str(release))} ]; do sleep 0.1; done"
-    fakeadapter.install(home, claude={**fakeadapter.WORK, "sh": hold}, codex="pass")
+    claude = fakeadapter.install(home, claude={**fakeadapter.WORK, "sh": hold},
+                                 codex="pass")["claude"].script
+    if login_held:      # a run's own: a launch asks too, with no run to name
+        claude.write_text(claude.read_text().replace(
+            "exec ", f'[ "$1" != auth ] || [ -z "$AGENTKIT_RUN" ] || {hold}\nexec ', 1))
     runs = []
     for title in TITLES[:count]:
         known = set(taskfile.runs(home))
@@ -79,6 +83,7 @@ def started_together(cls, readings, poll, count, ready):
         assert done.code == 0, done.out + done.err
         runs.append((set(taskfile.runs(home)) - known).pop())
         wait(lambda: ready([state(run) for run in runs]), f"{runs[-1].name} ready", 300)
+    cls.released = time.time()
     release.touch()
     wait(lambda: all(state(run).get("state") not in ("queued", "running") for run in runs),
          "every run's end", 300)
@@ -105,6 +110,13 @@ class RoomForAll(unittest.TestCase):
 
 
 class RoomForOne(unittest.TestCase):
+    HELD = True     # the first's worker waits on its login check, 6 polls and more past going in
+
+    @staticmethod
+    def ready(runs):
+        return (time.time() - runs[0].get("slot_started_at", time.time()) > 7
+                and (runs[-1].get("state") != "queued" or runs[-1].get("slot_wait_reason")))
+
     @classmethod
     def setUpClass(cls):
         # The gate needs 3.2 G of 16 G: 4.5 G free lets one run past it, and with what that
@@ -112,16 +124,21 @@ class RoomForOne(unittest.TestCase):
         # gone in or says why it waits.
         cls.runs = started_together(cls, {"free_mb": 4500, "mem_total_mb": 16000, "cpus": 8,
                                           "load": 0.1, "slice_cpu_pressure": 0,
-                                          "slice_memory_pressure": 0}, 1, 2,
-                                    lambda runs: runs[-1].get("state") != "queued"
-                                    or runs[-1].get("slot_wait_reason"))
+                                          "slice_memory_pressure": 0}, 1, 2, cls.ready, cls.HELD)
 
     def test_every_run_passes(self):
         self.assertEqual([run.get("verdict") for run in self.runs], ["PASS"] * 2)
 
-    def test_the_second_goes_in_once_the_first_holds_no_slot(self):
-        first, second = self.runs
-        self.assertGreaterEqual(second["slot_started_at"], first["finished_at"])
+    def test_the_second_goes_in_once_the_first_has_launched(self):
+        self.assertGreater(self.runs[1]["slot_started_at"], self.released)
+
+
+class RoomOnceTheFirstHasStarted(RoomForOne):
+    HELD = False    # its worker holds the first's slot until the second is in
+    ready = staticmethod(lambda runs: runs[-1].get("state") == "running")
+
+    def test_the_second_goes_in_once_the_first_has_launched(self):
+        self.assertLess(self.runs[1]["slot_started_at"], self.runs[0]["finished_at"])
 
 
 if __name__ == "__main__":
