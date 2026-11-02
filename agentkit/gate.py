@@ -33,6 +33,7 @@ try:
     SLOT_POLL = float(os.environ.get("AK_SLOT_POLL", "30"))
 except ValueError:
     SLOT_POLL = 30
+STARTING = 6 * SLOT_POLL    # seconds past launching a worker that a run counts what it may grow by
 
 
 GATE_POLL = 15      # seconds between a waiting gate's tries for a turn; each rewrites its log line
@@ -307,10 +308,21 @@ def frozen_runs(state):
     return sum(1 for other in _holders(state) if host.frozen_cgroup(other.get("pid")))
 
 
+def _shows_nothing_yet(run):
+    """Has `run` launched no worker since it went in, or its last under `STARTING` ago?  Peaks
+    settled within 110 s on 2 Nov 2026; then the readings show what it holds.  A turn on a rented
+    machine holds 43 MiB here: counted to a median of 763 for life, 9 such held 22 runs in line."""
+    try:
+        at = (config.RUNS / str(run.get("run_id")) / worker.LAUNCHED).stat().st_mtime
+    except OSError:
+        return True
+    return at < (run.get("slot_started_at") or 0) or time.time() - at < STARTING
+
+
 def _starting(state, peak):
-    """(MB, runs): what the runs holding a slot may still grow by, a recent run's median `peak`
-    less each one's own peak so far, never below 0, and how many may still grow."""
-    holders = [other.get("run_id") for other in _holders(state)]
+    """(MB, runs): what the runs holding a slot that show nothing yet may still grow by, a recent
+    run's median `peak` less each one's own peak so far, never below 0, and how many may still."""
+    holders = [other.get("run_id") for other in _holders(state) if _shows_nothing_yet(other)]
     so_far = history.peaks_so_far(holders)
     growth = [peak - (so_far.get(run_id) or 0) for run_id in holders]
     return sum(mb for mb in growth if mb > 0), sum(mb > 0 for mb in growth)
