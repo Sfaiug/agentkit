@@ -7,11 +7,19 @@ containers run outside the process tree of the ssh that started them, as a real 
 run's silence limit is the one its record holds when its loop starts: the executor's first two
 turns, with the switch off, each end by a signal, which parks the run `interrupted`; its record
 then gets a limit of three seconds, and `ak run resume` runs the third turn on the machine. That
-turn streams one event, runs its command, and hands in blocked, which ends the run unreviewed.
+turn runs its command and hands in blocked, which ends the run unreviewed.
+
+Nothing here races that limit. The turn's ssh streams events until the command says `hush`, so
+however late a turn on a busy host starts, the silence begins where the command says, with any
+`timeout` live. `asked` waits until the machine has listed its processes, which ak does only past
+the limit, so a command meant to run on is seen, however slow that listing. `sleep 4` then outlasts
+the limit again, counted from that listing. A command meant to be stopped sleeps far past the limit,
+so it cannot end first, however slow the stop.
 """
 
 import json
 from pathlib import Path
+import signal
 import sys
 import time
 import unittest
@@ -22,9 +30,25 @@ from fixtures.akbin import Home
 from fixtures.gitrig import Rig
 
 SILENCE_MINUTES = 0.05
-# Its harness killed, and no conversation left for a resume: one to resume runs here.
-KILLED = {"sh": "kill -TERM $PPID", "session": ""}
+# Its harness killed, and no conversation left for a resume: one to resume runs here. By its own
+# signal: a child sending it can outlive it on a busy host, a process the turn left behind, and
+# asking the turn to finish in the foreground takes the next step.
+KILLED = {"exit": -signal.SIGTERM, "session": ""}
 OUT = '"${AK_HAND_IN%/*}"'
+# The machine's ssh, moved to {machine}/ssh, with the turn's events and the listing's mark. `exec`
+# keeps the pid the events watch: they end with the turn, should it never reach `hush`.
+SSH = """#!/bin/bash
+case "${{@: -1}}" in
+  *" mac.sh turn "*)
+    while [ ! -e {machine}/hushed ] && kill -0 $$ 2>/dev/null; do echo {{}}; sleep .1; done & ;;
+  *" mac.sh processes "*)
+    {machine}/ssh "$@"; code=$?; : >{machine}/asked; exit $code ;;
+esac
+exec {machine}/ssh "$@"
+"""
+# Programs on the machine's PATH, for a turn's command.
+TOOLS = {"hush": ": >{machine}/hushed\n",
+         "asked": "until rm {machine}/asked 2>/dev/null; do sleep .1; done\n"}
 
 
 def record(run):
@@ -41,10 +65,14 @@ class ATurnOnAMachineKeepsItsDeclaredTimeout(unittest.TestCase):
         rig = Rig(home, "widgets", files={
             "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
         fakeadapter.install(home, claude=[KILLED, KILLED, {
-            "sh": f'echo "${{container:-here}}" >{OUT}/where; echo {{}} >>{OUT}/events.jsonl; '
-                  f"{command}",
+            "sh": f'echo "${{container:-here}}" >{OUT}/where; {command}',
             "final": "Blocked.", "hand_in": [["blocked", "the fixture needs the owner"]]}])
         machine = akmachine.install(home)
+        (home.bin / "ssh").rename(machine / "ssh")
+        home.fake("ssh", SSH.format(machine=machine))
+        for name, text in TOOLS.items():
+            (machine / "bin" / name).write_text("#!/bin/sh\n" + text.format(machine=machine))
+            (machine / "bin" / name).chmod(0o755)
         home.fake("claude", "#!/bin/sh\necho 1.2.3\n")
         (machine / "home/.agentkit-helper/harness/claude/1.2.3").mkdir(parents=True)
         (machine / "home/.agentkit-helper/harness/claude/1.2.3/claude").touch(0o755)
@@ -64,16 +92,16 @@ class ATurnOnAMachineKeepsItsDeclaredTimeout(unittest.TestCase):
         return record(run), run
 
     def test_a_silent_command_under_a_declared_timeout_runs_to_its_end(self):
-        state, run = self.resume("timeout 30 sleep 6")
+        state, run = self.resume("timeout 600 sh -c 'hush; asked; sleep 4'")
         self.assertEqual(state["state"], "blocked", state)
         self.assertEqual([path.read_text() for path in run.rglob("where")], ["docker\n"])
 
     def test_silent_commands_one_after_another_each_under_its_timeout_run_to_their_end(self):
-        state, _ = self.resume("timeout 7 sleep 6; timeout 30 sleep 6")
+        state, _ = self.resume("timeout 7 sh -c 'hush; asked'; timeout 600 sh -c 'asked; sleep 4'")
         self.assertEqual(state["state"], "blocked", state)
 
     def test_a_silent_command_with_no_declared_bound_is_stopped_at_the_limit(self):
-        state, run = self.resume("sleep 6")
+        state, run = self.resume("hush; sleep 600")
         self.assertIn("transient_wait", state)
         self.assertIn("emitted no event for 3s", (run / "log.txt").read_text())
         self.assertEqual([*run.rglob("where")], [])
