@@ -25,8 +25,8 @@ SKUS = [sku(f"{SPOT} C4A Arm Instance Core running in Netherlands", NL, 700_000_
         sku(f"{SPOT} C4A Arm Instance Ram running in Europe and Iowa", NL + IOWA, 12_500_000),
         sku("Hyperdisk Balanced Capacity in Europe and Iowa", NL + IOWA, 73_000_000, "GiBy.mo"),
         ADDRESS]
-ZONES = {f"zones/{zone}": {"machineTypes": [kind("c4a-highcpu-8", 8, 16), kind(
-    "c4a-highcpu-16", 16, 32), kind("c4a-standard-72", 72, 288)]}
+ZONES = {f"zones/{zone}": {"machineTypes": [kind("c4a-highcpu-4", 4, 8), kind(
+    "c4a-highcpu-8", 8, 16), kind("c4a-highcpu-16", 16, 32), kind("c4a-standard-72", 72, 288)]}
          for zone in ("europe-west4-a", "us-central1-a")}
 T = datetime(2026, 11, 2, tzinfo=UTC).timestamp()
 OFFERS = ".agentkit/state/google-cloud-offers.json"
@@ -72,6 +72,11 @@ class GoogleRentsWhereQuotaIsLeft(unittest.TestCase):
     def test_a_smaller_machine_fits_where_the_cheapest_would_not(self):
         self.assertRents(self.rent({("europe-west4", "C4A"): 152, ("us-central1", "C4A"): 8}, {}),
                          "europe-west4-a", "c4a-highcpu-8")
+
+    def test_a_machine_under_the_smallest_is_no_offer_however_cheap(self):
+        # 6 vCPUs left in the cheapest region hold a 4, and its image would leave it next to nothing
+        self.assertRents(self.rent({("europe-west4", "C4A"): 150, ("us-central1", "C4A"): 8}, {}),
+                         "us-central1-a", "c4a-highcpu-8")
 
     def test_none_asked_where_no_region_has_room_and_each_is_said(self):
         # us-central1 lists no C4A bucket: its family's own quota comes before its CPUS

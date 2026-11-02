@@ -81,6 +81,10 @@ SSH_CONFIG = "google-cloud-ssh-config"  # in config.STATE: the machines that ser
 # minute to boot and 4.5 to receive a whole history and build its image (measured 30 Oct 2026),
 # and the tick looks only every PASS; ten idle minutes of the machines ak rents cost about €0.10.
 IDLE_FOR = 600
+# The fewest vCPUs a rented machine has.  In memory, its suite's image took 6.4 of a 2-vCPU one's
+# 7.8 GB, and a 4 ran 6 pieces in 4 hours to a 72's 2231, each rent of one a pass the next waits
+# (2 Nov 2026).  A smaller image would let this go lower; a rent past it costs more for that hour.
+SMALLEST = 8
 
 
 class Unavailable(config.Error):
@@ -108,8 +112,10 @@ class Offer(NamedTuple):
 
 
 def best(mb_per_cpu, offered):
-    """The offers with at least `mb_per_cpu` of memory a vCPU, the lowest price per core first."""
-    return sorted((offer for offer in offered if offer.memory_mb >= mb_per_cpu * offer.cpus),
+    """The offers of at least `SMALLEST` vCPUs and `mb_per_cpu` of memory each, the lowest price
+    per core first."""
+    return sorted((offer for offer in offered if offer.cpus >= SMALLEST
+                   and offer.memory_mb >= mb_per_cpu * offer.cpus),
                   key=lambda offer: (offer.hourly / offer.cores, offer))
 
 
