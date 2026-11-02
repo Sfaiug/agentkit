@@ -1,14 +1,17 @@
 """ak's seats live on the tmux server its socket setting names, and the default server is a
 person's own.
 
-Seats are on `tmux -L agentkit`, or the server AGENTKIT_TMUX_SOCKET names, so nothing ak does
-reaches another tmux user's sessions and a test reaches none of the owner's.  The default server
-is read only for the marked seats of old, listed as `legacy`: listing, the menu and a tick leave
-it, and any server the setting does not name, exactly as they found it; stopping a legacy seat
-ends that one session where it is.  Black-box: the program `AK_BIN` names runs from outside
-through tests/fixtures/akbin.py, and every server is one of the Home's own.
+Seats are on the server AGENTKIT_TMUX_SOCKET names, else on `tmux -L agentkit` under the account's
+own home and under any other HOME on `agentkit-` plus the first 8 hex digits of the sha256 of its
+resolved ~/.agentkit, so nothing ak does reaches another tmux user's sessions and a test reaches
+none of the owner's.  The default server is read only for the marked seats of old, listed as
+`legacy`: listing, the menu and a tick leave it, and any server the setting does not name, exactly
+as they found it; stopping a legacy seat ends that one session where it is.  Black-box: the
+program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, and every server is one
+of the Home's own.
 """
 
+import hashlib
 import sys
 from pathlib import Path
 import unittest
@@ -20,7 +23,8 @@ from fixtures.akbin import REAL_TMUX, SOCKET, Home
 SERVERS = {SOCKET: {"acme": True}, "akmap-test": {"beta": True},
            "agentkit": {"gamma": True},
            "default": {"old-seat": True, "mine": False}}
-NAMES = {name for sessions in SERVERS.values() for name in sessions}
+OWN = "delta"   # on the server of the Home's own, named once the Home is made
+NAMES = {OWN} | {name for sessions in SERVERS.values() for name in sessions}
 
 
 def open_session(home, server, name, marked):
@@ -77,11 +81,13 @@ class TmuxSocketSeam(unittest.TestCase):
         self.assertEqual(set(self.listed({"AGENTKIT_TMUX_SOCKET": "akmap-test"})),
                          {"beta", "old-seat"})
 
-    def test_without_a_socket_setting_seats_are_on_the_agentkit_server(self):
+    def test_without_a_socket_setting_seats_are_on_the_homes_own_server(self):
+        place = str((self.home.path / ".agentkit").resolve()).encode()
+        open_session(self.home, f"agentkit-{hashlib.sha256(place).hexdigest()[:8]}", OWN, True)
         for unset in (None, ""):
             with self.subTest(setting=unset):
                 self.assertEqual(set(self.listed({"AGENTKIT_TMUX_SOCKET": unset})),
-                                 {"gamma", "old-seat"})
+                                 {OWN, "old-seat"})
 
     def test_only_a_marked_session_on_the_default_server_is_listed_and_as_legacy(self):
         rows = self.listed()

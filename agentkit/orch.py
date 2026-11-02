@@ -28,10 +28,12 @@ import atexit
 import difflib
 import fcntl
 import fnmatch
+import hashlib
 import io
 import json
 import math
 import os
+import pwd
 import re
 import secrets
 import shlex
@@ -366,8 +368,23 @@ def fresh_command(cfg, name, seat=None, account=None, line=None):
 
 
 def socket_name():
-    """The tmux server agentkit's seats live on.  Its own, and never the user's default one."""
-    return os.environ.get(SOCKET_ENV) or SOCKET
+    """The tmux server agentkit's seats live on.  Its own, and never the user's default one.
+
+    `SOCKET` belongs to the account's own home; any other HOME gets a server of that home's own,
+    as config.py promises of ~/.agentkit.  An `ak` opened under a scratch HOME to try a screen
+    once reached the seats' server, found no record of the seat whose side session it listed,
+    took that for a forgotten seat (`forgotten`) and closed the session (`sweep_finished`).
+    """
+    named = os.environ.get(SOCKET_ENV)
+    if named:
+        return named
+    try:
+        account = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()
+    except KeyError:    # a uid with no passwd entry, as in a container, has no home of its own
+        account = None
+    if Path.home().resolve() == account:
+        return SOCKET
+    return f"{SOCKET}-{hashlib.sha256(str(config.HOME.resolve()).encode()).hexdigest()[:8]}"
 
 
 def jobs_socket():
