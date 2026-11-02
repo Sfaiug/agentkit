@@ -1,5 +1,5 @@
-"""agentkit's own change is live once this host's installation, ~/agentkit, holds it and its
-install.sh has passed.
+"""agentkit's own change is live once this host's installation, ~/agentkit, holds it, its
+install.sh has passed and the ak it installed works (tests/test_key_health_needs_a_working_ak.py).
 
 The tick moves ~/agentkit only to a commit whose tests/live.sh passed (`update.go_live`) and
 keeps `agentkit-install-pending` until install.sh passes (`update.update_agentkit`), so a merged
@@ -36,6 +36,10 @@ class OwnHealth(unittest.TestCase):
                                 "user.email=acme@example.com", "commit", "-q", "--allow-empty",
                                 "-m", message], check=True)
             merged = gitcall.git(installed, "rev-parse", "HEAD")
+            ak = installed / "bin" / "ak"
+            ak.parent.mkdir()
+            ak.write_text("#!/bin/sh\nexit 0\n")
+            ak.chmod(0o755)
             subprocess.run(["git", "clone", "-q", str(installed), str(source)], check=True)
             gitcall.git(installed, "checkout", "-q", "--detach", "HEAD~1")
             self.assertFalse(watch.health_command(source, merged, command)[0],
