@@ -275,7 +275,8 @@ class Matrix(unittest.TestCase):
                             for line in tail), tail)
         # the build under the last row, nothing said of the highlighted model
         version = tail.index("Version abc1234 · 2026-09-29")
-        self.assertTrue(tail[version - 2].startswith("Weekly audit"), tail)
+        self.assertEqual([line.split()[0] for line in tail[version - 4:version - 1]],
+                         ["rounds", "review_lines", "seat_lines"], tail)
         self.assertEqual(tail[version - 1:], ["", "Version abc1234 · 2026-09-29", "",
                                               KEYS.strip()])
         self.assertEqual(lines[-1], KEYS)
@@ -462,7 +463,7 @@ class Matrix(unittest.TestCase):
         lines = screen.press(DOWN, lambda lines: highlighted(lines).startswith("› Weekly audit"))
         self.assertEqual(lines[-1], OPEN_KEYS)   # its step, like Discord's
         # the last stop: the build under the page is read, and never highlighted
-        lines = screen.press(DOWN, lambda lines: highlighted(lines).startswith("› Weekly audit"))
+        lines = screen.press(DOWN * 4, lambda lines: highlighted(lines).startswith("› seat_lines"))
         self.assertIn("Version abc1234 · 2026-09-29", [line.strip() for line in lines])
         screen.leave()
         self.assertEqual(screen.text().count("<discord step>"), 1)
@@ -480,13 +481,13 @@ class Matrix(unittest.TestCase):
                              lambda lines: "at least one model reviews" in "\n".join(lines))
         self.assertLessEqual(len(lines), 23)
         self.assertTrue(highlighted(lines).startswith("› Opus"), lines)     # cut, on a phone
-        lines = screen.press(DOWN * 11,
-                             lambda lines: highlighted(lines).startswith("› Weekly audit"))
+        lines = screen.press(DOWN * 14,
+                             lambda lines: highlighted(lines).startswith("› seat_lines"))
         self.assertLessEqual(len(lines), 23)
         self.assertIn("Version abc1234 · 2026-09-29", [line.strip() for line in lines])      # and on the last
         self.assertNotIn("at least one model reviews", "\n".join(lines))   # until the next key
         # Wait for selection: the row is already visible on the first Up redraw.
-        lines = screen.press(UP * 3, lambda lines: highlighted(lines) == "› Models")
+        lines = screen.press(UP * 6, lambda lines: highlighted(lines) == "› Models")
         self.assertEqual(highlighted(lines), "› Models")
         self.assertLessEqual(len(lines), 23)
         screen.leave()
