@@ -86,14 +86,16 @@ err() { local m=${1//\\/}; m=${m//\"/\'}
 # either reads it, a lapsed login that still holds a refresh token gets the smallest turn
 # Claude Code runs on it -- its smallest model, one word, no tools, no conversation kept --
 # one per login at a time: whoever waited finds it renewed and asks nothing.  A later login is
-# never touched, and one the turn could not renew is read as it was.  A login kept in its file
-# counts as lapsed 90 minutes early: `machine_turn.LENT_FOR` keeps every turn of a login in its
-# last hour on this host, which took its load to 40-60 for that hour of each eight (2 Nov 2026),
-# and `usage`, asked about every 15 minutes (`probe_every`), gets there first.  A machine's copy
-# is replaced as it renews (`machine_turn._following`); nothing follows the Keychain, so that waits.
+# never touched, and one the turn could not renew is read as it was.  Off a Mac a login counts as
+# lapsed 90 minutes early: `machine_turn.LENT_FOR` keeps every turn of a login in its last hour
+# on this host, which took its load to 40-60 for that hour of each eight (2 Nov 2026), and
+# `usage`, asked about every 15 minutes (`probe_every`), gets there first.  A machine's copy is
+# replaced as it renews (`machine_turn._following`).  On a Mac that waits: nothing follows the
+# Keychain, and a turn on a copy of the login would renew into the Keychain, out of `COPY`'s reach.
 lapsed() {
   local blob ahead=5400
-  blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) && ahead=0 \
+  [ "$(uname)" != Darwin ] || ahead=0
+  blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
     || blob=$(cat "$CREDS" 2>/dev/null) || return 1
   exp=$(printf '%s' "$blob" | jq -r '.claudeAiOauth | select((.refreshToken // "") != "")
       | .expiresAt // empty' 2>/dev/null)
@@ -101,28 +103,41 @@ lapsed() {
   [ "${#exp}" -gt 11 ] || exp="${exp}000"
   [ "$exp" -le "$(( ($(date +%s) + ahead) * 1000 ))" ]
 }
-put_login() {
-  tmp=$(mktemp "$CREDS.XXXXXX") && printf '%s' "$1" >"$tmp" && mv -f -- "$tmp" "$CREDS"
+# Claude Code renews, and writes its file, only in a login's last 5 minutes (2.1.316, 2 Nov 2026).
+# Earlier the turn runs on a copy that says it is there, so the login's own file never says so,
+# whatever ends the turn.  Renewing retires the login renewed, so a copy holding the renewal
+# outlives a turn killed after it: the next `renew` takes it, and no second turn runs.
+COPY="$TMPD/claude-login${ACCOUNT:+.$ACCOUNT}.copy"
+# That login alone, onto the file as it is now, which holds the MCP servers' logins too: a copy
+# nothing renewed has the file's token, and one a renewal of the file itself overtook ends sooner.
+take_renewal() {
+  local merged tmp
+  merged=$(jq -c --slurpfile copy "$COPY/.credentials.json" '$copy[0].claudeAiOauth as $new
+      | select($new.accessToken != .claudeAiOauth.accessToken
+               and $new.expiresAt > .claudeAiOauth.expiresAt)
+      | .claudeAiOauth = $new' "$CREDS" 2>/dev/null) || return 0
+  if [ -n "$merged" ]; then
+    tmp=$(mktemp "$CREDS.XXXXXX") && printf '%s' "$merged" >"$tmp" && mv -f -- "$tmp" "$CREDS" || return 0
+  fi
+  rm -rf -- "$COPY"
 }
 renew() {
   lapsed && mkdir -p -- "$TMPD" 2>/dev/null || return 0
   # flock(2) on fd 9 holds until this subshell closes it, after the turn; python3 because
   # macOS has no flock(1).  Silent throughout: `auth` answers in one line.
   ( python3 -c 'import fcntl, signal; signal.alarm(30); fcntl.flock(0, fcntl.LOCK_EX)' <&9 &&
-      lapsed && cd -- "$TMPD" || exit 0
-    # Claude Code renews, and writes this file, only in a login's last 5 minutes (2.1.316, 2 Nov
-    # 2026): earlier the file is still, and it is told it is there, and told back if nothing came.
+      { take_renewal; lapsed; } && cd -- "$TMPD" || exit 0
     if [ "$exp" -gt "$(( ($(date +%s) + 300) * 1000 ))" ]; then
-      held=$(cat -- "$CREDS") && near=$(printf '%s' "$held" |
-        jq -c '.claudeAiOauth.expiresAt = ((now + 240) * 1000 | floor)') && put_login "$near" || exit 0
+      near=$(jq -c '{claudeAiOauth} | .claudeAiOauth.expiresAt = ((now + 240) * 1000 | floor)' "$CREDS") &&
+        mkdir -p -m 700 -- "$COPY" && printf '%s' "$near" >"$COPY/.credentials.json" || exit 0
+      export CLAUDE_CONFIG_DIR=$COPY
     fi
-    # the seat login's own directory, never a token that would stand in for it; a worker's
-    # role keeps the seat hooks quiet when the caller is a seat
+    # the seat login's own directory or its copy, never a token that would stand in for it; a
+    # worker's role keeps the seat hooks quiet when the caller is a seat
     unset CLAUDE_CODE_OAUTH_TOKEN
     echo hi | AK_RUN_ROLE=worker claude -p --model haiku --tools "" --no-session-persistence \
       --settings "$PINS" 9>&-
-    if [ -n "${held:-}" ] && [ "$(jq -r .claudeAiOauth.accessToken "$CREDS")" = \
-         "$(printf '%s' "$held" | jq -r .claudeAiOauth.accessToken)" ]; then put_login "$held"; fi
+    take_renewal
   ) >/dev/null 2>&1 9>>"$TMPD/claude-login${ACCOUNT:+.$ACCOUNT}.lock"
 }
 
