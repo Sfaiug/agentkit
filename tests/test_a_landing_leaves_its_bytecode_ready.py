@@ -1,14 +1,14 @@
-"""A landing leaves bytecode Python will load, written before the version goes live."""
+"""A landing leaves bytecode Python will load, in place as the version goes live."""
 
 import importlib.util
 from pathlib import Path
 import struct
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_a_landing_restarts_a_menu_once as landing
-from agentkit import config, versions
 
 
 def stale(version):
@@ -24,10 +24,10 @@ class ALandingLeavesItsBytecodeReady(unittest.TestCase):
     setUp, commit = landing.ALandingRestartsAMenuOnce.setUp, landing.ALandingRestartsAMenuOnce.commit
     change, land = landing.ALandingRestartsAMenuOnce.change, landing.ALandingRestartsAMenuOnce.land
 
-    def ready(self, name):
+    def ready(self, name, prefix=None):
         told = []
-        self.land(name, lambda: told.extend(
-            name for version in (config.HOME / versions.VERSIONS).iterdir() for name in stale(version)))
+        with patch.object(sys, "pycache_prefix", prefix):
+            self.land(name, after=lambda: told.extend(stale(self.clone)))
         self.assertEqual(told, [])
 
     def test_a_landing_with_code(self):
@@ -35,6 +35,9 @@ class ALandingLeavesItsBytecodeReady(unittest.TestCase):
 
     def test_a_landing_keeping_the_modules_times(self):
         self.ready("docs/acme.md")
+
+    def test_a_landing_under_a_cache_prefix(self):
+        self.ready("agentkit/acme.py", str(self.root / "pycache"))
 
 
 if __name__ == "__main__":

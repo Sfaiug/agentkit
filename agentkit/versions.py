@@ -24,6 +24,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 from . import config, retention
@@ -173,11 +174,18 @@ def keep_times(live, new, commit):
         pass            # a time not kept costs one restart
 
 
-def compiled(new):
+def compiled(live, new):
     """Bytecode for `new` before it goes live and after `keep_times`, its source's time being in it:
-    a cold import took 0.58 s against 0.17, later a restarted menu's first frame.  None is no harm."""
-    import compileall       # for this one call, so no other `ak` pays for it
-    compileall.compile_dir(new / "agentkit", quiet=2)
+    a cold import took 0.58 s against 0.17, later a restarted menu's first frame.  In `__pycache__`
+    it swaps in with its version; a cache prefix files it by the source's path, soon `live`'s."""
+    import importlib.util
+    import py_compile       # for this one call, so no other `ak` pays for it
+    for source in (new / "agentkit").rglob("*.py"):
+        where = (live if sys.pycache_prefix else new) / source.relative_to(new)
+        try:
+            py_compile.compile(str(source), importlib.util.cache_from_source(where), quiet=2)
+        except OSError:
+            pass        # a file not written costs one cold start
 
 
 def switch(live, commit):
@@ -203,7 +211,7 @@ def switch(live, commit):
     try:
         new.chmod(live.stat().st_mode & 0o7777)    # mkdtemp's is the owner's alone
         keep_times(live, new, commit)
-        compiled(new)
+        compiled(live, new)
         exchange(live, new)
     except OSError as exc:
         remove(new)
