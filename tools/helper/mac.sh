@@ -181,6 +181,22 @@ fetch() {
     *) curl -fsSL --max-time 600 "$url" >"$part/${1##*/}" && chmod +x "$part/${1##*/}" ;;
   esac && [ -x "$part/${1##*/}" ] && mv -T "$part" "${1%/*}" || { rm -rf "$part"; return 1; }
 }
+# replace_lent DIR, under the lent lock, which `turn`'s end and `finish` take to remove them: each
+# line on stdin, a file's bytes in base64 then its path, replaces that path by rename beside it if
+# DIR's `lent` lists it and it is still there, so nothing lands once the turn has ended. The part is
+# its own, mktemp's and 0600, as a harness may hold any other name there; signalled, it goes too.
+# drop_lent PATH..., for `turn`'s end under that lock: they go, and a part a send killed outright
+# left, after which none can come, so `collect` never meets one.
+drop_lent() { for path; do rm -rf -- "$path" "$path".ak-lent-??????; done; }
+replace_lent() {
+  trap 'rm -f -- "$part"' EXIT
+  while read -r bytes path; do
+    place=$1/home/$path
+    tr '\0' '\n' <"$1/lent" | grep -qxF -- "$path" && [ -f "$place" ] || continue
+    part=$(mktemp "$place.ak-lent-XXXXXX") && printf '%s' "$bytes" | base64 -d >"$part" &&
+      mv -f "$part" "$place" || return 253
+  done
+}
 case $(uname) in Darwin) darwin ;; Linux) linux ;; *) false ;; esac || exit 253
 case "$1" in
 probe)     # what helper.room reads
@@ -235,7 +251,7 @@ turn)      # KEY IMAGE MEMORY_MB REPO, volumes PART:PATH[:ro] of its parcel, `ho
   H="$ROOT/harness/$(dirname "$(cat "$D/harness")")"
   shift 5
   while IFS= read -r -d '' path; do lent+=("$D/home/$path"); done <"$D/lent"
-  trap 'rm -rf -- "${lent[@]}"' EXIT
+  trap 'locked "$ROOT/lent.lock" drop_lent "${lent[@]}"' EXIT
   home=${1#home:}
   while [ "${1:---}" != -- ]; do
     mkdir -p "$D/${1%%:*}" && volumes+=(--volume "$D/$1") || exit 253
@@ -252,11 +268,15 @@ turn)      # KEY IMAGE MEMORY_MB REPO, volumes PART:PATH[:ro] of its parcel, `ho
     wait "$turn"; code=$?; wait; exit "$code"
   }
   admitted streamed "$@" ;;
+relend)    # KEY, `replace_lent`'s lines on stdin, read whole first: a stalled ssh must hold no lock
+  sent=$(cat) && printf '%s\n' "$sent" | locked "$ROOT/lent.lock" replace_lent "$ROOT/$2" ;;
 collect)   # KEY FOLDER...: an ended turn's out dir, the bundle and exit turn.sh left and those
   # folders of its HOME, as a tar on stdout
   cd "$ROOT/$2" && [ -f code ] && shift 2 && mkdir -p "${@/#/home/}" &&
     tar -c out back.bundle code "${@/#/home/}" || exit 253 ;;
-finish) rm -rf "${ROOT:?}/$2" ;;
+finish)    # `lent` first, in a moment: a `relend` under way must not write as the tree goes
+  locked "$ROOT/lent.lock" rm -f "$ROOT/$2/lent"
+  rm -rf "${ROOT:?}/$2" ;;
 idle) quiet ;;     # how long it has held nothing: Linux's alone, as only rented machines are asked
 processes) processes "$2" ;;    # KEY: what runs in the turn's container (agentkit/machine_turn.py):
   # Linux's alone, as only rented machines take turns
