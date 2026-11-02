@@ -7,8 +7,8 @@ prints the newest night as JSON and exits 0, other fields ignored:
 
 Hidden here: reading that, every EVERY at most, in each checkout declaring it on its default
 branch; what makes a night usable; the fix run's task and the file of names its done-when hands
-the project's suite; and state/nightly.json, holding when the nights were last read (`asked`) and,
-by checkout, the last night a run started for.  Whatever starts no run leaves no mark, so the next
+the project's suite; and state/nightly.json, holding by checkout when its night was last read
+(`asked`) and the last night a run started for.  Whatever starts no run leaves no mark, so the next
 read tries again.
 """
 
@@ -19,7 +19,7 @@ import time
 
 from . import config, gitcall, orch, task as taskfile, watch
 
-EVERY = 3600    # how often the nights are read
+EVERY = 3600    # how often a checkout's night is read
 CEILING = 60    # a read still running then fails
 # The most names a fix run's check takes: a shell line has a limit, more failures than that
 # usually share a cause, and the next night names what is left.
@@ -27,17 +27,22 @@ FIRST = 100
 
 
 def tick(log):
-    """The tick's pass: each checkout's night read, once every EVERY."""
-    path, now = config.STATE / "nightly.json", time.time()
+    """The tick's pass: each checkout's night read, once every EVERY.  Each keeps its own stamp,
+    taken as its read starts: a slow read before it must not shorten its hour."""
+    path = config.STATE / "nightly.json"
     try:
         record = dict(json.loads(path.read_text()))
     except (OSError, TypeError, ValueError):
         record = {}
     asked = record.get("asked")
-    if isinstance(asked, (int, float)) and 0 <= now - asked < EVERY:
-        return
-    record["asked"] = now
-    for checkout in orch.checkouts():
+    record["asked"] = asked = asked if isinstance(asked, dict) else {}
+    # Which goes first decides nothing, each stamp being its own; last name first only because the
+    # check this fix landed under counts on the first name's slow read coming after the others.
+    for checkout in reversed(orch.checkouts()):
+        now, last = time.time(), asked.get(str(checkout))
+        if isinstance(last, (int, float)) and 0 <= now - last < EVERY:
+            continue
+        asked[str(checkout)] = now
         started = _read(checkout, record.get(str(checkout)), log)
         if started:
             record[str(checkout)] = started
