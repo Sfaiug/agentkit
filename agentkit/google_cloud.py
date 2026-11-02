@@ -79,7 +79,7 @@ systemctl reload ssh
 touch {ready}
 """
 SSH_KEY, KNOWN_HOSTS = "google-cloud-ssh", "google-cloud-known-hosts"     # beside KEY
-SSH_CONFIG = "google-cloud-ssh-config"  # in config.STATE: the machines that serve, then the owner's
+SSH_CONFIG = "google-cloud-ssh-config"  # in config.STATE: the machines ak rents, then the owner's
 # A machine that held nothing this long goes back.  A new machine's first suite pays about a
 # minute to boot and 4.5 to receive a whole history and build its image (measured 30 Oct 2026),
 # and the tick looks only every PASS; ten idle minutes of the machines ak rents cost about €0.10.
@@ -154,8 +154,9 @@ def said(mb_per_cpu):
 
 def watch():
     """The tick's pass while ak may rent: the meter moved on to what Google lists, each machine
-    past its end, unpriced, past the cap or idle given back and said, the other ready ones serving;
-    only then a stale price list, and a machine rented for a need noted while none comes up."""
+    past its end, unpriced, past the cap or idle given back and said, ssh reaching the others, the
+    ready ones serving; only then a stale price list, and a machine rented for a need noted while
+    none comes up."""
     wanted, (active, cap) = _noted(config.STATE / NEED), _setting()
     if not active:
         return
@@ -171,7 +172,7 @@ def watch():
         idle = _idle(listed)
     except (OSError, subprocess.CalledProcessError):    # no ssh here: the meter moves all the same
         idle = {}
-    ready = []
+    reached = []
     for machine in listed:
         if why := ("past its end" if now >= machine.until else "with no price kept" if not prices
                    else "past the cap" if not ledger or ledger["spent"] > cap
@@ -181,9 +182,9 @@ def watch():
                 late.append(f"{machine.name} listed {why}, given back")
             except Unavailable as exc:
                 late.append(f"{machine.name} listed {why}, not given back: {exc}")
-        elif machine.id in idle:
-            ready.append(machine)
-    _serve(ready)
+        elif machine.address:
+            reached.append(machine)
+    _serve(reached, idle)
     config._write_json(config.STATE / LATE, late)
     if ledger:
         config._write_json(config.STATE / LEDGER, ledger)
@@ -225,7 +226,7 @@ def serving():
 
 
 def ssh_config():
-    """ssh's words reaching those `serving` and every other machine as ever, while ak may rent."""
+    """ssh's words reaching the machines ak rents and every other as ever, while ak may rent."""
     path = config.STATE / SSH_CONFIG     # replaced whole, never removed
     return ("-F", str(path)) if path.exists() and _setting()[0] else ()
 
@@ -496,13 +497,15 @@ def _reach(machine):
             "StrictHostKeyChecking": "accept-new"}
 
 
-def _serve(machines):
-    """The ssh config, written whole: `machines` with their ends and as ssh reaches each, then
-    every other as ever."""
+def _serve(machines, ready):
+    """The ssh config, written whole: `machines` as ssh reaches each, those whose ids are in
+    `ready` with their ends, what `serving` reads, then every other as ever.  One that missed an
+    answer keeps its route, as the work it holds still calls it, and gets no new work."""
     path = config.STATE / SSH_CONFIG
     temp = path.with_suffix(".tmp")
-    temp.write_text("".join(f"Host {one.name}\n  # until {int(one.until)}\n" + "".join(
-        '  %s "%s"\n' % option for option in _reach(one).items()) for one in machines)
+    temp.write_text("".join(f"Host {one.name}\n" + f"  # until {int(one.until)}\n" * (
+        one.id in ready) + "".join('  %s "%s"\n' % option for option in _reach(one).items())
+        for one in machines)
         + "Host *\n  Include ~/.ssh/config\n")
     temp.replace(path)
 
