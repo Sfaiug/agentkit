@@ -14,7 +14,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akline import Line
+from fixtures.akline import Line, READINGS, rules
 
 # The words after the alias are one `bash -c <mac.sh> mac.sh <verb> ...` line.
 SSH = f"""#!{sys.executable}
@@ -41,6 +41,23 @@ class SuiteOnAHelper(unittest.TestCase):
         self.assertEqual(done.code, 0, done.out + done.err)
         self.assertIn("land", line.verdict(1))
         self.assertEqual(line.runs(), [])
+
+    def test_a_check_s_clone_names_its_repository_s_copy_there(self):
+        line = Line({"AGENTS.md": rules(': "$AK_SHARD" "$AK_CHANGED"; sh suite.sh'), "t/a.sh": "true\n",
+                     "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
+        self.addCleanup(line.close)
+        akconfig.write(line.home, ["opus", "astra"], settings={"suite_helper": "acme-mac"})
+        named = line.home.root / "named"
+        line.home.fake("ssh", SSH.replace("    sys.stdin.buffer.read()\n", f"""    sys.stdin.buffer.read()
+    open({str(named)!r}, "a").write(words[words.index("mac.sh") + 4] + "\\n")\n"""))
+        fakeadapter.install(line.home, claude="work", codex="pass")
+        task = taskfile.write(line.home, line.rig.path, name="retry")
+        line.home.ak("run", str(task), timeout=300, env={"AK_HOST_READINGS": READINGS})    # its round's suite
+        line.member({"api.txt": "x\n"})
+        self.assertEqual(line.land().code, 0)    # from the checkout itself
+        names = named.read_text().split()
+        self.assertGreater(len(names), 1)
+        self.assertEqual(len(set(names)), 1, names)
 
     def test_a_new_run_starts_beside_a_check_that_waits_here(self):
         # Owner, 30 Oct 2026: nothing waits for compute.  The test holds this host's one turn.

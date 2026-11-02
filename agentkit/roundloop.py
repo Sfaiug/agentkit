@@ -518,7 +518,7 @@ def replay_checkout(lp, head, paths):
     nothing its checks write there reaches another replay or the run's checkout."""
     with tempfile.TemporaryDirectory(dir=lp.run_dir) as tmp:
         checkout = Path(tmp) / "checkout"
-        gitcall.git(lp.wt, "clone", "--quiet", "--shared", "--no-checkout", str(lp.wt), str(checkout))
+        gitcall.clone_borrowing(lp.wt, checkout, "--no-checkout")
         try:
             gitcall.git(checkout, "checkout", "--quiet", "--detach", lp.base_sha)
             # what the branch deleted goes first, so a file or submodule it put where a
@@ -679,7 +679,7 @@ def affected_suite(lp):
             return (gitcall.git(checkout, "rev-parse", "HEAD") != sha
                     or gitcall.git_out(checkout, "diff", "--quiet", "HEAD")[0] != 0)
 
-        gitcall.git(lp.wt, "clone", "--quiet", "--shared", "--no-checkout", str(lp.wt), str(checkout))
+        gitcall.clone_borrowing(lp.wt, checkout, "--no-checkout")
         code, tree = gitcall.git_out(checkout, "merge-tree", "--write-tree", "--name-only", tip, head)
         if code:
             last = lp.state.get("target_sha") or lp.base_sha
