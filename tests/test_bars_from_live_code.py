@@ -6,6 +6,9 @@ between the two (the owner's report of 19 Oct 2026).  Offline: a temporary HOME,
 
 import io
 from contextlib import redirect_stdout
+import os
+import subprocess
+import sys
 from unittest.mock import patch
 import unittest
 
@@ -93,6 +96,16 @@ class BarsFromLiveCode(Sandbox):
                     menu.loop(self.cfg)                  # an exec does not come back
                 self.assertEqual(restart.call_count, 1)
                 self.assertEqual(notices, ["update: no fork"] if live else [])
+
+    def test_a_process_opened_after_an_install_is_as_new_as_it_whatever_the_clock_says(self):
+        state = self.root / "after" / ".agentkit" / "state"
+        state.mkdir(parents=True)
+        (state / "installed-at").write_text("4000000000\n")
+        said = subprocess.run([sys.executable, "-c", "from agentkit import notify, update\n"
+                               "print(notify.installed_at(), update.outdated())"],
+                              cwd=config.REPO, text=True, timeout=60, capture_output=True,
+                              env={**os.environ, "HOME": str(state.parent.parent)}, check=True)
+        self.assertEqual(said.stdout.split(), ["4000000000.0", "False"])
 
     def test_an_open_menu_starts_again_once_new_code_is_installed_under_it(self):
         def restarts():

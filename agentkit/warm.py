@@ -240,9 +240,7 @@ def serve(lock):
     except OSError:
         pass                           # gone already
     os.close(lock)
-    # the new code's, but for an install stamped ahead of the clock: the next would be as stale
-    # as this one, and start another
-    if moved and notify.installed_at() <= time.time():
+    if moved:                          # the new code's
         _start(str(config.REPO))
     os._exit(0)
 

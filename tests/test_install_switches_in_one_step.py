@@ -71,16 +71,22 @@ class InstallSwitchesInOneStep(unittest.TestCase):
                 self.go_live()
                 self.assertEqual(module.stat().st_mtime != 1000, moved)
 
-    def test_a_process_opened_as_the_swap_begins_finds_its_code_old(self):
+    def test_only_a_process_opened_before_the_swap_finds_its_code_old(self):
+        code = self.clone / "agentkit"
         (self.root / "seed" / "agentkit").mkdir(exist_ok=True)
         self.push("agentkit/acme.py")
+        self.go_live()
+        self.push("agentkit/other.py")
+        os.utime(code / "acme.py", (1000, 1000))
         opened, exchange = [], versions.exchange
         def swap(*paths):
-            opened.append(time.time())
+            opened.append(config.code_date(code))
             exchange(*paths)
+            opened.append(config.code_date(code))
         with patch.object(versions, "exchange", swap):
             self.go_live()
-        self.assertGreater((self.clone / "agentkit" / "acme.py").stat().st_mtime, opened[0])
+        self.assertLess(opened[0], config.code_date(code))
+        self.assertEqual(opened[1], config.code_date(code))
 
     def test_the_menus_own_update_says_it_moved_only_for_code(self):
         self.go_live()                                  # the fixture's own commit, a code one

@@ -1011,22 +1011,11 @@ def _card_write(session, data):
 
 
 def installed_at():
-    """When the agentkit running now was put in place, or 0 where no install says so.
-
-    install.sh stamps `installed-at` on a server's first install; a move of the checkout it
-    installed stamps nothing, so there the newest write among these modules counts too.  A home no
-    install stamped -- a test's sandbox -- has no install to be older than.
-    """
-    try:
-        stamps = [float((config.STATE / "installed-at").read_text())]
-    except (OSError, ValueError):
+    """When the agentkit running now was put in place, or 0 where no install says so: a home no
+    install stamped -- a test's sandbox -- has no install to be older than."""
+    if config.install_stamp() is None:
         return 0
-    for path in Path(__file__).resolve().parent.glob("*.py"):
-        try:
-            stamps.append(path.stat().st_mtime)
-        except OSError:
-            pass
-    return max(stamps)
+    return config.code_date(Path(__file__).resolve().parent)
 
 
 def _last_input(session, seat):

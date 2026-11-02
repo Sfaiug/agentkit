@@ -22,7 +22,6 @@ from string import Template
 from . import host, look, parsed
 
 REPO = Path(__file__).resolve().parent.parent
-STARTED = time.time()   # when this process read its code: every entry imports this module first
 HOME = Path.home() / ".agentkit"
 PLACES = {"RUNS": "runs", "WT": "wt", "STATE": "state", "SECRETS": "secrets", "TMP": "tmp",
           "ENV": "env", "WORK": "work", "JOBS": "jobs"}
@@ -38,6 +37,33 @@ def __getattr__(name):
     if name in PLACES:
         return HOME / PLACES[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def install_stamp():
+    """What install.sh stamped on a server's first install, or None where it stamped nothing."""
+    try:
+        return float((_self.STATE / "installed-at").read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def code_date(code):
+    """When the code in directory `code` was put in place: install.sh's stamp, or the newest write
+    among its modules once a version moved in, which only a landing of code moves
+    (`versions.switch`)."""
+    stamps = [install_stamp() or 0]
+    for path in code.glob("*.py"):
+        try:
+            stamps.append(path.stat().st_mtime)
+        except OSError:
+            pass
+    return max(stamps)
+
+
+# The date of the code this process read, from the code and no clock: every entry imports this
+# module first.  One opened while a version is checked out holds the old date and one opened after
+# the swap the new, so the swap alone tells each what it needs and nothing is dated after it.
+STARTED = code_date(REPO / "agentkit")
 
 
 def tilde(path):

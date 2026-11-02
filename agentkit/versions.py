@@ -25,7 +25,6 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
-import time
 
 from . import config, retention
 
@@ -180,17 +179,6 @@ def keep_times(live, new):
         pass            # a time not kept costs one restart
 
 
-def date_swapped_in(live):
-    """`live`'s modules dated after the swap that just put them there: a process opened between
-    their checkout and the swap read the old code, and only a later time tells it so."""
-    now = time.time()   # the process's clock: the file system's own lags it by up to a tick
-    try:
-        for path in (live / "agentkit").glob("*.py"):
-            os.utime(path, (now, now))
-    except OSError:
-        pass            # such a process stays old only until the next landing of code
-
-
 def switch(live, commit):
     """Put `commit` live at `live`, swapped in whole: "" once it is or there is nothing to move,
     else why not, `live` then as it was.  Forward only, as a fast-forward went: a commit `live`
@@ -211,16 +199,13 @@ def switch(live, commit):
     if code:
         remove(new)
         return f"{commit[:12]} could not be checked out in {new}: {said}"
-    code = brings_code(live, "HEAD", commit)
     try:
-        if not code:
+        if not brings_code(live, "HEAD", commit):
             keep_times(live, new)
         new.chmod(live.stat().st_mode & 0o7777)    # mkdtemp's is the owner's alone
         exchange(live, new)
     except OSError as exc:
         remove(new)
         return f"{new} could not be swapped in for {live}: {exc}"
-    if code:
-        date_swapped_in(live)
     repair(live, new)
     return ""
