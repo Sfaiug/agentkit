@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """agentkit entry point: `ak` is the menu; `ak <usage|worker|run|notify|wait|orch|attach|update|watch|browser> [args]`"""
 
+import os
+import signal
 import sys
+import threading
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -16,6 +20,37 @@ SUBS = ("usage", "models", "worker", "run", "notify", "wait", "orch", "attach", 
 ENTRY = {"attach": ("menu", "main"), "fetch": ("macbridge", "fetch_main"),
          "doctor": ("watch", "doctor"), "wait": ("watch", "wait_main"),
          "hand-in": ("hand_in", "main"), "models": ("matrix", "main")}
+INTERRUPT_GRACE = 1     # seconds Ctrl-C leaves stdout and stderr to take what ak still holds
+
+
+def _finish(name, write):
+    """`write` to the standard stream called `name`.  One that refuses leaves `sys`, as the
+    interpreter's flush at exit would only be refused again and turn the exit into 120."""
+    stream = getattr(sys, name)
+    try:
+        if stream:
+            write(stream)
+    except (OSError, ValueError):
+        setattr(sys, name, None)
+
+
+def interrupted(sub):
+    """Ctrl-C's exit status, reached within INTERRUPT_GRACE whatever stdout and stderr are.  The
+    writes stay the ordinary blocking ones, so no other holder of either stream sees a thing, on
+    a thread each so neither waits on the other; one still blocked ends with the process, since
+    the interpreter's flush at exit would block for good."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    writes = [threading.Thread(target=_finish, args=args, daemon=True) for args in (
+        ("stdout", lambda out: out.flush()),
+        ("stderr", lambda err: print(f"\nak {sub}: interrupted", file=err)))]
+    deadline = time.monotonic() + INTERRUPT_GRACE
+    for write in writes:
+        write.start()
+    for write in writes:
+        write.join(deadline - time.monotonic())
+    if any(write.is_alive() for write in writes):
+        os._exit(130)
+    return 130
 
 
 def main():
@@ -41,8 +76,7 @@ def main():
         print(f"ak {sub}: {exc}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
-        print(f"\nak {sub}: interrupted", file=sys.stderr)
-        return 130
+        return interrupted(sub)
 
 
 if __name__ == "__main__":

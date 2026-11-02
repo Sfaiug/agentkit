@@ -12,6 +12,7 @@ and this test fails against `/bin/false`.
 import fcntl
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -22,6 +23,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import AK, Home
 
 MAC_FILE = "/Users/acme/report.pdf"   # a path on the Mac, which this host does not have
+# Where the kernel holds a thread whose write to a full pipe or local socket waits for room.
+STALLED = {"pipe_write", "sock_alloc_send_pskb", "unix_stream_sendmsg"}
+
+
+def stalled_writing(pid):
+    """Whether any thread of the process waits in a write."""
+    for wchan in Path(f"/proc/{pid}/task").glob("*/wchan"):
+        try:
+            if wchan.read_text().strip() in STALLED:
+                return True
+        except OSError:     # the thread ended meanwhile
+            pass
+    return False
 
 
 class SigintExits130(unittest.TestCase):
@@ -74,21 +88,44 @@ class SigintExits130(unittest.TestCase):
         self.assertEqual(out, f"{here}\n")
         self.assertEqual(err, "\nak fetch: interrupted\n")
 
-    def test_an_output_nobody_reads_does_not_outlast_the_interrupt(self):
-        here = self.home.write("notes.txt", "kept\n")
+    def full_pipe(self):
         read_end, write_end = os.pipe()
         self.addCleanup(os.close, read_end)
+        self.addCleanup(os.close, write_end)
         os.write(write_end, b"x" * fcntl.fcntl(write_end, fcntl.F_GETPIPE_SZ))
-        proc = subprocess.Popen([AK, "fetch", "", str(here)], stdin=subprocess.DEVNULL,
-                                stdout=write_end, stderr=subprocess.PIPE, cwd=self.home.path,
+        return write_end
+
+    def interrupt_stalled(self, stdout, stderr=subprocess.DEVNULL):
+        """Start `ak fetch` of a file here and Ctrl-C it, only once its write to `stdout` has
+        stalled: sooner, nothing is in flight and the case tests nothing."""
+        here = self.home.write("notes.txt", "kept\n")
+        proc = subprocess.Popen([AK, "fetch", str(here)], stdin=subprocess.DEVNULL,
+                                stdout=stdout, stderr=stderr, cwd=self.home.path,
                                 env=self.home.env, start_new_session=True)
-        os.close(write_end)
-        self.addCleanup(proc.communicate)
+        self.addCleanup(proc.wait)
         self.addCleanup(proc.kill)
-        # The refused empty path comes first: past its line, the next write is the one that stalls.
-        proc.stderr.readline()
+        deadline = time.monotonic() + 30
+        while not stalled_writing(proc.pid):
+            if proc.poll() is not None or time.monotonic() > deadline:
+                raise AssertionError(f"ak fetch never stalled writing (exit {proc.poll()})")
+            time.sleep(0.01)
         os.killpg(proc.pid, signal.SIGINT)
         self.assertIn(proc.wait(timeout=30), (130, -signal.SIGINT))
+
+    def test_a_full_pipe_nobody_reads_does_not_outlast_the_interrupt(self):
+        self.interrupt_stalled(self.full_pipe())
+
+    def test_a_full_socket_nobody_reads_does_not_outlast_the_interrupt(self):
+        near, far = socket.socketpair()
+        self.addCleanup(near.close)
+        self.addCleanup(far.close)
+        with self.assertRaises(BlockingIOError):
+            while True:
+                near.send(b"x" * 4096, socket.MSG_DONTWAIT)
+        self.interrupt_stalled(near)
+
+    def test_a_full_stderr_as_well_does_not_outlast_the_interrupt(self):
+        self.interrupt_stalled(self.full_pipe(), stderr=self.full_pipe())
 
 
 if __name__ == "__main__":
