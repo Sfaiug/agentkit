@@ -21,14 +21,16 @@ import (
 // own or ends, asks the first process to end the command.
 const stopFD = 4
 
-// grace is how long the command has after TERM, as a harness saves its session, before what is
-// left of it ends: Python's KILL_GRACE.
+// grace is how long the command's process group has after TERM, as a harness saves its session,
+// before what is left of it ends: Python's KILL_GRACE.
 const grace = 5 * time.Second
 
 // supervise waits for the command, a session's leader, reaping meanwhile the orphans a PID 1
 // inherits: how it ended, and every other process still running in the box then, by pid, with
 // its command line, which the first process's exit ends.  Asked by ak to stop, it gives the
-// command's process group TERM; a command still running after grace ends by KILL with the rest.
+// command's process group TERM and waits for the group, not only the command: TERM may end a
+// shell adapter at once while the harness it started still saves.  A command still running after
+// grace ends by KILL with the rest.
 func supervise(command int) (int, map[int]string) {
 	ended := make(chan int, 1)
 	go func() {
@@ -51,6 +53,13 @@ func supervise(command int) (int, map[int]string) {
 	for {
 		select {
 		case code := <-ended:
+			for late != nil && syscall.Kill(-command, 0) == nil {
+				select {
+				case <-late:
+					late = nil
+				case <-time.After(10 * time.Millisecond):
+				}
+			}
 			return code, leftovers(command)
 		case <-stop:
 			stop, late = nil, time.After(grace)

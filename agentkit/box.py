@@ -577,12 +577,30 @@ def _supervise(report, argv, drain=False):
         Path(report).write_text(json.dumps({"returncode": code, "processes": []}))
         return code
 
+    stopping = False
+
     def term(signum, _frame):
         # Outer bwrap cannot forward TERM; leave it alive while the harness saves
         # its session. The kernel still ends detached descendants with PID 1.
+        nonlocal stopping
+        stopping = True
         try:
             os.killpg(proc.pid, signum)
         except ProcessLookupError:
+            pass
+
+    def group_runs():
+        try:
+            os.killpg(proc.pid, 0)
+        except OSError:
+            return False
+        return True
+
+    def reap():
+        try:
+            while os.waitpid(-1, os.WNOHANG)[0]:
+                pass
+        except ChildProcessError:
             pass
 
     signal.signal(signal.SIGTERM, term)
@@ -607,11 +625,12 @@ def _supervise(report, argv, drain=False):
     while reader is not None and reader.is_alive():
         # Whoever still holds the output may leave more orphans; reap them until EOF.
         reader.join(0.05)
-        try:
-            while os.waitpid(-1, os.WNOHANG)[0]:
-                pass
-        except ChildProcessError:
-            pass
+        reap()
+    while stopping and group_runs():
+        # TERM may end a shell adapter at once while the harness it started still saves.
+        # The grace of stop() ends this wait.
+        time.sleep(0.01)
+        reap()
     left = []
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit() or int(entry.name) == os.getpid():
