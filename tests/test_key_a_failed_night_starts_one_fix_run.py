@@ -2,7 +2,7 @@
 
 A night that failed, names failures and has no run yet gets one seatless run, its done-when the
 project's `tests:` with `AK_ONLY` naming a file of the first 100 names; anything else marks nothing,
-so the next hour tries again.  Black-box: `AK_BIN` runs `ak watch` from outside through
+so the next hour tries again, each checkout's hour its own.  Black-box: `AK_BIN` runs `ak watch` from outside through
 tests/fixtures/akbin.py, on checkouts with no seat, with turns scripted by fakeadapter.py; this
 test fails against `/bin/false`.
 """
@@ -103,13 +103,18 @@ class FailedNights(unittest.TestCase):
         cls.ended()
         cls.after_it = cls.tick(hour_on=True, seen=True)
         cls.ended()
+        # a read that yields no usable night says so, which shows each read from outside
+        broken.says("the host is down", code=3)
+        garbled.says("no JSON here")
+        cls.one_just_read = cls.tick(hour_on=True, just_read=garbled)
 
     @classmethod
-    def tick(cls, hour_on=False, seen=False):
+    def tick(cls, hour_on=False, seen=False, just_read=None):
         """Each project's (runs so far, lines saying something is wrong) after one tick."""
         if hour_on:     # the nights are read hourly: the note of the last read says long ago
             path = cls.home.path / ".agentkit" / "state" / "nightly.json"
-            path.write_text(json.dumps({**json.loads(path.read_text()), "asked": 0}))
+            asked = {str(just_read.rig.path): time.time()} if just_read else 0
+            path.write_text(json.dumps({**json.loads(path.read_text()), "asked": asked}))
         done = cls.home.ak("watch", boxed=True) if seen else cls.home.tick()
         assert done.code == 0, done.out + done.err
         return {project.name: (len(project.runs()), sum(
@@ -153,6 +158,10 @@ class FailedNights(unittest.TestCase):
         for project in self.stuck:
             self.assertEqual(self.later[project.name], (1, 0), project.name)
             self.assertEqual(self.handled[project.name], (1, 0), project.name)
+
+    def test_a_checkout_past_its_hour_is_read_and_one_just_read_is_not(self):
+        self.assertEqual(self.one_just_read["broken"], (1, 1))
+        self.assertEqual(self.one_just_read["garbled"], (1, 0))
 
     def test_a_later_night_while_a_run_is_under_way_starts_once_that_run_ended(self):
         self.assertEqual(self.under_way["api"], (1, 1))
