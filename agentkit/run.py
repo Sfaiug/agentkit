@@ -1749,7 +1749,7 @@ def resume_run(argv):
     config.ensure_dirs()
     run_dir = config.RUNS / argv[0]
     state = run_record.read_state(run_dir) if (run_dir / "run.json").exists() else None
-    refusal = n_rounds and taskfile.rounds_refusal(n_rounds, "--rounds", run_record.policy_of(state or {})["rounds"])
+    refusal = taskfile.rounds_refusal(n_rounds, "--rounds", run_record.policy_of(state or {})["rounds"])
     if refusal:
         raise config.Error(refusal)
     if state is None:
@@ -3152,8 +3152,10 @@ def main(argv):
                            "ak run stop <runid> [--keep] | ak run clean <runid> | ak run gc")
     if opts["--rounds"] is not None and not (opts["--rounds"].isdigit() and int(opts["--rounds"]) > 0):
         raise config.Error(f"--rounds must be a positive integer (got {opts['--rounds']!r})")
+    queued_child = os.environ.get(config.RUN_DIR_ENV)
+    queued_child = queued_child if queued_child and queued(Path(queued_child)) else None
     # a launch's own child holds what its launch read: nothing refuses it for a line landed since
-    for task in positional if opts["--rounds"] and not os.environ.get(config.RUN_DIR_ENV) else ():
+    for task in positional if opts["--rounds"] and not queued_child else ():
         refusal = taskfile.rounds_refusal(opts["--rounds"], "--rounds", launch_policy(task)["rounds"])
         if refusal:
             raise config.Error(refusal)
@@ -3168,9 +3170,8 @@ def main(argv):
     # read here, not first where the run is placed: by then its record exists, and a refusal
     # would leave a run that status lists and watch resumes
     config.run_memory_max_mb()
-    queued_child = os.environ.get(config.RUN_DIR_ENV)
     # a --bg child carries on the receipt its launch prepared, with the executors it saved
-    if not opts["--review-pr"] and not (queued_child and queued(Path(queued_child))):
+    if not opts["--review-pr"] and not queued_child:
         selection = config.active_session(cfg)
         if selection and selection.get("workers") == []:
             raise config.Error(f"{selection['name']} has no executor: build it in the session, "

@@ -398,17 +398,13 @@ def policy(checkout=None):
     """The POLICY numbers in force for a project: the front matter of AGENTS.md on the default
     branch of its local checkout, else the host's.  A checkout that is None, or whose git does
     not answer at launch, gives the host's numbers, and preflight reports the repository as it
-    does today: nothing is cloned or resolved to read a number.  A clone with no origin/HEAD yet
-    is read at its HEAD, where `default_base` ends up offline."""
+    does today: nothing is cloned or resolved to read a number, so a clone with no origin/HEAD
+    yet gives the host's too, never what the branch it stands on says."""
     numbers = host_policy()
     if checkout is None:
         return numbers
     from . import gitcall     # here, not at the top: gitcall imports this module
-    try:
-        ref = gitcall.git(checkout, "rev-parse", "--verify", "--quiet", RULES_REF, check=False) or "HEAD"
-    except Exception:
-        return numbers
-    declared = {key: gitcall.declared_at(checkout, ref, key) for key in POLICY}
+    declared = {key: gitcall.declared_at(checkout, RULES_REF, key) for key in POLICY}
     return _policy_in(Path(checkout) / "AGENTS.md", {
         **numbers, **{key: int(value) if re.fullmatch("[0-9]+", value) else value
                       for key, value in declared.items() if value is not None}})

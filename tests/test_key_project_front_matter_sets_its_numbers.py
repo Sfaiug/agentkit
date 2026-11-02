@@ -39,7 +39,9 @@ def host(case, name, claude="pass", codex="pass", **numbers):
     case.addClassCleanup(case.home.close)
     akconfig.write(case.home, ["opus", "astra"], settings={"rounds": 5})
     case.fakes = fakeadapter.install(case.home, claude=claude, codex=codex)
-    return Rig(case.home, name, files=front(**numbers))
+    rig = Rig(case.home, name, files=front(**numbers))
+    rig.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+    return rig
 
 
 def launched(home, *argv, **kw):
@@ -61,6 +63,12 @@ class Rounds(unittest.TestCase):
         cls.rig.commit(front(rounds=7), "more rounds")
         cls.rig.git("fetch", "-q", "origin")
         cls.resumed = cls.home.ak("run", "resume", cls.run_dir.name, "--rounds", "3", timeout=60)
+        # a record from before the numbers were kept stays on the host's
+        record = cls.run_dir / "run.json"
+        record.write_text(json.dumps({k: v for k, v in cls.state.items() if k != "policy"}))
+        cls.legacy = cls.home.ak("run", "resume", cls.run_dir.name, "--rounds", "8", timeout=60)
+        cls.stale = cls.home.ak("run", str(task), "--rounds", "8", timeout=60,
+                                env={"AGENTKIT_RUN_DIR": str(cls.home.root / "gone")})
         # a branch the owner stands on says nothing: the default branch does
         cls.rig.git("checkout", "-q", "-b", "side")
         cls.rig.commit(front(rounds=9), "on a side branch", push=False)
@@ -71,7 +79,9 @@ class Rounds(unittest.TestCase):
         cls.job = cls.home.ak("run", "resume", job.name, "--rounds", "8", timeout=60)
         cls.fakes["claude"].behave("blocked")
         cls.above = launched(cls.home, str(task), "--no-merge", "--anyway", "--rounds", "6")[2]
-        plain = Rig(cls.home, "gears")
+        plain = Rig(cls.home, "gears")      # no origin/HEAD: its branch says nothing either
+        plain.git("checkout", "-q", "-b", "side")
+        plain.commit(front(rounds=1), "on a side branch", push=False)
         cls.plain = launched(cls.home, str(taskfile.write(cls.home, plain.path, "Other")), "--no-merge")[2]
 
     def test_a_rounds_over_the_project_s_is_refused_with_no_run_made(self):
@@ -87,6 +97,8 @@ class Rounds(unittest.TestCase):
         self.assertEqual((self.resumed.code, self.resumed.err), (2, over(3, 2)))
         self.assertEqual((self.side.code, self.side.err), (2, over(8, 7)))
         self.assertEqual((self.job.code, self.job.err), (2, over(8, 7)))
+        self.assertEqual((self.stale.code, self.stale.err), (2, over(8, 7)))
+        self.assertEqual((self.legacy.code, self.legacy.err), (2, over(8, 5)))
 
     def test_a_project_may_raise_the_host_s_and_one_without_the_line_reads_it(self):
         self.assertEqual((self.above["rounds"], self.plain["rounds"]), (6, 5))
