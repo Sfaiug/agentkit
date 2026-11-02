@@ -58,6 +58,14 @@ def wait(test, what, bound=90):
         time.sleep(0.1)
 
 
+def gone(pid):
+    """A process killed is dead or a zombie; whatever reaps it may do so between any two reads."""
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z"
+    except OSError:
+        return True
+
+
 class QueuedRunMeetsNewRules(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -94,9 +102,7 @@ class QueuedRunMeetsNewRules(unittest.TestCase):
         # the gadget's launcher dies; recovered, it waits as `ak run resume` from then on
         pid = cls.state(cls.refused[1])["pid"]
         os.kill(pid, signal.SIGKILL)
-        wait(lambda: not Path(f"/proc/{pid}").exists()
-             or Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z",
-             "the gadget's launcher gone")
+        wait(lambda: gone(pid), "the gadget's launcher gone")
         done = home.ak("run", "resume", cls.refused[1].name, "--bg")
         assert done.code == 0, done.out + done.err
         wait(lambda: cls.state(cls.refused[1]).get("pid") not in (pid, None)
@@ -108,10 +114,13 @@ class QueuedRunMeetsNewRules(unittest.TestCase):
             gh.reply(call, err="HTTP 502: Bad Gateway\n", code=1)
         time.sleep(2)       # four polls on the same code: nothing judges it again
         cls.unjudged = [cls.state(run) for run in cls.refused]
-        cls.version.write_text(NEW + "\n")
+        # as git moves a checkout: a launch reading the version finds one or the other, never none
+        moved = cls.version.with_suffix(".new")
+        moved.write_text(NEW + "\n")
+        moved.replace(cls.version)
         for run in cls.refused:
-            wait(lambda: cls.state(run).get("state") not in ("queued", None),
-                 f"{run.name}, from a deleted branch, ended")
+            # last of an ending: the record says `error` before the result is written
+            wait((run / "result.md").is_file, f"{run.name}, from a deleted branch, ended")
         wait(lambda: cls.queue() == [run.name for run in cls.kept], "the others alone in line")
 
     @classmethod
