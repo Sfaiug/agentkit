@@ -3480,7 +3480,8 @@ def number_rows(numbers, wide, saved, room):
     value, `default N` where that is not ak's default, `saved` where it is the one `saved`, and
     the board rows it moves, in fixed columns.  Where the widest of those does not fit beside
     them in `room` cells, each folds under its row, and where those columns do not fit either,
-    so do they, under the name alone; wrapped at words, never cut."""
+    so do they, under the name alone; wrapped at words, never cut.  Then where every value
+    starts: the line of its row's lines, and the screen column counted from 1."""
     boards = {name: "moves " + ", ".join(moved) for name, (*_, moved) in config.POLICY.items()}
     widths = [max(len(str(value)) for value in numbers.values()),
               max(len(f"default {default}") for default, *_ in config.POLICY.values()),
@@ -3498,7 +3499,7 @@ def number_rows(numbers, wide, saved, room):
                        *("    " + part for part in terminal.wrap(" ".join(said), room - 4))])
         rows[name] += [] if beside else [
             "    " + part for part in terminal.wrap(boards[name], room - 4)]
-    return rows
+    return rows, (0, wide + 5) if taken <= room else (1, 5)
 
 
 def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=None, subs=(),
@@ -3633,11 +3634,12 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
             places[len(lines)] = (("row", row), [])
             lines.append(terminal.highlight(line, number == 0) if at == ("row", row) else line)
     numbers = config.policy(cfg)      # `values` ends with `Weekly audit`: these have columns
-    for name, parts in number_rows(numbers, wide, saved, room).items():
+    numbered, (down, across) = number_rows(numbers, wide, saved, room)
+    for name, parts in numbered.items():
         row, value = ("row", name), numbers[name]
         if moves is not None:
-            moves.append((len(lines), ("number", name), value,
-                          motion.refused(str(value), value, wide + 5, at == row)))
+            moves.append((len(lines) + down, ("number", name), value,
+                          motion.refused(str(value), value, across, at == row)))
         for number, part in enumerate(parts):
             places[len(lines)] = (row, [])
             lines.append(terminal.highlight(part, number == 0) if at == row else part)
