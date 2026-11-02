@@ -35,6 +35,12 @@ func TestAConversationsEndReadsThroughItsHarnesssManifest(t *testing.T) {
 			`{"type": "user", "isMeta": true, "message": {"role": "user", "content": "rules"}}`,
 			`{"type": "user", "origin": {"kind": "task-notification"}, "message": {"role": "user", "content": "done"}}`,
 			said("Merged.")}, End{Said: "Merged."}},
+		{"a card before words that open with an interruption's notice", []string{card,
+			`{"type": "user", "message": {"role": "user", "content": "[Request interrupted by user] use 8080"}}`,
+			said("Merged.")}, End{Said: "Merged."}},
+		{"a card before the notice alone", []string{card,
+			`{"type": "user", "message": {"role": "user", "content": "[Request interrupted by user for tool use]"}}`,
+			said("Merged.")}, End{Said: "Merged.", Asking: true}},
 		{"a prompt queued while the turn ran", []string{said("Merged."), `{"type": "attachment", "timestamp": 7, "attachment": ` +
 			`{"type": "queued_command", "prompt": "and the docs", "origin": {"kind": "human"}}}`}, End{Said: "Merged."}},
 		{"read back past a long line", []string{prompt, filler, said("Merge it?")}, End{Said: "Merge it?"}},

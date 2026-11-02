@@ -37,6 +37,10 @@ func TestOwnerSaidIsTheOwnersWordsInTheSeatsConversation(t *testing.T) {
 		`{"type": "user", "timestamp": "2026-10-31T05:00:06Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t", "content": "Yes"}]}}`,
 		`{"type": "user", "isMeta": true, "timestamp": "2026-10-31T05:00:07Z", "message": {"role": "user", "content": "rules"}}`,
 		`{"type": "user", "timestamp": "2026-10-31T05:00:08Z", "message": {"role": "user", "content": "<command-name>/clear"}}`,
+		line("11.000", "[Request interrupted by user]"),
+		line("12.000", "[Request interrupted by user for tool use]"),
+		line("13.000", "[Request interrupted by user] use 8080"),
+		line("14.000", "[Request interrupted by user for tool use] use 8080"),
 		`{"type": "user", "isSidechain": true, "timestamp": "2026-10-31T05:00:09Z", "message": {"role": "user", "content": "a sub-agent"}}`,
 		`{"type": "user", "message": {"role": "user", "content": "no date"}}`,
 		`{"type": "user", "timestamp": "2026-10-31T05:00:10Z", "message": {"role": "user", "content": "cut \ud83d"}}`,
@@ -50,7 +54,7 @@ func TestOwnerSaidIsTheOwnersWordsInTheSeatsConversation(t *testing.T) {
 		`{"harness": "claude", "conversation": "conv-1", "text": "the owner relayed this", "after": 0, "source": "owner"}`}, "\n")+"\n")
 	const start = 1793422800
 	said, err := OwnerSaid("acme")
-	want := []float64{start + 1, start + 3, start + 4, start + 5, start + 10}
+	want := []float64{start + 1, start + 3, start + 4, start + 5, start + 10, start + 13, start + 14}
 	if err != nil || !slices.Equal(said, want) {
 		t.Fatalf("%v, %v, want %v", said, err, want)
 	}

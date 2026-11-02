@@ -130,12 +130,23 @@ func promptWords(kinds []kind, entry *run.Object) string {
 	for _, k := range kinds {
 		for _, item := range k.items(entry) {
 			said := words(item, k.words)
-			if said != "" && !slices.ContainsFunc(k.frames, func(frame string) bool { return strings.HasPrefix(said, frame) }) {
+			if said != "" && !slices.ContainsFunc(k.frames, func(frame string) bool { return framed(frame, said) }) {
 				return said
 			}
 		}
 	}
 	return ""
+}
+
+// whole is how each frame that is a notice all its own ends (claude.py INTERRUPTS): the manifest
+// names one only by what opens it, and an owner who goes on after one wrote the rest themselves.
+var whole = map[string][]string{"[Request interrupted by user": {"]", " for tool use]"}}
+
+// framed is whether the frame opens the words, and for a notice is all of them.
+func framed(frame, said string) bool {
+	rest, opened := strings.CutPrefix(said, frame)
+	ends, notice := whole[frame]
+	return opened && (!notice || slices.Contains(ends, rest))
 }
 
 // fits is whether the object has the shape: each of its keys holds what the shape says there.
