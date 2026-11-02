@@ -351,19 +351,18 @@ def tick_log(text):
 
 
 class Stamped:
-    """A stream of the tick's into its log: each line written to it, whoever writes it -- a
-    WARN printed to stderr, a traceback -- starts with its date and time, so two lines say how
-    long what lay between them took.  Anything else it is asked, it answers as the stream."""
+    """A stream of the tick's into its log: each line written to it, blank or not, whoever
+    writes it -- a WARN printed to stderr, a traceback -- starts with its date and time, so two
+    lines say how long what lay between them took.  Anything else it answers as the stream."""
 
     def __init__(self, stream):
         self.stream, self.fresh = stream, True      # `fresh`: what comes next starts a line
 
     def write(self, text):
         stamp = time.strftime("%Y-%m-%d %H:%M:%S ")
-        self.stream.write("\n".join(stamp + piece if piece and (index or self.fresh) else piece
-                                    for index, piece in enumerate(text.split("\n"))))
-        if text:
-            self.fresh = text.endswith("\n")
+        for line in text.splitlines(keepends=True):
+            self.stream.write(stamp + line if self.fresh else line)
+            self.fresh = line != line.splitlines()[0]
         return len(text)
 
     def __getattr__(self, name):

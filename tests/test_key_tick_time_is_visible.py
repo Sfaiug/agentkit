@@ -6,10 +6,11 @@ run's lines, printed where it was run, do not.  A pass that took more than a sec
 line `<its name> took <seconds> s`, a GitHub pass too, and however the tick ends, an early
 return at the GitHub gate included, watch.json's `tick` holds when it started and ended and the
 slowest pass's name and seconds; a dry run writes none.  Here a merged run's `health:` and gh's
-answer to who is logged in each sleep past a second, and a seat whose record cannot be written
-has the tick print a WARN to stderr, which cron appends to the log too.  Black-box: the program
-`AK_BIN` names ticks from outside by cron's line, through tests/fixtures/akbin.py, on a project
-from gitrig.py, a seat from akseat.py and the GitHub of fakegh.py.
+answer to who is logged in each sleep past a second, a seat whose record cannot be written has
+the tick print a WARN to stderr, which cron appends to the log too, and gh's own error holds a
+blank line.  Black-box: the program `AK_BIN` names ticks from outside by cron's line, through
+tests/fixtures/akbin.py, on a project from gitrig.py, a seat from akseat.py and the GitHub of
+fakegh.py.
 """
 
 from datetime import datetime, timezone
@@ -29,7 +30,7 @@ from fixtures.gitrig import Rig
 
 SLEEP = 1.5
 STAMP = r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d"     # a log line's date and time: the Home's TZ is UTC
-LINE = re.compile(f"({STAMP}) (\\S.*)")
+LINE = re.compile(f"({STAMP}) (.*)")
 TOOK = re.compile(r"([a-z]+(?: [a-z]+){0,2}) took (\d+\.\d) s")
 RUN = "20261020-1200-fix-api"
 
@@ -68,7 +69,9 @@ class TickTime(unittest.TestCase):
         Seat(home, "acme", screen="claude-working-pane.txt")
         (home.path / ".agentkit/state/seat-acme.tmp").mkdir()
         cls.log = home.write(".agentkit/tmp/watch.log", "")
+        cls.gh.reply("repo view", err="network unavailable\n\nplease retry\n", code=1)
         cls.lines, cls.record, cls.before, cls.after = cls.tick()
+        cls.gh.restore()
 
     @classmethod
     def tick(cls):
@@ -87,11 +90,14 @@ class TickTime(unittest.TestCase):
         self.assertTrue(before <= record["started_at"] <= record["ended_at"] <= after, record)
 
     def test_every_line_in_the_log_starts_with_when_it_was_written(self):
-        self.assertTrue([line for line in self.lines if "seat-acme.tmp" in line], self.lines)
+        said = []
         for line in self.lines:
             stamped = LINE.fullmatch(line)
             self.assertTrue(stamped, line)
             self.assertTrue(int(self.before) <= at(stamped[1]) <= self.after, line)
+            said.append(stamped[2])
+        self.assertIn("seat-acme.tmp", "\n".join(said))
+        self.assertIn("network unavailable\n\nplease retry\n", "\n".join(said))
 
     def test_each_pass_past_a_second_leaves_one_line_with_its_name_and_seconds(self):
         said = took(self.lines)
