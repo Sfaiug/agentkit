@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"agentkit/internal/config"
+	"agentkit/internal/config/adapters"
 	"agentkit/internal/run"
 )
 
@@ -64,33 +65,17 @@ func textPart(text string) *run.Object {
 // Says is whether text says word on its own, as Python's harness.says reads a word of one part.
 func Says(text, word string) bool { return says(text, word) }
 
-// The words every harness's failures use besides its manifest's (harness.STALL), but for the ones
-// that say a turn never ran, which a seat's error line never is.
-var (
-	stallQuotas   = []string{"402", "billing_error", "payment required"}
-	stallRefusals = []string{"API Error", "529", "unexpected status"}
-	stallOutages  = []string{"overloaded", "at capacity", "Internal server error", "Bad Gateway", "Gateway Timeout",
-		"Service unavailable", "The service is busy", "idle timeout", "Can't reach the API server", "HTTP~5##", "status~5##", "API Error~5##"}
-)
-
 // Failure is the word a seat's error says in its `[stall]` words, and whether it is a spent or
-// limited window: a window outranks a refusal, and a refusal an outage, as Python's plugin
-// `failure` reads a turn that ran.  "" where it says none of them.
+// limited window, as Python's plugin `failure` reads a turn that ran: the kinds of word are tried
+// strongest first.  "" where it says none of them.
 func Failure(name, said string) (string, bool) {
-	first := func(key string, own []string) string {
-		words, _ := config.Words(name, "stall", key)
-		for _, word := range append(words, own...) {
+	for rank, kind := range adapters.Failures {
+		words, _ := config.Words(name, "stall", kind.Key)
+		for _, word := range append(words, kind.Words...) {
 			if says(said, word) {
-				return word
+				return word, rank == 0
 			}
 		}
-		return ""
 	}
-	if word := first("quotas", stallQuotas); word != "" {
-		return word, true
-	}
-	if word := first("refusals", stallRefusals); word != "" {
-		return word, false
-	}
-	return first("outages", stallOutages), false
+	return "", false
 }

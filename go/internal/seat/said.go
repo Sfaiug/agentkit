@@ -108,7 +108,7 @@ func (seen eye) loginOn(own, tail, recorded string, kept bool) any {
 		return false
 	}
 	lines := seen.rules.Said(tail)
-	// a capacity error can accompany a logout, and the login still wins over resuming that error
+	// a stall can accompany a logout, and the login still wins over typing past that stall
 	for len(lines) > 0 && has(lines[len(lines)-1], stalls) && !has(lines[len(lines)-1], signatures) {
 		lines = seen.rules.Said(strings.Join(lines[:len(lines)-1], "\n"))
 	}
@@ -150,7 +150,7 @@ func outputLine(lines []string) string {
 	return kept.String()
 }
 
-// quotedEnd is where the quotation opening at that place of the line ends, or that place: a
+// quotedEnd is where the quoted span opening at that place of the line ends, or that place: a
 // back-quoted or double-quoted span, or a single-quoted one standing apart from a word, which is
 // an apostrophe otherwise.
 func quotedEnd(line string, at int) int {
