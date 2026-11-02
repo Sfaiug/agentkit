@@ -27,7 +27,8 @@ class ToldOnlyWhatChanged(unittest.TestCase):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
         cls.seats = {name: Seat(cls.home, name) for name in ("acme", "beta", "gamma")}
-        cls.menu = Terminal(cls.home, size=(100, 40))     # the look that tells them each a word
+        cls.menu = Terminal(cls.home, size=(100, 40))
+        cls.menu.wait(lambda screen: all(name in screen for name in cls.seats))
         for name in cls.seats:
             cls.wait(lambda name=name: "idle" in cls.option(name, "@ak_top"))
         cls.settle()
