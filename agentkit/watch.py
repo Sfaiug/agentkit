@@ -4871,8 +4871,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     the same episode.  A seat with no turn marked at
     all has ended none where anything could see it -- it is sitting at the prompt its harness
     opened on, showing a banner and not an answer -- and, owing nothing, the rule has nothing to
-    hold it to, just as the hook has nothing to judge a stop by before the first prompt of a
-    session.
+    hold it to, as the hook has nothing to judge a stop by before the first prompt of a session.
 
     A composer typed into and cleared again begins no turn and ends none, so neither mark
     moves for it: the seat is at its prompt with the same words it finished on, and what the
@@ -4886,7 +4885,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     A turn the owner stopped (`interrupted`) is no stop at all: no hook runs on an Esc, and the
     seat rests until their next prompt (owner, 14 Oct 2026).
     """
-    with announcing(session["name"]):
+    with nullcontext() if dry_run else announcing(session["name"]):
         return _stop_nudge(session, harness, pane, notice, records, dry_run, log)
 
 
@@ -4924,7 +4923,8 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
         return
     # a question left out of the chat goes back, past one standing and with no turn watched to
     # its end; a reply of the owner's answers it first, the tick's typed-answer pass being later
-    notify.answer_written(name)
+    if not dry_run:
+        notify.answer_written(name)
     unseen = questions.unseen(name, harness, live)
     if began is None and not unseen and not owing:
         return          # nothing has watched this seat finish a turn; there is none to judge

@@ -7,8 +7,7 @@ run going that has merged.  Nobody has sent that seat back: until the tick has i
 `working`, the tick types `continue` once for the words on its screen, and if those words still
 stand it is the owner's.  A stop the hook asked the owner about, a question, a turn the owner
 stopped, text in its composer and a seat with no plan stay as they are.  Black-box: the program
-`AK_BIN` names runs
-from outside through tests/fixtures/akbin.py, its tick boxed, before seats of
+`AK_BIN` names runs from outside through tests/fixtures/akbin.py, its tick boxed, before seats of
 tests/fixtures/akseat.py whose hooks fire as Claude fires them (tests/fixtures/hookdrive.py).
 """
 
@@ -70,10 +69,8 @@ class UnjudgedStopGoesBack(unittest.TestCase):
         """`ak orch why NAME`: its word, and the reason under it."""
         done = self.home.ak("orch", "why", name)
         self.assertEqual(done.code, 0, done.err)
-        first, *rest = done.out.splitlines()
-        reason = next((line.strip().removeprefix("reason:").strip() for line in rest
-                       if line.strip().startswith("reason:")), "")
-        return first.removeprefix(name).strip(), reason
+        return (done.out.splitlines()[0].removeprefix(name).strip(),
+                done.out.partition("reason:")[2].partition("\n")[0].strip())
 
     def untouched(self, seat):
         """What that seat reads (`why`) after a tick that typed nothing into it."""
@@ -96,15 +93,13 @@ class UnjudgedStopGoesBack(unittest.TestCase):
     def test_a_stop_that_stood_on_a_run_since_merged_goes_back(self):
         now = time.time()
         path = f".agentkit/runs/{RUN}/run.json"
-        self.home.write(path, {"run_id": RUN, "title": "fix-api", "state": "waiting",
-                               "launched_session": "merged", "waiting_on": {"line": "acme/api"},
-                               "started_at": now - 900})
+        run = {"run_id": RUN, "title": "fix-api", "launched_session": "merged",
+               "started_at": now - 900}
+        self.home.write(path, {**run, "state": "waiting", "waiting_on": {"line": "acme/api"}})
         seat = self.turn("merged")
         self.assertEqual(self.stops(seat, 1, closing="The fix is on its way."), [False])
-        self.home.write(path, {"run_id": RUN, "title": "fix-api", "state": "pass",
-                               "verdict": "PASS", "merged": True, "launched_session": "merged",
-                               "started_at": now - 900, "finished_at": now - 60,
-                               "handed_back": now - 60})
+        self.home.write(path, {**run, "state": "pass", "verdict": "PASS", "merged": True,
+                               "finished_at": now - 60, "handed_back": now - 60})
         self.tick()
         self.assertEqual(seat.wait_lines(1), ["continue"])
 
