@@ -24,9 +24,9 @@ class ALandingLeavesItsBytecodeReady(unittest.TestCase):
     setUp, commit = landing.ALandingRestartsAMenuOnce.setUp, landing.ALandingRestartsAMenuOnce.commit
     change, land = landing.ALandingRestartsAMenuOnce.change, landing.ALandingRestartsAMenuOnce.land
 
-    def ready(self, name, prefix=None):
+    def ready(self, name):
         told = []
-        with patch.object(sys, "pycache_prefix", prefix):
+        with patch.object(sys, "pycache_prefix", None):
             self.land(name, after=lambda: told.extend(stale(self.clone)))
         self.assertEqual(told, [])
 
@@ -36,8 +36,13 @@ class ALandingLeavesItsBytecodeReady(unittest.TestCase):
     def test_a_landing_keeping_the_modules_times(self):
         self.ready("docs/acme.md")
 
-    def test_a_landing_under_a_cache_prefix(self):
-        self.ready("agentkit/acme.py", str(self.root / "pycache"))
+    def test_a_cache_prefix_gets_it_only_once_the_version_is_live(self):
+        prefix, early = self.root / "pycache", []
+        filed = prefix.joinpath(*self.clone.parts[1:])     # the old source reads what is here
+        with patch.object(sys, "pycache_prefix", str(prefix)):
+            self.land("agentkit/acme.py", before=lambda: early.append(filed.exists()))
+            self.assertEqual(list(stale(self.clone)), [])
+        self.assertEqual(early, [False])
 
 
 if __name__ == "__main__":
