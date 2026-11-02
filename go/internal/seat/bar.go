@@ -1,0 +1,356 @@
+package seat
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"agentkit/internal/agent"
+	"agentkit/internal/config"
+	"agentkit/internal/lock"
+	"agentkit/internal/plan"
+	"agentkit/internal/run"
+	"agentkit/internal/terminal"
+	"agentkit/internal/tmux"
+)
+
+// The seat's status bar, as agentkit/statusbar.py writes it: its text is data in the session's own
+// options, and two fixed formats draw them, so each client picks what fits its own width.
+const (
+	barHit  = "@ak_hit"
+	barNeed = "@ak_need"
+	barFold = "@ak_fold"
+	barKey  = "@ak_key"
+	barTop  = "@ak_top"
+	barWhy  = "@ak_why"
+	// where the pointer is: its cells counted from the client's right edge, the right end's own edge
+	barAt  = "#{e|-:#{client_width},#{mouse_x}}"
+	barInk = "11111b" // the chip's dark text
+)
+
+var (
+	barCells = []int{36, 24, 12} // a progress line and its count, at each width of line one
+	barTops  = []string{barTop, barTop + "1", barTop + "2"}
+	barWhys  = []string{barWhy, barWhy + "1", barWhy + "2", barWhy + "3", barWhy + "4"}
+	// the one key ak binds on the bar: a click on its right end switches to the seat it names
+	barClick = []string{"bind-key", "-n", "MouseDown1StatusRight", "if-shell", "-F", "#{E:" + barHit + "}",
+		"run-shell -C \"switch-client -t '#{E:" + barHit + "}'\""}
+)
+
+func barCut(option, room string) string {
+	return "#{=/#{?#{e|>:" + room + ",0}," + room + ",1}/…:" + option + "}"
+}
+
+// barLineOne is the widest progress line beside who else needs you that fits the client, drawn
+// whole, then beside its short count; else the narrowest cut a space short of that.
+func barLineOne() string {
+	room := "#{e|-:#{client_width},#{e|+:#{w:" + barFold + "},2}}"
+	found := "#[align=left]" + barCut(barTops[len(barTops)-1], room) + " #[align=right]#{" + barFold + "}"
+	for _, right := range []string{barFold, barNeed} {
+		for _, left := range slices.Backward(barTops) {
+			fits := "#{e|<=:#{e|+:#{w:" + left + "},#{e|+:#{w:" + right + "},2}},#{client_width}}"
+			whole := "#[align=left]#{" + left + "} #[align=right]#{" + right + "}"
+			found = "#{?" + fits + "," + whole + "," + found + "}"
+		}
+	}
+	return found
+}
+
+// barLineTwo is the first version of line two that fits a space short of the key, so the key
+// stays whole on every client.
+func barLineTwo() string {
+	room := "#{e|-:#{client_width},#{e|+:#{w:" + barKey + "},2}}"
+	found := barCut(barWhys[len(barWhys)-1], room)
+	for _, option := range slices.Backward(barWhys) {
+		found = "#{?#{e|<=:#{w:" + option + "}," + room + "},#{" + option + "}," + found + "}"
+	}
+	return "#[align=left]" + found + " #[align=right]#{" + barKey + "}"
+}
+
+func tmuxText(text string) string { return strings.ReplaceAll(text, "#", "##") }
+
+func barPaint(text, word string) string {
+	if text == "" {
+		return ""
+	}
+	return "#[fg=#" + terminal.RGB(word) + "]" + tmuxText(text) + "#[default]"
+}
+
+// barChip is the state as the bar opens with it: `! needs you` in dark bold text on its amber, the
+// one loud thing on the bar; any other word as its glyph and word in its colour.
+func barChip(screen terminal.Screen, word string) string {
+	said := tmuxText(screen.StateText(word))
+	if word == "needs you" {
+		return "#[fg=#" + barInk + ",bg=#" + terminal.RGB(word) + ",bold] " + said + " #[default]"
+	}
+	return barPaint(screen.StateText(word), word)
+}
+
+// barProgress is the seat's plan as line one's last part in room cells (menu.last_column): a smooth
+// line and its count, none for a seat at rest or one with no plan.
+func barProgress(screen terminal.Screen, word string, done, total, room int) string {
+	if word == "idle" || total == 0 {
+		return ""
+	}
+	count := fmt.Sprintf("%d of %d", done, total)
+	size := room - len(count) - 1
+	if size < 1 {
+		return count
+	}
+	full, half, empty := "━", "╸", "─"
+	share := float64(done) / float64(total)
+	halves := int(math.RoundToEven(2 * float64(size) * share))
+	if screen.ASCII() {
+		full, half, empty = "=", "-", "-"
+		halves = 2 * int(math.RoundToEven(float64(size)*share))
+	}
+	ends := (halves + 1) / 2
+	line := strings.Builder{}
+	for n := range ends {
+		amount := 0.0
+		if ends > 1 {
+			amount = 0.5 * (1 - float64(n)/float64(max(1, ends-1)))
+		}
+		char := half
+		if n < halves/2 {
+			char = full
+		}
+		line.WriteString("#[fg=" + barFaded(word, amount) + "]" + char)
+	}
+	if ends < size {
+		line.WriteString("#[fg=#" + terminal.RGB("dim") + "]" + strings.Repeat(empty, size-ends))
+	}
+	return line.String() + "#[default] " + count
+}
+
+// barFaded is a word's colour that far of the way to a dark terminal's background.
+func barFaded(word string, amount float64) string {
+	var parts [3]int
+	fmt.Sscanf(terminal.RGB(word), "%02x%02x%02x", &parts[0], &parts[1], &parts[2])
+	out := "#"
+	for _, part := range parts {
+		out += fmt.Sprintf("%02x", int(math.RoundToEven(float64(part)*(1-amount))))
+	}
+	return out
+}
+
+// barCrew is who builds and reviews a seat's work, each named once with its marks, all dim (menu.crew).
+func barCrew(screen terminal.Screen, builds, reviews []string) string {
+	build, review := "⚒", "◎"
+	if screen.ASCII() {
+		build, review = "B", "R"
+	}
+	var seen, parts []string
+	for _, model := range slices.Concat(builds, reviews) {
+		if slices.Contains(seen, model) {
+			continue
+		}
+		seen = append(seen, model)
+		icons := ""
+		if slices.Contains(builds, model) {
+			icons += build
+		}
+		if slices.Contains(reviews, model) {
+			icons += review
+		}
+		parts = append(parts, terminal.Plain(model)+" "+icons)
+	}
+	return barPaint(strings.Join(parts, "   "), "dim")
+}
+
+// barSelection is the seat's model and crew by their full names, none where its record does not
+// read as a seat's (config.load_session).
+func barSelection(state, name string, models map[string]config.Model) (model string, builds, reviews []string) {
+	record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
+	if record == nil {
+		return "", nil, nil
+	}
+	if _, complaint, crewed := crew(record.Get("workers"), models); !crewed || complaint != "" {
+		return "", nil, nil
+	}
+	named := func(key string) (found []string) {
+		for _, each := range record.List(key) {
+			if each, ok := each.(string); ok {
+				found = append(found, config.ModelName(each, models))
+			}
+		}
+		return found
+	}
+	builds = named("workers")
+	reviews = builds
+	if record.Has("reviewers") {
+		reviews = named("reviewers")
+	}
+	return config.ModelName(record.Str("orchestrator"), models), builds, reviews
+}
+
+// publish writes the seat's bar and window title from its row's own values, and with a changed word
+// has every seat's bar count it again (statusbar.redress, retell); it never fails what it dresses.
+func (seat Seat) publish(state string, models map[string]config.Model, changed bool) {
+	model, builds, reviews := barSelection(state, seat.Name, models)
+	done, total := plan.Progress(seat.Name)
+	barTell(state, seat.Name, seat.barOptions(terminal.For(os.Stderr), model, builds, reviews, done, total))
+	if changed {
+		barTell(state, "", nil)
+	}
+}
+
+// barOptions is what the seat's bar is told: its layout, line one at each width, line two, its key
+// and its window title, the title last so whoever sees it has the whole bar to read.
+func (seat Seat) barOptions(screen terminal.Screen, model string, builds, reviews []string, done, total int) [][3]string {
+	head := " " + barChip(screen, seat.Word) + "   #[bold]" + tmuxText(seat.Name) + "#[nobold]"
+	if model != "" {
+		head += "   " + barPaint(model, "dim")
+	}
+	why := barCrew(screen, builds, reviews)
+	if seat.Word == "needs you" {
+		why = tmuxText(terminal.Plain(seat.reason))
+	}
+	if why != "" {
+		why = "  " + why
+	}
+	target := "=" + seat.Name + ":"
+	own := [][3]string{{target, "set-titles", "on"}, {target, "status", "2"}, {target, "status-style", "default"},
+		{target, "status-format[0]", barLineOne()}, {target, "status-format[1]", barLineTwo()}}
+	for i, option := range barTops {
+		top := head
+		if last := barProgress(screen, seat.Word, done, total, barCells[i]); last != "" {
+			top += "   " + last
+		}
+		own = append(own, [3]string{target, option, top})
+	}
+	for _, option := range barWhys {
+		own = append(own, [3]string{target, option, why})
+	}
+	// tmux reads a title as a time too, unlike the bar's options: its `%` doubles as well
+	title := strings.ReplaceAll(tmuxText(seat.Name+" · "+seat.Word), "%", "%%")
+	return append(own, [3]string{target, barKey, "Ctrl-b m#[fg=#" + terminal.RGB("dim") + "]  menu #[default]"},
+		[3]string{target, "set-titles-string", title})
+}
+
+func barSet(option [3]string) []string {
+	return []string{"set-option", "-t", option[0], option[1], tmux.Literal(option[2])}
+}
+
+// barTell writes line one's right end on that seat's bar, or every seat's for none, then the
+// caller's own options on a session tmux lists, and binds its click, under one lock across every
+// bar's reading and writing, so whoever writes last has read last (statusbar._tell).
+func barTell(state, only string, own [][3]string) {
+	if config.EnsureDirs() != nil {
+		return
+	}
+	held, err := lock.Wait(context.Background(), filepath.Join(state, "statusbar.lock"))
+	if err != nil {
+		return
+	}
+	defer held.Close()
+	if !config.Publishes() {
+		return
+	}
+	listed, known := barSessions()
+	if !known {
+		return
+	}
+	found := barSeats(state, listed)
+	var lists [][]string
+	for _, each := range found {
+		if only != "" && only != each.name {
+			continue
+		}
+		needing, folded, hit := barOthers(found, each.name)
+		target := "=" + each.name + ":"
+		var list []string
+		for _, option := range [][3]string{{target, barHit, ""}, {target, barNeed, needing}, {target, barFold, folded}, {target, barHit, hit}} {
+			list = append(append(list, barSet(option)...), ";")
+		}
+		lists = append(lists, list[:len(list)-1])
+	}
+	for _, option := range own {
+		if slices.ContainsFunc(listed, func(row barRow) bool { return "="+row.name+":" == option[0] }) {
+			lists = append(lists, barSet(option))
+		}
+	}
+	if len(lists) > 0 {
+		tmux.Lists(tmux.Own(), append(lists, barClick))
+	}
+}
+
+// A barRow is one session a bar may count: its tmux id, its name, its mark, and once read its word.
+type barRow struct{ id, name, mark, word string }
+
+// barSessions are the sessions this HOME started on ak's own server (statusbar.sessions); false
+// where tmux does not answer or none of them is this HOME's: the socket is the user's, and a scratch
+// HOME's ak would write its records over real bars.
+func barSessions() ([]barRow, bool) {
+	out, err := tmux.Ask(tmux.Own(), "-u", "list-sessions", "-F", "#{session_id}:#{session_name}:#{"+tmux.Mark+"}:#{HOME}")
+	if err != nil {
+		return nil, false
+	}
+	home := resolved(config.UserHome())
+	var rows []barRow
+	answered := false
+	for _, line := range strings.Split(out, "\n") {
+		parts := strings.SplitN(line, ":", 4)
+		if len(parts) < 3 {
+			continue
+		}
+		answered = true
+		if (len(parts) == 3 || parts[3] == "" || resolved(parts[3]) == home) && parts[1] != tmux.Control {
+			rows = append(rows, barRow{id: parts[0], name: parts[1], mark: parts[2]})
+		}
+	}
+	return rows, !answered || len(rows) > 0
+}
+
+func resolved(path string) string {
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		return real
+	}
+	return path
+}
+
+// barSeats are those sessions that are seats, each with the word it last announced: what each
+// bar's right end counts (statusbar.seats).  A session no seat has a record of and running no agent
+// is no seat, and neither is one under a name no seat can have.
+func barSeats(state string, listed []barRow) (found []barRow) {
+	for _, row := range listed {
+		_, unrecorded := os.Stat(filepath.Join(state, "session-"+row.name+".json"))
+		if !strings.HasPrefix(row.id, "$") || config.SessionName(row.name) != row.name ||
+			row.mark != "1" && unrecorded != nil && agent.Agentless(tmux.Own(), []string{row.name}) {
+			continue
+		}
+		if file, _ := run.ReadJSON(filepath.Join(state, "seat-"+row.name+".json")); file != nil {
+			row.word = file.Str("word")
+		}
+		found = append(found, row)
+	}
+	return found
+}
+
+// barOthers is the right end of that seat's line one: how many other seats need you, the same
+// short for a client too narrow for both it and the name, and the format that turns the pointer on
+// it into the first such seat's session id; or nothing.
+func barOthers(found []barRow, name string) (string, string, string) {
+	var needs []string
+	for _, row := range found {
+		if row.name != name && row.word == "needs you" {
+			needs = append(needs, row.id)
+		}
+	}
+	if len(needs) == 0 {
+		return "", "", ""
+	}
+	said, short := fmt.Sprintf("! %d other seats need you", len(needs)), fmt.Sprintf("! %d need you", len(needs))
+	if len(needs) == 1 {
+		said, short = "! 1 other seat needs you", "! 1 needs you"
+	}
+	end := func(text string) string {
+		return "#[range=right]#[fg=#" + terminal.RGB("needs you") + ",bold]" + tmuxText(text) + "#[default]#[norange] "
+	}
+	hit := fmt.Sprintf("#{?#{&&:#{e|>:%s,1},#{e|<=:%s,%d}},%s,}", barAt, barAt, terminal.Cells(said)+1, needs[0])
+	return end(said), end(short), hit
+}

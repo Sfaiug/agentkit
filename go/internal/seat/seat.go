@@ -40,6 +40,9 @@ type Seat struct {
 	infer                                             bool     // the record holds no repo
 	unowned                                           bool     // would resume its record's conversation, and it names none: Python offers it no row
 	closed                                            bool     // its seat file holds the owner's stop mark
+	held                                              bool     // tmux still holds its session, all its panes dead
+	asleep                                            bool     // put to sleep since its harness launched (sleep.asleep)
+	handBacks                                         int      // its runs' hand-backs waiting on the owner's reopening it
 	home                                              []string // where the menu files it (orch.home_key)
 	follow                                            move     // what its last answer moves in its record
 }
@@ -62,7 +65,9 @@ var kinds = map[string][]string{"session": {"json"}, ".session": {"lock"}, "seat
 
 var (
 	recordFields = []string{"orchestrator", "workers", "cwd", "created", "conversation", "id_source", "resumable", "session_title", "repo"}
-	seatFields   = slices.Concat([]string{"word", "reason", "unsent", "word_since", "word_from", "session", "stopped_at", "closed_by_owner", "unasked"}, waits)
+	seatFields   = slices.Concat([]string{"word", "reason", "unsent", "word_since", "word_from", "session", "stopped_at", "closed_by_owner", "unasked"}, waits, screenFields)
+	// what Python's look at a seat's screen keeps beside its word, which no seat nobody is in reads
+	screenFields = []string{"state", "rule", "since", "began", "hooks", "hooked", "hooked_at", "hooked_event", "interrupted", "authority", "evidence"}
 	runFields    = []string{"run_id", "title", "repo", "started_at", "finished_at", "state", "merged", "launched_session"}
 )
 
@@ -75,7 +80,8 @@ type ran struct {
 }
 
 // Read is the home, and whether Go knows it: no record where milestone 6b found none, else
-// only seats on no tmux server, with records, seat files and runs it follows.
+// only seats on no tmux server or whose panes have all died there, with records, seat files and
+// runs it follows.
 func Read(now time.Time) (Home, bool) {
 	state := filepath.Join(config.Home(), "state")
 	entries, err := os.ReadDir(state)
@@ -93,7 +99,7 @@ func Read(now time.Time) (Home, bool) {
 	}
 	var planned []string
 	for _, entry := range entries {
-		if entry.Name() == "watch.lock" || entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {
+		if entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {
 			continue
 		}
 		kind, rest, _ := strings.Cut(entry.Name(), "-")
@@ -113,7 +119,8 @@ func Read(now time.Time) (Home, bool) {
 	models, err := config.Models()
 	offered, unread := config.Offered()
 	runs, known := readRuns(names, now)
-	if err != nil || unread != nil || !known || !OnNoServer() {
+	held, gone := heldGone(names)
+	if err != nil || unread != nil || !known || !gone {
 		return Home{}, false
 	}
 	home := Home{models: models}
@@ -123,6 +130,15 @@ func Read(now time.Time) (Home, bool) {
 		if !ok || !seat.closed && slices.Contains(planned, name) {
 			return Home{}, false
 		}
+		if seat.held = slices.Contains(held, name); seat.held {
+			// tmux offers its row whatever its record owns, dates it by its own start where the
+			// record does not, and its bar shows the squares of any run going
+			record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
+			if at(record.Get("created")) == 0 || seat.Word != "idle" {
+				return Home{}, false
+			}
+			seat.unowned = false
+		}
 		home.records = append(home.records, seat)
 		if !seat.unowned {
 			repo, _ := seat.repo.(string)
@@ -130,28 +146,42 @@ func Read(now time.Time) (Home, bool) {
 			home.Seats = append(home.Seats, seat)
 		}
 	}
-	// the seats the owner stopped come last, for the menu's past screen (orch.numbered)
+	order(home.Seats)
+	for i, seat := range home.Seats {
+		if seat.Word == "idle" {
+			home.Seats[i].reason = seat.closedReason(i + 1)
+		}
+	}
+	return home, true
+}
+
+// order puts seats in their menu order (orch.numbered): the ones the owner stopped last, for the
+// past screen, one whose session tmux still holds being no past seat.
+func order(seats []Seat) {
 	past := func(seat Seat) int {
-		if seat.closed {
+		if seat.closed && !seat.held {
 			return 1
 		}
 		return 0
 	}
-	slices.SortFunc(home.Seats, func(a, b Seat) int {
+	slices.SortFunc(seats, func(a, b Seat) int {
 		return cmp.Or(cmp.Compare(past(a), past(b)), slices.Compare(a.home, b.home), cmp.Compare(a.Created, b.Created), cmp.Compare(a.Name, b.Name))
 	})
-	for i, seat := range home.Seats {
-		if seat.Word == "idle" {
-			home.Seats[i].reason = fmt.Sprintf("session closed: press %d to reopen", i+1)
-			if seat.closed {
-				home.Seats[i].reason = "session closed by the owner: reopen it from past sessions"
-			}
-			if seat.restart != "" {
-				home.Seats[i].reason += " · " + seat.restart
-			}
+}
+
+// heldGone is the seats of those names whose panes have all died where tmux holds no others, and
+// whether it does: nothing on ak's server but such seats, and none ak opened on the default one.
+func heldGone(names []string) ([]string, bool) {
+	own := tmux.Sessions(tmux.Own())
+	dead := tmux.Dead(tmux.Own())
+	var held []string
+	for _, session := range own {
+		if !slices.Contains(dead, session.Name) || !slices.Contains(names, session.Name) {
+			return nil, false
 		}
+		held = append(held, session.Name)
 	}
-	return home, true
+	return held, !marked(tmux.Default)
 }
 
 // read is the seat one record holds, from it, its seat file and its runs.
@@ -345,7 +375,7 @@ func reconcile(state string, records []Seat, infer bool) error {
 
 // announce is watch.announce_state for a seat nobody is in: under its announce lock, what its
 // last answer moved, then its word, begun where the seat file says it began by then, or now
-// where it said another.
+// where it said another, and for one tmux still holds its bar.
 func (seat Seat) announce(state string, now time.Time, models map[string]config.Model) error {
 	if err := config.EnsureDirs(); err != nil {
 		return err
@@ -372,15 +402,20 @@ func (seat Seat) announce(state string, now time.Time, models map[string]config.
 		since = run.Float(seconds(now))
 	}
 	fields := []field{{"word", seat.Word}, {"reason", seat.reason}, {"unsent", ""}, {"word_since", since}, {"word_from", []any{nil, nil, ""}}}
-	if !slices.ContainsFunc(fields, func(f field) bool {
+	if slices.ContainsFunc(fields, func(f field) bool {
 		if f.key == "unsent" { // `or ""`: any false value is no draft
 			return previous.Truthy("unsent")
 		}
 		return !run.Equal(previous.Get(f.key), f.value)
 	}) {
-		return nil
+		if err := writeSeat(state, seat.Name, fields); err != nil {
+			return err
+		}
 	}
-	return writeSeat(state, seat.Name, fields)
+	if seat.held {
+		seat.publish(state, models, !run.Equal(previous.Get("word"), seat.Word))
+	}
+	return nil
 }
 
 type field struct {
