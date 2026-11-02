@@ -525,6 +525,9 @@ class LiveStatus(unittest.TestCase):
 
     def test_the_row_and_the_bar_say_the_same_after_a_flip(self):
         self.plan(4, 8)
+        # already sent back for what its screen says, so a Stop leaves it the owner's
+        watch.seat_write("herdr", stop_nudged=watch.progress_output(
+            "claude", watch.pane_tail(self.pane.return_value)))
         for event, word in (("UserPromptSubmit", "working"), ("Stop", "needs you"),
                             ("UserPromptSubmit", "working")):
             with self.subTest(event=event):

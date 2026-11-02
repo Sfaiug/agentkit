@@ -235,6 +235,8 @@ class NudgeTurnRule(Sandbox):
                 self.assertEqual(self.judged(0), (True, ["continue"]))
                 self.assertEqual(self.judged(1), (True, ["continue"]))
                 self.assertEqual(self.judged(2), (False, []))
+                # it stands: nothing is going back, so the seat reads as the owner's (`goes_back`)
+                self.assertIsNotNone(watch.seat_read(SEAT).get("stop_nudged"))
                 self.stopped()
                 self.assertEqual(self.tick(), [])       # and every stop after it stands too
                 # the first is resumed and a different run parks, which is nudged for twice

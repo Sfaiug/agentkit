@@ -154,7 +154,8 @@ class Ladder(unittest.TestCase):
         # what it names as the step is left out: it is the box's command line, not the step
         self.assertTrue(line.startswith(f"run {name} stalled three times at "), line)
         self.assertTrue(line.endswith(f"; parked: ak run resume {name}"), line)
-        self.assertEqual(self.told_later, self.told)
+        # a later tick tells it no more: its open line is another matter (`continue`)
+        self.assertEqual([said for said in self.told_later if said != "continue"], self.told)
 
     def test_a_later_tick_leaves_the_parked_run_where_it_is(self):
         self.assertEqual((self.later["state"], len(self.later["stalls"])), ("stalled", 3))

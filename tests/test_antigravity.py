@@ -696,9 +696,9 @@ class Antigravity(unittest.TestCase):
                              (state, rule, "screen"), kind)
 
     def test_the_end_of_turn_nudge_never_types_into_a_draft(self):
-        # Its Stop hook enforces the end-of-turn rule now, so the tick types nothing at an
-        # Antigravity seat -- not at its prompt, and not over a line the owner has typed and
-        # not sent or the chooser a `/` opened either.
+        # Its Stop hook enforces the end-of-turn rule now, so the tick only sends an Antigravity
+        # seat back to the line it owes -- at its prompt, never over a line the owner has typed
+        # and not sent or the chooser a `/` opened.
         self.assertFalse(watch.stop_enforced("antigravity"))
         now = time.time()
         live = {"state": "at_prompt", "stop_said_at": now - 3600, "turn_began": now - 7200}
@@ -710,7 +710,7 @@ class Antigravity(unittest.TestCase):
             sandbox.enter_context(patch.object(config, name, self.root / "ak" / name.lower()))
         config.ensure_dirs()
         config.plan_path("seat").write_text("- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n")    # the seat owes work
-        for kind, typed in (("prompt", 0), ("draft", 0), ("chooser", 0)):
+        for kind, typed in (("prompt", 1), ("draft", 0), ("chooser", 0)):
             pane = self.pane(kind)
             with self.subTest(kind=kind), \
                     patch.object(watch, "seat_read", return_value=dict(live)), \

@@ -177,6 +177,8 @@ class Babysitter(unittest.TestCase):
                 self.data = watch.load_state()
                 self.harness, self.tail = harness, pane
                 self.typed.reset_mock()
+                watch.seat_write("seat", stop_nudged=None)      # panes here repeat their words
+                config.plan_path("seat").write_text("- [ ] the parser parses\n")
                 self.tick()
                 self.tick(179)
                 self.typed.assert_not_called()
@@ -190,11 +192,10 @@ class Babysitter(unittest.TestCase):
                 self.tail = "\n".join(lines)
                 self.tick(3600)
                 self.tick(3600)
-                # The error is answered and nothing is typed at it again.  A harness with no
-                # blocking end-of-turn hook then has the three-way rule typed at its prompt
-                # instead -- watch.stop_nudge -- which is one keystroke, not a resume.
-                self.assertEqual(self.typed.call_count,
-                                 2 if watch.stop_enforced(harness) else 1)
+                # The error is answered and nothing is typed at it again.  A seat owing a line
+                # then has the end-of-turn rule typed at its prompt instead -- watch.stop_nudge
+                # -- which is one keystroke, not a resume.
+                self.assertEqual(self.typed.call_count, 2)
                 self.notified.assert_not_called()
                 self.assertNotIn("seat", self.data["stalls"])
 

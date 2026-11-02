@@ -469,7 +469,6 @@ class StopNudge(unittest.TestCase):
         self.stack.enter_context(redirect_stdout(io.StringIO()))
         self.stack.enter_context(redirect_stderr(io.StringIO()))
         config.ensure_dirs()
-        config.plan_path(SEAT).write_text(OWED)     # the seat owes work
         self.now = 100000.0
         self.stack.enter_context(patch.object(watch.time, "time", lambda: self.now))
         self.harness, self.records = "muse", []
@@ -489,6 +488,7 @@ class StopNudge(unittest.TestCase):
             patch.object(watch, "type_into", return_value=True))
         self.data, self.logs = watch.load_state(), []
         self.tick()     # the seat is opened, and something looks at the screen it opened on
+        config.plan_path(SEAT).write_text(OWED)     # the seat owes work
 
     def showing(self, said, footer=""):
         """A Muse pane: what the seat last said, a blank line, then its composer and footer."""
@@ -610,14 +610,22 @@ class StopNudge(unittest.TestCase):
         self.assertGreater(watch.seat_read(SEAT)["turn_began"], first)
         self.assertEqual(self.typed.call_count, 2)
 
-    def test_a_seat_at_the_screen_its_harness_opened_on_is_never_typed_into(self):
+    def test_a_seat_at_the_screen_its_harness_opened_on_owing_nothing_is_never_typed_into(self):
         """A banner and an update notice are not an answer, and no turn ended behind them."""
+        config.plan_path(SEAT).unlink()
         for _ in range(8):                          # however long it is left standing there
             self.tick()
         self.typed.assert_not_called()
         self.assertIsNone(watch.seat_read(SEAT).get("turn_began"))
+        config.plan_path(SEAT).write_text(OWED)
         self.stopped(RECOMMENDATION)                # ... and the first real turn is enforced
         self.assertEqual(self.typed.call_count, 1)
+
+    def test_a_seat_reopened_owing_a_line_goes_back_with_no_turn_watched(self):
+        for _ in range(8):
+            self.tick()
+        self.assertEqual(self.typed.call_count, 1)
+        self.assertIsNone(watch.seat_read(SEAT).get("turn_began"))
 
     # --- what the user does in the composer is their business ---------------
 
@@ -711,14 +719,23 @@ class StopNudge(unittest.TestCase):
         self.tick(seconds=watch.STALL_WAIT)
         self.assertEqual(self.typed.call_count, 1)
 
-    def test_a_harness_that_decides_in_its_own_hook_is_never_typed_into(self):
+    def test_a_harness_that_decides_in_its_own_hook_is_typed_into_only_for_a_line_owed(self):
         for harness in ("claude", "codex", "antigravity"):
             with self.subTest(harness=harness):
                 self.setUp()
                 self.harness = harness
                 self.assertFalse(watch.stop_enforced(harness))
-                self.stopped(RECOMMENDATION)
-                self.typed.assert_not_called()
+                self.pane = (REPO / f"tests/fixtures/{harness}-prompt-pane.txt").read_text()
+                config.plan_path(SEAT).unlink()
+                self.tick()
+                self.typed.assert_not_called()      # what else the rule holds is its hook's
+                config.plan_path(SEAT).write_text(OWED)
+                self.tick()
+                self.assertEqual(self.typed.call_count, 1)
+                # refused: the same words are not typed at again, whatever the marks say
+                watch.seat_write(SEAT, turn_began=self.now)
+                self.tick()
+                self.assertEqual(self.typed.call_count, 1)
 
     def test_a_failed_pass_over_the_runs_is_no_reason_to_type(self):
         with patch.object(menu, "run_records", side_effect=OSError("no runs")):
