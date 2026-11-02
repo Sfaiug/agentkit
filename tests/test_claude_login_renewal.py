@@ -151,6 +151,14 @@ class LoginRenewal(unittest.TestCase):
         self.assertEqual(self.ask("second", "auth", "seat")[0], 1)
         self.assertEqual(self.turns(), [])
 
+    def test_a_login_about_to_lapse_is_renewed_and_one_with_time_left_is_not(self):
+        self.login("second", int((time.time() + 200) * 1000))
+        self.assertEqual(self.ask("second", "auth", "seat")[0], 0)
+        self.assertEqual(len(self.turns()), 1)
+        self.login("second", int((time.time() + 600) * 1000))
+        self.assertEqual(self.ask("second", "auth", "seat")[0], 0)
+        self.assertEqual(self.turns(), [])
+
     def test_logout_signs_out_its_own_login_and_worker_token_alone(self):
         usual, second = self.login("", FRESH), self.login("second", FRESH)
         secrets = self.root / ".agentkit" / "secrets"

@@ -83,10 +83,12 @@ err() { local m=${1//\\/}; m=${m//\"/\'}
 # The seat login lapses some eight hours after Claude Code last ran on it, and nothing but
 # Claude Code renews it.  A login no seat is open on stays lapsed: `auth seat` sent no seat
 # onto it and `usage` fell back to the worker token, which the usage page refuses.  So before
-# either reads it, a lapsed login that still holds a refresh token gets the smallest turn
+# either reads it, a login lapsed or about to, with a refresh token, gets the smallest turn
 # Claude Code runs on it -- its smallest model, one word, no tools, no conversation kept --
-# one per login at a time: whoever waited finds it renewed and asks nothing.  A login that
-# has not lapsed is never touched, and one the turn could not renew is read as it was.
+# one per login at a time: whoever waited finds it renewed and asks nothing.  About to: under
+# 240 s left, as the tick's `usage` asks every minute, a copy lent to a machine must not lapse
+# first, and Claude Code 2.1.316 renews under 5 minutes (5.5 left no, 4.5 yes, 2 Nov 2026).  A
+# later login is never touched, and one the turn could not renew is read as it was.
 lapsed() {
   local blob exp
   blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
@@ -95,7 +97,7 @@ lapsed() {
       | .expiresAt // empty' 2>/dev/null)
   case "$exp" in ''|*[!0-9]*) return 1 ;; esac
   [ "${#exp}" -gt 11 ] || exp="${exp}000"
-  [ "$exp" -le "$(( $(date +%s) * 1000 ))" ]
+  [ "$exp" -le "$(( ($(date +%s) + 240) * 1000 ))" ]
 }
 renew() {
   lapsed && mkdir -p -- "$TMPD" 2>/dev/null || return 0

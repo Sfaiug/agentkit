@@ -32,7 +32,8 @@ the one resumed, else `sid-<harness>-<n>`), `stderr` (what the harness says on i
 diagnostics, such as its logout words), `exit` (0).  A hand-in goes through the ak build
 under test, the one AK_BIN names.  Every other verb answers as `answer` set it, or as a harness
 that is logged in with no meter to read, its `lend` the real tools/lend.py fed a login of the
-call's account lasting a day: `lent(account)` at LENT under the home named.
+call's account lasting a day, or the seconds its dir's `lend_lasts` says: `lent(account)` at LENT
+under the home named.
 
 Each harness's Adapter: `n` counts its `run` calls, `runs()` and `calls(verb)` read its log,
 `behave(*steps)` scripts its next turns, `answer(verb, out, code, given)` sets what another verb
@@ -180,9 +181,10 @@ def main(directory, harness, ak, verb="", *args):
     call = {"verb": verb, "argv": list(args), "cwd": os.getcwd(),
             "env": {k: v for k, v in os.environ.items() if k.startswith(("AK_", "AGENTKIT_"))}}
     if verb == "lend" and "lend" not in (fake._json("answers") or {}):
+        lasts = fake.dir / "lend_lasts"
         code = subprocess.run(
             [sys.executable, "-I", Path(__file__).with_name("lend.py"), *args, LENT], text=True,
-            input=json.dumps({"ends": int(time.time()) + 86400,
+            input=json.dumps({"ends": int(time.time()) + int(lasts.exists() and lasts.read_text() or 86400),
                               "login": lent(os.environ.get("AGENTKIT_ACCOUNT"))})).returncode
     elif verb != "run":
         # the answer set for the most of the arguments this call ends in

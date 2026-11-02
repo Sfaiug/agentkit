@@ -29,8 +29,8 @@ import time
 from . import config, gitcall, helper
 
 AK = ("adapters", "agentkit", "bin", "tools")    # ak itself, read-only there, `bin` on PATH
-# Seconds a lent login must last, else the turn runs here: a longer turn would end on an expired
-# login and page the owner. A machine Google ends sooner takes no turn, which it would lose.
+# Seconds a lent login must last, else the turn runs here, unless its harness's turns read a renewed
+# login (`[worker] rereads_login`). A machine Google ends sooner takes no turn, which it would lose.
 LENT_FOR = 3600
 # Seconds at most a bound found in a turn's container holds it before the machine is asked again:
 # past the silence limit the watchdog asks on every poll, and a command ending before its bound
@@ -84,7 +84,8 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
                                      env, cwd)]
     seen = [*map(_stamp, logins)]    # before the lend: a renewal as it prepares is sent too
     with tempfile.TemporaryDirectory() as home:
-        lent = _lend(entry, cmd[0], env, home)
+        lent = _lend(entry, cmd[0], env, home,
+                     0 if config.manifest(harness).get("worker", {}).get("rereads_login") else LENT_FOR)
         if not lent:
             return None
         # 2048: twice this is 4 GiB, as on 30 Oct 2026 this host's runs peaked at a median of 768

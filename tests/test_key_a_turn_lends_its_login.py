@@ -55,7 +55,7 @@ exec "$0.real" "$@"
 
 
 class ATurnLendsItsLogin(unittest.TestCase):
-    def run_task(self, lend=None):
+    def run_task(self, lend=None, lasts=None, rereads=False):
         """The finished run's directory, and the machine with its logs."""
         home = Home()
         self.addCleanup(home.close)
@@ -70,6 +70,11 @@ class ATurnLendsItsLogin(unittest.TestCase):
         for fake in fakes.values():
             if lend:
                 fake.answer("lend", *lend)
+            if lasts:
+                (fake.dir / "lend_lasts").write_text(str(lasts))
+            if rereads:
+                with fake.manifest.open("a") as manifest:
+                    manifest.write("rereads_login = true\n")
         machine = akmachine.install(home)
         for harness, version in (("claude", "1.2.3"), ("codex", "4.5.6")):
             home.fake(harness, f"#!/bin/sh\necho {version}\n")
@@ -135,6 +140,16 @@ class ATurnLendsItsLogin(unittest.TestCase):
                 self.assertEqual([*machine.glob("docker/roots/*-turn")], [])
                 # no parcel with a HOME, a turn's, ever reached the machine
                 self.assertEqual((machine / "seen.log").read_text(), "")
+
+    def test_a_login_under_the_hour_goes_out_only_where_the_harness_reads_a_renewed_one(self):
+        for rereads, where in ((False, "here"), (True, "docker")):
+            with self.subTest(rereads=rereads):
+                run, _ = self.run_task(lasts=1800, rereads=rereads)
+                self.assertEqual(self.said(run, "where"), [where] * 2)
+
+    def test_claude_turns_read_a_renewed_login(self):
+        shipped = (TOOLS.parents[1] / "adapters/claude.toml").read_text()
+        self.assertIn("\nrereads_login = true\n", shipped)
 
 
 if __name__ == "__main__":
