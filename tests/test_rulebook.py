@@ -20,7 +20,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, gitcall, orch, run, worker
 from tools import rulebook
 
-RULEBOOK = (REPO / "orchestrator.md").read_text()
+RULEBOOK = config.in_force((REPO / "orchestrator.md").read_text(), {})
 MINIMUM = "Minimum change that solves the task completely; the best part is no part."
 # The owner's own words, and the standing rules each in the section of the rulebook it belongs to.
 PHRASES = ("the best part is no part", "the best process is no process", "Less is more",

@@ -100,6 +100,9 @@ POLICY = {
                      ("first round", "merged")),
     "seat_lines": (50, 0, 10, "the added lines a seat's own change stays under", ("built",)),
 }
+# How a number of rounds opens a sentence and how the round past them reads; further up, figures.
+ROUNDS_SAID = {1: ("One", "a second"), 2: ("Two", "a third"), 3: ("Three", "a fourth"),
+               4: ("Four", "a fifth"), 5: ("Five", "a sixth")}
 
 
 class Error(Exception):
@@ -401,6 +404,18 @@ def policy(table=None):
         raise Error(f"{path}: seat_lines {numbers['seat_lines']}, {POLICY['seat_lines'][3]}, is "
                     f"over review_lines {numbers['review_lines']}, {POLICY['review_lines'][3]}")
     return numbers
+
+
+def in_force(text, table=None):
+    """ak's own words as this host's numbers (`policy`) make them: `$rounds`, `$review_lines` and
+    `$seat_lines` the number, `$Rounds` it opening a sentence, `$s` the plural of its round and
+    `$one_over` the round past the budget.  Only ak's own text comes here: a rule the owner or a
+    project wrote is theirs to the letter, a `$` in it included."""
+    numbers = policy(table)
+    rounds = numbers["rounds"]
+    opening, over = ROUNDS_SAID.get(rounds, (rounds, f"round {rounds + 1}"))
+    return Template(text).safe_substitute(numbers, Rounds=opening, one_over=over,
+                                          s="" if rounds == 1 else "s")
 
 
 def load():
@@ -1994,13 +2009,13 @@ def rulebook_path(name):
 
 
 def rulebook_text():
-    """The rulebook a session receives: ak's rules, then this host's own.
+    """The rulebook a session receives: ak's rules with this host's numbers, then its own.
 
     Only a host that has written no rules of its own has none: a rules.md that is there and
     cannot be read is an error, never an empty one, because a session opened without rules the
     owner did write is a session working to rules nobody chose.
     """
-    body = (REPO / "orchestrator.md").read_text()
+    body = in_force((REPO / "orchestrator.md").read_text())
     try:
         local = (HOME / "rules.md").read_text()
     except FileNotFoundError:

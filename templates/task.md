@@ -1,6 +1,6 @@
 # Title
 
-<!-- One behaviour per task: at most 300 added lines with its tests, or ak refuses it with `split it`. -->
+<!-- One behaviour per task: at most $review_lines added lines with its tests, or ak refuses it with `split it`. -->
 ## Goal
 The outcome this task must achieve.
 1. First checkable point.
@@ -8,7 +8,7 @@ The outcome this task must achieve.
 
 ## Constraints
 - Boundaries the work must respect.
-- Three rounds is the budget (`rounds` defaults to 3).
+- $Rounds round$s is the budget (`rounds` defaults to $rounds).
 
 ## Done when
 Commands must exit 0. When the repository's AGENTS.md declares `tests:`, list only the checks for this change:

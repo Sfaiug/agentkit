@@ -22,11 +22,11 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, shipped_rules
 from fixtures.gitrig import Rig
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
-ORCHESTRATOR = (Path(__file__).resolve().parents[1] / "orchestrator.md").read_text()
+ORCHESTRATOR = shipped_rules()
 HOST_RULE = "Acme host rule: answer in haiku."
 HEADING = "# The project's AGENTS.md"
 FRONT = "---\nusers: none\ntests: true\nhealth: true\n---\n"

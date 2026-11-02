@@ -289,7 +289,8 @@ sys.exit(1)
         path = REPO / "templates" / "task.md"
         meta, _, _ = task.parse_task(path)
         self.assertEqual(int(meta.get("rounds") or 3), 3)
-        self.assertIn("`rounds` defaults to 3", path.read_text())
+        self.assertIn("Three rounds is the budget (`rounds` defaults to 3)",
+                      config.in_force(path.read_text(), {}))
 
     def test_existing_pr_refreshes_pr_body_without_a_followups_file(self):
         repo = self.root / "repo"

@@ -2849,8 +2849,8 @@ def rulebook_news(session, conversation, whole=lambda news: news):
     """What a seat's next prompt carries when its conversation is to be told its rulebook: "".
 
     A harness reads its rulebook only when it opens, so a seat left open across a change to
-    `orchestrator.md`, this host's `rules.md` or its project's `AGENTS.md` -- a
-    merge, or the seat filed elsewhere -- would keep working to the old rules.  Reopening it
+    `orchestrator.md`, this host's `rules.md`, the numbers it sets or its project's `AGENTS.md`
+    -- a merge, or the seat filed elsewhere -- would keep working to the old rules.  Reopening it
     replaces its pane, and nothing on a screen proves the owner has no draft there, so the
     seat is told instead, with the prompt that starts its next turn: what changed since the
     rulebook it holds (`rulebook_change`), or the whole rulebook where ak no longer has that one.

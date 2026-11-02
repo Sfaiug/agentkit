@@ -1,5 +1,7 @@
 """Public command help, safe to print before importing operational command modules."""
 
+from . import config
+
 WORKER_USAGE = ("usage: ak worker MODEL TASK [--workspace DIR] [--out DIR] [--session ID]\n"
                 "       [--role executor|reviewer|fixer|reviewer-pr|executor-scratch|"
                 "fixer-scratch|reviewer-scratch]")
@@ -69,9 +71,9 @@ COMMANDS = {
        ak run stop ID [--keep]
        ak run merge ID | ak run clean ID | ak run gc [--dry-run]""",
             """Execute, verify, review, push, open a PR and merge.
---rounds sets the round limit, at most 3 (default: task rounds or 3).
+--rounds sets the round limit, at most $rounds (default: task rounds or $rounds).
 --anyway starts even when a run in the same repository looks already under way;
-a task over 3 rounds is refused regardless.
+a task over $rounds round$s is refused regardless.
 --no-worktree uses the repo's current branch; --no-merge keeps work local.
 --bg detaches and prints a launch receipt, run ID and result path.
 --first admits the run ahead of every queued run without it, skipping the count cap and a pinned load gate; a heavy suite turn still goes by wait.
@@ -88,8 +90,8 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                    "Show current work and result paths; --history includes older runs.",
                    "ak run status --history --json"),
     "run resume": ("usage: ak run resume ID [--rounds N] [--bg]",
-                   "Resume interrupted or exhausted work; --rounds raises the round limit, at most 3.",
-                   "ak run resume RUN_ID --rounds 3 --bg"),
+                   "Resume interrupted or exhausted work; --rounds raises the round limit, at most $rounds.",
+                   "ak run resume RUN_ID --rounds $rounds --bg"),
     "run merge": ("usage: ak run merge ID",
                   "Retry delivery of a finished PASS; reverify if integration changes its commit.",
                   "ak run merge RUN_ID"),
@@ -263,7 +265,11 @@ def render(command):
     body = f"{purpose(command)}\n\n{usage}"
     if description:
         body += f"\n\n{description}"
-    return body + f"\n\nExample: {example}\n"
+    body += f"\n\nExample: {example}\n"
+    try:
+        return config.in_force(body)
+    except config.Error:    # a config.toml ak cannot use stops its command, never that command's help
+        return config.in_force(body, {})
 
 
 def show(command, argv):
