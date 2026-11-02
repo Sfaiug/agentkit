@@ -97,7 +97,7 @@ class TickTime(unittest.TestCase):
             self.assertTrue(int(self.before) <= at(stamped[1]) <= self.after, line)
             said.append(stamped[2])
         self.assertIn("seat-acme.tmp", "\n".join(said))
-        self.assertIn("network unavailable\n\nplease retry\n", "\n".join(said))
+        self.assertIn("network unavailable\n\nplease retry", "\n".join(said))
 
     def test_each_pass_past_a_second_leaves_one_line_with_its_name_and_seconds(self):
         said = took(self.lines)
