@@ -500,11 +500,18 @@ def agentkit_dir():
     return Path.home() / "agentkit"
 
 
+def code_moved():
+    """Is the code in place other than the code this process read?  Told by difference, never by
+    order: a menu opened during a checkout read the old code though it started after the new."""
+    return config.code_written() != config.CODE_WRITTEN
+
+
 def outdated():
     """Was newer agentkit put in place since this process read its code: by the tick, above
-    all, under a menu left open (`notify.installed_at`)?"""
+    all, under a menu left open?  Only a home with an install's stamp says so."""
     from . import notify
-    return notify.installed_at() > config.STARTED
+    stamp = notify.install_stamp()
+    return bool(stamp) and (stamp > config.STARTED or code_moved())
 
 
 def publishes():
@@ -588,9 +595,8 @@ def startup():
     with redirect_stdout(said), redirect_stderr(said):
         try:
             if agentkit_dir().resolve() == config.REPO and not left_as_is() and behind():
-                before = agentkit_version()
                 failed = update_agentkit(lambda done, total: send(progress=done / total))
-                moved = agentkit_version() != before   # even if install.sh then failed
+                moved = code_moved()   # even if install.sh then failed
         except Exception as exc:    # detached: the notice is the only way to hear a failure
             say(f"update: {exc!r}")
             failed = 1
