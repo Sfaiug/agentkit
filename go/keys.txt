@@ -6,6 +6,8 @@ test_key_browser_status Install Login.test_the_stored_password_is_shown_with_the
 test_key_claude_hooks_merge
 test_key_claude_hooks_wiring
 test_key_claude_seat_prep
+test_key_doctor_effort
+test_key_doctor_tick_line
 test_key_dry_tick_lines
 test_key_fetch_inbox
 test_key_fetch_local
@@ -71,6 +73,7 @@ test_key_sigint_130
 test_key_task_check_refusals RefusedBeforeAnythingStarts MoreThanThreeChecks
 test_key_task_key_refusals FrontMatterRefusals
 test_key_tick_gh_out
+test_key_tick_lock_held
 test_key_tick_log_roll
 test_key_tick_no_user_manager
 test_key_tick_one_pass

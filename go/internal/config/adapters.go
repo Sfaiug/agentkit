@@ -26,8 +26,8 @@ var adapters embed.FS
 // adapterDir names another directory of adapters, how the offline suites run with no model.
 const adapterDir = "AGENTKIT_ADAPTER_DIR"
 
-// ErrNoAdapterDir is a home naming no $AGENTKIT_ADAPTER_DIR, as every real home: where Python
-// ak's adapter scripts live is not yet Go's to know.
+// ErrNoAdapterDir is a home naming no $AGENTKIT_ADAPTER_DIR, as every real home: Go runs no turn
+// through Python ak's adapter scripts, and asks them only for a listing (Lister).
 var ErrNoAdapterDir = errors.New("no adapter directory named")
 
 // Adapter is the script that runs a harness, <harness>.sh in $AGENTKIT_ADAPTER_DIR, as Python's
