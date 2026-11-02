@@ -4,6 +4,7 @@ from collections import Counter
 from contextlib import closing
 import json
 import multiprocessing
+import os
 from pathlib import Path
 import shutil
 import sqlite3
@@ -13,7 +14,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox, parses
-from agentkit import config, menu, parsed, record
+from agentkit import config, menu, open_runs, parsed, record
 
 
 def write(directory, **extra):
@@ -212,6 +213,39 @@ class RunRecords(Sandbox):
                 shutil.rmtree(config.RUNS)
                 self.assertEqual(menu.run_records(cache=cache), [])
                 self.assertEqual([path for path in gone if parsed.kept(path, record._state)], [])
+
+    def test_letting_runs_at_rest_lag_looks_at_the_open_ones_until_a_full_read_is_due(self):
+        live, rest, fresh = self.runs(2), *(config.RUNS / f"finished-000{n}" for n in range(2))
+        for directory in record.run_dirs():
+            os.utime(directory / "run.json", (1, 1))     # written long ago
+        clock, read = open_runs.time.monotonic, lambda: menu.run_records(rest_may_lag=True)
+        def later(reads):
+            return patch.object(open_runs.time, "monotonic",
+                                lambda: clock() + reads * (open_runs.CEILING + 1))
+
+        self.stack.enter_context(patch.object(open_runs, "SHARE", 1e-9))    # full reads: CEILING
+        first = read()
+        before = list(first)
+        self.assertEqual(first, full())
+        write(rest, state="running")
+        (config.RUNS / "merge.lock").touch()             # a relisting that finds the same runs
+        self.assertIs(read(), first)
+        self.assertEqual(menu.run_records(), full())     # asked plainly, every run is looked at
+        queries = []
+        menu._RUN_RECORDS.db.set_trace_callback(queries.append)
+        write(live, state="running", round=2)
+        self.assertEqual(dict(read())[live]["round"], 2)
+        self.assertEqual(first, before)                  # never changed in place
+        saved = [query for query in queries if query.startswith("INSERT")]
+        self.assertEqual([live.name in query for query in saved], [True])
+        with later(1):
+            self.assertEqual(read(), full())
+        write(fresh, state="pass", round=2)
+        os.utime(fresh / "run.json", (1, 1))
+        with later(2), patch.object(parsed, "FRESH", 10**18):
+            self.assertEqual(read(), full())             # too fresh to keep: open, whatever its age
+        write(fresh, state="pass", round=3)
+        self.assertEqual(read(), full())
 
     def test_the_cache_before_the_database_is_removed(self):
         self.runs(3)
