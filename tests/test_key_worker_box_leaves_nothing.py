@@ -4,7 +4,8 @@ A turn runs a model's commands, and a command may detach a child: a server, a wa
 in a session of its own, or one started with an empty environment.  However it left, the turn's
 end stops it, and ak's stderr names each one it stopped.  A turn that ignores TERM is still
 ended, and an interrupted `ak worker` first gives the harness TERM to save its session, then
-ends the rest.  Black-box: the program `AK_BIN` names runs from outside through
+ends the rest, whether its adapter waits for the harness or TERM ends the adapter first.
+Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, with a scripted harness from fakeadapter.py whose turn starts holders
 (below); a holder holds a lock while it runs, so a free lock is a holder gone.
 """
@@ -32,6 +33,7 @@ lock = open(f"{name}.lock", "a")
 fcntl.flock(lock, fcntl.LOCK_EX)
 if sys.argv[2:] == ["saves"]:
     def save(*_):
+        time.sleep(1)
         Path(f"{name}.saved").write_text("session saved")
         sys.exit(0)
     signal.signal(signal.SIGTERM, save)
@@ -51,10 +53,6 @@ class WorkerBoxLeavesNothing(unittest.TestCase):
         akconfig.write(cls.home, {"beta": {"harness": "acme", "model": "beta-1",
                                            "effort": "low"}})
         cls.fake = fakeadapter.install(cls.home, acme="pass")["acme"]
-        # The adapter ignores TERM, as one waiting on its harness does: what TERM does to a
-        # turn is then the harness's own, and so is what ignores it.
-        script = cls.fake.script.read_text()
-        cls.fake.script.write_text(script.replace("\nexec ", "\ntrap '' TERM\nexec ", 1))
         cls.holder = cls.fake.dir / "holder.py"
         cls.holder.write_text(HOLDER)
         cls.task = cls.home.write("fix-api.md", "Fix the parser.\n")
@@ -62,6 +60,13 @@ class WorkerBoxLeavesNothing(unittest.TestCase):
     def setUp(self):
         self.ws = self.home.path / "code" / self.id().rsplit(".", 1)[1]
         self.ws.mkdir(parents=True)
+
+    def waiting_adapter(self):
+        """The adapter ignores TERM, as one waiting on its harness does: what TERM does to a
+        turn is then the harness's own, and so is what ignores it."""
+        script = self.fake.script.read_text()
+        self.fake.script.write_text(script.replace("\nexec ", "\ntrap '' TERM\nexec ", 1))
+        self.addCleanup(self.fake.script.write_text, script)
 
     def start(self, name, *mode):
         """The words starting a holder, as the turn's shell runs them."""
@@ -104,17 +109,30 @@ class WorkerBoxLeavesNothing(unittest.TestCase):
                               "stopping it\n", done.err)
 
     def test_a_turn_that_ignores_term_is_still_ended(self):
+        self.waiting_adapter()
         self.step(self.start("deaf"))
         self.interrupted("deaf")
         self.assertFalse(self.held("deaf"), "the turn that ignores TERM still runs")
 
-    def test_an_interrupted_worker_lets_the_harness_save_and_leaves_nothing_running(self):
+    def test_a_harness_that_ignores_term_is_still_ended_though_its_adapter_ended_first(self):
+        self.step(f"trap '' TERM; {self.start('deaf')}")
+        self.interrupted("deaf")
+        self.assertFalse(self.held("deaf"), "the harness that ignores TERM still runs")
+
+    def saves_and_leaves_nothing_running(self):
         self.step(f"setsid {self.start('stray')} & {self.start('harness', 'saves')}")
-        self.interrupted("stray", "harness")
+        self.assertEqual(self.interrupted("stray", "harness"), 130)
         self.assertEqual((self.ws / "harness.saved").read_text(), "session saved")
         for name in ("harness", "stray"):
             with self.subTest(name):
                 self.assertFalse(self.held(name), f"{name} still runs")
+
+    def test_an_interrupted_worker_lets_the_harness_save_and_leaves_nothing_running(self):
+        self.waiting_adapter()
+        self.saves_and_leaves_nothing_running()
+
+    def test_a_harness_still_saving_as_term_ends_its_adapter_finishes_saving(self):
+        self.saves_and_leaves_nothing_running()
 
 
 if __name__ == "__main__":
