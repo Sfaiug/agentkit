@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import (config, gate, gc, gitcall, handback, history, notify, plan, run, staffing,
-                      status, task as taskfile, turns, watch)
+                      status, turns, watch)
 from agentkit import record
 from fixtures.own_pr import end_runs_going
 
@@ -119,7 +119,8 @@ class OwnPrReview(unittest.TestCase):
         return state, reviewer, usage, inbox
 
     def test_an_own_pr_within_the_ceiling_is_reviewed_and_its_size_recorded(self):
-        self.change(taskfile.SEAT_TASK_LINES - 1)   # under the seat's limit, generated files aside
+        under = config.policy()["seat_lines"] - 1
+        self.change(under)   # under the seat's limit, generated files aside
         (self.repo / "output.generated").write_text("generated\n" * 1000)
         self.commit()
         firsts = []
@@ -132,10 +133,10 @@ class OwnPrReview(unittest.TestCase):
                 reviewer.assert_called_once()
                 self.assertEqual(usage.call_count, 2 if background else 1)
                 run.history_finish(state)
-                self.assertEqual(history.get(state["run_id"])["changed_lines"], taskfile.SEAT_TASK_LINES - 1)
+                self.assertEqual(history.get(state["run_id"])["changed_lines"], under)
                 firsts.append(history.get(state["run_id"])["first_review_lines"])
         # the first review records what it read; the second run reviews a PR already reviewed
-        self.assertEqual(firsts, [taskfile.SEAT_TASK_LINES - 1, None])
+        self.assertEqual(firsts, [under, None])
 
     def test_an_own_pr_parked_off_the_line_is_the_tick_s_to_retry(self):
         self.change(2)
@@ -185,7 +186,7 @@ class OwnPrReview(unittest.TestCase):
         self.git("checkout", "-qb", "feature")
         attrs = "*.generated linguist-generated=true\nwork.txt linguist-generated\n"
         (self.repo / ".gitattributes").write_text(attrs)
-        self.change(taskfile.MAX_PR_LINES + 100)
+        self.change(config.policy()["review_lines"] + 100)
         self.git("checkout", "-q", "main")
         (self.repo / ".gitattributes").write_text(attrs)
         self.git("update-ref", "refs/remotes/origin/main", self.commit())

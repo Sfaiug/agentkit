@@ -12,8 +12,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import (box, command_help, config, gitcall, hand_in, host, machine_turn, record,
-               task as taskfile)
+from . import box, command_help, config, gitcall, hand_in, host, machine_turn, record
 from .harness import load as harness_plugin
 
 # A worker session is not a seat: `ak notify` is suppressed there.
@@ -140,9 +139,18 @@ CHECKS = ("[checked by ak: tests/test_reviewer_judges_the_diff.py] ak runs per-r
 SUITE = ("[worker judgement] Never run the repository's `tests:` suite or a large share of it: "
          "ak runs it at landing. Run the tests your change touches; if you need suite-wide data, "
          "say so in your summary.")
-SIZE = (f"[checked by ak: tests/test_size_gate.py] ak ends the run blocked with `split it` when "
-        f"its first review would read more than {taskfile.MAX_PR_LINES} added lines, the tests among "
-        "them (files `.gitattributes` marks generated and blocks moved unchanged aside).")
+
+
+def size_rule(lines):
+    """What a builder is told of the first review's ceiling of `lines` added lines."""
+    return (f"[checked by ak: tests/test_size_gate.py] ak ends the run blocked with `split it` when "
+            f"its first review would read more than {lines} added lines, the tests among "
+            "them (files `.gitattributes` marks generated and blocks moved unchanged aside).")
+
+
+# PREAMBLES hold ak's default, whatever this host sets, because Go's rules are generated from
+# them; `call` puts the number in force in a turn's.
+SIZE = size_rule(config.POLICY["review_lines"][0])
 REVIEW_COPY = ("[checked by ak: tests/test_reviewer_edits_never_land.py] ak reviews in an isolated copy, "
                "archives and undoes edits; they never reach the branch.")
 TIMEOUT = 124       # what a turn killed for running past its limit exits with, as `timeout(1)` does
@@ -847,7 +855,8 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     turn_env[hand_in.ENV] = hand_in.start(out_dir, workspace, turn_env.pop(hand_in.CONTINUE, None),
                                        role=role, findings=turn_env.pop(hand_in.FINDINGS_ENV, None))
     base = turn_env.pop(BASE_ENV, None)
-    preamble = PREAMBLES[role].format(workspace=workspace)
+    preamble = (PREAMBLES[role].format(workspace=workspace)
+                .replace(SIZE, size_rule(config.policy()["review_lines"])))
     if GATE in preamble:
         if users_declared(workspace, base) == "real":
             preamble = preamble.replace(GATE, f"{GATE}\n{REAL_USERS}")
