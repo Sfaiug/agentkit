@@ -413,7 +413,7 @@ def in_force(text, table=None):
     project wrote is theirs to the letter, a `$` in it included."""
     try:
         numbers = policy(table)
-    except Error:   # it stops the commands that act on it; help and a seat's next prompt go on
+    except Error:   # the commands that act on a config.toml refuse it; words only saying it don't
         numbers = policy({})
     rounds = numbers["rounds"]
     opening, over = ROUNDS_SAID.get(rounds, (rounds, f"round {rounds + 1}"))

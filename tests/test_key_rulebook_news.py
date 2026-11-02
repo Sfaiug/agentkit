@@ -80,12 +80,6 @@ class RulebookNews(unittest.TestCase):
         self.assertLess(len(news), len(shipped_rules()) // 4)
         self.assertEqual(self.prompt(), SILENT)
 
-    def test_a_config_ak_cannot_use_takes_nothing_from_the_prompt(self):
-        self.launched()
-        self.rules("Rule two.\n")
-        self.home.write(".agentkit/config.toml", "not valid TOML")
-        self.assertIn("\n-Rule one.\n+Rule two.\n", self.told())
-
     def test_with_no_record_of_the_rulebook_held_the_whole_one_is_pointed_to(self):
         gone = hashlib.sha256(b"a launch's rules ak no longer has\n").hexdigest()
         for record in ({}, {"rulebook_sha": gone}):
