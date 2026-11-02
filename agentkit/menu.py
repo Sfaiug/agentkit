@@ -3268,17 +3268,19 @@ def config_within(cfg, step):
     return _saved(cfg, cfg, before)
 
 
-def config_number(cfg, name, step):
-    """config.POLICY's `name` one along and saved (_saved), unless config.policy would refuse it
-    so; what to say under the rows, or ""."""
-    value = config.policy(cfg)[name] + step
-    try:
-        config.policy({**cfg, name: value})
-    except config.Error:
-        return ""
-    before = copy.deepcopy(cfg)
-    cfg[name] = value
-    return _saved(cfg, cfg, before)
+def config_number(cfg, name, way):
+    """config.POLICY's `name` its step along `way` (1 or -1), or as far of it as config.policy
+    allows, and saved (_saved); what to say under the rows, or ""."""
+    was = config.policy(cfg)[name]
+    for value in range(was + way * config.POLICY[name][2], was, -way):
+        try:
+            config.policy({**cfg, name: value})
+        except config.Error:
+            continue
+        before = copy.deepcopy(cfg)
+        cfg[name] = value
+        return _saved(cfg, cfg, before)
+    return ""
 
 
 @terminal.clicks_its_own
@@ -3656,7 +3658,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
         for number, part in enumerate(parts):
             places[len(lines)] = (row, [])
             lines.append(terminal.highlight(part, number == 0) if at == row else part)
-        for part in terminal.wrap(config.POLICY[name][2], room - 4) if at == row else ():
+        for part in terminal.wrap(config.POLICY[name][3], room - 4) if at == row else ():
             places[len(lines)] = (row, [])
             lines.append(terminal.styled("    " + part, "dim"))
     return lines, places

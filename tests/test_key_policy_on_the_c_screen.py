@@ -1,14 +1,15 @@
 """`c` shows and sets `rounds`, `review_lines` and `seat_lines`: a row each, in config.POLICY's
 order, with its value, `default N` where that is not ak's default and the board rows it moves;
-the pointed row opens what the number means under it.  ←/→ step the pointed number one along,
-saved to config.toml at once, the row saying `saved`; a step under its floor, or that would put
-`seat_lines` over `review_lines`, changes nothing and saves nothing.  The key line names the
-step keys there, and Enter and Space do nothing there.
+the pointed row opens what the number means under it.  ←/→ step the pointed number by its
+amount (tests/test_key_a_number_steps_by_its_amount.py), saved to config.toml at once, the row
+saying `saved`; a step goes no further than its floor, or than `seat_lines` at `review_lines`,
+and at that end changes nothing and saves nothing.  The key line names the step keys there, and
+Enter and Space do nothing there.
 
 The owner's rule of 30 Oct 2026.  Black-box: the program `AK_BIN` names, in a person's terminal
 (tests/fixtures/akterm.py), its harnesses the fakes of tests/fixtures/fakeadapter.py, judged by
 the screen and config.toml; a key sent after another is read after it, so `Left` then `Right`
-landing one over the floor proves the `Left` counted nothing.  The terminal has no colour
+landing one step over the floor proves the `Left` counted nothing.  The terminal has no colour
 (NO_COLOR).  This test fails against `/bin/false`.
 """
 
@@ -114,22 +115,24 @@ class PolicyOnC(unittest.TestCase):
         self.to(term, "seat_lines")
         term.keys("Left", "Right")      # a step under 0 counted would leave this at 0
         shown = lines(term.wait("saved"))
-        self.assertIn(row("seat_lines", 1, "default 50", "saved", SEAT, on=True), shown)
-        self.assertEqual(akconfig.read(self.home)["seat_lines"], 1)
+        self.assertIn(row("seat_lines", 10, "default 50", "saved", SEAT, on=True), shown)
+        self.assertEqual(akconfig.read(self.home)["seat_lines"], 10)
         term.keys("Left", "Left")
         term.wait(row("seat_lines", 0, "default 50", "", SEAT, on=True))     # refused: not saved
         self.assertEqual(akconfig.read(self.home)["seat_lines"], 0)
 
     def test_seat_lines_stops_at_review_lines_and_review_lines_at_seat_lines(self):
-        term = self.c({"review_lines": 100, "seat_lines": 99})
+        term = self.c({"review_lines": 130, "seat_lines": 125})
         self.to(term, "seat_lines")
-        term.keys("Right", "Right", "Left")     # a step over 100 counted would leave this at 100
-        term.wait(row("seat_lines", 99, "default 50", "saved", SEAT, on=True))
-        self.assertEqual(akconfig.read(self.home)["seat_lines"], 99)
-        term.keys("Right", "k", "Left", "Right")
-        term.wait(row("review_lines", 101, "default 300", "saved", REVIEW, on=True))
+        term.keys("Right", "Right", "Left")     # to 130, then a step over it refused: else 130
+        term.wait(row("seat_lines", 120, "default 50", "saved", SEAT, on=True))
+        self.assertEqual(akconfig.read(self.home)["seat_lines"], 120)
+        term.keys("k", "Left")                  # 80 would be under it: as far as 120
+        term.wait(row("review_lines", 120, "default 300", "saved", REVIEW, on=True))
+        term.keys("Left", "Right")              # a step under it refused: else 120
+        term.wait(row("review_lines", 170, "default 300", "saved", REVIEW, on=True))
         saved = akconfig.read(self.home)
-        self.assertEqual((saved["review_lines"], saved["seat_lines"]), (101, 100))
+        self.assertEqual((saved["review_lines"], saved["seat_lines"]), (170, 120))
 
     def test_enter_and_space_do_nothing_on_a_number(self):
         term = self.c()
@@ -174,7 +177,7 @@ class PolicyOnC(unittest.TestCase):
         term.keys("Right")
         shown = lines(term.wait("saved"))
         at = shown.index("› seat_lines")
-        self.assertEqual(shown[at + 1:at + 3], ["    51 default 50 saved", "    moves built"])
+        self.assertEqual(shown[at + 1:at + 3], ["    60 default 50 saved", "    moves built"])
 
     def test_a_home_file_of_top_level_keys_alone_keeps_its_numbers(self):
         path = self.home.path / ".agentkit/config.toml"
@@ -184,10 +187,10 @@ class PolicyOnC(unittest.TestCase):
         term.keys(*["j"] * 30)                 # the last row
         term.wait("› seat_lines")
         term.keys("Left")
-        term.wait(row("seat_lines", 49, "default 50", "saved", SEAT, on=True))
+        term.wait(row("seat_lines", 40, "default 50", "saved", SEAT, on=True))
         saved = akconfig.read(self.home)
         self.assertEqual((saved["rounds"], saved["review_lines"], saved["seat_lines"],
-                          saved["max_runs"], saved["custom_flag"]), (5, 200, 49, 7, True))
+                          saved["max_runs"], saved["custom_flag"]), (5, 200, 40, 7, True))
 
 
 if __name__ == "__main__":
