@@ -5823,7 +5823,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             # list comes up first, and no key is cut short
             if (framed and not messages and newborn is None
                     and (updated or (updated is False and update.outdated()))):
-                handing = warm.hand_on(last, CODE) if last[1] else {}
+                handing = {**(warm.hand_on(last, CODE) if last[1] else {}), **terminal.hand_on()}
                 live.close()
                 keyboard.give(held=True)
                 sys.stdout.flush()
