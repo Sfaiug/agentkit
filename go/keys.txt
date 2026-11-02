@@ -82,6 +82,7 @@ test_key_seat_line_words
 test_key_seat_relay
 test_key_seat_shims_installed
 test_key_seat_verb_help
+test_key_seat_wrapper_looks
 test_key_setup_error
 test_key_sigint_130
 test_key_task_check_refusals RefusedBeforeAnythingStarts MoreThanThreeChecks

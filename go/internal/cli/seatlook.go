@@ -5,8 +5,9 @@ import (
 	"agentkit/internal/seat"
 )
 
-// seatLook is the look a seat's wrapper starts as it ends, `ak seat-look <seat> <pane's pid>`,
-// unlisted as `adapter` and `hook` are: nothing waits on it and nothing reads what it says.
+// seatLook is the look a seat's wrapper starts, `ak seat-look <seat> <pane's pid>` as it ends and
+// with no pid when the screen shows news, unlisted as `adapter` and `hook` are: nothing reads what
+// it says.
 func seatLook(args []string) int {
 	if len(args) == 2 {
 		host.Mark("seat look")

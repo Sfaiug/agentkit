@@ -13,9 +13,10 @@ import (
 // login $AGENTKIT_ACCOUNT names, on a terminal of its own relayed both ways to the seat's, so the
 // terminal's size, what the harness prints, what is typed to it and its exit code are the seat's.
 // Its `[prep]` answers go in first.  It answers the exit code where the harness never starts, and
-// otherwise calls ended once the harness has exited: what that means for a seat is the seat
-// package's, which this one cannot import, as it opens seats through this one.
-func Seat(name string, args []string, errOut io.Writer, ended func()) int {
+// otherwise calls moved as the harness's output arrives, and ended once the harness has exited: what
+// those mean for a seat is the seat package's, which this one cannot import, as it opens seats
+// through this one.
+func Seat(name string, args []string, errOut io.Writer, moved, ended func()) int {
 	login, ok, err := config.Account(name)
 	if err != nil {
 		fmt.Fprintf(errOut, "ak adapter: %s\n", err)
@@ -39,7 +40,7 @@ func Seat(name string, args []string, errOut io.Writer, ended func()) int {
 		fmt.Fprintf(errOut, "ak adapter: %s\n", err)
 		return 2
 	}
-	code := run(program, words, env, errOut)
+	code := run(program, words, env, errOut, moved)
 	ended()
 	return code
 }

@@ -32,9 +32,11 @@ const grace = time.Second
 // however slowly stdout takes it, never waiting for that terminal's end, which a process cmd
 // started may hold.  A write to stdout that fails, or a read of stdin that fails short of its
 // end, ends the relay, and cmd with it where it still runs: a HUP, then a KILL where it outlives
-// grace.  Run answers cmd's exit code, 128+N where signal N ended it; and with why, 127 where
-// name fails and 126 where cmd cannot start, as a shell answers, and 1 where the relay fails.
-func Run(cmd *exec.Cmd, name func(path string) error) (int, error) {
+// grace.  moved is called as output arrives, never on the way of a byte: however long it takes, what
+// arrives meanwhile is relayed and is one more call.  Run answers cmd's exit code, 128+N where
+// signal N ended it; and with why, 127 where name fails and 126 where cmd cannot start, as a shell
+// answers, and 1 where the relay fails.
+func Run(cmd *exec.Cmd, name func(path string) error, moved func()) (int, error) {
 	master, slave, err := open()
 	if err != nil {
 		return 126, err
@@ -101,14 +103,28 @@ func Run(cmd *exec.Cmd, name func(path string) error) (int, error) {
 		}
 	}()
 	go in.empty(master) // a terminal that takes no more input fails nothing
+	arrived := make(chan struct{}, 1)
+	go func() {
+		for range arrived {
+			moved()
+		}
+	}()
 	go func() {
 		from, until := int(master.Fd()), int(drained.Fd()) // numbers, as Fd has none once closed
 		out.fill(func(data []byte) (int, error) {
 			if err := readable(from, until); err != nil {
 				return 0, err
 			}
-			return master.Read(data)
+			n, err := master.Read(data)
+			if n > 0 {
+				select {
+				case arrived <- struct{}{}:
+				default:
+				}
+			}
+			return n, err
 		})
+		close(arrived)
 		out.end()
 	}()
 	go func() { written <- out.empty(os.Stdout) }()

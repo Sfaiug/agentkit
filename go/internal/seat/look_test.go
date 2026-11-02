@@ -191,19 +191,14 @@ func looked(t *testing.T, pane, name string) {
 	Look(name, "")
 }
 
-func TestALookIsOnlyAtASeatStillGoneInItsOwnPane(t *testing.T) {
+func TestALookIsOnlyAtASeatInItsOwnPane(t *testing.T) {
 	home := sandbox(t)
 	record(t, home, "acme", nil)
 	record(t, home, "other", map[string]any{"created": 1_700_000_000})
 	pane := paneDied(t, "acme", "other")
 	path := filepath.Join(home, ".agentkit", "state", "seat-")
-	alive, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "=other:", "#{pane_id}")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// another seat's pane, and a seat whose pane still runs
+	// another seat's pane
 	looked(t, pane, "other")
-	looked(t, alive, "other")
 	for _, name := range []string{"acme", "other"} {
 		if _, err := os.Stat(path + name + ".json"); err == nil {
 			t.Fatalf("%s was written", name)

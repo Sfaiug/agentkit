@@ -18,6 +18,12 @@ import (
 // and what reached its stdout.
 func relayed(t *testing.T, script, typed string, name func(string) error) (int, error, string) {
 	t.Helper()
+	return observed(t, script, typed, name, func() {})
+}
+
+// observed is relayed with moved told of its output.
+func observed(t *testing.T, script, typed string, name func(string) error, moved func()) (int, error, string) {
+	t.Helper()
 	stdin, keys, _ := os.Pipe()
 	shown, stdout, _ := os.Pipe()
 	saved := [2]*os.File{os.Stdin, os.Stdout}
@@ -32,7 +38,7 @@ func relayed(t *testing.T, script, typed string, name func(string) error) (int, 
 		all, _ := io.ReadAll(shown)
 		out <- string(all)
 	}()
-	code, err := Run(exec.Command("sh", "-c", script), name)
+	code, err := Run(exec.Command("sh", "-c", script), name, moved)
 	stdout.Close()
 	return code, err, <-out
 }
@@ -51,6 +57,18 @@ func TestTheProgramsOutputInputAndExitAreTheRelays(t *testing.T) {
 }
 
 // as when the wrapper inherits that many open files: the relay's own descriptors lie past them
+func TestAnObserverThatNeverReturnsDelaysNoByte(t *testing.T) {
+	told := make(chan struct{}, 1)
+	code, err, shown := observed(t, "echo first; sleep 0.1; echo second; exit 7", "", named, func() {
+		told <- struct{}{}
+		select {} // as a look that hangs
+	})
+	if code != 7 || err != nil || !strings.Contains(shown, "first") || !strings.Contains(shown, "second") {
+		t.Fatalf("answered %d %v, showed %q", code, err, shown)
+	}
+	<-told
+}
+
 func TestARelayWhoseDescriptorsArePastTheFirst1024Relays(t *testing.T) {
 	for {
 		inherited, err := os.Open(os.DevNull)
@@ -103,7 +121,7 @@ func TestAProcessHoldingTheTerminalPastTheProgramsExitHoldsNoRelay(t *testing.T)
 // to it fails, as on a seat's terminal that is gone.
 func TestARelayThatFailsHangsUpItsProgramAndKillsOneThatStays(t *testing.T) {
 	if script := os.Getenv("AK_RELAY_SCRIPT"); script != "" {
-		code, err := Run(exec.Command("sh", "-c", script), named)
+		code, err := Run(exec.Command("sh", "-c", script), named, func() {})
 		if err != nil { // why the relay failed, which the adapter says: nothing where Run has none
 			fmt.Fprint(os.Stderr, err)
 		}
