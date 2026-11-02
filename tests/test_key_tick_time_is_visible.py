@@ -7,8 +7,9 @@ line `<its name> took <seconds> s`, a GitHub pass too, and however the tick ends
 return at the GitHub gate included, watch.json's `tick` holds when it started and ended and the
 slowest pass's name and seconds; a dry run writes none.  Here a merged run's `health:` and gh's
 answer to who is logged in each sleep past a second, a seat whose record cannot be written has
-the tick print a WARN to stderr, which cron appends to the log too, and gh's own error holds a
-blank line.  Black-box: the program `AK_BIN` names ticks from outside by cron's line, through
+the tick print a WARN to stderr, which cron appends to the log too, gh's own error holds a
+blank line, and the line owed to a second seat, which the tick logs as it tells it, ends in a CR
+and holds another.  Black-box: the program `AK_BIN` names ticks from outside by cron's line, through
 tests/fixtures/akbin.py, on a project from gitrig.py, a seat from akseat.py and the GitHub of
 fakegh.py.
 """
@@ -68,6 +69,9 @@ class TickTime(unittest.TestCase):
             "health": {"command": f"sleep {SLEEP}"}})
         Seat(home, "acme", screen="claude-working-pane.txt")
         (home.path / ".agentkit/state/seat-acme.tmp").mkdir()
+        Seat(home, "beta")
+        home.write(".agentkit/state/seat-beta.json",
+                   {"owed_lines": [{"id": "1", "line": "first\rsecond\r"}]})
         cls.log = home.write(".agentkit/tmp/watch.log", "")
         cls.gh.reply("repo view", err="network unavailable\n\nplease retry\n", code=1)
         cls.lines, cls.record, cls.before, cls.after = cls.tick()
@@ -98,6 +102,10 @@ class TickTime(unittest.TestCase):
             said.append(stamped[2])
         self.assertIn("seat-acme.tmp", "\n".join(said))
         self.assertIn("network unavailable\n\nplease retry", "\n".join(said))
+
+    def test_a_cr_ends_its_line_and_the_lf_print_writes_after_it_starts_none(self):
+        self.assertRegex(self.log.read_bytes(),
+                         f"{STAMP} told beta: first\r{STAMP} second\r\n".encode())
 
     def test_each_pass_past_a_second_leaves_one_line_with_its_name_and_seconds(self):
         said = took(self.lines)
