@@ -50,6 +50,8 @@ CASES = (
      "Please log out and sign in again.", "auth"),
     ("codex", "server_overloaded", None,
      "Selected model is at capacity. Please try a different model.", "outage"),
+    ("claude", "unknown", None, "The flux capacitor declined this request", "unknown"),
+    ("codex", "other", None, "The flux capacitor declined this request", "unknown"),
 )
 DOT = "\x1b[38;5;231m\x1b[49m●\x1b[39m "
 SAID = "Added handling for Usage limit reached."
@@ -240,7 +242,7 @@ class SeatErrorRecord(unittest.TestCase):
                                    wrapped(harness, text))
                 # the record's own text, its reset with it, wrapped on the pane or not
                 self.assertEqual(watch.recorded_error(harness, name), text)
-                word = watch.stalled_on(harness, self.pane, name, self.lines.append)
+                word = watch.stall_mark(harness, self.pane, name, self.lines.append)
                 signature = watch.auth_expired_on(harness, self.pane, name)
                 self.assertEqual(bool(signature), outcome == "auth")
                 self.assertEqual(word is None, outcome == "auth")
@@ -261,7 +263,8 @@ class SeatErrorRecord(unittest.TestCase):
                     self.assertTrue(self.auth.call_args.kwargs["fresh"])
                     self.assertEqual((self.typed, entry.get("signature")), ([], None))
                 else:
-                    # an outage is typed at, and waits on no window
+                    # an outage, or an error in words no list holds, is typed at, and waits on
+                    # no window
                     self.assertEqual(entry["signature"], word)
                     self.assertEqual(self.typed, [watch.keystroke(harness, self.pane)])
                     self.window.assert_not_called()
