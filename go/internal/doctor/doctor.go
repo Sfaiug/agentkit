@@ -121,13 +121,27 @@ func listed(script string, env []string) (rows [][]string) {
 	ctx, cancel := context.WithTimeout(context.Background(), listingCap)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, script, "models")
-	cmd.Env, cmd.WaitDelay = env, time.Second
-	host.Group(cmd)
-	said, err := cmd.Output()
-	if err != nil {
+	cmd.Env = env
+	stop := host.Group(cmd)
+	var said strings.Builder
+	cmd.Stdout, cmd.Stderr = &said, io.Discard
+	if cmd.Start() != nil {
 		return nil
 	}
-	for _, line := range config.SplitLines(strings.ToValidUTF8(string(said), "�")) {
+	// The cap holds to the end of the output, which a helper the adapter leaves can hold open past
+	// its exit, when the Context no longer reaches anything.
+	ended := make(chan error, 1)
+	go func() { ended <- cmd.Wait() }()
+	select {
+	case err := <-ended:
+		if err != nil {
+			return nil
+		}
+	case <-ctx.Done():
+		stop()
+		return nil
+	}
+	for _, line := range config.SplitLines(strings.ToValidUTF8(said.String(), "�")) {
 		if fields := strings.Split(line, "\t"); len(fields) == 3 && fields[0] != "" {
 			rows = append(rows, []string{fields[0], fields[2]})
 		}

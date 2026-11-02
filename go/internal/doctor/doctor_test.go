@@ -106,3 +106,17 @@ esac
 		}
 	}
 }
+
+// A helper still holding the adapter's output after it exits does not cost the listing.
+func TestAListingOutlivedByAHelperStands(t *testing.T) {
+	_, adapters := home(t, models)
+	script := "#!/bin/sh\nsleep 2 &\nprintf 'acme-1\\tAcme 1\\tlow\\n'\n"
+	if err := os.WriteFile(filepath.Join(adapters, "acme.sh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	Report(&out, &errOut)
+	if !strings.Contains(out.String(), "effort  one: acme-1 takes low, not high\n") {
+		t.Fatalf("stdout=%q stderr=%q", out.String(), errOut.String())
+	}
+}

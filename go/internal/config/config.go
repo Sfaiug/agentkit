@@ -220,12 +220,20 @@ func load() (*table, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	if err := checkPolicy(root); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
 	if !hasTables(root) {
-		root, err = parseDocument(defaultConfig)
-		path = "config.default.toml"
+		shipped, err := parseDocument(defaultConfig)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+			return nil, fmt.Errorf("config.default.toml: %w", err)
 		}
+		// What the shipped file answers for it never refuses, so a refusal is of a setting here
+		// and names this file, as Python's config.load's `held` does.
+		for _, key := range root.keys {
+			shipped.put(key, root.values[key])
+		}
+		root = shipped
 	}
 	if err := validate(root); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
@@ -276,17 +284,10 @@ func validate(root *table) error {
 	if !ok {
 		return fmt.Errorf("missing [providers] table")
 	}
-	var names []string
+	names := offered(root)
 	named := map[string]bool{}
-	for _, name := range models.keys {
-		entry, ok := models.values[name].(*table)
-		if ok {
-			provider, ok := entry.values["provider"].(string)
-			if _, present := providers.values[provider]; ok && present {
-				names = append(names, name)
-				named[provider] = true
-			}
-		}
+	for _, name := range names {
+		named[models.values[name].(*table).values["provider"].(string)] = true
 	}
 	if len(names) == 0 {
 		return fmt.Errorf("no [models.*] entry names a provider with a [providers.*] table")
