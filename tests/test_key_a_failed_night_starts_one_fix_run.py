@@ -75,6 +75,8 @@ class FailedNights(unittest.TestCase):
             Project(home, "broken"), Project(home, "garbled"), Project(home, "nameless"),
             Project(home, "suiteless", tests=None)]
         cls.api = api = Project(home, "api")     # fewest title words `ak run` calls one change
+        cls.late = late = Project(home, "late")
+        late.says({"started": "night-1", "passed": True})
         acme.says(failed(names=NAMES))
         calm.says({"started": "night-1", "passed": True})
         broken.says("the host is down", code=3)
@@ -112,6 +114,13 @@ class FailedNights(unittest.TestCase):
         calm.says(failed())
         cls.tick(hour_on=True, seen=True)
         cls.ended()
+        # the marked reviewer is signed out: no run can start, and nothing retries one that tried
+        fakes["codex"].answer("auth", "signed out", code=1)
+        late.says(failed())
+        cls.signed_out = cls.tick(hour_on=True, seen=True)
+        fakes["codex"].answer("auth", "signed in")
+        cls.signed_in = cls.tick(hour_on=True, seen=True)
+        cls.ended()
 
     @classmethod
     def tick(cls, hour_on=False, seen=False, just_read=None):
@@ -124,13 +133,15 @@ class FailedNights(unittest.TestCase):
         assert done.code == 0, done.out + done.err
         return {project.name: (len(project.runs()), sum(
                     line.startswith(f"WARN {project.name}:") for line in done.out.splitlines()))
-                for project in (cls.acme, cls.calm, cls.api, *cls.stuck)}
+                for project in (cls.acme, cls.calm, cls.api, cls.late, *cls.stuck)}
 
     @classmethod
     def ended(cls):
-        """Every run ends not needed, as a first turn finding the night gone on the tip says."""
+        """Every run ends: not needed, as a first turn finding the night gone on the tip says, or
+        refused at its launch."""
         deadline = time.monotonic() + 120
-        while any(record_of(run)["state"] != "not_needed" for run in taskfile.runs(cls.home)):
+        while any(record_of(run)["state"] not in ("not_needed", "error")
+                  for run in taskfile.runs(cls.home)):
             assert time.monotonic() < deadline, "a run never ended"
             time.sleep(0.1)
 
@@ -180,6 +191,11 @@ class FailedNights(unittest.TestCase):
         record = record_of(self.calm.runs()[0])
         self.assertEqual((record["workers"], record["reviewers"], record["executor"]),
                          (["opus"], ["astra"], "opus"))
+
+    def test_a_reviewer_signed_out_says_so_and_the_next_hour_after_they_return_fixes_the_night(self):
+        self.assertEqual(self.signed_out["late"], (1, 1))
+        self.assertEqual(self.signed_in["late"], (2, 0))
+        self.assertEqual(record_of(self.late.runs()[1])["state"], "not_needed")
 
     def test_no_seat_is_opened_and_no_card_reaches_the_owner(self):
         self.assertEqual(self.sink.requests, [])

@@ -103,7 +103,8 @@ def _start(checkout, started, names, tests):
     (directory / "log.txt").touch()
     run.launch_for_seat(directory, {"workers": workers,
                                     "reviewers": defaults.get("reviewers", workers)},
-                        {"night": started, "repo": str(checkout)}, cfg, task_file=task)
+                        {"night": started, "repo": str(checkout)}, cfg, task_file=task,
+                        pick_first=True)
     return directory.name
 
 

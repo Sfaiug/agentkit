@@ -942,12 +942,15 @@ def seat_launch(state):
     return bool(state.get("followup") or state.get("restarted") or state.get("night"))
 
 
-def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=None):
+def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=None,
+                    pick_first=False):
     """Launch the task.md in that new run directory, or the pull request's review `opts` name,
     as the tick does for a seat, the one `state` was launched from: `origin` on its receipt
     says why (`seat_launch`), with the seat's lists now, the given run's only for a seat with
     no record of its own -- checked against the config now, as that run's may predate a model
-    it names -- and `opts` over the defaults."""
+    it names -- and `opts` over the defaults.  `pick_first` is for a launch nothing takes up
+    once its child is refused: a pick no launch can make raises here, for the caller to try again
+    (`preset_models`)."""
     session = launched_session(state)
     try:
         now = config.load()
@@ -964,6 +967,8 @@ def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=Non
             "--no-worktree": False, "--no-merge": False, **(opts or {}), "--bg": True}
     prepare(directory, opts, logger(directory), report_config(cfg), task_file=task_file,
             receipt=receipt)
+    if pick_first:
+        preset_models(report_config(cfg), opts, logger(directory), directory)
     spawn_bg(directory, ["--review-pr", opts["--review-pr"]] if opts["--review-pr"]
              else [str(directory / "task.md")])
 
