@@ -393,7 +393,8 @@ class Live:
         touch `config.runs_moved_path` before they move its bar (`handback.redress_seat`), so a screen
         that reads again when a record changes, as recorded, never shows a row its bar
         contradicts for longer than this.  A run at rest is the exception: a read finds one that
-        moved only at its next full read, up to `open_runs.CEILING` later (the owner, 2 Nov 2026).
+        moved only at its next full read, up to `open_runs.CEILING` later (the owner, 2 Nov 2026),
+        and so is what git says of a checkout, held as long (`orch.git_dirs`).
         The records are noted before every read, so one written while it reads is still news.
         Looking is a `stat` per file -- its inode as well as its mtime, since every write
         replaces the file -- and nothing here captures a pane.  A read on news starts a look

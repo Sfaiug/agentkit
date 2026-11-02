@@ -52,7 +52,7 @@ from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, 
 from datetime import datetime
 from pathlib import Path
 
-from . import aside_editor, command_help, config, gitcall, guard, host, owner, plan, retention, staffing, terminal, transitions, update, usage
+from . import aside_editor, command_help, config, gitcall, guard, host, look, open_runs, owner, plan, retention, staffing, terminal, transitions, update, usage
 from . import record as run_record
 from .harness import LAUNCHER, load as harness_plugin
 
@@ -1731,7 +1731,9 @@ def git_dirs(path):
 
     A plain `.git` directory with no `commondir` is a repository's own checkout; for anything
     else -- a `.git` file, a link, a worktree's git directory -- git itself is asked, looking
-    no higher than `path`, so every layout and path it accepts reads the same here.
+    no higher than `path`, so every layout and path it accepts reads the same here.  An open
+    screen's reads ask once in `open_runs.CEILING`: one per read per worktree was 80 processes
+    in 170 s on a host.
     """
     dot = Path(path) / ".git"
     try:
@@ -1744,14 +1746,17 @@ def git_dirs(path):
     def ask(*flags):
         code, out = git_in(path, "rev-parse", "--path-format=absolute", *flags)
         return None if code != 0 else out.removesuffix(b"\n").split(b"\n")
-    lines = ask("--git-dir", "--git-common-dir")
-    if lines is not None and len(lines) != 2:   # a path holding a newline: one at a time
-        lines = [b"\n".join(answer) if answer is not None else None
-                 for answer in (ask("--git-dir"), ask("--git-common-dir"))]
-    if lines is None or None in lines:
-        return None
-    gitdir, common = (Path(os.fsdecode(line)).resolve() for line in lines)
-    return common, gitdir != common
+
+    def answer():
+        lines = ask("--git-dir", "--git-common-dir")
+        if lines is not None and len(lines) != 2:   # a path holding a newline: one at a time
+            lines = [b"\n".join(one) if one is not None else None
+                     for one in (ask("--git-dir"), ask("--git-common-dir"))]
+        if lines is None or None in lines:
+            return None
+        gitdir, common = (Path(os.fsdecode(line)).resolve() for line in lines)
+        return common, gitdir != common
+    return look.held(dot, open_runs.CEILING, answer)
 
 
 def checkout_of(repo, stands=None):

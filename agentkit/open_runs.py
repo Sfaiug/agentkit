@@ -22,7 +22,10 @@ SHARE = 0.005            # the part of a core looking at every run spends at mos
                          # one bring them together until every read is a full one
 CEILING = 60             # seconds a run at rest is late at most: a full read costing less comes
                          # sooner (SHARE), and one costing more than CEILING * SHARE spends more
-                         # CPU rather than show a staler row
+                         # CPU rather than show a staler row.  Also how long a screen holds git's
+                         # answer about a checkout (`orch.git_dirs`).  Not derived from the machine:
+                         # it bounds how stale a row may be, which the machine's speed does not
+                         # change
 
 
 def _directories(path):
