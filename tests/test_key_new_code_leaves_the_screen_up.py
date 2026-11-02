@@ -1,6 +1,7 @@
 """New code under an open menu starts it again with nothing between the two frames: the old
-program's give comes under a hold (`?2026h`), and the new one's first frame, drawn from the read
-handed over the exec, ends it (`?2026l`).  Leaving a seat after an install shows the list first.
+program's give comes under a hold (`?2026h`), and the new one ends it (`?2026l`) with the old
+frame's rows (tests/test_key_a_restart_keeps_the_last_frame_up.py) and goes on to its first frame,
+drawn from the read handed over the exec.  Leaving a seat after an install shows the list first.
 
 Black-box: ak runs in a terminal of tests/fixtures/akterm.py over real seats.  tmux neither holds
 nor passes mode 2026, so what the hold does is read from the program's own bytes, by `pipe-pane`;
@@ -76,6 +77,18 @@ class Up(unittest.TestCase):
                 if held and RELEASE in said[held.start():] else None
         return until(ended, "held and let go")
 
+    def first_frame(self, release):
+        """The update of the new program's first frame, past the release of the hold: its start and
+        its end; a frame draws the row, which a move of the clock does not."""
+        def came():
+            said = self.said()
+            start = said.find(HOLD, release)
+            end = said.find(RELEASE, start)
+            if start < 0 or end < 0:
+                return None
+            return (start, end) if ROW in said[start:end] else None
+        return until(came, "drew its first frame")
+
     def modes(self, menu):
         """What the program left the terminal in: tmux's modes and its attributes."""
         shown = self.home.tmux("display-message", "-p", "-t", menu.pane, MODES, server=SERVER)
@@ -85,11 +98,10 @@ class Up(unittest.TestCase):
         self.addCleanup(os.close, fd)
         return shown.out, termios.tcgetattr(fd)
 
-    def test_the_hold_runs_from_before_the_give_to_after_the_first_frame(self):
+    def test_the_hold_runs_from_before_the_give_to_after_the_screen_is_taken_again(self):
         self.stamp()
         said, hold, release = self.restarted()
-        left = said.index(LEAVE, hold)
-        self.assertLess(said.index(ROW, said.index(ENTER, left)), release)
+        self.assertLess(said.index(ENTER, said.index(LEAVE, hold)), release)
 
     def test_a_read_that_can_never_finish_holds_up_no_first_frame(self):
         run = self.home.path / ".agentkit/runs/fix-api/run.json"
@@ -97,8 +109,8 @@ class Up(unittest.TestCase):
         os.mkfifo(run)
         self.addCleanup(run.unlink)
         self.stamp()
-        said, hold, release = self.restarted()
-        self.assertLess(said.index(ROW, said.index(ENTER, hold)), release)
+        _, _, release = self.restarted()
+        self.first_frame(release)
 
     def test_leaving_a_seat_after_an_install_shows_the_list_before_the_hold(self):
         self.menu.keys("1")

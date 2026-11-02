@@ -132,32 +132,48 @@ def primed():
     return taken
 
 
-def hand_on(last, code):
-    """What to add to the environment for `handed` to find `last`, a menu's last read made by
-    `code`, past an exec: a file no name reaches, on a descriptor the exec keeps.  A read not
-    handed on is only a cold start, so nothing here may stop the restart: {} then."""
-    import pickle
+def cross(variable, data):
+    """What to add to the environment for `crossed` to find `data`, bytes, past an exec: a file no
+    name reaches, on a descriptor the exec keeps.  What crosses only spares a wait, so nothing here
+    may stop the restart: {} then."""
     import tempfile
     try:
-        read = pickle.dumps([code, *last])
         fd, path = tempfile.mkstemp()
         os.unlink(path)
-        while read:
-            read = read[os.write(fd, read):]
+        while data:
+            data = data[os.write(fd, data):]
         os.lseek(fd, 0, os.SEEK_SET)
         os.set_inheritable(fd, True)
     except Exception:
         return {}
-    return {READ: str(fd)}
+    return {variable: str(fd)}
+
+
+def crossed(variable):
+    """The bytes `cross` left under `variable`, else None.  The variable and the descriptor go
+    either way, so nothing this program starts meets them."""
+    try:
+        with os.fdopen(int(os.environ.pop(variable)), "rb") as file:
+            return file.read()
+    except (KeyError, ValueError, OSError):
+        return None
+
+
+def hand_on(last, code):
+    """What to add to the environment for `handed` to find `last`, a menu's last read made by
+    `code`, past an exec; a read not handed on is only a cold start."""
+    import pickle
+    try:
+        return cross(READ, pickle.dumps([code, *last]))
+    except Exception:
+        return {}
 
 
 def handed(code):
-    """The read `hand_on` left this program where `code` made it, else None.  The variable and
-    the descriptor go either way, so nothing this program starts meets them."""
+    """The read `hand_on` left this program where `code` made it, else None."""
     import pickle
     try:
-        with os.fdopen(int(os.environ.pop(READ)), "rb") as file:
-            made, *read = pickle.load(file)
+        made, *read = pickle.loads(crossed(READ))
     except Exception:     # bytes that are no read can raise anything out of pickle
         return None
     return read if made == code else None

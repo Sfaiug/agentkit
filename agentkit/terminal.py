@@ -14,7 +14,7 @@ import unicodedata
 from collections import namedtuple
 from functools import lru_cache, wraps
 
-from . import guard, motion
+from . import guard, motion, warm
 
 
 # glyph, ASCII glyph, Mocha RGB, eight-colour tone, emphasis. Words remain the contract
@@ -768,6 +768,7 @@ GIVE = "\033[?1006l\033[?1003l\033[?25h\033[?1049l"
 # A synchronized update: a terminal that has it goes on showing what it showed until RELEASE or
 # its own limit (Ghostty's is a second); any other ignores both, tmux 3.5a for a pane or popup too.
 HOLD, RELEASE = "\033[?2026h", "\033[?2026l"
+FRAME = "AK_MENU_FRAME"   # the descriptor a menu starting itself again leaves its last frame on
 _TAKEN = None      # the Keyboard that has the terminal now, or None
 _KEYED = b""       # what a keyboard sent past the key it was read for, or while `sense` asked
 _PRESSED = False   # the left button went down and has not been read coming up
@@ -869,6 +870,8 @@ class Keyboard:
         attrs[6][termios.VMIN], attrs[6][termios.VTIME] = 1, 0
         termios.tcsetattr(self.fd, termios.TCSADRAIN, attrs)
         self._send(self.sequences[0])
+        if self.sequences[0]:
+            _last_frame()
         return True
 
     def give(self, held=False):
@@ -935,6 +938,36 @@ class Keyboard:
             os.write(self.again[1], b".")
         except (OSError, TypeError):
             pass
+
+
+def hand_on():
+    """What to add to the environment for the program an exec makes of this one to write the frame
+    up as it takes the terminal (`_last_frame`): plain bytes, as another version of the code reads
+    them.  A frame not handed on is only an empty screen a moment longer: {} then, and where a
+    resize or a return from ^Z has asked for a draw not yet made, whether read (`read_key`) or not:
+    what is up is not laid out for the size there is.  The size is read first, as a resize after
+    the look is the new program's to find."""
+    try:
+        size = f"{width()} {height()}"
+        if not _UP or select.select([_TAKEN.again[0]], [], [], 0)[0]:
+            return {}
+        return warm.cross(FRAME, "\n".join([size, *_PAINTED]).encode())
+    except Exception:
+        return {}
+
+
+def _last_frame():
+    """The frame the program before this exec left up (`hand_on`), ending its hold: what the
+    terminal holds is only known once the first `written` has written every row, in an update of
+    its own.  Written where the size is still the one it was laid out for, else that first frame
+    ends the hold; through stdout, which knows a popup's padding."""
+    try:
+        size, *rows = (warm.crossed(FRAME) or b"").decode().split("\n")
+        if size == f"{width()} {height()}":
+            sys.stdout.write(_differing(enumerate(rows, 1)) + RELEASE)
+            sys.stdout.flush()
+    except (OSError, ValueError, RuntimeError):
+        pass                 # nothing here stops a start: the first frame ends the hold
 
 
 def sense():
