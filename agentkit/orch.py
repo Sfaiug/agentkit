@@ -1756,7 +1756,8 @@ def git_dirs(path):
             return None
         gitdir, common = (Path(os.fsdecode(line)).resolve() for line in lines)
         return common, gitdir != common
-    return look.held(dot, open_runs.CEILING, answer)
+    # one question however it is spelled: `listed` keeps a linked ~/code, `checkout_of` resolves it
+    return look.held(os.path.realpath(path), open_runs.CEILING, answer)
 
 
 def checkout_of(repo, stands=None):

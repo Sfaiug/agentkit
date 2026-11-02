@@ -112,6 +112,19 @@ class GitDirsHeld(Sandbox):
             with look.one_look():
                 self.assertEqual(orch.git_dirs(worktree), new)
 
+    def test_two_spellings_of_one_checkout_ask_once(self):
+        disk, linked, acme = self.root / "disk", self.root / "linked", self.root / "acme"
+        disk.mkdir()
+        linked.symlink_to(disk, target_is_directory=True)
+        acme.mkdir()
+        self.git(acme, "init", "-q")
+        self.git(acme, "commit", "-q", "--allow-empty", "-m", "init")
+        self.git(acme, "worktree", "add", "-q", "-b", "fix-api", str(linked / "fix-api"))
+        with patch.object(orch, "git_in", wraps=orch.git_in) as asked, look.one_look():
+            spelled = orch.git_dirs(linked / "fix-api")
+            self.assertEqual(orch.git_dirs(disk / "fix-api"), spelled)
+        self.assertEqual(asked.call_count, 1)
+
     def test_no_git_and_a_plain_git_directory_stay_outside_the_hold(self):
         clock, acme = Clock(), self.root / "acme"
         acme.mkdir()
