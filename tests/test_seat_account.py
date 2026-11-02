@@ -885,10 +885,13 @@ print(json.dumps({"login": json.loads((home / "auth.json").read_text()), "args":
         from agentkit import plan as plan_mod
         plan_mod.path(NAME).parent.mkdir(parents=True, exist_ok=True)
         plan_mod.path(NAME).write_text("- [x] shipped\n")
+        os.utime(plan_mod.path(NAME), (self.now - 60, self.now - 60))
         with patch.object(watch, "holding", return_value=[watch.WATCH]):
             self.assertEqual(watch.cut_off(self.cfg, NAME), (None, None))
         self.meters(100, 100)
-        self.tick()
+        self.pane = "API Error: 500 server error"
+        self.refusal_tick()
+        self.assertEqual(self.typed, [])
         self.assertEqual(self.answer()["word"], "done")
         self.assertIsNone(watch.seat_read(NAME).get("usage_wait"))
         config.stop_path(NAME).write_text(json.dumps({"turn": time.time() + 10}))

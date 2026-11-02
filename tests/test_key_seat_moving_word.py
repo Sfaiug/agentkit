@@ -103,6 +103,16 @@ class MovingWord(unittest.TestCase):
                                        "since": time.time() - 60, "continue": True})
         self.assertEqual(self.why("omega"), ("out of usage", until))
 
+    def test_a_done_seat_stays_done_on_a_spent_window_until_the_owner_prompts_it(self):
+        until = "anthropic out of usage until 2026-10-21 09:00"
+        now = time.time()
+        self.live("delta", usage_wait={"reason": until, "until": now + 3600,
+                                       "since": now - 60, "continue": True})
+        self.home.write(".agentkit/state/plan-delta.md", "- [x] Shipped it\n")
+        self.assertEqual(self.why("delta"), ("done", "Shipped it"))
+        self.home.write(".agentkit/state/stop-delta.json", {"turn": now + 10})
+        self.assertEqual(self.why("delta"), ("out of usage", until))
+
     def test_a_move_to_another_account_that_failed_needs_you(self):
         failed = "anthropic account reopen failed: no login for beta"
         self.live("sigma", usage_wait={"reason": failed, "since": time.time() - 60,

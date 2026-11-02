@@ -4977,7 +4977,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     if done_resting(name, continuing):
         if waiting and not dry_run:
             seat_write(name, usage_wait=None)
-        return bool(waiting or refusal)
+        return bool(waiting or refusal or spent(current))
     observed = live.get("usage_refusal") or {}
     until = turns.try_again_at(line) if refusal else None
     handled = observed.get("line") == line and observed.get("handled")
@@ -5323,7 +5323,7 @@ def health(cfg, state, dry_run, log):
             if owner_question(notice):
                 stop_nudge(session, harness, pane, notice, records, dry_run, log)   # its words
                 continue        # an unanswered owner decision is never a reason to type a resume
-            if entry.get("told"):
+            if entry.get("told") or done_resting(name, True, records):
                 continue
             # Its harness's own login words, that login asked this pass and passing: a login that
             # failed and came back is a passing error, typed past once while the words stand,
