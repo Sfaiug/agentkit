@@ -776,6 +776,12 @@ def memory_cap_mb(ceiling_mb=None):
 
 
 def give_way(state, log):
+    """Hold the runs under what ak's slice's ceilings leave the seats: its memory, and its tasks."""
+    _give_way_memory(state, log)
+    _give_way_tasks(log)
+
+
+def _give_way_memory(state, log):
     """Hold the runs under what ak's slice's ceiling leaves once the seats have theirs.
 
     At the slice's MemoryMax every allocation in it reclaims first, so a seat drawing a scroll
@@ -795,13 +801,46 @@ def give_way(state, log):
     grown = seats - state.get("seats_mb", seats)
     state["seats_mb"] = seats
     high = max(memory_cap_mb(ceiling), ceiling - seats - max(ceiling // 20, grown))
+    _set_on_runs_slice("MemoryHigh", f"{high}M", log)
+
+
+def _give_way_tasks(log):
+    """Hold the runs' task cap so the seats keep half again the most they have used.
+
+    cgroups have ceilings and no reservations, so all seats ever keep is what the runs' cap
+    leaves: with runs at 70% of the slice and seats near their peak, a seat was refused a fork
+    and four harnesses died mid-turn (30 Oct 2026).
+
+    The peak rather than current use: a burst forks within seconds, and ticks are minutes apart.
+    The kernel's peak only rises until the slice is made anew, so the cap needs no state of ours.
+    Half again: the seats' margin past their most so far.  Past it, a seat can be refused only
+    while runs are at their cap, and the next tick lowers the cap.  A third: admitted runs can
+    still finish.  Past that, seats can be refused again.  A tick rather than install.sh: install
+    runs only on an update, and the peak moves at any time.  Comparing with the cap the kernel
+    holds each tick: a daemon-reload puts `weights.conf` back over the runtime value
+    (`50-TasksMax.conf` sorts first), and the next tick restores it.  An owner's lower number in
+    the drop-in stands.
+    """
+    ceiling = orch.slice_tasks()[1]
+    if ceiling is None:
+        return
+    runs = orch.run_slice_cgroup()
+    peak = host.children_tasks_peak(orch.slice_cgroup(), leaving_out=runs)
+    cap = min(orch.slice_ceiling(orch.run_slice_name()) or ceiling,
+              max(ceiling // 3, ceiling - peak * 3 // 2))
+    if cap != host.cgroup_tasks(runs)[1]:
+        _set_on_runs_slice("TasksMax", cap, log)
+
+
+def _set_on_runs_slice(name, value, log):
+    """Set one property of the runs slice for this boot only; a failure is one WARN line."""
     try:
-        done = gc.systemctl("set-property", "--runtime", orch.run_slice_name(), f"MemoryHigh={high}M")
+        done = gc.systemctl("set-property", "--runtime", orch.run_slice_name(), f"{name}={value}")
     except subprocess.TimeoutExpired:
-        log("WARN the runs slice's MemoryHigh was not set: systemctl did not answer")
+        log(f"WARN the runs slice's {name} was not set: systemctl did not answer")
         return
     if done.returncode:
-        log(f"WARN the runs slice's MemoryHigh was not set: systemctl exited {done.returncode}")
+        log(f"WARN the runs slice's {name} was not set: systemctl exited {done.returncode}")
 
 
 def run_scope_limits(ceiling_mb=None, *, cap_mb=None, cpu_weight=40):

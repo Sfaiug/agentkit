@@ -855,11 +855,12 @@ else
     echo "user-unit: no passwordless sudo, so $UNIT_LIMITS is not written; run \`sudo -v\` and re-run ./install.sh to add it"
   else
   # Memory is a share above the slice's 70%, and tasks are a share of the kernel's
-  # thread limit, so systemd follows this machine with no rewrite: 4% keeps the hand-written
-  # ceiling's headroom on its own host and grows on a larger one, where a per-core count
-  # would silently shrink the slice on a small one.  CPU weight yields to other work
-  # under contention while letting ak use every idle core.
-  unit_tasks=4%
+  # thread limit, so systemd follows this machine with no rewrite: 8% so the ceiling does not
+  # bind before seats and runs both have what they have needed (at 4% a slice of 3825 held
+  # seats that reached 1844 and runs that reached 3672), growing on a larger host, where a
+  # per-core count would silently shrink the slice on a small one.  CPU weight yields to other
+  # work under contention while letting ak use every idle core.
+  unit_tasks=8%
   if sudo -n mkdir -p -- "${UNIT_LIMITS%/*}" 2>/dev/null &&
      sudo -n tee "$UNIT_LIMITS" >/dev/null 2>/dev/null <<EOF
 # Written by agentkit's install.sh: the ceiling over the slice, for user@$(id -u).service.
@@ -971,8 +972,9 @@ EOF
   # seat needs (30 Oct 2026: runs filled the slice and seats' harnesses died mid-turn; a run
   # refused a fork is retried, a seat's turn is not).  TasksMax=N% is a share of the whole
   # system, not of the slice, so the runs' cap is a number taken from the ceiling systemd now
-  # holds for the slice, whoever set it; a slice with none gives runs none.  Our own file is
-  # rewritten when it differs; one whose first line is not ours is left alone.
+  # holds for the slice, whoever set it; a slice with none gives runs none; each tick lowers it
+  # further by what seats have used (`run.give_way`).  Our own file is rewritten when it differs;
+  # one whose first line is not ours is left alone.
   seats_share=30
   slice_ceiling=$(systemctl --user show agentkit.slice -p TasksMax --value 2>/dev/null || true)
   case "$slice_ceiling" in

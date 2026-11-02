@@ -69,8 +69,8 @@ class UserUnitCeiling(Installer):
                         written)
         # tasks are a share of the kernel's thread limit, not a per-core count: on a
         # small machine a per-core count would shrink the slice below what (g3) gives it
-        self.assertIn("[Service]\nTasksMax=4%\n", written)
-        self.assertIn("TasksMax=4%\nMemoryMax=90%\n", written)
+        self.assertIn("[Service]\nTasksMax=8%\n", written)
+        self.assertIn("TasksMax=8%\nMemoryMax=90%\n", written)
         self.assertNotIn("MemoryHigh", written)
         self.assertIn("CPUWeight=40\n", written)
         self.assertNotIn("CPUQuota=", written)
@@ -84,7 +84,7 @@ class UserUnitCeiling(Installer):
         again = self.install(home, AK_SLICE_CPUS="16")
         self.assertEqual(again.returncode, 0, again.stderr)
         rewritten = self.unit_limits().read_text()
-        self.assertIn("TasksMax=4%\n", rewritten)
+        self.assertIn("TasksMax=8%\n", rewritten)
         self.assertIn("CPUWeight=40\n", rewritten)
         self.assertNotIn("CPUQuota=", rewritten)
         self.assertIn("OOMPolicy=continue\n", rewritten)
