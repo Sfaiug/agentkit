@@ -370,6 +370,7 @@ signatures = [
   "OAuth token has expired",
   "Please run /login · API Error: 401 Invalid API key",
   "OAuth token revoked · Please run /login",
+  "Failed to authenticate: OAuth token revoked. Please log in again or contact your administrator.",
   "Not logged in · Please run /login",
   "Invalid API key · Fix external API key",
 ]
