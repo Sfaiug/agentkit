@@ -4105,7 +4105,7 @@ want(record.read_state(config.RUNS / "r-q")["state"] == "queued", "fresh launche
 
 # incoming(): backoff persists between ticks and never abandons a head
 launched = []
-watch.launch = lambda url: launched.append(url) or f"stub-{len(launched)}"
+watch.launch = lambda *words: launched.append(words[-1]) or f"stub-{len(launched)}"
 lines = []
 now = [time.time()]
 watch.time.time = lambda: now[0]

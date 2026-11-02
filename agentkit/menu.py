@@ -5283,37 +5283,13 @@ def switches_command(checkout):
 
 
 def features_run(checkout, *words):
-    """The project's features command with `words` after it: (its JSON answer, "") or (None,
-    the one line saying why).  Its stdin is nothing, so an ssh in it never reads the keys, and it
-    carries no seat's name (`config.owner_env`): an ssh in it is never the live host reached by
-    a seat the screen was opened in (`guard.reached_live`).
-
-    It runs in a session of its own, and one past FEATURES_WAIT is killed with everything it
-    started: the shell alone would leave its ssh going, and a `set` said to have failed could
-    still flip the switch after it.
-    """
+    """The project's features command with `words` after it, as `gitcall.project_answer` runs a
+    project's own command: (its JSON answer, "") or (None, the one line saying why)."""
     command = switches_command(checkout)
     if not command:
         return None, "AGENTS.md names no features command"
-    try:
-        with subprocess.Popen(f"{command} {shlex.join(map(str, words))}", shell=True,
-                              cwd=checkout, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE, encoding="utf-8", errors="replace",
-                              env=config.owner_env(), start_new_session=True) as proc:
-            try:
-                out, err = proc.communicate(timeout=FEATURES_WAIT)
-            except subprocess.TimeoutExpired:
-                os.killpg(proc.pid, signal.SIGKILL)
-                return None, f"{words[0]}: no answer in {FEATURES_WAIT} s"
-    except OSError as exc:
-        return None, f"{words[0]}: {exc}"
-    said = err.strip().splitlines()
-    if proc.returncode:
-        return None, said[-1] if said else f"{words[0]} exited {proc.returncode}"
-    try:
-        return json.loads(out), ""
-    except ValueError:
-        return None, f"{words[0]} answered no JSON"
+    return gitcall.project_answer(f"{command} {shlex.join(map(str, words))}", checkout,
+                                  FEATURES_WAIT, words[0])
 
 
 def switches(checkout, every=FEATURES_EVERY):

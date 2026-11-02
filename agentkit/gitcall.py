@@ -15,6 +15,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -1270,6 +1271,37 @@ def declared_at(wt, ref, key, env=None):
     if not text:
         return None
     return front_value(text, key)
+
+
+def project_answer(command, checkout, wait, what):
+    """A project's own `command` in `checkout`: (its JSON answer, "") or (None, the one line saying
+    why, calling it `what`).  Its stdin is nothing, so an ssh in it never reads the keys, and it
+    carries no seat's name (`config.owner_env`): an ssh in it is never the live host reached by
+    a seat the screen was opened in (`guard.reached_live`).
+
+    It runs in a session of its own, and one past `wait` seconds is killed with everything it
+    started: the shell alone would leave its ssh going, and a `set` said to have failed could
+    still flip the switch after it.
+    """
+    try:
+        with subprocess.Popen(command, shell=True,
+                              cwd=checkout, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, encoding="utf-8", errors="replace",
+                              env=config.owner_env(), start_new_session=True) as proc:
+            try:
+                out, err = proc.communicate(timeout=wait)
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid, signal.SIGKILL)
+                return None, f"{what}: no answer in {wait} s"
+    except OSError as exc:
+        return None, f"{what}: {exc}"
+    said = err.strip().splitlines()
+    if proc.returncode:
+        return None, said[-1] if said else f"{what} exited {proc.returncode}"
+    try:
+        return json.loads(out), ""
+    except ValueError:
+        return None, f"{what} answered no JSON"
 
 
 def users_declared(wt):
