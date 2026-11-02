@@ -62,6 +62,7 @@ test_key_run_status_json
 test_key_run_status_one_id
 test_key_run_status_table
 test_key_run_status_window
+test_key_scratch_run ScratchRun
 test_key_seat_line_words
 test_key_seat_relay
 test_key_seat_shims_installed

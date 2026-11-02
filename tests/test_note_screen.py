@@ -66,7 +66,7 @@ class Screen(test_menu_keys.Menu):
     def screen(self, name, after=0, where=None):
         """A complete frame, including its header, content, blank line and keys."""
         def ready(text):
-            for part in reversed(text[after:].split("\x1b[H")[1:]):
+            for part in test_menu_keys.draws(text, after):
                 if "\x1b[J" not in part:
                     continue
                 lines = [terminal.ANSI.sub("", line).rstrip("\r")

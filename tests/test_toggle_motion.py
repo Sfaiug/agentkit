@@ -74,7 +74,7 @@ def written(screen, mark):
         text = text.split("\x1b[H")[0]            # a whole draw after it is no frame's
         text = text.split("<motion settled>")[0]
         cells.append((int(at), int(column), terminal.ANSI.sub("", text), text))
-    return cells
+    return [cell for cell in cells if cell[1] > 1]      # column 1: a row a draw wrote
 
 
 def until(screen, ready, what):

@@ -31,6 +31,7 @@ from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from tests.fixtures.draws import draws
 from agentkit import menu, terminal
 
 # The child: the real screen, key reader and saver; fakes for the catalog, versions and steps.
@@ -164,7 +165,7 @@ class Screen:
         """The lines of the last whole screen written over in place, as the screen shows them,
         row 1 first; the first one `where` accepts."""
         def ready(text):
-            for part in reversed(text[after:].split("\x1b[H")[1:]):
+            for part in draws(text, after):
                 if "\x1b[J" not in part:
                     continue                  # still being written
                 raw = part.split("\x1b[J")[0].split("\n")[:-1]
@@ -178,9 +179,11 @@ class Screen:
 
     def press(self, keys, where=None):
         """Keys, then the screen they drew."""
-        mark = len(self.text())
+        mark, quiet = len(self.text()), time.monotonic() + .5     # no change, no write
         os.write(self.master, keys)
-        return self.frame(where, after=mark)
+        while where is None and len(self.text()) == mark and time.monotonic() < quiet:
+            time.sleep(.01)
+        return self.frame(where, after=mark if "\x1b[?2026h" in self.text()[mark:] else 0)
 
     def click(self, col, row, where=None):
         """The left button down and up at `col`, `row`, as a terminal in mode 1006 reports it."""

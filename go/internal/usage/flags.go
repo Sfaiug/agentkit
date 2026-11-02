@@ -358,9 +358,5 @@ func values(object *run.Object) []any {
 
 // fields is an object of those keys and values, in that order.
 func fields(pairs ...any) *run.Object {
-	object := run.NewObject()
-	for i := 0; i < len(pairs); i += 2 {
-		object.Set(pairs[i].(string), pairs[i+1])
-	}
-	return object
+	return run.Fields(pairs...)
 }

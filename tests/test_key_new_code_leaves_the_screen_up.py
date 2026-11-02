@@ -8,6 +8,7 @@ what it leaves is read from tmux's modes and the terminal's attributes.
 """
 
 import os
+import re
 import shlex
 import sys
 import termios
@@ -24,6 +25,9 @@ KEYS = "esc leave"
 NAME = "atoll-fix"
 HOLD, RELEASE = b"\x1b[?2026h", b"\x1b[?2026l"
 ENTER, LEAVE = b"\x1b[?1049h", b"\x1b[?1049l"
+# Every frame is an update of its own, ended as it is written; the hold is the one left open over
+# a leave of the screen.
+HELD = re.compile(rb"\x1b\[\?2026h(?:(?!\x1b\[\?2026l).)*?\x1b\[\?1049l", re.S)
 ROW = NAME.encode()
 MODES = "#{alternate_on} #{cursor_flag} #{mouse_any_flag} #{mouse_sgr_flag} #{keypad_flag}"
 
@@ -67,9 +71,9 @@ class Up(unittest.TestCase):
         """The bytes once a hold since `since` has ended: where its parts are in them."""
         def ended():
             said = self.said()
-            hold = said.find(HOLD, since)
-            return (said, hold, said.index(RELEASE, hold)) if RELEASE in said[hold:] and hold >= 0 \
-                else None
+            held = HELD.search(said, since)
+            return (said, held.start(), said.index(RELEASE, held.start())) \
+                if held and RELEASE in said[held.start():] else None
         return until(ended, "held and let go")
 
     def modes(self, menu):

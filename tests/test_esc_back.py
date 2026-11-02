@@ -31,6 +31,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from tests.fixtures.draws import draws
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox, menu_input
 from agentkit import menu, orch, terminal
@@ -185,7 +186,7 @@ class Menu:
         where = where or (lambda lines: any(self.keys in line for line in lines))
 
         def ready(text):
-            for part in reversed(text[after:].split("\x1b[H")[1:]):
+            for part in draws(text, after):
                 if "\x1b[J" not in part:
                     continue                  # still being written
                 lines = [terminal.ANSI.sub("", line).rstrip("\r")

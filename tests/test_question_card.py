@@ -71,15 +71,15 @@ class QuestionCard(unittest.TestCase):
             dim, warn = terminal.styled("  " + MEANS, "dim"), terminal.styled("✗ Stop", "amber")
         self.assertEqual(card, ["", "  " + QUESTION, dim, "", "", ""])
         # the choices on the card's two rows before its last: Keep lit, Stop in the warn colour
-        keep, stop = out.removeprefix("\x1b[8;1H\r").split("\x1b[K\n\r")[:2]
+        keep, stop = out.split("\x1b[K")[:2]
         self.assertEqual(terminal.ANSI.sub("", keep), "› ✓ Keep")
-        self.assertEqual(stop.removesuffix("\x1b[K\n"), "  " + warn)
+        self.assertTrue(stop.endswith("  " + warn), repr(stop))
         # on a phone the question and its meaning wrap and no choice does
         _, card, out = ask([Key("esc")], cols=40)
         means = [f"  {line}" for line in terminal.wrap(MEANS, 38)]
         self.assertEqual([terminal.ANSI.sub("", line) for line in card],
                          ["", "  Stop fix-api and everything it runs?", *means, "", "", ""])
-        self.assertIn(f"\x1b[{7 + len(means)};1H\r", out)
+        self.assertIn(f"\x1b[{7 + len(means)};1H", out)
 
     def test_esc_keeps_and_enter_on_the_second_choice_answers(self):
         self.assertFalse(ask([Key("esc")])[0])
@@ -99,7 +99,7 @@ class QuestionCard(unittest.TestCase):
                 asked = shown.frame(keys="esc back", after=mark)
                 top, answers = shown.choices(after=mark)
                 card = ["", *(f"  {line}" for text in (menu.STOP_ASK.format("alpha"), NONE)
-                              for line in terminal.wrap(text, min(cols, 120) - 2)), "", "", ""]
+                              for line in terminal.wrap(text, min(cols, 120) - 2)), *answers, ""]
                 first = top - len(card) + 2           # its first line's index on the screen
                 self.assertEqual(asked[first:first + len(card)], card)
                 # right under its row, and under the line a phone draws under that row

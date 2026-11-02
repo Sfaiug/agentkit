@@ -1,0 +1,214 @@
+package handin
+
+import (
+	"os"
+	"strconv"
+	"strings"
+
+	"agentkit/internal/config"
+	"agentkit/internal/run"
+)
+
+// File is a turn's record file in its out directory.
+const File = "hand-in.jsonl"
+
+// A Review is what a turn handed in, Python's hand_in.Review, its turn's row aside.
+type Review struct {
+	Records []*run.Object
+}
+
+var closings = []string{"done", "blocked", "not-needed"}
+
+func closing(kind string) bool {
+	for _, each := range closings {
+		if each == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// Read is what that record file holds, as Python's hand_in.read reads it: false where there is no
+// file, and nothing handed in where it does not hold what the loop opened it with and ak hand-in
+// appends: a row of another role's kind, a closing before the last row, or a row that cannot be
+// read as one.
+func Read(path string) (*Review, bool) {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, false
+	}
+	empty := &Review{}
+	if err != nil {
+		return empty, true
+	}
+	var rows []*run.Object
+	for _, line := range config.SplitLines(newlines(decoded(data))) {
+		value, err := run.Decode([]byte(line))
+		row, _ := value.(*run.Object)
+		if err != nil || row == nil {
+			return empty, true
+		}
+		rows = append(rows, row)
+	}
+	if len(rows) == 0 || rows[0].Str("kind") != "turn" {
+		return empty, true
+	}
+	role := "reviewer"
+	if rows[0].Has("role") {
+		role = rows[0].Str("role")
+	}
+	records := rows[1:]
+	for i, row := range records {
+		kind := row.Str("kind")
+		switch {
+		case !allowed(role, kind), closing(kind) && i < len(records)-1:
+			return empty, true
+		case kind == "blocked" || kind == "not-needed":
+			if blank(row.Str("why")) {
+				return empty, true
+			}
+		case kind != "done" && !wellFormed(row):
+			return empty, true
+		}
+	}
+	return &Review{records}, true
+}
+
+// allowed is whether a turn of that role hands in that kind of record.
+func allowed(role, kind string) bool {
+	switch {
+	case strings.HasPrefix(role, "reviewer"):
+		return kind == "finding" || kind == "follow-up" || kind == "done"
+	case strings.HasPrefix(role, "fixer"):
+		return kind == "dispute" || closing(kind)
+	}
+	return closing(kind)
+}
+
+// wellFormed is whether a finding, follow-up or dispute holds what its text is written from.
+func wellFormed(row *run.Object) bool {
+	if finding := row.Dict("finding"); row.Str("kind") == "dispute" && (finding == nil || !wellFormed(finding)) {
+		return false
+	}
+	evidence := row.Dict("evidence")
+	return sited(row) && row.Has("what") && row.Has("why") && evidence != nil &&
+		(evidence.Has("quote") || evidence.Has("run") && evidence.Has("returncode") && evidence.Has("output"))
+}
+
+// Closing is the row that closed the turn, nil where none did.
+func (r *Review) Closing() *run.Object {
+	if len(r.Records) == 0 || !closing(r.Records[len(r.Records)-1].Str("kind")) {
+		return nil
+	}
+	return r.Records[len(r.Records)-1]
+}
+
+// Done is whether the turn closed with done.
+func (r *Review) Done() bool {
+	found := r.Closing()
+	return found != nil && found.Str("kind") == "done"
+}
+
+// Of is the records of that kind.
+func (r *Review) Of(kind string) []*run.Object {
+	var found []*run.Object
+	for _, row := range r.Records {
+		if row.Str("kind") == kind {
+			found = append(found, row)
+		}
+	}
+	return found
+}
+
+// Verdict is what a closed review says: FAIL for any finding, else PASS; "" unclosed.
+func (r *Review) Verdict() string {
+	switch {
+	case !r.Done():
+		return ""
+	case len(r.Of("finding")) > 0:
+		return "FAIL"
+	}
+	return "PASS"
+}
+
+// Notes is each note's text.
+func (r *Review) Notes() []any {
+	notes := []any{}
+	for _, row := range r.Of("note") {
+		notes = append(notes, itemText(row))
+	}
+	return notes
+}
+
+// Text is the review as review.md keeps it, Python's Review.text.
+func (r *Review) Text() string {
+	var parts []string
+	if r.Done() {
+		parts = append(parts, "VERDICT: "+r.Verdict())
+	}
+	for _, each := range [][2]string{{"finding", "Findings"}, {"follow-up", "Follow-ups"}, {"note", "Notes"}, {"dispute", "Disputes"}} {
+		var items []string
+		for _, row := range r.Of(each[0]) {
+			items = append(items, "- "+strings.ReplaceAll(itemText(row), "\n", "\n  "))
+		}
+		if len(items) > 0 {
+			parts = append(parts, "## "+each[1]+"\n"+strings.Join(items, "\n"))
+		}
+	}
+	return strings.Join(parts, "\n\n") + "\n"
+}
+
+// itemText is a record in words, Python's hand_in.item_text.
+func itemText(row *run.Object) string {
+	var text string
+	if row.Str("kind") == "dispute" {
+		finding := row.Dict("finding")
+		text = itemText(finding) + "\nDispute: " + row.Str("why")
+	} else {
+		text = site(row) + " - " + row.Str("what") + " - " + row.Str("why")
+	}
+	evidence := row.Dict("evidence")
+	if evidence.Has("quote") {
+		text += "\nQuote:\n" + evidence.Str("quote")
+	} else {
+		text += "\n$ " + evidence.Str("run") + "\n"
+		if evidence.Has("commit") {
+			text += "Commit " + evidence.Str("commit") + ":\n"
+		}
+		text += proofText(evidence)
+	}
+	if row.Truthy("before") {
+		text += "\nBefore the task: " + row.Str("before")
+	}
+	if row.Truthy("dropped") {
+		text += "\nDropped follow-up: " + row.Str("dropped")
+	}
+	return strings.TrimFunc(text, config.Space)
+}
+
+// proofText is a proof's outcome and output, Python's hand_in.proof_text.
+func proofText(proof *run.Object) string {
+	code, _ := proof.Int("returncode")
+	status := "exit " + strconv.Itoa(code)
+	if proof.Truthy("killed") || code < 0 {
+		status = "did not finish"
+	}
+	return "[" + status + "]\n" + proof.Str("output")
+}
+
+// ProofFailed is whether a proof ran and failed, Python's hand_in.proof_failed: an exit that says
+// the command never started shows nothing, whatever its output reports.
+func ProofFailed(proof *run.Object) bool {
+	code, _ := proof.Int("returncode")
+	return code > 0 && code != 126 && code != 127 && !proof.Truthy("killed")
+}
+
+// Answer is a file a turn wrote as Python reads its text with errors="replace", "" where there is
+// none.
+func Answer(path string) string {
+	text, err := readText(path)
+	if err != nil {
+		return ""
+	}
+	return text
+}

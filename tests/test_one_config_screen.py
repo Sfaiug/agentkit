@@ -31,6 +31,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from tests.fixtures.draws import draws
 from agentkit import config, terminal
 
 # The child: the real loop, `c` and `n` screens and create; fakes for what a seat is and does.
@@ -200,7 +201,7 @@ class Menu:
         where = where or (lambda lines: any("esc leave" in line for line in lines))
 
         def ready(text):
-            for part in reversed(text[after:].split("\x1b[H")[1:]):
+            for part in draws(text, after):
                 if "\x1b[J" not in part:
                     continue                  # still being written
                 lines = [terminal.ANSI.sub("", line).rstrip("\r")

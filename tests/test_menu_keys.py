@@ -26,6 +26,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from tests.fixtures.draws import draws
 from agentkit import terminal
 
 # The child: the real loop, draw and key reader; fakes for what a seat is and what opening does.
@@ -184,7 +185,7 @@ class Menu:
         """The lines of the last whole menu drawn; `tip` also finds the explanation a click can
         leave on its key line instead of the keys. Row 1 first."""
         def ready(text):
-            for part in reversed(text[after:].split("\x1b[H")[1:]):
+            for part in draws(text, after):
                 if "\x1b[J" not in part:
                     continue                  # still being written, or a sub-screen's
                 lines = [terminal.ANSI.sub("", line).rstrip("\r")

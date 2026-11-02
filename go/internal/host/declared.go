@@ -1,0 +1,57 @@
+package host
+
+import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+)
+
+// Declared is whether a command among the run's marked processes is inside the time it gave
+// `timeout`, Python's worker.within_declared_timeout: a command started under `timeout` has said
+// how long it may take, however little it prints, so its silence is no hang before that bound.
+func Declared(marker string, now float64) bool {
+	for _, pid := range Marked(marker) {
+		said, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
+		if err != nil {
+			continue
+		}
+		seconds := timeoutSeconds(strings.Split(string(said), "\x00"))
+		if born, ok := ReadIdentity(pid); ok && seconds > 0 && now-born.StartedAt < seconds {
+			return true
+		}
+	}
+	return false
+}
+
+var timeoutSpan = regexp.MustCompile(`^(\d+\.?\d*|\.\d+)([smhd]?)$`)
+
+// timeoutSeconds is the duration `timeout(1)` was given in that argv, 0 for any other command or
+// none, Python's worker.timeout_seconds.
+func timeoutSeconds(argv []string) float64 {
+	if len(argv) == 0 || filepath.Base(argv[0]) != "timeout" {
+		return 0
+	}
+	for i := 1; i < len(argv); i++ {
+		word := argv[i]
+		switch {
+		case word == "-k" || word == "-s" || word == "--kill-after" || word == "--signal":
+			i++
+		case word == "--" || !strings.HasPrefix(word, "-"):
+			if word == "--" {
+				if i++; i == len(argv) {
+					return 0
+				}
+				word = argv[i]
+			}
+			found := timeoutSpan.FindStringSubmatch(word)
+			if found == nil {
+				return 0
+			}
+			value, _ := strconv.ParseFloat(found[1], 64)
+			return value * map[string]float64{"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}[found[2]]
+		}
+	}
+	return 0
+}

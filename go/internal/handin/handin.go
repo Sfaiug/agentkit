@@ -46,7 +46,7 @@ const variable = "AK_HAND_IN"
 // Start opens a turn's record file in its out directory with the turn's row, the workspace and
 // role and the blocking findings handed to it, none: the variable naming that file to the turn.
 func Start(out, workspace, role string) (string, error) {
-	path := filepath.Join(config.Resolve(out), "hand-in.jsonl")
+	path := filepath.Join(config.Resolve(out), File)
 	row := run.NewObject()
 	row.Set("kind", "turn")
 	row.Set("workspace", config.Resolve(workspace))
@@ -434,13 +434,18 @@ func proof(command, root string) (int, string, error) {
 // excerpt is a proof's output as Python's output_excerpt cuts it: past outputCap bytes, its
 // first and last halves around a note to rerun it.
 func excerpt(spool *os.File) (string, error) {
+	return Excerpt(spool, 0)
+}
+
+// Excerpt is that cut of what the spool holds from start up to where it stands.
+func Excerpt(spool *os.File, start int64) (string, error) {
 	size, err := spool.Seek(0, io.SeekCurrent)
 	if err != nil {
 		return "", ErrPython
-	} else if size <= outputCap {
-		return part(spool, 0, io.SeekStart, outputCap)
+	} else if size-start <= outputCap {
+		return part(spool, start, io.SeekStart, outputCap)
 	}
-	head, err := part(spool, 0, io.SeekStart, outputCap/2)
+	head, err := part(spool, start, io.SeekStart, outputCap/2)
 	if err != nil {
 		return "", err
 	}

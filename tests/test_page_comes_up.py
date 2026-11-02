@@ -110,7 +110,7 @@ class PageComesUp(Sandbox):
                 redirect_stdout(output):
             menu.show_past({"fixture": True}, [seat], keyboard=None)
         clock, = self.made
-        self.assertNotIn("\033[Kagentkit", output.getvalue())     # never first drawn as it is
+        self.assertNotIn("\033[Hagentkit", output.getvalue())     # never first drawn as it is
         self.assertIn("fix-api", terminal.plain("".join(clock.rising)))
         self.assert_comes_up(clock, "past sessions")
 
@@ -144,7 +144,7 @@ class PageComesUp(Sandbox):
         for name, opens in self.pages():
             with self.subTest(name):
                 output, clock = self.read(opens, [], step=0)
-                self.assertNotIn("\033[Kagentkit", output)      # never first drawn as it is
+                self.assertNotIn("\033[Hagentkit", output)      # never first drawn as it is
                 self.assert_comes_up(clock, f"config · {name}")
 
     def test_a_cs_page_gone_back_to_from_a_list_or_a_field_is_drawn_as_it_is(self):
@@ -159,7 +159,7 @@ class PageComesUp(Sandbox):
             with self.subTest(name):
                 output, clock = self.read(pages[name], keys)
                 back = output.rsplit("\033[H", 1)[-1]
-                self.assertTrue(back.startswith(f"\033[Kagentkit · config · {name}"),
+                self.assertTrue(back.startswith(f"agentkit · config · {name}"),
                                 repr(back[:120]))
                 self.assertIsNone(clock.rising)
 
@@ -201,7 +201,7 @@ class PageComesUp(Sandbox):
                 redirect_stdout(output):
             menu.show_past({"fixture": True}, seats, keyboard=Mock())
         back = output.getvalue().rsplit("\033[H", 1)[-1]
-        self.assertTrue(back.startswith("\033[Kagentkit · past sessions"), repr(back[:120]))
+        self.assertTrue(back.startswith("agentkit · past sessions"), repr(back[:120]))
         clock, = self.made
         self.assertIsNone(clock.rising)
 

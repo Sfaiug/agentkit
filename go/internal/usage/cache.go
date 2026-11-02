@@ -37,7 +37,7 @@ func collect(sources []source, models map[string]config.Model) (*run.Object, err
 				providers.Set(name, object(held.Get(name)))
 			}
 		}
-		stored, counted := false, map[string]float64{}
+		stored, counted := false, map[string]any{}
 		for _, name := range providers.Keys() {
 			prov := providers.Dict(name)
 			if prov.Truthy("accounts") || rolled(prov, now) {
@@ -47,9 +47,9 @@ func collect(sources []source, models map[string]config.Model) (*run.Object, err
 			}
 			if !numbers(prov, "resets") {
 				stored = true
-				if listed[name].Via != "" { // its harness counts no usage-limit resets (Read): none held
-					counted[name] = 0
-					prov.Set("resets", 0.0)
+				if listed[name].Via != "" { // a reading from before its harness counted any
+					counted[name] = listed[name].resets()
+					prov.Set("resets", counted[name])
 				}
 			}
 		}
@@ -75,7 +75,7 @@ func rolled(prov *run.Object, now float64) bool {
 // store writes what collect answers, each provider's record as the snapshot holds it now, a
 // copy of providers standing in only where it holds none, and a provider config.toml no longer
 // lists gone, Python's usage._store; fetchedAt dates the snapshot where given.
-func store(sources []source, providers *run.Object, models map[string]config.Model, now float64, fetchedAt *float64, counted map[string]float64) (*run.Object, error) {
+func store(sources []source, providers *run.Object, models map[string]config.Model, now float64, fetchedAt *float64, counted map[string]any) (*run.Object, error) {
 	return write(func(disk *run.Object, _ float64) *run.Object {
 		for _, name := range disk.Keys() {
 			if !slices.ContainsFunc(sources, func(src source) bool { return src.Name == name }) {

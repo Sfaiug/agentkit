@@ -129,7 +129,7 @@ class NewsMotion(Sandbox):
         last = {}
 
         def wait_key(prompt, timeout=None, wake=None):
-            waits.append((timeout, self.now, out.getvalue()))
+            waits.append((timeout, self.now, re.sub(r"\x1b\[\?2026[hl]", "", out.getvalue())))
             out.seek(0)
             out.truncate()
             if wake is not None and select.select([wake], [], [], 0)[0]:
