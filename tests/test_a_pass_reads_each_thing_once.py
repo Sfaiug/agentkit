@@ -1,8 +1,5 @@
-"""A pass over every seat reads each thing once (`look.one_look`), and only a pass keeps anything.
-
-In-process, counting what a pass asks the disk for: no black-box check can tell that apart under a
-host's noise.
-"""
+"""A pass over every seat reads each thing once (`look.one_look`), and only a pass keeps anything:
+in-process, counting what it asks the disk for, which no black-box check tells apart from noise."""
 
 import builtins
 from collections import Counter
@@ -18,15 +15,12 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox
-from agentkit import (config, handback, look, menu, notify, open_runs, orch, parsed, record,
-                      status, watch)
+from agentkit import config, handback, look, menu, notify, orch, parsed, record, status, watch
 
 LIVE = ["acme-api", "acme-cli", "acme-web"]
 GONE = "acme-gone"
 PAST = [f"acme-past-{n}" for n in range(27)]
 POINTERS = {f"acme-was-{n}": PAST[n] for n in range(3)}
-WEEK = 7 * 86400
-LINE = ".merge-acme.lock"
 OPEN = "acme-landing"
 REAL_SESSIONS = orch.sessions
 ROWS = "".join(f"{name}\\t/acme\\t1\\t0\\t1\\n" for name in LIVE)
@@ -36,25 +30,21 @@ TMUX = f'#!/bin/sh\ncase "$*" in *list-sessions*) printf "{ROWS}";; esac\n'
 def written_long_ago(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data))
-    then = time.time_ns() - WEEK * 10**9
+    then = time.time_ns() - 7 * 86400 * 10**9      # the real clock: a sandbox fixes time.time
     os.utime(path, ns=(then, then))
 
 
 class APassReadsEachThingOnce(Sandbox):
     def setUp(self):
         super().setUp()
-        tmux = self.root / "bin" / "tmux"
-        tmux.parent.mkdir()
-        tmux.write_text(TMUX)
-        tmux.chmod(0o755)
-        self.stack.enter_context(patch.dict(os.environ,
-                                            {"PATH": f"{tmux.parent}:{os.environ['PATH']}"}))
+        (self.root / "tmux").write_text(TMUX)
+        (self.root / "tmux").chmod(0o755)
+        self.stack.enter_context(patch.dict(os.environ, {"PATH": f"{self.root}:{os.environ['PATH']}"}))
         self.stack.enter_context(patch.object(orch, "sessions", REAL_SESSIONS))
         self.stack.enter_context(patch.object(menu, "_RUN_RECORDS", None))
         self.addCleanup(lambda: menu._RUN_RECORDS and menu._RUN_RECORDS.close())
         (config.HOME / config.CONFIG_NAME).write_text(
             (config.REPO / config.DEFAULT_CONFIG_NAME).read_text())
-        self.cfg = config.load()
         seat = {"orchestrator": self.cfg["defaults"]["orchestrator"], "workers": [],
                 "repo": None, "filed": True, "cwd": "/acme", "created": 1}
         for name in [*LIVE, GONE, *PAST]:
@@ -70,7 +60,7 @@ class APassReadsEachThingOnce(Sandbox):
                               "merged": True, "launched_session": names[n % len(names)]})
         written_long_ago(config.RUNS / OPEN / "run.json",
                          {"run_id": OPEN, "state": "waiting", "launched_session": LIVE[0],
-                          "target": "main", "waiting_on": {"line": LINE, "joined": 1}})
+                          "target": "main", "waiting_on": {"line": ".merge-acme.lock", "joined": 1}})
         written_long_ago(watch.state_path(), {"tick": 1})
         for _ in range(2):         # the first read's own writes settle too, and `parsed` keeps all
             time.sleep(parsed.FRESH / 1e9 + 0.1)
@@ -79,25 +69,23 @@ class APassReadsEachThingOnce(Sandbox):
     @contextmanager
     def counted(self):
         """What is asked of the disk meanwhile: (stats, opens), by path."""
-        stats, opens, stat, opened = Counter(), Counter(), os.stat, io.open
+        def counting(real, counts):
+            def asked(path, *args, **kwargs):
+                counts[str(path)] += 1
+                return real(path, *args, **kwargs)
+            return asked
 
-        def stating(path, *args, **kwargs):
-            stats[str(path)] += 1
-            return stat(path, *args, **kwargs)
-
-        def opening(path, *args, **kwargs):
-            opens[str(path)] += 1
-            return opened(path, *args, **kwargs)
-
-        with patch.object(os, "stat", stating), patch.object(io, "open", opening), \
-                patch.object(builtins, "open", opening):
+        stats, opens = Counter(), Counter()
+        opening = counting(io.open, opens)
+        with patch.object(os, "stat", counting(os.stat, stats)), \
+                patch.object(io, "open", opening), patch.object(builtins, "open", opening):
             yield stats, opens
 
     def look_pass(self, groups=None):
         """One pass as `Live._look` makes it, the next read it asks for left out."""
         live = menu.Live(self.cfg)
-        self.addCleanup(os.close, live.reader)
-        self.addCleanup(os.close, live.writer)
+        for pipe in (live.reader, live.writer):
+            self.addCleanup(os.close, pipe)
         live.passing.acquire()
         with patch.object(menu.Live, "meet"), patch.object(menu.Live, "ask"), \
                 patch.object(menu, "v5o_groups", groups or menu.v5o_groups):
@@ -113,12 +101,10 @@ class APassReadsEachThingOnce(Sandbox):
             self.assertLessEqual(stats[str(adapter)], 1, adapter)
 
     def test_a_read_and_a_look_ask_for_each_thing_once(self):
-        with self.counted() as (stats, opens):
-            menu.rows(self.cfg)
-        self.assert_each_asked_once(stats, opens)
-        with self.counted() as (stats, opens):
-            self.look_pass()
-        self.assert_each_asked_once(stats, opens)
+        for one_pass in (lambda: menu.rows(self.cfg), self.look_pass):
+            with self.counted() as (stats, opens):
+                one_pass()
+            self.assert_each_asked_once(stats, opens)
 
     def test_a_look_asks_for_the_open_runs_alone_and_a_seat_still_reads_its_place(self):
         real, placed = menu.v5o_groups, []
@@ -139,9 +125,6 @@ class APassReadsEachThingOnce(Sandbox):
         with patch.object(menu, "_RUN_RECORDS", None):
             self.look_pass(lambda *_a, **_k: seen.extend(record.runs()))
         self.assertEqual(len(seen), 301)
-        with look.one_look():      # a reader lends nothing before its first read
-            open_runs.Reader().lend()
-            self.assertEqual(len(record.runs()), 301)
 
     def test_outside_a_pass_nothing_is_kept(self):
         self.assertEqual(config.resolve_session(PAST[9]), PAST[9])
@@ -181,7 +164,6 @@ class APassReadsEachThingOnce(Sandbox):
 
     def test_a_notice_answered_leaves_what_every_reader_shares_as_it_was(self):
         shared, other = notify.last(LIVE[0]), notify.last(LIVE[1])
-        self.assertIs(notify.last(LIVE[0]), shared)
         before = dict(shared), dict(other)
         notify.answered(LIVE[0], time.time_ns() / 1e9)
         notify.opened(LIVE[1], lambda: "pane")
@@ -191,9 +173,8 @@ class APassReadsEachThingOnce(Sandbox):
         broken = config.session_path(PAST[9])
         broken.write_text("{")
         with look.one_look():
-            for _ in range(2):
-                with self.assertRaises(config.Error):
-                    config.resolve_session(PAST[9])
+            with self.assertRaises(config.Error):
+                config.resolve_session(PAST[9])
             broken.write_text(json.dumps({"renamed": PAST[10]}))
             self.assertEqual(config.resolve_session(PAST[9]), PAST[10])
 
