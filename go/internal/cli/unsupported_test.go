@@ -56,7 +56,6 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 		{"notify", "needs", "Which branch?"},
 		{"watch"},
 		{"watch", "--dry-run"},
-		{"browser", "mcp-register"},
 	}
 	if runtime.GOOS == "darwin" {
 		calls = append(calls, []string{"macbridge", "--reader"})

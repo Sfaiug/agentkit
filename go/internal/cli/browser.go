@@ -8,11 +8,11 @@ import (
 	"agentkit/internal/browser"
 )
 
-// `ak browser status`, `login` and `install` where Go reads the machine as Python does; the
-// rest of each is Python's, before Go has printed anything.
+// `ak browser status`, `login`, `install` and `mcp-register` where Go reads the machine as Python
+// does; the rest of each is Python's.
 func init() {
 	for name, command := range map[string]func(io.Writer) (int, error){
-		"status": browser.Status, "login": browser.Login, "install": browser.Install,
+		"status": browser.Status, "login": browser.Login, "install": browser.Install, "mcp-register": browser.Register,
 	} {
 		commands["browser "+name] = func(_ []string, out, errOut io.Writer) int {
 			code, err := command(out)
