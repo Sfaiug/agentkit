@@ -25,6 +25,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 
 from . import config, retention
 
@@ -161,18 +162,33 @@ def tidy(live):
             remove(path)
 
 
-def keep_times(live, new, commit):
-    """A move bringing only what no running process holds in memory leaves the modules' times as
-    they were: `notify.installed_at` reads them and every open menu restarts when they move, and
-    nearly half of landings bring only tests, docs or the Go port."""
-    if git(live, "diff", "--quiet", "HEAD", commit, "--", ".", *NOT_RUN)[0]:
-        return
+def brings_code(live, old, new):
+    """Does a move from `old` to `new` bring what a running process holds in memory?  Nearly half
+    of landings bring only tests, docs or the Go port; anything else counts, as does a failed
+    look, since a needless restart costs less than a stale process."""
+    return git(live, "diff", "--quiet", old, new, "--", ".", *NOT_RUN)[0] != 0
+
+
+def keep_times(live, new):
+    """`new`'s modules dated as `live`'s are: `notify.installed_at` reads them and every open menu
+    restarts when they move."""
     try:
         for path in (new / "agentkit").glob("*.py"):
             old = (live / "agentkit" / path.name).stat()
             os.utime(path, ns=(old.st_atime_ns, old.st_mtime_ns))
     except OSError:
         pass            # a time not kept costs one restart
+
+
+def date_swapped_in(live):
+    """`live`'s modules dated after the swap that just put them there: a process opened between
+    their checkout and the swap read the old code, and only a later time tells it so."""
+    now = time.time()   # the process's clock: the file system's own lags it by up to a tick
+    try:
+        for path in (live / "agentkit").glob("*.py"):
+            os.utime(path, (now, now))
+    except OSError:
+        pass            # such a process stays old only until the next landing of code
 
 
 def switch(live, commit):
@@ -195,12 +211,16 @@ def switch(live, commit):
     if code:
         remove(new)
         return f"{commit[:12]} could not be checked out in {new}: {said}"
+    code = brings_code(live, "HEAD", commit)
     try:
-        keep_times(live, new, commit)
+        if not code:
+            keep_times(live, new)
         new.chmod(live.stat().st_mode & 0o7777)    # mkdtemp's is the owner's alone
         exchange(live, new)
     except OSError as exc:
         remove(new)
         return f"{new} could not be swapped in for {live}: {exc}"
+    if code:
+        date_swapped_in(live)
     repair(live, new)
     return ""

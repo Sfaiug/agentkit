@@ -112,6 +112,13 @@ class FreshServer(unittest.TestCase):
         installer.run(self.home)
         self.assertEqual(stamp.read_text(), "1000\n")
 
+    def test_an_install_writes_the_empty_stamp_one_cut_off_left(self):
+        stamp = self.ak_dir / "state" / "installed-at"
+        self.addCleanup(stamp.write_text, stamp.read_text())
+        stamp.write_text("")
+        installer.run(self.home)
+        self.assertRegex(stamp.read_text(), r"^\d+\n$")
+
 
 class Roles(unittest.TestCase):
     @classmethod

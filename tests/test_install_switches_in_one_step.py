@@ -10,9 +10,11 @@ test_go_live_retries_install's offline clone, its origin one commit ahead.
 """
 
 import errno
+import json
 import os
 from pathlib import Path
 import sys
+import tempfile
 import time
 import unittest
 from unittest.mock import patch
@@ -68,6 +70,32 @@ class InstallSwitchesInOneStep(unittest.TestCase):
                     os.utime(module, (1000, 1000))
                 self.go_live()
                 self.assertEqual(module.stat().st_mtime != 1000, moved)
+
+    def test_a_process_opened_as_the_swap_begins_finds_its_code_old(self):
+        (self.root / "seed" / "agentkit").mkdir(exist_ok=True)
+        self.push("agentkit/acme.py")
+        opened, exchange = [], versions.exchange
+        def swap(*paths):
+            opened.append(time.time())
+            exchange(*paths)
+        with patch.object(versions, "exchange", swap):
+            self.go_live()
+        self.assertGreater((self.clone / "agentkit" / "acme.py").stat().st_mtime, opened[0])
+
+    def test_the_menus_own_update_says_it_moved_only_for_code(self):
+        self.go_live()                                  # the fixture's own commit, a code one
+        for name, moved in (("docs/acme.md", False), ("agentkit/acme.py", True)):
+            with self.subTest(name):
+                (self.root / "seed" / name).parent.mkdir(exist_ok=True)
+                head = self.push(name)
+                with tempfile.TemporaryFile(dir=self.root) as said, \
+                        patch.object(sys, "__stdout__", said), \
+                        patch.object(gc, "tmp_processes", lambda: (self.held, {})):
+                    self.assertEqual(update.startup(), 0)
+                    said.seek(0)
+                    result = json.loads(said.read().splitlines()[-1])
+                self.assertEqual(git(self.clone, "rev-parse", "HEAD"), head)
+                self.assertEqual(result["moved"], moved)
 
     def test_a_lock_a_killed_git_left_is_in_no_move_s_way(self):
         for name in ("HEAD.lock", "index.lock"):

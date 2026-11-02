@@ -49,7 +49,7 @@ class BarsFromLiveCode(Sandbox):
 
     def test_the_menus_own_update_says_how_it_went_before_new_code_restarts_it(self):
         said, inbox = [], []
-        def update_first(live, updates):                 # install.sh stamps, then it reports
+        def update_first(live, updates):                 # the install lands, then it reports
             inbox.append(updates)
             updates.append({"progress": 2 / 3})
             (config.STATE / "installed-at").write_text(str(int(config.STARTED) + 5))

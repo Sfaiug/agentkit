@@ -588,9 +588,10 @@ def startup():
     with redirect_stdout(said), redirect_stderr(said):
         try:
             if agentkit_dir().resolve() == config.REPO and not left_as_is() and behind():
-                before = agentkit_version()
+                before = _git("rev-parse", "HEAD")[1]
                 failed = update_agentkit(lambda done, total: send(progress=done / total))
-                moved = agentkit_version() != before   # even if install.sh then failed
+                # even if install.sh then failed
+                moved = versions.brings_code(agentkit_dir(), before, "HEAD")
         except Exception as exc:    # detached: the notice is the only way to hear a failure
             say(f"update: {exc!r}")
             failed = 1
