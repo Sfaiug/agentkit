@@ -61,7 +61,9 @@ NEED = "google-cloud-need"      # MiB a vCPU of each suite no machine took since
 REFUSALS = {"QUOTA_EXCEEDED", "quotaExceeded", "ZONE_RESOURCE_POOL_EXHAUSTED",   # Google's codes:
             "ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS"}    # a zone's quota or stock is out
 # A machine's setup, each line run on those that served suites on 31 Oct 2026: docker's data and
-# trees in memory, as on disk a suite's cores idled in disk wait; sshd keeps a piece's connection.
+# trees in memory, as on disk a suite's cores idled in disk wait; sshd keeps a piece's connection,
+# and its penalties off, as 40 connections that never logged in made each ssh from here exit 255
+# at once (tried on 2 Nov 2026, the day 247 pieces went so in 3 minutes): only ak's key gets in.
 STARTUP = """#!/bin/bash
 set -e
 useradd -m -s /bin/bash {user}
@@ -72,7 +74,8 @@ echo '{key}' >~{user}/.ssh/authorized_keys
 chown -R {user}: ~{user}
 apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -qy docker.io docker-cli git jq
 usermod -aG docker {user}
-echo 'MaxStartups 500:30:1000' >/etc/ssh/sshd_config.d/ak.conf && systemctl reload ssh
+printf 'MaxStartups 500:30:1000\\nPerSourcePenalties no\\n' >/etc/ssh/sshd_config.d/ak.conf
+systemctl reload ssh
 touch {ready}
 """
 SSH_KEY, KNOWN_HOSTS = "google-cloud-ssh", "google-cloud-known-hosts"     # beside KEY
