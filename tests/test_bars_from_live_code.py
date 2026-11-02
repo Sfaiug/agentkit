@@ -60,8 +60,7 @@ class BarsFromLiveCode(Sandbox):
                 inbox[0].append({"moved": False, "lines": ["install.sh failed"]})
                 return None
             return step
-        with patch.object(menu, "Live", **{"return_value.heard.return_value": [],
-                                           "return_value.asking.return_value": None}), \
+        with patch.object(menu, "Live", **{"return_value.heard.return_value": []}), \
                 patch.object(terminal, "Keyboard", Keyboard), \
                 patch.object(terminal, "sense", lambda: None), \
                 patch.object(menu, "update_first", update_first), \
@@ -83,8 +82,7 @@ class BarsFromLiveCode(Sandbox):
                 def moving(*_a, **_kw):                  # the tick installs after the first frame
                     stamp.write_text(str(int(config.STARTED) + 5))
                     return steps.pop(0)
-                with patch.object(menu, "Live", **{"return_value.heard.return_value": [],
-                                                   "return_value.asking.return_value": None}), \
+                with patch.object(menu, "Live", **{"return_value.heard.return_value": []}), \
                         patch.object(terminal, "Keyboard", Keyboard), \
                         patch.object(terminal, "sense", lambda: None), \
                         patch.object(menu, "moving", moving), \
@@ -97,8 +95,7 @@ class BarsFromLiveCode(Sandbox):
 
     def test_an_open_menu_starts_again_once_new_code_is_installed_under_it(self):
         def restarts():
-            with patch.object(menu, "Live", **{"return_value.heard.return_value": [],
-                                               "return_value.asking.return_value": None}), \
+            with patch.object(menu, "Live", **{"return_value.heard.return_value": []}), \
                     patch.object(menu, "wait_key", return_value=terminal.Key("esc")), \
                     patch.object(terminal, "Keyboard", Keyboard), \
                     patch.object(terminal, "sense", lambda: None), \

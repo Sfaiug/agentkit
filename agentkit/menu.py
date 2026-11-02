@@ -215,7 +215,6 @@ class Live:
         self.cfg = cfg
         self.every = usage.PROBE_EVERY if every is None else every
         self.started = None          # when the probe now running was started, or None
-        self.began = None            # ... and when, on the clock motion reads (`asking`)
         self.thread = None
         self.lock = threading.Lock()   # so the pipe is never given back under a probe's write
         self.reader, self.writer = os.pipe()
@@ -271,14 +270,10 @@ class Live:
         if (self.thread is not None and self.thread.is_alive()) or (
                 self.started is not None and now - self.started < self.every):
             return False
-        self.started, self.began = now, time.monotonic()
+        self.started = now
         self.thread = threading.Thread(target=self._work, daemon=True)
         self.thread.start()
         return True
-
-    def asking(self):
-        """When the probe now going began, on motion's clock, or None while none is."""
-        return self.began if self.thread is not None and self.thread.is_alive() else None
 
     def _work(self):
         try:
@@ -1932,7 +1927,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         turns.append(next((name for _, name in lines
                            if isinstance(name, (str, Path)) and name not in before), None))
         before.update(name for _, name in lines)
-    drawn.update(order=order, cursor=cursor, pointing=pointing, words=words, rule=not compact,
+    drawn.update(order=order, cursor=cursor, pointing=pointing, words=words,
                  ask=top + at + 1 if at else None, spots=spots, turns=turns,
                  go_on={info["name"]: info["go_on"] for info in infos if info.get("go_on")})
     return page, (len(pages) if ordered else 1)
@@ -5760,9 +5755,6 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             if tidy is not None:
                 live.tidy(tidy)           # maintenance too: the first draw is as recorded
                 tidy = None
-            asking = live.asking()        # once: the probe may land between two asks
-            if asking is not None and updating is None and drawn and drawn["rule"]:
-                motion.fetching(clock, asking)            # the rule glides while it is asked
             if ahead is not None:
                 (key, shown), ahead = ahead, None
             else:

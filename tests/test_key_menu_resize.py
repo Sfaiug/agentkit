@@ -20,8 +20,7 @@ from fixtures.akterm import Terminal
 
 WEEK = 7 * 24 * 3600
 CLOCK = re.compile(r"^agentkit +\d\d:\d\d$")
-# The rule under the header, its glide (motion.fetching) lit while the usage is still fetched.
-RULE = "^[─━]{%d}$"
+RULE = "^─{%d}$"           # the rule under the header
 FIX = "atoll-fix  Fable 5.1  ● working"
 
 
