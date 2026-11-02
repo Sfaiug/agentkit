@@ -55,7 +55,7 @@ class SuiteOnAHelper(unittest.TestCase):
         def landed_from(name, *clone):
             if clone:
                 line.line, line.rig.path = f".merge-{name}.lock", checkout.parent / name
-                line.home.run("git", "clone", "-q", *clone, str(line.rig.path))
+                self.assertEqual(line.home.run("git", "clone", "-q", *clone, str(line.rig.path)).code, 0)
                 line.rig.git("remote", "set-url", "origin", origin)
                 line.rig.git("pull", "-q", "origin", "main")
             line.member({f"{name}.txt": "x\n"})
@@ -65,9 +65,18 @@ class SuiteOnAHelper(unittest.TestCase):
         own = landed_from("acme")
         self.assertEqual(landed_from("borrowing", "--shared", str(checkout)), own)
         self.assertNotEqual(landed_from("plain", origin), own)
+
+        def objects_kept_apart(bare):    # side by side in one store, each still its repository's
+            store = line.home.root / "store" / Path(bare).name
+            store.parent.mkdir(exist_ok=True)
+            (Path(bare) / "objects").rename(store)
+            (Path(bare) / "objects").symlink_to(store, target_is_directory=True)
+
+        objects_kept_apart(origin)
         shared = landed_from("borrowing-origin", "--shared", origin)
         origin = str(Line(files, home=line.home, name="gadget").rig.bare)
-        self.assertNotEqual(landed_from("gadget", "--shared", origin), shared)
+        objects_kept_apart(origin)
+        self.assertNotEqual(landed_from("borrowing-gadget", "--shared", origin), shared)
 
     def test_a_new_run_starts_beside_a_check_that_waits_here(self):
         # Owner, 30 Oct 2026: nothing waits for compute.  The test holds this host's one turn.

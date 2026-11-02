@@ -763,9 +763,11 @@ def main_checkout(repo):
     common = (Path(repo) / out.strip()).resolve() if code == 0 and out.strip() else None
     if common == versions.repository().resolve():
         return update.agentkit_dir()     # ak's own: each version of ~/agentkit is a worktree of it
-    if common and common.name == ".git":
-        return common.parent
-    return common or Path(repo)     # a bare repository is its own, whatever lies beside it
+    if not common:
+        return Path(repo)
+    bare = common.name != ".git" and tool_run(
+        ["git", f"--git-dir={common}", "rev-parse", "--is-bare-repository"])[1].strip() == "true"
+    return common if bare else common.parent     # a bare repository is its own, whatever lies beside it
 
 
 def repository_id(repo):
@@ -779,7 +781,8 @@ def repository_id(repo):
         objects = place / tool_run(["git", "-C", str(place), "rev-parse", "--git-path", "objects"])[1].strip()
         try:
             donor = (objects / "info/alternates").read_text().splitlines()[0]
-            place = (objects / donor).resolve().parent
+            # As git reads it, the link kept: an object directory linked elsewhere still belongs to the path's owner
+            place = Path(os.path.normpath(objects.resolve() / donor)).parent
         except (OSError, IndexError, ValueError):
             break
     return hashlib.sha256(str(main_checkout(place)).encode()).hexdigest()[:12]
