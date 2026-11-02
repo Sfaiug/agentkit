@@ -182,6 +182,8 @@ keyboard.give()
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
              "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLUMNS", "LINES")
 GLIDE = re.compile(r"\x1b\[2;\d+H\x1b\[[0-9;]*m━")   # a lit cell written on the rule's row
+# A whole update with a row in it: a clock's cell has none.
+DRAW = re.compile(r"(?s)\x1b\[\?2026h(?:(?!\x1b\[\?2026l).)*?\x1b\[K.*?\x1b\[\?2026l")
 HUNG = 120      # seconds with no answer: a child importing cold on a loaded host takes tens of them
 
 
@@ -251,11 +253,11 @@ class Screen:
             time.sleep(0.01)
 
     def draw(self, after=0):
-        """Where the next draw of rows past `after` characters starts and the lines it leaves
-        up, waiting for it."""
-        self.when(r"\x1b\[K(?:.|\n)*?\x1b\[\?2026l", after)
+        """Where the first draw of rows starting at or past `after` characters starts and the
+        lines it leaves up, waiting for it."""
+        self.when(DRAW.pattern, after)
         text = self.text()
-        start = text.rindex("\x1b[?2026h", 0, text.index("\x1b[K", after))
+        start = DRAW.search(text, after).start()
         lines = terminal.ANSI.sub("", draws(text, start)[-1].split("\x1b[J")[0])
         return start, lines.replace("\r", "").split("\n")[:-1]
 
