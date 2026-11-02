@@ -2,40 +2,67 @@
 
 When nothing moves, the clock has the screen look at every seat again (`menu.TICK`) in a thread of
 its own, where each merge's ending a seat owing work was owed listed and statted every run twice.
-With those seats' runs going, eight such endings each cost a still minute less than twice the CPU
-none do, the screen's reaped children's included.  Black-box, on the idle key's open screen.
+With those seats' runs going, a still minute lists the runs fewer times than the endings owed, by
+the kernel's count (inotify).  No CPU time, and no second minute to set it against: what a minute
+holds follows the host's load, which only lowers this count.  Black-box, on the idle key's open
+screen.
 """
 
+import ctypes
+import os
 from pathlib import Path
+import select
+import struct
 import sys
 import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_key_idle_screen_reads_only_what_changed import MINUTE, RUNS, SEATS, OpenScreen, ended
+from test_key_idle_screen_reads_only_what_changed import (BOUND, MINUTE, RUNS, SEATS, OpenScreen,
+                                                          ended, row)
+
+# A listing opens the directory and closes it: inotify merges an event with the same one before it,
+# so the opens of a queue left unread for a minute count only with the closes between them.
+IN_OPEN, IN_CLOSE_NOWRITE = 0x20, 0x10
+EVENT = struct.Struct("iIII")
+
+
+def listings(directory, seconds):
+    """How often `directory` itself is listed, over that many seconds from its next listing."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    queue = libc.inotify_init1(os.O_CLOEXEC)
+    assert queue >= 0, os.strerror(ctypes.get_errno())
+    try:
+        watch = libc.inotify_add_watch(queue, os.fsencode(directory), IN_OPEN | IN_CLOSE_NOWRITE)
+        assert watch >= 0, os.strerror(ctypes.get_errno())
+        assert select.select([queue], [], [], BOUND)[0], "nothing ever listed it"
+        time.sleep(seconds)
+        events = os.read(queue, 1 << 20)
+    finally:
+        os.close(queue)
+    count, at = 0, 0
+    while at < len(events):
+        _, mask, _, name = EVENT.unpack_from(events, at)     # a name: what it holds, not itself
+        count += bool(mask & IN_OPEN and not name)
+        at += EVENT.size + name
+    return count
 
 
 class SeatLookReadsTheRunsOnce(OpenScreen):
-    def owed_minute(self, endings):
-        """What the screen runs over a still minute once each seat owing work has a run going
-        and `endings` merges of today's whose endings nobody has told it."""
-        now = time.time()
-        for n, seat in enumerate(SEATS[::2]):     # every other seat is planned: it owes work
-            for k in range(endings + 1):
+    def test_a_still_minute_lists_the_runs_fewer_times_than_its_seats_are_owed_endings(self):
+        now, endings, owing = time.time(), 8, SEATS[::2]     # every other seat is planned: owing
+        for n, seat in enumerate(owing):
+            # each seat's run going last, so the last one's row working is a read of them all
+            for k in range(endings, -1, -1):
                 run = ended(RUNS + 2 + len(SEATS) * k + n, seat, now)
                 run.update({"finished_at": now - 2700, "handed_back": None, "reported": False}
                            if k else {"state": "running", "verdict": None, "merged": False,
                                       "started_at": now, "finished_at": None})
                 self.home.write(f".agentkit/runs/{run['run_id']}/run.json", run)
         (self.home.path / ".agentkit/state/runs-moved").touch()
-        self.quiet(self.held())
-        start = self.cpu()
-        time.sleep(MINUTE)
-        return self.cpu() - start
-
-    def test_seats_owed_eight_endings_each_cost_less_than_twice_seats_owed_none(self):
-        none = self.owed_minute(0)
-        self.assertLess(self.owed_minute(8), 2 * none)
+        self.menu.wait(row(owing[-1], "● working"), bound=BOUND)
+        self.assertLess(listings(self.home.path / ".agentkit/runs", MINUTE),
+                        endings * len(owing))
 
 
 if __name__ == "__main__":
