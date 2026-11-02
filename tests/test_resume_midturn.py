@@ -331,6 +331,16 @@ class ResumeMidturn(unittest.TestCase):
         self.assertEqual(len(waits), 1)
         self.assertIn("original task text", calls[2]["prompt"])
 
+    def test_those_words_on_the_ask_to_finish_in_the_foreground_still_start_afresh(self):
+        background = {"events.jsonl": json.dumps({"type": "system", "tasks": [{"id": "acme"}],
+                                                  "subtype": "background_tasks_changed"}) + "\n",
+                      "final.md": "## Summary\nstill running\n", "exit": 0}
+        calls, waits = self.resume_saying("20260922-1314-lost-finish", background,
+                                          {"stderr.log": LOST})
+        self.assertEqual([call["sid"] for call in calls], ["gone", "gone", ""])
+        self.assertEqual(waits, [])
+        self.assertIn("original task text", calls[2]["prompt"])
+
     def test_an_answer_quoting_those_words_keeps_its_conversation(self):
         calls, waits = self.resume_saying(
             "20260922-1313-lost-quoted", {"final.md": LOST, "stderr.log": LOST, "exit": 0})
