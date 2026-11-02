@@ -75,6 +75,8 @@ class FailedNights(unittest.TestCase):
             Project(home, "broken"), Project(home, "garbled"), Project(home, "nameless"),
             Project(home, "suiteless", tests=None)]
         cls.api = api = Project(home, "api")     # fewest title words `ak run` calls one change
+        cls.late = late = Project(home, "late")
+        late.says({"started": "night-1", "passed": True})
         acme.says(failed(names=NAMES))
         calm.says({"started": "night-1", "passed": True})
         broken.says("the host is down", code=3)
@@ -107,6 +109,19 @@ class FailedNights(unittest.TestCase):
         broken.says("the host is down", code=3)
         garbled.says("no JSON here")
         cls.one_just_read = cls.tick(hour_on=True, just_read=garbled)
+        # the owner marks nobody to execute: `ak run` from no seat is refused, this run is not
+        akconfig.write(home, ["opus", "astra"], workers=[], reviewers=["astra"])
+        calm.says(failed())
+        cls.tick(hour_on=True, seen=True)
+        cls.ended()
+        # the marked reviewer is signed out: no run can start, and nothing retries one that tried
+        fakes["codex"].answer("auth", "signed out", code=1)
+        late.says(failed())
+        cls.signed_out = cls.tick(hour_on=True, seen=True)
+        refused = late.runs()
+        fakes["codex"].answer("auth", "signed in")
+        cls.signed_in = cls.tick(hour_on=True, seen=True)
+        cls.ended(refused)
 
     @classmethod
     def tick(cls, hour_on=False, seen=False, just_read=None):
@@ -119,13 +134,15 @@ class FailedNights(unittest.TestCase):
         assert done.code == 0, done.out + done.err
         return {project.name: (len(project.runs()), sum(
                     line.startswith(f"WARN {project.name}:") for line in done.out.splitlines()))
-                for project in (cls.acme, cls.calm, cls.api, *cls.stuck)}
+                for project in (cls.acme, cls.calm, cls.api, cls.late, *cls.stuck)}
 
     @classmethod
-    def ended(cls):
-        """Every run ends not needed, as a first turn finding the night gone on the tip says."""
+    def ended(cls, refused=()):
+        """Every run but those refused at launch ends not needed, as a first turn finding the
+        night gone on the tip says."""
         deadline = time.monotonic() + 120
-        while any(record_of(run)["state"] != "not_needed" for run in taskfile.runs(cls.home)):
+        while any(record_of(run)["state"] != "not_needed"
+                  for run in taskfile.runs(cls.home) if run not in refused):
             assert time.monotonic() < deadline, "a run never ended"
             time.sleep(0.1)
 
@@ -170,6 +187,17 @@ class FailedNights(unittest.TestCase):
     def test_a_later_night_refused_leaves_the_running_fix_its_own_failures(self):
         self.assertEqual(self.kept, ["tests/a.py::first"])
         self.assertEqual(self.api.check(self.api.runs()[1]), ["tests/b.py::second"])
+
+    def test_with_nobody_marked_to_execute_the_marked_orchestrator_builds_it(self):
+        record = record_of(self.calm.runs()[0])
+        self.assertEqual((record["workers"], record["reviewers"], record["executor"]),
+                         (["opus"], ["astra"], "opus"))
+
+    def test_a_reviewer_signed_out_says_so_and_the_next_hour_after_they_return_fixes_the_night(self):
+        self.assertEqual(self.signed_out["late"], (1, 1))
+        self.assertEqual(self.signed_in["late"], (2, 0))
+        self.assertEqual([record_of(run)["state"] for run in self.late.runs()],
+                         ["error", "not_needed"])
 
     def test_no_seat_is_opened_and_no_card_reaches_the_owner(self):
         self.assertEqual(self.sink.requests, [])

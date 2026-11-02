@@ -17,7 +17,7 @@ import json
 import shlex
 import time
 
-from . import config, gitcall, orch, task as taskfile, watch
+from . import config, gitcall, handback, orch, run, task as taskfile
 
 EVERY = 3600    # how often a checkout's night is read
 CEILING = 60    # a read still running then fails
@@ -75,18 +75,43 @@ def _read(checkout, handled, log):
     try:
         if not names or not tests:
             raise config.Error("no tests: to check a fix by" if names else "no failures named")
-        run = watch.launch(str(_write_task(checkout, started, names, tests)))
+        fix = _start(checkout, started, names, tests)
     except (config.Error, OSError) as exc:
         log(f"WARN {checkout.name}: no fix run for its night {started}: {exc}")
         return None
-    log(f"{checkout.name}: its night {started} failed; {run} fixes it")
+    log(f"{checkout.name}: its night {started} failed; {fix} fixes it")
     return started
+
+
+def _start(checkout, started, names, tests):
+    """The night's fix run, started on no seat; its id.  `ak run` refuses this where the owner
+    marks nobody to execute (a seat's orchestrator then builds its own work), so the run is bound
+    to the marked executors, else that orchestrator, and to the marked reviewers."""
+    task = _write_task(checkout, started, names, tests)
+    meta, body, title = taskfile.parse_task(task)
+    commands = taskfile.done_when(body, task)
+    refusal = taskfile.launch_refusal(meta, commands, run.launch_policy(task)["rounds"])
+    rivals = run.already_under_way(task, meta, title, commands)
+    if refusal or rivals:
+        raise config.Error(refusal or f"{rivals[0]['id']} is under way")
+    cfg = config.load()
+    defaults = cfg["defaults"]
+    workers = defaults["workers"] or [defaults["orchestrator"]]
+    directory = handback.free_run_dir(gitcall.slugify(title))
+    directory.mkdir(parents=True)
+    (directory / "task.md").write_text(task.read_text())
+    (directory / "log.txt").touch()
+    run.launch_for_seat(directory, {"workers": workers,
+                                    "reviewers": defaults.get("reviewers", workers)},
+                        {"night": started, "repo": str(checkout)}, cfg, task_file=task,
+                        pick_first=True)
+    return directory.name
 
 
 def _write_task(checkout, started, names, tests):
     """The fix run's task and the file of names its done-when exports as `AK_ONLY`, the contract
     a red piece's retry uses (`worker.boxed`); the task's path.  Its title is every night's, so
-    `ak run` refuses a night's run while another night's is under way.  Their names hash what the
+    `_start` refuses a night's run while another night's is under way.  Their names hash what the
     night says, so a read writing them, refused or not, never changes a running fix's list."""
     held = hashlib.sha256(json.dumps([started, names]).encode()).hexdigest()[:16]
     task = config.HOME / "tasks" / checkout.name / f"night-{held}.md"
