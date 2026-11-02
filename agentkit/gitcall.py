@@ -763,7 +763,26 @@ def main_checkout(repo):
     common = (Path(repo) / out.strip()).resolve() if code == 0 and out.strip() else None
     if common == versions.repository().resolve():
         return update.agentkit_dir()     # ak's own: each version of ~/agentkit is a worktree of it
-    return common.parent if common else Path(repo)
+    if common and common.name == ".git":
+        return common.parent
+    return common or Path(repo)     # a bare repository is its own, whatever lies beside it
+
+
+def repository_id(repo):
+    """A short name of the repository at `repo`, shared by its worktrees and by a clone borrowing its
+    objects (`clone --shared`, a check's throwaway): under names of their own, 169 clones each sent
+    one machine the whole history until its memory was full (2 Nov 2026), and measured suites afresh.
+    """
+    place, seen = Path(repo), set()
+    while place not in seen:     # git accepts an alternate that leads back
+        seen.add(place)
+        objects = place / tool_run(["git", "-C", str(place), "rev-parse", "--git-path", "objects"])[1].strip()
+        try:
+            donor = (objects / "info/alternates").read_text().splitlines()[0]
+            place = (objects / donor).resolve().parent
+        except (OSError, IndexError, ValueError):
+            break
+    return hashlib.sha256(str(main_checkout(place)).encode()).hexdigest()[:12]
 
 
 def leftover_junk(path):

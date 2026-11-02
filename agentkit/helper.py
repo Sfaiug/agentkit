@@ -201,8 +201,7 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0):
         and again once it is prepared, which may take 30 minutes, as the work starts then."""
         return ends.get(alias, math.inf) >= time.time() + lasting
     aliases = list(filter(lasts, aliases))
-    # A checkout's repository is the one its main checkout has, wherever the suite runs.
-    repo = hashlib.sha256(str(gitcall.main_checkout(cwd)).encode()).hexdigest()[:12]
+    repo = gitcall.repository_id(cwd)
     try:
         image, recipe = _recipe(cwd, repo) or (None, None)
     except ValueError as exc:

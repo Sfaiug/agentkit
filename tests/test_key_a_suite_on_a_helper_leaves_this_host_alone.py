@@ -42,6 +42,33 @@ class SuiteOnAHelper(unittest.TestCase):
         self.assertIn("land", line.verdict(1))
         self.assertEqual(line.runs(), [])
 
+    def test_a_clone_borrowing_a_repository_s_objects_names_its_copy_there(self):
+        files = {"t/a.sh": "true\n", "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"}
+        line = Line(files)
+        self.addCleanup(line.close)
+        akconfig.write(line.home, ["opus", "astra"], settings={"suite_helper": "acme-mac"})
+        names = line.home.root / "names"
+        line.home.fake("ssh", SSH.replace("    sys.stdin.buffer.read()\n", f"""    sys.stdin.buffer.read()
+    open({str(names)!r}, "a").write(words[words.index("mac.sh") + 4] + "\\n")\n"""))
+        checkout, origin = line.rig.path, str(line.rig.bare)
+
+        def landed_from(name, *clone):
+            if clone:
+                line.line, line.rig.path = f".merge-{name}.lock", checkout.parent / name
+                line.home.run("git", "clone", "-q", *clone, str(line.rig.path))
+                line.rig.git("remote", "set-url", "origin", origin)
+                line.rig.git("pull", "-q", "origin", "main")
+            line.member({f"{name}.txt": "x\n"})
+            self.assertEqual(line.land().code, 0)
+            return names.read_text().split()[-1]
+
+        own = landed_from("acme")
+        self.assertEqual(landed_from("borrowing", "--shared", str(checkout)), own)
+        self.assertNotEqual(landed_from("plain", origin), own)
+        shared = landed_from("borrowing-origin", "--shared", origin)
+        origin = str(Line(files, home=line.home, name="gadget").rig.bare)
+        self.assertNotEqual(landed_from("gadget", "--shared", origin), shared)
+
     def test_a_new_run_starts_beside_a_check_that_waits_here(self):
         # Owner, 30 Oct 2026: nothing waits for compute.  The test holds this host's one turn.
         line = Line({"t/a.sh": "true\n",

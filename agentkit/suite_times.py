@@ -5,7 +5,6 @@ the lander's among them, keeps those its pieces printed (`passed`, wherever each
 every piece of a suite gets one copy, AK_TIMES, taken as the suite starts, so all of them cut
 the same shares (tests/every_file.py)."""
 
-import hashlib
 import json
 from pathlib import Path
 import re
@@ -23,9 +22,7 @@ def passed(name, took):
 
 
 def _path(cwd):
-    # Every worktree of a repository shares its record.
-    repo = hashlib.sha256(str(gitcall.main_checkout(cwd)).encode()).hexdigest()[:12]
-    return config.STATE / f"test-times-{repo}.json"
+    return config.STATE / f"test-times-{gitcall.repository_id(cwd)}.json"
 
 
 def handed(cwd):
