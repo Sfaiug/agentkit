@@ -44,6 +44,7 @@ func sandbox(t *testing.T) string {
 	t.Cleanup(func() { os.RemoveAll(sockets) })
 	for key, value := range map[string]string{
 		"HOME": home, "USERPROFILE": home, "TMUX_TMPDIR": sockets, "AGENTKIT_TMUX_SOCKET": "seat-test",
+		"XDG_RUNTIME_DIR": t.TempDir(), // no user manager but one a test starts
 	} {
 		t.Setenv(key, value)
 	}

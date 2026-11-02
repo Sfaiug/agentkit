@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/host"
 	"agentkit/internal/lock"
 )
 
@@ -46,14 +47,17 @@ func absent(path string) bool {
 
 // Alone is whether stopping this going run is its record and its report and nothing else, which
 // is all Stop carries out: nothing it holds (`holds`, `Lined`), no report to keep a seat's notice
-// from, and no history row to close.
+// from, no history row to close, and nothing alive whatever the record says, since a record can
+// lag its loop: no user manager that may hold the run's unit (Python stops it by its name) and no
+// process carrying the run's marker.
 func Alone(dir string, record *Object) bool {
 	for _, key := range holds {
 		if record.Truthy(key) {
 			return false
 		}
 	}
-	return !Ended(record) && !Lined(record) && Historyless() && absent(filepath.Join(dir, "result.md"))
+	return !Ended(record) && !Lined(record) && Historyless() && absent(filepath.Join(dir, "result.md")) &&
+		!host.UserManager() && len(host.Marked(dir)) == 0
 }
 
 // Stop is Python's stop.end of a run that is Alone, stopped by the user: the record first, under

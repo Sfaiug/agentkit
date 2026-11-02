@@ -33,6 +33,7 @@ func TestOrchStopOutlivesItsOwnPane(t *testing.T) {
 	t.Cleanup(func() { os.RemoveAll(sockets) })
 	t.Setenv("TMUX_TMPDIR", sockets)
 	t.Setenv("AGENTKIT_TMUX_SOCKET", "stop-test")
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir()) // no user manager, whose unit the stop leaves to Python
 	record := filepath.Join(home, ".agentkit", "runs", "r-going", "run.json")
 	write(t, record, `{"run_id": "r-going", "state": "running", "launched_session": "acme"}`)
 	ready := filepath.Join(home, "marked")
