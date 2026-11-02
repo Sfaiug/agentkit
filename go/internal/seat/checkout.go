@@ -60,6 +60,11 @@ func checkoutOf(repo string, stands func() []stand) string {
 // NoCheckouts is whether no checkout stands for a project on this machine, false where a look
 // fails: listed passes over a place it cannot read, which may hold one.
 func NoCheckouts() bool {
+	return checkoutsSeen() && len(listed()) == 0
+}
+
+// checkoutsSeen is whether a look at every place a checkout may stand succeeded.
+func checkoutsSeen() bool {
 	home, _ := os.UserHomeDir()
 	code := filepath.Join(home, "code")
 	entries, err := os.ReadDir(code)
@@ -70,7 +75,7 @@ func NoCheckouts() bool {
 	for _, entry := range entries {
 		places = append(places, filepath.Join(code, entry.Name()))
 	}
-	return !slices.ContainsFunc(places, unseen) && len(listed()) == 0
+	return !slices.ContainsFunc(places, unseen)
 }
 
 // unseen is whether a look at a place, or at the `.git` a folder there would hold, failed on
