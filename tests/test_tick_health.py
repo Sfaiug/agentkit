@@ -23,6 +23,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, job as jobs, orch, record, run, watch
 from fixtures.tick import only_passes
+from test_key_tick_time_is_visible import STAMP
 
 LOGGED_OUT = "GitHub is logged out: run `gh auth login -p https -w`"     # every seat's reason
 
@@ -231,7 +232,8 @@ class TickHealth(unittest.TestCase):
         with self.as_cron():
             self.assertEqual(watch.main([]), 0)
         self.assertEqual(log.with_name(watch.LOG_KEPT).stat().st_size, watch.LOG_MAX + 1)
-        self.assertEqual(log.read_text(), "tick already running (pid 5, for 1 min)\n")
+        self.assertRegex(log.read_text(),
+                         f"\\A{STAMP} tick already running \\(pid 5, for 1 min\\)\n\\Z")
 
     def test_a_writer_rejoins_the_live_log_after_another_tick_rolls_it(self):
         log, kept = watch.log_path(), watch.log_path().with_name(watch.LOG_KEPT)

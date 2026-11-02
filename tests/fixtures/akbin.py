@@ -56,6 +56,8 @@ REFUSED = ("gh", "ssh", "curl", "systemctl", "systemd-run", "loginctl", "journal
            "notify-send", "claude", "codex", "muse", "grok", "opencode", "agy")
 
 Done = namedtuple("Done", "code out err")
+# cron's line: a tick's two streams appended to its log, the program as $0
+CRON = '"$0" watch "$@" >>"$HOME/.agentkit/tmp/watch.log" 2>&1'
 
 # ak's collection sweeps /tmp: a /tmp of the box's own keeps the host's out of its reach.
 _FILES = ("bwrap", "--dev-bind", "/", "/", "--tmpfs", "/tmp")
@@ -273,12 +275,12 @@ class Home:
                     os.close(fd)
         return Done(proc.returncode, out, err)
 
-    def tick(self, env=None, box=()):
+    def tick(self, env=None, box=(), cron=False):
         """One `ak watch`, boxed: a tick asks the public boards and the shared browser on
         loopback, so it gets its own, where only a sink or Google on the host's is relayed
         (tests/fixtures/sink.py), and its collection sweeps /tmp, so it gets one holding only
         this Home and the program.  `box` adds bwrap's words to that box: a file of the test's
-        bound over one of the machine's, say."""
+        bound over one of the machine's, say.  `cron` runs it by cron's line, `CRON`."""
         named = self._env(env)
         sink = urlsplit(named.get("AK_GOOGLE_URL") or named.get("AK_NOTIFY_SINK", ""))
         port = sink.port if sink.hostname == "127.0.0.1" else None
@@ -288,8 +290,9 @@ class Home:
         try:
             # a run the tick resumes goes on in the box to its end: as long as an `ak run`
             return self.run(*self.box((*_BOX, *box)), sys.executable, "-I",
-                            Path(__file__).resolve(), "tick", str(port or ""), str(way), AK,
-                            "watch", env=env, timeout=300)
+                            Path(__file__).resolve(), "tick", str(port or ""), str(way),
+                            *(("sh", "-c", CRON, AK) if cron else (AK, "watch")), env=env,
+                            timeout=300)
         finally:
             listener.shutdown(socket.SHUT_RDWR)     # wakes its `accept`, as `close` would not
             listener.close()

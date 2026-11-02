@@ -350,6 +350,33 @@ def tick_log(text):
     print(text, flush=True)
 
 
+class Stamped:
+    """A stream of the tick's into its log: each line written to it, blank or not, whoever
+    writes it -- a WARN printed to stderr, a traceback -- starts with its date and time, so two
+    lines say how long what lay between them took.  Anything else it answers as the stream."""
+
+    def __init__(self, stream):
+        self.stream, self.fresh = stream, True      # `fresh`: what comes next starts a line
+
+    def write(self, text):
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S ")
+        for line in text.splitlines(keepends=True):
+            self.stream.write(stamp + line if self.fresh else line)
+            self.fresh = line != line.splitlines()[0]
+        return len(text)
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+
+def stamp_log():
+    """Date every line this tick writes into its log from here on (`Stamped`).  A terminal's
+    reader sees each line as it comes, so a stream that is not the log is left as it is."""
+    log_streams()
+    for name in LOG_OWNED:
+        setattr(sys, name, Stamped(getattr(sys, name)))
+
+
 def tick_health():
     """The line `--dry-run` prints beside its preview: who holds the lock, how big the log is."""
     running = tick_running()
@@ -7829,7 +7856,7 @@ def local_passes(state, dry_run, log):
 
     Each is (its name, the pass, whether a dry run runs it too).  A name is one to three
     lowercase words, no other pass's, and all a pass is known by: `main` builds the WARN line
-    of one that raises from it.
+    of one that raises from it, and the line of one that takes over a second.
     A dry run runs only the passes it can tell `dry_run`, and reads usage off the cache as it
     stands: reading that file probes nothing, and a dry run changes nothing.
 
@@ -7976,6 +8003,7 @@ def main(argv):
         log(tick_health())
         held = None
     else:
+        stamp_log()
         config.ensure_dirs()
         held = tick_lock()
         if held is None:
@@ -7989,36 +8017,54 @@ def main(argv):
     # one reading of the process table for the whole tick: every seat it looks at is told
     # from a watcher loop by the same `ps`
     with held if held is not None else nullcontext(), orch.one_reading():
-        state = load_state()
-        for name, step, also_dry in local_passes(state, dry_run, log):
-            if also_dry or not dry_run:
-                try:
-                    step()
-                except PASS_ERRORS as exc:
-                    log(f"WARN {name} did not run: {exc}")
-        user, why = gh_json(config.RUNS, "api", "user")
-        me = user.get("login") if isinstance(user, dict) else None
-        if not isinstance(me, str) or not me:
-            # No GitHub is no reason to lose a tick: everything above has already run, and only
-            # the GitHub passes are skipped.  gh's advice runs to several lines; one line
-            # is the whole point here.
-            reason = " ".join((why or "gh api user failed").split())[:160]
-            if not LOGGED_OUT.search(reason):
-                # A timeout or an outage is not a login to go and fix, and saying it is would
-                # put a red word on seats whose credentials are perfectly good.  An expiry an
-                # earlier tick did see stands until a tick can ask again and be answered.
-                log(f"WARN GitHub is unavailable; PR checks skipped ({reason})")
-                return 0
-            # This one is the user's to fix, and is written down for every seat to say so.
-            log(f"gh is not logged in; PR checks skipped ({reason})")
-            if not dry_run:
+        state, began, slowest = load_state(), time.time(), (0.0, "")
+
+        def timed(name, step):
+            # monotonic, so a clock set mid-pass never shows as the pass's time
+            nonlocal slowest
+            start = time.monotonic()
+            try:
+                return step()
+            finally:
+                took = time.monotonic() - start
+                if took > 1 and not dry_run:
+                    log(f"{name} took {took:.1f} s")
+                slowest = max(slowest, (took, name))
+
+        try:
+            for name, step, also_dry in local_passes(state, dry_run, log):
+                if also_dry or not dry_run:
+                    try:
+                        timed(name, step)
+                    except PASS_ERRORS as exc:
+                        log(f"WARN {name} did not run: {exc}")
+            user, why = timed("github user", lambda: gh_json(config.RUNS, "api", "user"))
+            me = user.get("login") if isinstance(user, dict) else None
+            if not isinstance(me, str) or not me:
+                # No GitHub is no reason to lose a tick: everything above has already run, and
+                # only the GitHub passes are skipped.  gh's advice runs to several lines; one
+                # line is the whole point here.
+                reason = " ".join((why or "gh api user failed").split())[:160]
+                if not LOGGED_OUT.search(reason):
+                    # A timeout or an outage is not a login to go and fix, and saying it is
+                    # would put a red word on seats whose credentials are perfectly good.  An
+                    # expiry an earlier tick did see stands until a tick can ask again and be
+                    # answered.
+                    log(f"WARN GitHub is unavailable; PR checks skipped ({reason})")
+                    return 0
+                # This one is the user's to fix, and is written down for every seat to say so.
+                log(f"gh is not logged in; PR checks skipped ({reason})")
                 state["gh_out"] = {"at": time.time()}
-                save_state(state)
-            return 0
-        if not dry_run:
+                return 0
             state.pop("gh_out", None)
-        incoming(state, me, dry_run, log)
-        outgoing(state, me, dry_run, log)
-        if not dry_run:
-            save_state(state)
-        return 0
+            timed("incoming prs", lambda: incoming(state, me, dry_run, log))
+            timed("outgoing prs", lambda: outgoing(state, me, dry_run, log))
+            return 0
+        finally:
+            # However the tick ends, the next one and `ak doctor` find when it ran and what
+            # held it up most; a dry run writes nothing.
+            if not dry_run:
+                took, name = slowest
+                state["tick"] = {"started_at": began, "ended_at": time.time(),
+                                 "slowest": {"pass": name, "seconds": round(took, 1)}}
+                save_state(state)
