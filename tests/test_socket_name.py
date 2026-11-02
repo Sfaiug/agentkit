@@ -48,6 +48,10 @@ class SocketName(unittest.TestCase):
     def test_a_uid_with_no_entry_has_no_home_to_be_and_does_not_fail(self):
         self.assertRegex(self.name(self.account), r"\Aagentkit-[0-9a-f]{8}\Z")
 
+    def test_a_home_whose_name_is_not_utf8_has_its_own_too(self):
+        home = self.account / os.fsdecode(b"home-\xff")
+        self.assertRegex(self.name(home, self.account), r"\Aagentkit-[0-9a-f]{8}\Z")
+
     def test_the_socket_variable_wins_over_both(self):
         self.assertEqual(self.name(self.account, self.account, socket="x"), "x")
         self.assertEqual(self.name(self.account, self.account.parent, socket="x"), "x")

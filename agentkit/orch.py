@@ -384,7 +384,7 @@ def socket_name():
         account = None
     if Path.home().resolve() == account:
         return SOCKET
-    return f"{SOCKET}-{hashlib.sha256(str(config.HOME.resolve()).encode()).hexdigest()[:8]}"
+    return f"{SOCKET}-{hashlib.sha256(os.fsencode(config.HOME.resolve())).hexdigest()[:8]}"
 
 
 def jobs_socket():
