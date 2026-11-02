@@ -5700,7 +5700,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     updates = []                         # this loop's inbox, independent of the usage/read worker
     start_update = not (dry_run or overlay)
     last = [[], None]                     # what the last read left: the seats and their groups
-    clock = motion.Clock(fade=overlay)    # what moves between draws: the dots, news, and
+    clock = motion.Clock(fade=overlay and terminal.SHOWING not in os.environ)
+                                          # what moves between draws: the dots, news, and
                                           # the popup's first draw coming up
     with closing(Live(cfg)) as live, closing(terminal.Keyboard()) as keyboard:
         if keyboard.take():
@@ -5731,7 +5732,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             # new code under an open menu, the tick's above all, draws it from here on, once
             # the menu's own update, which stamps the install too, has said how it went
             if updated or (updated is False and newborn is None and update.outdated()):
-                keyboard.give()
+                keyboard.give(showing=True)
                 live.close()
                 sys.stdout.flush()
                 os.execve(sys.executable, [sys.executable, *sys.argv],

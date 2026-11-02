@@ -17,7 +17,7 @@ OPTION = ("=fix-api:", "@ak_top", "working")
 
 class Keyboard:
     """A terminal the menu has taken."""
-    take = give = close = lambda self: True
+    take = give = close = lambda self, **_kw: True
 
 
 class BarsFromLiveCode(Sandbox):

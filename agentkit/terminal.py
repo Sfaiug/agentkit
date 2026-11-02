@@ -756,6 +756,7 @@ class Spot(namedtuple("Spot", "what cell first last", defaults=(None, None, 0, 0
 # any-event tracking (1003) -- reported in SGR form (1006); and all of it undone, in reverse.
 TAKE = "\033[?1049h\033[?25l\033[?1003h\033[?1006h"
 GIVE = "\033[?1006l\033[?1003l\033[?25h\033[?1049l"
+SHOWING = "AK_SCREEN_SHOWING"       # the program this one execs finds its screen up (`give`)
 _TAKEN = None      # the Keyboard that has the terminal now, or None
 _KEYED = b""       # what a keyboard sent past the key it was read for, or while `sense` asked
 _PRESSED = False   # the left button went down and has not been read coming up
@@ -851,11 +852,13 @@ class Keyboard:
         attrs[3] &= ~(termios.ICANON | termios.ECHO)
         attrs[6][termios.VMIN], attrs[6][termios.VTIME] = 1, 0
         termios.tcsetattr(self.fd, termios.TCSADRAIN, attrs)
-        self._send(self.sequences[0])
+        showing = os.environ.pop(SHOWING, None)
+        self._send(self.sequences[0].removeprefix("\033[?1049h" if showing else ""))
         return True
 
-    def give(self):
-        """The terminal back exactly as `take` found it: its attributes, its screen, its cursor.
+    def give(self, showing=False):
+        """The terminal back exactly as `take` found it: its attributes, its screen, its cursor;
+        with `showing` the last frame stays up, cursor hidden, until new code execed draws over it.
 
         Nothing past the key that gives it is read, so what he typed after that key is there
         for whoever takes the terminal.  A button still down comes up as no click: the rest of
@@ -865,7 +868,9 @@ class Keyboard:
         global _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD
         if _TAKEN is not self:
             return
-        self._send(self.sequences[1])
+        if showing:
+            os.environ[SHOWING] = "1"
+        self._send(self.sequences[1].removesuffix("\033[?25h\033[?1049l" if showing else ""))
         termios.tcsetattr(self.fd, termios.TCSADRAIN, self.saved)
         _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD = None, False, None, False, None
         for number, handler in self.kept.items():
