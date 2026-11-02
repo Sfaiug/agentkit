@@ -220,9 +220,13 @@ def rented():
 def serving():
     """{name: its end} of the machines ak rents that serve, as the tick last found them ready,
     while ak may rent."""
-    text = (config.STATE / SSH_CONFIG).read_text() if ssh_config() else ""
     return {name: int(until) for name, until in re.findall(r"^Host (.+)\n  # until (\d+)$",
-                                                             text, re.M)}
+                                                             _routes(), re.M)}
+
+
+def _routes():
+    """The ssh config's text, while ak may rent."""
+    return (config.STATE / SSH_CONFIG).read_text() if ssh_config() else ""
 
 
 def ssh_config():
@@ -470,16 +474,17 @@ def _moved(ledger, listed, now, prices):
 
 def _idle(listed):
     """{id: seconds it has held nothing} of each of `listed` READY, asked side by side by
-    tools/helper's `idle` with ak's key, made when missing; the address of one not serving yet
-    forgotten first, as Google hands addresses out again and ssh refuses an old host key there."""
+    tools/helper's `idle` with ak's key, made when missing; the address of one with no route yet
+    forgotten first, as Google hands addresses out again and ssh refuses an old host key there.
+    Past that, a key ssh learned stays: Google's agent writes it before sshd first starts."""
     from . import helper, machines    # here, not at the top: both read this module
-    key, known, was = config.SECRETS / SSH_KEY, config.SECRETS / KNOWN_HOSTS, serving()
+    key, known, routes = config.SECRETS / SSH_KEY, config.SECRETS / KNOWN_HOSTS, _routes()
     if not key.exists():
         subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", USER, "-f", key],
                        capture_output=True, check=True)
     reached = [one for one in listed if one.address]
     for one in reached:
-        if one.name not in was:
+        if f"Host {one.name}\n" not in routes:
             subprocess.run(["ssh-keygen", "-R", one.address, "-f", known], capture_output=True)
     known.with_name(f"{KNOWN_HOSTS}.old").unlink(missing_ok=True)     # ssh-keygen's copy
     line = f"test -e {SET_UP} && {helper._line('idle')}"

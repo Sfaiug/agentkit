@@ -90,16 +90,18 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
         google.machines = [listed(n) for n in range(1, 9)]
         cls.first = cls.tick()
         prepare.communicate()   # an empty parcel: the suite goes
-        # a host key at each of 1's and 6's addresses: 1 serves, 6 does not yet
+        # a host key at the addresses of 1, 6 and 8, each with a route, and of 9, new here
         known = home.path / ".agentkit/secrets/google-cloud-known-hosts"
         cls.host_key = " ".join(Path(f"{cls.key}.pub").read_text().split()[:2])
-        known.write_text("".join(f"203.0.113.{n} {cls.host_key}\n" for n in (1, 6)))
+        known.write_text("".join(f"203.0.113.{n} {cls.host_key}\n" for n in (1, 6, 8, 9)))
         (cls.machines / "203.0.113.8").rename(cls.machines / "silent")      # 8 stops answering
-        google.machines = [listed(n) for n in (1, 3, 5, 6, 8)]
-        cls.second, cls.known = cls.tick(), known.read_text()
+        google.machines = [listed(n) for n in (1, 3, 5, 6, 8, 9)]
+        cls.second = cls.tick()
         cls.route = subprocess.run(
             [REAL_SSH, "-G", "-F", home.path / ".agentkit/state/google-cloud-ssh-config", "acme-8"],
             capture_output=True, text=True, env={"HOME": str(home.path)}).stdout.splitlines()
+        cls.tick()      # 8 served no pass now
+        cls.known = known.read_text()
         line = Line({"t/a.sh": "true\n", "tools/helper/Containerfile": "FROM acme\n"}, home=home)
         line.member({"api.txt": "x\n"})
         cls.landed, cls.verdict = line.land(), line.verdict(1)
@@ -155,8 +157,8 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
         self.assertIn("hostname 203.0.113.8", self.route)
         self.assertNotIn("acme-8", self.second[1])
 
-    def test_the_address_of_one_not_serving_yet_is_forgotten_before_ssh_asks_it(self):
-        self.assertEqual(self.known, f"203.0.113.1 {self.host_key}\n")
+    def test_only_the_address_of_one_with_no_route_yet_is_forgotten_before_ssh_asks_it(self):
+        self.assertEqual(self.known, "".join(f"203.0.113.{n} {self.host_key}\n" for n in (1, 6, 8)))
 
     def test_a_suite_goes_to_one(self):
         self.assertEqual(self.landed.code, 0, self.landed.out + self.landed.err)
