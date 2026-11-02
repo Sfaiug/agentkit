@@ -46,8 +46,8 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, history, host,
-               login_refusals, notify, orch, owner, parsed, questions, seat_tokens, staffing,
+from . import (aside_editor, browser, command_help, config, front, gc, gitcall, handback, history,
+               host, login_refusals, notify, orch, owner, parsed, questions, seat_tokens, staffing,
                statusbar, transitions, turns, update, usage, worker)
 from . import record as run_record
 from . import sleep
@@ -8064,9 +8064,11 @@ def local_passes(state, dry_run, log):
         ("notification retry", lambda: notify.retry_pending(dry_run=dry_run, log=log), True),
         # A seat whose harness ends without ak ending it comes back at once (`orch.cmd_ended`),
         # on a server started before its conf said so too ...
-        ("end hook", orch.set_ended_options, False),
+        ("server hooks", orch.set_hook_options, False),
         # ... and one that died under its running runs, after its endings were announced to it.
         ("seat revival", lambda: revive_seats(config.load(), log), False),
+        # A client's hook that was lost, or a weight systemd reset, heals here.
+        ("seat weights", front.once, False),
         ("idle sleep", lambda: sleep.tick(config.load(), log), False),
         ("git housekeeping", lambda: gc.git_housekeeping(log), False),
         # Expensive collection runs detached; malformed retention metadata cannot stop a tick.
