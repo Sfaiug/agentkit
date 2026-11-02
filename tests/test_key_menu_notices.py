@@ -4,7 +4,7 @@ A finished background job leaves its lines in `~/.agentkit/state/update-result`;
 them once, before it draws, and on a terminal waits for Enter or Esc, so a notice that lands
 under an open menu is read, not lost behind the next frame.  From a pipe nobody is there to
 wait for.  An install newer than the open menu (`~/.agentkit/state/installed-at`, which
-install.sh stamps) makes the menu start again, reading everything afresh, on the seat it had
+a server's first install.sh stamps) makes the menu start again, reading everything afresh, on the seat it had
 highlighted, so a menu left open never runs old code.  Black-box: the program `AK_BIN` names
 runs in a person's terminal (tests/fixtures/akterm.py) or from a pipe, beside
 tests/fixtures/akseat.py's seats, and this test fails against `/bin/false`.

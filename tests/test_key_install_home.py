@@ -105,6 +105,13 @@ class FreshServer(unittest.TestCase):
         self.assertLessEqual(self.before, int(stamp))
         self.assertTrue((self.home.path / "code").is_dir())
 
+    def test_a_second_install_leaves_the_stamp_every_open_menu_restarts_on(self):
+        stamp = self.ak_dir / "state" / "installed-at"
+        self.addCleanup(stamp.write_text, stamp.read_text())
+        stamp.write_text("1000\n")
+        installer.run(self.home)
+        self.assertEqual(stamp.read_text(), "1000\n")
+
 
 class Roles(unittest.TestCase):
     @classmethod

@@ -10,6 +10,7 @@ test_go_live_retries_install's offline clone, its origin one commit ahead.
 """
 
 import errno
+import os
 from pathlib import Path
 import sys
 import time
@@ -55,6 +56,18 @@ class InstallSwitchesInOneStep(unittest.TestCase):
     def swapped_out(self):
         return sorted(git(path, "rev-parse", "HEAD")
                       for path in (config.HOME / versions.VERSIONS).iterdir())
+
+    def test_only_a_landing_of_code_moves_the_times_every_open_menu_restarts_on(self):
+        module = self.clone / "agentkit" / "acme.py"
+        for name, moved in (("agentkit/acme.py", True), ("go/acme.go", False), ("docs/acme.md", False),
+                            ("agentkit/harness/acme.py", True), ("bin/acme", True)):
+            with self.subTest(name):
+                (self.root / "seed" / name).parent.mkdir(parents=True, exist_ok=True)
+                self.push(name)
+                if module.exists():
+                    os.utime(module, (1000, 1000))
+                self.go_live()
+                self.assertEqual(module.stat().st_mtime != 1000, moved)
 
     def test_a_lock_a_killed_git_left_is_in_no_move_s_way(self):
         for name in ("HEAD.lock", "index.lock"):

@@ -28,6 +28,8 @@ import tempfile
 
 from . import config, retention
 
+NOT_RUN = (":!go", ":!tests", ":!docs", ":!*.md")
+
 REPOSITORY = "agentkit.git"     # in config.OWN: ak's repository, each version a worktree of it
 VERSIONS = "versions"           # in config.OWN: a version checked out to go live, or swapped out
 CAP = 30 * 60                   # one git step, as update.STEP_CAP
@@ -159,6 +161,20 @@ def tidy(live):
             remove(path)
 
 
+def keep_times(live, new, commit):
+    """A move bringing only what no running process holds in memory leaves the modules' times as
+    they were: `notify.installed_at` reads them and every open menu restarts when they move, and
+    nearly half of landings bring only tests, docs or the Go port."""
+    if git(live, "diff", "--quiet", "HEAD", commit, "--", ".", *NOT_RUN)[0]:
+        return
+    try:
+        for path in (new / "agentkit").glob("*.py"):
+            old = (live / "agentkit" / path.name).stat()
+            os.utime(path, ns=(old.st_atime_ns, old.st_mtime_ns))
+    except OSError:
+        pass            # a time not kept costs one restart
+
+
 def switch(live, commit):
     """Put `commit` live at `live`, swapped in whole: "" once it is or there is nothing to move,
     else why not, `live` then as it was.  Forward only, as a fast-forward went: a commit `live`
@@ -180,6 +196,7 @@ def switch(live, commit):
         remove(new)
         return f"{commit[:12]} could not be checked out in {new}: {said}"
     try:
+        keep_times(live, new, commit)
         new.chmod(live.stat().st_mode & 0o7777)    # mkdtemp's is the owner's alone
         exchange(live, new)
     except OSError as exc:

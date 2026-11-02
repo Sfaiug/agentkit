@@ -1013,8 +1013,8 @@ def _card_write(session, data):
 def installed_at():
     """When the agentkit running now was put in place, or 0 where no install says so.
 
-    install.sh stamps `installed-at` on a server; a move of the checkout it installed
-    stamps nothing, so there the newest write among these modules counts too.  A home no
+    install.sh stamps `installed-at` on a server's first install; a move of the checkout it
+    installed stamps nothing, so there the newest write among these modules counts too.  A home no
     install stamped -- a test's sandbox -- has no install to be older than.
     """
     try:
