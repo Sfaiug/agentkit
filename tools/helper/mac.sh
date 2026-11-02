@@ -199,9 +199,11 @@ replace_lent() {
 }
 # renewals DIR, for as long as a turn runs: each line on stdin, read whole first as a stalled ssh
 # must hold no lock, goes to `replace_lent` (agentkit/machine_turn.py's `_following` sends them).
+# One that fails is tried again here, soon, as its sender cannot hear of it and the old copy is
+# revoked, until it lands or the turn's end kills this; lines after it wait, so the last lands last.
 renewals() {
   while IFS= read -r line; do
-    printf '%s\n' "$line" | locked "$ROOT/lent.lock" replace_lent "$1"
+    until printf '%s\n' "$line" | locked "$ROOT/lent.lock" replace_lent "$1"; do sleep 0.02; done
   done
 }
 case $(uname) in Darwin) darwin ;; Linux) linux ;; *) false ;; esac || exit 253
