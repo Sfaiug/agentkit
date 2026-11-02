@@ -1,9 +1,9 @@
 // Package seat is what Go knows of the seats, and hides what a seat is: its record, written as
 // Python writes it under Python's locks, its session on ak's tmux server, and ak's shims first
-// on its harness's PATH; opening, stopping and reading one all go through here. Read takes the
-// home in once, into the seats it knows or a no wherever Python's answer hangs on anything that
-// reading leaves out, and decides each word from that reading alone; each later piece widens
-// what Read knows, here.
+// on its harness's PATH; opening, stopping, renaming and reading one all go through here. Read
+// takes the home in once, into the seats it knows or a no wherever Python's answer hangs on
+// anything that reading leaves out, and decides each word from that reading alone; each later
+// piece widens what Read knows, here.
 package seat
 
 import (
@@ -442,11 +442,11 @@ type field struct {
 // `start` says so, as watch.seat_write starts a seat file, and is left as it is otherwise.  One
 // Python reads and Go cannot keep is ErrLoneSurrogate, never written over.
 func put(path, held string, encode func(any) string, start bool, change func(data *run.Object) bool) error {
-	file, err := lock.Wait(context.Background(), held)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
+	return under(held, func() error { return rewrite(path, encode, start, change) })
+}
+
+// rewrite is put's change, under a lock its caller holds.
+func rewrite(path string, encode func(any) string, start bool, change func(data *run.Object) bool) error {
 	data, err := run.ReadJSON(path)
 	if errors.Is(err, run.ErrLoneSurrogate) {
 		return err
@@ -457,8 +457,13 @@ func put(path, held string, encode func(any) string, start bool, change func(dat
 	if data == nil || !change(data) {
 		return nil
 	}
+	return replace(path, []byte(encode(data)+"\n"))
+}
+
+// replace lands a whole file over path, through a temporary file beside it.
+func replace(path string, data []byte) error {
 	tmp := strings.TrimSuffix(path, ".json") + ".tmp"
-	if err := os.WriteFile(tmp, []byte(encode(data)+"\n"), 0o666); err != nil {
+	if err := os.WriteFile(tmp, data, 0o666); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)

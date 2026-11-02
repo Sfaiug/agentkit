@@ -1,14 +1,14 @@
 package config
 
 import (
+	"maps"
 	"os"
 	"regexp"
-	"slices"
 	"testing"
 )
 
 // While Python ak runs beside Go, its config.SEAT_FILES is where a seat's own files are named.
-func TestSeatKindsArePythons(t *testing.T) {
+func TestSeatFilesArePythons(t *testing.T) {
 	source, err := os.ReadFile("../../../agentkit/config.py")
 	if err != nil {
 		t.Fatal(err)
@@ -17,11 +17,11 @@ func TestSeatKindsArePythons(t *testing.T) {
 	if table == nil {
 		t.Fatal("agentkit/config.py holds no SEAT_FILES table")
 	}
-	var kinds []string
-	for _, key := range regexp.MustCompile(`(?m)^\s+"([^"]+)":`).FindAllSubmatch(table[1], -1) {
-		kinds = append(kinds, string(key[1]))
+	kinds := map[string]string{}
+	for _, key := range regexp.MustCompile(`(?m)^\s+"([^"]+)":\s*"([^"]+)"`).FindAllSubmatch(table[1], -1) {
+		kinds[string(key[1])] = string(key[2])
 	}
-	if !slices.Equal(kinds, seatKinds) {
-		t.Fatalf("Python's SEAT_FILES names %v, Go's seatKinds %v", kinds, seatKinds)
+	if !maps.Equal(kinds, seatFiles) {
+		t.Fatalf("Python's SEAT_FILES names %v, Go's seatFiles %v", kinds, seatFiles)
 	}
 }
