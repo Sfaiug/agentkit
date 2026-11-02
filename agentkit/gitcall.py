@@ -781,8 +781,8 @@ def repository_id(repo):
         objects = place / tool_run(["git", "-C", str(place), "rev-parse", "--git-path", "objects"])[1].strip()
         try:
             donor = (objects / "info/alternates").read_text().splitlines()[0]
-            # As git reads it, the link kept: an object directory linked elsewhere still belongs to the path's owner
-            place = Path(os.path.normpath(objects.resolve() / donor)).parent
+            # Links followed as git follows them, but not the last: an object directory linked elsewhere is still its owner's
+            place = (objects / donor).parent.resolve()
         except (OSError, IndexError, ValueError):
             break
     return hashlib.sha256(str(main_checkout(place)).encode()).hexdigest()[:12]
