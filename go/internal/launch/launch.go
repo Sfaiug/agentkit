@@ -60,6 +60,10 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 	if err != nil || unbound != nil || python(path, values, flags, bound) {
 		return 0, "", ErrPython
 	}
+	// read before the receipt, as Python's capture_launch does: a refusal here leaves no run
+	if _, err := config.MaxRuns(); err != nil {
+		return 2, err.Error(), nil
+	}
 	stem := filepath.Base(path)
 	if dot := strings.LastIndexByte(stem, '.'); 0 < dot && dot < len(stem)-1 {
 		stem = stem[:dot]
@@ -136,7 +140,9 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 			return run.Change(dir, func(record *run.Object) error {
 				// a stop that landed first stands, as Python's mark_state leaves it
 				if record.Str("state") != "stopped" {
-					run.SetAll(record, "state", "error", "finished_at", now(), "error", reason)
+					// and this launch started nothing to sweep, so nothing reaps it
+					run.SetAll(record, "state", "error", "finished_at", now(), "error", reason,
+						"tree_stopped", []any{record.Get("pid"), record.Get("process_identity")})
 				}
 				ended = record
 				return nil
@@ -157,15 +163,16 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 // python is whether Python ak makes this launch otherwise than Go would, or reads what Go
 // cannot read as it does: a pull request's review, a queued run's start, a seat's launch, one
 // that history records, one the gate does not admit outright, one Python's rival check may
-// refuse, a config Python refuses before its run, a home HOME does not name, a local time Go
-// reads otherwise, or a string for the record Python would write with a lone surrogate.
+// refuse, a home HOME does not name, a local time Go reads otherwise, or a string for the record
+// Python would write with a lone surrogate.  A count that is none the gate never reads: Task
+// refuses it.
 func python(path string, values map[string]string, flags map[string]bool, bound config.Binding) bool {
 	depth, known := runDepth()
 	_, capped := config.MaxRuns()
 	_, review := values["--review-pr"]
 	if review || os.Getenv("AGENTKIT_RUN_DIR") != "" || os.Getenv("AGENTKIT_SESSION") != "" || sink() == "" ||
 		os.Getenv("HOME") == "" || !localTime() ||
-		!known || os.Getenv("AK_MAX_RUNS") != "0" && depth == 0 || capped != nil || config.RunMemoryRefused() ||
+		!known || capped == nil && os.Getenv("AK_MAX_RUNS") != "0" && depth == 0 ||
 		len(bound.Workers) == 0 ||
 		!readable(path, run.Runs(), os.Getenv("AK_PARENT_RUN"), os.Getenv("AK_NOTIFY_SINK")) ||
 		!readable(slices.Collect(maps.Values(values))...) {

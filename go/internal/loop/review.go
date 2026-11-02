@@ -98,7 +98,7 @@ func (l *loop) another() string {
 	if err != nil {
 		return ""
 	}
-	return rules.Independent(withRoom(readings), l.executor)
+	return rules.Independent(ready{readings, cannotRun()}, l.executor)
 }
 
 // weigh is the review as ak holds it, Python's weigh_review: the reviewer's copy cannot decide what

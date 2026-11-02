@@ -33,6 +33,7 @@ type Room interface {
 // Rules are config.toml's groups, as a pick outside any seat reads them.
 type Rules struct {
 	executors, reviewers []string
+	reviewList           []string // reviewers as the group names them, those barred from reviewing too
 	models               map[string]config.Model
 }
 
@@ -74,7 +75,7 @@ func Within(executors, reviewers []string) (*Rules, bool) {
 			return nil, false
 		}
 	}
-	rules := &Rules{executors: executors, models: models}
+	rules := &Rules{executors: executors, models: models, reviewList: reviewers}
 	for _, name := range reviewers {
 		// a harness that loads the checkout's own instructions would judge a branch by its rules
 		files, err := config.Words(models[name].Harness, "instructions", "workspace")

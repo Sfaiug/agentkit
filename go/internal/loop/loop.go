@@ -226,7 +226,9 @@ func Drive(dir string) (code int) {
 		l.say(fmt.Sprintf("run %s: %s", l.id, filepath.Join(dir, "task.md")))
 		err = l.work()
 	}
-	return l.finish(err)
+	code = l.finish(err)
+	endWord(dir)
+	return code
 }
 
 // adopt takes the run over from its launch, as Python's wait_for_slot finds a slot already
@@ -464,11 +466,15 @@ func (l *loop) pick() error {
 	if !ok {
 		return notYet("the models cannot be picked here", "a pick Python makes")
 	}
+	cannot := cannotRun()
+	if why := rules.Unstaffed(cannot); why != "" {
+		return errors.New(why)
+	}
 	readings, err := usage.Read()
 	if err != nil {
 		return notYet("the meters cannot be read: "+err.Error(), "a pick without them")
 	}
-	room := withRoom(readings)
+	room := ready{readings, cannot}
 	logged := rawLog{l.dir}
 	rules.Order(room, false, logged)
 	rules.Order(room, true, logged)

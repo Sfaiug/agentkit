@@ -9,6 +9,8 @@ test_key_claude_hooks_merge
 test_key_claude_hooks_wiring
 test_key_claude_seat_prep
 test_key_claude_words
+test_key_config_count_settings
+test_key_config_error_exit
 test_key_dash_led_attach
 test_key_doctor_effort
 test_key_doctor_tick_line
@@ -88,6 +90,7 @@ test_key_setup_error
 test_key_sigint_130
 test_key_task_check_refusals RefusedBeforeAnythingStarts MoreThanThreeChecks
 test_key_task_key_refusals FrontMatterRefusals
+test_key_task_preflight
 test_key_tick_gh_out
 test_key_tick_lock_held
 test_key_tick_log_roll

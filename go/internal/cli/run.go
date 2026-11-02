@@ -122,6 +122,9 @@ func validateRun(args []string) string {
 	if err := config.Check(); err != nil {
 		return err.Error()
 	}
+	if err := config.CheckRunMemory(); err != nil {
+		return err.Error()
+	}
 	if _, parallel := parsed.values["--parallel"]; parallel && len(parsed.words) == 1 {
 		return "usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] [--anyway] [--first] [--no-worktree] [--no-merge] [--bg]: --parallel needs more than one task file"
 	}
