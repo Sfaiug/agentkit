@@ -83,7 +83,25 @@ class ConfigHome(unittest.TestCase):
         """What an install from before the config held the models leaves behind."""
         self.path.write_text("max_runs = 5\n")
         self.assertEqual(config.max_runs(), 5)
-        self.assertEqual(config.load(), tomllib.loads(DEFAULT.read_text()))
+        self.assertEqual(config.load(), {**tomllib.loads(DEFAULT.read_text()), "max_runs": 5})
+
+    def test_a_home_file_without_models_keeps_all_it_holds_through_a_save(self):
+        self.path.write_text('max_runs = 7\ncustom_flag = true\nwithin = 3\n[custom_table]\nkept = 1\n')
+        cfg = config.load()
+        cfg["pace_margin"] = 4          # an edit on the `c` screen
+        config.save(cfg)
+        saved = tomllib.loads(self.path.read_text())
+        self.assertEqual((saved["max_runs"], saved["custom_flag"], saved["within"],
+                          saved["custom_table"], saved["pace_margin"]),
+                         (7, True, 3, {"kept": 1}, 4))
+        self.assertEqual(saved["models"], tomllib.loads(DEFAULT.read_text())["models"])
+
+    def test_a_bad_setting_in_a_home_file_without_models_is_refused_naming_that_file(self):
+        for text in ("within = 11\n", "compare = 3\n"):
+            self.path.write_text(text)
+            with self.assertRaises(config.Error) as raised:
+                config.load()
+            self.assertTrue(str(raised.exception).startswith(f"{self.path}: "), raised.exception)
 
     def test_a_home_file_that_configures_models_badly_is_still_an_error(self):
         """The fallback is for a file that configures no models, never for a broken one."""
