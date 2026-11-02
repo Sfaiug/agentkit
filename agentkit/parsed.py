@@ -39,6 +39,13 @@ def kept(path, parse):
     return _KEPT.get((os.fspath(path), parse))
 
 
+def written(path, parse, value):
+    """When the file `read` keeps `value` from was last written, in ns; None when it keeps no such
+    value: the file changed too freshly for it to."""
+    found = _KEPT.get((os.fspath(path), parse))
+    return found[0][2] if found is not None and found[1] is value else None
+
+
 def forget(path, parse):
     """Drop what `parse` made of a file gone, which `read` forgets only once asked for it."""
     _KEPT.pop((os.fspath(path), parse), None)

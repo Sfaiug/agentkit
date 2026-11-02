@@ -136,7 +136,7 @@ from contextlib import closing
 from pathlib import Path
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import look, parsed, record
+from . import look, open_runs, parsed, record
 from . import warm
 
 KEYS = "n new   c config   esc leave"
@@ -191,7 +191,7 @@ def rows(cfg):
     """The seats, their runs and their groups, as the main screen reads them (`Live.read`)."""
     with look.one_look():              # one look a read: filing, looking, drawing
         found = orch.listing()
-        records = run_records()
+        records = run_records(rest_may_lag=True)
         orch.file_projectless(found, [state for _, state in records])
         return found, records, v5o_groups(cfg, found, records, look=False)
 
@@ -383,7 +383,8 @@ class Live:
         word to that seat's record and to its bar in one go, and a run's step, round and ending
         touch `config.runs_moved_path` before they move its bar (`handback.redress_seat`), so a screen
         that reads again when a record changes, as recorded, never shows a row its bar
-        contradicts for longer than this.
+        contradicts for longer than this.  A run at rest is the exception: a read finds one that
+        moved only at its next full read, up to `open_runs.CEILING` later (the owner, 2 Nov 2026).
         The records are noted before every read, so one written while it reads is still news.
         Looking is a `stat` per file -- its inode as well as its mtime, since every write
         replaces the file -- and nothing here captures a pane.  A read on news starts a look
@@ -2261,7 +2262,7 @@ class _RunRecords:
     each run's record, a row per run under the stat it keeps it by."""
 
     def __init__(self, root, *, cache=True):
-        self.root, self.saved, self.db = root, {}, None
+        self.root, self.saved, self.db, self.reader = root, {}, None, open_runs.Reader()
         if not cache:
             return
         # The cache before RUN_RECORDS: nothing reads it, and a run still on that install that
@@ -2291,21 +2292,24 @@ class _RunRecords:
             self.db.close()
             self.db = None
 
-    def save(self, run_dirs):
-        """Write down what `parsed` keeps that the census does not hold; a run gone since takes
-        its record out of both, since nothing reads its path again for `parsed` to forget it."""
-        saved, changed = {}, []
+    def save(self, run_dirs, went=None):
+        """Write down what `parsed` keeps of those runs that the census does not hold.  A run gone
+        takes its record out of both, since nothing reads its path again for `parsed` to forget
+        it: those `went` names, or with None every one the census holds that is not among them."""
+        names, changed = set(), []
         for run_dir in run_dirs:
             stamp, state = parsed.kept(run_dir / "run.json", record._state) or (None, None)
             if state is None:
                 continue
-            saved[run_dir.name] = stamp
-            if self.db is not None and self.saved.get(run_dir.name) != stamp:
-                changed.append((run_dir.name, json.dumps([stamp, state])))
-        removed = self.saved.keys() - saved.keys()
+            names.add(run_dir.name)
+            if self.saved.get(run_dir.name) != stamp:
+                self.saved[run_dir.name] = stamp
+                if self.db is not None:
+                    changed.append((run_dir.name, json.dumps([stamp, state])))
+        removed = self.saved.keys() - names if went is None else went
         for name in removed:
             parsed.forget(config.RUNS / name / "run.json", record._state)
-        self.saved = saved
+            self.saved.pop(name, None)
         if self.db is not None and (changed or removed):
             try:
                 with self.db:
@@ -2317,7 +2321,12 @@ class _RunRecords:
                 pass           # another process can fill the cache; this one keeps its reads
 
 
-def run_records(*, cache=True):
+def attended(state, resolved=None):
+    """Whether a screen counts a run: it is neither unattended nor the suite's own (`smoke_run`)."""
+    return not state.get("unattended") and not smoke_run(state, resolved)
+
+
+def run_records(*, cache=True, rest_may_lag=False):
     """Every run's record, each every reader's (`record.runs`), so only read.
 
     A process's first pass hands `parsed` the census saved in SQLite, so it opens only a run.json
@@ -2327,8 +2336,13 @@ def run_records(*, cache=True):
     memory at the next pass.
 
     Unattended runs and tasks or repos resolving under ~/.agentkit/tmp/smoke-* are left out.
-    Paths are resolved on every pass: a symlink can move without a run.json changing. Bad run
-    files are skipped, never repaired.
+    Paths are resolved on every pass that looks at the run: a symlink can move without a run.json
+    changing. Bad run files are skipped, never repaired.
+
+    With `rest_may_lag`, the main screen's read all day, only the open runs are looked at and a
+    run at rest is as the last full read found it (`open_runs`), on the rows and in what a look
+    decides from them; the list comes back the same object while nothing changed.  Every other
+    caller decides on what it reads, and looks at every run.
     """
     global _RUN_RECORDS
     with _RUN_RECORDS_LOCK:
@@ -2337,10 +2351,11 @@ def run_records(*, cache=True):
             if _RUN_RECORDS is not None:
                 _RUN_RECORDS.close()
             _RUN_RECORDS = _RunRecords(root, cache=cache)
+        if rest_may_lag:
+            return _RUN_RECORDS.reader.read(attended, _RUN_RECORDS.save)
         runs, resolved = record.runs(), {}
         _RUN_RECORDS.save(run_dir for run_dir, _ in runs)
-        return [(run_dir, state) for run_dir, state in runs
-                if not state.get("unattended") and not smoke_run(state, resolved)]
+        return [(run_dir, state) for run_dir, state in runs if attended(state, resolved)]
 
 
 def unread(prov, weekly, readable, now):
@@ -5688,8 +5703,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     nothing typed draws again, so the clock, the seat rows, the counts on the top line and the
     usage stay true in front of whoever left it open -- and it ends within STIR of any seat's
     record or the usage cache changing, so a row never says for longer what its bar no longer
-    does.  Nothing is read between a key and its frame: the seats, their runs and their rows
-    are read once before the first draw, then in `Live`'s thread -- on the clock, after a key
+    does, a run at rest aside (`Live.watch`).  Nothing is read between a key and its frame: the
+    seats, their runs and their rows are read once before the first draw, then in `Live`'s thread -- on the clock, after a key
     that did more than move the highlight, and within STIR of a record changing -- and every
     draw is what the last read left, drawn again when the next one lands.  While the owner is in
     a seat it opened, or on the screen that opens one, nothing is read but by the pass a seat

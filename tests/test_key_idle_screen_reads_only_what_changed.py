@@ -103,9 +103,10 @@ class OpenScreen(unittest.TestCase):
             pid = int(Path(f"/proc/{pid}/task/{pid}/children").read_text().split()[0])
         return pid
 
-    def cpu(self):
+    @classmethod
+    def cpu(cls):
         """Clock ticks the screen has run, and the children it reaped."""
-        fields = Path(f"/proc/{self.pid}/stat").read_text().rpartition(")")[2].split()
+        fields = Path(f"/proc/{cls.pid}/stat").read_text().rpartition(")")[2].split()
         return sum(map(int, fields[11:15]))      # utime, stime, cutime, cstime
 
     @classmethod
