@@ -31,6 +31,7 @@ wheel and every other click over it do what they do anywhere else on the bar, wh
 """
 
 import fcntl
+import os
 
 from . import config, menu, orch, terminal, update
 
@@ -149,16 +150,21 @@ def whys(info):
 
 
 def sessions():
-    """(session id, name, mark) of every session on ak's own server; None where no server is
-    up to list them.  The fields are split at `:`, which tmux keeps out of every session's name,
-    and not at a tab, which it shows a client outside a UTF-8 locale as `_`."""
+    """(session id, name, mark) of every session this HOME started on ak's own server; None where
+    none of its is up: the socket is the user's, and a scratch HOME's `ak` wrote its empty records
+    over real bars.  The fields are split at `:`, which tmux keeps out of every session's name.
+    A HOME read as a UTF-8 client is the HOME itself, under any locale."""
     rc, out = orch.tmux_out("list-sessions", "-F",
-                            f"#{{session_id}}:#{{session_name}}:#{{{orch.MARK}}}",
-                            socket=orch.socket_name())
+                            f"#{{session_id}}:#{{session_name}}:#{{{orch.MARK}}}:#{{HOME}}",
+                            socket=orch.socket_name(), utf8=True)
     if rc != 0:
         return None
-    return [parts for parts in (line.split(":", 2) for line in out.splitlines())
-            if len(parts) == 3 and parts[1] != orch.CONTROL]
+    rows = [line.split(":", 3) for line in out.splitlines()]
+    home = os.path.realpath(os.path.expanduser("~"))
+    ours = [row for row in rows if not row[3:] or not row[3] or os.path.realpath(row[3]) == home]
+    if rows and not ours:
+        return None
+    return [row[:3] for row in ours if len(row) >= 3 and row[1] != orch.CONTROL]
 
 
 def seats(listed=None):

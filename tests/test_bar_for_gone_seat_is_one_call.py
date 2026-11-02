@@ -4,7 +4,8 @@ Every menu draw redresses each seat it shows, and a stopped seat's options were 
 call, then again one by one, each failing: about twenty calls per such seat per draw.  Text
 tmux refuses for its length is still told in pieces.  Offline with a fake tmux that answers
 as tmux 3.5a does: it fills in the fields a listing asks for, shows a client outside a UTF-8
-locale each tab as `_`, stops a call at the command that fails, and refuses one past 16 KiB.
+locale, unless it asks as a UTF-8 client, each tab as `_`, stops a call at the command that fails,
+and refuses one past 16 KiB.
 """
 
 import re
@@ -24,15 +25,16 @@ class GoneSeat(Sandbox):
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.stack.enter_context(patch.object(orch, "processes", return_value={}))
 
-    def tmux(self, *args, **_kw):
+    def tmux(self, *args, utf8=False, **_kw):
         self.calls.append(args)
         if not self.up:
             return 1, "no server running on /tmp/tmux-1000/agentkit-test"
         if args[:2] == ("list-sessions", "-F"):
             out = "\n".join(re.sub(r"#\{[^}]*\}", lambda field: {
-                "#{session_id}": sid, "#{session_name}": name, f"#{{{orch.MARK}}}": mark}[field[0]],
+                "#{session_id}": sid, "#{session_name}": name, f"#{{{orch.MARK}}}": mark,
+                "#{HOME}": str(self.root)}[field[0]],
                 args[2]) for name, (sid, mark) in self.sessions.items())
-            return 0, out if self.utf8 else re.sub(r"[\x00-\x1f]", "_", out)
+            return 0, out if self.utf8 or utf8 else re.sub(r"[\x00-\x1f]", "_", out)
         if args[0] == "list-panes":
             return 0, ""
         if sum(len(word.encode()) + 1 for word in args) + 16 > 16 * 1024:
