@@ -93,3 +93,26 @@ func TestTheUsualLoginIsTheOneAUsualSeatRunsOn(t *testing.T) {
 		}
 	}
 }
+
+func TestTheUsualLoginsPathsNameNoAccountItWasHanded(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("AGENTKIT_ACCOUNT", "first")
+	t.Setenv("AGENTKIT_ADAPTER_DIR", "")
+	usual, _, err := UsualAccount("grokbuild")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(home, ".agentkit", "state", "grok-refused")
+	if got := LoginPath("grokbuild", "refused", usual); got != want {
+		t.Fatalf("usual login: %q, want %q", got, want)
+	}
+	named, _, err := Account("grokbuild")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := LoginPath("grokbuild", "refused", named); got != want+"-first" {
+		t.Fatalf("named login: %q", got)
+	}
+}

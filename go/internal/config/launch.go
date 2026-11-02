@@ -106,8 +106,10 @@ func (login Login) Environ(environ []string) []string {
 	var kept []string
 	for _, pair := range environ {
 		name, _, _ := strings.Cut(pair, "=")
+		// a variable naming another account is no part of the usual login's environment
 		if name == login.Env && (login.Account != "" || login.handedDown) ||
-			login.Account != "" && slices.Contains(login.Unset, name) {
+			login.Account != "" && slices.Contains(login.Unset, name) ||
+			login.Account == "" && name == "AGENTKIT_ACCOUNT" {
 			continue
 		}
 		kept = append(kept, pair)
