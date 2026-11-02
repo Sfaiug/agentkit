@@ -34,12 +34,13 @@ def tick(log):
         record = dict(json.loads(path.read_text()))
     except (OSError, TypeError, ValueError):
         record = {}
-    asked = record.get("asked")
-    record["asked"] = asked = asked if isinstance(asked, dict) else {}
+    # A number is the one stamp the version before kept: every checkout's, until it has its own.
+    before = record.get("asked")
+    record["asked"] = asked = before if isinstance(before, dict) else {}
     # Which goes first decides nothing, each stamp being its own; last name first only because the
     # check this fix landed under counts on the first name's slow read coming after the others.
     for checkout in reversed(orch.checkouts()):
-        now, last = time.time(), asked.get(str(checkout))
+        now, last = time.time(), asked.get(str(checkout), before)
         if isinstance(last, (int, float)) and 0 <= now - last < EVERY:
             continue
         asked[str(checkout)] = now
