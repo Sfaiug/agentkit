@@ -1,7 +1,9 @@
 """Host resource admission is conservative, FIFO, and counts what runs let in may still take;
 with nothing measured, a run waits a poll behind the last let in."""
 
+from contextlib import contextmanager
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -11,7 +13,7 @@ from unittest.mock import Mock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, handback, history, host, run  # noqa: E402
+from agentkit import config, gate, handback, history, host, run, worker  # noqa: E402
 from agentkit import record
 
 
@@ -137,25 +139,59 @@ class Slots(unittest.TestCase):
                 self.assertEqual((state["slot_wait_reason"], state["slot_wait_kind"]),
                                  (reason, kind))
 
-    def test_what_a_run_may_still_take_counts_until_past_its_first_step(self):
-        went_in_long_ago = {"run_id": "other", "slot_started_at": 1.0}
+    def test_what_a_run_may_still_take_counts_until_past_launching_its_first_worker(self):
+        rounds = config.RUNS / "other"
         with patch.object(history, "peaks_so_far", return_value={}), \
+                patch.object(gate, "_holders",
+                             return_value=[{"run_id": "other", "slot_started_at": 100.0}]), \
                 patch.object(gate, "time", Mock(time=lambda: 1000 + gate.STARTING)):
-            for first_step, counted in (({}, (100, 1)), ({"first_step_at": 1001}, (100, 1)),
-                                        ({"first_step_at": 1000}, (0, 0))):
-                with patch.object(gate, "_holders",
-                                  return_value=[{**went_in_long_ago, **first_step}]):
-                    self.assertEqual(gate._starting({}, 100), counted)
+            for launches, counted in (((), (100, 1)),
+                                      ((99,), (100, 1)),    # before it went in this time
+                                      ((1001,), (100, 1)),
+                                      ((1000,), (0, 0)),
+                                      ((99, 1000, 1001), (0, 0))):
+                shutil.rmtree(rounds, ignore_errors=True)
+                for number, at in enumerate(launches):
+                    (rounds / f"round-{number}" / "executor").mkdir(parents=True)
+                    marker = rounds / f"round-{number}" / "executor" / worker.LAUNCHED
+                    marker.touch()
+                    os.utime(marker, (at, at))
+                self.assertEqual(gate._starting({}, 100), counted, launches)
 
-    def test_a_run_let_in_again_counts_again_until_past_its_next_first_step(self):
-        state = {"run_id": "r", "run_depth": 0, "first_step_at": 1.0}
-        with patch.object(host, "host_readings", return_value=HEALTHY):
-            self.assertTrue(gate.claim_slot(state, 1))
-        self.assertNotIn("first_step_at", state)
-        prior = {"first_step_at": 1.0}
-        with patch.object(gate, "wait_for_slot", return_value=state), \
-                run.run_slot(Path("r"), prior):
-            self.assertNotIn("first_step_at", prior)
+    def test_a_worker_counts_as_launched_once_it_goes_on_a_machine_or_here(self):
+        class Went(Exception):
+            pass
+
+        @contextmanager
+        def boxed(cmd, env, *_args, **_kw):
+            yield cmd, env, {}
+
+        def goes(*_args, **_kw):
+            raise Went if launched() else AssertionError("no launch written down")
+
+        def launched():
+            return any(config.RUNS.glob(f"round-1/*/{worker.LAUNCHED}"))
+
+        def no_room(*_args):
+            self.assertFalse(launched())    # its login checked, a machine waited for
+
+        def on_a_machine(*args):
+            self.assertFalse(launched())
+            args[-1](["ssh"])
+
+        for wait_for_a_machine in (no_room, on_a_machine):
+            shutil.rmtree(config.RUNS / "round-1", ignore_errors=True)
+            with patch.object(config, "model", return_value={"harness": "acme", "provider": "acme",
+                                                             "model": "acme-1"}), \
+                    patch.object(config, "adapter", return_value="acme.sh"), \
+                    patch.object(config, "manifest", return_value={}), \
+                    patch.object(config, "role_effort", return_value="high"), \
+                    patch.object(worker, "auth_ok", return_value=(True, "")), \
+                    patch.object(worker.box, "command", boxed), \
+                    patch.object(worker.machine_turn, "call", wait_for_a_machine), \
+                    patch.object(worker, "limited", goes), \
+                    self.assertRaises(Went):
+                worker.call({}, "acme", "do it", REPO, config.RUNS / "round-1" / "executor")
 
     def test_admission_clears_wait_reason(self):
         state = {"run_id": "r", "run_depth": 0}

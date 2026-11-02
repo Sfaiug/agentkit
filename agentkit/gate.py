@@ -33,8 +33,8 @@ try:
     SLOT_POLL = float(os.environ.get("AK_SLOT_POLL", "30"))
 except ValueError:
     SLOT_POLL = 30
-# Seconds past its first step a run counts what it may still grow by: by then the readings show
-# what it holds.
+# Seconds past launching its first worker a run counts what it may still grow by: by then the
+# readings show what it holds.
 STARTING = 6 * SLOT_POLL
 
 
@@ -310,16 +310,28 @@ def frozen_runs(state):
     return sum(1 for other in _holders(state) if host.frozen_cgroup(other.get("pid")))
 
 
+def _launched(other):
+    """When the run `other` launched its first worker since it went in, else None."""
+    times = []
+    for path in (config.RUNS / str(other.get("run_id"))).glob(f"round-*/*/{worker.LAUNCHED}"):
+        try:
+            times.append(path.stat().st_mtime)
+        except OSError:     # gone with its run, which ended during this read
+            pass
+    return min((at for at in times if at >= (other.get("slot_started_at") or 0)), default=None)
+
+
 def _starting(state, peak):
-    """(MB, runs): what the runs holding a slot, until `STARTING` past their first step, may still
-    grow by, a recent run's median `peak` less each one's own peak so far, never below 0, and how
-    many may still grow.  Time since going in would not do, as a slow first fetch has shown the
-    readings nothing.  One past that has shown them what it holds: a turn on a rented machine
+    """(MB, runs): what the runs holding a slot, until `STARTING` past launching their first worker
+    since going in, may still grow by, a recent run's median `peak` less each one's own peak so
+    far, never below 0, and how many may still grow.  All before that launch shows the readings
+    nothing, however long it takes: a first fetch, a login check, a wait for a machine that may
+    end with the turn here.  One past it has shown them what it holds: a turn on a rented machine
     leaves 43 MiB here, and counted to the median of 763 for the rest of its life, 9 such held 22
     runs in line with 4.5 G free against a gate of 3.1 G (2 Nov 2026)."""
     now = time.time()
     holders = [other.get("run_id") for other in _holders(state)
-               if now - (other.get("first_step_at") or now) < STARTING]
+               if now - (_launched(other) or now) < STARTING]
     so_far = history.peaks_so_far(holders)
     growth = [peak - (so_far.get(run_id) or 0) for run_id in holders]
     return sum(mb for mb in growth if mb > 0), sum(mb > 0 for mb in growth)
@@ -525,7 +537,7 @@ def claim_slot(state, limit, readings=None, launch=False):
     state.update(state="running", slot_waiting=False, slot_started_at=time.time(),
                  **run_record.process_owner())
     for key in ("resume_from", "reservation_pending",
-                "slot_wait_reason", "slot_wait_kind", "first_step_at"):
+                "slot_wait_reason", "slot_wait_kind"):
         state.pop(key, None)
     return True
 

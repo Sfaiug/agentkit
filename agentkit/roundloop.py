@@ -176,7 +176,6 @@ class Loop:
         now = time.time()
         history.open_step(self.state.get("run_id"), name, now, log=self.log)
         self.state.update(step=name, step_at=now, step_round=self.rnd)
-        self.state.setdefault("first_step_at", now)     # `gate._starting`
         self.save()
         handback.redress_seat(transitions.launched_session(self.state))
 

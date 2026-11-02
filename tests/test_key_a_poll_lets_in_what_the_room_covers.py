@@ -5,8 +5,8 @@ a recent run's median peak of 0.78 G, and one went in every 31 to 61 s: after an
 the first in line waited a poll for steady readings.  Readings lag what a run just let in will
 use, so each run holding a slot counts what it may still grow by against the memory gates
 instead: runs started together each go in at their first poll while the room covers them, and
-one it does not cover waits; a run past its start has shown the readings what it holds and
-counts nothing more.  Black-box: the program `AK_BIN` names runs from outside through
+one it does not cover waits; a run some polls past launching its first worker has shown the
+readings what it holds and counts nothing more.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, on a project from gitrig.py with scripted harnesses from
 fakeadapter.py; the host readings and the slot poll are ak's own knobs (AK_HOST_READINGS,
 AK_SLOT_POLL), and a history database holds finished runs that peaked at PEAK.
@@ -16,14 +16,13 @@ from contextlib import closing
 import json
 from pathlib import Path
 import shlex
-import shutil
 import sqlite3
 import sys
 import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures import akbin, akconfig, fakeadapter, taskfile
+from fixtures import akconfig, fakeadapter, taskfile
 from fixtures.akbin import Home
 from fixtures.gitrig import Rig
 
@@ -56,11 +55,11 @@ def state(run):
         return {}
 
 
-def started_together(cls, readings, poll, count, ready, fetch_held=False):
+def started_together(cls, readings, poll, count, ready, login_held=False):
     """The records, once all have ended, of `count` runs, each started once `ready` holds of the
     records of those before it: a run behind one that has not polled yet waits a poll for it.
-    Each one's turn, and with `fetch_held` the fetch a run starts with, is held until `ready` holds
-    of them all."""
+    Each one's turn, and with `login_held` the login check a run makes right before it, is held
+    until `ready` holds of them all."""
     home = Home()
     cls.addClassCleanup(home.close)
     del home.env["AK_MAX_RUNS"]     # 0 turns admission off
@@ -76,13 +75,12 @@ def started_together(cls, readings, poll, count, ready, fetch_held=False):
     akconfig.write(home, ["opus", "astra"])
     release = home.root / "adapters" / "release"
     hold = f"until [ -e {shlex.quote(str(release))} ]; do sleep 0.1; done"
-    fakeadapter.install(home, claude={**fakeadapter.WORK, "sh": hold}, codex="pass")
-    if fetch_held:
-        git = shutil.which("git", path=":".join(akbin.SYSTEM))
-        home.fake("git", f"""#!/bin/sh
-case " $* " in *" fetch "*) [ -z "$AGENTKIT_RUN" ] || {{ {hold}; }};; esac
-exec {shlex.quote(git)} "$@"
-""")
+    claude = fakeadapter.install(home, claude={**fakeadapter.WORK, "sh": hold},
+                                 codex="pass")["claude"].script
+    if login_held:
+        # a run's own: a launch asks too, with no run to name
+        claude.write_text(claude.read_text().replace(
+            "exec ", f'[ "$1" != auth ] || [ -z "$AGENTKIT_RUN" ] || {hold}\nexec ', 1))
     runs = []
     for title in TITLES[:count]:
         known = set(taskfile.runs(home))
@@ -152,13 +150,13 @@ class RoomOnceTheFirstHasStarted(unittest.TestCase):
 class NoRoomWhileTheFirstHasNotStarted(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # As in RoomForOne, but the first's fetch outlasts what it may take counting from when it
-        # went in, 6 polls: however long that takes, it has shown the readings nothing yet.
+        # As in RoomForOne, but the first's first step begins more than 6 polls before its worker
+        # goes: all that comes before that, however long it takes, shows the readings nothing.
         cls.runs = started_together(
             cls, TIGHT, 1, 2,
-            lambda runs: time.time() - runs[0].get("slot_started_at", time.time()) > 7
+            lambda runs: time.time() - runs[0].get("step_at", time.time()) > 7
             and (runs[-1].get("state") != "queued" or runs[-1].get("slot_wait_reason")),
-            fetch_held=True)
+            login_held=True)
 
     def test_every_run_passes(self):
         self.assertEqual([run.get("verdict") for run in self.runs], ["PASS"] * 2)

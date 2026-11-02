@@ -738,7 +738,6 @@ def run_slot(run_dir, prior=None):
             "state", "run_depth", "parent_run", "queued_at", "slot_waiting", "slot_started_at")
                       if key in state})
         prior.pop("resume_from", None)
-        prior.pop("first_step_at", None)
     previous = getattr(_RUN_CONTEXT, "state", {})
     _RUN_CONTEXT.state = state
     try:

@@ -148,6 +148,7 @@ REVIEW_COPY = ("[checked by ak: tests/test_reviewer_edits_never_land.py] ak revi
 TIMEOUT = 124       # what a turn killed for running past its limit exits with, as `timeout(1)` does
 KILL_GRACE = 5      # how long a killed process group is given to go quietly before SIGKILL
 RUN_MARKER = "AGENTKIT_RUN"   # every process of a run carries its directory path
+LAUNCHED = "launched"   # in a turn's out dir, its time when the worker went (`gate._starting`)
 MARK_KILL_GRACE = 10   # how long marked processes get to go quietly after TERM before KILL
 ACTIVITY_POLL = 1   # file-backed harness output has no portable readiness notification
 AUTH_CAP = 20       # the `auth` verb reads a file; one still silent after this is not answering
@@ -870,8 +871,12 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     paths = config.manifest(entry["harness"]).get("worker", {})
     watch = {"silence": limit, "activity": out_dir / "events.jsonl",
              "heartbeats": paths.get("heartbeats", ()), "abort": lambda: watching(out_dir)}
-    away = machine_turn.call(entry, cmd, workspace, out_dir, turn_env, places, session,
-                             lambda argv, **kwargs: limited(argv, None, **watch, **kwargs))
+
+    def launch(argv, **kwargs):
+        (out_dir / LAUNCHED).touch()
+        return limited(argv, None, **watch, **kwargs)
+
+    away = machine_turn.call(entry, cmd, workspace, out_dir, turn_env, places, session, launch)
     if away:
         code, killed, session = away
     else:
@@ -880,7 +885,7 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
                          logins=paths.get("logins", ()),
                          hidden=config.unswitched_files(entry["harness"], turn_env)) as (cmd, turn_env, spawn), \
                 own.open("wb") as err:
-            code, _, killed = limited(cmd, None, **watch, env=turn_env, stderr=err, **spawn)
+            code, _, killed = launch(cmd, env=turn_env, stderr=err, **spawn)
         if not killed:
             code = box.returncode(out_dir, code)
     harness_plugin(entry["harness"]).record_turn(out_dir, config.STATE,
