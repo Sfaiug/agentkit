@@ -1,8 +1,7 @@
 """A pass over every seat reads each thing once (`look.one_look`), and only a pass keeps anything.
 
-In-process on a temporary HOME, counting what a pass asks the disk for: no black-box check can tell
-that apart under a host's noise.  Three live seats on a fake tmux, one gone, thirty past seats of
-which three are rename pointers, 300 runs at rest and one open in a landing line.
+In-process, counting what a pass asks the disk for: no black-box check can tell that apart under a
+host's noise.
 """
 
 import builtins
@@ -148,11 +147,9 @@ class APassReadsEachThingOnce(Sandbox):
         self.assertEqual(config.resolve_session(PAST[9]), PAST[9])
         config.rename_session(PAST[9], "acme-moved")
         self.assertEqual(config.resolve_session(PAST[9]), "acme-moved")
-
         self.assertNotIn("acme-new", config.session_records())
         written_long_ago(config.session_path("acme-new"), {"orchestrator": "acme", "workers": []})
         self.assertIn("acme-new", config.session_records())
-
         first = config.session_records()
         first.clear()
         self.assertIn(LIVE[0], config.session_records())
