@@ -1,0 +1,134 @@
+package loop
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"agentkit/internal/config"
+	"agentkit/internal/handin"
+	"agentkit/internal/run"
+)
+
+// A workplace is where a run's work is done and all that follows from where: the one home of how
+// a scratch run and a repository's differ.  Python's are `lp.scratch` branches through its stages.
+type workplace interface {
+	// open makes the place and puts it on the record with the fields every run writes.
+	open(l *loop, meta map[string]string, path string, common []any) error
+	// where opens the prompt, and rules are what the place's own rules add to a task's body.
+	where(l *loop) string
+	rules() string
+	// landing is whether the run lands, and the suite that then runs once.
+	landing() (bool, string)
+	// role is the rules a turn of that word takes.
+	role(word string) string
+	// beforeTurn readies the place for a worker, worked follows the executor's turn.
+	beforeTurn(l *loop)
+	worked(l *loop) error
+	// verify runs the round's checks on what the place holds: whether they passed, what they said.
+	verify(l *loop, path string) (bool, string, error)
+	// beforeReview is the last word before the reviewer is told anything.
+	beforeReview(l *loop) error
+	// view is what a reviewer is shown, what opens its text, and how its checks' heading reads.
+	view(l *loop) (section, checks, heading string, err error)
+	// inCopy runs a reviewer's turn where its edits reach nothing.
+	inCopy(l *loop, out string, turn func(cwd string) error) error
+	// weigh is one finding or follow-up as ak holds it.
+	weigh(l *loop, row *run.Object, index int) (*run.Object, error)
+	// judged is the verdict as the place lets it stand, and what it adds to the evidence.
+	judged(l *loop, verdict string) (string, []any, error)
+	// finished follows a PASS.
+	finished(l *loop) error
+	// head is what opens a result of the run the record describes.
+	head(dir string, record *run.Object) []string
+}
+
+// placeOf is the workplace a record describes, for what reads a run from outside its driver.
+func placeOf(record *run.Object) workplace {
+	if record.Truthy("scratch") || !record.Truthy("repo") {
+		return scratch{}
+	}
+	return repoFrom(record)
+}
+
+// scratch is a directory of a run's own: whatever it leaves there is the delivery.
+type scratch struct{}
+
+func (scratch) open(l *loop, _ map[string]string, _ string, common []any) error {
+	l.workspace = filepath.Join(config.Home(), "work", l.id)
+	if err := os.MkdirAll(l.workspace, 0o777); err != nil {
+		return err
+	}
+	if err := l.save(func(record *run.Object) {
+		run.SetAll(record, "repo", nil, "scratch", true, "base", nil, "target", nil, "base_sha", nil, "branch", nil,
+			"worktree", l.workspace, "no_merge", true, "base_proof", nil)
+		run.SetAll(record, common...)
+	}); err != nil {
+		return err
+	}
+	l.say(fmt.Sprintf("scratch workspace %s: no repository, so no branch, no PR and no merge", l.workspace))
+	return nil
+}
+
+func (scratch) where(l *loop) string {
+	return "Workspace: " + l.workspace + "\nThere is no git repository here: nothing to commit, no branch and no PR. What you leave in the workspace is the deliverable."
+}
+
+func (scratch) rules() string { return "" }
+
+func (scratch) landing() (bool, string) { return false, "" }
+
+func (scratch) role(word string) string { return word + "-scratch" }
+
+func (scratch) beforeTurn(*loop) {}
+
+func (scratch) worked(*loop) error { return nil }
+
+func (scratch) verify(l *loop, path string) (bool, string, error) {
+	return l.checks(l.every, path)
+}
+
+func (scratch) beforeReview(*loop) error { return nil }
+
+func (scratch) view(l *loop) (string, string, string, error) {
+	return fmt.Sprintf("## Workspace (%s)\n```\n%s\n```", l.workspace, listing(l.workspace)), "",
+		fmt.Sprintf("## Done-when output (run by the loop; %d of %d commands exited 0)", len(l.every), len(l.every)), nil
+}
+
+func (scratch) inCopy(_ *loop, _ string, turn func(string) error) error { return turn("") }
+
+// weigh is Python's weigh_review on a scratch run: a finding handed in with a quote is a note, as
+// is one whose command does not fail when ak runs it; a follow-up has no base to be proven on, so
+// it is a note too.
+func (scratch) weigh(l *loop, row *run.Object, index int) (*run.Object, error) {
+	weighed := row.Copy()
+	switch {
+	case row.Str("kind") == "follow-up":
+		weighed.Set("kind", "note")
+		weighed.Set("dropped", "no base commit")
+		l.say(fmt.Sprintf("Dropped follow-up %s:%v: no base commit", row.Str("path"), row.Get("line")))
+	case row.Dict("evidence").Has("quote"):
+		weighed.Set("kind", "note")
+	default:
+		proof, err := l.proof(row.Dict("evidence").Str("run"), filepath.Join(l.dir, roundName, fmt.Sprintf("proof-%d-commit.log", index+1)))
+		if err != nil {
+			return nil, err
+		}
+		weighed.Set("evidence", proof)
+		if !handin.ProofFailed(proof) {
+			weighed.Set("kind", "note")
+		}
+	}
+	return weighed, nil
+}
+
+func (scratch) judged(_ *loop, verdict string) (string, []any, error) { return verdict, nil, nil }
+
+func (scratch) finished(*loop) error { return nil }
+
+func (scratch) head(_ string, record *run.Object) []string {
+	workspace := record.Str("worktree")
+	return []string{"workspace: " + workspace,
+		"executor: " + run.Field(record, "executor", "None") + "   reviewer: " + run.Field(record, "reviewer", "None"),
+		"", "## Deliverables", links(workspace)}
+}

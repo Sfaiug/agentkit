@@ -1,10 +1,10 @@
-// Package loop drives one run of a scratch task from its slot to its result, as Python's drive,
-// loop, rounds, execute, verify_work, review, write_result and finish do on the road a passing
-// run takes.  Its interface is small: Start gives a launched run a driver process of its own,
-// Follow shows a terminal what that driver does until it is gone, Drive is that driver, and End is
-// its ending in error.
+// Package loop drives one run of a task from its slot to its result, as Python's drive, loop,
+// rounds, execute, verify_work, review, write_result and finish do on the road a passing run takes.
+// Its interface is small: Start gives a launched run a driver process of its own, Follow shows a
+// terminal what that driver does until it is gone, Drive is that driver, End is its ending in
+// error, and Clean takes a run's checkout.
 //
-// It hides the stages (the workspace, the models, the executor's turn, the checks, the reviewer's
+// It hides the stages (the workplace, the models, the executor's turn, the checks, the reviewer's
 // verdict, the delivery), the round files under <run>/round-N, and the locks: every record is
 // written through run.Change, under the run's own locks, by rename.
 //
@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/gitcall"
 	"agentkit/internal/host"
 	"agentkit/internal/pick"
 	"agentkit/internal/run"
@@ -149,7 +150,18 @@ func Follow(dir string, offset int64, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "the run's driver died; ak's tick carries it on")
 		return 1
 	}
+	// a --no-merge launch runs in Python's own foreground, where bin/ak says why it ended in error
+	if opts := launchOpts(record); record != nil && record.Str("state") == "error" && record.Truthy("error") && opts != nil && opts.Truthy("--no-merge") {
+		fmt.Fprintln(errOut, "ak run: "+record.Str("error"))
+	}
 	return exitStatus(record)
+}
+
+func launchOpts(record *run.Object) *run.Object {
+	if record == nil {
+		return nil
+	}
+	return record.Dict("launch_opts")
 }
 
 // exitStatus is `ak run`'s exit status for a run's ending, as Python's follow_run says it.
@@ -169,20 +181,26 @@ func exitStatus(record *run.Object) int {
 
 // A loop is one driver's run.
 type loop struct {
-	ctx       context.Context
-	dir       string
-	id        string
-	body      string
-	every     []string // the done-when lines as a round runs them
-	prompt    string
-	workspace string
-	executor  string
-	reviewer  string
-	workers   []string // the lists the run was launched with, nil where none was bound
-	reviewers []string
-	efforts   *run.Object
-	silence   time.Duration
-	ceiling   time.Duration
+	ctx         context.Context
+	dir         string
+	id          string
+	body        string
+	every       []string // the done-when lines as a round runs them
+	prompt      string
+	workspace   string
+	place       workplace
+	title       string
+	cmds        []string // the done-when lines a round reads
+	usersAt     string   // the ref a review's `users:` is read at
+	reviewLines int      // the first review's ceiling
+	once        []string // those deferred to landing
+	executor    string
+	reviewer    string
+	workers     []string // the lists the run was launched with, nil where none was bound
+	reviewers   []string
+	efforts     *run.Object
+	silence     time.Duration
+	ceiling     time.Duration
 }
 
 // Drive is the driver process of the run at dir, its exit status the ending's.  It is no turn, so
@@ -311,11 +329,13 @@ func (l *loop) work() error {
 	if err := l.pick(); err != nil {
 		return err
 	}
-	return l.round()
+	if err := l.round(); err != nil {
+		return err
+	}
+	return l.place.finished(l)
 }
 
-// open writes down what the run is, and makes its workspace: a directory of its own, and whatever
-// it leaves there is the delivery, Python's loop up to its first pick.
+// open writes down what the run is and makes its workplace, Python's loop up to its first pick.
 func (l *loop) open() error {
 	path := filepath.Join(l.dir, "task.md")
 	meta, cmds, err := task.Read(path)
@@ -328,9 +348,10 @@ func (l *loop) open() error {
 	}
 	text := task.Text(data)
 	l.body = task.Body(text)
+	l.title = task.Title(text, "task")
 	words, points := task.Size(l.body)
 	if err := l.save(func(record *run.Object) {
-		run.SetAll(record, "run_id", l.id, "title", task.Title(text, "task"), "task", path, "state", "running", "verdict", nil,
+		run.SetAll(record, "run_id", l.id, "title", l.title, "task", path, "state", "running", "verdict", nil,
 			"started_at", clock(), "reported", false, "task_words", words, "task_points", points, "task_checks", len(cmds))
 	}); err != nil {
 		return err
@@ -339,37 +360,42 @@ func (l *loop) open() error {
 	if err != nil {
 		return err
 	}
-	l.workspace = filepath.Join(config.Home(), "work", l.id)
-	if err := os.MkdirAll(l.workspace, 0o777); err != nil {
+	record, err := run.Read(l.dir)
+	if record == nil {
+		return cmp.Or(err, errors.New("run.json cannot be read"))
+	}
+	files := task.Files(text)
+	l.place = placeOf(record)
+	l.reviewLines = numbersOf(record)
+	if repo, isRepo := l.place.(*repoPlace); isRepo {
+		repo.title, repo.files = l.title, files
+	}
+	if err := l.place.open(l, meta, path, []any{"stalls", []any{}, "executor", nil, "reviewer", nil, "rounds", rounds,
+		"finished_at", nil, "round_summaries", []any{}, "findings", "", "merge_method", method,
+		"pr", nil, "merged", false, "merge_note", nil}); err != nil {
 		return err
 	}
-	if err := l.save(func(record *run.Object) {
-		run.SetAll(record, "repo", nil, "scratch", true, "base", nil, "target", nil, "base_sha", nil, "branch", nil,
-			"worktree", l.workspace, "stalls", []any{}, "executor", nil, "reviewer", nil, "rounds", rounds,
-			"finished_at", nil, "round_summaries", []any{}, "findings", "", "merge_method", method, "no_merge", true,
-			"pr", nil, "merged", false, "merge_note", nil, "base_proof", nil)
-	}); err != nil {
-		return err
-	}
-	l.say(fmt.Sprintf("scratch workspace %s: no repository, so no branch, no PR and no merge", l.workspace))
-	// a scratch task's checks all run each round, their `# once` marks stripped
-	for _, cmd := range cmds {
-		bare, _ := task.SplitOnce(cmd)
-		l.every = append(l.every, bare)
-	}
+	landing, suite := l.place.landing()
+	l.cmds = task.RoundCommands(cmds, suite, landing)
+	l.every, l.once = task.Group(l.cmds)
+	l.body += l.place.rules()
 	scope := ""
-	if files := task.Files(text); len(files) > 0 {
+	if len(files) > 0 {
 		scope = "\n\nfiles: " + strings.Join(files, ", ")
 	}
-	var checks strings.Builder
+	checks := make([]string, len(l.every))
 	for i, cmd := range l.every {
-		if i > 0 {
-			checks.WriteString("\n")
-		}
-		checks.WriteString("  $ " + cmd)
+		checks[i] = "  $ " + cmd
 	}
-	l.prompt = fmt.Sprintf("Workspace: %s\nThere is no git repository here: nothing to commit, no branch and no PR. What you leave in the workspace is the deliverable.\n\n%s\n\n%s\n\nDone-when commands, all must exit 0 (run them in %s):\n%s%s",
-		l.workspace, l.body, foreground, l.workspace, checks.String(), scope)
+	l.prompt = fmt.Sprintf("%s\n\n%s\n\n%s\n\nDone-when commands, all must exit 0 (run them in %s):\n%s",
+		l.place.where(l), l.body, foreground, l.workspace, strings.Join(checks, "\n"))
+	if len(l.once) > 0 {
+		l.prompt += "\nThe loop runs these once at landing on the commit to be merged; do not run them yourself:"
+		for _, cmd := range l.once {
+			l.prompt += "\n  $ " + cmd
+		}
+	}
+	l.prompt += scope
 	l.body += scope
 	return nil
 }
@@ -391,6 +417,11 @@ func budget(meta map[string]string, path, dir string) (rounds int, method string
 	number, err := config.Rounds()
 	if err != nil {
 		return 0, "", err
+	}
+	if policy := record.Dict("policy"); policy != nil {
+		if held, ok := policy.Int("rounds"); ok {
+			number = held
+		}
 	}
 	if raw != "" {
 		parsed := config.Int(raw)
@@ -470,6 +501,10 @@ func (l *loop) finish(err error) int {
 				"blocked", cannot.section, "finished_at", clock())
 		})
 	case err != nil:
+		var stopped *gitcall.Stopped
+		if errors.As(err, &stopped) {
+			err = notYet(stopped.Why, "a git that stopped")
+		}
 		return End(l.dir, err.Error())
 	default:
 		err = write(l.dir, func(record *run.Object) {

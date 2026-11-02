@@ -13,17 +13,21 @@ import (
 
 	"agentkit/internal/box"
 	"agentkit/internal/config"
+	"agentkit/internal/gitcall"
 	"agentkit/internal/host"
 	"agentkit/internal/loop"
 	"agentkit/internal/pick"
 	"agentkit/internal/run"
-	"agentkit/internal/task"
+	"agentkit/internal/seat"
 	"agentkit/internal/usage"
 )
 
-var namesShard = regexp.MustCompile(`\bAK_SHARD\b`)
+var (
+	namesShard   = regexp.MustCompile(`\bAK_SHARD\b`)
+	namesChanged = regexp.MustCompile(`\bAK_CHANGED\b`)
+)
 
-// drivable is nil where Go can drive this scratch task's run to its end, else ErrPython, decided
+// drivable is nil where Go can drive this task's run to its end, else ErrPython, decided
 // before anything is written: a model named outright, a pick or a meter Go cannot read as Python
 // does, a home with no adapter directory, a host with no box, one with a user manager to place the
 // run under, a check that names a suite's share, the checkout a task folder is named for, or a run
@@ -38,13 +42,24 @@ func drivable(every []string, path string, values map[string]string) error {
 	return nil
 }
 
-// drive is the rest of a scratch task's launch: the receipt says what it will deliver, the log
-// what Python's preflight says, and the run goes on in a driver of its own, followed here unless
-// told --bg.  Its driver, not this process, is what a stop or a signal ends: a terminal that goes
-// away leaves the run going.
-func drive(dir string, meta map[string]string, cmds []string, flags map[string]bool, unstopped func(func(*run.Object)) error, log func(string) error, out, errOut io.Writer) (int, error) {
+// drive is the rest of a launch: the receipt says what it will deliver, the log what Python's
+// preflight says, and the run goes on in a driver of its own, followed here unless told --bg.  Its
+// driver, not this process, is what a stop or a signal ends: a terminal that goes away leaves the
+// run going.
+func drive(dir string, meta map[string]string, at place, warning string, flags map[string]bool, unstopped func(func(*run.Object)) error, log func(string) error, out, errOut io.Writer) (int, error) {
 	if err := unstopped(func(record *run.Object) {
-		run.SetAll(record, "repo", nil, "scratch", true, "no_merge", true, "project", nil)
+		if at.repo == "" {
+			run.SetAll(record, "repo", nil, "scratch", true, "no_merge", true, "project", nil)
+			return
+		}
+		var project any
+		if meta["repo"] != "" {
+			if named := seat.CheckoutOf(at.repo); named != "" {
+				project = named
+			}
+		}
+		run.SetAll(record, "policy", run.Fields("rounds", at.numbers.Rounds, "review_lines", at.numbers.ReviewLines, "seat_lines", at.numbers.SeatLines),
+			"repo", at.repo, "scratch", false, "no_merge", flags["--no-merge"], "project", project)
 	}); err != nil {
 		return 0, err
 	}
@@ -52,20 +67,38 @@ func drive(dir string, meta map[string]string, cmds []string, flags map[string]b
 	if record == nil {
 		return 0, cmp.Or(err, errors.New("run.json cannot be read"))
 	}
-	var every []string
-	for _, cmd := range cmds {
-		bare, _ := task.SplitOnce(cmd)
-		every = append(every, bare)
-	}
 	lines := []string{}
+	if warning != "" {
+		lines = append(lines, warning)
+	}
 	for _, key := range []string{"done_when_minutes", "turn_hours", "stall_minutes"} {
 		if _, retired := meta[key]; retired {
 			lines = append(lines, "ignoring "+key+": the loop watches for silence")
 		}
 	}
+	commands := strings.Join(at.every, " ; ")
+	if len(at.once) > 0 {
+		if commands != "" {
+			commands += " ; "
+		}
+		commands += "once: " + strings.Join(at.once, " ; ")
+	}
+	said, base, target := "none (scratch)", "none", cmp.Or(meta["target"], "none")
+	delivery := "deliver scratch workspace files"
+	if at.repo != "" {
+		said, base, target = at.repo, at.base, at.target
+		delivery = "no push or merge; local commits"
+		if !flags["--no-merge"] {
+			branch, _, _, err := git(at.repo, "rev-parse", "--abbrev-ref", "HEAD")
+			if err != nil {
+				return 0, err
+			}
+			delivery = fmt.Sprintf("push %s to origin (fork if needed); PR into %s; merge after PASS", branch, target)
+		}
+	}
 	lines = append(lines, "--- preflight",
-		fmt.Sprintf("repo: none (scratch) | base: none | target: %s | merge: %s", cmp.Or(meta["target"], "none"), cmp.Or(meta["merge"], "squash")),
-		"delivery: deliver scratch workspace files", "done-when: "+strings.Join(every, " ; "))
+		fmt.Sprintf("repo: %s | base: %s | target: %s | merge: %s", said, base, target, cmp.Or(meta["merge"], "squash")),
+		"delivery: "+delivery, "done-when: "+commands)
 	for _, role := range []string{"workers", "reviewers"} {
 		if list := record.List(role); list != nil {
 			var names []string
@@ -75,7 +108,7 @@ func drive(dir string, meta map[string]string, cmds []string, flags map[string]b
 			lines = append(lines, role+": "+strings.Join(names, ", "))
 		}
 	}
-	lines = append(lines, fmt.Sprintf("limits: silence %dm | done-when ceiling %dh | git/gh %ds", run.SilenceMinutes, run.CeilingHours, toolCap),
+	lines = append(lines, fmt.Sprintf("limits: silence %dm | done-when ceiling %dh | git/gh %ds", run.SilenceMinutes, run.CeilingHours, gitcall.CapSeconds),
 		"scope: pending", "result: "+filepath.Join(dir, "result.md")+" | log: "+filepath.Join(dir, "log.txt"),
 		"notification: none: no orchestrator session launched this run, so nothing is sent; the result is here and in `ak run status`")
 	for _, line := range lines {

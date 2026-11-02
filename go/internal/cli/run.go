@@ -25,10 +25,22 @@ const runUsage = "usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review 
 
 var pullURL = regexp.MustCompile(`^https://github\.com/[^/\s]+/[^/\s]+/pull/[0-9]+/?$`)
 
-func init() { commands["run"] = launchRun }
+func init() {
+	commands["run"] = launchRun
+	commands["run clean"] = runClean
+}
+
+// runClean is `ak run clean <id>`, its arguments checked already: a refusal in Python's words.
+func runClean(args []string, out, errOut io.Writer) int {
+	if err := loop.Clean(args[0], out); err != nil {
+		fmt.Fprintf(errOut, "ak run: %v\n", err)
+		return 2
+	}
+	return 0
+}
 
 // launchRun is `ak run <task.md>` where Go makes the launch: one task preflight refuses, recorded
-// as a run in error, or a scratch task's run, which it follows unless told --bg.  Any other launch
+// as a run in error, or a run preflight passes, which it follows unless told --bg.  Any other launch
 // it leaves to Python before it writes anything.  `--drive` is that run's own process.
 func launchRun(args []string, out, errOut io.Writer) int {
 	if len(args) == 2 && args[0] == loop.DriveFlag {

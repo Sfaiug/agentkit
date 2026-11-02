@@ -398,7 +398,7 @@ func checkedSite(site, root, quote string, hasQuote bool) (string, int, error) {
 // planCheck is whether a follow-up's command can check its plan line, as Python's
 // hand_in.plan_check decides: one shell command on one line, without backticks or root.
 func planCheck(command, root string) bool {
-	return len(config.SplitLines(strings.TrimFunc(command, config.Space))) == 1 && !strings.Contains(command, "`") && !strings.Contains(command, root)
+	return len(config.SplitLines(strings.TrimFunc(command, config.Space))) == 1 && !strings.Contains(command, "`") && (root == "" || !strings.Contains(command, root))
 }
 
 // proof runs a hand-in's command as Python's checked does: bash -c in the checkout, without the

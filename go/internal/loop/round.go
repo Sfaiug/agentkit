@@ -33,8 +33,15 @@ func (l *loop) round() error {
 	if err != nil {
 		return err
 	}
+	// a change past the ceiling is refused now, before its checks
+	if err := l.place.worked(l); err != nil {
+		return err
+	}
 	text, err := l.verify()
 	if err != nil {
+		return err
+	}
+	if err := l.place.beforeReview(l); err != nil {
 		return err
 	}
 	return l.review(summary, text)
@@ -76,8 +83,9 @@ func (l *loop) execute() (string, error) {
 		"executor_effort", model.TurnEffort(false)); err != nil {
 		return "", err
 	}
+	l.place.beforeTurn(l)
 	out := filepath.Join(l.dir, roundName, "executor")
-	session, err := l.turn(l.executor, model, "executor", "executor-scratch", l.prompt, out)
+	session, err := l.turn(l.workspace, l.executor, model, "executor", l.place.role("executor"), l.prompt, out)
 	if err != nil {
 		return "", err
 	}
@@ -95,9 +103,9 @@ func (l *loop) execute() (string, error) {
 	return handin.Answer(filepath.Join(out, "final.md")), nil
 }
 
-// turn runs one turn of the model in its out directory, the conversation it leaves once it ended
-// well enough to read: any other ending is a road Go does not carry out.
-func (l *loop) turn(name string, model config.Model, word, role, body, out string) (string, error) {
+// turn runs one turn of the model from cwd in its out directory, the conversation it leaves once it
+// ended well enough to read: any other ending is a road Go does not carry out.
+func (l *loop) turn(cwd, name string, model config.Model, word, role, body, out string) (string, error) {
 	if err := l.stopCheck(); err != nil {
 		return "", err
 	}
@@ -112,8 +120,8 @@ func (l *loop) turn(name string, model config.Model, word, role, body, out strin
 		file.Close()
 	}
 	who := word + " " + name
-	code, session, err := worker.Turn(name, role, body, l.workspace, out, "", worker.Given{
-		Context: l.ctx, Efforts: model.Efforts, Silence: l.silence,
+	code, session, err := worker.Turn(name, role, body, cwd, out, "", worker.Given{
+		Context: l.ctx, Efforts: model.Efforts, Silence: l.silence, UsersAt: l.usersAt, ReviewLines: l.reviewLines,
 		Env: []string{"AK_RUN_ROLE=worker", "AK_RUN_LOG=" + filepath.Join(l.dir, "log.txt")},
 	}, stampedLog{l.dir})
 	stderr := filepath.Join(out, "stderr.log")
@@ -158,13 +166,13 @@ func unfinished(out string) bool {
 	return tasks
 }
 
-// verify is the checks of the round, what they said once all exited 0: a failure's fixer turn is
-// a road Go does not carry out.
+// verify is the checks of the round on what the workplace holds, what they said once all exited 0:
+// a failure's fixer turn is a road Go does not carry out.
 func (l *loop) verify() (string, error) {
 	if err := l.step("done-when"); err != nil {
 		return "", err
 	}
-	ok, text, err := l.checks(l.every, filepath.Join(l.dir, roundName, "donewhen.log"))
+	ok, text, err := l.place.verify(l, filepath.Join(l.dir, roundName, "donewhen.log"))
 	if err != nil {
 		return "", err
 	}
@@ -175,6 +183,8 @@ func (l *loop) verify() (string, error) {
 	l.say("done-when: all passed")
 	return text, l.save(func(record *run.Object) {
 		record.Set("done_when_failure", run.Fields("every", []any{}))
-		record.Set("artifacts", []any{})
+		if !record.Has("artifacts") {
+			record.Set("artifacts", []any{})
+		}
 	})
 }

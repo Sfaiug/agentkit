@@ -16,7 +16,7 @@ import (
 
 	"agentkit/internal/box"
 	"agentkit/internal/config"
-	"agentkit/internal/handin"
+	"agentkit/internal/gitcall"
 	"agentkit/internal/host"
 	"agentkit/internal/run"
 	"agentkit/internal/worker"
@@ -28,6 +28,8 @@ const outCap = 20 * 1024
 // flakyKey ignores varying values without depending on a suite's failure words, Python's
 // gate.flaky_key: an absolute path can have another temporary root on each run, a test's name
 // stays.
+var namesShard = regexp.MustCompile(`\bAK_SHARD\b`)
+
 var flakyKey = regexp.MustCompile(`(?i)(^|[^\p{L}\p{N}_.])/[^\s'"` + "`" + `<>]+|\b(?:0x[0-9a-f]+|[0-9a-f]{8,}(?:-[0-9a-f]+)*)\b|\d+(?:\.\d+)?(?:e[+-]?\d+)?`)
 
 // A ran is how one command ended: its status, and how a stop ended it, "" where none did.
@@ -42,12 +44,19 @@ type ran struct {
 // once, which decides, a pass that took the re-run said by a `flaky:` record; a stop ends the list.
 // The log holds their output as they run and their records once they ended.
 func (l *loop) checks(cmds []string, path string) (bool, string, error) {
+	ok, text, _, err := l.checksIn(l.workspace, cmds, path)
+	return ok, text, err
+}
+
+// checksIn is that in cwd, with each command's exit as the runner saw it, nil for one killed at the
+// limit or never run, and none for those after a kill: what decides a proof, never the text.
+func (l *loop) checksIn(cwd string, cmds []string, path string) (bool, string, []*int, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
-		return false, "", err
+		return false, "", nil, err
 	}
 	progress, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC|os.O_APPEND, 0o666)
 	if err != nil {
-		return false, "", err
+		return false, "", nil, err
 	}
 	defer progress.Close()
 	deadline := time.Now().Add(l.ceiling)
@@ -55,6 +64,7 @@ func (l *loop) checks(cmds []string, path string) (bool, string, error) {
 	var chunks []string
 	var spent, last, stopReason string
 	var left []string
+	var marks []*int
 	unstarted := false
 	for _, cmd := range cmds {
 		var first *[2]int64
@@ -63,7 +73,7 @@ func (l *loop) checks(cmds []string, path string) (bool, string, error) {
 		out := true
 		for {
 			if err := l.stopCheck(); err != nil {
-				return false, "", err
+				return false, "", nil, err
 			}
 			remaining := time.Until(deadline)
 			if remaining <= 0 {
@@ -73,8 +83,8 @@ func (l *loop) checks(cmds []string, path string) (bool, string, error) {
 			fmt.Fprintf(progress, "$ %s\n", cmd)
 			offset, _ = progress.Seek(0, io.SeekEnd)
 			l.say("suite runs here: command is not sent to the suite helper (does not name AK_SHARD)")
-			if outcome, err = l.boxed(cmd, remaining, progress, path); err != nil {
-				return false, "", err
+			if outcome, err = l.boxed(cwd, cmd, remaining, progress, path, false); err != nil {
+				return false, "", nil, err
 			}
 			if outcome.code == 0 || first != nil || outcome.stopped != "" {
 				break
@@ -85,13 +95,20 @@ func (l *loop) checks(cmds []string, path string) (bool, string, error) {
 		if !out && first == nil {
 			// out of time: starting this one would give it a limit of its own
 			spent, unstarted = cmd, true
+			marks = append(marks, nil)
 			chunks = append(chunks, "$ "+cmd+"\n[not run: the done-when limit was already spent]")
 			break
 		}
 		ok = ok && outcome.code == 0 && outcome.stopped == ""
+		if outcome.stopped != "" {
+			marks = append(marks, nil)
+		} else {
+			code := outcome.code
+			marks = append(marks, &code)
+		}
 		said, err := cutFrom(progress, offset, l.dir, stem(path))
 		if err != nil {
-			return false, "", err
+			return false, "", nil, err
 		}
 		status := "exit " + strconv.Itoa(outcome.code)
 		if outcome.stopped != "" {
@@ -101,7 +118,7 @@ func (l *loop) checks(cmds []string, path string) (bool, string, error) {
 		if first != nil && outcome.code == 0 {
 			record, err := l.flaky(cmd, progress, *first, offset, path)
 			if err != nil {
-				return false, "", err
+				return false, "", nil, err
 			}
 			chunks = append(chunks, record)
 		}
@@ -135,12 +152,13 @@ func (l *loop) checks(cmds []string, path string) (bool, string, error) {
 		l.say(line)
 	}
 	text := strings.Join(chunks, "\n\n")
-	return ok, text, os.WriteFile(path, []byte(text), 0o666)
+	return ok, text, marks, os.WriteFile(path, []byte(text), 0o666)
 }
 
-// boxed runs one command in the workspace in a box, its output into progress and activity being
-// where that lands, until it ends, says nothing for the run's silence or spends limit.
-func (l *loop) boxed(cmd string, limit time.Duration, progress *os.File, activity string) (ran, error) {
+// boxed runs one command in cwd in a box, its output into progress and activity being where that
+// lands, until it ends, says nothing for the run's silence or spends limit.  A proof keeps its
+// bytecode apart: same-size revisions can share a timestamp, making ignored bytecode look valid.
+func (l *loop) boxed(cwd, cmd string, limit time.Duration, progress *os.File, activity string, proof bool) (ran, error) {
 	out, err := os.MkdirTemp(filepath.Dir(activity), "")
 	if err != nil {
 		return ran{}, err
@@ -152,10 +170,13 @@ func (l *loop) boxed(cmd string, limit time.Duration, progress *os.File, activit
 	}
 	// where a check names the tests that failed, as any command that takes part is told
 	env["AK_FAILED"] = filepath.Join(out, "AK_FAILED")
+	if proof {
+		env["PYTHONPYCACHEPREFIX"] = filepath.Join(out, "pycache")
+	}
 	var left []string
 	ctx, watched := worker.Watch{Silence: l.silence, Ceiling: limit, Heard: worker.Written(activity), Marker: l.dir,
 		Before: func() { left = stillRunning(l.dir) }}.Stop(l.ctx)
-	code, err := box.RunCheck(ctx, []string{"bash", "-c", cmd}, env, l.workspace, out, progress)
+	code, err := box.RunCheck(ctx, []string{"bash", "-c", cmd}, env, cwd, out, progress)
 	stopped := watched()
 	if errors.Is(err, errors.ErrUnsupported) {
 		return ran{}, notYet("the host has no box for a check", "a check here")
@@ -272,35 +293,16 @@ func cutFrom(file *os.File, start int64, where, name string) (string, error) {
 }
 
 // proof runs a finding's command on the workspace, Python's prompts.proof_on on a scratch run, its
-// evidence as a record holds it: a check's walls, its output in a log of its own, cut as a hand-in's.
+// evidence as a record holds it.
 func (l *loop) proof(command, path string) (*run.Object, error) {
 	if err := l.stopCheck(); err != nil {
 		return nil, err
 	}
-	l.say("--- review proof: checking workspace")
-	progress, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC|os.O_APPEND, 0o666)
+	code, output, killed, err := l.proved(l.workspace, command, path, "workspace")
 	if err != nil {
 		return nil, err
 	}
-	defer progress.Close()
-	fmt.Fprintf(progress, "$ %s (on workspace)\n", command)
-	start, _ := progress.Seek(0, io.SeekEnd)
-	outcome, err := l.boxed(command, l.ceiling, progress, path)
-	if err != nil {
-		return nil, err
-	}
-	progress.Seek(0, io.SeekEnd)
-	output, err := handin.Excerpt(progress, start)
-	if err != nil {
-		return nil, err
-	}
-	status := "exit " + strconv.Itoa(outcome.code)
-	if outcome.stopped != "" || outcome.code < 0 {
-		status = "did not finish"
-	}
-	fmt.Fprintf(progress, "\n[%s]\n", status)
-	return run.Fields("run", command, "commit", "workspace", "returncode", outcome.code, "output", output,
-		"killed", outcome.stopped != ""), nil
+	return run.Fields("run", command, "commit", "workspace", "returncode", code, "output", output, "killed", killed), nil
 }
 
 // failing is the first check a done-when log says did not exit 0, for the reason a run ends with.
@@ -311,7 +313,23 @@ func failing(text string) string {
 			return "`" + strings.TrimPrefix(lines[0], "$ ") + "` " + lines[1]
 		}
 	}
+	// no command failed: what the loop said of the gate, which a repository's checks add
+	for _, record := range strings.Split(text, "\n\n") {
+		if !strings.HasPrefix(record, "$ ") && !strings.HasPrefix(record, "Commit: ") && !strings.HasPrefix(record, "flaky: ") {
+			first, _, _ := strings.Cut(record, "\n")
+			return first
+		}
+	}
 	return "see donewhen.log"
+}
+
+// asStopped is err where it is a git that stopped, nil otherwise.
+func asStopped(err error) error {
+	var stopped *gitcall.Stopped
+	if errors.As(err, &stopped) {
+		return stopped
+	}
+	return nil
 }
 
 // stem is a path's file name without its extension.

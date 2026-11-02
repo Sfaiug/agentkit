@@ -22,8 +22,8 @@ const flakyRule = "A `flaky:` record is ak's own rule, not a weakened check: a d
 
 var flakyRecord = regexp.MustCompile(`(?m)^flaky: `)
 
-// review is the reviewer's turn on what the workspace holds and its verdict on the record, Python's
-// review on a scratch run in its first round.  A FAIL is recorded, and its fixer round is a road Go
+// review is the reviewer's turn on what the workplace holds and its verdict on the record, Python's
+// review in a run's first round.  A FAIL is recorded, and its fixer round is a road Go
 // does not carry out.  The author's summary is recorded, never handed to the reviewer, whom it
 // would prime.
 func (l *loop) review(summary, checked string) error {
@@ -31,12 +31,21 @@ func (l *loop) review(summary, checked string) error {
 		"since", "", "earlier", []any{}, "failed", []any{})); err != nil {
 		return err
 	}
-	work := fmt.Sprintf("## Workspace (%s)\n```\n%s\n```", l.workspace, listing(l.workspace))
-	heading := fmt.Sprintf("## Done-when output (run by the loop; %d of %d commands exited 0)\n", len(l.every), len(l.every))
+	work, opening, heading, err := l.place.view(l)
+	if err != nil {
+		return err
+	}
+	heading += "\n"
+	if len(l.once) > 0 {
+		for _, cmd := range l.once {
+			heading += "runs once at landing on the commit to be merged: " + cmd + "\n"
+		}
+		heading += "These run at landing; their absence here is by design and is never a finding.\n"
+	}
 	if flakyRecord.MatchString(checked) {
 		heading += flakyRule + "\n"
 	}
-	body := l.body + "\n\n" + work + "\n\n" + heading + "```\n" + checked + "\n```"
+	body := opening + l.body + "\n\n" + work + "\n\n" + heading + "```\n" + checked + "\n```"
 	l.say("--- round 1: reviewer " + l.reviewer)
 	name := "reviewer"
 	if other := l.another(); other != "" {
@@ -51,7 +60,16 @@ func (l *loop) review(summary, checked string) error {
 		return err
 	}
 	out := filepath.Join(l.dir, roundName, name)
-	session, err := l.turn(l.reviewer, model, "reviewer", "reviewer-scratch", body, out)
+	var session string
+	err = l.place.inCopy(l, out, func(cwd string) error {
+		told, at := body, l.workspace
+		if cwd != "" {
+			told, at = strings.ReplaceAll(body, config.Resolve(l.workspace), cwd), cwd
+		}
+		var failed error
+		session, failed = l.turn(at, l.reviewer, model, "reviewer", l.place.role("reviewer"), told, out)
+		return failed
+	})
 	if err != nil {
 		return err
 	}
@@ -83,9 +101,8 @@ func (l *loop) another() string {
 	return rules.Independent(withRoom(readings), l.executor)
 }
 
-// weigh is the review as ak holds it, Python's weigh_review on a scratch run: the reviewer's copy
-// cannot decide what blocks.  A finding handed in with a quote is a note, as is one whose command
-// does not fail when ak runs it; a follow-up has no base to be proven on, so it is a note too.
+// weigh is the review as ak holds it, Python's weigh_review: the reviewer's copy cannot decide what
+// blocks.  A record whose kind this changes keeps the one handed in as `handed`.
 func (l *loop) weigh(submitted *handin.Review) (*handin.Review, error) {
 	var records []*run.Object
 	for index, row := range submitted.Records {
@@ -94,24 +111,9 @@ func (l *loop) weigh(submitted *handin.Review) (*handin.Review, error) {
 			records = append(records, row)
 			continue
 		}
-		weighed := row.Copy()
-		switch {
-		case was == "follow-up":
-			weighed.Set("kind", "note")
-			weighed.Set("dropped", "no base commit")
-			l.say(fmt.Sprintf("Dropped follow-up %s:%v: no base commit", row.Str("path"), row.Get("line")))
-		case row.Dict("evidence").Has("quote"):
-			weighed.Set("kind", "note")
-		default:
-			command := row.Dict("evidence").Str("run")
-			proof, err := l.proof(command, filepath.Join(l.dir, roundName, fmt.Sprintf("proof-%d-commit.log", index+1)))
-			if err != nil {
-				return nil, err
-			}
-			weighed.Set("evidence", proof)
-			if !handin.ProofFailed(proof) {
-				weighed.Set("kind", "note")
-			}
+		weighed, err := l.place.weigh(l, row, index)
+		if err != nil {
+			return nil, err
 		}
 		if weighed.Str("kind") != was {
 			weighed.Set("handed", was)
@@ -124,7 +126,10 @@ func (l *loop) weigh(submitted *handin.Review) (*handin.Review, error) {
 // record puts the verdict on the record: review.md and findings.json beside the reviewer's turn,
 // the round's summary and the evidence delivery is decided on.  A FAIL ends here.
 func (l *loop) record(summary, out string, reviewed config.Model, submitted *handin.Review) error {
-	verdict := submitted.Verdict()
+	verdict, evidence, err := l.place.judged(l, submitted.Verdict())
+	if err != nil {
+		return err
+	}
 	text := submitted.Text()
 	report := filepath.Join(out, "review.md")
 	if err := os.WriteFile(report, []byte(text), 0o666); err != nil {
@@ -146,7 +151,7 @@ func (l *loop) record(summary, out string, reviewed config.Model, submitted *han
 		return err
 	}
 	tail := []rune(strings.TrimFunc(text, config.Space))
-	followups := []any{}
+	followups := submitted.Followups()
 	if verdict == "PASS" {
 		// each flaky check's evidence stays with the review that passed over it
 		checked, _ := os.ReadFile(filepath.Join(l.dir, roundName, "donewhen.log"))
@@ -156,16 +161,20 @@ func (l *loop) record(summary, out string, reviewed config.Model, submitted *han
 			}
 		}
 	}
+	entry := run.Fields("round", 1, "verdict", verdict, "done_when", true, "finding_count", len(findings),
+		"summary", strings.TrimFunc(summary, config.Space))
+	review := run.Fields("executor", l.executor, "executor_provider", executed.Provider, "reviewer", l.reviewer,
+		"reviewer_provider", reviewed.Provider, "returncode", 0, "verdict", verdict, "done_when", true)
+	run.SetAll(entry, evidence...)
+	run.SetAll(review, evidence...)
+	entry.Delete("overridden")
+	checks, commits, defects := submitted.FollowupRecords()
 	err = l.save(func(record *run.Object) {
-		record.Set("round_summaries", append(record.List("round_summaries"), run.Fields(
-			"round", 1, "verdict", verdict, "done_when", true, "finding_count", len(findings),
-			"summary", strings.TrimFunc(summary, config.Space))))
+		record.Set("round_summaries", append(record.List("round_summaries"), entry))
 		run.SetAll(record, "findings", string(tail[max(0, len(tail)-8000):]), "findings_file", report,
 			"review_records", records, "notes", submitted.Notes(), "followups", followups,
-			"followup_checks", run.NewObject(), "followup_commits", run.NewObject(), "followup_defects", run.NewObject(),
-			"verdict", verdict,
-			"review", run.Fields("executor", l.executor, "executor_provider", executed.Provider, "reviewer", l.reviewer,
-				"reviewer_provider", reviewed.Provider, "returncode", 0, "verdict", verdict, "done_when", true))
+			"followup_checks", checks, "followup_commits", commits, "followup_defects", defects,
+			"verdict", verdict, "review", review)
 		record.Delete("review_pending")
 	})
 	if err != nil {

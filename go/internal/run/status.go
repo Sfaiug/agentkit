@@ -211,8 +211,8 @@ func span(elapsed float64) string {
 	return strconv.FormatInt(secs, 10) + "s"
 }
 
-// declaredSuite is the target's `tests:` suite at `origin/<target>`, else the checkout's.
-func declaredSuite(worktree, target string) string {
+// DeclaredSuite is the target's `tests:` suite at `origin/<target>`, else the checkout's.
+func DeclaredSuite(worktree, target string) string {
 	if target != "" {
 		ref := target
 		if !strings.HasPrefix(ref, "origin/") {
@@ -271,7 +271,7 @@ func FinalCheck(dir string, record *Object) string {
 		if !record.Truthy("target") {
 			target = record.Str("base")
 		}
-		any = declaredSuite(worktree(record), target) != ""
+		any = DeclaredSuite(worktree(record), target) != ""
 	}
 	if landing && any {
 		return "final check: not run"
