@@ -239,6 +239,14 @@ class Home:
             os.utime(path, (stamp, stamp))
         return path
 
+    def ticked(self, ago=60):
+        """The watch.json of a tick that ended `ago` seconds back: without one, `ak doctor`
+        calls the tick hung and exits 1."""
+        ended = time.time() - ago
+        return self.write(".agentkit/state/watch.json", {"tick": {
+            "started_at": ended - 12.5, "ended_at": ended,
+            "slowest": {"pass": "incoming prs", "seconds": 9.1}}})
+
     def tree(self):
         """Every file and directory under HOME, with each file's bytes: what a command left."""
         return {str(path.relative_to(self.path)): path.read_bytes() if path.is_file() else None

@@ -264,6 +264,9 @@ class Seats(Slice):
         # `ak doctor` is the other screen that says it, above the tick's own state; its effort
         # line asks each harness for its models, which no test does of the real ones
         self.stack.enter_context(patch.object(config, "catalog", return_value=[]))
+        now = time.time()
+        watch.save_state({"tick": {"started_at": now - 5, "ended_at": now,
+                                   "slowest": {"pass": "alive checks", "seconds": 1.0}}})
         with redirect_stdout(io.StringIO()) as doctor:
             self.assertEqual(watch.doctor([]), 0)
         self.assertEqual(doctor.getvalue().splitlines()[0], line)

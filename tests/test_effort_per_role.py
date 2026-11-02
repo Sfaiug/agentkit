@@ -140,7 +140,7 @@ class EffortPerRole(Acme):
 
         def doctor():
             with patch.object(orch, "slice_line", return_value="slice test"), \
-                    patch.object(watch, "tick_health", return_value="lock free"), \
+                    patch.object(watch, "tick_health", return_value=("lock free", False)), \
                     redirect_stdout(io.StringIO()) as out:
                 self.assertEqual(watch.doctor([]), 0)
             return out.getvalue().splitlines()[3:-1]   # past slice, tick, this machine; not rented

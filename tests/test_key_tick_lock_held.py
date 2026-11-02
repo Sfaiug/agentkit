@@ -5,10 +5,12 @@ would read the same panes and type into the same seats.  So a tick that finds th
 leaves everything as it was, asks nothing of GitHub or a harness and exits 0, a normal event
 for cron; it names the holder's pid and how long it has held the lock, and from 30 minutes
 calls it hung for the person reading the log.  `ak doctor` names the holder in its `tick`
-line, beside the size of the tick's log, and calls a lock nobody holds free whatever its file
-says.  The holder here is this test: it flocks state/watch.tick.lock as a tick does, writes a
-pid into it and back-dates the file, whose mtime is when that tick began.  Black-box: the
-program `AK_BIN` names runs from outside through tests/fixtures/akbin.py.
+line, before the last tick's end and the size of the tick's log, and calls a lock nobody holds
+free whatever its file says; none of these ticks has ended, which it exits 1 for
+(tests/test_key_doctor_tick_line.py).  The holder here is this test: it flocks
+state/watch.tick.lock as a tick does, writes a pid into it and back-dates the file, whose mtime
+is when that tick began.  Black-box: the program `AK_BIN` names runs from outside through
+tests/fixtures/akbin.py.
 """
 
 import fcntl
@@ -28,7 +30,8 @@ SLACK = 30
 RUNNING = "tick already running (pid 4242, for {} min)\n"
 HUNG = ("WARN the tick holding the lock has been running for {} min; look at it, and kill it if "
         "it is hung\n")
-DOCTOR = "tick  lock held by pid 4242 for {} min · watch.log 0.0 MB of 5 MB"
+DOCTOR = ("tick  lock held by pid 4242 for {} min · no tick has ended yet · "
+          "watch.log 0.0 MB of 5 MB")
 
 
 def said(minutes):
@@ -96,7 +99,7 @@ class HeldLock(unittest.TestCase):
     def test_doctor_names_the_holder_and_how_long_it_has_held_the_lock(self):
         self.held_for(40)
         done, ages = self.aged(lambda: self.home.ak("doctor"))
-        self.assertEqual(done.code, 0, done.err)
+        self.assertEqual(done.code, 1, done.err)
         self.assertTrue({DOCTOR.format(age) for age in ages} & set(done.out.splitlines()),
                         done.out)
 
@@ -110,8 +113,9 @@ class FreeLock(unittest.TestCase):
             log.parent.mkdir(parents=True, exist_ok=True)
             log.write_bytes(b"x" * (3 * 1024 * 1024 // 2))
             done = home.ak("doctor")
-            self.assertEqual(done.code, 0, done.err)
-            self.assertIn("tick  lock free · watch.log 1.5 MB of 5 MB", done.out.splitlines())
+            self.assertEqual(done.code, 1, done.err)
+            self.assertIn("tick  lock free · no tick has ended yet · watch.log 1.5 MB of 5 MB",
+                          done.out.splitlines())
             # asking who holds it is no taking of it
             self.assertEqual((home.path / LOCK).read_text(), "4242\n")
 

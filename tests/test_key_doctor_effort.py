@@ -33,6 +33,7 @@ class DoctorEffort(unittest.TestCase):
     def setUpClass(cls):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
+        cls.home.ticked()
 
     def adapters(self, name, *, script=None, manifest=""):
         """A directory of echo's adapter, its script or manifest changed as the test says."""

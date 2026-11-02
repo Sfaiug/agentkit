@@ -74,6 +74,7 @@ class MissingManifest(unittest.TestCase):
     def setUpClass(cls):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
+        cls.home.ticked()
         cls.harness, cls.model, cls.efforts = shipped_model()
         # an effort no catalog gives, so doctor names the model with the efforts it read
         akconfig.write(cls.home, {"beta": {"harness": cls.harness, "model": cls.model,

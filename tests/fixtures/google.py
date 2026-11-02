@@ -76,6 +76,7 @@ class Google(http.server.ThreadingHTTPServer):
         self.env = {**ECHO, "AK_GOOGLE_URL": f"http://127.0.0.1:{self.server_address[1]}"}
         # ak doctor checks the models a config names: one that asks nobody
         akconfig.write(home, {"echo": {"harness": "echo", "model": "echo-1"}})
+        home.ticked()
         threading.Thread(target=self.serve_forever, daemon=True).start()
 
     def close(self):
