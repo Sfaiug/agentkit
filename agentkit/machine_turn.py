@@ -55,6 +55,13 @@ def _conversation(harness, session):
     return [place.replace("{id}", glob.escape(session)) for place in _sessions(harness)]
 
 
+def lost(harness, session):
+    """Whether the conversation `session` is nowhere on this host, so no resume can open it: a turn
+    on a lost machine leaves its id in what it streamed. A harness with no `sessions` cannot say."""
+    places = _conversation(harness, session)
+    return bool(places) and not any(glob.glob(place, root_dir=Path.home()) for place in places)
+
+
 def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     """(exit, killed, session) of the turn `cmd` of the model `entry` on a machine with room, or
     None: it runs here, as with the switch off, `places`, no program for it (`_program`), a
