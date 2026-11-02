@@ -6,9 +6,12 @@ lends and the conversation it resumes, and the harness program to run, which the
 first time a turn names it (mac.sh's `fetch`), a new version here reaching it at its next turn; the
 container tools/helper/turn.sh runs the turn in, at this host's paths; and what comes back: the out
 dir, a bundle of the turn's commits, the last holding what it left uncommitted, which git applies
-here, and the conversation it reported, at its place under this host's HOME.
+here, and the conversation it reported, at its place under this host's HOME. While it runs, a
+renewal of its login here reaches it (`_following`).
 """
 
+import base64
+from contextlib import contextmanager
 import fnmatch
 import glob
 import io
@@ -20,6 +23,7 @@ import shlex
 import subprocess
 import tarfile
 import tempfile
+import threading
 import time
 
 from . import config, gitcall, helper
@@ -32,6 +36,9 @@ LENT_FOR = 3600
 # past the silence limit the watchdog asks on every poll, and a command ending before its bound
 # holds the turn at most this long more.
 KEPT = 60
+# Seconds between a follower's looks at the login files: a renewal revokes the turn's copy, and a
+# real harness re-read its file for only about 2 s of refusals (2 Nov 2026), `lend` and ssh within.
+LOOK = 0.25
 
 
 def _sessions(harness):
@@ -72,6 +79,9 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     if session and not held:
         return None
     cwd, out_dir = Path(cwd).absolute(), Path(out_dir).absolute()
+    logins = [*config.manifest_paths(config.manifest(harness).get("worker", {}).get("logins", ()),
+                                     env, cwd)]
+    seen = [*map(_stamp, logins)]    # before the lend: a renewal as it prepares is sent too
     with tempfile.TemporaryDirectory() as home:
         lent = _lend(entry, cmd[0], env, home)
         if not lent:
@@ -85,7 +95,8 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     volumes = [f"home:{env['HOME']}", f"work:{cwd}", f"out:{out_dir}",
                *(f"ak/{name}:{config.REPO / name}:ro" for name in AK)]
     try:
-        with (out_dir / "events.jsonl").open("ab") as events, \
+        with _following(entry, cmd[0], env, away, logins, seen, lent), \
+                (out_dir / "events.jsonl").open("ab") as events, \
                 (out_dir / "stderr.log").open("ab") as err:
             code, _, killed = watch(helper._remote(
                 away.alias, "turn", away.key, away.image, away.memory_mb, away.repo, *volumes,
@@ -153,18 +164,62 @@ def _program(harness):
             {machine: url.replace(update.VERSION_KEY, version) for machine, url in where.items()})
 
 
-def _lend(entry, adapter, env, home):
-    """The paths under `home` of the login the adapter lent there for the account `env` names, none
-    where it lends none lasting LENT_FOR. The account is `lend`'s alone: the machine's adapter runs
-    with none, reading the copy where the usual login lives."""
+def _stamp(path):
+    """What `stat` says of `path`, which forks nothing, however many turns look at once."""
+    try:
+        found = path.stat()
+    except OSError:
+        return None
+    return found.st_mtime_ns, found.st_size, found.st_ino
+
+
+@contextmanager
+def _following(entry, adapter, env, away, logins, seen, sent):
+    """While inside it, a change of the files `logins` from their stamps `seen` asks the adapter
+    for a new copy, and one differing from the copy `sent` replaces that on the machine, tried again
+    at each look until it lands or another is lent, none lent leaving nothing to send. Its thread's
+    failures reach nothing, and leaving stops it, a send under way ending first."""
+    stop = threading.Event()
+
+    def follow(seen, sent):
+        unsent = {}
+        while not stop.wait(LOOK):
+            try:
+                if (stamps := [*map(_stamp, logins)]) != seen:
+                    seen = stamps
+                    with tempfile.TemporaryDirectory() as home:
+                        fresh = _lend(entry, adapter, env, home, 0)    # any beats a revoked one
+                    unsent = fresh if fresh != sent else {}
+                if unsent and not helper._remote(
+                        away.alias, "relend", away.key, timeout=30, input=b"".join(
+                            base64.b64encode(data) + b" " + path.encode() + b"\n"
+                            for path, data in unsent.items())).returncode:
+                    sent, unsent = unsent, {}
+            except (OSError, subprocess.SubprocessError, config.Error):
+                pass
+
+    follower = threading.Thread(target=follow, args=(seen, sent), daemon=True)
+    follower.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        follower.join()
+
+
+def _lend(entry, adapter, env, home, lasting=LENT_FOR):
+    """{path under `home`: its bytes} of the login the adapter lent there for the account `env`
+    names, none where it lends none lasting `lasting` seconds. The account is `lend`'s alone: the
+    machine's adapter runs with none, reading the copy where the usual login lives."""
     try:
         done = config.run_adapter([adapter, "lend", home], 60,
                                   env={**env, **config.provider_env([entry["provider"]])})
-        if done.returncode or float(done.stdout or "inf") < time.time() + LENT_FOR:
-            return []
+        if done.returncode or float(done.stdout or "inf") < time.time() + lasting:
+            return {}
+        return {str(path.relative_to(home)): path.read_bytes()
+                for path in Path(home).rglob("*") if path.is_file()}
     except (OSError, subprocess.SubprocessError, ValueError):
-        return []
-    return [str(path.relative_to(home)) for path in Path(home).rglob("*") if path.is_file()]
+        return {}
 
 
 def _parcel(tar, program, cwd, out_dir, env, home, lent, held):
