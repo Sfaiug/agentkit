@@ -118,9 +118,10 @@ class FailedNights(unittest.TestCase):
         fakes["codex"].answer("auth", "signed out", code=1)
         late.says(failed())
         cls.signed_out = cls.tick(hour_on=True, seen=True)
+        refused = late.runs()
         fakes["codex"].answer("auth", "signed in")
         cls.signed_in = cls.tick(hour_on=True, seen=True)
-        cls.ended()
+        cls.ended(refused)
 
     @classmethod
     def tick(cls, hour_on=False, seen=False, just_read=None):
@@ -136,12 +137,12 @@ class FailedNights(unittest.TestCase):
                 for project in (cls.acme, cls.calm, cls.api, cls.late, *cls.stuck)}
 
     @classmethod
-    def ended(cls):
-        """Every run ends: not needed, as a first turn finding the night gone on the tip says, or
-        refused at its launch."""
+    def ended(cls, refused=()):
+        """Every run but those refused at launch ends not needed, as a first turn finding the
+        night gone on the tip says."""
         deadline = time.monotonic() + 120
-        while any(record_of(run)["state"] not in ("not_needed", "error")
-                  for run in taskfile.runs(cls.home)):
+        while any(record_of(run)["state"] != "not_needed"
+                  for run in taskfile.runs(cls.home) if run not in refused):
             assert time.monotonic() < deadline, "a run never ended"
             time.sleep(0.1)
 
@@ -195,7 +196,8 @@ class FailedNights(unittest.TestCase):
     def test_a_reviewer_signed_out_says_so_and_the_next_hour_after_they_return_fixes_the_night(self):
         self.assertEqual(self.signed_out["late"], (1, 1))
         self.assertEqual(self.signed_in["late"], (2, 0))
-        self.assertEqual(record_of(self.late.runs()[1])["state"], "not_needed")
+        self.assertEqual([record_of(run)["state"] for run in self.late.runs()],
+                         ["error", "not_needed"])
 
     def test_no_seat_is_opened_and_no_card_reaches_the_owner(self):
         self.assertEqual(self.sink.requests, [])
