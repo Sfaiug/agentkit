@@ -916,6 +916,19 @@ print(json.dumps({"login": json.loads((home / "auth.json").read_text()), "args":
         self.refusal_tick()
         self.assertEqual((self.typed, self.answer()["word"]), (["continue"], "working"))
 
+    def test_done_seat_at_rest_still_returns_to_its_home_account(self):
+        self.meters(20, 20)
+        (self.root / ".claude-second").mkdir()
+        (self.root / ".claude-second/projects").symlink_to(self.root / ".claude/projects")
+        config.update_session(NAME, account="second")
+        plan = config.plan_path(NAME)
+        plan.write_text("- [x] the endpoint is live\n")
+        os.utime(plan, (self.now - 10, self.now - 10))
+        self.tick()
+        self.assertEqual(config.session_records()[NAME]["account"], "default")
+        self.assertEqual((len(self.commands), self.typed), (1, []))
+        self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
+
     def test_a_done_seat_stays_done_when_a_recorded_interrupt_has_no_hook_yet(self):
         # Muse records a card's Interrupt in its log before its async Interrupt hook updates
         # the raw fact: the effective fact ended the turn, the raw one still asks its question.
