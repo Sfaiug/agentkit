@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -17,12 +18,15 @@ func init() { commands["orch why"] = orchWhy }
 // answers to.
 func orchWhy(args []string, out, errOut io.Writer) int {
 	now := time.Now()
-	home, known := seat.Read(now)
+	home, known := seat.Looking(now)
 	name, _, err := config.ResolveSession(args[0])
 	if !known || err != nil && !home.Seatless() {
 		return notImplemented(errOut, "orch why")
 	}
 	lines, found, err := home.Explain(name, now)
+	if errors.Is(err, seat.ErrUnread) {
+		return notImplemented(errOut, "orch why")
+	}
 	if err != nil {
 		fmt.Fprintf(errOut, "ak orch: %v\n", err)
 		return 1

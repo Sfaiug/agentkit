@@ -15,8 +15,8 @@ import (
 	"agentkit/internal/run"
 )
 
-// live are the states an entry may give a fact (lifecycle.LIVE).
-var live = []string{"asking", "working", "at_prompt", "draft"}
+// Live are the states an entry may give a fact (lifecycle.LIVE).
+var Live = []string{"asking", "working", "at_prompt", "draft"}
 
 // State is the state the harness's manifest gives the fact, and the event as a mark names it,
 // `<event>/<kind>` where it has a kind; "" for both where it gives none.
@@ -27,7 +27,7 @@ func State(harness string, fact hookfact.Fact) (state, event string, err error) 
 		if name, _ := entry["name"].(string); name != fact.Event || listed && !slices.Contains(kinds, any(fact.Kind)) {
 			continue
 		}
-		if state, _ := entry["state"].(string); slices.Contains(live, state) {
+		if state, _ := entry["state"].(string); slices.Contains(Live, state) {
 			if fact.Kind != "" {
 				return state, fact.Event + "/" + fact.Kind, nil
 			}

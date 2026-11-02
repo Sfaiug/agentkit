@@ -29,8 +29,9 @@ import (
 	"agentkit/internal/tmux"
 )
 
-// A Seat is one tmux no longer holds, only its record, as Python's orch.listing offers it, with
-// the word and tally its runs give it (watch.session_state, handback.seat_tallies).
+// A Seat is one as Python's orch.listing offers it, whether only its record holds it or tmux does,
+// with the word and tally its runs give it, or its screen where its panes run on
+// (watch.session_state, handback.seat_tallies).
 type Seat struct {
 	Name, Project, Word, Tally, Orchestrator, Workers string
 	Warning                                           string // why its record's models read as `?`
@@ -41,6 +42,11 @@ type Seat struct {
 	unowned                                           bool     // would resume its record's conversation, and it names none: Python offers it no row
 	closed                                            bool     // its seat file holds the owner's stop mark
 	held                                              bool     // tmux still holds its session, all its panes dead
+	live                                              bool     // a pane of its session still runs: its screen says what it is
+	own                                               string   // the harness its screen is read as
+	question                                          bool     // its reason is the question its screen shows, not for the bar to repeat
+	unsent                                            string   // what nobody sent, left in its composer
+	wordFrom                                          []any    // what its word was decided from (watch.word_from), none for one nobody is in
 	asleep                                            bool     // put to sleep since its harness launched (sleep.asleep)
 	handBacks                                         int      // its runs' hand-backs waiting on the owner's reopening it
 	home                                              []string // where the menu files it (orch.home_key)
@@ -67,8 +73,9 @@ var (
 	recordFields = []string{"orchestrator", "workers", "cwd", "created", "conversation", "id_source", "resumable", "session_title", "repo"}
 	seatFields   = slices.Concat([]string{"word", "reason", "unsent", "word_since", "word_from", "session", "stopped_at", "closed_by_owner", "unasked"}, waits, screenFields)
 	// what Python's look at a seat's screen keeps beside its word, which no seat nobody is in reads
-	screenFields = []string{"state", "rule", "since", "began", "hooks", "hooked", "hooked_at", "hooked_event", "interrupted", "authority", "evidence"}
-	runFields    = []string{"run_id", "title", "repo", "started_at", "finished_at", "state", "merged", "launched_session"}
+	screenFields = []string{"state", "rule", "since", "began", "hooks", "hooked", "hooked_at", "hooked_event", "interrupted", "authority", "evidence",
+		"stall", "login", "turn_began", "stop_said", "stop_said_at", "opened_at"}
+	runFields = []string{"run_id", "title", "repo", "started_at", "finished_at", "state", "merged", "launched_session"}
 )
 
 // A ran is one of a seat's runs: its directory's name, its record, and how long since run.json
@@ -81,8 +88,13 @@ type ran struct {
 
 // Read is the home, and whether Go knows it: no record where milestone 6b found none, else
 // only seats on no tmux server or whose panes have all died there, with records, seat files and
-// runs it follows.
-func Read(now time.Time) (Home, bool) {
+// runs it follows.  Looking also takes seats whose panes run on.
+func Read(now time.Time) (Home, bool) { return reading(now, false) }
+
+// Looking is Read with seats whose panes still run among them, where Go reads their screens.
+func Looking(now time.Time) (Home, bool) { return reading(now, true) }
+
+func reading(now time.Time, looking bool) (Home, bool) {
 	state := filepath.Join(config.Home(), "state")
 	entries, err := os.ReadDir(state)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -99,7 +111,9 @@ func Read(now time.Time) (Home, bool) {
 	}
 	var planned []string
 	for _, entry := range entries {
-		if entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {
+		// Python's cache of runs/, which Go reads itself, says nothing a word hangs on
+		if entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
+			entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {
 			continue
 		}
 		kind, rest, _ := strings.Cut(entry.Name(), "-")
@@ -119,8 +133,8 @@ func Read(now time.Time) (Home, bool) {
 	models, err := config.Models()
 	offered, unread := config.Offered()
 	runs, known := readRuns(names, now)
-	held, gone := heldGone(names)
-	if err != nil || unread != nil || !known || !gone {
+	held, live, gone := onServer(names)
+	if err != nil || unread != nil || !known || !gone || !looking && len(live) > 0 {
 		return Home{}, false
 	}
 	home := Home{models: models}
@@ -130,7 +144,16 @@ func Read(now time.Time) (Home, bool) {
 		if !ok || !seat.closed && slices.Contains(planned, name) {
 			return Home{}, false
 		}
-		if seat.held = slices.Contains(held, name); seat.held {
+		seat.held, seat.live = slices.Contains(held, name), slices.Contains(live, name)
+		if seat.live {
+			if record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json")); record != nil {
+				seat.own = models[record.Str("orchestrator")].Harness
+			}
+			if !seat.looksOn(seat.own) {
+				return Home{}, false
+			}
+		}
+		if seat.held || seat.live {
 			// tmux offers its row whatever its record owns, dates it by its own start where the
 			// record does not, and its bar shows the squares of any run going
 			record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
@@ -169,19 +192,23 @@ func order(seats []Seat) {
 	})
 }
 
-// heldGone is the seats of those names whose panes have all died where tmux holds no others, and
-// whether it does: nothing on ak's server but such seats, and none ak opened on the default one.
-func heldGone(names []string) ([]string, bool) {
+// onServer is the seats of those names tmux holds, the ones whose panes have all died and the rest,
+// and whether it holds no others: nothing on ak's server but seats with records, and none ak opened
+// on the default one.
+func onServer(names []string) (held, live []string, known bool) {
 	own := tmux.Sessions(tmux.Own())
 	dead := tmux.Dead(tmux.Own())
-	var held []string
 	for _, session := range own {
-		if !slices.Contains(dead, session.Name) || !slices.Contains(names, session.Name) {
-			return nil, false
+		switch {
+		case !slices.Contains(names, session.Name):
+			return nil, nil, false
+		case slices.Contains(dead, session.Name):
+			held = append(held, session.Name)
+		default:
+			live = append(live, session.Name)
 		}
-		held = append(held, session.Name)
 	}
-	return held, !marked(tmux.Default)
+	return held, live, !marked(tmux.Default)
 }
 
 // read is the seat one record holds, from it, its seat file and its runs.
@@ -415,10 +442,14 @@ func (seat Seat) announced(state string, now time.Time, models map[string]config
 	} else if previous.Get("word") != nil {
 		since = run.Float(seconds(now))
 	}
-	fields := []field{{"word", seat.Word}, {"reason", seat.reason}, {"unsent", ""}, {"word_since", since}, {"word_from", []any{nil, nil, ""}}}
+	wordFrom := seat.wordFrom
+	if wordFrom == nil {
+		wordFrom = []any{nil, nil, ""}
+	}
+	fields := []field{{"word", seat.Word}, {"reason", seat.reason}, {"unsent", seat.unsent}, {"word_since", since}, {"word_from", wordFrom}}
 	if slices.ContainsFunc(fields, func(f field) bool {
-		if f.key == "unsent" { // `or ""`: any false value is no draft
-			return previous.Truthy("unsent")
+		if f.key == "unsent" && !previous.Truthy("unsent") { // `or ""`: any false value is no draft
+			return seat.unsent != ""
 		}
 		return !run.Equal(previous.Get(f.key), f.value)
 	}) {
@@ -426,7 +457,7 @@ func (seat Seat) announced(state string, now time.Time, models map[string]config
 			return err
 		}
 	}
-	if seat.held {
+	if seat.held || seat.live {
 		seat.publish(state, models, !run.Equal(previous.Get("word"), seat.Word))
 	}
 	return nil

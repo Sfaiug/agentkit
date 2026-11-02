@@ -6,6 +6,7 @@ test_key_browser_status Install Login.test_the_stored_password_is_shown_with_the
 test_key_claude_hooks_merge
 test_key_claude_hooks_wiring
 test_key_claude_seat_prep
+test_key_claude_words
 test_key_doctor_effort
 test_key_doctor_tick_line
 test_key_done_seat_question_refused

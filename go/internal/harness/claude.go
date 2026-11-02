@@ -17,7 +17,7 @@ import (
 // no activity to the silence watchdog.
 func init() {
 	ceiling := strconv.Itoa(run.CeilingHours * 3600 * 1000)
-	plugins["claude"] = plugin{seats: true, answer: claudeAnswer, conversation: claudeConversation, notices: claudeNotices, auth: claudeAuth, lend: claudeLend, turnEnv: map[string]string{
+	plugins["claude"] = plugin{seats: true, looks: true, recorded: claudeError, answer: claudeAnswer, conversation: claudeConversation, notices: claudeNotices, auth: claudeAuth, lend: claudeLend, turnEnv: map[string]string{
 		"BASH_DEFAULT_TIMEOUT_MS": ceiling, "BASH_MAX_TIMEOUT_MS": ceiling}, opens: true, titled: true}
 }
 
@@ -31,9 +31,26 @@ const projectCut = 200
 // its end: its own, never a subagent's or one Claude Code made up itself. Read anywhere else
 // Claude Code would keep it, or not read, there is none.
 func claudeAnswer(conversation, cwd string) (model, effort any, found bool) {
-	file, err := os.Open(claudeConversation(map[string]any{"conversation": conversation, "cwd": cwd}))
-	if err != nil {
+	entry, _ := lastEntry(claudeConversation(map[string]any{"conversation": conversation, "cwd": cwd}), func(entry *run.Object) bool {
+		if entry.Str("type") != "assistant" || entry.Truthy("isSidechain") || entry.Dict("message") == nil {
+			return false
+		}
+		model = entry.Dict("message").Get("model")
+		return model != nil && model != "<synthetic>"
+	})
+	if entry == nil {
 		return nil, nil, false
+	}
+	return model, entry.Get("effort"), true
+}
+
+// lastEntry is the last line of that JSON-lines file `pick` takes, read back from its end, as a
+// conversation grows for as long as it goes on; a line still being written or not JSON is passed
+// over.  Its error is the file's, unread.
+func lastEntry(path string, pick func(*run.Object) bool) (*run.Object, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
 	}
 	defer file.Close()
 	end, err := file.Seek(0, io.SeekEnd)
@@ -51,17 +68,13 @@ func claudeAnswer(conversation, cwd string) (model, effort any, found bool) {
 		}
 		for at := len(lines) - 1; at >= 0; at-- {
 			value, _ := run.Decode(lines[at])
-			entry, _ := value.(*run.Object)
-			if entry == nil || entry.Str("type") != "assistant" || entry.Truthy("isSidechain") || entry.Dict("message") == nil {
-				continue
-			}
-			if model = entry.Dict("message").Get("model"); model != nil && model != "<synthetic>" {
-				return model, entry.Get("effort"), true
+			if entry, _ := value.(*run.Object); entry != nil && pick(entry) {
+				return entry, nil
 			}
 		}
 		end = start
 	}
-	return nil, nil, false
+	return nil, err
 }
 
 // projectFolder is the folder Claude Code files a working directory's conversations under
