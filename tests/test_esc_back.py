@@ -237,7 +237,7 @@ class EscBack(unittest.TestCase):
         menu_ = Menu(self)
         menu_.screen()
         menu_.press(b"c", title("config"))
-        menu_.press(DOWN * 30 + UP * 3, lambda lines: title("config")(lines) and any(
+        menu_.press(DOWN * 30 + UP * 6, lambda lines: title("config")(lines) and any(
             line.startswith("› Models") for line in lines))
         models = title("config · models")
         menu_.press(ENTER, models)
@@ -285,7 +285,7 @@ class EscBack(unittest.TestCase):
         menu_.screen()
         config_ = title("config")        # the highlighted seat's
         menu_.press(b"c", config_)
-        menu_.press(DOWN * 30 + UP * 3, lambda lines: config_(lines) and any(
+        menu_.press(DOWN * 30 + UP * 6, lambda lines: config_(lines) and any(
             line.startswith("› Models") for line in lines))
         menu_.press(ENTER, title("config · models"))
         menu_.back("models_page", title("config · models"))
