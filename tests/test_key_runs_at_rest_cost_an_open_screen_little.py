@@ -6,6 +6,8 @@ over 5,126 runs of which 40 could still change.  The cost is the screen's own sy
 this removes: it separates reading every run from reading the open ones by 4x, where total CPU
 does by 2x and host load moves it more.  Its yardstick is the same look done plainly in this
 test's process, so a slow host raises both.
+An open run's paths are resolved again only once its record changed or at a full read, so a symlink
+that moved shows by then.
 Black-box, on tests/test_key_idle_screen_reads_only_what_changed.py's open screen.
 """
 
@@ -122,8 +124,27 @@ class RunsAtRestCostAnOpenScreenLittle(OpenScreen):
         (self.home.path / ".agentkit/state/runs-moved").touch()
         self.menu.wait(row(SEATS[2], "● working"))
         shutil.rmtree(kept.parent)
-        self.menu.wait(lambda screen: row(SEATS[2])(screen)
-                       and not row(SEATS[2], "● working")(screen))
+        self.menu.wait(self.not_working)
+
+    def not_working(self, screen):
+        return row(SEATS[2])(screen) and not row(SEATS[2], "● working")(screen)
+
+    def test_4_a_symlink_that_moved_shows_by_a_full_read_and_a_changed_record_at_once(self):
+        code, sandbox = self.home.path / "code", self.home.path / ".agentkit/tmp/smoke-acme"
+        link = code / "acme-link"
+        sandbox.mkdir(parents=True)
+        link.symlink_to(code / "acme")
+        record = {**going(ended(RUNS + 1, SEATS[2], time.time())), "repo": str(link)}
+        kept = self.home.write(f".agentkit/runs/{record['run_id']}/run.json", record)
+        moved = self.home.path / ".agentkit/state/runs-moved"
+        moved.touch()
+        self.menu.wait(row(SEATS[2], "● working"))
+        link.unlink()                             # now the suite's own run, which no screen counts
+        link.symlink_to(sandbox)
+        self.menu.wait(self.not_working, bound=LATE)
+        self.home.write(kept, {**record, "repo": str(code / "acme")})
+        moved.touch()
+        self.menu.wait(row(SEATS[2], "● working"))
 
 
 if __name__ == "__main__":
