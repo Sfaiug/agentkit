@@ -49,7 +49,6 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 		{"orch", "acme"},
 		{"orch", "ended", "acme", "1700000000"},
 		{"orch", "ended", "--model"},
-		{"orch", "stop", "acme"},
 		{"plan", "check", "٣", "true"},
 		{"plan", "check", "²", "a\nb"},
 		{"plan", "check", "1", "true \xff"},

@@ -431,7 +431,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
             clean["TMPDIR"] = "/var/tmp"
             yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
-                "pass_fds": (write,), "stop": stop}
+                "pass_fds": (write,), "stop": stop, "began": report.exists}
         finally:
             target = namespace()
             if target is not None:
@@ -562,6 +562,7 @@ def cpu_seconds(out_dir):
 
 
 def _supervise(report, argv, drain=False):
+    Path(report).touch()    # the box is up: silence counts from here (`worker.limited`)
     if drain:
         # A check runs again and a killed piece is retried; a seat's conversation or a turn
         # cannot be. So wherever memory runs out, at the run's cap, in its slice or host-wide,

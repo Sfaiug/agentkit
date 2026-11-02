@@ -100,6 +100,9 @@ POLICY = {
                      ("first round", "merged")),
     "seat_lines": (50, 0, 10, "the added lines a seat's own change stays under", ("built",)),
 }
+# How a number of rounds opens a sentence and how the round past them reads; further up, figures.
+ROUNDS_SAID = {1: ("One", "a second"), 2: ("Two", "a third"), 3: ("Three", "a fourth"),
+               4: ("Four", "a fifth"), 5: ("Five", "a sixth")}
 
 
 class Error(Exception):
@@ -387,11 +390,40 @@ def _read_toml(path):
         raise Error(f"{path}: {exc}")
 
 
-def policy(table=None):
+def host_policy(table=None):
     """The POLICY numbers in force on this host: config.toml's own, or `table`'s as it would
     be saved, else ak's defaults."""
     path = HOME / CONFIG_NAME
-    data, numbers = (_read_toml(path) or {}) if table is None else table, {}
+    return _policy_in(path, (_read_toml(path) or {}) if table is None else table)
+
+
+def policy(checkout=None):
+    """The POLICY numbers in force for a project: the front matter of AGENTS.md on the default
+    branch of its local checkout, else the host's.  A checkout that is None, or whose git does
+    not answer at launch, gives the host's numbers, and preflight reports the repository as it
+    does today: nothing is cloned or resolved to read a number, so a clone with no origin/HEAD
+    yet gives the host's too, never what the branch it stands on says."""
+    numbers = host_policy()
+    if checkout is None:
+        return numbers
+    from . import gitcall     # here, not at the top: gitcall imports this module
+    try:
+        # one commit for all three: a fetch landing between reads would mix two commits' numbers
+        commit = gitcall.git(checkout, "rev-parse", "--verify", "--quiet", RULES_REF, check=False)
+    except Exception:
+        return numbers
+    if not commit:
+        return numbers
+    declared = {key: gitcall.declared_at(checkout, commit, key) for key in POLICY}
+    return _policy_in(Path(checkout) / "AGENTS.md", {
+        **numbers, **{key: int(value) if re.fullmatch("[0-9]+", value) else value
+                      for key, value in declared.items() if value is not None}})
+
+
+def _policy_in(path, data):
+    """The POLICY numbers `data` holds, ak's default for one it does not, refused naming `path`,
+    the floor and the meaning."""
+    numbers = {}
     for key, (default, floor, _, meaning, _) in POLICY.items():
         value = numbers[key] = data.get(key, default)
         if type(value) is not int or value < floor:
@@ -401,6 +433,21 @@ def policy(table=None):
         raise Error(f"{path}: seat_lines {numbers['seat_lines']}, {POLICY['seat_lines'][3]}, is "
                     f"over review_lines {numbers['review_lines']}, {POLICY['review_lines'][3]}")
     return numbers
+
+
+def in_force(text, table=None):
+    """ak's own words as this host's numbers (`host_policy`) make them: `$rounds`, `$review_lines` and
+    `$seat_lines` the number, `$Rounds` it opening a sentence, `$s` the plural of its round and
+    `$one_over` the round past the budget.  Only ak's own text comes here: a rule the owner or a
+    project wrote is theirs to the letter, a `$` in it included."""
+    try:
+        numbers = host_policy(table)
+    except Error:   # the commands that act on a config.toml refuse it; words only saying it don't
+        numbers = host_policy({})
+    rounds = numbers["rounds"]
+    opening, over = ROUNDS_SAID.get(rounds, (rounds, f"round {rounds + 1}"))
+    return Template(text).safe_substitute(numbers, Rounds=opening, one_over=over,
+                                          s="" if rounds == 1 else "s")
 
 
 def load():
@@ -1994,13 +2041,13 @@ def rulebook_path(name):
 
 
 def rulebook_text():
-    """The rulebook a session receives: ak's rules, then this host's own.
+    """The rulebook a session receives: ak's rules with this host's numbers, then its own.
 
     Only a host that has written no rules of its own has none: a rules.md that is there and
     cannot be read is an error, never an empty one, because a session opened without rules the
     owner did write is a session working to rules nobody chose.
     """
-    body = (REPO / "orchestrator.md").read_text()
+    body = in_force((REPO / "orchestrator.md").read_text())
     try:
         local = (HOME / "rules.md").read_text()
     except FileNotFoundError:

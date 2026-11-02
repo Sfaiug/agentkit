@@ -315,8 +315,8 @@ class Screens(Sandbox):
         word = line.index("xhigh") + 1                  # the orchestrator's, beside its mark
         # a click on the word's last letter steps it up, to a word that ends before it
         screen.click(word + 4, row, lambda lines: lines[row - 1][word - 1:].startswith("max "))
+        mark = len(screen.text())
         screen.press(move(word, row))
-        mark = screen.text().rfind("\x1b[H")
         # Let every frame land without a key or pointer move redrawing over the last one.
         time.sleep(1.0)
         text = screen.text()

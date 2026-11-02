@@ -18,10 +18,9 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import AK, REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, shipped_rules
 from fixtures.akseat import Seat
 
-SHIPPED = Path(AK).resolve().parents[1] / "orchestrator.md"   # ak's own rules, beside it
 OWN = "Always write tests first.\n"                             # this host's, in rules.md
 CODE = "3f2a9c81d0e4"
 IN_SEAT = {"AGENTKIT_SESSION": "fix-api"}
@@ -33,7 +32,7 @@ WRONG_CODE = ("that is not the code the seat's latest prompt gave; read the rule
 
 def rulebook():
     """What a seat filed under no project is handed: ak's rules, then the host's own."""
-    return f"{SHIPPED.read_text().rstrip()}\n\n{OWN}"
+    return f"{shipped_rules().rstrip()}\n\n{OWN}"
 
 
 def digest(text):

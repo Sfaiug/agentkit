@@ -36,8 +36,15 @@ var moment = time.Unix(1_800_000_000, 0)
 func sandbox(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
+	// tmux's socket path has a short limit, which t.TempDir, naming the test, soon passes
+	sockets, err := os.MkdirTemp("", "ak")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(sockets) })
 	for key, value := range map[string]string{
-		"HOME": home, "USERPROFILE": home, "TMUX_TMPDIR": t.TempDir(), "AGENTKIT_TMUX_SOCKET": "seat-test",
+		"HOME": home, "USERPROFILE": home, "TMUX_TMPDIR": sockets, "AGENTKIT_TMUX_SOCKET": "seat-test",
+		"XDG_RUNTIME_DIR": t.TempDir(), // no user manager but one a test starts
 	} {
 		t.Setenv(key, value)
 	}

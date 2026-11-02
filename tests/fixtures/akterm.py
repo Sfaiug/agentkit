@@ -32,16 +32,17 @@ KEEP = 'trap : INT; env -u TMUX -u TMUX_PANE -u NO_COLOR "$@"; echo $? >"$0"; ex
 
 
 class Terminal:
-    """`args` run after the program `AK_BIN` names; `env` adds to its environment."""
+    """`args` run after `program`, by default the one `AK_BIN` names; `env` adds to its
+    environment."""
 
-    def __init__(self, home, *args, size=(100, 40), env=None):
+    def __init__(self, home, *args, size=(100, 40), env=None, program=AK):
         self.home = home
         conf = home.root / "terminal.conf"
         conf.write_text(CONF)
         self.status = Path(tempfile.mkdtemp("-terminal", dir=home.root)) / "status"   # its own
         command = shlex.join(["sh", "-c", KEEP, str(self.status),
                               *(f"{key}={value}" for key, value in (env or {}).items()),
-                              AK, *args])
+                              program, *args])
         done = home.tmux("-f", str(conf), "new-session", "-d", "-x", str(size[0]),
                          "-y", str(size[1]), "-c", str(home.path), "-P", "-F", "#{pane_id}",
                          command, server=SERVER)

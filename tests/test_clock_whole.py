@@ -25,7 +25,7 @@ class ClockWhole(unittest.TestCase):
     def test_a_narrower_terminal_than_the_clock_keeps_what_fits(self):
         self.assertEqual(terminal.cells(terminal.header_line("config", "13:02", 3)), 3)
 
-    def test_every_line_is_cleared_before_it_is_written(self):
+    def test_a_line_is_cleared_after_it_is_written_unless_it_fills_the_row(self):
         # a clear after a line that fills the last column erases that column
         out = io.StringIO()
         with mock.patch.object(terminal, "taken", return_value=True), \
@@ -33,11 +33,10 @@ class ClockWhole(unittest.TestCase):
                 mock.patch.object(sys, "stdout", out):
             terminal.frame("fix-api-with-a-long-name models", ["  a row"], "esc back")
         written = out.getvalue()
-        lines = written.removeprefix("\033[H").removesuffix("\033[J").split("\n")[:-1]
+        lines = written.partition("\033[H")[2].partition("\033[J")[0].split("\n")[:-1]
         self.assertTrue(lines)
         for line in lines:
-            self.assertTrue(line.startswith("\033[K"), repr(line))
-            self.assertNotIn("\033[K", line[3:])
+            self.assertEqual(line.endswith("\033[K"), terminal.cells(line) < 40, repr(line))
         self.assertTrue(terminal.plain(lines[0]).endswith(":" + lines[0][-2:]))
 
 

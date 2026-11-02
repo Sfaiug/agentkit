@@ -36,12 +36,12 @@ func Check() error {
 		return err
 	}
 	defer os.RemoveAll(probe)
-	inner, done, err := command([]string{"true"}, env, "", probe, nil, nil, nil)
+	inner, done, err := command([]string{"true"}, env, "", probe, nil, nil, nil, nil)
 	if err != nil {
 		return err
 	}
 	defer done()
-	outer, done, err := command(inner.Args, env, "", probe, nil, nil, nil)
+	outer, done, err := command(inner.Args, env, "", probe, nil, nil, nil, nil)
 	if err != nil {
 		return err
 	}

@@ -20,17 +20,17 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import AK, Home
+from fixtures import akconfig
+from fixtures.akbin import Home, shipped_rules
 from fixtures.hookdrive import Hooks, read_rules
 
 CONVERSATION = "7d3c1e2a-5b4f-4a6e-8c9d-0e1f2a3b4c5d"
-SHIPPED = Path(AK).resolve().parents[1] / "orchestrator.md"   # ak's own rules, beside it
 SILENT = (0, "", "", [])
 
 
 def rulebook(own):
     """What a seat filed under no project holds: ak's rules, then the host's own."""
-    return f"{SHIPPED.read_text().rstrip()}\n\n{own}"
+    return f"{shipped_rules().rstrip()}\n\n{own}"
 
 
 class RulebookNews(unittest.TestCase):
@@ -78,8 +78,15 @@ class RulebookNews(unittest.TestCase):
         self.rules("Rule two.\n")
         news = self.told()
         self.assertIn("\n-Rule one.\n+Rule two.\n", news)
-        self.assertLess(len(news), len(SHIPPED.read_text()) // 4)
+        self.assertLess(len(news), len(shipped_rules()) // 4)
         self.assertEqual(self.prompt(), SILENT)
+
+    def test_a_changed_number_reaches_the_task_template_with_the_news(self):
+        self.launched()
+        akconfig.write(self.home, ["opus"], settings={"review_lines": 150})
+        self.assertIn("at most 150 added lines", self.told())
+        template = self.home.path / ".agentkit/state/task-template.md"
+        self.assertIn("at most 150 added lines", template.read_text())
 
     def test_with_no_record_of_the_rulebook_held_the_whole_one_is_pointed_to(self):
         gone = hashlib.sha256(b"a launch's rules ak no longer has\n").hexdigest()

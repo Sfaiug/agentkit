@@ -1,7 +1,7 @@
 """The first review's size limit ak enforces is the one every builder is told up front.
 
-The orchestrator's rulebook, the executor's and fixer's rules and the task template each carry
-ak's default for `review_lines`: a builder that learns the limit only when ak refuses its change
+The orchestrator's rulebook and the task template carry the host's `review_lines`, the
+executor's and fixer's rules ak's default: a builder that learns the limit only when ak refuses its change
 has already built past it.  tests/test_key_lines_are_settings.py holds a turn to a host's own.
 """
 
@@ -20,8 +20,11 @@ class SizeLimitTold(unittest.TestCase):
     def test_the_orchestrator_and_the_task_template_carry_the_limit(self):
         for name in ("orchestrator.md", "templates/task.md"):
             with self.subTest(file=name):
+                written = (REPO / name).read_text()
                 self.assertIn(f"at most {DEFAULT} added lines with its tests",
-                              (REPO / name).read_text())
+                              config.in_force(written, {}))
+                self.assertIn("at most 150 added lines with its tests",
+                              config.in_force(written, {"review_lines": 150}))
 
     def test_the_executor_and_the_fixer_are_told_the_limit(self):
         # a fixer can start in a fresh conversation before the first review, never having read

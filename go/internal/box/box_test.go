@@ -82,3 +82,35 @@ func TestTheRunCopyLeavesOutWhatIsHiddenByItsPathAndByTheInodeItHasAsTheCopyStar
 		t.Fatalf("the copy holds %q", names)
 	}
 }
+
+func TestACheckRunsToItsOutputsEndWithAThrowawayHome(t *testing.T) {
+	if err := Check(); err != nil {
+		t.Skip(err)
+	}
+	home, out, workspace := t.TempDir(), t.TempDir(), t.TempDir()
+	output, err := os.Create(filepath.Join(out, "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer output.Close()
+	env := map[string]string{"HOME": home, "PATH": os.Getenv("PATH")}
+	code, err := RunCheck(context.Background(), []string{"bash", "-c", "touch ~/leak && (sleep 1; echo late) & echo early; exit 7"}, env, workspace, out, output)
+	if err != nil || code != 7 {
+		t.Fatalf("exit %d, %v", code, err)
+	}
+	said, _ := os.ReadFile(output.Name())
+	if string(said) != "early\nlate\n" {
+		t.Fatalf("said %q", said)
+	}
+	if _, err := os.Stat(filepath.Join(home, "leak")); err == nil {
+		t.Fatal("a check wrote its home")
+	}
+	report, _ := os.ReadFile(filepath.Join(out, "box-processes.json"))
+	if !strings.HasPrefix(string(report), `{"returncode":7,"processes":[],"cpu_seconds":`) {
+		t.Fatalf("report %s", report)
+	}
+	code, err = RunCheck(context.Background(), []string{"no-such-program"}, env, workspace, out, output)
+	if err != nil || code != 127 {
+		t.Fatalf("a command that cannot start: exit %d, %v", code, err)
+	}
+}

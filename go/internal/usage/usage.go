@@ -17,8 +17,8 @@ import (
 )
 
 // ErrPython is a home whose usage Python ak reads: where its adapter scripts live, a provider
-// listing accounts, a harness whose probe runs a model, says no time or counts the resets the
-// owner spends, and the tokens a window holds measured in state/capacity.json are not yet Go's.
+// listing accounts, a harness whose probe runs a model or says no time, and the tokens a window
+// holds measured in state/capacity.json are not yet Go's.
 var ErrPython = errors.New("left to Python")
 
 // Readings is every provider's reading, as of the moment it was read.
@@ -39,11 +39,27 @@ type source struct {
 // it is under five minutes old, else each provider's adapter asked again, as Python's
 // usage.collect reads it.  ErrPython before anything is locked or asked.
 func Read() (*Readings, error) {
-	subs, err := config.Subscriptions()
+	sources, err := listed()
 	if err != nil {
 		return nil, err
 	}
 	models, err := config.Models()
+	if err != nil {
+		return nil, err
+	}
+	providers, err := collect(sources, models)
+	return &Readings{providers, sources, models, clock()}, err
+}
+
+// Check is Read's ErrPython, nothing asked: a launch settles it before it writes anything.
+func Check() error {
+	_, err := listed()
+	return err
+}
+
+// listed is every provider config.toml lists as a read asks it, or why that is not Go's.
+func listed() ([]source, error) {
+	subs, err := config.Subscriptions()
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +74,7 @@ func Read() (*Readings, error) {
 			return nil, err
 		}
 		_, err = config.Adapter(sub.Harness)
-		if errors.Is(err, config.ErrNoAdapterDir) || len(accounts) > 0 || facts.Capture || facts.StripsTimestamp || facts.Reset {
+		if errors.Is(err, config.ErrNoAdapterDir) || len(accounts) > 0 || facts.Capture || facts.StripsTimestamp {
 			return nil, ErrPython
 		}
 		sources = append(sources, source{sub, facts})
@@ -66,8 +82,7 @@ func Read() (*Readings, error) {
 	if measured() {
 		return nil, ErrPython
 	}
-	providers, err := collect(sources, models)
-	return &Readings{providers, sources, models, clock()}, err
+	return sources, nil
 }
 
 // Spent is why nothing is picked on that model, Python's usage.model_exhausted: its provider

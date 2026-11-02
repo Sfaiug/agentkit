@@ -1,8 +1,9 @@
 // Package launch starts a run from a task file as Python ak's `ak run <task.md>` does, up to
 // its loop: the run's id and directory, the task's copy, the receipt, the gate's admission,
 // preflight, and how a refused launch ends.  It hides which launches Go makes today: one on a
-// path of Python's launch that Go has, which preflight refuses.  Any other it leaves to Python
-// (ErrPython), deciding so before it writes anything, so preflight is settled first.
+// path of Python's launch that Go has, which preflight refuses or which a scratch task's run
+// passes, and that run goes on in package loop.  Any other it leaves to Python (ErrPython),
+// deciding so before it writes anything, so preflight is settled first.
 package launch
 
 import (
@@ -45,6 +46,9 @@ var (
 	Switches = []string{"--no-worktree", "--no-merge", "--bg", "--anyway", "--first"}
 )
 
+// toolCap is how many seconds a git may take.
+const toolCap = 120
+
 var (
 	unslug = regexp.MustCompile(`[^a-z0-9]+`)
 	// a git that refused to prompt, which Python's git stops on in its own words
@@ -52,17 +56,18 @@ var (
 )
 
 // Task launches the task file at the absolute path with the options given, saying on out what
-// the run's log says, and returns why the launch is refused.
-func Task(path string, values map[string]string, flags map[string]bool, out io.Writer) (string, error) {
+// the run's log says and on errOut what becomes of a run its driver left: `ak run`'s exit status,
+// and why the launch is refused, "" for a run that went on.
+func Task(path string, values map[string]string, flags map[string]bool, out, errOut io.Writer) (int, string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil || !utf8.Valid(data) {
-		return "", ErrPython
+		return 0, "", ErrPython
 	}
 	text := task.Text(data)
 	meta, cmds, err := task.Read(path)
 	bound, unbound := config.Bind()
 	if err != nil || unbound != nil || python(path, values, flags, bound) {
-		return "", ErrPython
+		return 0, "", ErrPython
 	}
 	stem := filepath.Base(path)
 	if dot := strings.LastIndexByte(stem, '.'); 0 < dot && dot < len(stem)-1 {
@@ -76,12 +81,12 @@ func Task(path string, values map[string]string, flags map[string]bool, out io.W
 		taken, err = exists(dir)
 	}
 	if err != nil {
-		return "", err
+		return 0, "", err
 	}
 	copied := filepath.Join(dir, "task.md")
-	reason, warning, err := preflight(meta, cmds, path, copied, flags)
+	reason, warning, err := preflight(meta, cmds, path, copied, values, flags)
 	if err != nil {
-		return "", err
+		return 0, "", err
 	}
 	// a reader that stops reading ends the reading, never the launch: a line to a closed
 	// stdout goes nowhere, as Python's say has it, where Go's runtime would die of SIGPIPE
@@ -98,23 +103,34 @@ func Task(path string, values map[string]string, flags map[string]bool, out io.W
 		return cmp.Or(err, file.Close())
 	}
 	title := task.Title(text, "task")
-	var ended *run.Object // the record as the refusal leaves it
+	unstopped := func(change func(*run.Object)) error {
+		return run.Change(dir, func(record *run.Object) error {
+			if record.Str("state") == "stopped" {
+				io.WriteString(out, "stopped "+filepath.Base(dir)+"\n")
+				return ErrStopped
+			}
+			change(record)
+			return nil
+		})
+	}
 	for _, step := range []func() error{
 		config.EnsureDirs,
 		func() error { return os.Mkdir(dir, 0o777) },
 		func() error { return os.WriteFile(copied, []byte(text), 0o666) },
 		func() error { return os.WriteFile(logged, nil, 0o666) },
 		func() error { return receive(dir, path, values, flags, bound) },
-		func() error {
-			return run.Change(dir, func(record *run.Object) error {
-				if record.Str("state") == "stopped" {
-					io.WriteString(out, "stopped "+filepath.Base(dir)+"\n")
-					return ErrStopped
-				}
-				record.Set("title", title)
-				return nil
-			})
-		},
+		func() error { return unstopped(func(record *run.Object) { record.Set("title", title) }) },
+	} {
+		if err := step(); err != nil {
+			return 0, "", err
+		}
+	}
+	if reason == "" {
+		code, err := drive(dir, meta, cmds, flags, unstopped, log, out, errOut)
+		return code, "", err
+	}
+	var ended *run.Object // the record as the refusal leaves it
+	for _, step := range []func() error{
 		func() error {
 			if warning == "" {
 				return nil
@@ -125,7 +141,7 @@ func Task(path string, values map[string]string, flags map[string]bool, out io.W
 			return run.Change(dir, func(record *run.Object) error {
 				// a stop that landed first stands, as Python's mark_state leaves it
 				if record.Str("state") != "stopped" {
-					set(record, "state", "error", "finished_at", now(), "error", reason)
+					run.SetAll(record, "state", "error", "finished_at", now(), "error", reason)
 				}
 				ended = record
 				return nil
@@ -133,23 +149,14 @@ func Task(path string, values map[string]string, flags map[string]bool, out io.W
 		},
 	} {
 		if err := step(); err != nil {
-			return "", err
+			return 0, "", err
 		}
 	}
-	delivery, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))
-	if err != nil {
-		return "", err
-	}
 	why := ended.Str("error")
-	result := fmt.Sprintf("# FAIL — %s\n\nVERDICT: %s\n\n## Why this run stopped\n\n%s\n\nrelaunch: ak run %s\n\n",
-		cmp.Or(ended.Str("title"), filepath.Base(dir)), cmp.Or(ended.Str("verdict"), "none"),
-		cmp.Or(why, "no reason was recorded"), copied)
-	err = os.WriteFile(filepath.Join(dir, "result.md"), []byte(result), 0o666)
-	delivery.Close()
-	if err != nil || why == "" {
-		return reason, nil // a result Python cannot write, or a stop's, goes untold
+	if err := run.Report(dir, ended); err != nil || why == "" {
+		return 2, reason, nil // a result Python cannot write, or a stop's, goes untold
 	}
-	return reason, log("ERROR " + why)
+	return 2, reason, log("ERROR " + why)
 }
 
 // python is whether Python ak makes this launch otherwise than Go would, or reads what Go
@@ -169,15 +176,7 @@ func python(path string, values map[string]string, flags map[string]bool, bound 
 		!readable(slices.Collect(maps.Values(values))...) {
 		return true
 	}
-	if flags["--anyway"] {
-		return false
-	}
-	for _, dir := range run.Dirs() {
-		if record, err := run.Read(dir); errors.Is(err, run.ErrLoneSurrogate) || record != nil && run.Active(record) {
-			return true
-		}
-	}
-	return false
+	return !flags["--anyway"] && going()
 }
 
 // localTime is whether Go's local time is the C library's, which Python's datetime.now reads:
@@ -206,9 +205,9 @@ func runDepth() (int, bool) {
 
 // preflight is why Python's preflight refuses the task, run from its copy, and the warning its
 // log says first: a repository that is no git repository, a base git cannot read, more than 3
-// checks a round runs, or a `from:` the run cannot start from.  It leaves to Python a task it
-// passes and a run that would land.
-func preflight(meta map[string]string, cmds []string, path, copied string, flags map[string]bool) (string, string, error) {
+// checks a round runs, or a `from:` the run cannot start from: no reason for a scratch task it
+// passes.  It leaves to Python a repository's task it passes and a run that would land.
+func preflight(meta map[string]string, cmds []string, path, copied string, values map[string]string, flags map[string]bool) (string, string, error) {
 	repo := ""
 	switch named := meta["repo"]; {
 	case strings.ToLower(named) == "none":
@@ -226,8 +225,7 @@ func preflight(meta map[string]string, cmds []string, path, copied string, flags
 		}
 	default:
 		top, _, found, err := git("", "rev-parse", "--show-toplevel")
-		tasks := config.Resolve(filepath.Join(config.Home(), "tasks")) + string(filepath.Separator)
-		if rest, filed := strings.CutPrefix(path, tasks); err != nil || !found && filed && strings.ContainsRune(rest, filepath.Separator) {
+		if err != nil || !found && filed(path) {
 			return "", "", ErrPython // the checkout a task folder is named for is Python's to find
 		}
 		if found {
@@ -274,7 +272,10 @@ func preflight(meta map[string]string, cmds []string, path, copied string, flags
 		}
 	}
 	if later == "" {
-		return "", "", ErrPython
+		if repo != "" {
+			return "", "", ErrPython
+		}
+		return "", "", drivable(every, path, values)
 	}
 	return later, "", nil
 }
@@ -313,7 +314,7 @@ func git(repo string, args ...string) (string, string, bool, error) {
 	if repo != "" {
 		args = append([]string{"-C", repo}, args...)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), toolCap*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, "git", args...)
 	command.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GH_PROMPT_DISABLED=1")
@@ -367,10 +368,15 @@ func replaced(text string) string {
 	return decoded.String()
 }
 
+// holdSlots waits for the lock every run's admission changes under.
+func holdSlots() (*os.File, error) {
+	return lock.Wait(context.Background(), filepath.Join(run.Runs(), ".slots.lock"))
+}
+
 // receive writes the launch's receipt, its first record, as Python's capture_launch writes it
 // under the slots lock, with the gate's outright admission.
 func receive(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding) error {
-	slots, err := lock.Wait(context.Background(), filepath.Join(run.Runs(), ".slots.lock"))
+	slots, err := holdSlots()
 	if err != nil {
 		return err
 	}
@@ -381,17 +387,17 @@ func receive(dir, path string, values map[string]string, flags map[string]bool, 
 		parent = value
 	}
 	if born, ok := host.ReadIdentity(os.Getpid()); ok {
-		identity = set(run.NewObject(), "boot", born.Boot, "ticks", int(born.Ticks), "started_at", born.StartedAt)
+		identity = run.Fields("boot", born.Boot, "ticks", int(born.Ticks), "started_at", born.StartedAt)
 	}
 	launched, efforts := run.NewObject(), run.NewObject()
 	for _, flag := range Values {
-		set(launched, flag, nil)
+		launched.Set(flag, nil)
 		if value, given := values[flag]; given {
-			set(launched, flag, value)
+			launched.Set(flag, value)
 		}
 	}
 	for _, flag := range Switches {
-		set(launched, flag, flags[flag])
+		launched.Set(flag, flags[flag])
 	}
 	receipt := []any{"run_id", filepath.Base(dir), "state", "running", "verdict", nil,
 		"launched_session", nil, "started_at", now(), "queued_at", now(), "slot_waiting", false,
@@ -404,16 +410,16 @@ func receive(dir, path string, values map[string]string, flags map[string]bool, 
 	for _, model := range bound.Models {
 		keys := run.NewObject()
 		for _, effort := range bound.Efforts[model] {
-			set(keys, effort[0], effort[1])
+			keys.Set(effort[0], effort[1])
 		}
-		set(efforts, model, keys)
+		efforts.Set(model, keys)
 	}
 	receipt = append(receipt, "efforts", efforts, "review_pr", nil, "reported", false, "base_proof", "owed",
 		"notify_sink", sink(), "task_file", path)
 	if flags["--first"] {
 		receipt = append(receipt, "first", true)
 	}
-	return run.Create(dir, set(run.NewObject(), append(receipt, "slot_started_at", now())...))
+	return run.Create(dir, run.Fields(append(receipt, "slot_started_at", now())...))
 }
 
 // slug is Python's slugify: Python lowers İ to i and a combining dot, Go to i alone.
@@ -437,12 +443,4 @@ func exists(path string) (bool, error) {
 		return err == nil, nil
 	}
 	return false, ErrPython
-}
-
-// set sets each key and value of pairs on the record in turn.
-func set(record *run.Object, pairs ...any) *run.Object {
-	for i := 0; i < len(pairs); i += 2 {
-		record.Set(pairs[i].(string), pairs[i+1])
-	}
-	return record
 }

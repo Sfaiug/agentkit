@@ -69,7 +69,7 @@ func probe(src source, now float64) *run.Object {
 	name := filepath.Base(adapter)
 	data, said := answer(adapter, name, src.Name)
 	out := fields("provider", src.Name, "harness", src.Harness, "via", src.Via, "meters", []any{}, "error", data.Get("error"),
-		"pace", nil, "resets", 0.0, "exhausted", false, "probed_at", now)
+		"pace", nil, "resets", src.resets(), "exhausted", false, "probed_at", now)
 	var credits any = "unlimited"
 	if data.Get("credits") != credits {
 		credits = nil
@@ -127,6 +127,39 @@ func probe(src source, now float64) *run.Object {
 		out.Set("logged_in", loggedIn)
 	}
 	return out
+}
+
+// resets is what the usual login of that provider still holds of the resets the owner spends,
+// Python's usage._resets: 0 unasked where its manifest says the harness counts none, nil where its
+// adapter cannot say.  It is read beside the meters and kept with them; it ranks nothing.
+func (src source) resets() any {
+	if !src.facts.Reset {
+		return 0.0
+	}
+	adapter, err := config.Adapter(src.Harness)
+	if err != nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), probeCap)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, adapter, "reset-status")
+	cmd.Env = append(os.Environ(), "AGENTKIT_ACCOUNT=", "AGENTKIT_PROVIDER="+src.Name)
+	cmd.WaitDelay = time.Second
+	host.Group(cmd)
+	said, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	value, _ := run.Decode(said)
+	answer, _ := value.(*run.Object)
+	if answer == nil {
+		return nil
+	}
+	available, ok := number(answer.Get("available"))
+	if !ok {
+		return nil
+	}
+	return max(0, available)
 }
 
 // answer is the JSON object the adapter's `usage` printed for the usual login of that provider,

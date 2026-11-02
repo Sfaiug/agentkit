@@ -181,7 +181,7 @@ def back(screen):
 def choices(screen, after, count):
     """The `count` choices terminal.choose drew under its screen after `after`, as shown."""
     def ready(text):
-        found = re.search(r"\x1b\[\d+;1H" + r"\r(.*?)\x1b\[K\r?\n" * count, text[after:])
+        found = re.search(r"\x1b\[\d+;1H(.*?)\x1b\[K" * count, text[after:])
         return found and [terminal.ANSI.sub("", part) for part in found.groups()]
     return screen.until(ready, f"{count} choices")
 

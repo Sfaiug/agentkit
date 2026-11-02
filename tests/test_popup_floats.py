@@ -472,7 +472,7 @@ class TheContent(unittest.TestCase):
         self.assertEqual([shown for shown, _ in itertools.groupby(header_tones(text))],
                          [tone(n * motion.FRAME)
                           for n in range(math.ceil(motion.FADE / motion.FRAME))])
-        self.assertNotIn("\x1b[Kagentkit", text)             # never first drawn as it is
+        self.assertNotIn("\x1b[Hagentkit", text)             # never first drawn as it is
 
     def test_a_key_pressed_while_it_fades_in_is_answered_within_100_ms(self):
         popup = Popup(self, held=True)
