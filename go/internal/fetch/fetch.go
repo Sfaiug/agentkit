@@ -3,6 +3,7 @@
 package fetch
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"os/signal"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -22,6 +24,10 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 )
+
+// errInterrupted is a Ctrl-C.  It returns through ask, so its request is taken back like any other
+// ending's.
+var errInterrupted = errors.New("interrupted")
 
 var decimal = regexp.MustCompile(`^[+-]?(?:[0-9](?:_?[0-9])*(?:\.(?:[0-9](?:_?[0-9])*)?)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?$`)
 
@@ -71,9 +77,15 @@ func Main(args []string, out, errOut io.Writer) int {
 		args = args[1:]
 	}
 	wait, _ := timeout()
+	interrupt, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
 	code := 0
 	for _, arg := range args {
-		found, err := one(arg, wait)
+		found, err := one(interrupt, arg, wait)
+		if errors.Is(err, errInterrupted) {
+			fmt.Fprintln(errOut, "\nak fetch: interrupted")
+			return 130
+		}
 		if err != nil {
 			fmt.Fprintln(errOut, "ak fetch: "+err.Error())
 			code = 1
@@ -111,7 +123,10 @@ func normalize(value string) (string, string) {
 	return value, ""
 }
 
-func one(value string, wait float64) (string, error) {
+func one(interrupt context.Context, value string, wait float64) (string, error) {
+	if interrupt.Err() != nil {
+		return "", errInterrupted
+	}
 	typed, problem := normalize(value)
 	if problem != "" {
 		return "", errors.New(problem)
@@ -121,7 +136,7 @@ func one(value string, wait float64) (string, error) {
 	}
 	// The Mac reads the path as its own: host path cleaning would turn its slashes into
 	// Windows ones or drop a `..` after a symlink, and its `~` is the Mac's home.
-	return ask(typed, wait)
+	return ask(interrupt, typed, wait)
 }
 
 // bridge makes the folders the bridge exchanges files in, the owner's alone, and returns its root.
@@ -165,7 +180,7 @@ func exists(name string) bool {
 
 // ask leaves a request for the Mac and waits for its answer in the inbox: the file, an
 // error, or a mark that the file is gone. Whatever happens, no request or mark stays behind.
-func ask(mac string, wait float64) (string, error) {
+func ask(interrupt context.Context, mac string, wait float64) (string, error) {
 	root, err := bridge()
 	if err != nil {
 		return "", err
@@ -225,6 +240,10 @@ func ask(mac string, wait float64) (string, error) {
 		if remaining <= 0 {
 			return "", fmt.Errorf("%s: no answer from the Mac bridge in %.6gs; the Mac may be asleep or offline, or ak macbridge is not running there (open ak on the Mac)", mac, wait)
 		}
-		time.Sleep(time.Duration(math.Min(poll.Seconds(), remaining) * float64(time.Second)))
+		select {
+		case <-interrupt.Done():
+			return "", errInterrupted
+		case <-time.After(time.Duration(math.Min(poll.Seconds(), remaining) * float64(time.Second))):
+		}
 	}
 }
