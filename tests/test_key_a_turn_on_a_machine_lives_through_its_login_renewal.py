@@ -9,7 +9,6 @@ each verb and acts on the flags it is left.
 
 import base64
 import fcntl
-import io
 import json
 import os
 from pathlib import Path
@@ -17,7 +16,6 @@ import secrets
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 import threading
 import time
@@ -202,22 +200,14 @@ class TheVerbLeavesNothingBehind(unittest.TestCase):
         self.assertEqual(self.held.read_text(), "old\n")
         self.assertEqual(self.beside(), [HELD.name, self.other.name])
 
-    def test_the_turn_s_end_removes_its_login_and_nothing_beside_it(self):
+    def test_the_turn_s_end_removes_its_login_and_a_killed_send_s_part_and_nothing_else(self):
         (self.tree / "turn/harness").write_text("fake/1.0/program")
         (self.tree / "turn/work").touch()    # a volume with no room: it ends before any container
-        self.verb("turn", "turn", "image", "256", "repo", "home:/acme", "work:/acme-work", "--")
-        self.assertEqual(self.beside(), [self.other.name])
-
-    def test_collect_sends_no_part_a_killed_send_left(self):
-        (self.tree / "turn/out").mkdir()
-        for name in ("back.bundle", "code"):
-            (self.tree / "turn" / name).touch()
         self.held.with_name(f"{HELD.name}.ak-lent-abcdef").write_text(TOKEN)
-        reply = self.verb("collect", "turn", str(HELD.parent))
-        with tarfile.open(fileobj=io.BytesIO(reply.stdout)) as tar:
-            names = {Path(name).name for name in tar.getnames()}
-        self.assertTrue({HELD.name, self.other.name} <= names, names)
-        self.assertEqual({name for name in names if "ak-lent" in name}, set())
+        kept = self.held.with_name("session.ak-lent-checkpoint.json")
+        kept.touch()
+        self.verb("turn", "turn", "image", "256", "repo", "home:/acme", "work:/acme-work", "--")
+        self.assertEqual(self.beside(), sorted([self.other.name, kept.name]))
 
     def test_a_send_waiting_on_the_turn_s_end_finds_the_login_gone(self):
         # The lock held as `turn`'s end holds it, until a `flock` on the send's PATH says it waits.
