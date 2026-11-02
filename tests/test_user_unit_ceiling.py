@@ -8,6 +8,7 @@ reloaded.
 """
 
 import os
+import shlex
 import sys
 import unittest
 from pathlib import Path
@@ -49,6 +50,9 @@ class UserUnitCeiling(Installer):
         sudo = self.bin / "sudo"
         sudo.write_text(SUDO.format(python=sys.executable))
         sudo.chmod(0o755)
+        (self.bin / "spy").write_text((self.bin / "systemctl").read_text().replace(
+            'pathlib.Path(sys.argv[0]).name', '"systemctl"'))
+        (self.bin / "spy").chmod(0o755)
         self.systemd = self.root / "etc-systemd"
         self.stack.enter_context(patch.dict(os.environ, {
             "AK_SYSTEMD_SYSTEM": str(self.systemd), "AK_UNIT_SUDO": "1"}))
@@ -114,6 +118,7 @@ class UserUnitCeiling(Installer):
         result = self.install(home, AK_SLICE_CPUS="8")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(unit.read_text(), HANDWRITTEN)
+        self.assertEqual(self.told_the_unit(), [])
 
     def test_d_another_dropin_is_left_alone(self):
         home = self.root / "other-dropin-home"
@@ -133,6 +138,34 @@ class UserUnitCeiling(Installer):
         self.assertEqual(owned_result.returncode, 0, owned_result.stderr)
         self.assertEqual(self.unit_limits().read_text(), "[Service]\nTasksMax=12\n")
         self.assertIn("left byte-identical", owned_result.stdout)
+
+    def told_the_unit(self):
+        return [argv for argv in self.commands("systemctl")
+                if "set-property" in argv and f"user@{os.getuid()}.service" in argv]
+
+    def test_e_a_ceiling_reaches_the_unit_already_running(self):
+        """A reload changes what systemd says of a running unit, not what the kernel holds it to."""
+        home = self.root / "running-home"
+        home.mkdir()
+        result = self.install(home, AK_SLICE_CPUS="8")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.commands("systemctl")
+        told = ["systemctl", "set-property", "--runtime", f"user@{os.getuid()}.service",
+                "TasksMax=8%", "MemoryMax=90%", "CPUWeight=40"]
+        self.assertEqual(self.told_the_unit(), [told])
+        self.assertLess(calls.index(["systemctl", "daemon-reload"]), calls.index(told))
+
+    def test_f_a_unit_that_cannot_be_told_leaves_the_install_going_and_says_how(self):
+        home = self.root / "refused-home"
+        home.mkdir()
+        spy = self.bin / "systemctl"
+        spy.write_text('#!/bin/sh\ncase " $* " in *" set-property "*"user@"*) exit 1 ;; esac\n'
+                       f'exec {shlex.quote(str(self.bin / "spy"))} "$@"\n')
+        result = self.install(home, AK_SLICE_CPUS="8")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"sudo systemctl set-property --runtime user@{os.getuid()}.service TasksMax=8%",
+                      result.stderr)
+        self.assertTrue((home / ".config/systemd/user/agentkit.slice.d/limits.conf").exists())
 
 
 if __name__ == "__main__":
