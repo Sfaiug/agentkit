@@ -29,12 +29,18 @@ type workplace interface {
 	verify(l *loop, path string) (bool, string, error)
 	// beforeReview is the last word before the reviewer is told anything.
 	beforeReview(l *loop) error
-	// view is what a reviewer is shown, what opens its text, and how its checks' heading reads.
-	view(l *loop) (section, checks, heading string, err error)
+	// view is what a reviewer is shown, what opens its text, and how its checks' heading reads, of
+	// which passed of total commands exited 0: it says on j what a later round's review reads.
+	view(l *loop, j *judging, passed, total int) (section, checks, heading string, err error)
 	// inCopy runs a reviewer's turn where its edits reach nothing.
 	inCopy(l *loop, out string, turn func(cwd string) error) error
 	// weigh is one finding or follow-up as ak holds it.
-	weigh(l *loop, row *run.Object, index int) (*run.Object, error)
+	weigh(l *loop, row *run.Object, index int, j *judging) (*run.Object, error)
+	// prove replays a command on the work under review, its evidence as a record holds it.
+	prove(l *loop, command, path string) (*run.Object, error)
+	// moved is the lines where a line of path can stand now, since that commit, and whether the
+	// change since touched it.
+	moved(path string, line int, since string) ([]int, bool, error)
 	// judged is the verdict as the place lets it stand, and what it adds to the evidence.
 	judged(l *loop, verdict string) (string, []any, error)
 	// finished follows a PASS.
@@ -90,9 +96,18 @@ func (scratch) verify(l *loop, path string) (bool, string, error) {
 
 func (scratch) beforeReview(*loop) error { return nil }
 
-func (scratch) view(l *loop) (string, string, string, error) {
+func (scratch) view(l *loop, _ *judging, passed, total int) (string, string, string, error) {
 	return fmt.Sprintf("## Workspace (%s)\n```\n%s\n```", l.workspace, listing(l.workspace)), "",
-		fmt.Sprintf("## Done-when output (run by the loop; %d of %d commands exited 0)", len(l.every), len(l.every)), nil
+		fmt.Sprintf("## Done-when output (run by the loop; %d of %d commands exited 0)", passed, total), nil
+}
+
+func (scratch) prove(l *loop, command, path string) (*run.Object, error) {
+	return l.proof(command, path)
+}
+
+// moved is the line itself: a scratch run has no commits to read a fix from.
+func (scratch) moved(_ string, line int, _ string) ([]int, bool, error) {
+	return []int{line}, false, nil
 }
 
 func (scratch) inCopy(_ *loop, _ string, turn func(string) error) error { return turn("") }
@@ -100,7 +115,7 @@ func (scratch) inCopy(_ *loop, _ string, turn func(string) error) error { return
 // weigh is Python's weigh_review on a scratch run: a finding handed in with a quote is a note, as
 // is one whose command does not fail when ak runs it; a follow-up has no base to be proven on, so
 // it is a note too.
-func (scratch) weigh(l *loop, row *run.Object, index int) (*run.Object, error) {
+func (scratch) weigh(l *loop, row *run.Object, index int, _ *judging) (*run.Object, error) {
 	weighed := row.Copy()
 	switch {
 	case row.Str("kind") == "follow-up":
@@ -110,7 +125,7 @@ func (scratch) weigh(l *loop, row *run.Object, index int) (*run.Object, error) {
 	case row.Dict("evidence").Has("quote"):
 		weighed.Set("kind", "note")
 	default:
-		proof, err := l.proof(row.Dict("evidence").Str("run"), filepath.Join(l.dir, roundName, fmt.Sprintf("proof-%d-commit.log", index+1)))
+		proof, err := l.proof(row.Dict("evidence").Str("run"), filepath.Join(l.roundDir(), fmt.Sprintf("proof-%d-commit.log", index+1)))
 		if err != nil {
 			return nil, err
 		}

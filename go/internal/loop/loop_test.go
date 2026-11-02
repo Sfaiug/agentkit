@@ -52,16 +52,16 @@ func rig(t *testing.T, silence time.Duration) *loop {
 		t.Fatal(err)
 	}
 	t.Setenv("AGENTKIT_RUN", dir)
-	return &loop{ctx: context.Background(), dir: dir, id: "acme", workspace: workspace, place: scratch{}, silence: silence, ceiling: time.Hour}
+	return &loop{ctx: context.Background(), dir: dir, id: "acme", workspace: workspace, place: scratch{}, silence: silence, ceiling: time.Hour, rnd: 1}
 }
 
 func (l *loop) checked(t *testing.T, cmds ...string) (bool, string) {
 	t.Helper()
-	ok, text, err := l.checks(cmds, filepath.Join(l.dir, roundName, "donewhen.log"))
+	ok, text, err := l.checks(cmds, filepath.Join(l.roundDir(), "donewhen.log"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	written, _ := os.ReadFile(filepath.Join(l.dir, roundName, "donewhen.log"))
+	written, _ := os.ReadFile(filepath.Join(l.roundDir(), "donewhen.log"))
 	if string(written) != text {
 		t.Fatalf("the log holds %q, the checks said %q", written, text)
 	}
@@ -141,7 +141,7 @@ func TestAStopOnTheRecordEndsTheChecksAndEveryWrite(t *testing.T) {
 	if err := run.Change(l.dir, func(record *run.Object) error { record.Set("state", "stopped"); return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := l.checks([]string{"touch never"}, filepath.Join(l.dir, roundName, "donewhen.log")); err != errStop {
+	if _, _, err := l.checks([]string{"touch never"}, filepath.Join(l.roundDir(), "donewhen.log")); err != errStop {
 		t.Fatalf("got %v", err)
 	}
 	if code := l.finish(l.save(func(record *run.Object) { record.Set("title", "acme") })); code != 1 {
@@ -294,7 +294,7 @@ mode = "subscription"
 
 func TestReviewerRecordsAreWeighedAsPythonWeighsAScratchRun(t *testing.T) {
 	l := rig(t, time.Minute)
-	if err := os.MkdirAll(filepath.Join(l.dir, roundName), 0o777); err != nil {
+	if err := os.MkdirAll(filepath.Join(l.roundDir()), 0o777); err != nil {
 		t.Fatal(err)
 	}
 	finding := func(kind string, evidence *run.Object) *run.Object {
@@ -304,7 +304,7 @@ func TestReviewerRecordsAreWeighedAsPythonWeighsAScratchRun(t *testing.T) {
 	weighed, err := l.weigh(&handin.Review{Records: []*run.Object{
 		finding("finding", run.Fields("quote", "q")), finding("finding", proof("true")), finding("finding", proof("false")),
 		finding("follow-up", proof("false")), run.Fields("kind", "done"),
-	}})
+	}}, &judging{})
 	if err != nil {
 		t.Fatal(err)
 	}
