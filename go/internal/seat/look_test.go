@@ -1,6 +1,7 @@
 package seat
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/lock"
 	"agentkit/internal/run"
 	"agentkit/internal/tmux"
 )
@@ -94,6 +96,9 @@ func TestALookReadsTheSeatGone(t *testing.T) {
 		"another harness's login is not this seat's news": {func(t *testing.T, home string) {
 			write(t, state(home, "watch.json"), `{"auth_out": {"codex": {"ok": false, "at": 1}, "claude": {"ok": true}}}`)
 		}, "idle", closedOne},
+		"a harness that proves its conversation says what reopening does with no proof": {func(t *testing.T, home string) {
+			record(t, home, "acme", map[string]any{"orchestrator": "astra", "workers": []string{"astra"}})
+		}, "idle", closedOne + " · starts a new Codex conversation"},
 		"a turn that ended well decides nothing": {func(t *testing.T, home string) {
 			write(t, state(home, "hook-acme.json"), `{"session": "acme", "event": "Stop", "kind": "", "text": "", "at": 1}`)
 		}, "idle", closedOne},
@@ -145,6 +150,9 @@ func TestALookThatWouldDoMoreWritesNothing(t *testing.T) {
 		},
 		"its harness logged out": func(t *testing.T, home string) {
 			write(t, state(home, "watch.json"), `{"auth_out": {"claude": {"ok": false, "at": 1}}}`)
+		},
+		"a launch receipt, which may give it back its conversation": func(t *testing.T, home string) {
+			record(t, home, "acme", map[string]any{"orchestrator": "astra", "workers": []string{"astra"}, "codex_launch": "receipt"})
 		},
 		"a session with no record": func(t *testing.T, home string) {
 			if _, err := tmux.Ask(tmux.Own(), "new-session", "-d", "-s", "stray", "sleep 60", ";", "set-option", "-t", "=stray:", tmux.Mark, "1"); err != nil {
@@ -206,6 +214,46 @@ func TestALookIsOnlyAtASeatStillGoneInItsOwnPane(t *testing.T) {
 	got, _ := run.ReadJSON(path + "acme.json")
 	if got == nil || got.Str("reason") != "session closed: press 2 to reopen" {
 		t.Fatalf("%v", got)
+	}
+}
+
+// Whatever another announcer publishes while a look queues for its lock is what the look decides from.
+func TestALookDecidesUnderTheAnnounceLock(t *testing.T) {
+	for name, each := range map[string]struct{ file, content, word, reason string }{
+		"a question asked": {"notify-acme.json", `{"kind": "needs", "text": "which?", "time": 2}`, "needs you", "which?"},
+		"a plan finished":  {"plan-acme.md", doneLine, "done", "Ship it"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := sandbox(t)
+			record(t, home, "acme", nil)
+			pane := paneDied(t, "acme")
+			state := filepath.Join(home, ".agentkit", "state")
+			path := filepath.Join(state, "seat-acme.json")
+			held, err := lock.Wait(context.Background(), filepath.Join(state, "seat-acme.announce"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			finished := make(chan struct{})
+			socket, _ := tmux.Ask(tmux.Own(), "display-message", "-p", "#{socket_path}")
+			t.Setenv("TMUX", socket+",1,0")
+			t.Setenv("TMUX_PANE", pane)
+			t.Setenv("AGENTKIT_SESSION", "acme")
+			go func() {
+				defer close(finished)
+				Look("acme", "")
+			}()
+			// long enough for a look that decides first to have decided; a slow one only passes
+			time.Sleep(300 * time.Millisecond)
+			write(t, filepath.Join(state, each.file), each.content)
+			write(t, path, `{"word": "`+each.word+`", "reason": "`+each.reason+`", "word_since": 2}`)
+			held.Close()
+			<-finished
+			got, _ := run.ReadJSON(path)
+			since, _ := got.Num("word_since")
+			if got.Str("word") != each.word || got.Str("reason") != each.reason || since != 2 {
+				t.Fatal(run.Line(got))
+			}
+		})
 	}
 }
 

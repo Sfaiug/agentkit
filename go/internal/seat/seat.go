@@ -373,18 +373,32 @@ func reconcile(state string, records []Seat, infer bool) error {
 	return nil
 }
 
-// announce is watch.announce_state for a seat nobody is in: under its announce lock, what its
-// last answer moved, then its word, begun where the seat file says it began by then, or now
-// where it said another, and for one tmux still holds its bar.
-func (seat Seat) announce(state string, now time.Time, models map[string]config.Model) error {
+// announcing is one decision and publication of that seat at a time (watch.announcing).
+func announcing(state, name string, tell func() error) error {
 	if err := config.EnsureDirs(); err != nil {
 		return err
 	}
-	held, err := lock.Wait(context.Background(), filepath.Join(state, "seat-"+seat.Name+".announce"))
+	held, err := lock.Wait(context.Background(), filepath.Join(state, "seat-"+name+".announce"))
 	if err != nil {
 		return err
 	}
 	defer held.Close()
+	return tell()
+}
+
+// announce publishes what a reading found under the seat's announce lock. One tmux holds is looked
+// at again there, as a look's other announcers may have moved it since the reading.
+func (seat Seat) announce(state string, now time.Time, models map[string]config.Model) error {
+	if seat.held {
+		return lookAgain(state, seat.Name, now)
+	}
+	return announcing(state, seat.Name, func() error { return seat.announced(state, now, models) })
+}
+
+// announced is watch.announce_state for a seat nobody is in, under its announce lock: what its
+// last answer moved, then its word, begun where the seat file says it began by then, or now
+// where it said another, and for one tmux still holds its bar.
+func (seat Seat) announced(state string, now time.Time, models map[string]config.Model) error {
 	if err := seat.moved(state, models); err != nil {
 		return err
 	}

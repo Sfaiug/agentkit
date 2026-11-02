@@ -30,7 +30,9 @@ const afterMerge = 3 * 3600
 // where the look does more than that on this path or its word hangs on what Go does not read yet:
 // a failed turn to end; a question standing, or kept back, an answer in its conversation may
 // answer (notify.answer_written); an account's move or a usage refusal in its seat file; a wait,
-// a login out, or a run of its own short of merged and live; or a number only Python can give.
+// a login out, or a run of its own short of merged and live; a launch receipt that decides its
+// reason; or a number only Python can give. The caller holds the seat's announce lock, so the
+// newest facts decide, as watch.announce_state's do.
 func lookedAt(state, name string, now time.Time) (Seat, map[string]config.Model, bool) {
 	models, err := config.Models()
 	offered, unread := config.Offered()
@@ -46,7 +48,7 @@ func lookedAt(state, name string, now time.Time) (Seat, map[string]config.Model,
 	record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
 	own := models[record.Str("orchestrator")].Harness
 	_, complaint, crewed := crew(record.Get("workers"), models)
-	if !crewed || failed(name, own) || notify.Standing(name) || loggedOut(state, own) {
+	if !crewed || failed(name, own) || notify.Standing(name) || loggedOut(state, own) || record.Truthy(harness.Receipt(own)) {
 		return Seat{}, nil, false
 	}
 	if complaint == "" { // a record Python cannot read moves nothing
