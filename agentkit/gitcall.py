@@ -637,7 +637,7 @@ def reviewer_checkout(wt, out_dir, log):
         stack.callback(remove_checkout)
         # A mirror keeps the source's base refs but owns its refs and index; a linked
         # worktree would still let a reviewer move the task branch through shared refs.
-        git(wt, "clone", "--quiet", "--shared", "--mirror", str(wt), str(checkout / ".git"))
+        clone_borrowing(wt, checkout / ".git", "--mirror")
         # Keep the copied refs without a mirror push destination back into the source.
         git(checkout, "config", "--remove-section", "remote.origin")
         git(checkout, "config", "core.bare", "false")
@@ -764,6 +764,24 @@ def main_checkout(repo):
     if common == versions.repository().resolve():
         return update.agentkit_dir()     # ak's own: each version of ~/agentkit is a worktree of it
     return common.parent if common else Path(repo)
+
+
+def repository_id(repo):
+    """A short name of the repository at `repo`, for what this host and a machine keep per repository:
+    its main checkout's, or that of the repository a check's clone came from (`clone_borrowing`).
+    """
+    code, told, _ = tool_run(["git", "-C", str(repo), "config", "--local", "--get", "ak.repository"])
+    if code == 0 and re.fullmatch("[0-9a-f]{12}", told.strip()):     # a checkout's config: only a name
+        return told.strip()
+    return hashlib.sha256(str(main_checkout(repo)).encode()).hexdigest()[:12]
+
+
+def clone_borrowing(source, target, *how):
+    """A clone of the checkout `source` borrowing its objects, for one check. It says which repository
+    it is, as nothing else about it does: under names of their own, 169 clones each sent one machine
+    the whole history until its memory was full (2 Nov 2026), and measured their suites afresh."""
+    git(source, "clone", "--quiet", "--shared", *how, str(source), str(target))
+    git(target, "config", "ak.repository", repository_id(source))
 
 
 def leftover_junk(path):
