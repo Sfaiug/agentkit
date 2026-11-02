@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"agentkit/internal/gitcall"
+	"agentkit/internal/run"
 )
 
 // sandboxPrefix is what the suites name every sandbox they leave inside a checkout when a test is
@@ -134,7 +135,7 @@ func dirtyPaths(g gitcall.Git) ([]string, error) {
 func leftoverJunk(path string) bool {
 	parts := strings.Split(strings.TrimRight(path, "/"), "/")
 	return strings.HasPrefix(parts[0], sandboxPrefix) || slices.ContainsFunc(parts, func(part string) bool {
-		return part == "recovery.lock" || part == "delivery.lock" || part == "node_modules" || part == "venv" || part == ".venv"
+		return part == run.RecoveryLock || part == "delivery.lock" || part == "node_modules" || part == "venv" || part == ".venv"
 	})
 }
 

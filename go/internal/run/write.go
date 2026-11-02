@@ -42,12 +42,15 @@ func hold(dir, name string) (func(), error) {
 	return func() { file.Close() }, nil
 }
 
+// RecoveryLock is the lock file a run's record is written under, which no commit of a checkout takes.
+const RecoveryLock = "recovery.lock"
+
 // Change is Python's `record`: change changes the record as it stands under recovery.lock,
 // and what it changed is written, the old time budgets gone with the write as Python's
 // record_limits drops them.  Nothing is written where change returns an error or changes
 // nothing, nor with ErrLoneSurrogate, ErrLined or a record that cannot be read.
 func Change(dir string, change func(*Object) error) error {
-	release, err := hold(dir, "recovery.lock")
+	release, err := hold(dir, RecoveryLock)
 	if err != nil {
 		return err
 	}
