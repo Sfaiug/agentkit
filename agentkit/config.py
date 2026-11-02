@@ -1214,6 +1214,14 @@ def resolve_session(name):
     if isinstance(name, str) and " " in name and not session_path(name).exists():
         from . import orch
         name = orch.session_name(name)
+    try:
+        return _followed(name)
+    except Error:
+        with look.aside():      # what it raises is the disk's now, never a pass's earlier read
+            return _followed(name)
+
+
+def _followed(name):
     seen = [name]
     for _ in range(RENAME_HOPS + 1):    # RENAME_HOPS renames, then the name after the last
         data = _session_json(session_path(name))
@@ -2184,8 +2192,7 @@ def provider_harness(cfg, provider):
 
 
 def ensure_dirs():
-    """ak's directories, there and 0700; once in a pass (`look`), which asks for each seat."""
-    def ensure():
+    def ensure():       # once in a pass (`look`), which asks for each seat
         for d in (HOME, *(getattr(_self, name) for name in PLACES)):
             d.mkdir(mode=0o700, parents=True, exist_ok=True)
             os.chmod(d, 0o700)   # a dir someone else created stays 0700 too

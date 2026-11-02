@@ -68,7 +68,6 @@ class APassReadsEachThingOnce(Sandbox):
 
     @contextmanager
     def counted(self):
-        """What is asked of the disk meanwhile: (stats, opens), by path."""
         def counting(real, counts):
             def asked(path, *args, **kwargs):
                 counts[str(path)] += 1
@@ -120,8 +119,7 @@ class APassReadsEachThingOnce(Sandbox):
         self.assertEqual(placed, ["waiting · 1st in line to land on main"])
 
     def test_a_look_with_no_read_behind_it_reads_the_runs_itself(self):
-        seen, census = [], menu._RUN_RECORDS
-        self.addCleanup(census.close)
+        seen = []
         with patch.object(menu, "_RUN_RECORDS", None):
             self.look_pass(lambda *_a, **_k: seen.extend(record.runs()))
         self.assertEqual(len(seen), 301)
@@ -176,6 +174,10 @@ class APassReadsEachThingOnce(Sandbox):
             with self.assertRaises(config.Error):
                 config.resolve_session(PAST[9])
             broken.write_text(json.dumps({"renamed": PAST[10]}))
+            config.session_path(PAST[10]).write_text(json.dumps({"renamed": PAST[9]}))
+            with self.assertRaisesRegex(config.Error, "loops"):
+                config.resolve_session(PAST[9])
+            config.session_path(PAST[10]).unlink()    # a loop repaired in the pass, as a bad file
             self.assertEqual(config.resolve_session(PAST[9]), PAST[10])
 
     def test_a_writer_under_a_lock_decides_on_the_disk_as_it_is(self):
