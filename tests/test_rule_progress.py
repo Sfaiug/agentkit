@@ -376,8 +376,11 @@ class RuleProgress(unittest.TestCase):
         screen.when("Dark mode", after=screen.text().index("<back>"))    # open again
         os.write(screen.master, b"\x1b[C ")            # `everyone on`, answered at once
         screen.when("<you landed>")                     # with `everyone` still off in its row
-        # the draw under way as it landed may have read the rows before it, a next one did not
-        screen.when(r"Dark mode.*●.*●", screen.text().index("<you landed>"))
+        # the draw under way as it landed may have read the rows before it, the next did not
+        under_way, _ = screen.draw(screen.text().index("<you landed>"))
+        _, lines = screen.draw(under_way + 1)
+        line = next(line for line in lines if "Dark mode" in line)
+        self.assertEqual([mark for mark in line.split() if mark in "●○"], ["●", "●"], line)
         os.write(screen.master, b"\x1b")
         self.assertEqual(screen.proc.wait(HUNG), 0, screen.text()[-2000:])
 
