@@ -32,6 +32,7 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
         def fixed(cfg, directory, url_, state, opts, log):
             self.assertTrue(state["landing_fix"])
             self.assertIn("## Landing failed", state["findings"])
+            self.assertFalse(land.line(self.turn), "a tree being fixed stayed in the line")
             self.push_fix(url, rename=rename)
             state["delivery_sha"] = self.prs[url]["head"]     # as fix_own_pr records its push
             record.save_state(directory, state)
@@ -110,6 +111,7 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
         with self.fixer(url):
             state = self.review(directory, url)
         self.assertEqual(state["state"], "waiting")
+        self.assertEqual(state["landing_reds"], 1)
         self.assertEqual(len(state["round_summaries"]), 1)
         self.assertNotIn("landing_fix", state)
         self.assertIn("Re-review after the landing fix", self.reviews[-1])
@@ -118,10 +120,12 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
         # its suite went red after review passed it: one break at landing, on its row
         self.assertEqual(history.get(directory.name)["landing_breaks"], 1)
         land.check_line(self.turn)
+        self.assertEqual(len(self.checks), checks + 1, "the line checks the fixed tree once")
         state = self.review(directory, url)
         self.assertTrue(state["merged"])
         self.assertEqual(len(state["round_summaries"]), 1)
         self.assertEqual(len(self.reviews), 2)
+        self.assertEqual(len(self.checks), checks + 1, "delivery repeated the suite")
 
     def test_past_the_round_budget_the_landing_red_still_gets_its_fixer(self):
         directory, url = self.own_pr("second", 1)
@@ -206,7 +210,9 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
         land.check_line(self.turn)
         self.assertIn("fix", self.wait(directory))
         state = self.review(directory, url)
+        self.assertEqual(state["state"], "waiting")
         self.assertEqual(self.turns, ["landing-1-fixer", "landing-2-fixer"])
+        self.assertEqual(state["landing_reds"], 2)
         self.assertEqual(len(state["round_summaries"]), 1)
         land.check_line(self.turn)
         self.assertTrue(self.review(directory, url)["merged"])
@@ -292,10 +298,14 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
         self.assertEqual(state["state"], "waiting", state.get("error"))
         land.check_line(self.turn)
         self.assertIn("fix", self.wait(directory))
-        with patch.object(run, "fix_own_pr", return_value=False) as fixer:
+        with self.fixer(url) as fixer:
             state = self.review(directory, url)
+        self.assertEqual(state["state"], "waiting", state.get("error"))
         self.assertTrue(fixer.called, state.get("merge_note"))
         self.assertEqual(state["landing_reds"], 1)
+        self.assertEqual(len(state["round_summaries"]), 2)
+        land.check_line(self.turn)
+        self.assertTrue(self.review(directory, url)["merged"])
 
     def test_a_head_moved_under_delivery_is_reviewed_as_a_round(self):
         directory, url = self.own_pr("first", 1)
