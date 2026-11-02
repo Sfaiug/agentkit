@@ -227,21 +227,28 @@ func forgetSeen(state, name string, now time.Time) error {
 // its lock, the seat's alert generation past every one before and its stall record gone.
 func nextGeneration(state, name string, now time.Time) error {
 	return put(filepath.Join(state, "watch.json"), filepath.Join(state, "watch.lock"), run.Encode, true, func(data *run.Object) bool {
-		for _, key := range watchKeys {
-			if data.Dict(key) == nil {
-				data.Set(key, run.NewObject())
-			}
-		}
-		generations, before := run.NewObject(), data.Dict("seen_at")
-		for _, each := range before.Keys() {
-			generations.Set(each, generation(before.Get(each)))
-		}
+		generations := watched(data)
 		previous, _ := run.Num(generations.Get(name))
 		generations.Set(name, math.Max(seconds(now), math.Nextafter(previous, math.Inf(1))))
-		data.Set("seen_at", generations)
 		data.Dict("stalls").Delete(name)
 		return true
 	})
+}
+
+// watched is watch.json as Python's watch.load_state reads it, each map there, and its alert
+// generations.
+func watched(data *run.Object) *run.Object {
+	for _, key := range watchKeys {
+		if data.Dict(key) == nil {
+			data.Set(key, run.NewObject())
+		}
+	}
+	generations, before := run.NewObject(), data.Dict("seen_at")
+	for _, each := range before.Keys() {
+		generations.Set(each, generation(before.Get(each)))
+	}
+	data.Set("seen_at", generations)
+	return generations
 }
 
 // generation is an alert generation as Python's watch.generation keeps one: a number no less
