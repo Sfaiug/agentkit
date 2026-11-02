@@ -236,14 +236,7 @@ def purpose(command):
     otherwise its description's first line."""
     if command in PURPOSES:
         return PURPOSES[command]
-    return _in_force(COMMANDS[command][1].splitlines()[0])
-
-
-def _in_force(text):
-    try:
-        return config.in_force(text)
-    except config.Error:    # a config.toml ak cannot use stops its command, never its help
-        return config.in_force(text, {})
+    return config.in_force(COMMANDS[command][1].splitlines()[0])
 
 
 def _same_sentence(first, second):
@@ -262,7 +255,7 @@ def render(command):
         lines += [f"  {name.ljust(width)}  {PURPOSES[name]}" for name in ORCHESTRATOR]
         lines += ["", terminal.styled("internal:  " + "  ".join(INTERNAL), "dim"), ""]
         return "\n".join(lines) + "\nUse -h or --help after any command.\nExample: ak run task.md --bg\n"
-    usage, description, example = map(_in_force, COMMANDS[command])
+    usage, description, example = map(config.in_force, COMMANDS[command])
     # the one-line purpose first, then the usage and the rest of the
     # description as today: a description that opens by repeating the purpose
     # keeps only the purpose line, never the same sentence twice

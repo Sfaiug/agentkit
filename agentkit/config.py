@@ -411,7 +411,10 @@ def in_force(text, table=None):
     `$seat_lines` the number, `$Rounds` it opening a sentence, `$s` the plural of its round and
     `$one_over` the round past the budget.  Only ak's own text comes here: a rule the owner or a
     project wrote is theirs to the letter, a `$` in it included."""
-    numbers = policy(table)
+    try:
+        numbers = policy(table)
+    except Error:   # it stops the commands that act on it; help and a seat's next prompt go on
+        numbers = policy({})
     rounds = numbers["rounds"]
     opening, over = ROUNDS_SAID.get(rounds, (rounds, f"round {rounds + 1}"))
     return Template(text).safe_substitute(numbers, Rounds=opening, one_over=over,
